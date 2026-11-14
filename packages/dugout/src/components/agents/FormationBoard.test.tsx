@@ -247,6 +247,34 @@ describe("FormationBoard", () => {
       expect(within(pitch()).getAllByRole("button")).toHaveLength(4);
       expect((container.querySelector("[data-formation-board]") as HTMLElement).dataset.walkedOn).toBe("true");
     });
+
+    it("is busy while the channels walk on, and a press during the entrance acts on the stored place, ending the entrance", () => {
+      const onToggle = vi.fn();
+      const { container } = render(<FormationBoard channels={channels} onToggle={onToggle} hoverCards={false} />);
+      const board = container.querySelector("[data-formation-board]") as HTMLElement;
+      expect(board.getAttribute("aria-busy")).toBe("true");
+      // Social is on the board but has not walked on yet: drawn in the tray.
+      const social = screen.getByRole("button", { name: /^Social media/ });
+      expect(social.closest('[data-drop-zone="bench"]')).toBeTruthy();
+      // The founder reaches it before the entrance ends: the board stops arriving and shows each channel where it is.
+      act(() => {
+        social.focus();
+      });
+      expect(board.getAttribute("aria-busy")).toBeNull();
+      expect(board.dataset.walkedOn).toBe("true");
+      const placed = screen.getByRole("button", { name: /^Social media/ });
+      expect(placed.getAttribute("aria-pressed")).toBe("true");
+      expect(placed.closest('[data-drop-zone="pitch"]')).toBeTruthy();
+      fireEvent.keyDown(placed, { key: "Enter" });
+      expect(onToggle).toHaveBeenCalledWith("social", false);
+    });
+
+    it("a press that lands before the entrance has re-drawn still takes a channel on the board off it", () => {
+      const onToggle = vi.fn();
+      render(<FormationBoard channels={channels} onToggle={onToggle} hoverCards={false} />);
+      fireEvent.keyDown(screen.getByRole("button", { name: /^Social media/ }), { key: "Enter" });
+      expect(onToggle).toHaveBeenCalledWith("social", false);
+    });
   });
 });
 

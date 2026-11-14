@@ -6,15 +6,21 @@
  * guard trigger refuses anyone else, whichever client wrote). `publish` and `unpublish` are conditional on the row's
  * state, so a second tab or a second member changes nothing twice.
  *
+ * When a page went live and when it was taken down are the database's to record (0090): for a signed-in client the
+ * guard writes `published_at` and `unpublished_at` from its own clock and ignores a date sent with the write, so the
+ * date on the public page and on the milestone "Page live" is never one somebody typed in. `publish` and `unpublish`
+ * return the row as stored: read the dates from it. Their `at` is the service connection's only (a seed, a backfill, a
+ * test fixture that needs a known date).
+ *
  * `public.*` is the one read without a business: the signed-out page asks by address, on the service connection, and
  * gets only what the view `public_project_pages` lists (0077). An unknown address and a page that is not published
  * answer the same: null.
  */
-import { ConflictError, isIndexNowKey, PAGE_READY_NOTE, PAGE_SLUG_TAKEN, ProjectPageContent, ProjectPageDraft, ProjectPageSlug, readPageContent, suffixPageSlug, suggestPageSlug, type ProjectPageContent as PageContent } from "@foundmill/shared";
+import { ConflictError, isIndexNowKey, OWNER_ROLES, PAGE_READY_NOTE, PAGE_SLUG_TAKEN, ProjectPageContent, ProjectPageDraft, ProjectPageSlug, readPageContent, suffixPageSlug, suggestPageSlug, type ProjectPageContent as PageContent } from "@foundmill/shared";
 import { toLogoDataUrl } from "@foundmill/shared/logo";
 import { and, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
-import { businessFoundations, businessLogos, businesses, founderProfiles, ideaVersions, ideas, inboxItems, integrations, memberships, projectPages, publicProjectPages, type InboxItem, type ProjectPage } from "../schema";
+import { businessFoundations, businessLogos, businesses, founderProfiles, ideaVersions, ideas, inboxItems, integrations, memberships, projectPages, publicProjectMilestones, publicProjectPages, type InboxItem, type ProjectPage } from "../schema";
 import { auditRepo } from "./audit";
 import { inboxRepo } from "./inbox";
 import { toBytes } from "./logos";
@@ -50,6 +56,7 @@ const SLUG_CONSTRAINT = "project_pages_slug_key";
 
 const SaveDraftInput = z.object({ draft: ProjectPageDraft, slug: ProjectPageSlug, userId: Id.nullable() });
 const SetSlugInput = z.object({ slug: ProjectPageSlug, draft: ProjectPageDraft, userId: Id.nullable() });
+/** `at`: the date to record, on the service connection only. For a signed-in client the database's clock is used instead (0090). */
 const PublishInput = z.object({ content: ProjectPageContent, slug: ProjectPageSlug, userId: Id.nullable(), at: z.date().optional() });
 const UnpublishInput = z.object({ userId: Id.nullable(), at: z.date().optional() });
 
@@ -69,6 +76,20 @@ export interface PublicPage {
   /** Empty unless the page says to name its founders. */
   founderNames: string[];
 }
+
+/** A milestone the founders chose to show, as anyone may read it (the view `public_project_milestones`, 0089). */
+export interface PublicMilestone {
+  /** The card's address: `/m/<id>`. */
+  id: string;
+  /** The page it belongs to: `/p/<slug>`. */
+  slug: string;
+  key: string;
+  /** The public words, built from the key: never a customer's name. */
+  label: string;
+  achievedAt: Date;
+}
+
+const UUID = z.guid();
 
 /** What the starter draft is built from (packages/shared `starterPageDraft`). */
 export interface PageStarterInputs {
@@ -161,7 +182,8 @@ export const pagesRepo = {
   /**
    * Publishes `content`: it becomes the draft and the published copy together. `wasLive` says whether the page was
    * already public (a publish of changes keeps `published_at`, so "Live since" does not move). The row is written at
-   * `slug` when the business has none yet; an existing row keeps its address.
+   * `slug` when the business has none yet; an existing row keeps its address. The returned row carries the date as
+   * stored: for a signed-in client that is the database's clock, not `at` and not this process's (0090).
    */
   async publish(db: Executor, businessId: string, input: PublishPageInput): Promise<{ page: ProjectPage; wasLive: boolean }> {
     const v = parseInput(PublishInput, input, "page");
@@ -182,7 +204,10 @@ export const pagesRepo = {
     });
   },
 
-  /** Takes the page down: the published copy is cleared, the draft stays. Null when it was not live. */
+  /**
+   * Takes the page down: the published copy is cleared, the draft stays. Null when it was not live. `unpublished_at`
+   * is the database's clock for a signed-in client, like `published_at` (0090).
+   */
   async unpublish(db: Executor, businessId: string, input: z.input<typeof UnpublishInput>): Promise<ProjectPage | null> {
     const v = parseInput(UnpublishInput, input, "page");
     const rows = await db
@@ -288,13 +313,13 @@ export const pagesRepo = {
     return rows.length === 0;
   },
 
-  /** The display names the public page would show for this business's owners (the view's own rule), for the preview. */
+  /** The display names the public page would show for this business's founders, its owners and cofounders (the view's own rule, 0092), for the preview. */
   async ownerNames(db: Executor, businessId: string): Promise<string[]> {
     const rows = await db
       .select({ name: founderProfiles.displayName })
       .from(memberships)
       .innerJoin(founderProfiles, eq(founderProfiles.userId, memberships.userId))
-      .where(and(eq(memberships.businessId, businessId), eq(memberships.role, "owner"), isNull(founderProfiles.archivedAt)))
+      .where(and(eq(memberships.businessId, businessId), inArray(memberships.role, [...OWNER_ROLES]), isNull(founderProfiles.archivedAt)))
       .orderBy(memberships.createdAt, memberships.id);
     return rows.map((r) => r.name.trim()).filter(Boolean);
   },
@@ -308,6 +333,29 @@ export const pagesRepo = {
       const content = readPageContent(row.published);
       if (!content) return null;
       return { slug: row.slug, content, publishedAt: row.publishedAt, name: row.name, logoVersion: row.logoVersion ?? null, brandPrimary: row.kitPrimary, brandSecondary: row.kitSecondary, founderNames: row.founderNames ?? [] };
+    },
+
+    /**
+     * The project's story: the milestones its founders chose to show, oldest first (0089). Empty for an unknown
+     * address, a page that is not public and a page that shows none: the view lists a milestone only while its page is
+     * in `public_project_pages`. Service connection only.
+     */
+    async storyBySlug(db: Executor, slug: string): Promise<PublicMilestone[]> {
+      if (!ProjectPageSlug.safeParse(slug).success) return [];
+      return db.select().from(publicProjectMilestones).where(eq(publicProjectMilestones.slug, slug)).orderBy(publicProjectMilestones.achievedAt, publicProjectMilestones.id);
+    },
+
+    /** Whether the page at `slug` shows at least one milestone (the page links to its story only then). */
+    async hasStory(db: Executor, slug: string): Promise<boolean> {
+      if (!ProjectPageSlug.safeParse(slug).success) return false;
+      const rows = await db.select({ id: publicProjectMilestones.id }).from(publicProjectMilestones).where(eq(publicProjectMilestones.slug, slug)).limit(1);
+      return rows.length > 0;
+    },
+
+    /** One shown milestone by its id (the card at `/m/<id>`), or null: unknown, hidden, or its page is not public. */
+    async cardById(db: Executor, id: string): Promise<PublicMilestone | null> {
+      if (!UUID.safeParse(id).success) return null;
+      return maybeOne(await db.select().from(publicProjectMilestones).where(eq(publicProjectMilestones.id, id)).limit(1));
     },
 
     /**
@@ -326,6 +374,24 @@ export const pagesRepo = {
       );
       if (!row) return null;
       return toLogoDataUrl(row.mime, Buffer.from(toBytes(row.content)).toString("base64"));
+    },
+
+    /**
+     * The plan of the business behind a public page, or null for an address the view does not list. Joined through the
+     * view like the logo, on the service connection. The api turns it into one fact a visitor can already see for
+     * themselves, whether the page carries the "Built on" mark (`tierShowsBuiltOnMark`); the plan's name goes no further.
+     */
+    async planTierBySlug(db: Executor, slug: string): Promise<(typeof businesses.$inferSelect)["planTier"] | null> {
+      const row = maybeOne(
+        await db
+          .select({ planTier: businesses.planTier })
+          .from(publicProjectPages)
+          .innerJoin(projectPages, eq(projectPages.slug, publicProjectPages.slug))
+          .innerJoin(businesses, eq(businesses.id, projectPages.businessId))
+          .where(eq(publicProjectPages.slug, slug))
+          .limit(1),
+      );
+      return row?.planTier ?? null;
     },
 
     /**

@@ -17,6 +17,9 @@
  *   Product read, and the Product lead's "Your project's page is ready" note is not open (package 1.3: the note while it
  *   is open, in Needs you with its one tap "Check it and publish"; the line otherwise). Today shows one quiet line to
  *   the Public page tab.
+ * - **A post to share**: `postsReady` while a post the team wrote for the founder to share by tap waits (never for a
+ *   sample business), for a reader with Distribution read: one quiet line to Customers › Creative. It goes when the post
+ *   is shared or set aside.
  * - **Your first week**: Day 1 asks to publish the page (done the day `project_pages.published_at` is set) and to sign
  *   off the specification and the roadmap.
  */
@@ -76,6 +79,13 @@ export interface TodayView {
    * quiet line pointing at the Public page tab. Always false for a sample business.
    */
   pageReady: boolean;
+  /**
+   * Posts the team wrote that wait to be shared by tap (docs/NETWORK.md F3, F7): how many, and the newest one's id, for
+   * a reader of Distribution. Today shows one quiet line to the Creative tab; it goes when the post is shared or set
+   * aside. Null when none waits; always null for a sample business. An offer, never a chore: not a note, not a count
+   * in Needs you.
+   */
+  postsReady: { count: number; assetId: string } | null;
 }
 
 interface DecisionOption {
@@ -237,8 +247,9 @@ export async function firstWeekFor(tx: DbTx, ctx: BusinessContext, now: Date = n
     firstRoundOn: dayOf(firstRound),
     goalApprovedOn: dayOf(approvedAt),
     stopped: ctx.business.agentsStoppedAt !== null,
-    // Week 1 does not promise an approach no channel can make yet (founder, 2026-11-11).
-    noChannelCanRun: channels.available.length === 0,
+    // Week 1 does not promise an approach no channel can make yet (founder, 2026-11-11). The promise is the team's, so a
+    // channel the founder posts by tap does not make it true.
+    noChannelCanRun: channels.teamRuns.length === 0,
   });
 }
 
@@ -248,7 +259,7 @@ export async function todayView(ctx: BusinessContext, now: Date = new Date()): P
   const week = hasSectionAccess(m, "development", "read");
   const autopilotNextOn = week ? await autopilotNextDay(ctx) : null;
   return ctx.rls(async (tx) => {
-    const [needsYou, words, spend, chief, firstWeek, pageReady] = await Promise.all([
+    const [needsYou, words, spend, chief, firstWeek, pageReady, postsReady] = await Promise.all([
       hasSectionAccess(m, "inbox", "read") ? needsYouFor(tx, ctx) : Promise.resolve(null),
       week ? weekFactsFor(tx, ctx, { now, autopilotNextOn }).then(weekPlanWords) : Promise.resolve(null),
       hasSectionAccess(m, "finance", "read") ? spendFor(tx, ctx, now) : Promise.resolve(null),
@@ -259,8 +270,12 @@ export async function todayView(ctx: BusinessContext, now: Date = new Date()): P
       !ctx.business.isDemo && hasSectionAccess(m, "product", "read")
         ? Promise.all([repos.pages.isUnpublished(tx, ctx.businessId), repos.pages.openReadyNote(tx, ctx.businessId)]).then(([unpublished, note]) => unpublished && note === null)
         : Promise.resolve(false),
+      // The quiet "a post is ready to share" line: the team's drafts that wait, for a reader of Distribution.
+      !ctx.business.isDemo && hasSectionAccess(m, "distribution", "read")
+        ? repos.teamPosts.waiting(tx, ctx.businessId).then((rows) => (rows[0] ? { count: rows.length, assetId: rows[0].id } : null))
+        : Promise.resolve(null),
     ]);
-    return { today: dayKeyIn(now, ctx.business.timeZone), needsYou, week: words, spend, chiefOfStaff: chief ? { id: chief.id, name: chief.name } : null, firstWeek, pageReady };
+    return { today: dayKeyIn(now, ctx.business.timeZone), needsYou, week: words, spend, chiefOfStaff: chief ? { id: chief.id, name: chief.name } : null, firstWeek, pageReady, postsReady };
   });
 }
 

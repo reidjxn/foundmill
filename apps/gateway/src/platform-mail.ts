@@ -53,6 +53,18 @@ export interface PlatformMailConfig {
   appUrl?: string;
   /** That email's own daily ceiling, every person together (PLATFORM_NOTIFY_DAILY_CEILING, `pn:all:day`; default 1,000). */
   notifyCeiling?: number;
+  /** Every ordinary founder notice together in a UTC day (PLATFORM_SAFETY_DAILY_CEILING, `pn:safety:day`; default 5,000), enforced. 0 means 0. */
+  safetyCeiling?: number;
+  /**
+   * The circuit breaker over every essential founder notice together in a UTC day (PLATFORM_SAFETY_RESERVED_DAILY_CEILING,
+   * `pn:safety:reserved:day`; default 20,000): a warning at half, an error at the ceiling, and past it the per-person
+   * folded email. 0 means 0 (every essential notice folds).
+   */
+  safetyReservedCeiling?: number;
+  /** Follow confirmations a project may send in a UTC day (`pm:<id>:follow`); default `FOLLOW_CONFIRM_DAILY_CAP`. For tests. */
+  followCap?: number;
+  /** Follow confirmations across the deployment in a UTC day (`pm:all:follow`); default `FOLLOW_CONFIRM_DAILY_CEILING`. For tests. */
+  followCeiling?: number;
   /**
    * The key the "Pause every email" link is signed under (`@foundmill/shared/email-links`, derived from
    * SESSION_TOKEN_SECRET under its own label; the api's `email.pause` checks it). Absent: no pause link.
@@ -65,7 +77,7 @@ export { DEV_PLATFORM_MAIL_SECRET };
 
 /** Throws at boot when the domain is set outside development and test without a signing secret of 32+ characters. */
 export function platformMailConfig(
-  env: Pick<Env, "APP_ENV" | "PLATFORM_MAIL_DOMAIN" | "PLATFORM_MAIL_DAILY_CAP" | "PLATFORM_MAIL_DAILY_CEILING" | "PLATFORM_MAIL_SIGNING_SECRET" | "INGEST_PUBLIC_URL" | "INGEST_URL"> & Partial<Pick<Env, "PLATFORM_NOTIFY_LOCAL_PART" | "APP_URL" | "PLATFORM_NOTIFY_DAILY_CEILING" | "SESSION_TOKEN_SECRET">>,
+  env: Pick<Env, "APP_ENV" | "PLATFORM_MAIL_DOMAIN" | "PLATFORM_MAIL_DAILY_CAP" | "PLATFORM_MAIL_DAILY_CEILING" | "PLATFORM_MAIL_SIGNING_SECRET" | "INGEST_PUBLIC_URL" | "INGEST_URL"> & Partial<Pick<Env, "PLATFORM_NOTIFY_LOCAL_PART" | "APP_URL" | "PLATFORM_NOTIFY_DAILY_CEILING" | "PLATFORM_SAFETY_DAILY_CEILING" | "PLATFORM_SAFETY_RESERVED_DAILY_CEILING" | "SESSION_TOKEN_SECRET">>,
 ): PlatformMailConfig {
   return {
     domain: platformMailDomain(env),
@@ -75,12 +87,15 @@ export function platformMailConfig(
     unsubscribeBase: (env.INGEST_PUBLIC_URL?.trim() || env.INGEST_URL).replace(/\/+$/, ""),
     notifyLocalPart: env.PLATFORM_NOTIFY_LOCAL_PART || "hello",
     notifyCeiling: env.PLATFORM_NOTIFY_DAILY_CEILING ?? PLATFORM_NOTIFY_DEFAULT_CEILING,
+    // Set means set, 0 included (final review): only an absent value takes the default (loadEnv refuses 0 at boot).
+    ...(env.PLATFORM_SAFETY_DAILY_CEILING !== undefined ? { safetyCeiling: env.PLATFORM_SAFETY_DAILY_CEILING } : {}),
+    ...(env.PLATFORM_SAFETY_RESERVED_DAILY_CEILING !== undefined ? { safetyReservedCeiling: env.PLATFORM_SAFETY_RESERVED_DAILY_CEILING } : {}),
     ...(env.APP_URL ? { appUrl: env.APP_URL.trim().replace(/\/+$/, "") } : {}),
     ...(pauseSecretOf(env) ? { pauseSecret: pauseSecretOf(env)! } : {}),
   };
 }
 
-/** The pause link's key: SESSION_TOKEN_SECRET, or the development one in development and test (`emailLinkSecret`). */
+/** The pause link's key: SESSION_TOKEN_SECRET (`emailLinkSecret`); without it, no pause link. */
 function pauseSecretOf(env: Partial<Pick<Env, "APP_ENV" | "SESSION_TOKEN_SECRET">>): string | null {
   try {
     return emailLinkSecret({ APP_ENV: env.APP_ENV ?? "development", SESSION_TOKEN_SECRET: env.SESSION_TOKEN_SECRET });
@@ -109,6 +124,26 @@ export const PLATFORM_MAIL_POLICY = {
 /** Counter keys: one per project and one for the whole deployment, in fixed UTC-day windows. */
 export const platformMailDayKey = (businessId: string): string => `pm:${businessId}:day`;
 export const PLATFORM_MAIL_CEILING_KEY = "pm:all:day";
+/**
+ * Follow confirmations (follow-confirm.ts) count on their own keys, never the project's mail day or the deployment's
+ * outbound ceiling: anyone can sign up on a public page, so a flood of signups must never use up the email the founders
+ * and their team send (security audit 2026-11-13, finding 10).
+ */
+export const followConfirmDayKey = (businessId: string): string => `pm:${businessId}:follow`;
+export const FOLLOW_CONFIRM_CEILING_KEY = "pm:all:follow";
+/**
+ * At most 100 follow confirmations a project in a UTC day: twice the project's whole outbound day (50 by default), so a
+ * real launch day is never cut short, while a flood that gets past the page's bot check costs at most 100 emails to
+ * strangers from the project's address. A signup past it stays pending; the same person signing up the next day gets
+ * the email.
+ */
+export const FOLLOW_CONFIRM_DAILY_CAP = 100;
+/**
+ * At most 1,000 across the deployment: half the outbound ceiling's default (2,000), so confirmations on the shared
+ * sending domain stay a small share of what it carries, and a flood spread over many pages stops there (ten projects
+ * at their cap) without touching anyone's outreach or Foundmill's own email.
+ */
+export const FOLLOW_CONFIRM_DAILY_CEILING = 1_000;
 /** PLATFORM_NOTIFY_DAILY_CEILING's default. */
 export const PLATFORM_NOTIFY_DEFAULT_CEILING = 1_000;
 
@@ -259,14 +294,16 @@ async function raisePostalAddressNote(db: PlatformMailDeps["db"], businessId: st
 
 /**
  * Steps 6 and 7: one message on the project's UTC day and one on the deployment's, refused (and both given back) over
- * either, or when the counts are not shared by every replica outside development and test. Also used by the follow
- * confirmation (follow-confirm.ts), so those emails count against the same day and ceiling.
+ * either, or when the counts are not shared by every replica outside development and test. The follow confirmation
+ * (follow-confirm.ts) passes its own `keys` (`followConfirmDayKey`, `FOLLOW_CONFIRM_CEILING_KEY`) and its own cap and
+ * ceiling, so those emails never take the project's mail day or the deployment's outbound ceiling.
  */
 export async function takePlatformMailDay(
   deps: Pick<PlatformMailDeps, "rateLimits">,
-  input: { businessId: string; cap: number; ceiling: number; devStack: boolean; now: number },
+  input: { businessId: string; cap: number; ceiling: number; devStack: boolean; now: number; keys?: { project: string; all: string } },
 ): Promise<{ ok: true; release: () => Promise<void> } | PlatformMailRefusal> {
-  const projectKey = platformMailDayKey(input.businessId);
+  const projectKey = input.keys?.project ?? platformMailDayKey(input.businessId);
+  const allKey = input.keys?.all ?? PLATFORM_MAIL_CEILING_KEY;
   const counted: string[] = [];
   const release = async () => {
     for (const key of counted.splice(0)) await deps.rateLimits.release?.(key, DAY_MS, input.now);
@@ -282,8 +319,8 @@ export async function takePlatformMailDay(
     await release();
     return refuse(PLATFORM_MAIL_POLICY.daily_cap, PLATFORM_MAIL_REFUSALS.daily_cap(input.cap));
   }
-  const all = await deps.rateLimits.hit(PLATFORM_MAIL_CEILING_KEY, DAY_MS, input.now);
-  counted.push(PLATFORM_MAIL_CEILING_KEY);
+  const all = await deps.rateLimits.hit(allKey, DAY_MS, input.now);
+  counted.push(allKey);
   if (!shared()) {
     await release();
     return refuse(PLATFORM_MAIL_POLICY.store, PLATFORM_MAIL_REFUSALS.store_unavailable);

@@ -298,9 +298,11 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
     // Channels: all 15 exist; the archetype's starters are enabled and recommended (BUILD §11.7 formation), but only
     // those that can really act for this business (founder, 2026-11-11): a starter that is not available is neither put
     // on the board nor recommended, and waits in Builder view's "Not available yet" list. Where simulated results are
-    // allowed (development, test) every starter is available, as before.
+    // allowed (development, test) every starter is available, as before. A starter the founder posts by tap (founder,
+    // 2026-11-12) is available and is not started for them: the team runs nothing there, so it waits off the board,
+    // shown as available, until the founder puts it on.
     const availability = await channelRowsFor(tx, { env: deps.env ?? loadEnv(), businessId, business });
-    const starts = (channelKey: (typeof CHANNEL_KEYS)[number]) => seed.defaultChannels.includes(channelKey) && availability.rows[channelKey].available;
+    const starts = (channelKey: (typeof CHANNEL_KEYS)[number]) => seed.defaultChannels.includes(channelKey) && availability.teamRuns.includes(channelKey);
     await repos.channels.upsertMany(
       tx,
       businessId,

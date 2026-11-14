@@ -32,9 +32,10 @@ test.describe("landing page", () => {
     await expect(page.getByText(/Bring your own Anthropic key/)).toHaveCount(1);
     await expect(page.locator("#control").getByText(/^Bring your own Anthropic key, or stay on the included credits\./)).toBeVisible();
 
-    // Section nav scrolls to each section.
-    for (const [label, id] of [["Why now", "why"], ["How it works", "how"], ["Your team", "team"], ["Live sessions", "live"], ["Journey", "journey"], ["You decide", "control"]] as const) {
-      await page.getByRole("navigation", { name: "Sections" }).getByRole("link", { name: label }).click();
+    // No section nav in the top bar (founder, 2026-11-13); each Why now pillar scrolls to the section that proves it.
+    await expect(page.getByRole("navigation", { name: "Sections" })).toHaveCount(0);
+    for (const [label, id] of [["Meet the team", "team"], ["Watch the work", "live"], ["See it grow", "journey"], ["Your decisions", "control"]] as const) {
+      await page.locator("#why").getByRole("link", { name: label }).click();
       await expect(page.locator(`#${id}`)).toBeInViewport();
     }
 

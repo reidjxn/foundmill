@@ -7,7 +7,7 @@
  * approval) checks this first.
  */
 import type { Approval } from "@foundmill/db";
-import { ForbiddenError, type MembershipRole } from "@foundmill/shared";
+import { ForbiddenError, isAdminRole, type MembershipRole } from "@foundmill/shared";
 
 export interface ApprovalViewer {
   userId: string;
@@ -16,7 +16,7 @@ export interface ApprovalViewer {
 
 /** True when this person may answer the approval. */
 export function canResolveApproval(approval: Pick<Approval, "handlerKind" | "handlerId">, viewer: ApprovalViewer): boolean {
-  if (viewer.role === "owner" || viewer.role === "admin") return true;
+  if (isAdminRole(viewer.role)) return true;
   if (approval.handlerKind === "user") return approval.handlerId === viewer.userId;
   // An agent's approval is its own (decided as it opened); only an owner or admin overrides it.
   if (approval.handlerKind === "agent") return false;
@@ -33,5 +33,5 @@ export function assertCanResolveApproval(approval: Pick<Approval, "handlerKind" 
 export function approvalIsForViewer(approval: Pick<Approval, "handlerKind" | "handlerId">, viewer: ApprovalViewer): boolean {
   if (approval.handlerKind === "user") return approval.handlerId === viewer.userId;
   if (approval.handlerKind === "agent") return false;
-  return viewer.role === "owner" || viewer.role === "admin";
+  return isAdminRole(viewer.role);
 }

@@ -12,7 +12,7 @@
  * or test) every channel stays available, so the mock golden path, the tests and the two sample businesses behave as
  * before with all fifteen.
  */
-import { CHANNEL_KEYS, CHANNEL_META, channelAvailabilitySentence, channelNotAvailableMessage, liveConnectorKeys, mockResultsAllowed, platformMailLive, type ChannelAvailability, type ChannelAvailabilityRow, type ChannelKey, type Env, type NoChannelFacts } from "@foundmill/shared";
+import { CHANNEL_KEYS, CHANNEL_META, channelAvailabilitySentence, channelNotAvailableMessage, channelSharedByTap, liveConnectorKeys, mockResultsAllowed, platformMailLive, type ChannelAvailability, type ChannelAvailabilityRow, type ChannelKey, type Env, type NoChannelFacts } from "@foundmill/shared";
 
 /**
  * The gateway tools (`connector:tool`) that count as a channel acting outwardly. An empty list means no publisher is
@@ -28,7 +28,8 @@ export const CHANNEL_ACTING_TOOLS: Readonly<Record<ChannelKey, readonly string[]
   seo: ["github:commit_files"],
   geo: ["github:commit_files"],
   content: [],
-  social: [],
+  // The founder's own Buffer when connected: the team queues each post (the founder approves it first). Until then the founder posts by tap.
+  social: ["buffer:queue_post"],
   paid_ads: [],
   influencer: [],
   affiliate: [],
@@ -62,20 +63,27 @@ const PLATFORM_MAIL_CONNECTOR = "platform_mail";
 
 /**
  * Whether a channel is available for a business, and why (pure).
- * - Simulated results allowed → available, `simulated_allowed`.
- * - No acting tool → `no_publisher`.
+ * - Simulated results allowed → available, `simulated_allowed` (with `byTap` for a channel the founder can also post
+ *   by tap, so the Board says so on a development stack too).
  * - An acting tool whose connector is live here and connected for the business → available, `acts`.
+ * - A channel the founder posts by tap (`channelSharedByTap`: today social, while a network's share window opens with
+ *   the text and the link filled in) → available, `by_tap`, with no connector. `acts` comes first: once a connector
+ *   publishes, the team posts. The team does not run a `by_tap` channel (packages/shared `channelTeamRuns`).
+ * - No acting tool → `no_publisher`.
  * - Otherwise `not_connected`, naming the connector to connect (`connectable` when it is live here, so connecting it is
  *   the founder's step; false when the connector itself is not switched on yet).
  */
 export function channelAvailability(channelKey: ChannelKey, facts: ChannelAvailabilityFacts, actingTools: Readonly<Record<ChannelKey, readonly string[]>> = CHANNEL_ACTING_TOOLS): ChannelAvailability {
-  if (facts.mockResultsAllowed) return { available: true, reason: "simulated_allowed" };
+  const byTap = channelSharedByTap(channelKey);
+  if (facts.mockResultsAllowed) return { available: true, reason: "simulated_allowed", ...(byTap ? { byTap: true } : {}) };
   const connectors = [...new Set((actingTools[channelKey] ?? []).map(connectorOf))];
-  if (connectors.length === 0) return { available: false, reason: "no_publisher" };
   const live = (key: string) => facts.liveConnectors === "all" || facts.liveConnectors.includes(key);
   // The Foundmill sending address has no account to connect: it acts wherever it is switched on (`facts.platformMail`).
   const acts = (key: string) => (key === PLATFORM_MAIL_CONNECTOR ? facts.platformMail === true : live(key) && facts.connectedConnectors.includes(key));
   if (connectors.some(acts)) return { available: true, reason: "acts" };
+  // The founder posts it with one press: available with no connector, and never a channel the team runs.
+  if (byTap) return { available: true, reason: "by_tap", byTap: true };
+  if (connectors.length === 0) return { available: false, reason: "no_publisher" };
   // What is left to name is a connector the founder could connect; the platform address is never theirs to connect.
   const connectable = connectors.filter((key) => key !== PLATFORM_MAIL_CONNECTOR);
   const first = connectable.find(live);
@@ -91,7 +99,7 @@ export function channelAvailabilities(facts: ChannelAvailabilityFacts): Record<C
  * The display names of the connectors `CHANNEL_ACTING_TOOLS` names, for the sentence a founder reads ("connect SendGrid
  * in Settings › Integrations"). The unit test holds each to its connector's own `displayName`.
  */
-export const ACTING_CONNECTOR_NAMES: Readonly<Record<string, string>> = Object.freeze({ sendgrid: "SendGrid", github: "GitHub", resend: "Resend", platform_mail: "Email from your project" });
+export const ACTING_CONNECTOR_NAMES: Readonly<Record<string, string>> = Object.freeze({ sendgrid: "SendGrid", github: "GitHub", resend: "Resend", buffer: "Buffer", platform_mail: "Email from your project" });
 
 /** A channel's availability with its founder sentence (null when available): what the api sends with each channel. */
 export function channelAvailabilityRow(channelKey: ChannelKey, facts: ChannelAvailabilityFacts): ChannelAvailabilityRow {

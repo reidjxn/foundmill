@@ -58,7 +58,7 @@ const Env = z.object({
   /** apps/gateway: the OneSignal app id and REST API key behind the `onesignal` connector (push to the mobile app's phones, docs/mobile). */
   ONESIGNAL_APP_ID: z.string().optional(),
   ONESIGNAL_API_KEY: z.string().optional(),
-  /** apps/gateway: Cloudflare Turnstile's secret key for the idea box's bot check (docs/IDEA_BOX.md). Unset on staging or production, the idea box drafts nothing. */
+  /** apps/gateway: Cloudflare Turnstile's secret key for the bot check of the idea box (docs/IDEA_BOX.md) and of a public page's Follow form. Unset on staging or production, the idea box drafts nothing and pages take no followers. */
   TURNSTILE_SECRET_KEY: z.string().optional(),
   /** apps/api: the Domain of the idea box's cookie (`fm_idea`), so the web app reads it too: `foundmill.com` in production. Unset: a host-only cookie (local stacks). */
   IDEA_COOKIE_DOMAIN: z.string().regex(/^[a-z0-9.-]{3,253}$/).optional(),
@@ -124,6 +124,28 @@ const Env = z.object({
    * room; and they wait while the projects' mail has used more than 75% of that ceiling.
    */
   PLATFORM_NOTIFY_DAILY_CEILING: z.coerce.number().int().min(1).max(1_000_000).default(1_000),
+  /**
+   * Every ordinary founder notice together in a UTC day (`pn:safety:day`; security review P2-3): enforced, apart from
+   * PLATFORM_NOTIFY_DAILY_CEILING. 0 (or an empty value, which reads as 0) is refused at boot: it would silence every
+   * ordinary founder notice; unset it for the default.
+   */
+  PLATFORM_SAFETY_DAILY_CEILING: z.coerce
+    .number()
+    .int()
+    .min(1, { message: "PLATFORM_SAFETY_DAILY_CEILING must be 1 or more (0, or an empty value, would refuse every founder notice); unset it for the default of 5,000" })
+    .max(1_000_000)
+    .default(5_000),
+  /**
+   * The circuit breaker over every essential founder notice together in a UTC day (`pn:safety:reserved:day`; final
+   * review): a warning at half, an error at the ceiling, and past it each person gets one folded email for the day. 0 (or
+   * an empty value) is refused at boot, as above.
+   */
+  PLATFORM_SAFETY_RESERVED_DAILY_CEILING: z.coerce
+    .number()
+    .int()
+    .min(1, { message: "PLATFORM_SAFETY_RESERVED_DAILY_CEILING must be 1 or more (0, or an empty value, would fold every essential founder notice); unset it for the default of 20,000" })
+    .max(10_000_000)
+    .default(20_000),
   /** gateway + ingest: signs the custom args on every send and the unsubscribe links, so a delivery event or an unsubscribe is bound to its project. 32+ random bytes. */
   PLATFORM_MAIL_SIGNING_SECRET: z.string().optional(),
   /** ingest: the token the platform's Inbound Parse URL carries as `?token=` (`/mail/inbound`). Never the businesses' SENDGRID_INBOUND_TOKEN. */
@@ -193,6 +215,22 @@ const Env = z.object({
    * that can sign in. Staging sets it while sign-up is open (docs/DEPLOY.md §4).
    */
   SIGNUP_ALLOWLIST: z.string().optional(),
+  /**
+   * apps/api, apps/stream, apps/collab: open sign-up (THESIS_REVIEW package 2.2, founder 2026-11-12). "1"/"true"/"on":
+   * anyone who signs in with a confirmed address is admitted until the day's new accounts reach
+   * SIGNUP_DAILY_CEILING (UTC day), after which a new person is refused with `on_waitlist`; the addresses SIGNUP_ALLOWLIST names are
+   * admitted without counting. Off (the default): invite-only while SIGNUP_ALLOWLIST is set, and everyone is admitted
+   * while it is not (`signupMode`, @foundmill/shared allowlist.ts).
+   */
+  SIGNUP_OPEN: z.string().optional(),
+  /** apps/api: with SIGNUP_OPEN, how many new accounts are admitted per UTC day before the rest are refused with `on_waitlist`. */
+  SIGNUP_DAILY_CEILING: z.coerce.number().int().min(0).max(1_000_000).default(200),
+  /**
+   * apps/api: with SIGNUP_OPEN, the cutover for "a person from before open sign-up" (an ISO timestamp): only an account
+   * whose founder profile was created before it is admitted without counting toward SIGNUP_DAILY_CEILING. Unset: the
+   * moment migration 0093 ran, which the database stores (`admission_existing_before()`).
+   */
+  SIGNUP_EXISTING_BEFORE: z.iso.datetime({ offset: true }).optional(),
   /**
    * apps/api: whether a credit top-up may be paid by simulation (the Billing tab's mock checkout, no money moves) when
    * Stripe is not live. "1"/"true" or "0"/"false"; unset allows it only when APP_ENV is development or test

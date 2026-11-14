@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import { isSafeLegalHref, type LegalDocument, type LegalText } from "@foundmill/dugout";
 import { IDEA_COOKIE } from "@foundmill/shared";
 import { APP_POSTAL_ADDRESS } from "@foundmill/config";
+import { VIA_COOKIE } from "@foundmill/shared/via";
 import { LAST_BUSINESS_COOKIE } from "@/lib/auth/constants";
 import { DATE_FORMAT_COOKIE } from "@/lib/date-format";
 import { TEXT_SIZE_COOKIE } from "@/components/providers/text-size-cookie";
@@ -75,7 +76,7 @@ describe("the legal pages", () => {
 
   it("list exactly the cookies the site sets (the development-only sign-in cookies aside)", () => {
     const listed = PRIVACY_COOKIES.map((c) => c.term).filter((t) => !t.startsWith("sb-"));
-    expect(listed.sort()).toEqual([LAST_BUSINESS_COOKIE, DATE_FORMAT_COOKIE, TEXT_SIZE_COOKIE, IDEA_COOKIE].sort());
+    expect(listed.sort()).toEqual([LAST_BUSINESS_COOKIE, DATE_FORMAT_COOKIE, TEXT_SIZE_COOKIE, IDEA_COOKIE, VIA_COOKIE].sort());
     expect(PRIVACY_COOKIES.some((c) => c.term.startsWith("sb-") && c.term.endsWith("auth-token"))).toBe(true);
   });
 

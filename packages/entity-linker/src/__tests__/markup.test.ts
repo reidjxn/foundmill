@@ -97,7 +97,7 @@ describe("validateMarkup", () => {
     expect(v.valid).toBe(false);
     expect(v.malformed).toHaveLength(1);
     expect(v.malformed[0]?.raw).toBe(`[[ent:${MER.toUpperCase()}|Meridian]]`);
-    expect(findMalformedMarkup("[[ent:oops no close")).toEqual([{ raw: "[[ent:oops no close", index: 0 }]);
+    expect(findMalformedMarkup("[[ent:oops no close")).toEqual([{ raw: "[[ent:oops no close", index: 0, end: 19 }]);
   });
 
   it("reports display mismatches as advisory without failing validation", () => {

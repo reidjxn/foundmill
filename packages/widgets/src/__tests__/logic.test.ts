@@ -404,7 +404,11 @@ describe("agent of the week", () => {
 describe("milestones", () => {
   it("marks reached milestones from stored rows, shows the customer only with permission and shares only in LIVE", () => {
     const cards = trophyCards(ribbon().milestones, "EUR", false);
-    expect(cards.length).toBe(8);
+    expect(cards.length).toBe(10);
+    expect(cards.slice(0, 2).map((c) => [c.key, c.description])).toEqual([
+      ["page_live", "Your project's public page went live."],
+      ["first_follower", "The first person confirmed that they follow your project."],
+    ]);
     expect(cards.find((c) => c.key === "customer_1")).toMatchObject({ achievedAt: expect.any(String), customerName: "Nordic Beauty AB", shareable: false });
     expect(cards.find((c) => c.key === "mrr_1k")!.customerName).toBeNull();
     expect(cards.find((c) => c.key === "mrr_10k")!.achievedAt).toBeNull();

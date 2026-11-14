@@ -1,6 +1,7 @@
 /**
- * Cloudflare Turnstile for the idea box (docs/IDEA_BOX.md): the script loads only when the visitor first focuses the
- * field or opens Surprise me, and the invisible widget gives one token per draft. Without a site key (a development
+ * Cloudflare Turnstile for the idea box (docs/IDEA_BOX.md) and a public page's Follow form
+ * (components/public/FollowProjectForm.tsx): the script loads only when the visitor first focuses a field, and the
+ * invisible widget gives one token per draft or follow, for that form's `action`. Without a site key (a development
  * stack) the token is the mock's, which only a development gateway accepts.
  */
 import { TURNSTILE_ORIGIN } from "@/lib/security-headers";
@@ -41,8 +42,8 @@ export function loadTurnstile(): Promise<TurnstileApi | null> {
   return loading;
 }
 
-/** One token from the invisible widget in `container` (rendered once, reset for each draft). */
-export async function turnstileToken(siteKey: string, container: HTMLElement | null, timeoutMs = 15_000): Promise<string | null> {
+/** One token from the invisible widget in `container` (rendered for each draft or follow, then removed). */
+export async function turnstileToken(siteKey: string, container: HTMLElement | null, timeoutMs = 15_000, action = "idea_box"): Promise<string | null> {
   if (!siteKey) return MOCK_TURNSTILE_TOKEN;
   const api = await loadTurnstile();
   if (!api || !container) return null;
@@ -60,6 +61,6 @@ export async function turnstileToken(siteKey: string, container: HTMLElement | n
       resolve(token);
     };
     const timer = setTimeout(() => done(null), timeoutMs);
-    const id = api.render(container, { sitekey: siteKey, size: "invisible", appearance: "interaction-only", action: "idea_box", callback: (t: string) => done(t), "error-callback": () => done(null), "expired-callback": () => done(null) });
+    const id = api.render(container, { sitekey: siteKey, size: "invisible", appearance: "interaction-only", action, callback: (t: string) => done(t), "error-callback": () => done(null), "expired-callback": () => done(null) });
   });
 }

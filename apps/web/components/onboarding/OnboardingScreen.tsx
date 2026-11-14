@@ -105,13 +105,22 @@ import {
   type ProfileSectionId,
 } from "./profile-form";
 import { AccountId } from "@/components/settings/AccountId";
+import { forgetVia } from "@/app/onboarding/actions";
 
 export interface OnboardingScreenProps {
   profile: ProfileLike | null;
   email: string | null;
-  /** The signed-in person's account ID, shown so a co-founder can add them to a business. */
+  /** The signed-in person's account ID, for support (people join a project by invitation, not by it). */
   accountId?: string | null;
+  /**
+   * Who or what brought a new founder: the reference in the httpOnly `fm_via` cookie, read by the page on the server
+   * (lib/via.ts). Sent with the save that creates the profile, never with an edit. Null when there is none.
+   */
+  via?: string | null;
 }
+
+/** How long the first save waits for the attribution cookie to be cleared before it moves on without that. */
+export const FORGET_VIA_WAIT_MS = 3_000;
 
 /**
  * Said once, after the save that created the profile with an Exited or Operator experience (UX plan §6.3, decided
@@ -131,16 +140,20 @@ export const SKILLS_HINT = "Be honest: the team hires to cover what you don't ha
 /** Under Continue while the example founder is in: the example is never saved as the founder's own profile. */
 export const EXAMPLE_PROFILE_LINE = "Replace the example with your own answers to continue.";
 
-export function OnboardingScreen({ profile, email, accountId = null }: OnboardingScreenProps) {
+export function OnboardingScreen({ profile, email, accountId = null, via = null }: OnboardingScreenProps) {
   const router = useRouter();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const editing = profile !== null;
+  /** Only the save that creates the profile carries the reference. */
+  const handOver = editing ? null : via;
 
   const save = useMutation(
     trpc.founder.profile.update.mutationOptions({
       onSuccess: async (data) => {
+        // The api has read the reference (it reads it once): clear the cookie, and never hold the founder up for it.
+        if (handOver) await Promise.race([forgetVia().catch(() => undefined), new Promise((done) => setTimeout(done, FORGET_VIA_WAIT_MS))]);
         // The founder's own queries, the guidance switch among them (`founder.preferences.guidance`), read again.
         await queryClient.invalidateQueries({ queryKey: trpcPathPrefix("founder") as unknown[] });
         toast({
@@ -166,7 +179,7 @@ export function OnboardingScreen({ profile, email, accountId = null }: Onboardin
       accountId={accountId}
       saving={save.isPending}
       error={save.error ? saveErrorMessage(save.error) : null}
-      onSubmit={(patch) => save.mutate(patch)}
+      onSubmit={(patch) => save.mutate(handOver ? { ...patch, via: handOver } : patch)}
     />
   );
 }
@@ -340,7 +353,7 @@ export function OnboardingForm({
               Your profile is private. Agents read it as context; it is never shown on the network,
               even when a business goes live.
             </p>
-            {/* The account ID matters to a co-founder joining someone else's business, not to a first screen: behind a disclosure (A17). */}
+            {/* The account ID is for support, not for a first screen: behind a disclosure (A17). People join a project by invitation. */}
             {accountId ? (
               <details className="group/account px-1" data-testid="profile-account-id">
                 <summary className="flex w-fit cursor-pointer list-none items-center gap-1 rounded-sm text-small text-secondary transition-colors duration-hover ease-out hover:text-primary focus-visible:shadow-ring [&::-webkit-details-marker]:hidden">
@@ -349,7 +362,7 @@ export function OnboardingForm({
                     size="inline"
                     className="transition-transform duration-overlay ease-out group-open/account:rotate-90"
                   />
-                  For a co-founder joining you
+                  Your account ID
                 </summary>
                 <div className="mt-2">
                   <p className="t-data mb-1.5">Your account ID</p>

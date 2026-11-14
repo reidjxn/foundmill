@@ -6,6 +6,7 @@
  * rendered on both sides fails hydration. The day is only known in the browser: null on the server and during
  * hydration, the day after it. It moves on at midnight (checked once a minute), without re-rendering in between.
  */
+import { isAdminRole } from "@foundmill/shared/constants";
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { dayKeyIn, isValidTimeZone } from "@foundmill/shared/time-zone";
 
@@ -56,7 +57,7 @@ export function browserTimeZone(): string | null {
  */
 export function timeZoneToClaim(current: string | null | undefined, role: string | null | undefined, browser: string | null): string | null {
   if (current || !browser) return null;
-  return role === "owner" || role === "admin" ? browser : null;
+  return isAdminRole(role) ? browser : null;
 }
 
 const MINUTE_MS = 60_000;

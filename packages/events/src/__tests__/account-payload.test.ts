@@ -74,16 +74,60 @@ describe("assertAccountPayloadSchema (when the catalog loads)", () => {
     expect(schemaOk(z.array(z.object({ handle: z.string() })))).toThrow(/must be an object/);
   });
 
-  it("every account-scoped declaration in the catalog passes, and names nobody but by a handle", () => {
+  it("every account-scoped declaration in the catalog passes, and names nobody but by a public address", () => {
+    /** What each declaration's payload holds: a person's own handle, or the public address a sign-up came through. */
+    const fields: Record<Exclude<(typeof ACCOUNT_EVENT_TYPES)[number], "founder_notice.sent">, string[]> = {
+      "profile.published": ["handle"],
+      "profile.unpublished": ["handle"],
+      "signup.attributed": ["sourceKind", "sourceRef"],
+      "referral.arrived": ["sourceKind", "sourceRef"],
+    };
     for (const type of ACCOUNT_EVENT_TYPES) {
+      if (type === "founder_notice.sent") continue;
       const decl = EVENTS[type];
+      const fixture = EVENT_FIXTURES[type] as Record<string, unknown>;
       expect(() => assertAccountPayloadSchema(type, decl.schema, decl.recordIds), type).not.toThrow();
-      expect(() => assertAccountPayloadValues(type, EVENT_FIXTURES[type], { recordIds: decl.recordIds, accountIds: [ME] }), type).not.toThrow();
-      expect(Object.keys(EVENT_FIXTURES[type]), type).toEqual(["handle"]);
+      expect(() => assertAccountPayloadValues(type, fixture, { recordIds: decl.recordIds, accountIds: [ME] }), type).not.toThrow();
+      expect(Object.keys(fixture).sort(), type).toEqual(fields[type]);
       expect(decl.recordIds, type).toEqual([]);
       // Nothing else gets through the schema: it is strict.
-      expect(decl.schema.safeParse({ handle: "maya-okafor", userId: ME }).success, type).toBe(false);
-      expect(decl.schema.safeParse({ handle: "Maya Okafor" }).success, type).toBe(false);
+      expect(decl.schema.safeParse(fixture).success, type).toBe(true);
+      expect(decl.schema.safeParse({ ...fixture, userId: ME }).success, type).toBe(false);
+      expect(decl.schema.safeParse({ ...fixture, note: "x" }).success, type).toBe(false);
+      // And the one text field is a public address, not free text.
+      const address = fields[type].at(-1)!;
+      expect(decl.schema.safeParse({ ...fixture, [address]: "Maya Okafor" }).success, type).toBe(false);
+    }
+  });
+
+  it("founder_notice.sent: the notice, the project's and the record's ids, two flags; nobody's account, nothing free-form", () => {
+    const decl = EVENTS["founder_notice.sent"];
+    const fixture = EVENT_FIXTURES["founder_notice.sent"] as Record<string, unknown>;
+    expect(() => assertAccountPayloadSchema("founder_notice.sent", decl.schema, decl.recordIds)).not.toThrow();
+    expect(() => assertAccountPayloadValues("founder_notice.sent", fixture, { recordIds: decl.recordIds, accountIds: [ME] })).not.toThrow();
+    expect(Object.keys(fixture).sort()).toEqual(["businessId", "notice", "notificationId", "offersCancel", "simulated"]);
+    expect(decl.recordIds).toEqual(["businessId", "notificationId"]);
+    expect(decl.schema.safeParse(fixture).success).toBe(true);
+    // Who did it, or whom it was about, by account: refused by the schema and by the writer's rule.
+    expect(decl.schema.safeParse({ ...fixture, actorUserId: OTHER }).success).toBe(false);
+    expect(decl.schema.safeParse({ ...fixture, notice: "promoted" }).success).toBe(false);
+    expect(ruleOf(() => assertAccountPayloadValues("founder_notice.sent", { ...fixture, businessId: OTHER }, { recordIds: decl.recordIds, accountIds: [ME, OTHER] }))).toBe("account_id");
+  });
+
+  it("the attribution events: an address that is, or holds, an account id is refused when written, for either reader", () => {
+    const compact = OTHER.replace(/-/g, "");
+    for (const type of ["signup.attributed", "referral.arrived"] as const) {
+      const decl = EVENTS[type];
+      const check = (sourceRef: string, accountIds: readonly string[]) => ruleOf(() => assertAccountPayloadValues(type, { sourceKind: "project_page", sourceRef }, { recordIds: decl.recordIds, accountIds }));
+      expect(check("bread-by-bike", [ME, OTHER]), type).toBeNull();
+      // A slug may be 32 letters a to f and digits (the address rule allows it): the other person's id, compact.
+      expect(decl.schema.safeParse({ sourceKind: "project_page", sourceRef: compact }).success, type).toBe(true);
+      expect(check(compact, [ME, OTHER]), type).toBe("account_id");
+      expect(check(`x-${compact}-y`, [ME, OTHER]), type).toBe("account_id");
+      expect(check(ME, [ME, OTHER]), type).toBe("account_id");
+      // Shaped like an id and nobody's in this call: refused all the same.
+      expect(check(compact, [ME]), type).toBe("id_shaped");
+      expect(check("0123456789abcdef0123456789abcdef", [ME, OTHER]), type).toBe("id_shaped");
     }
   });
 });

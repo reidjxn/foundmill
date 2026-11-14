@@ -6,7 +6,7 @@
  * whose args do not verify (missing, forged or altered) is dropped; it never falls back to a value an outsider sent.
  */
 import { suppressionHashOfEmail } from "./hash";
-import { platformMailLocalPartOf } from "@foundmill/shared";
+import { platformMailLocalPartOf, SUPPRESSION_REASON_BOUNCED, SUPPRESSION_REASON_SPAM } from "@foundmill/shared";
 import type { PlatformEvent } from "../../contract";
 import { normaliseSendgridEvents, type InboundMail, type SgEvent } from "../sendgrid/webhooks";
 import { verifyPlatformMailArgs } from "./tools";
@@ -80,11 +80,12 @@ export function suppressionReasonOf(e: SgEvent): string | null {
   switch (e.event) {
     case "bounce":
       // A "blocked" bounce is the receiving server refusing for now (reputation, rate): not a dead address.
-      return e.type === "blocked" ? null : "bounced";
+      return e.type === "blocked" ? null : SUPPRESSION_REASON_BOUNCED;
     case "dropped":
       return "dropped by the mail service (an earlier bounce, unsubscribe or spam report)";
     case "spamreport":
-      return "marked the message as spam";
+      // A bounce and a spam report are the hard suppressions that also stop a founder notice (HARD_SUPPRESSION_REASONS).
+      return SUPPRESSION_REASON_SPAM;
     case "unsubscribe":
     case "group_unsubscribe":
       return "unsubscribed";

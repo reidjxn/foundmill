@@ -31,14 +31,14 @@
 import { promises as fs, type Dirent } from "node:fs";
 import path from "node:path";
 import type { Query } from "@anthropic-ai/claude-agent-sdk";
-import { AgentInstructions, buildSystemPrompt, docText, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, restoredWorkspaceNote, ToolGrant, type AgentSkillPrompt, type AgentTemplate } from "@foundmill/agents";
+import { AgentInstructions, buildSystemPrompt, docText, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, restoredWorkspaceNote, roleSkillsFor, ToolGrant, type AgentSkillPrompt, type AgentTemplate } from "@foundmill/agents";
 import { APP_NAME, CREDITS_CURRENCY, sandboxCostMicroMinor } from "@foundmill/config";
 import { firstChannelToOpen, resolveGrants } from "@foundmill/connectors";
 import { bookUsage, closeApprovalItem, loadByokApiKey, MICRO_PER_MINOR, repos, signoffDecisionBlock, type Agent, type AgentVersion, type Approval, type Business, type Task } from "@foundmill/db";
 import { publishSessionEvent, type SessionEventInput } from "@foundmill/events";
 import { meter, MODEL_PRICING, resolveModel, type ModelId, type RouteKey } from "@foundmill/models";
-import { assertNoLongLivedCredentials, MockSandbox, MockSandboxProvider, RECORDINGS, redactCredentialValues, stableHash32, type Sandbox, type SandboxSpecInput } from "@foundmill/sandbox";
-import { CHANNEL_KEYS, CHANNEL_META, channelMayRun, isUuid, noChannelSentence, type AgentStatus, type ChannelKey, type ModelKey, type TaskStatus } from "@foundmill/shared";
+import { assertNoLongLivedCredentials, capturePages, MockSandbox, MockSandboxProvider, RECORDINGS, redactCredentialValues, stableHash32, type Sandbox, type SandboxSpecInput } from "@foundmill/sandbox";
+import { CHANNEL_KEYS, CHANNEL_META, channelEngineMayRun, channelTeamRuns, isUuid, noChannelSentence, type AgentStatus, type ChannelKey, type DesignCheckResult, type DesignShotRef, type ModelKey, type TaskStatus } from "@foundmill/shared";
 import { channelAvailabilityFor } from "./channel-availability";
 import { currentTraceparent } from "@foundmill/shared/telemetry";
 import { Context } from "@temporalio/activity";
@@ -46,7 +46,7 @@ import { ApplicationFailure } from "@temporalio/common";
 import { z } from "zod";
 import type { SessionCommand } from "../control-bus";
 import type { OrchestratorDeps } from "../deps";
-import { emitEvent, systemActor } from "../events";
+import { agentActor, emitEvent, systemActor } from "../events";
 import { applySessionEvent, initialProgress, type ProgressState } from "../progress";
 import { AGENT_PAUSED_FAILURE, CANCELLED_REASON, type RunUsage } from "../session-contract";
 import { failureStreak } from "../retry";
@@ -58,9 +58,11 @@ import { archiveSessionRecording } from "./recording";
 import { createSessionWorkspace, guardToolCall, hookOutputFor, removeSessionWorkspace, sdkEnvFor, sdkToolPolicyFor } from "./sdk-isolation";
 import { commitShaOf, describePush, pushWorkspace, type PushContext } from "./workspace-push";
 import { mergeRecipients, restoreWorkspace, saveWorkspace, toSeed, type LeftOut, type RestoredWorkspace, type SaveWorkspaceOptions } from "./workspace-store";
+import { sessionGrantsFor } from "./second-read";
 import { readWorkspaceChanges, syncCheckoutToSandbox, syncWorkspaceToSandbox } from "./workspace-sync";
 import { checkoutMissingNote, checkoutNote, checkoutRepository, defaultBranchChanges, describeCheckout, disposeCheckout, extractArchive, startsFromDefaultBranch, testSetupChanges, testSetupReviewReason, updateConflicts, updateNote, type Checkout, type CheckoutBase, type CheckoutInput } from "./checkout";
 import { fingerprintWorkspace, workspaceChanged } from "./workspace-fingerprint";
+import { DESIGN_CHECK_PORT, designCheckAfter, designCheckBefore, designCheckNotSeen, pagesForChanges, planDesignServe, screenshotBytes, touchedPath, uiChanges, type DesignCheckPorts, type DesignServePlan } from "./design-check";
 import type { AgentSessionInput, MergeInput, SessionFinish, SessionLaunch, SessionParked, SessionResult, SessionRunOptions } from "./types";
 
 const ToolGrants = z.array(ToolGrant);
@@ -697,8 +699,10 @@ export function createSessionActivities(deps: OrchestratorDeps) {
     ]);
     const [version, added] = await Promise.all([agent.currentVersionId ? repos.agents.getVersion(db, input.businessId, agent.currentVersionId) : null, repos.skills.listAddedForAgent(db, input.businessId, agent.id, agent.agentType)]);
     // Skills the founder added from the library or files: their instructions follow the house rules and instructions.
-    const skills: AgentSkillPrompt[] = added.filter((a) => a.instructionsMd.trim()).map((a) => ({ name: a.name, source: a.source, instructionsMd: a.instructionsMd }));
-    return { agent, task, business, session, version, template: templateForAgent(agent), skills };
+    // Skills that come with the role go first (the code agents' Design principles, item 13), then the founder's.
+    const template = templateForAgent(agent);
+    const skills: AgentSkillPrompt[] = [...roleSkillsFor(template.skills), ...added.filter((a) => a.instructionsMd.trim()).map((a) => ({ name: a.name, source: a.source, instructionsMd: a.instructionsMd }))];
+    return { agent, task, business, session, version, template, skills };
   }
 
   /**
@@ -762,7 +766,8 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       // session `stopped` and the agent stays paused; retrying would not change the answer.
       if (agent.status === "paused") throw ApplicationFailure.nonRetryable(`Agent ${agent.name} is paused`, AGENT_PAUSED_FAILURE);
       if (business.agentsStoppedAt) throw ApplicationFailure.nonRetryable("Agents are stopped for this business", AGENT_PAUSED_FAILURE);
-      const grants = resolveGrants(parseGrants(version, template));
+      // A second read's revision keeps only the document tools (./second-read).
+      const grants = await sessionGrantsFor(deps.db, input.businessId, task.id, resolveGrants(parseGrants(version, template)));
       const route: RouteKey = template.route;
       const model = resolveModel(route, agent.modelKey);
       const { provider, mode, fellBackFrom } = await deps.sandbox();
@@ -862,7 +867,7 @@ export function createSessionActivities(deps: OrchestratorDeps) {
         // A parked run says which command it read last: the workflow also hands the next run the nudges and decisions
         // that reached the list after that (they are cleared below, unread).
         const settle = ({ parked, ...r }: RunOutcome): SessionResult => ({ ...base(), ...r, ...(parked ? { parked: { ...parked, lastSeq: feed.lastSeq() } } : {}) });
-        if (sandbox instanceof MockSandbox) return settle(await runMockSession(deps, recorder, sandbox, input, signal, pull));
+        if (sandbox instanceof MockSandbox) return settle(await runMockSession(deps, recorder, sandbox, input, signal, pull, task));
         const acquireSandbox = async (): Promise<Sandbox> => {
           const created = await provider.create(spec);
           await created.start();
@@ -1095,14 +1100,16 @@ export async function offerReadyToSellAfterTask(deps: OrchestratorDeps, business
   const [item, chief, channels, agents] = await Promise.all([repos.product.getRoadmapItem(db, businessId, task.roadmapItemId), repos.agents.chiefOfStaff(db, businessId), repos.channels.list(db, businessId, { enabled: true }), repos.agents.list(db, businessId, { limit: 500 })]);
   if (!chief) return null;
   // Only channels that can really act (or are in offline tracking) are named as waiting; when none can run at all, the
-  // note says so in the Board's own words instead of promising a start (founder, 2026-11-11).
+  // note says so in the Board's own words instead of promising a start (founder, 2026-11-11). A channel the founder
+  // posts by tap (founder, 2026-11-12) has no engine to start, so it is not named as waiting; it is named as ready.
   const availability = await channelAvailabilityFor(deps, businessId);
-  const labels = channels.filter((c) => channelMayRun(availability[c.channelKey as ChannelKey], c.kitMode)).map((c) => CHANNEL_META[c.channelKey as ChannelKey]?.label ?? c.channelKey);
-  const noneCanRun = labels.length === 0 && !CHANNEL_KEYS.some((k) => availability[k].available);
+  const labels = channels.filter((c) => channelEngineMayRun(availability[c.channelKey as ChannelKey], c.kitMode)).map((c) => CHANNEL_META[c.channelKey as ChannelKey]?.label ?? c.channelKey);
+  const noneCanRun = labels.length === 0 && !CHANNEL_KEYS.some((k) => channelTeamRuns(availability[k]));
+  const byTap = CHANNEL_KEYS.filter((k) => availability[k].available && !channelTeamRuns(availability[k])).map((k) => CHANNEL_META[k].label);
   const n = siblings.items.length;
   const body = [
     `${item.title} shipped: its ${n} task${n === 1 ? " is" : "s are"} done.`,
-    labels.length ? `The channels on the board (${labels.join(", ")}) are waiting for the product.` : noneCanRun ? noChannelSentence({ opensFirst: firstChannelToOpen(availability) }) : "No channel is on the board yet.",
+    labels.length ? `The channels on the board (${labels.join(", ")}) are waiting for the product.` : noneCanRun ? noChannelSentence({ opensFirst: firstChannelToOpen(availability), byTap }) : "No channel is on the board yet.",
     noneCanRun ? "Start distribution now so a channel starts the day it opens, or keep building first." : "Start distribution now, or keep building first.",
   ].join(" ");
   const offered = await repos.productSignoffs.offerReadyToSell(db, businessId, {
@@ -1144,7 +1151,7 @@ type RunOutcome = Pick<SessionResult, "outcome" | "reason" | "blockedReason" | "
 /** Why a replay frees its slot early: the founder left an approval undecided, or a pause outlasted the hold. */
 type MockEnding = { kind: "approval_timeout" } | ({ kind: "park" } & RunnerParked);
 
-async function runMockSession(deps: OrchestratorDeps, recorder: SessionRecorder, sandbox: MockSandbox, input: AgentSessionInput, signal: AbortSignal | null, pull: () => Promise<SessionCommand[]>): Promise<RunOutcome> {
+async function runMockSession(deps: OrchestratorDeps, recorder: SessionRecorder, sandbox: MockSandbox, input: AgentSessionInput, signal: AbortSignal | null, pull: () => Promise<SessionCommand[]>, task: Pick<Task, "id" | "kind" | "title"> | null = null): Promise<RunOutcome> {
   const replay = sandbox.replay;
   const waits = founderWaits(deps);
   let loopTripped = false;
@@ -1157,7 +1164,10 @@ async function runMockSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   let ending: MockEnding | null = null;
 
   recorder.cursorOf = () => `${sandbox.recording.key}@${replay.position.index}`;
+  /** The files the recording changes: a UI change gets the design check (simulated here: a replay has no browser). */
+  const changedPaths: string[] = [];
   const unsubscribe = replay.subscribe(async (event) => {
+    if (event.kind === "file_changed") changedPaths.push(event.path);
     const { loop } = await recorder.publish(event);
     if (loop && !loopTripped) {
       loopTripped = true;
@@ -1263,6 +1273,7 @@ async function runMockSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     // The founder rejected the call the replay waited on: the task stays blocked on that answer until it is started again.
     if (summary.outcome === "stopped" && summary.stoppedReason === "approval_rejected") return { outcome: "blocked", reason: "the founder rejected the approval request", blockedReason: "approval_rejected", approvalId: recorder.rejectedApprovalId, summary: `Blocked after ${summary.emitted} events: the founder rejected the request.`, providerSessionId: summary.recordingKey };
     if (summary.outcome === "stopped") return { outcome: "stopped", reason: summary.stoppedReason ?? "stopped", blockedReason: "stopped", approvalId: null, summary: "Stopped.", providerSessionId: summary.recordingKey };
+    if (task?.kind === "code") await simulatedDesignCheck(deps, recorder, { input, task, sandbox, changedPaths });
     return { outcome: "done", reason: null, blockedReason: null, approvalId: null, summary: `${sandbox.recording.title}: ${sandbox.recording.summary}`.slice(0, 1800), providerSessionId: summary.recordingKey };
   } finally {
     await loop.stop();
@@ -1415,7 +1426,8 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     credits = opened.credits;
   }
 
-  const grants = resolveGrants(parseGrants(live.version, live.template));
+  // A second read's revision keeps only the document tools (./second-read): its goal carries another agent's notes.
+  const grants = await sessionGrantsFor(deps.db, input.businessId, task.id, resolveGrants(parseGrants(live.version, live.template)));
   if (grants.unresolved.length > 0) deps.log.info({ sessionId: input.sessionId, unresolved: grants.unresolved.map((u) => `${u.connectorKey}.${u.capability}`).slice(0, 50) }, "granted capabilities no tool serves yet");
   // What the session may spend (./session-budget): the task's budget less its earlier sessions, the credits left when the
   // platform key pays, and what is left of the agent's wage cap and the business's monthly model budget (either key).
@@ -1707,6 +1719,8 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
 
   // What the workspace held before the agent started (decision 3: a code session that changed nothing is not done).
   const startPrint = policy.fileTools ? await fingerprintWorkspace(cwd) : null;
+  // The design check of the UI this session writes (item 13): screenshots, a separate reviewer, one fix turn.
+  const design = liveDesignCheck(deps, recorder, { input, task, agent, businessName: live.business.name, cwd, acquireSandbox: live.acquireSandbox, checkout: () => checkout, enabled: task.kind === "code" && policy.fileTools });
   try {
     send(taskPrompt);
     const env = sdkEnvFor({ cwd, apiKey: key.apiKey, sessionToken: token.token, sandboxEnv: live.sandboxEnv });
@@ -1773,6 +1787,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
               const connectorKey = parts ? parts[1]! : null;
               const tool = parts ? parts[2]! : block.name;
               openCalls.set(block.id, { tool, connectorKey, startedAt: deps.clock.nowMs() });
+              design.touch(block.name, block.input);
               const { loop: looped } = await recorder.publish({ kind: "tool_call", at: deps.clock.now().toISOString(), callId: block.id, connectorKey, tool, status: "started", argsSummary: summariseArgs(block.input) }, { args: block.input });
               if (looped) await end("loop");
             }
@@ -1816,6 +1831,15 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
           if (ending || paused || recorder.pendingApprovalId || turnOpen) {
             if (creditsOut) await endForCredits();
             continue;
+          }
+          // The agent is done with the UI it wrote: the design check (item 13) looks at it, and the agent gets one turn
+          // to apply the fixes. Not for a task the agent blocked, and never once the run is ending or paused.
+          if (!creditsOut && !recorder.agentBlock) {
+            const fixTurn = await design.atTurnEnd();
+            if (fixTurn && !ending && !paused && !recorder.pendingApprovalId) {
+              send(fixTurn);
+              continue;
+            }
           }
           inputDone = true;
           queue.close();
@@ -1965,6 +1989,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     queue.close(true);
     // Keep the code whatever the outcome (done, stopped, failed, parked): the workspace itself is deleted next. Only a
     // session that finished (or waits on an approval) is pushed to GitHub.
+    await design.close();
     if (policy.fileTools) await keepWorkspace(deps, recorder, { businessId: input.businessId, taskId: task.id, sessionId: input.sessionId, agentId: agent.id, branch: launch.branch, agentName: agent.name, holdBack, checkout: checkout ? { commitSha: checkout.base.commitSha, at: checkout.base.checkedOutAt } : null, agentPushed: recorder.agentPushed }, cwd, { secrets: [key.apiKey, token.token], carryOver: restoreFailed, ...(checkout ? { base: checkout.base } : { withoutCheckoutOf: checkoutMissingRepo }) });
     await disposeCheckout(checkout);
     try {
@@ -2540,6 +2565,181 @@ async function runAcceptanceIn(deps: OrchestratorDeps, recorder: SessionRecorder
   await recorder.publish({ kind: "test_result", at: at(), suite: "acceptance", command, passed: counts.passed, failed: testsFailed, skipped: 0, durationMs: prep.durationMs + res.durationMs, acceptance: true, failures: [] });
   const passed = res.code === 0 && testsFailed === 0;
   return { passed, exitCode: res.code, testsPassed: counts.passed, testsFailed, output: passed ? "" : sandboxOutputForNote(output) };
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The design check (item 13, ./design-check): screenshots of the changed pages, a separate reviewer, one fix turn
+// ---------------------------------------------------------------------------------------------------------------------
+
+/**
+ * The design check of a replayed session: the mock sandbox has no browser, so the record is `simulated`, says so, and
+ * carries no screenshot and no review. Recorded like a live one, so mock mode runs the whole path to the approval.
+ */
+export async function simulatedDesignCheck(deps: OrchestratorDeps, recorder: SessionRecorder, args: { input: AgentSessionInput; task: Pick<Task, "id" | "kind" | "title">; sandbox: Sandbox; changedPaths: readonly string[] }): Promise<DesignCheckResult | null> {
+  if (uiChanges(args.changedPaths).length === 0) return null;
+  const note = async (level: "info" | "warn", text: string) => {
+    await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level, text });
+  };
+  const ports: DesignCheckPorts = {
+    capture: (label) => capturePages(args.sandbox, { pages: pagesForChanges(args.changedPaths), serve: { command: "true", port: DESIGN_CHECK_PORT }, label }),
+    review: () => Promise.reject(new Error("a replay has no reviewer")),
+    store: async () => [],
+    note,
+  };
+  const { result } = await designCheckBefore(ports, { businessName: "", taskTitle: args.task.title, pages: pagesForChanges(args.changedPaths) });
+  try {
+    await emitEvent(deps.db, { businessId: args.input.businessId, type: "task.design_checked", actor: agentActor(args.input.agentId), entityIds: [args.task.id], payload: { taskId: args.task.id, kind: args.task.kind, title: args.task.title.slice(0, 200), assigneeAgentId: args.input.agentId, sessionId: args.input.sessionId, result } });
+  } catch (err) {
+    deps.log.warn({ err: (err as Error).message, sessionId: args.input.sessionId }, "design check could not be recorded");
+  }
+  return result;
+}
+
+/** The SDK's file tools whose `file_path` is a change the agent made. */
+const FILE_WRITE_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
+
+export interface LiveDesignCheck {
+  /** A tool call the agent made: the files it writes are what the check looks at. */
+  touch(toolName: string, toolInput: unknown): void;
+  /**
+   * The agent's turn ended with nothing else pending: the first time, run the check and return the one fix turn to send
+   * (or null); after that turn, take the screenshots after and record the check. Null when there is nothing to send.
+   */
+  atTurnEnd(): Promise<string | null>;
+  /** The session is ending: record a check still waiting on its fix turn, stop the sandbox, book its time. */
+  close(): Promise<void>;
+}
+
+/**
+ * The design check of a live code session. Runs only when the agent wrote UI files, once per session, in a sandbox of
+ * its own (the workspace copied in, dependencies installed online, then the network closed before the project's code
+ * starts). Every failure is a note and a `not_seen` record; nothing here fails or blocks the session.
+ */
+export function liveDesignCheck(deps: OrchestratorDeps, recorder: SessionRecorder, args: { input: AgentSessionInput; task: Pick<Task, "id" | "kind" | "title" | "founderTitle">; agent: Pick<Agent, "id">; businessName: string; cwd: string; acquireSandbox: () => Promise<Sandbox>; checkout: () => Checkout | null; enabled: boolean }): LiveDesignCheck {
+  const { input, task, agent, cwd } = args;
+  const touched = new Set<string>();
+  let phase: "idle" | "fixing" | "done" = args.enabled ? "idle" : "done";
+  let result: DesignCheckResult | null = null;
+  let plan: DesignServePlan | null = null;
+  let sandbox: Sandbox | null = null;
+  let sandboxStartedMs = 0;
+  const at = () => deps.clock.now().toISOString();
+  const note = async (level: "info" | "warn", text: string) => {
+    await recorder.publishRaw({ kind: "note", at: at(), source: "system", level, text: text.slice(0, 4000) });
+  };
+  const sync = async (sb: Sandbox) => {
+    const checkout = args.checkout();
+    const synced = checkout ? await syncCheckoutToSandbox(cwd, sb, { archive: checkout.archivePath, files: checkout.base.files }) : await syncWorkspaceToSandbox(cwd, sb);
+    if (synced.refused) throw new Error(`the workspace could not be copied: ${synced.refused}`);
+  };
+  const open = async (): Promise<Sandbox> => {
+    sandboxStartedMs = deps.clock.nowMs();
+    const sb = await args.acquireSandbox();
+    sandbox = sb;
+    await sync(sb);
+    const toolchain = await readAcceptanceToolchain(cwd, plan!.packageName ? `pnpm --filter ${plan!.packageName} run dev` : "");
+    const prep = await sb.exec(acceptancePrepareScript(toolchain), { timeoutMs: ACCEPTANCE_PREPARE_TIMEOUT_MS });
+    if (prep.code !== 0) throw new Error(`installing the project's dependencies failed (exit ${prep.code})`);
+    // The project's own code (its dev server, its build scripts) runs only after the network is closed.
+    await sb.closeEgress();
+    await sb.exec(acceptanceRunScript("true"), { timeoutMs: (ACCEPTANCE_REBUILD_TIMEOUT_SECONDS + 60) * 1000 });
+    return sb;
+  };
+  const ports: DesignCheckPorts = {
+    capture: async (label) => {
+      const sb = label === "before" ? await open() : sandbox;
+      if (!sb) return { status: "unavailable", reason: "the sandbox from the first screenshots is gone", durationMs: 0 };
+      if (label === "after") await sync(sb);
+      const command = ['export PATH="$HOME/.fm-tools/bin:$PATH"', PNPM_SAFE_ENV, PNPM_OFFLINE_ENV, plan!.command].join("; ");
+      return capturePages(sb, { pages: plan!.pages, serve: { command, port: plan!.port, cwd: plan!.appDir ? path.posix.join(sb.workdir, plan!.appDir) : sb.workdir }, label });
+    },
+    review: async (req) => {
+      const r = await deps.models.complete({ ...req, scope: input.sessionId, attribution: { businessId: input.businessId, agentId: agent.id, sessionId: input.sessionId, taskId: task.id, kind: "design_review" } });
+      return r.json;
+    },
+    store: async (shots) => {
+      // Only real PNGs are stored; anything else keeps its place in the record with no stored content.
+      const bytes = shots.map((s) => screenshotBytes(s.pngBase64));
+      const kept = bytes.filter((b): b is Uint8Array => b !== null);
+      const shas = kept.length ? await deps.db.transaction((tx) => repos.workspaces.putBlobs(tx, input.businessId, kept)) : [];
+      let next = 0;
+      return shots.map((s, i): DesignShotRef => ({ id: s.id, page: s.page, viewport: s.viewport, width: s.width, height: s.height, cut: s.cut, sha256: bytes[i] ? (shas[next++] ?? null) : null }));
+    },
+    note,
+  };
+  const record = async () => {
+    if (!result) return;
+    try {
+      await emitEvent(deps.db, { businessId: input.businessId, type: "task.design_checked", actor: agentActor(agent.id), entityIds: [task.id], payload: { taskId: task.id, kind: task.kind, title: task.title.slice(0, 200), assigneeAgentId: agent.id, sessionId: input.sessionId, result } });
+    } catch (err) {
+      deps.log.warn({ err: (err as Error).message, sessionId: input.sessionId }, "design check could not be recorded");
+    }
+  };
+  const stopSandbox = async () => {
+    const sb = sandbox;
+    sandbox = null;
+    if (!sb) return;
+    await sb.stop().catch(() => undefined);
+    recorder.sandboxMs += Math.max(0, deps.clock.nowMs() - sandboxStartedMs);
+  };
+  return {
+    touch(toolName, toolInput) {
+      if (phase !== "idle" || !toolInput || typeof toolInput !== "object") return;
+      const i = toolInput as { file_path?: unknown; notebook_path?: unknown; files?: unknown };
+      const rel = (p: unknown) => {
+        const r = touchedPath(cwd, p);
+        if (r) touched.add(r);
+      };
+      if (FILE_WRITE_TOOLS.has(toolName)) rel(i.file_path ?? i.notebook_path);
+      // Through the GitHub connector (commit_files): the paths it commits.
+      if (/commit_files$/.test(toolName) && Array.isArray(i.files)) for (const f of i.files) rel(f && typeof f === "object" ? (f as { path?: unknown }).path : f);
+    },
+    async atTurnEnd() {
+      try {
+        if (phase === "fixing" && result) {
+          phase = "done";
+          result = await designCheckAfter(ports, result);
+          await record();
+          await stopSandbox();
+          return null;
+        }
+        if (phase !== "idle") return null;
+        phase = "done";
+        const planned = await planDesignServe(cwd, [...touched]);
+        if (!planned) return null;
+        if ("unservable" in planned) {
+          result = await designCheckNotSeen(ports, pagesForChanges([...touched]), planned.unservable);
+          await record();
+          return null;
+        }
+        plan = planned;
+        const step = await designCheckBefore(ports, { businessName: args.businessName, taskTitle: task.founderTitle ?? task.title, pages: planned.pages });
+        result = step.result;
+        if (step.fixTurn) {
+          phase = "fixing";
+          return step.fixTurn;
+        }
+        await record();
+        await stopSandbox();
+        return null;
+      } catch (err) {
+        deps.log.warn({ err: (err as Error).message, sessionId: input.sessionId }, "design check failed");
+        phase = "done";
+        if (!result) result = await designCheckNotSeen(ports, plan?.pages ?? pagesForChanges([...touched]), String((err as Error).message ?? err).slice(0, 200));
+        await record();
+        await stopSandbox();
+        return null;
+      }
+    },
+    async close() {
+      // The fix turn never finished (a stop, a pause, the credits): the check is recorded as it stood, without "after".
+      if (phase === "fixing" && result) {
+        phase = "done";
+        await record();
+      }
+      await stopSandbox();
+    },
+  };
 }
 
 /**

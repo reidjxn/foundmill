@@ -8,14 +8,14 @@
  * bypasses RLS. `refreshDaily` is for the metrics consumer and the nightly schedule.
  */
 import { CHANNEL_KEYS, CONVERSION_KINDS, MATCHDAY_LEVELS, MILESTONE_KINDS, ValidationError, VISIBILITY, type ConversionKind } from "@foundmill/shared";
-import { and, asc, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, ne, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import {
   ATTRIBUTION_MODELS, CHAPTER_MOODS, chapterTitles, CONSENT_STATES, conversions, entities, journeyDaily, journeyDailyMv, journeys, milestones, touches, visitors, XC_MODEL_SOURCES,
   type ChapterTitle, type Conversion, type Journey, type JourneyDailyRow, type Milestone, type Touch, type Visitor,
 } from "../schema";
 import {
-  bypassesRls, Currency, DateRange, DayRange, dayRange, Id, IsoDateInput, JsonArray, JsonObject, MinorAmount, one, PageInput, parseInput, rowsOf, timeKeyset, timeRange, toPage,
+  bypassesRls, Currency, DateRange, DayRange, dayRange, Id, IsoDateInput, JsonArray, JsonObject, maybeOne, MinorAmount, one, PageInput, parseInput, rowsOf, timeKeyset, timeRange, toPage,
   type Executor, type Page,
 } from "./_shared";
 
@@ -717,6 +717,34 @@ export const journeysRepo = {
       .from(milestones)
       .where(and(eq(milestones.businessId, businessId), sql`${milestones.ref} ->> 'trophyKey' is not null`));
     return rows.map((r) => r.key);
+  },
+
+  /** One milestone of the business that is not archived, or null. */
+  async getMilestone(db: Executor, businessId: string, milestoneId: string): Promise<Milestone | null> {
+    return maybeOne(await db.select().from(milestones).where(and(eq(milestones.businessId, businessId), eq(milestones.id, milestoneId), isNull(milestones.archivedAt))).limit(1));
+  },
+
+  /**
+   * Shows a reached milestone on the project's page (`public`) or takes it off (`private`): 0089. Only a milestone the
+   * platform recorded (`ref.trophyKey`) can be shown. Conditional on the row's state, so a second tab changes nothing
+   * twice: the row when it changed, null when it already read that way (or is not there). Showing and hiding are an
+   * owner's or an admin's, whichever client wrote (the table's guard trigger).
+   */
+  async setMilestoneShown(db: Executor, businessId: string, milestoneId: string, shown: boolean): Promise<Milestone | null> {
+    const rows = await db
+      .update(milestones)
+      .set({ visibility: shown ? "public" : "private" })
+      .where(
+        and(
+          eq(milestones.businessId, businessId),
+          eq(milestones.id, milestoneId),
+          isNull(milestones.archivedAt),
+          sql`${milestones.ref} ->> 'trophyKey' is not null`,
+          shown ? ne(milestones.visibility, "public") : eq(milestones.visibility, "public"),
+        ),
+      )
+      .returning();
+    return rows[0] ?? null;
   },
 
   async archiveMilestone(db: Executor, businessId: string, milestoneId: string): Promise<Milestone> {

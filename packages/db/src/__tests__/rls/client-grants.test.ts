@@ -143,8 +143,25 @@ describe("structural: what the client roles may call and create", () => {
       "connection_is_blocked(uuid,uuid)",
       "fm_set_share_one_to_one_calls(boolean)",
       "is_community_invitee(uuid)",
+      // 0094 (granted by 0095): whether the caller is a member of the business other than as a collaborator; the
+      // policies that close the admin-written, Money and Legal tables to a collaborator call it as authenticated.
+      "is_member_not_collaborator(uuid)",
+      // 0096: takes a share lock on the caller's own membership row (auth.uid() only) for team.humans.role.
+      "lock_my_membership(uuid)",
     ],
   };
+
+  // The people helpers are for a signed-in caller and the service only: with no auth.uid() anon has no use for them.
+  for (const fn of ["is_member_not_collaborator(uuid)", "lock_my_membership(uuid)"]) {
+    it(`anon cannot EXECUTE ${fn}; authenticated and service_role can`, async () => {
+      expect([await fnPriv("anon", fn), await fnPriv("authenticated", fn), await fnPriv("service_role", fn)]).toEqual([false, true, true]);
+    });
+  }
+
+  it("anon's call to a people helper is refused", async () => {
+    await expect(h.anon().execute(sql`select is_member_not_collaborator(${A.businessId}::uuid)`)).rejects.toThrow(/permission denied for function is_member_not_collaborator/);
+    await expect(h.anon().execute(sql`select lock_my_membership(${A.businessId}::uuid)`)).rejects.toThrow(/permission denied for function lock_my_membership/);
+  });
 
   for (const role of CLIENT_ROLES) {
     it(`${role} can EXECUTE only the listed security-definer functions`, async () => {

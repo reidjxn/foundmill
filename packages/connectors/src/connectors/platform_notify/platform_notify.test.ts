@@ -8,7 +8,7 @@ import { routedFetch } from "../../http";
 import { makeToolContext, TEST_BUSINESS_ID } from "../../testing/contract-suite";
 import { uuidFromSeed } from "../../mock-utils";
 import { platformUnsubscribeToken, readPlatformUnsubscribeToken, suppressionHashOfEmail } from "../platform_mail";
-import { createPlatformNotifyConnector, createPlatformNotifyMock, notifyOffToken, notifyOffUrl, readNotifyOffToken } from "./index";
+import { createPlatformNotifyConnector, createPlatformNotifyMock, invitationsOffToken, invitationsOffUrl, notifyOffToken, notifyOffUrl, readInvitationsOffToken, readNotifyOffToken } from "./index";
 
 const SECRET = "test-platform-mail-signing-secret-0123456789";
 const USER = uuidFromSeed("test", "user", "maya");
@@ -48,12 +48,40 @@ describe("platform_notify", () => {
     expect(body.categories).toEqual(["foundmill-notify"]);
   });
 
+  it("an account-safety notice: no unsubscribe link or header, its own category; exactly one of the two is given", async () => {
+    const mock = createPlatformNotifyMock();
+    const ctx = makeToolContext(mock);
+    const { unsubscribeUrl: _off, ...notice } = mail;
+    expect((await mock.callTool("send_notification", { ...notice, accountSafety: true }, ctx)).ok).toBe(true);
+    const [sent] = mock.sentFor(TEST_BUSINESS_ID);
+    expect((sent!.body as { headers?: unknown }).headers).toBeUndefined();
+    expect((sent!.body as { categories: string[] }).categories).toEqual(["foundmill-notify", "foundmill-account-safety"]);
+    // The global unsubscribe list is bypassed, never the bounce or spam lists (no bypass_list_management with it).
+    expect((sent!.body as { mailSettings: unknown }).mailSettings).toEqual({ bypassUnsubscribeManagement: { enable: true } });
+    // Live, the SDK writes it as SendGrid's own field.
+    const seen: Record<string, unknown>[] = [];
+    const live = createPlatformNotifyConnector({
+      secrets: { sendgridApiKey: "SG.platform-test-key" },
+      fetch: routedFetch({
+        "POST https://api.sendgrid.com/v3/mail/send": async (req) => {
+          seen.push((await req.json()) as Record<string, unknown>);
+          return new Response(null, { status: 202, headers: { "x-message-id": "sg-notice-1" } });
+        },
+      }),
+    });
+    expect((await live.callTool("send_notification", { ...notice, accountSafety: true }, makeToolContext(live, { mode: "live" }))).ok).toBe(true);
+    expect(seen[0]!.mail_settings).toEqual({ bypass_unsubscribe_management: { enable: true } });
+    expect(seen[0]!.headers).toBeUndefined();
+    // Both, or a false flag, or neither: refused.
+    for (const bad of [{ ...mail, accountSafety: true }, { ...notice, accountSafety: false }, notice]) expect((await mock.callTool("send_notification", bad, ctx)).ok, JSON.stringify(Object.keys(bad))).toBe(false);
+  });
+
   it("needs the platform key, and takes no extra fields (no attachments, no Bcc, no headers)", async () => {
     const keyless = createPlatformNotifyConnector({ secrets: {} });
     await expect(keyless.callTool("send_notification", mail, makeToolContext(keyless, { mode: "live" }))).rejects.toMatchObject({ code: "connector_unconfigured" });
     const mock = createPlatformNotifyMock();
     const ctx = makeToolContext(mock);
-    for (const extra of [{ attachments: [{ filename: "a.pdf" }] }, { bcc: [{ email: "x@evil.example" }] }, { subject: "Two\nlines" }, { from: { email: "hello@mail.foundmill.test", name: "Foundmill\r\nBcc: x" } }]) {
+    for (const extra of [{ attachments: [{ filename: "a.pdf" }] }, { bcc: [{ email: "x@evil.example" }] }, { subject: "Two\nlines" }, { from: { email: "hello@mail.foundmill.test", name: "Foundmill\r\nBcc: x" } }, { unsubscribeUrl: undefined }]) {
       const r = await mock.callTool("send_notification", { ...mail, ...extra }, ctx);
       expect(r.ok, JSON.stringify(extra)).toBe(false);
     }
@@ -76,5 +104,21 @@ describe("platform_notify", () => {
     expect(readNotifyOffToken(SECRET, projectToken)).toBeNull();
     expect(readPlatformUnsubscribeToken(SECRET, token)).toBeNull();
     expect(offUrl).toMatch(/^https:\/\/ingest\.foundmill\.test\/mail\/notify\/off\?t=n1\./);
+  });
+
+  it("every message needs its one-click link; an invitation's names the address by its hash only, under its own label", () => {
+    const hash = suppressionHashOfEmail("Invited@Example.com");
+    const token = invitationsOffToken(SECRET, hash);
+    expect(readInvitationsOffToken(SECRET, token)).toEqual({ emailHash: hash });
+    expect(token).not.toContain("invited");
+    expect(readInvitationsOffToken("another-secret-0123456789abcdef-xyz", token)).toBeNull();
+    const [v, , sig] = token.split(".");
+    expect(readInvitationsOffToken(SECRET, [v, suppressionHashOfEmail("else@example.com"), sig].join("."))).toBeNull();
+    expect(readInvitationsOffToken(SECRET, `${token}x`)).toBeNull();
+    // Never valid as another token, nor another as it.
+    expect(readNotifyOffToken(SECRET, token)).toBeNull();
+    expect(readPlatformUnsubscribeToken(SECRET, token)).toBeNull();
+    expect(readInvitationsOffToken(SECRET, notifyOffToken(SECRET, USER, "decision_waiting"))).toBeNull();
+    expect(invitationsOffUrl("https://ingest.foundmill.test/", token)).toMatch(/^https:\/\/ingest\.foundmill\.test\/mail\/invitations\/off\?t=i1\./);
   });
 });

@@ -81,8 +81,9 @@ describe("people are free (TIERS.seats)", () => {
     const guest = await hz.h.createUser("tiers-guest@test.local");
     // The fixture business already has four members and is on the free plan: no limit refuses a fifth.
     expect((await repos.businesses.get(hz.db, hz.B.businessId)).planTier).toBe("free");
-    const membership = await owner.team.humans.invite({ businessId: hz.B.businessId, userId: guest, role: "member" });
-    expect(membership.role).toBe("member");
+    const { link } = await owner.invitation.create({ businessId: hz.B.businessId, role: "collaborator" });
+    await hz.caller({ userId: guest }).invitation.accept({ token: link.split("/i/")[1]! });
+    expect((await repos.memberships.get(hz.db, hz.B.businessId, guest))?.role).toBe("collaborator");
     expect(await repos.memberships.get(hz.db, hz.B.businessId, guest)).not.toBeNull();
   });
 });

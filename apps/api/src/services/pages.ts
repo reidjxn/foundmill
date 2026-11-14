@@ -14,7 +14,8 @@
  *   business, and screens the text with the deterministic checks of `community-screen` (markup and script links, email
  *   addresses, phone numbers). A held page stays unpublished and the answer says why in one plain sentence
  *   (`PAGE_HOLD_MESSAGES`). No model is called anywhere here. Each change writes its event through the outbox and an
- *   audit row in the same transaction.
+ *   audit row in the same transaction. The first publish also records the milestone "Page live" in that transaction
+ *   (`awardPageLiveMilestone`, at the page's `published_at`; publishing changes later awards nothing new).
  * - **The public read** (`publicPageBySlug`): the view `public_project_pages` on the service connection (since 0081 the
  *   view is the service role's only), so only its columns leave, plus the logo of a page the view lists. Limited per
  *   caller, then per address and across all of them; a lookup that finds nothing gives those back and draws from a
@@ -27,11 +28,13 @@
  *   email. `page.followed` is written when the person confirms (ingest `/mail/confirm`), not here.
  */
 import { communityScreenLocalFlags } from "@foundmill/agents";
+import { tierShowsBuiltOnMark } from "@foundmill/config";
 import { createHash, createHmac, randomBytes } from "node:crypto";
-import { repos, type DbTx, type InboxItem, type ProjectPage } from "@foundmill/db";
+import { awardPageLiveMilestone, repos, type DbTx, type InboxItem, type ProjectPage } from "@foundmill/db";
 import {
   AppError,
   FOLLOW_ERRORS,
+  FOLLOW_TURNSTILE_ACTION,
   followConsentText,
   followEmailProblem,
   ForbiddenError,
@@ -45,6 +48,8 @@ import {
   WRITE_ROLES,
   hasSectionAccess,
   pageContentProblems,
+  isAdminRole,
+  limitAddress,
   pageSlugProblem,
   pageUrl,
   readPageContent,
@@ -61,6 +66,7 @@ import { audit, emit, type BusinessContext } from "../trpc";
 import type { Context } from "../context";
 import { answerNote } from "./answer-note";
 import type { DecideItemResult } from "./decide";
+import { queuePostDraft } from "./post-drafts";
 import { takeOrThrow } from "./rate-limit";
 
 /** What the console's Public page tab reads (`page.get`) and every change answers. */
@@ -91,6 +97,8 @@ export interface PageView {
   preview: { name: string; brandPrimary: string; brandSecondary: string; founderNames: string[] };
   /** How many people follow the page now (package 1.6): a count only, never who. */
   followers: number;
+  /** Whether the page carries the small "Built on" mark for its visitors (the free plan; docs/NETWORK.md F2). */
+  mark: boolean;
 }
 
 /** `page.publish`'s answer: published, or held with the reason and its sentence (the page stays as it was). */
@@ -105,7 +113,7 @@ export const PAGE_PUBLISH_ROLE_MESSAGE = "Only an owner or an admin can publish 
 const sampleRefusal = () => new AppError("page_sample_business", PAGE_SAMPLE_MESSAGE, 409);
 
 const canEditPage = (ctx: BusinessContext): boolean => WRITE_ROLES.includes(ctx.role) && hasSectionAccess(ctx.membership, "product", "write");
-const canPublishPage = (ctx: BusinessContext): boolean => (ctx.role === "owner" || ctx.role === "admin") && hasSectionAccess(ctx.membership, "product", "write");
+const canPublishPage = (ctx: BusinessContext): boolean => isAdminRole(ctx.role) && hasSectionAccess(ctx.membership, "product", "write");
 
 /**
  * The address a first save uses: the business's own slug made into a page address, with a short suffix of the business
@@ -144,6 +152,7 @@ async function viewOf(tx: DbTx, ctx: BusinessContext, row: ProjectPage | null, s
     isSample: ctx.business.isDemo,
     preview: { name: ctx.business.name, brandPrimary: ctx.business.kitPrimary, brandSecondary: ctx.business.kitSecondary, founderNames },
     followers,
+    mark: tierShowsBuiltOnMark(ctx.business.planTier),
   };
 }
 
@@ -224,15 +233,23 @@ export async function publishPage(ctx: BusinessContext, input: { content: PageCo
     });
     return { outcome: "held", reason, message: PAGE_HOLD_MESSAGES[reason], page };
   }
+  let wentLive = false;
   const page = await ctx.rls(async (tx) => {
     const { page: row, wasLive } = await repos.pages.publish(tx, ctx.businessId, { content, slug, userId: ctx.userId });
+    wentLive = !wasLive;
     const url = pageUrl(ctx.env.APP_URL, row.slug);
     await emit(tx, ctx, { type: "page.published", payload: { pageId: row.id, slug: row.slug, url } });
+    // The page is live: the project's first early milestone, recorded once at the moment it went live (0089). A page
+    // that was already live before this existed gets it here too, with its original date.
+    if (row.publishedAt) await awardPageLiveMilestone(tx, ctx.businessId, { pageId: row.id, at: row.publishedAt });
     // The Product lead's "Your project's page is ready" note asked for exactly this: it stops waiting in Needs you.
     await repos.pages.closeReadyNote(tx, ctx.businessId, ctx.userId);
     await audit(tx, ctx, { action: "page.published", target: { kind: "project_page", id: row.id }, details: { slug: row.slug, url, changes: wasLive } });
     return viewOf(tx, ctx, row);
   });
+  // The page went live (not a change to a live page): the social agent may draft a post about it for the founder to
+  // share by tap, where the founder put the social channel on the board (services/post-drafts.ts). Never waited on.
+  if (wentLive) queuePostDraft(ctx, ctx.businessId, { kind: "page_published" });
   return { outcome: "published", page };
 }
 
@@ -282,6 +299,10 @@ export interface PublicPageView {
   founderNames: string[];
   /** Whether the page carries the "Follow" form (`publicPage.follow`). */
   followForm: boolean;
+  /** Whether the page carries the small "Built on" mark (a project on the free plan; a paid plan removes it). */
+  mark: boolean;
+  /** Whether the founders show at least one milestone: the project then has a story at `/p/<slug>/story` (0089). */
+  story: boolean;
 }
 
 /**
@@ -347,7 +368,7 @@ export async function publicPageBySlug(ctx: Pick<Context, "db" | "env" | "limits
     await takeOrThrow(ctx.limits, "Page view", [{ key: publicPageLimitKeys.unknown, rule: PUBLIC_PAGE_LIMITS.unknown }]);
     return null;
   }
-  const logo = await repos.pages.public.logoBySlug(ctx.db, clean);
+  const [logo, planTier, story] = await Promise.all([repos.pages.public.logoBySlug(ctx.db, clean), repos.pages.public.planTierBySlug(ctx.db, clean), repos.pages.public.hasStory(ctx.db, clean)]);
   const { pitch, about, forWhom, stage, showFounders, followForm } = page.content;
   return {
     slug: page.slug,
@@ -363,12 +384,16 @@ export async function publicPageBySlug(ctx: Pick<Context, "db" | "env" | "limits
     logo,
     founderNames: showFounders ? page.founderNames : [],
     followForm,
+    // Taken down between the two reads: no plan to go by, so the mark stays (the free plan's rule).
+    mark: tierShowsBuiltOnMark(planTier ?? "free"),
+    story,
   };
 }
 
 /**
  * Signed-out follows (`publicPage.follow`, package 1.6), shared by every api replica (`ctx.limits`), in the order
- * `followPage` takes them:
+ * `followPage` takes them (the bot check, Turnstile, comes after `perCaller` and before the rest, so a script never
+ * spends a real person's allowance):
  *   - `perCaller`: by the address the api itself sees (`ctx.clientAddress`). A follow comes through the web's server
  *     action, so every visitor of the web shares the web's egress address here: the limit is generous, and the per-visitor
  *     limit is the Vercel Firewall rule on POST `/p/*` (docs/DEPLOY.md). No address forwarded by the web is trusted.
@@ -406,9 +431,13 @@ export function followAddressKey(env: Pick<Env, "SESSION_TOKEN_SECRET">, kind: "
   return createHmac("sha256", secret).update(`${FOLLOW_KEY_LABEL}\n${kind}\n${value.trim().toLowerCase()}`).digest("base64url");
 }
 
-/** A per-caller rate-limit key for `scope` (`public-page`, `public-person`, `page-follow`): the caller's address, keyed. */
+/**
+ * A per-caller rate-limit key for `scope` (`public-page`, `public-person`, `page-follow`, the milestone cards,
+ * `invite-read`, `invite-decline`): the caller's address, keyed. An IPv6 caller counts by their /64 (`limitAddress`,
+ * second security review P2-2), so the addresses of one subscriber's block share one window.
+ */
 export function callerLimitKey(env: Pick<Env, "SESSION_TOKEN_SECRET">, scope: string, address: string): string {
-  return `${scope}:caller:${followAddressKey(env, "caller", address)}`;
+  return `${scope}:caller:${followAddressKey(env, "caller", limitAddress(address))}`;
 }
 
 export const followLimitKeys = {
@@ -430,14 +459,58 @@ export interface FollowInput {
   consent: boolean;
   /** The hidden field: a person never fills it in. */
   website?: string | null;
+  /** The page's Turnstile token (the widget's `page_follow` action); without a valid one nothing is recorded or sent. */
+  turnstile?: string | null;
 }
 
-const followRefusal = (code: "follow_email" | "follow_consent" | "follow_closed") =>
+/** The token the web sends without a Turnstile site key (development stacks); the gateway's mock passes it. */
+export const FOLLOW_MOCK_TURNSTILE_TOKEN = "mock-ok";
+
+const followRefusal = (code: "follow_email" | "follow_consent" | "follow_closed" | "follow_unverified" | "follow_unavailable") =>
   code === "follow_email"
     ? new AppError(code, FOLLOW_ERRORS.email, 400, { field: "email" })
     : code === "follow_consent"
       ? new AppError(code, FOLLOW_ERRORS.consent, 400, { field: "consent" })
-      : new AppError(code, FOLLOW_ERRORS.closed, 404);
+      : code === "follow_unverified"
+        ? new AppError(code, FOLLOW_ERRORS.unverified, 403)
+        : code === "follow_unavailable"
+          ? new AppError(code, FOLLOW_ERRORS.unavailable, 503)
+          : new AppError(code, FOLLOW_ERRORS.closed, 404);
+
+const devStack = (appEnv: string) => appEnv === "development" || appEnv === "test";
+
+/** The site's hostname without "www." from APP_URL (never the request) on staging and production; null elsewhere. */
+function followTurnstileHostname(env: Pick<Env, "APP_ENV" | "APP_URL">): string | null {
+  if (env.APP_ENV !== "production" && env.APP_ENV !== "staging") return null;
+  try {
+    return env.APP_URL ? new URL(env.APP_URL).hostname.replace(/^www\./, "") : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The page's bot check (security audit 2026-11-13, finding 10), through the gateway's `POST /v1/turnstile/verify`, the
+ * idea box's verifier. Fails closed: no token, a refused one, or a check that cannot run is a refusal, and nothing is
+ * recorded or sent. The visitor's address is not sent: through the web's Server Action the api sees the web's address,
+ * not the visitor's. A development or test stack on mock integrations without the gateway passes the mock token only.
+ */
+async function checkFollowTurnstile(ctx: Pick<Context, "gateway" | "env" | "log">, token: string | null | undefined): Promise<void> {
+  const t = typeof token === "string" ? token.trim() : "";
+  if (!t || t.length > 2048) throw followRefusal("follow_unverified");
+  const mockPasses = devStack(ctx.env.APP_ENV) && ctx.env.INTEGRATIONS_MODE === "mock" && t === FOLLOW_MOCK_TURNSTILE_TOKEN;
+  if (!ctx.gateway.verifyTurnstile) {
+    if (mockPasses) return;
+    throw followRefusal("follow_unavailable");
+  }
+  const check = await ctx.gateway.verifyTurnstile({ token: t, remoteIp: null, hostname: followTurnstileHostname(ctx.env), action: FOLLOW_TURNSTILE_ACTION }).catch((err: unknown) => {
+    if (mockPasses) return { ok: true, reason: "ok" as const, simulated: true };
+    ctx.log.warn({ err: err instanceof Error ? err.message : String(err) }, "follow: turnstile check failed");
+    return { ok: false, reason: "unavailable" as const, simulated: false };
+  });
+  if (check.ok) return;
+  throw followRefusal(check.reason === "unavailable" || check.reason === "unconfigured" ? "follow_unavailable" : "follow_unverified");
+}
 
 const EmailShape = z.email();
 
@@ -448,7 +521,8 @@ type FollowContext = Pick<Context, "db" | "limits" | "env" | "gateway" | "log"> 
  *   1. the hidden field filled in: the same answer, nothing written, no limit spent;
  *   2. the address (trimmed, lowercased, at most 200 characters, the shared check and Zod's) and the box ticked, else a
  *      plain refusal;
- *   3. the per-caller limit (TOO_MANY_REQUESTS);
+ *   3. the per-caller limit (TOO_MANY_REQUESTS), then the bot check (`checkFollowTurnstile`: `follow_unverified`, or
+ *      `follow_unavailable` when it cannot run; nothing written, sent or spent but the caller's window);
  *   4. the per-address allowance (one a day per page address and email) and, taken separately, the day's three confirmations
  *      email for this address across every project: over either, the same answer and nothing written, before the page
  *      is even looked up;
@@ -475,6 +549,8 @@ export async function followPage(ctx: FollowContext, input: FollowInput): Promis
   const slug = input.slug.trim().toLowerCase();
   if (pageSlugProblem(slug)) throw followRefusal("follow_closed");
   if (ctx.clientAddress) await takeOrThrow(ctx.limits, "Follow", [{ key: followLimitKeys.caller(ctx.env, ctx.clientAddress), rule: PAGE_FOLLOW_LIMITS.perCaller }]);
+  // Before anything a real person's address or the page's budget could lose.
+  await checkFollowTurnstile(ctx, input.turnstile);
 
   // Repeats are dropped before anything else is spent or read.
   if (!(await ctx.limits.take([{ key: followLimitKeys.perAddress(ctx.env, slug, email), rule: PAGE_FOLLOW_LIMITS.perAddress }])).ok) return ok;

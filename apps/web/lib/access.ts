@@ -7,7 +7,7 @@
  * An example membership (0065, "Explore an example": a viewer of a seeded demo business) is a viewer with its own
  * reason line, so every disabled control says "look around, then start your own" instead of naming staff roles.
  */
-import { WRITE_ROLES, type MembershipRole } from "@foundmill/shared/constants";
+import { isAdminRole, WRITE_ROLES, type MembershipRole } from "@foundmill/shared/constants";
 import { effectivePermission, SECTIONS, type Section, type SectionMembership } from "@foundmill/shared/permissions";
 
 export interface Access {
@@ -48,7 +48,7 @@ export function accessFor(membership: AccessMembership | null | undefined, busin
   const canChange = WRITE_ROLES.includes(membership.role);
   return {
     role: membership.role,
-    isAdmin: membership.role === "owner" || membership.role === "admin",
+    isAdmin: isAdminRole(membership.role),
     canChange,
     isExample: isExampleViewer(membership, business),
     canRead: (section) => effectivePermission(membership, section) !== "none",
@@ -96,8 +96,8 @@ export function sampleMarker(business: { isDemo?: boolean | null } | null | unde
 /** The line a disabled control shows when the role only reads. */
 export function readOnlyReason(access: Pick<Access, "role" | "isExample">): string {
   if (access.isExample) return EXAMPLE_READ_ONLY_REASON;
-  return `As ${access.role === "advisor" ? "an advisor" : "a viewer"} you can follow the business; an owner, admin or member makes changes.`;
+  return `As ${access.role === "advisor" ? "an advisor" : "a viewer"} you can follow the business; the founders and the people who work on it make changes.`;
 }
 
 /** The line a control only owners and admins use shows to everyone else. */
-export const ADMIN_ONLY_REASON = "Only an owner or admin can do this.";
+export const ADMIN_ONLY_REASON = "Only an owner, a cofounder or an admin can do this.";

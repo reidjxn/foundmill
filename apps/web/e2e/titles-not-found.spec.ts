@@ -19,7 +19,7 @@ test.describe("titles and misses inside a business", () => {
       ["home", /^(?:\(\d+\) )?Details · Northwind Skincare · /],
       ["inbox", /^(?:\(\d+\) )?Inbox · Northwind Skincare · /],
       ["crm", /^(?:\(\d+\) )?Contacts · Northwind Skincare · /],
-      ["settings/members", /^(?:\(\d+\) )?Members · Settings · Northwind Skincare · /],
+      ["settings/members", /^(?:\(\d+\) )?People · Settings · Northwind Skincare · /],
       ["settings/danger", /^(?:\(\d+\) )?Danger zone · Settings · Northwind Skincare · /],
       ["d/finance/overview", /^(?:\(\d+\) )?Overview · Finance · Northwind Skincare · /],
     ] as const) {

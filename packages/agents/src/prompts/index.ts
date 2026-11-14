@@ -15,6 +15,7 @@ import { distributionStrategistPrompt } from "./distribution-strategist";
 import { jurisdictionRecommenderPrompt } from "./jurisdiction-recommender";
 import { plannerPrompt } from "./planner";
 import { reviewAgentPrompt } from "./review-agent";
+import { secondReadPrompt } from "./second-read";
 import { sourceRelevancePrompt, sourceWatcherPrompt } from "./source-watcher";
 import { entitySweepPrompt } from "./entity-sweep";
 import { chapterTitlePrompt } from "./chapter-title";
@@ -27,6 +28,7 @@ import { channelCreativePrompt } from "./channel-creative";
 import { productResearchPlanPrompt } from "./product-research";
 import { goalProposalPrompt } from "./goal-proposal";
 import { projectPagePrompt } from "./project-page";
+import { postDraftPrompt } from "./post-draft";
 import { teamCallTurnPrompt, teamCallWrapUpPrompt } from "./team-call";
 
 export * from "./template";
@@ -45,6 +47,7 @@ export * from "./distribution-strategist";
 export * from "./jurisdiction-recommender";
 export * from "./planner";
 export * from "./review-agent";
+export * from "./second-read";
 export * from "./source-watcher";
 export * from "./entity-sweep";
 export * from "./chapter-title";
@@ -57,6 +60,7 @@ export * from "./channel-creative";
 export * from "./product-research";
 export * from "./goal-proposal";
 export * from "./project-page";
+export * from "./post-draft";
 export * from "./team-call";
 
 export const PROMPT_LIST = [
@@ -76,6 +80,7 @@ export const PROMPT_LIST = [
   jurisdictionRecommenderPrompt,
   plannerPrompt,
   reviewAgentPrompt,
+  secondReadPrompt,
   sourceRelevancePrompt,
   sourceWatcherPrompt,
   entitySweepPrompt,
@@ -95,6 +100,7 @@ export const PROMPT_LIST = [
   projectPagePrompt,
   teamCallTurnPrompt,
   teamCallWrapUpPrompt,
+  postDraftPrompt,
 ] as const;
 
 export type PromptKey = (typeof PROMPT_LIST)[number]["key"];

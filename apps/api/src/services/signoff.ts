@@ -16,7 +16,7 @@
 import { CHANNEL_SCORING_TASK, getArchetypeSeed } from "@foundmill/agents";
 import { LIMITS } from "@foundmill/config";
 import { bothSignedOff, loadProductStage, repos, signoffDecisionBlock, type Decision, type DbTx, type InboxItem, type PlanWithActions, type ProductSignoff, type Task } from "@foundmill/db";
-import { AppError, CHANNEL_KEYS, CHANNEL_META, channelMayRun, ConflictError, ForbiddenError, ValidationError, type ChannelKey, type ProductStage, type SignoffKind, type SignoffStatus } from "@foundmill/shared";
+import { AppError, CHANNEL_KEYS, CHANNEL_META, channelEngineMayRun, ConflictError, ForbiddenError, isAdminRole, ValidationError, type ChannelKey, type ProductStage, type SignoffKind, type SignoffStatus } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
 import { channelRowsFor, MIN_DECISION_OPTIONS, offerableOptions, OPTIONS_LEFT_OUT_LINE } from "./channel-availability";
@@ -438,7 +438,7 @@ export function scoringTaskFor(available: readonly ChannelKey[]): { title: strin
 }
 
 export async function startDistribution(ctx: BusinessContext, input: { via: "board" | "inbox"; itemId?: string | null }): Promise<StartDistributionResult> {
-  if (ctx.role !== "owner" && ctx.role !== "admin") throw new ForbiddenError("Owners and admins start distribution.");
+  if (!isAdminRole(ctx.role)) throw new ForbiddenError("Owners, cofounders and admins start distribution.");
   await assertAgentsRunning(ctx, "distribution");
   const seed = ctx.business.archetype ? getArchetypeSeed(ctx.business.archetype) : null;
 
@@ -448,10 +448,11 @@ export async function startDistribution(ctx: BusinessContext, input: { via: "boa
     const [channels, agents, departments, chief, latest] = await Promise.all([repos.channels.list(tx, ctx.businessId, {}), repos.agents.list(tx, ctx.businessId, { limit: 500 }), repos.departments.list(tx, ctx.businessId, { includeHidden: true }), repos.agents.chiefOfStaff(tx, ctx.businessId), repos.productSignoffs.latest(tx, ctx.businessId)]);
     // Only channels that can really act start (founder, 2026-11-11): one that is not available and not in offline
     // tracking keeps its row, starts no engine and is not named as running. With none available nothing is scored and the
-    // Board asks nothing; the note says what opens first.
+    // Board asks nothing; the note says what opens first. A channel the founder posts by tap (founder, 2026-11-12) is on
+    // the board and starts no engine either: the team runs nothing there, so it is not a starter and no route relies on it.
     const availability = await channelRowsFor(tx, ctx);
     const kitModeOf = new Map(channels.map((c) => [c.channelKey, c.kitMode] as const));
-    const mayRun = (key: ChannelKey) => channelMayRun(availability.rows[key], kitModeOf.get(key) ?? CHANNEL_META[key].kitModeByDefault);
+    const mayRun = (key: ChannelKey) => channelEngineMayRun(availability.rows[key], kitModeOf.get(key) ?? CHANNEL_META[key].kitModeByDefault);
     const enabled = channels.filter((c) => c.enabled && !c.archivedAt && mayRun(c.channelKey));
 
     // The Ready to start selling? round, when it was offered: approved, its note answered.
@@ -464,12 +465,12 @@ export async function startDistribution(ctx: BusinessContext, input: { via: "boa
 
     // Scoring the channels is the first distribution work; a business whose channels were scored already keeps its scores.
     let scoringTaskId: string | null = null;
-    const allAvailable = availability.available.length === CHANNEL_KEYS.length;
-    if (!channels.some((c) => c.scoredAt) && availability.available.length > 0) {
+    const allAvailable = availability.teamRuns.length === CHANNEL_KEYS.length;
+    if (!channels.some((c) => c.scoredAt) && availability.teamRuns.length > 0) {
       const strategist = agents.items.find((a) => a.agentType === CHANNEL_SCORING_TASK.assigneeTemplateKey) ?? null;
       const distribution = departments.find((d) => d.slug === CHANNEL_SCORING_TASK.departmentSlug) ?? departments.find((d) => (d.moduleKeys as string[]).includes("distribution")) ?? null;
       // With only some channels able to run, the task says which the starters may come from.
-      const scoring = allAvailable ? { title: CHANNEL_SCORING_TASK.title, goal: CHANNEL_SCORING_TASK.goal, acceptance: CHANNEL_SCORING_TASK.acceptance } : scoringTaskFor(availability.available);
+      const scoring = allAvailable ? { title: CHANNEL_SCORING_TASK.title, goal: CHANNEL_SCORING_TASK.goal, acceptance: CHANNEL_SCORING_TASK.acceptance } : scoringTaskFor(availability.teamRuns);
       const task = await repos.tasks.create(tx, ctx.businessId, { kind: CHANNEL_SCORING_TASK.kind, title: scoring.title, goalMd: scoring.goal, acceptance: scoring.acceptance, assigneeAgentId: strategist?.id ?? distribution?.leadAgentId ?? null, departmentId: distribution?.id ?? null, status: "ready", currency: ctx.business.currency });
       scoringTaskId = task.id;
     }
