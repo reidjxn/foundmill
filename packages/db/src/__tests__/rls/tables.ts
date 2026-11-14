@@ -186,6 +186,11 @@ export const COLLABORATOR_STILL_READS_ADMIN_TABLES: readonly string[] = ["depart
  * cofounder, an admin and a member write them as before and a viewer reads them.
  */
 export const COLLABORATOR_CLOSED_MONEY_LEGAL: readonly string[] = ["transactions", "ledger_snapshots", "forecasts", "filings", "contracts", "compliance_events", "regulatory_gates"];
+/**
+ * 0107: tables a collaborator reads only through a view that leaves the money out: no row of the table itself
+ * (`conversions`, read through `member_conversions` with `amount_minor` null; rls/collaborator-finance.test.ts).
+ */
+export const COLLABORATOR_READS_THROUGH_VIEW: readonly string[] = ["conversions"];
 
 /** Keeps the catalogue honest: every spec must name the table its Drizzle object points at. */
 export const expectedTableNames = () => TENANT_TABLES.map((t) => t.name);

@@ -2,7 +2,7 @@
 import { TEMPLATE_KEYS, getTemplate, hasTemplate, listTemplates } from "@foundmill/agents";
 import { CREDITS_CURRENCY } from "@foundmill/config";
 import { SectionPermissions, membershipEnded, repos, type AgentRosterActivity } from "@foundmill/db";
-import { ADMIN_ROLES, DECISION_TYPES, DEFAULT_AGENT_STYLE, ForbiddenError, hasSectionAccess, isOwnerRole, MEMBERSHIP_ROLES, NotFoundError, ValidationError, agentTier, characterFor, leadAgentIds } from "@foundmill/shared";
+import { ADMIN_ROLES, DECISION_TYPES, DEFAULT_AGENT_STYLE, eventAsSeenBy, ForbiddenError, hasSectionAccess, isOwnerRole, MEMBERSHIP_ROLES, NotFoundError, ValidationError, agentTier, characterFor, leadAgentIds } from "@foundmill/shared";
 import { z } from "zod";
 import { pendingApprovals, resolveApproval } from "../services/approvals";
 import { founderChangeNote, noticeNames, recentlyLowered, refundingOnFailure, takeFounderChange, tellFoundersQuietly, type FounderChangeRefund } from "../services/founder-notices";
@@ -121,7 +121,9 @@ export const teamRouter = router({
           const rating20 = mean === null ? null : Math.round(mean * 10) / 10;
           const rating = mean === null ? null : Math.round(mean * 5) / 10;
           const seen = activity.get(a.id);
-          const last = health.get(a.id);
+          // The health event as this reader may read it: behind a Finance wall, without its budget (the stream's wall).
+          const healthEvent = health.get(a.id);
+          const last = healthEvent ? eventAsSeenBy(ctx.membership, healthEvent) : undefined;
           const changed = last ? (last.payload as { to?: string; reason?: string; signals?: { loopDetected?: boolean; credentialExpired?: boolean; rateLimited?: boolean }; expectedReturnAt?: string | null }) : null;
           // The last health event explains the status only while the agent still has that status.
           const explains = changed && changed.to === a.status ? changed : null;

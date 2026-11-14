@@ -14,6 +14,7 @@ import { AGENT_STOP_REASON_WORDS, chiefAnswer, dayKeyIn, goalDateWords, hasSecti
 import type { BusinessContext } from "../trpc";
 import { cycleStatus } from "./cycle";
 import { goalView } from "./goals";
+import { maskFinance } from "./inbox-redaction";
 import { autopilotNextDay, needsYouFor, titleOf, weekFactsFor } from "./today";
 
 export interface ChiefAnswerView extends ChiefAnswer {
@@ -77,7 +78,7 @@ export async function chiefFactsFor(ctx: BusinessContext, now: Date = new Date()
       goal: active ? { sentence: active.sentence, kind: active.kind, target: active.target, currency: active.currency, dueOn: active.dueOn, achievedAt: active.achievedAt, progress: active.progress } : null,
       needsYou: needsYou ? { total: needsYou.total, holding: blocking, top: first ? { subject: first.subject, from: first.fromAgent ? { id: first.fromAgent.id, name: first.fromAgent.name } : null } : null } : null,
       stopped: stopped ? { reason: stopped } : null,
-      vacation: holiday ? { untilLabel: holiday.untilAt ? goalDateWords(dayKeyIn(holiday.untilAt, zone), today) : vacationUntilLabel(condition?.text) } : null,
+      vacation: holiday ? { untilLabel: holiday.untilAt ? goalDateWords(dayKeyIn(holiday.untilAt, zone), today) : hasSectionAccess(m, "finance", "read") ? vacationUntilLabel(condition?.text) : maskFinance(vacationUntilLabel(condition?.text)) } : null,
       paused: cycle.paused,
       failure: !cycle.running && cycle.lastFailure ? cycle.lastFailure.message : null,
       agentsWorking: cycle.activeAgentIds.length,

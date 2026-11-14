@@ -603,6 +603,13 @@
       "when": 1796133180000,
       "tag": "0097_founder_departures",
       "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1796138000000,
+      "tag": "0107_collaborator_finance_fields",
+      "breakpoints": true
     }
   ]
 }

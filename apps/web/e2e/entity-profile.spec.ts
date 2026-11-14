@@ -1,8 +1,12 @@
+import { randomUUID } from "node:crypto";
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, chooseTableView, openBusiness } from "./helpers";
+import { LONG, NORTHWIND_BUSINESS_ID, chooseTableView, completeProfile, openBusiness, openSettings, signIn, signInAs } from "./helpers";
 
 /**
  * Entity profile (BUILD §11.12 profile tabs; AC-11.12.3 merge then unmerge) on the seeded Northwind Skincare records.
+ * A collaborator (who reads Customers, never Finance) opens a paying customer's Commercial tab: the payments are listed
+ * without their amounts, and the tiles say the figures are hidden (the collaborator's walls, Nov 14, 2026). The
+ * collaborator is invited from Settings › People, joins as a second account and is removed again at the end.
  * Stack and commands: e2e/README.md.
  */
 interface CrmRowRef {
@@ -208,6 +212,60 @@ test.describe("entity profile", () => {
       await page.goto(url);
       await expect(page.getByTestId("profile-header")).toContainText(name, { timeout: LONG });
       await expect(page.getByTestId("merge-banner")).toHaveCount(0);
+    }
+  });
+});
+
+test.describe("entity profile for a collaborator", () => {
+  test("a paying customer's Commercial tab lists the payments without amounts, and says the figures are hidden", async ({ page, browser }) => {
+    // The owner: a paying customer of the seed, and its amounts as the owner reads them.
+    await openBusiness(page, "crm");
+    await page.getByTestId("crm-search-input").fill("role:customer");
+    await page.keyboard.press("Enter");
+    const link = page.getByRole("grid", { name: "CRM records" }).getByRole("row").nth(1).getByRole("link").first();
+    await expect(link).toBeVisible({ timeout: LONG });
+    const commercial = (await link.getAttribute("href"))!.replace(/\/overview$/, "/commercial");
+    await page.goto(commercial);
+    const ownersPayments = page.getByTestId("commercial-payments");
+    await expect(ownersPayments).toBeVisible({ timeout: LONG });
+    await expect(ownersPayments.getByTestId("payment-amount").first()).toHaveText(/\d/, { timeout: LONG });
+    const paymentCount = await ownersPayments.getByTestId("payment-amount").count();
+
+    // A collaborator invitation, accepted by a second account.
+    const people = await openSettings(page, "members");
+    const panel = people.getByTestId("invite-someone");
+    await panel.getByLabel("Collaborator").check();
+    await panel.getByTestId("invite-create").click();
+    const invitation = new URL((await people.getByTestId("invite-link-value").textContent({ timeout: LONG }))!.trim()).pathname;
+    const context = await browser.newContext();
+    const theirs = await context.newPage();
+    try {
+      await signInAs(theirs, randomUUID(), invitation);
+      await expect(theirs.getByTestId("invitation")).toHaveAttribute("data-state", "pending", { timeout: LONG });
+      await theirs.getByTestId("invitation-accept").click();
+      await theirs.waitForURL(new RegExp(`/b/${NORTHWIND_BUSINESS_ID}/|/onboarding`), { timeout: LONG });
+      if (/\/onboarding/.test(theirs.url())) await completeProfile(theirs);
+
+      await theirs.goto(commercial);
+      await expect(theirs.getByTestId("entity-profile")).toBeVisible({ timeout: LONG });
+      const payments = theirs.getByTestId("commercial-payments");
+      await expect(payments).toBeVisible({ timeout: LONG });
+      // The same payments, each without its amount; no money anywhere on the tab.
+      await expect(payments.getByTestId("payment-amount")).toHaveCount(paymentCount, { timeout: LONG });
+      for (const amount of await payments.getByTestId("payment-amount").all()) await expect(amount).toHaveText("—");
+      await expect(theirs.getByText("Hidden: your access does not include Finance").first()).toBeVisible();
+      await expect(theirs.getByTestId("entity-profile")).not.toContainText(/[€£$]\s?\d/);
+    } finally {
+      await context.close();
+      // The owner removes the collaborator again: later specs read Northwind's People as the seed left it.
+      await signIn(page);
+      const list = (await openSettings(page, "members")).getByTestId("member-list");
+      const row = list.locator("li").filter({ has: page.getByTestId("member-meta").filter({ hasText: /^Collaborator · / }) });
+      if (await row.count()) {
+        await row.first().getByRole("button", { name: /^Remove / }).click();
+        await page.getByTestId("remove-member-confirm").click();
+        await expect(row).toHaveCount(0, { timeout: LONG });
+      }
     }
   });
 });
