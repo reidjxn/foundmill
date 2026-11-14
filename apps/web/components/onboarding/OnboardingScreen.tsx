@@ -107,6 +107,7 @@ import {
 } from "./profile-form";
 import { AccountId } from "@/components/settings/AccountId";
 import { forgetVia } from "@/app/onboarding/actions";
+import { isAdultUnconfirmed } from "@/lib/adult";
 import { AdultStep } from "./AdultStep";
 
 export interface OnboardingScreenProps {
@@ -122,9 +123,11 @@ export interface OnboardingScreenProps {
   /**
    * Whether the account's "I am 18 or older" is on record (`founder.profile.get` `adultConfirmed`; 0104). A new account
    * without it ticks the box on the form, and the save that creates the profile carries it; a person with a profile and
-   * no record (here before sign-up asked) sees the one step instead of the form (`AdultStep`). Default true.
+   * no record (here before sign-up asked) sees the one step instead of the form (`AdultStep`). Required: the page reads
+   * it from the api, and a screen that does not know never assumes it. A save the api refuses with `adult_unconfirmed`
+   * asks for it too, whatever this said.
    */
-  adultConfirmed?: boolean;
+  adultConfirmed: boolean;
 }
 
 /** Under the box on the form that creates an account: asked once, never again. */
@@ -153,7 +156,7 @@ export const SKILLS_HINT = "Be honest: the team hires to cover what you don't ha
 /** Under Continue while the example founder is in: the example is never saved as the founder's own profile. */
 export const EXAMPLE_PROFILE_LINE = "Replace the example with your own answers to continue.";
 
-export function OnboardingScreen({ profile, email, accountId = null, via = null, adultConfirmed = true }: OnboardingScreenProps) {
+export function OnboardingScreen({ profile, email, accountId = null, via = null, adultConfirmed }: OnboardingScreenProps) {
   const router = useRouter();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -161,6 +164,9 @@ export function OnboardingScreen({ profile, email, accountId = null, via = null,
   const editing = profile !== null;
   /** Only the save that creates the profile carries the reference. */
   const handOver = editing ? null : via;
+  /** The api refused a save for want of the confirmation: ask for it, whatever the page was told. */
+  const [serverAsked, setServerAsked] = useState(false);
+  const needsAdult = !adultConfirmed || serverAsked;
 
   const save = useMutation(
     trpc.founder.profile.update.mutationOptions({
@@ -180,20 +186,22 @@ export function OnboardingScreen({ profile, email, accountId = null, via = null,
         router.push("/new");
         router.refresh();
       },
-      onError: (err) =>
-        toast({ title: "Profile not saved", description: saveErrorMessage(err), tone: "bad" }),
+      onError: (err) => {
+        if (isAdultUnconfirmed(err)) setServerAsked(true);
+        toast({ title: "Profile not saved", description: saveErrorMessage(err), tone: "bad" });
+      },
     }),
   );
 
   // A person from before (a profile, no "18 or older" on record) is asked once, in one step, instead of the form.
-  if (editing && !adultConfirmed) return <AdultStep />;
+  if (editing && needsAdult) return <AdultStep />;
 
   return (
     <OnboardingForm
       profile={profile}
       email={email}
       accountId={accountId}
-      askAdult={!editing && !adultConfirmed}
+      askAdult={!editing && needsAdult}
       saving={save.isPending}
       error={save.error ? saveErrorMessage(save.error) : null}
       onSubmit={(patch) => save.mutate(handOver ? { ...patch, via: handOver } : patch)}

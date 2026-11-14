@@ -28,6 +28,7 @@ import { BrandFrame } from "@/components/shell/BrandFrame";
 import { invitationReadFailure, signInThenBackTo } from "@/lib/people";
 import { apiTrpcUrl, createApiClient, errorMessage, type ApiClient } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
+import { isAdultUnconfirmed } from "@/lib/adult";
 
 export type InvitationPreview = { state: "pending"; projectName: string; inviterName: string | null; role: "cofounder" | "collaborator"; roleWord: string; roleSentence: string } | { state: "unavailable" };
 
@@ -54,13 +55,28 @@ export function InvitationScreen({ token, signedIn, preview: given, adultConfirm
   const router = useRouter();
   const [declined, setDeclined] = useState(false);
   const read = useQuery({ queryKey: ["invitation.byToken", token], queryFn: () => directApi().invitation.byToken.query({ token }), enabled: given === undefined, retry: false, staleTime: Infinity, refetchOnWindowFocus: false });
-  const accept = useMutation(trpc.invitation.accept.mutationOptions({ onSuccess: (r) => router.push(routes.today(r.businessId)) }));
+  const accept = useMutation(
+    trpc.invitation.accept.mutationOptions({
+      onSuccess: (r) => router.push(routes.today(r.businessId)),
+      // The api says the confirmation is not on record: ask for it, whatever this page believed.
+      onError: (err) => {
+        if (!isAdultUnconfirmed(err)) return;
+        setServerAsked(true);
+        setAdultMissing(true);
+      },
+    }),
+  );
   const decline = useMutation(trpc.invitation.decline.mutationOptions({ onSuccess: () => setDeclined(true) }));
   // 18 or older (0104): joining a project needs it on record, asked here once when it is not.
   const adultQ = useQuery(trpc.founder.adult.get.queryOptions(undefined, { enabled: signedIn && adultConfirmed === undefined, retry: false, staleTime: Infinity }));
   const [adult, setAdult] = useState(false);
   const [adultMissing, setAdultMissing] = useState(false);
-  const askAdult = signedIn && (adultConfirmed ?? adultQ.data?.confirmed) === false;
+  const [serverAsked, setServerAsked] = useState(false);
+  // Only a confirmation the api reported hides the box: while it is being asked the box waits (and so does Accept), and
+  // an answer that did not come (an error) shows it, never assumes it.
+  const adultLoading = signedIn && adultConfirmed === undefined && adultQ.isLoading;
+  const adultKnown = adultConfirmed ?? (adultQ.isSuccess ? adultQ.data.confirmed : undefined);
+  const askAdult = signedIn && !adultLoading && (adultKnown !== true || serverAsked);
   const preview: InvitationPreview | null = given ?? read.data ?? null;
   const readState: InvitationCardState = preview ? preview.state : read.isError ? invitationReadFailure(read.error) : "checking";
   const state: InvitationCardState = declined ? "declined" : accept.isSuccess ? "accepted" : readState;
@@ -85,7 +101,7 @@ export function InvitationScreen({ token, signedIn, preview: given, adultConfirm
           className="min-h-tap"
           icon={Check}
           loading={accept.isPending}
-          disabled={adultQ.isPending && adultConfirmed === undefined}
+          disabled={adultLoading}
           onClick={() => {
             if (askAdult && !adult) setAdultMissing(true);
             else accept.mutate(askAdult ? { token, confirmAdult: true } : { token });
@@ -114,7 +130,8 @@ export function InvitationScreen({ token, signedIn, preview: given, adultConfirm
       </>
     );
 
-  const failure = accept.error ?? decline.error;
+  // A refusal for want of the confirmation is said by the box itself.
+  const failure = (accept.error && !isAdultUnconfirmed(accept.error) ? accept.error : null) ?? decline.error;
   return (
     <BrandFrame smallScreen>
       <div className="@container" data-testid="invitation" data-state={state}>

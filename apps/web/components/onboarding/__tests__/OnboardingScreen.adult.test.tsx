@@ -44,7 +44,7 @@ function renderScreen(props: Partial<React.ComponentProps<typeof OnboardingScree
     <QueryClientProvider client={client}>
       <ToastProvider>
         <TooltipProvider>
-          <OnboardingScreen profile={null} email="reid.jackson@example.com" {...props} />
+          <OnboardingScreen profile={null} email="reid.jackson@example.com" adultConfirmed {...props} />
         </TooltipProvider>
       </ToastProvider>
     </QueryClientProvider>,
@@ -91,6 +91,20 @@ describe("OnboardingScreen and 18 or older", () => {
     await answerAndSubmit();
     await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
     expect(update.mock.calls[0]![0]).not.toHaveProperty("confirmAdult");
+  });
+
+  it("a save the api refuses with adult_unconfirmed shows the box, even when the page believed it was on record", async () => {
+    update.mockReset().mockRejectedValueOnce(Object.assign(new Error("Foundmill is for people 18 or older."), { data: { code: "FORBIDDEN", appCode: "adult_unconfirmed" } })).mockResolvedValue({ guidanceTurnedOff: false });
+    renderScreen({ adultConfirmed: true });
+    expect(screen.queryByTestId("profile-adult")).toBeNull();
+    await answerAndSubmit();
+    await waitFor(() => expect(screen.getByTestId("profile-adult")).toBeTruthy());
+    fireEvent.click(screen.getByRole("checkbox", { name: "I am 18 or older" }));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("profile-submit-bottom"));
+    });
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(2));
+    expect(update.mock.calls[1]![0]).toMatchObject({ confirmAdult: true });
   });
 
   it("a founder with a profile and no confirmation sees the one step, confirms once and goes on", async () => {
