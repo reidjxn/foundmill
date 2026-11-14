@@ -29,7 +29,7 @@ import { FOUNDER_RETURN_VIA, GUIDANCE_OFF_SOURCES, PAGE_SLUG_MAX, PERSON_ABOUT_M
 import { VIA_MAX_LENGTH } from "@foundmill/shared/via";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { adultConfirmedAt, adultUnconfirmed, recordAdultConfirmation } from "../services/adults";
+import { adultConfirmedAt, recordAdultConfirmation, requireAdult } from "../services/adults";
 import { IDEA_DRAFT_TOKEN_MAX_LENGTH, onPersonCreated } from "../services/person-created";
 import { writeEventRow } from "../services/events";
 import { getPublicProfile, publicPersonByHandle, publishPublicProfile, unpublishPublicProfile, updateFounderProfile, updatePublicProfile } from "../services/person-profile";
@@ -179,8 +179,9 @@ export const founderRouter = router({
       const existing = await repos.founders.get(ctx.db, ctx.userId);
       if (existing) return { ...(await updateFounderProfile(ctx, input)), guidanceTurnedOff: false };
       // 18 or older, for the whole product (services/adults.ts): a new account creates its profile only with the box
-      // ticked on this save, or an earlier confirmation (an invitation's accept, the network). The step records it.
-      if (confirmAdult !== true && !(await adultConfirmedAt(ctx.db, ctx.userId))) throw adultUnconfirmed();
+      // ticked on this save, or an earlier confirmation (an invitation's accept, the network). The confirmation is
+      // recorded here, before the profile, so a profile never exists without it; the step after it writes nothing then.
+      await requireAdult(ctx.db, ctx.userId, confirmAdult);
       const created = FounderProfileInput.parse({ displayName: input.displayName ?? freeDisplayName(ctx.email?.split("@")[0]), ...input });
       const profile = await repos.founders.upsert(ctx.db, ctx.userId, created);
       const guidanceTurnedOff = guidanceOffByDefault(profile.experience);

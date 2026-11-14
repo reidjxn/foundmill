@@ -8,10 +8,10 @@
  *   2. `signup_attribution`: who or what brought the person (`recordSignupAttribution`, ./attribution), from `via`,
  *      when the first step recorded nothing (an account is attributed once);
  *   3. `adult_confirmation`: the person's "I am 18 or older" from the save (`confirmAdult: true`), recorded on the
- *      account once (`recordAdultConfirmation`, ./adults; 0104). The save itself refuses to create a profile without it
- *      or an earlier confirmation (`founder.profile.update`), so this step only writes what the save checked. Should it
- *      fail, the account has a profile and no record, and is asked once the next time they arrive, like a person from
- *      before (`founder.adult.confirm`).
+ *      account once (`recordAdultConfirmation`, ./adults; 0104). The save itself records it before the profile exists
+ *      (`founder.profile.update` calls `requireAdult` first, so a profile never exists without it) or refuses; this
+ *      step then writes nothing (the first confirmation stands). It stays for a caller that creates a profile another
+ *      way and hands the confirmation here.
  * `ideaDraftToken` is accepted and passed to every step, and no step reads it yet: the step that claims an idea drafted
  * before sign-up (`claimIdeaDraft`) is added to the list by the change that builds it.
  *
