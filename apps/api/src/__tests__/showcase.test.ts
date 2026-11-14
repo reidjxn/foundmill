@@ -10,7 +10,7 @@
  *   - a withdrawal sets the draft aside, deletes the media and tells the house where a share was opened;
  *   - no event carries a founder's answer.
  */
-import { APP_NAME, HOUSE_BUSINESS_ID } from "@foundmill/config";
+import { APP_NAME, HOUSE_BUSINESS_ID, SHOWCASE_MAY_ASK_DEFAULT } from "@foundmill/config";
 import { repos } from "@foundmill/db";
 import { SHOWCASE_APPROVAL_TTL_MS, showcaseWords, type ProjectPageContent } from "@foundmill/shared";
 
@@ -79,7 +79,7 @@ const code = (p: Promise<unknown>) => p.then(() => "ok", (err: { code?: string; 
 
 let n = 0;
 /** A project with a public page and its page-live milestone shown; `cofounder` adds a second founder; `collaborator` a third person. */
-async function project(name: string, options: { cofounder?: boolean; demo?: boolean } = {}) {
+async function project(name: string, options: { cofounder?: boolean; demo?: boolean; mayAsk?: boolean | null } = {}) {
   n += 1;
   const [ownerId, cofounderId, collaboratorId] = await Promise.all(["owner", "cofounder", "collaborator"].map((r) => hz.h.createUser(`showcase-${n}-${r}@test.local`)));
   const b = await repos.businesses.create(hz.db, { name: `${name} ${n}`, archetype: "b2b_saas" });
@@ -91,6 +91,9 @@ async function project(name: string, options: { cofounder?: boolean; demo?: bool
   await owner.page.publish({ businessId: b.id, content: page() });
   const milestone = (await repos.journeys.listMilestones(hz.db, b.id)).find((m) => (m.ref as { trophyKey?: string } | null)?.trophyKey === "page_live")!;
   await owner.journey.showMilestone({ businessId: b.id, milestoneId: milestone.id });
+  // The founders turned "Foundmill may ask" on (the default is off, founder Nov 14); `mayAsk: null` leaves it unchosen.
+  const mayAsk = options.mayAsk === undefined ? true : options.mayAsk;
+  if (mayAsk !== null) await repos.showcase.setMayAsk(hz.db, b.id, mayAsk);
   if (options.demo) await hz.db.execute(sql`update businesses set is_demo = true where id = ${b.id}`);
   return { id: b.id, ownerId: ownerId!, cofounderId: cofounderId!, collaboratorId: collaboratorId!, owner, cofounder: hz.caller({ userId: cofounderId! }), collaborator: hz.caller({ userId: collaboratorId! }), milestoneId: milestone.id };
 }
@@ -130,10 +133,19 @@ describe("who asks, and who may be asked", () => {
     const hidden = await project("Hidden");
     await hidden.owner.journey.hideMilestone({ businessId: hidden.id, milestoneId: hidden.milestoneId });
     expect(await code(house().showcase.request({ businessId: HOUSE_BUSINESS_ID, subjectBusinessId: hidden.id }))).toBe("showcase_not_eligible");
+    // Off unless its founders turn it on (founder, Nov 14): a project that never chose is never asked.
+    const unchosen = await project("Unchosen", { mayAsk: null });
+    expect(SHOWCASE_MAY_ASK_DEFAULT).toBe(false);
+    expect(await unchosen.owner.showcase.setting.get({ businessId: unchosen.id })).toEqual({ mayAsk: false, chosen: false, canChange: true });
+    expect(await code(house().showcase.request({ businessId: HOUSE_BUSINESS_ID, subjectBusinessId: unchosen.id }))).toBe("showcase_not_eligible");
+    expect(await code(unchosen.collaborator.showcase.setting.set({ businessId: unchosen.id, mayAsk: true }))).toBe("forbidden");
+    // A founder turns it on: then the house may ask.
+    await unchosen.owner.showcase.setting.set({ businessId: unchosen.id, mayAsk: true });
+    expect(await unchosen.owner.showcase.setting.get({ businessId: unchosen.id })).toEqual({ mayAsk: true, chosen: true, canChange: true });
+    expect(await code(house().showcase.request({ businessId: HOUSE_BUSINESS_ID, subjectBusinessId: unchosen.id }))).toBe("ok");
     const off = await project("Off");
     expect((await off.collaborator.showcase.setting.get({ businessId: off.id })).canChange).toBe(false);
     expect(await code(off.collaborator.showcase.setting.set({ businessId: off.id, mayAsk: false }))).toBe("forbidden");
-    expect(await off.owner.showcase.setting.get({ businessId: off.id })).toEqual({ mayAsk: true, chosen: false, canChange: true });
     await off.owner.showcase.setting.set({ businessId: off.id, mayAsk: false });
     expect(await code(house().showcase.request({ businessId: HOUSE_BUSINESS_ID, subjectBusinessId: off.id }))).toBe("showcase_not_eligible");
     const recent = await project("Recent");
