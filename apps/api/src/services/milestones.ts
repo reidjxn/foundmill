@@ -41,6 +41,7 @@ import type { Context } from "../context";
 import { audit, emit, type BusinessContext } from "../trpc";
 import { callerLimitKey } from "./pages";
 import { queuePostDraft } from "./post-drafts";
+import { queueShowcaseCheck } from "./showcase";
 import { takeOrThrow, type WindowLimit } from "./rate-limit";
 
 /** What showing or hiding answers: the milestone, how it reads now, and its public addresses. */
@@ -93,6 +94,8 @@ async function setShown(ctx: BusinessContext, milestoneId: string, shown: boolea
   // A milestone was just put on the page: the social agent may draft a post about it for the founder to share by tap,
   // where the founder put the social channel on the board (services/post-drafts.ts). Never waited on.
   if (nowShown) queuePostDraft(ctx, ctx.businessId, { kind: "milestone_shown", milestoneId: view.milestoneId });
+  // A milestone was hidden: a showcase video that shows it is withdrawn (services/showcase.ts).
+  if (!shown) queueShowcaseCheck(ctx, ctx.businessId);
   return view;
 }
 

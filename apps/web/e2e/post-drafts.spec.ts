@@ -182,6 +182,9 @@ test.describe("posts the team drafts to share by tap", () => {
     await expectTapLinks(panel, "We fix bikes where they stand. Our page is up.", pageAddressOnly);
     await expect(panel.locator("[data-share-honest]")).toContainText("posts nothing for you");
     await expect(panel).not.toContainText(/\b(posted|published)\b/i);
+    // No video tools connected on the founder's own key: the post is text only, and the panel says so.
+    await expect(panel.locator("[data-share-media='not-connected']")).toContainText("Video tools aren't connected, so this post is text only.");
+    await expect(panel.locator("video")).toHaveCount(0);
     await panel.getByRole("button", { name: "Close" }).last().click();
     await expect(panel).toHaveCount(0);
     // Looking is not sharing: it still waits.

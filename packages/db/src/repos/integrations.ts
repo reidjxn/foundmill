@@ -89,6 +89,20 @@ export const integrationsRepo = {
       .orderBy(asc(integrations.connectorKey));
   },
 
+  /**
+   * Only the connector key and status of the business's live integrations among `connectorKeys`: no credentials, ids,
+   * account names, settings or anything else of the row. For a plain "is it connected" a caller works out on the
+   * service connection for someone whose RLS reads no integration rows (a collaborator, 0094), so it can never return
+   * more than that answer needs.
+   */
+  async connectionStatuses(db: Executor, businessId: string, connectorKeys: readonly string[]): Promise<{ connectorKey: string; status: string }[]> {
+    if (connectorKeys.length === 0) return [];
+    return db
+      .select({ connectorKey: integrations.connectorKey, status: integrations.status })
+      .from(integrations)
+      .where(and(eq(integrations.businessId, businessId), inArray(integrations.connectorKey, [...connectorKeys]), isNull(integrations.archivedAt)));
+  },
+
   async get(db: Executor, businessId: string, integrationId: string): Promise<Integration> {
     return one(await db.select().from(integrations).where(scoped(businessId, integrationId)).limit(1), "integration", integrationId);
   },

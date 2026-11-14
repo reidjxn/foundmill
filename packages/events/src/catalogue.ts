@@ -43,6 +43,8 @@ import {
   EMAIL_NOTIFICATION_KINDS,
   FOUNDER_NOTICES,
   INVITATION_ROLES,
+  SHOWCASE_REQUEST_STATES,
+  SHOWCASE_WITHDRAW_REASONS,
   PUSH_PROVIDERS,
   SHARE_DESTINATIONS,
   SHARE_OPEN_TARGETS,
@@ -1800,6 +1802,37 @@ const pageFollowed = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
+// The optional "which one is for you" quiz on a project's public page (0105)
+// ---------------------------------------------------------------------------------------------------
+
+const QuizFacts = z.object({
+  quizId: Id,
+  /** The definition's version (it goes up with every change); counts are read per version. */
+  version: z.number().int().positive(),
+  /** How many customer types and questions it has: shape only, never the words. */
+  typeCount: z.number().int().min(2).max(4),
+  questionCount: z.number().int().min(2).max(4),
+});
+
+const quizApproved = declareEvent("quiz.approved", QuizFacts, {
+  doc: "A founder (an owner or an admin) approved every word of the project's page quiz, which the team drafted from the project's real customers. Approving puts nothing on the page: it stays off until they turn it on (`quiz.published`). Never narrated; apps/stream pushes it so the Public page tab follows.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+const quizPublished = declareEvent("quiz.published", QuizFacts.extend({ slug: z.string().min(3).max(40) }), {
+  doc: "A founder turned the approved quiz on: from now on it shows on the project's public page while the page is live. Not a real outcome on its own (nothing outside happened yet). Never narrated; pushed for the Public page tab.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+const quizUnpublished = declareEvent("quiz.unpublished", QuizFacts.extend({ slug: z.string().min(3).max(40) }), {
+  doc: "A founder turned the quiz off: it leaves the public page at once (the approved quiz is kept). Never narrated; pushed for the Public page tab.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+// ---------------------------------------------------------------------------------------------------
 // A message sent from the project's Foundmill address (0078, package 1.5)
 // ---------------------------------------------------------------------------------------------------
 
@@ -2019,6 +2052,71 @@ const invitationDeclined = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
+// Showcase videos of real projects (0103; docs/THESIS_REVIEW.md §13 item 15). Ids only, never narrated, and no event
+// carries an individual founder's answer: the house's three are about its request, the project's two about the ask.
+// None is an outside result (the north star counts a post only when it is made, which the product cannot see).
+// ---------------------------------------------------------------------------------------------------
+
+const ShowcaseRequestFacts = z.object({
+  /** The house's request (0103 `showcase_requests`). */
+  requestId: Id,
+  /** The project it is about. */
+  subjectBusinessId: Id,
+});
+
+const showcaseRequested = declareEvent("showcase.requested", ShowcaseRequestFacts, {
+  doc: "In the house business: someone with an owner's standing there asked to feature a project with a real, public milestone in a short video. The script is written; the video is made next (where Runway is connected on the house business, after the house approves the spend in Needs you), and the ask goes to the project's founders only once the video is final. Ids only; never narrated.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+const showcaseApproved = declareEvent(
+  "showcase.approved",
+  ShowcaseRequestFacts.extend({
+    /** The house's draft post (an `assets` row, trigger `showcase_approved`), shared only through the showcase gate. */
+    assetId: Id,
+  }),
+  {
+    doc: "In the house business: every founder of the project said yes to the final video, so a draft post waits on the house's Creative tab to be shared by tap, while the approval is in date. Nothing was posted. Never names who said yes; never narrated.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+const showcaseWithdrawn = declareEvent(
+  "showcase.withdrawn",
+  ShowcaseRequestFacts.extend({
+    /** Why it ended without a post: one founder's No or Withdraw, a change of founders, expiry, the page or a milestone no longer public, the setting off, or the house. */
+    reason: z.enum(SHOWCASE_WITHDRAW_REASONS),
+  }),
+  {
+    doc: "In the house business: a showcase request ended without a post. The draft is set aside, the unposted media deleted and its links disabled. Says why, never which founder; never narrated.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+const showcaseAsked = declareEvent("showcase.asked", z.object({ requestId: Id }), {
+  doc: "In the project: the house's final video went out for an answer: each founder has their own note in Needs you (and is emailed if it waits). Ids only; never narrated.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+const showcaseSettled = declareEvent(
+  "showcase.settled",
+  z.object({
+    requestId: Id,
+    /** Where the ask ended: approved by every founder, or declined, withdrawn or expired. Never who answered what. */
+    state: z.enum(SHOWCASE_REQUEST_STATES).exclude(["asking"]),
+  }),
+  {
+    doc: "In the project: the showcase ask is settled. Its overall state only, never an individual founder's answer; never narrated.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
 // Account events: a person's own public profile (0080; account-scoped, docs/ARCHITECTURE.md §5 "Account events")
 // ---------------------------------------------------------------------------------------------------
 
@@ -2195,9 +2293,17 @@ export const EVENTS = {
   "referral.arrived": referralArrived,
   "founder_notice.sent": founderNoticeSent,
   "post.drafted": postDrafted,
+  "quiz.approved": quizApproved,
+  "quiz.published": quizPublished,
+  "quiz.unpublished": quizUnpublished,
   "invitation.sent": invitationSent,
   "invitation.accepted": invitationAccepted,
   "invitation.declined": invitationDeclined,
+  "showcase.requested": showcaseRequested,
+  "showcase.approved": showcaseApproved,
+  "showcase.withdrawn": showcaseWithdrawn,
+  "showcase.asked": showcaseAsked,
+  "showcase.settled": showcaseSettled,
   "visit.attributed": visitAttributed,
   "post.outcome_attributed": postOutcomeAttributed,
 } as const satisfies { readonly [K in EventTypeT]: EventDeclaration<K, z.ZodType, EventScopeOf<K>> };

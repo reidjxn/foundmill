@@ -209,6 +209,8 @@ describe("checkPostDraft", () => {
       [`Maple Bakes has a page now. Kick-off for real bread in Leeds.`, "banned_phrase"],
       [`Maple Bakes has a page now, built with AI.`, "platform_mention"],
       [`Maple Bakes has a page now, built on ${APP_NAME}.`, "platform_mention"],
+      [`Maple Bakes has a page now. Watch the video to see the bake.`, "media_claim"],
+      [`Maple Bakes has a page now, with a short clip of the oven.`, "media_claim"],
     ];
     for (const [text, reason] of cases) expect(checkPostDraft(text, f), text).toBe(reason);
     // Every reason but the length (which `finalisePostDraft` holds) is reached by a case above.

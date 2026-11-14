@@ -30,7 +30,10 @@
  *      `pm:all:day`; and, so the projects' own mail always has room, none while `pm:all:day` is above 75% of
  *      PLATFORM_MAIL_DAILY_CEILING (`busy`). Outside development and test a count that is not shared refuses the send.
  *
- * The words are built here (`decisionWaitingEmail`, `retentionEmail`, packages/shared) from the gateway's own reads:
+ * Every kind carries Foundmill's registered postal address in its footer (`APP_POSTAL_ADDRESS`; US CAN-SPAM asks it of
+ * every commercial email, and Foundmill's own address costs nothing to show on the transactional kinds too, so no kind
+ * is ever sent without it by a wrong guess). The words are built here (`decisionWaitingEmail`, `retentionEmail`,
+ * packages/shared) from the gateway's own reads:
  * the person's name, the project's, the agent's as the person names agents, the note's subject as the Inbox shows it
  * to this person (their Finance and CRM walls) without its entity markup, every one of them without links, domains or
  * addresses (`withoutLinks`). The footer turns this kind off (`notifyOffToken`) or pauses every email (a signed pause
@@ -43,7 +46,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { APP_NAME } from "@foundmill/config";
+import { APP_NAME, APP_POSTAL_ADDRESS } from "@foundmill/config";
 import { loadBriefFacts, loadNotifyFacts, notifyEmailDayKey, repos } from "@foundmill/db";
 import { inboxWalls, isWalled, noteAsSeenBy } from "@foundmill/db/inbox-redaction";
 import {
@@ -338,6 +341,7 @@ export async function sendNotifyEmail(deps: GatewayDeps, input: NotifyEmailReque
       link: withVia(`${appUrl}/b/${businessId}/inbox/${item.id}`),
       offLink: offUrl,
       appName: APP_NAME,
+      postalAddress: APP_POSTAL_ADDRESS,
       ...(pauseToken ? { pauseLink } : {}),
       answer: answer && answerLink ? { label: answer.option.label, consequence: answer.option.consequence, link: answerLink } : null,
     });
@@ -347,6 +351,7 @@ export async function sendNotifyEmail(deps: GatewayDeps, input: NotifyEmailReque
     words = retentionEmail(subject.plan, {
       appUrl,
       appName: APP_NAME,
+      postalAddress: APP_POSTAL_ADDRESS,
       businessId,
       businessName: business.name,
       notificationId,

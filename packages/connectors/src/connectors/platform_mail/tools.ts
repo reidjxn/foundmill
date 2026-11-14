@@ -16,7 +16,7 @@
 import { createHmac } from "node:crypto";
 import { z } from "zod";
 import { APP_NAME } from "@foundmill/config";
-import { AppError } from "@foundmill/shared";
+import { AppError, postalAddressLine, PROJECT_MAIL_PURPOSES } from "@foundmill/shared";
 import { defineTool } from "../../define";
 import { safeEqual } from "../../webhooks";
 import { suppressionHashOfEmail } from "./hash";
@@ -35,6 +35,12 @@ export const PlatformSendMail = z.strictObject({
   subject: z.string().trim().min(1).max(200),
   text: z.string().min(1).max(PLATFORM_MAIL_TEXT_MAX),
   html: z.string().max(PLATFORM_MAIL_HTML_MAX).optional(),
+  /**
+   * Why it is sent (US CAN-SPAM): `reply` answers a message this person sent the project, `receipt` confirms something
+   * they paid for; absent or `marketing`, anything else. The gateway checks a reply or a receipt against what reached
+   * the project and treats the message as marketing when it cannot (packages/shared `projectMailClass`).
+   */
+  purpose: z.enum(PROJECT_MAIL_PURPOSES).optional(),
 });
 export type PlatformSendMailT = z.infer<typeof PlatformSendMail>;
 
@@ -44,7 +50,7 @@ export const platformMailTools = [
   defineTool({
     name: "send_mail",
     description:
-      "Send one email to one person from the project's own address (replies come back to the project). Plain text, optionally with simple HTML (paragraphs, line breaks, bold, italics, lists, headings, links); no attachments. An unsubscribe link is added to every message. A first message to someone outside the project waits for the founder's OK unless they said otherwise; refused when the person unsubscribed or bounced, or when the project's daily limit is reached. Never claim to be a person.",
+      "Send one email to one person from the project's own address (replies come back to the project). Plain text, optionally with simple HTML (paragraphs, line breaks, bold, italics, lists, headings, links); no attachments. An unsubscribe link is added to every message, and the founder's postal address to every marketing message (US law); without that address no marketing message is sent. Set purpose to reply only to answer a message this person sent the project, or to receipt only to confirm something they paid for, and then add no promotion: anything else is marketing. A first message to someone outside the project waits for the founder's OK unless they said otherwise; refused when the person unsubscribed or bounced, or when the project's daily limit is reached. Never claim to be a person.",
     input: PlatformSendMail,
     output: PlatformSendResult,
     hints: { contactsThirdParty: true, irreversible: true },
@@ -112,19 +118,25 @@ export function platformMailSenderName(projectName: string, localPart: string): 
 
 const FOOTER_STOP_LINE = "To stop getting these emails";
 
-/** The footer appended to every message: who sent it, and the way out. */
-export function platformMailFooter(projectName: string, unsubscribeUrl: string): { text: string; html: string } {
+const escapeHtml = (value: string): string => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+/**
+ * The footer appended to every message: who sent it, the founders' postal address when the message is commercial (US
+ * CAN-SPAM; the gateway sets it, `PlatformMailEnvelope.postalAddress`), and the way out. One line in the text part, so a
+ * reply that quotes it is read without it (`PLATFORM_MAIL_FOOTER_MARKERS`).
+ */
+export function platformMailFooter(projectName: string, unsubscribeUrl: string, postalAddress?: string | null): { text: string; html: string } {
   const name = projectName.trim() || "This project";
-  const escaped = name.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const postal = postalAddress?.trim() ? postalAddressLine(postalAddress) : null;
   return {
-    text: `\n\n--\nSent by ${name} with ${APP_NAME}. ${FOOTER_STOP_LINE}: ${unsubscribeUrl}`,
-    html: `<hr><p>Sent by ${escaped} with ${APP_NAME}. <a href="${unsubscribeUrl.replace(/"/g, "%22")}">Unsubscribe</a></p>`,
+    text: `\n\n--\nSent by ${name} with ${APP_NAME}.${postal ? ` ${postal}` : ""} ${FOOTER_STOP_LINE}: ${unsubscribeUrl}`,
+    html: `<hr><p>Sent by ${escapeHtml(name)} with ${APP_NAME}.${postal ? `<br>${escapeHtml(postal)}<br>` : " "}<a href="${unsubscribeUrl.replace(/"/g, "%22")}">Unsubscribe</a></p>`,
   };
 }
 
 /** The v3 `mail/send` body (camelCase; `@sendgrid/mail` converts it). Shared by the live side and the mock. */
-export function buildPlatformMailData(mail: PlatformSendMailT, envelope: { from: { email: string; name: string }; projectName: string; unsubscribeUrl: string; customArgs: Record<string, string> }): Record<string, unknown> {
-  const footer = platformMailFooter(envelope.projectName, envelope.unsubscribeUrl);
+export function buildPlatformMailData(mail: PlatformSendMailT, envelope: { from: { email: string; name: string }; projectName: string; unsubscribeUrl: string; customArgs: Record<string, string>; postalAddress?: string | null }): Record<string, unknown> {
+  const footer = platformMailFooter(envelope.projectName, envelope.unsubscribeUrl, envelope.postalAddress);
   return {
     from: envelope.from,
     replyTo: envelope.from,

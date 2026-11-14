@@ -5,8 +5,26 @@ export const FLAGS = {
   holidayMode: true,
   trainingGround: true,
   matchDaySound: false,
+  // Agent work funded by the founder's own AI plan at a provider (founder, 2026-11-13): only through a provider's official
+  // program, and none is integrated yet (`OWN_PLAN_PROVIDERS`). Off: no business runs on its own plan.
+  ownPlanFunding: false,
 } as const;
 export type FlagKey = keyof typeof FLAGS;
+
+/**
+ * Providers whose plan can fund agent work, once their program grants access in writing (founder, 2026-11-13). Empty:
+ * OpenAI's "Use your ChatGPT plan" needs partner access we must apply for first, and Anthropic does not allow third
+ * parties to use Claude consumer plans. A provider is added here only with its integration and its route in
+ * packages/models routing.ts, after the house rules, evals and simulated-result rules pass on it.
+ */
+export const OWN_PLAN_PROVIDERS: readonly string[] = [];
+
+/** Whether work for a business on `own_plan` with `provider` is billed to that plan: the flag is on and the provider is integrated. */
+export function ownPlanFunds(provider: string | null, options: { enabled?: boolean; providers?: readonly string[] } = {}): boolean {
+  const enabled = options.enabled ?? FLAGS.ownPlanFunding;
+  const providers = options.providers ?? OWN_PLAN_PROVIDERS;
+  return enabled && provider !== null && providers.includes(provider);
+}
 
 /**
  * Whether the LIVE surfaces (the network, communities, going live) are open on this deployment. They are

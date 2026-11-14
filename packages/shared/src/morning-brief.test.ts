@@ -173,7 +173,7 @@ describe("the brief's sections", () => {
 });
 
 describe("the brief email", () => {
-  const ctx: RetentionEmailContext = { appUrl: "https://foundmill.com", appName: "Foundmill", businessId: "b1", businessName: "Tutorlane", notificationId: "n1", recipientName: "Ada", offLink: "https://ingest.foundmill.com/mail/notify/off?t=off", pauseLink: "https://foundmill.com/email/pause?t=x", oneClick: null, now: NOW };
+  const ctx: RetentionEmailContext = { appUrl: "https://foundmill.com", appName: "Foundmill", businessId: "b1", businessName: "Tutorlane", notificationId: "n1", recipientName: "Ada", offLink: "https://ingest.foundmill.com/mail/notify/off?t=off", pauseLink: "https://foundmill.com/email/pause?t=x", oneClick: null, now: NOW, postalAddress: "Box 1, 11422 Stockholm, Sweden" };
   const stats: BriefStats = { since: ago(24), rounds: 1, tasksDone: 3, costMinor: 0, costCurrency: "USD", wins: [], milestones: [] };
 
   it("is one page in four sections, with the one-click answer under the note it answers", () => {

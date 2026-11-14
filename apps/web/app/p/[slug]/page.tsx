@@ -12,7 +12,8 @@
  * signed-in Foundmill member gets plain words and no link. Both links name this page as where the visitor came from
  * (`?via=p.<slug>`, @foundmill/shared/via). A paid plan shows none of it. Once the founders show a milestone the
  * project has a story (`./story`, `page.story`): the mark and the line after a follow then lead there instead of to the
- * landing page, with the same `via`, and the line's link reads "See how it was made".
+ * landing page, with the same `via`, and the line's link reads "See how it was made". When the founders turned on their
+ * quiz (0105), "Which one is for you?" comes before the Follow form; it posts to ./quiz-actions.ts.
  *
  * An address that carries a shared post's code (`?via=s.<code>`, item 8) sends one beacon once the page has loaded
  * (components/public/PostVisitBeacon.tsx): the post's link counts as visited, so a follow from it can be credited to the
@@ -27,8 +28,9 @@ import { storyPath } from "@foundmill/shared/project-story";
 import { withVia } from "@foundmill/shared/via";
 import { FollowProjectForm } from "@/components/public/FollowProjectForm";
 import { PostVisitBeacon } from "@/components/public/PostVisitBeacon";
+import { PageQuizForm } from "@/components/public/PageQuizForm";
 import { getServerAuth } from "@/lib/auth/server";
-import { publicProjectPage } from "@/lib/public-page.server";
+import { publicPageQuiz, publicProjectPage } from "@/lib/public-page.server";
 
 // Read on every request: a page taken down is gone at once, and changes show as soon as they are published.
 export const dynamic = "force-dynamic";
@@ -53,7 +55,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function PublicProjectPageRoute({ params }: Props) {
   const { slug } = await params;
-  const page = await publicProjectPage(slug);
+  const [page, quiz] = await Promise.all([publicProjectPage(slug), publicPageQuiz(slug)]);
   if (!page) notFound();
   // Who is looking decides how the mark is drawn. A session that cannot be read counts as a visitor.
   const member = page.mark ? (await getServerAuth().catch(() => null)) !== null : false;
@@ -80,21 +82,10 @@ export default async function PublicProjectPageRoute({ params }: Props) {
         founderNames={page.founderNames}
         mark={mark}
         markHref={markHref}
+        quiz={quiz ? <PageQuizForm quiz={quiz} followForm={page.followForm && quiz.followForm} /> : null}
         follow={
           page.followForm ? (
-            <FollowProjectForm
-              name={page.name}
-              slug={page.slug}
-              builtOn={
-                mark === "visitor"
-                  ? {
-                      line: words.afterFollow(page.name),
-                      linkLabel: page.story ? words.afterFollowStoryLink : words.afterFollowLink,
-                      href: markHref,
-                    }
-                  : null
-              }
-            />
+            <FollowProjectForm name={page.name} slug={page.slug} builtOn={mark === "visitor" ? { line: words.afterFollow(page.name), linkLabel: page.story ? words.afterFollowStoryLink : words.afterFollowLink, href: markHref } : null} />
           ) : null
         }
       />

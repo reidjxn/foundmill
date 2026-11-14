@@ -356,6 +356,30 @@ describe("event catalogue", () => {
     expect(decl.doc).not.toMatch(/the north star counts it/i);
   });
 
+  it("quiz.approved, quiz.published, quiz.unpublished: a founder's own press on the page quiz; ids and its shape, never the words or a count", () => {
+    for (const type of ["quiz.approved", "quiz.published", "quiz.unpublished"] as const) {
+      const decl = EVENTS[type];
+      expect(decl.scope).toBe("business");
+      expect(decl.narratable).toBe(false);
+      expect([...decl.consumers]).toEqual(["stream", "metrics"]);
+      expect(EVENT_TYPES.indexOf(type)).toBeGreaterThan(EVENT_TYPES.indexOf("post.drafted"));
+      const fixture = EVENT_FIXTURES[type];
+      expect(parsePayload(type, fixture)).toEqual(fixture);
+      // A type's name, a question or a count of visitors never travels in the event.
+      const extra = parsePayload(type, { ...fixture, types: [{ name: "Cafe owners" }], counts: { t1: 12 }, question: "Who is it for?" });
+      expect(Object.keys(extra).sort()).toEqual(Object.keys(fixture).sort());
+      const bad = (patch: Record<string, unknown>) => () => parsePayload(type, { ...fixture, ...patch });
+      expect(bad({ quizId: "not-an-id" })).toThrow(ValidationError);
+      expect(bad({ version: 0 })).toThrow(ValidationError);
+      expect(bad({ typeCount: 1 })).toThrow(ValidationError);
+      expect(bad({ typeCount: 5 })).toThrow(ValidationError);
+      expect(bad({ questionCount: 9 })).toThrow(ValidationError);
+      // Turning a quiz on is not an outside result: nobody outside did anything yet.
+      expect(decl.doc).not.toMatch(/the north star counts it/i);
+    }
+    expect(() => parsePayload("quiz.published", { ...EVENT_FIXTURES["quiz.published"], slug: undefined })).toThrow(ValidationError);
+  });
+
   it("visit.attributed and post.outcome_attributed: ids, the network and the kind only; never narrated, never counted", () => {
     for (const type of ["visit.attributed", "post.outcome_attributed"] as const) {
       const decl = EVENTS[type];

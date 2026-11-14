@@ -8,6 +8,7 @@ import { assertChannelMayLaunch, assertChannelMayRun, channelRowsFor, FOUNDER_PO
 import { DISTRIBUTION_NOT_STARTED } from "../services/engines";
 import { queuePostDraft, teamPostShares } from "../services/post-drafts";
 import { postOutcomeCounts } from "../services/post-attribution";
+import { postMediaToolStatus } from "../services/post-media";
 import { assertAgentsRunning } from "../services/stop-guard";
 import { WORKFLOWS, workflowIds } from "../services/temporal";
 import { modelLimited } from "../services/model-limits";
@@ -204,14 +205,17 @@ export const distributionRouter = router({
      * when it led to nothing the reader may see. Visits are never in it. A team post the founder set aside ("Not this one") is not listed again:
      * the row stays (with its audit trail), the offer does not.
      */
-    list: read.input(z.object({ campaignId: Id.optional(), approvalState: z.enum(["draft", "pending", "approved", "rejected"]).optional() })).query(({ ctx, input }) =>
-      ctx.rls(async (tx) => {
+    list: read.input(z.object({ campaignId: Id.optional(), approvalState: z.enum(["draft", "pending", "approved", "rejected"]).optional() })).query(async ({ ctx, input }) => {
+      // Whether the media tools are connected, as two booleans, read on the service connection before the reader's own
+      // transaction: a collaborator's RLS reads no integration rows (0094), yet is told the same as the founders.
+      const tools = await postMediaToolStatus(ctx.db, { businessId: ctx.businessId, isDemo: ctx.business.isDemo, env: ctx.env });
+      return ctx.rls(async (tx) => {
         const rows = (await repos.campaigns.listAssets(tx, ctx.businessId, input ?? {})).filter((row) => !(row.approvalState === "rejected" && isTeamPost(row)));
-        const shares = await teamPostShares(tx, { businessId: ctx.businessId, businessName: ctx.business.name, isDemo: ctx.business.isDemo, appUrl: ctx.env.APP_URL }, rows);
+        const shares = await teamPostShares(tx, { businessId: ctx.businessId, businessName: ctx.business.name, isDemo: ctx.business.isDemo, appUrl: ctx.env.APP_URL, media: { env: ctx.env, tools } }, rows);
         const outcomes = await postOutcomeCounts(tx, { businessId: ctx.businessId, membership: ctx.membership }, [...shares.keys()]);
         return rows.map((row) => ({ ...row, sharePost: shares.get(row.id) ?? null, postOutcomes: outcomes.get(row.id) ?? null }));
-      }),
-    ),
+      });
+    }),
     approve: write.input(z.object({ assetId: Id })).mutation(({ ctx, input }) => setAssetApproval(ctx, input.assetId, "approved")),
     reject: write.input(z.object({ assetId: Id })).mutation(({ ctx, input }) => setAssetApproval(ctx, input.assetId, "rejected")),
   }),

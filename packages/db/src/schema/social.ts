@@ -224,7 +224,9 @@ export type NewPostReport = typeof postReports.$inferInsert;
 
 /**
  * 0027: a person's confirmation that they are 18 or older (BUILD §11.14 "18+ only"), asked once before their first
- * network action or when a business they run goes LIVE. Their own statement, not identity verification.
+ * network action or when a business they run goes LIVE. Their own statement, not identity verification. Since 0100 the
+ * account's `adult_confirmations` (confirmed once at sign-up) is the source of truth: triggers keep the two in step, and
+ * every check reads that one.
  */
 export const networkAttestations = pgTable("network_attestations", {
   id: id(),

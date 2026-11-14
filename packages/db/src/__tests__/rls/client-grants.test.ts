@@ -184,6 +184,16 @@ describe("structural: what the client roles may call and create", () => {
     });
   }
 
+  // 0098: the event types a collaborator may read, called by the events and outbox policies as authenticated. Not
+  // security definer (it reads no table), so it is not in MAY_CALL; anon never needs it and holds no EXECUTE.
+  it("fm_collaborator_event_types() is not security definer, and anon cannot EXECUTE it; authenticated and service_role can", async () => {
+    const [fn] = await rows<{ prosecdef: boolean }>(sql`select prosecdef from pg_proc where proname = 'fm_collaborator_event_types' and pronamespace = 'public'::regnamespace`);
+    expect(fn).toEqual({ prosecdef: false });
+    const sig = "fm_collaborator_event_types()";
+    expect([await fnPriv("anon", sig), await fnPriv("authenticated", sig), await fnPriv("service_role", sig)]).toEqual([false, true, true]);
+    await expect(h.anon().execute(sql`select fm_collaborator_event_types()`)).rejects.toThrow(/permission denied for function fm_collaborator_event_types/);
+  });
+
   it("anon's call to a people helper is refused", async () => {
     await expect(h.anon().execute(sql`select is_member_not_collaborator(${A.businessId}::uuid)`)).rejects.toThrow(/permission denied for function is_member_not_collaborator/);
     await expect(h.anon().execute(sql`select lock_my_membership(${A.businessId}::uuid)`)).rejects.toThrow(/permission denied for function lock_my_membership/);

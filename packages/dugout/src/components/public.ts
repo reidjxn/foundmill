@@ -1,6 +1,8 @@
 // Public pages (docs/THESIS_REVIEW.md package 1.1): what the product shows to anyone, signed out, from 390 px.
 export * from "./public/ProjectPage";
 export * from "./public/ProjectFollowForm";
+// The optional "Which one is for you?" quiz on a project's page (0105).
+export * from "./public/ProjectQuiz";
 // The project's story at /p/<slug>/story and a milestone's card at /m/<id> (docs/NETWORK.md F2, F3).
 export * from "./public/ProjectStory";
 export * from "./public/MilestoneCard";

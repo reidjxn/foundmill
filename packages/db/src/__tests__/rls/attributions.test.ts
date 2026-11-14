@@ -44,6 +44,8 @@ beforeAll(async () => {
   await commit(A.businessId);
   await commit(B.businessId);
   await publish(A, "bread-by-bike");
+  // A public profile is public once its person confirmed 18 or older (0100).
+  await repos.adults.confirm(h.db as never, B.ownerId);
   await repos.founders.upsert(h.db as never, B.ownerId, { displayName: "Sam Lee" });
   await repos.personProfiles.save(h.db as never, B.ownerId, { handle: "sam-lee", content: profile() });
   await repos.personProfiles.publish(h.db as never, B.ownerId);

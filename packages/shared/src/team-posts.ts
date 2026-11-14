@@ -24,8 +24,11 @@ import { POST_CODE_ALPHABET, POST_CODE_LENGTH, isPostCode, withVia } from "./via
  * - `page_published`: the project's page went live for the first time.
  * - `milestone_shown`: a founder chose to show a reached milestone on the page.
  * - `first_follower`: the first person confirmed that they follow the project.
+ * - `showcase_approved`: every founder of a project said yes to the final showcase video the house made about it
+ *   (./showcase.ts). Written in the house business only; its `refId` is the showcase request, its subject the milestone
+ *   the video was asked for. Sharing it passes the showcase gate first (`showcaseShareRefusal`).
  */
-export const TEAM_POST_TRIGGERS = ["page_published", "milestone_shown", "first_follower"] as const;
+export const TEAM_POST_TRIGGERS = ["page_published", "milestone_shown", "first_follower", "showcase_approved"] as const;
 export type TeamPostTrigger = (typeof TEAM_POST_TRIGGERS)[number];
 
 /**
@@ -86,6 +89,7 @@ export function isTeamPost(asset: { kind?: string | null; contentRef?: string | 
 /** The title of the asset on the Creative tab: written by code from the subject, never by the model. */
 export function teamPostTitle(ref: Pick<TeamPostRef, "trigger" | "subject">): string {
   if (ref.trigger === "milestone_shown") return `A post about your milestone: ${TEAM_POST_SUBJECT_LABELS[ref.subject]}`;
+  if (ref.trigger === "showcase_approved") return "A showcase video every founder of the project approved";
   return ref.subject === "page_live" ? "A post about your page going live" : "A post about your first follower";
 }
 
@@ -151,7 +155,9 @@ function withCodes(draft: PostDraft, codes: TeamPostCodes | null | undefined): P
  */
 export function teamPostShareDraft(input: TeamPostShareInput): PostDraft {
   const text = input.text.trim();
-  if (!input.page) return { text, variants: {} };
+  // A showcase post is shared only through its gate, with the link of the preview the founders approved (apps/api
+  // `showcaseShares`); on its own it carries nothing to share.
+  if (!input.page || input.ref.trigger === "showcase_approved") return { text, variants: {} };
   if (input.ref.trigger === "milestone_shown" && input.cardShown) {
     const card = milestonePostDraft({ origin: input.page.origin, slug: input.page.slug, projectName: input.page.projectName, milestoneId: input.ref.refId, label: TEAM_POST_SUBJECT_LABELS[input.ref.subject] });
     // The card's tall picture stays for the networks that take one; their words are the team's.

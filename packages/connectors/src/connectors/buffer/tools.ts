@@ -13,7 +13,7 @@
  * cannot), video and documents (a draft has only a picture), several channels in one call, and Buffer's own drafts.
  */
 import { z } from "zod";
-import { APP_NAME } from "@foundmill/config";
+import { APP_NAME, HOUSE_BUSINESS_ID } from "@foundmill/config";
 import { AppError, PostDraft } from "@foundmill/shared";
 import { fitPostText, isPostUrl, postDraftFor, postNetworkLimit, postTextLength, postTextWithLink, POST_NETWORKS, type PostNetwork } from "@foundmill/shared/post-draft";
 import { VendorError, type ConnectField } from "../../contract";
@@ -82,6 +82,7 @@ export const CODES = {
   postRejected: "post_rejected",
   bufferError: "buffer_error",
   insufficientScope: "insufficient_scope",
+  showcaseTapOnly: "showcase_tap_to_post",
 } as const;
 
 const NOTHING = "Nothing was queued";
@@ -314,6 +315,20 @@ export function assertPublicLinks(draft: z.output<typeof PostDraft>): void {
   }
 }
 
+/** A project's showcase story address (`/p/<slug>/story`), the link a showcase video's post carries. */
+const SHOWCASE_STORY_PATH = /\/p\/[A-Za-z0-9-]+\/story\b/;
+
+/**
+ * No connector posts a showcase video (apps/api services/showcase.ts): on the house business a draft whose words or
+ * links point at a project's story address is refused. Such a post is shared only by tap, from the house's approved
+ * draft, through the share gate (every founder's yes still in date, the same words, the same founders, the page and
+ * milestones still public). An agent never queues one, whatever it was asked. Refused before any vendor call.
+ */
+export function assertNotShowcasePost(draft: z.output<typeof PostDraft>, businessId: string): void {
+  if (businessId !== HOUSE_BUSINESS_ID) return;
+  if (SHOWCASE_STORY_PATH.test(JSON.stringify(draft))) throw new AppError(CODES.showcaseTapOnly, `${NOTHING}: a post that features a project is shared only by tap, from the house's approved draft, after every founder said yes. It is never queued.`, 422);
+}
+
 /** Every picture address in the draft must be https and lasting. Refused before any vendor call. */
 export function assertLastingImages(draft: z.output<typeof PostDraft>): void {
   const images = [draft.image, ...Object.values(draft.variants).map((v) => v?.image)];
@@ -472,6 +487,7 @@ export interface QueuePostDeps {
  * channel is read (one call), the post is fitted to its network, and only then is the post created.
  */
 export async function queuePostFlow(args: QueuePostInputT, deps: QueuePostDeps): Promise<QueuePostOutputT> {
+  assertNotShowcasePost(args.draft, deps.businessId);
   assertLastingImages(args.draft);
   assertPublicLinks(args.draft);
   const dueAt = checkDueTime(args.when, deps.now());

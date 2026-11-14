@@ -141,10 +141,22 @@ export const EVENT_WALLS = {
   // The team drafted a post for the founder to share by tap: ids and the trigger's kind, never the words. The Creative
   // tab and Today follow it.
   "post.drafted": { sections: ["distribution"] },
+  // The page quiz approved, turned on or off (0105): ids and its shape, never the words. The Public page tab follows.
+  "quiz.approved": { sections: ["product"] },
+  "quiz.published": { sections: ["product"] },
+  "quiz.unpublished": { sections: ["product"] },
   // Invitations to the project: the People tab (Settings, under the Team section).
   "invitation.sent": { sections: ["team"] },
   "invitation.accepted": { sections: ["team"] },
   "invitation.declined": { sections: ["team"] },
+  // Showcase videos (0103). In the house: its asks and the draft post they lead to (Customers › Creative). In a project:
+  // that an ask went out and how it settled, ids and the overall state only, filed with Settings so that a collaborator
+  // (who has none) hears nothing of the founders' ask.
+  "showcase.requested": { sections: ["distribution"] },
+  "showcase.approved": { sections: ["distribution"] },
+  "showcase.withdrawn": { sections: ["distribution"] },
+  "showcase.asked": { sections: ["settings"] },
+  "showcase.settled": { sections: ["settings"] },
   // A shared post's link was opened for the first time, and a real outcome credited to a post (item 8): ids only, never
   // narrated, never counted toward the north star. Visits stay private, so the first is filed with the metrics-only
   // events; the second follows the walls of what it credits (a follower or a reply is the CRM's, a payment Finance's).

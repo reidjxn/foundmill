@@ -9,6 +9,7 @@ import { join, relative, resolve, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 import { isSafeLegalHref, type LegalDocument, type LegalText } from "@foundmill/dugout";
 import { IDEA_COOKIE } from "@foundmill/shared";
+import { APP_POSTAL_ADDRESS } from "@foundmill/config";
 import { VIA_COOKIE, VIA_POST_COOKIE, VIA_POST_MAX_AGE_SECONDS } from "@foundmill/shared/via";
 import { LAST_BUSINESS_COOKIE } from "@/lib/auth/constants";
 import { DATE_FORMAT_COOKIE } from "@/lib/date-format";
@@ -53,6 +54,17 @@ describe("the legal pages", () => {
       .filter((p) => !p.startsWith(LEGAL_DIR + sep))
       .filter((p) => /collingham/i.test(readFileSync(join(REPO, p), "utf8")));
     expect(found).toEqual([]);
+  });
+
+  it("take the registered address from its one source, which holds the address and not the name", () => {
+    expect(LEGAL_ENTITY.postalAddress).toBe(APP_POSTAL_ADDRESS);
+    expect(entityLine()).toContain(APP_POSTAL_ADDRESS);
+    // The street is written once, in packages/config (every email Foundmill sends shows it, US CAN-SPAM).
+    const street = APP_POSTAL_ADDRESS.split(",")[0]!;
+    const holders = [...sourceFiles(join(REPO, "apps")), ...sourceFiles(join(REPO, "packages"))]
+      .map((p) => relative(REPO, p))
+      .filter((p) => readFileSync(join(REPO, p), "utf8").includes(street));
+    expect(holders).toEqual([join("packages", "config", "src", "brand.ts")]);
   });
 
   it("state the company, its number and its country in both documents", () => {
