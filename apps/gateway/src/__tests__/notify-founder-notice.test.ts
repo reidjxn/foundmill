@@ -17,7 +17,7 @@ import { APP_NAME } from "@foundmill/config";
 import { EMAIL_NOTIFICATION_KINDS, FOUNDER_NOTICE_LIMITS, loadEnv, NOTIFY_PER_PERSON_PER_DAY, NOTIFY_PER_PROJECT_PER_DAY, SUPPRESSION_REASON_BOUNCED } from "@foundmill/shared";
 import type { PlatformMailConfig } from "../platform-mail";
 import { PLATFORM_MAIL_CEILING_KEY, platformMailConfig } from "../platform-mail";
-import { founderNoticeDayKey, founderNoticeEssentialKey, founderNoticeEssentialMoreKey, founderNoticeHourKey, founderNoticeProjectKey, PLATFORM_SAFETY_CEILING_KEY, PLATFORM_SAFETY_RESERVED_KEY } from "../notify-founder-notice";
+import { founderNoticeDayKey, founderNoticeEssentialKey, founderNoticeEssentialMoreKey, founderNoticeHourKey, founderNoticeRequestsPastBreakerKey, founderNoticeProjectKey, PLATFORM_SAFETY_CEILING_KEY, PLATFORM_SAFETY_RESERVED_KEY } from "../notify-founder-notice";
 import { NOTIFY_EMAIL_ROUTE, notifyPersonDayKey, notifyProjectDayKey, PLATFORM_NOTIFY_CEILING_KEY } from "../notify-email";
 import { signServiceToken } from "../tokens";
 import { createBusinessFixture } from "@foundmill/db/__tests__/rls/fixtures";
@@ -419,6 +419,61 @@ describe("founder notices (gateway)", () => {
     } finally {
       g.deps.log = silentLog;
     }
+  });
+
+  it("past the breaker, the 3 a day of one's own are counted per project: another project's requests never use up this one's", async () => {
+    const Y = await createBusinessFixture(g.h, "gw-breaker-y");
+    const yan = await g.h.createUser(addr("yan"));
+    await g.h.db.insert(s.memberships).values([
+      { businessId: g.businessId, userId: yan, role: "cofounder", source: "invite" },
+      { businessId: Y.businessId, userId: yan, role: "cofounder", source: "invite" },
+    ]);
+    // Past the breaker, with the hard stop well away.
+    for (let i = 0; i < 40; i++) await g.rateLimits.hit(PLATFORM_SAFETY_RESERVED_KEY, DAY, Date.now());
+    g.deps.platformMail = config({ safetyReservedCeiling: await g.rateLimits.count!(PLATFORM_SAFETY_RESERVED_KEY, DAY, Date.now()) });
+    const inY = async () => {
+      const r = await repos.audit.append(g.db, Y.businessId, { actorKind: "user", actorId: Y.ownerId, action: "business.request_deletion", target: { kind: "business", id: Y.businessId }, details: { scheduledFor: new Date(Date.now() + 7 * DAY).toISOString() } });
+      return (await ask({ userId: yan, kind: "founder_notice", businessId: Y.businessId, data: { auditId: r.id } })).body;
+    };
+    const toYan = () => mock.sentFor(Y.businessId).filter((m) => m.to === addr("yan"));
+    for (let i = 0; i < FOUNDER_NOTICE_LIMITS.perRequestPastBreakerDay; i++) {
+      expect(await inY(), `Y request ${i + 1}`).toMatchObject({ sent: true });
+      expect(toYan().at(-1)!.subject).toMatch(/ asked to delete /);
+    }
+    // Y's fourth uses Yan's fold for the day.
+    expect(await inY()).toMatchObject({ sent: true });
+    expect(toYan().at(-1)!.subject).toBe("More changes to who runs your projects");
+    // The real request, in the other project: still in full.
+    const real = await entry(ana, "business.request_deletion", { scheduledFor: new Date(Date.now() + 7 * DAY).toISOString() });
+    expect((await notice(yan, real.id)).body).toMatchObject({ sent: true });
+    expect(last("yan").subject).toBe("Ana Ruiz asked to delete Gateway Test Club");
+    expect(await g.rateLimits.count!(founderNoticeRequestsPastBreakerKey(yan, g.businessId), DAY, Date.now())).toBe(1);
+    await entry(ana, "business.cancel_deletion", {});
+  });
+
+  it("past the breaker, a fold whose link cannot be made does not use up the day's fold", async () => {
+    const zed = await g.h.createUser(addr("zed"));
+    await g.h.db.insert(s.memberships).values({ businessId: g.businessId, userId: zed, role: "cofounder", source: "invite" });
+    await g.h.asUser(ana).run((tx) => repos.memberships.remove(tx, g.businessId, zed));
+    const waiting = await entry(ana, "business.request_deletion", { scheduledFor: new Date(Date.now() + 7 * DAY).toISOString() });
+    // Past the breaker, with the hard stop well away.
+    for (let i = 0; i < 40; i++) await g.rateLimits.hit(PLATFORM_SAFETY_RESERVED_KEY, DAY, Date.now());
+    g.deps.platformMail = config({ safetyReservedCeiling: await g.rateLimits.count!(PLATFORM_SAFETY_RESERVED_KEY, DAY, Date.now()) });
+    const removal = async () => (await notice(zed, (await entry(ana, "team.humans.remove", { userId: zed, role: "member", formerRole: "cofounder" })).id)).body;
+    const create = vi.spyOn(repos.founderCancelLinks, "create").mockRejectedValueOnce(new Error("down"));
+    try {
+      expect(await removal()).toMatchObject({ sent: true, offersCancel: false });
+    } finally {
+      create.mockRestore();
+    }
+    expect(last("zed").subject).toBe("More changes to who runs your projects");
+    expect(last("zed").text).not.toContain("/a/");
+    // The fold is still there for the day: the next one carries the link.
+    expect(await removal()).toMatchObject({ sent: true, offersCancel: true });
+    const minted = /\/a\/([A-Za-z0-9_-]{43})/.exec(last("zed").text)?.[1];
+    expect(await repos.founderCancelLinks.byTokenHash(g.db, sha256(minted!))).toMatchObject({ userId: zed, requestId: waiting.id });
+    expect((await removal()).reason).toBe("folded");
+    await entry(ana, "business.cancel_deletion", {});
   });
 
   it("the ceilings: set means set, 0 included, in the gateway's config; the environment refuses 0 or an empty value in plain words", () => {

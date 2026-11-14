@@ -42,7 +42,9 @@
  *      or a deletion request that still waits (whoever reads it), goes in full, once for that request; any other becomes
  *      one "More changes to who runs your projects" email carrying the latest deletion they may cancel (a link minted
  *      here; when it cannot be made, the fold counts as the one for none), once for that one. Past the breaker, at most
- *      `perRequestPastBreakerDay` (3) of the person's own a day and one fold for the rest (`breaker-fold`). Past twice
+ *      `perRequestPastBreakerDay` (3) of the person's own a day in each project (keyed by person and project) and one
+ *      fold for the rest (`breaker-fold`; released again when its link cannot be made). A ceiling already reached is
+ *      refused before it is counted, so refused calls do not push the counters over it. Past twice
  *      the breaker (`reservedHardFactor`), nothing essential goes (`reserved_hard_ceiling`, logged as an error): the
  *      day's essential mail has a fixed ceiling, however many accounts act. Every further essential notice is recorded
  *      as `folded` (or `folded_reserved_ceiling`, `reserved_hard_ceiling`), never dropped silently.
@@ -109,8 +111,12 @@ export const PLATFORM_SAFETY_CEILING_KEY = "pn:safety:day";
  * (PLATFORM_SAFETY_RESERVED_DAILY_CEILING), past which each person gets one folded email for the day.
  */
 export const PLATFORM_SAFETY_RESERVED_KEY = "pn:safety:reserved:day";
-/** Past the breaker: the emails one person got today for a deletion of their own (`perRequestPastBreakerDay`). */
-export const founderNoticeRequestsPastBreakerKey = (userId: string): string => `pn:safety:essential-requests:${userId.toLowerCase()}:day`;
+/**
+ * Past the breaker: the emails one person got today for a deletion of their own in one project
+ * (`perRequestPastBreakerDay`), keyed by person and project (bounds check, P2: another project's requests no longer use
+ * up this one's; the project's own cap of 3 requests a day bounds it).
+ */
+export const founderNoticeRequestsPastBreakerKey = (userId: string, businessId: string): string => `pn:safety:essential-requests:${userId.toLowerCase()}:${businessId.toLowerCase()}:day`;
 /** The essential founder notices one person got today, across every project (`essentialPerRecipientDay`). */
 export const founderNoticeEssentialKey = (userId: string): string => `pn:safety:essential:${userId.toLowerCase()}:day`;
 /**
@@ -309,24 +315,31 @@ export async function sendFounderNotice(deps: GatewayDeps, input: FounderNoticeR
     counted.push([key, windowMs]);
     return r.count;
   };
+  // Read before counting (bounds check, P3): a ceiling already reached is refused without a hit, so a burst of refused
+  // calls does not push the counter over it; the check after the hit still decides for calls that race.
+  const full = async (key: string, windowMs: number, limit: number): Promise<boolean> => (deps.rateLimits.count ? (await deps.rateLimits.count(key, windowMs, now.getTime())) >= limit : false);
   const claimFirst = async (key: string, windowMs: number): Promise<boolean> => (deps.rateLimits.claim ? await deps.rateLimits.claim(key, windowMs, now.getTime()) : false);
   let more = false;
   let foldAll = false;
   let breaker = false;
   let foldLatest: Awaited<ReturnType<typeof latestCancelFor>> = null;
+  const hardCeiling = reservedCeiling * FOUNDER_NOTICE_LIMITS.reservedHardFactor;
+  const heldBack = async (): Promise<NotifyEmailResponse> => {
+    await giveBack();
+    await repos.notifications.skip(deps.db, businessId, { userId, kind, dedupeKey, reason: "reserved_hard_ceiling" }).catch(() => undefined);
+    deps.log.error({ businessId, userId, kind, ceiling: hardCeiling }, "essential founder notice not sent: past the hard daily ceiling");
+    return notSent("reserved_hard_ceiling");
+  };
+  if (essential && (await full(PLATFORM_SAFETY_RESERVED_KEY, DAY_MS, hardCeiling))) return heldBack();
+  if (!essential && (await full(PLATFORM_SAFETY_CEILING_KEY, DAY_MS, ceiling))) return notSent("safety_ceiling");
+  if (!essential && (await full(founderNoticeProjectKey(businessId), DAY_MS, FOUNDER_NOTICE_LIMITS.perProjectDay))) return notSent("project_ceiling");
   if (essential) {
     const reserved = await hit(PLATFORM_SAFETY_RESERVED_KEY, DAY_MS);
-    const hardCeiling = reservedCeiling * FOUNDER_NOTICE_LIMITS.reservedHardFactor;
     if (reserved === Math.ceil(reservedCeiling / 2) && reserved < reservedCeiling) deps.log.warn({ count: reserved, ceiling: reservedCeiling }, "essential founder notices: half of the reserved daily ceiling is used");
     if (reserved === reservedCeiling) deps.log.error({ count: reserved, ceiling: reservedCeiling }, "essential founder notices: the reserved daily ceiling is reached; past it each person gets one folded email for the day");
     // The hard stop (verification of the final review): the day's essential mail has a fixed ceiling, however many
     // accounts act. Recorded, logged, never silent; the card on the person's home still shows a deletion they may cancel.
-    if (reserved > hardCeiling) {
-      await giveBack();
-      await repos.notifications.skip(deps.db, businessId, { userId, kind, dedupeKey, reason: "reserved_hard_ceiling" }).catch(() => undefined);
-      deps.log.error({ businessId, userId, kind, ceiling: hardCeiling }, "essential founder notice not sent: past the hard daily ceiling");
-      return notSent("reserved_hard_ceiling");
-    }
+    if (reserved > hardCeiling) return heldBack();
     breaker = reserved > reservedCeiling;
     const mine = await hit(founderNoticeEssentialKey(userId), DAY_MS);
     if (breaker || mine > FOUNDER_NOTICE_LIMITS.essentialPerRecipientDay) {
@@ -337,7 +350,7 @@ export async function sendFounderNotice(deps: GatewayDeps, input: FounderNoticeR
       // one email carrying the latest deletion they may cancel, once for that one (or for none). Past the breaker, at
       // most `perRequestPastBreakerDay` (3) of the person's own a day, and one fold for everything else.
       let own = cancel && waiting ? waiting.id : notice === "deletion_requested" && waiting && waiting.id === entry.id ? entry.id : null;
-      if (own && breaker && (await hit(founderNoticeRequestsPastBreakerKey(userId), DAY_MS)) > FOUNDER_NOTICE_LIMITS.perRequestPastBreakerDay) own = null;
+      if (own && breaker && (await hit(founderNoticeRequestsPastBreakerKey(userId, businessId), DAY_MS)) > FOUNDER_NOTICE_LIMITS.perRequestPastBreakerDay) own = null;
       foldLatest = own ? null : await latestCancelFor(deps, userId, now).catch(() => null);
       const key = own ? founderNoticeEssentialMoreKey(userId, own, now.getTime()) : breaker ? founderNoticeBreakerFoldKey(userId, now.getTime()) : founderNoticeEssentialMoreKey(userId, foldLatest?.request.id ?? null, now.getTime());
       if (!(await claimFirst(key, untilEndOfUtcDay(now.getTime())))) {
@@ -383,7 +396,11 @@ export async function sendFounderNotice(deps: GatewayDeps, input: FounderNoticeR
     if (row) {
       minted = { id: row.id, token: fresh.token };
       foldCancel = { link: `${appUrl}/a/${fresh.token}`, until: foldLatest.until, projectName: foldLatest.businessName };
-    } else if (!breaker) {
+    } else if (breaker) {
+      // Past the breaker, the same (bounds check, P3): this fold went without the link, so the day's fold marker is
+      // released and a later notice may still bring the latest cancel.
+      await releaseMarker();
+    } else {
       // The link could not be made (verification of the final review, P3): this email does not stand for that request,
       // so its marker is released (the request's own email can still go) and the fold counts as the one for none.
       await releaseMarker();
