@@ -75,7 +75,8 @@ test.describe("founder notices and the former founder's cancel", () => {
   test("a cofounder lowers the dev founder's role, removes them and asks for the project's deletion", async ({ page }) => {
     bid = await commitThrowaway(page, name);
     const made = await call<{ link: string }>(owner, "invitation.create", { businessId: bid, role: "cofounder", email: devAddress(cofounder) });
-    await call(other, "invitation.accept", { token: new URL(made.link).pathname.split("/").pop() });
+    // A new account confirms it is 18 or older on Accept, as the invitation page asks (0100).
+    await call(other, "invitation.accept", { token: new URL(made.link).pathname.split("/").pop(), confirmAdult: true });
     await call(other, "team.humans.role", { businessId: bid, userId: DEMO_OWNER_USER_ID, role: "member" });
     await call(other, "team.humans.remove", { businessId: bid, userId: DEMO_OWNER_USER_ID });
     await call(other, "business.requestDeletion", { businessId: bid });
