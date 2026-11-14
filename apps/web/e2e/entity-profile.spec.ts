@@ -280,12 +280,17 @@ test.describe("entity profile for a collaborator", () => {
     // The seed's sample business takes no invitations, so its paying customers are read with the api's answer for a
     // reader walled off Finance (amountMinor null, moneyHidden), which the test above gets from the api itself.
     await openBusiness(page, "crm");
-    // Only the customers who have paid (stage "customer"; the seed gives one who has not "activated" or "signed_up"): the
-    // list is newest first, and the records other specs add before this one would push the seed's payers off the page.
+    // Only the customers who have paid: the seed gives stage "customer" to a payer, "activated" or "signed_up" to the rest.
     await page.getByTestId("crm-search-input").fill("role:customer stage:customer");
     await page.keyboard.press("Enter");
-    const rows = page.getByRole("grid", { name: "CRM records" }).getByRole("row");
+    const grid = page.getByRole("grid", { name: "CRM records" });
+    const rows = grid.getByRole("row");
+    // The unfiltered list (newest first) shows until the filtered rows replace it: wait for the chips, then for every
+    // row to be a paying customer, before collecting any.
+    await expect(page.getByTestId("crm-search")).toContainText("stage:customer");
     await expect(rows.nth(1).getByRole("link").first()).toBeVisible({ timeout: LONG });
+    await expect(grid.locator('td[data-col="roles"]').filter({ hasNotText: "Customer" })).toHaveCount(0, { timeout: LONG });
+    await expect(grid.locator('td[data-col="stage"]').filter({ hasNotText: "Customer" })).toHaveCount(0, { timeout: LONG });
     const hrefs: string[] = [];
     for (let i = 1; i < Math.min(await rows.count(), 13); i++) {
       const href = await rows.nth(i).locator("a[href*='/crm/'][href$='/overview']").first().getAttribute("href").catch(() => null);
