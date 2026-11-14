@@ -5,8 +5,9 @@
 --   - a charge spends the month's included credits first, then the lots, the one that expires first first;
 --   - a new month's row starts with the included credits plus every lot still live (bought credit carries over);
 --   - a lot past its expiry leaves the balance with what is left of it.
--- Rows are written by services only (api and ingest through the service role, as for credit_balances); members read
--- their business's rows.
+-- Rows are written by services only (api and ingest through the service role, as for credit_balances). The business's
+-- people read them, except a collaborator: like credit_balances and billing_checkouts since 0094, the select policy is
+-- `is_member_not_collaborator`.
 create table credit_lots (
   id uuid primary key default gen_random_uuid(),
   business_id uuid not null references businesses(id) on delete cascade,
@@ -25,3 +26,7 @@ create index credit_lots_business_id_idx on credit_lots (business_id, expires_at
 create unique index credit_lots_checkout_id_key on credit_lots (checkout_id) where checkout_id is not null;
 --> statement-breakpoint
 select fm_tenant_table('credit_lots', array['owner','admin','member'], 'read_only');
+--> statement-breakpoint
+drop policy credit_lots_select on credit_lots;
+--> statement-breakpoint
+create policy credit_lots_select on credit_lots for select using (is_member_not_collaborator(business_id));

@@ -7,7 +7,7 @@
  * Also `agent.speechAccent.*` (merged into `agent` in router.ts): how an agent sounds on calls, chosen by an owner or an
  * admin on the agent's profile.
  */
-import { SPEECH_ACCENTS, TEAM_CALL_AUDIO_MIMES, TEAM_CALL_KINDS, TEAM_CALL_LIMITS, ForbiddenError, isSpeechAccentKey } from "@foundmill/shared";
+import { SPEECH_ACCENTS, TEAM_CALL_AUDIO_MIMES, TEAM_CALL_KINDS, TEAM_CALL_LIMITS, ForbiddenError, isAdminRole, isSpeechAccentKey } from "@foundmill/shared";
 import { z } from "zod";
 import { modelLimited } from "../services/model-limits";
 import {
@@ -77,7 +77,7 @@ export const teamCallRouter = router({
 });
 
 const ownerOrAdmin = (role: string) => {
-  if (role !== "owner" && role !== "admin") throw new ForbiddenError("Only an owner or an admin can choose how an agent sounds");
+  if (!isAdminRole(role)) throw new ForbiddenError("Only an owner, a cofounder or an admin can choose how an agent sounds");
 };
 
 export const speechAccentRouter = router({

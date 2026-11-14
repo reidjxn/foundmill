@@ -76,10 +76,10 @@ interface PullRequestSummary {
   changedFiles: number;
 }
 
-type CallResult<T> = { ok: true; data: T } | { ok: false; code: string; message: string };
+export type CallResult<T> = { ok: true; data: T } | { ok: false; code: string; message: string };
 
 /** The data of a gateway tool call, unwrapped from the quarantine envelope, or the error it answered. */
-function resultOf<T>(res: { outcome: string; result?: unknown; reasons?: string[] }): CallResult<T> {
+export function resultOf<T>(res: { outcome: string; result?: unknown; reasons?: string[] }): CallResult<T> {
   if (res.outcome !== "allow") return { ok: false, code: res.outcome, message: res.reasons?.join("; ") || res.outcome };
   const r = res.result as { ok?: boolean; data?: unknown; error?: { code?: string; message?: string } } | undefined;
   if (!r?.ok || r.data === undefined) return { ok: false, code: r?.error?.code ?? "tool_failed", message: r?.error?.message ?? "GitHub gave no result" };
@@ -103,9 +103,15 @@ export function mergeRefusalIsMomentary(message: string): boolean {
   return /not mergeable|\b405\b|\b409\b|status checks? (are|is) (expected|pending)|base branch was modified/i.test(message);
 }
 
-/** The `merge_pr` arguments for a task's pull request: the same on every call, so an approval of the first covers the second. */
-export function mergeArgs(target: { owner: string; repo: string }, prNumber: number, title: string): Record<string, unknown> {
-  return { owner: target.owner, repo: target.repo, prNumber, mergeMethod: "squash", commitTitle: `${title.trim()} (#${prNumber})`.slice(0, 256) };
+/**
+ * The `merge_pr` arguments for a task's pull request: the same on every call, so an approval of the first covers the
+ * second. `reviewedSha`, when the second read ran, is the commit it read: it is on the approval (the Inbox matches the
+ * review to it and says when the branch changed since), and a later run on a branch that moved asks again rather than
+ * reusing the approval. GitHub's merge is not pinned to it: the connector's `merge_pr` takes no `sha` (its contract is
+ * unchanged here), so the connector drops the field.
+ */
+export function mergeArgs(target: { owner: string; repo: string }, prNumber: number, title: string, reviewedSha?: string | null): Record<string, unknown> {
+  return { owner: target.owner, repo: target.repo, prNumber, mergeMethod: "squash", commitTitle: `${title.trim()} (#${prNumber})`.slice(0, 256), ...(reviewedSha ? { headSha: reviewedSha } : {}) };
 }
 
 /** What GitHub's merge state means for the review. */
@@ -343,12 +349,12 @@ export function createMergeActivities(deps: OrchestratorDeps) {
     },
 
     /** The merge, asked for: the gateway's policy makes it the founder's decision, or runs it when the decision was delegated. */
-    async askMerge(input: MergeInput & MergePullRequest): Promise<MergeAsked> {
+    async askMerge(input: MergeInput & MergePullRequest & { reviewedSha?: string | null }): Promise<MergeAsked> {
       const task = await repos.tasks.get(db, input.businessId, input.taskId);
       const found = await repository(input);
       if (!found) return { status: "held", reason: "no repository is chosen on the Code tab", prNumber: input.prNumber, prUrl: input.prUrl };
       const { read, write } = await tokens(input);
-      const merged = await call<{ merged: true; sha: string }>(write, "merge_pr", mergeArgs(found.repo, input.prNumber, task.title));
+      const merged = await call<{ merged: true; sha: string }>(write, "merge_pr", mergeArgs(found.repo, input.prNumber, task.title, input.reviewedSha));
       if (merged.res.outcome === "ask" && merged.res.approvalId) {
         await audit(input, MERGE_AUDIT.asked, { prNumber: input.prNumber, prUrl: input.prUrl, approvalId: merged.res.approvalId });
         return { status: "awaiting_approval", approvalId: merged.res.approvalId, prNumber: input.prNumber, prUrl: input.prUrl };
@@ -377,13 +383,13 @@ export function createMergeActivities(deps: OrchestratorDeps) {
     },
 
     /** After the founder approved and the checks passed: the same merge call, which the gateway runs under that approval, and the task is done. */
-    async completeMerge(input: MergeInput & MergePullRequest & { approvalId: string; decidedBy: string | null }): Promise<MergeOutcome & { retryable?: boolean }> {
+    async completeMerge(input: MergeInput & MergePullRequest & { approvalId: string; decidedBy: string | null; reviewedSha?: string | null }): Promise<MergeOutcome & { retryable?: boolean }> {
       const task = await repos.tasks.get(db, input.businessId, input.taskId);
       const found = await repository(input);
       if (!found) return { status: "skipped", reason: "no repository is chosen on the Code tab" };
       const { read, write } = await tokens(input);
       const current = ((await pullRequestsOf(read, found.repo, input.branch)) ?? []).find((p) => p.number === input.prNumber) ?? null;
-      const merged = await call<{ merged: true; sha: string }>(write, "merge_pr", mergeArgs(found.repo, input.prNumber, task.title));
+      const merged = await call<{ merged: true; sha: string }>(write, "merge_pr", mergeArgs(found.repo, input.prNumber, task.title, input.reviewedSha));
       if (merged.result.ok) {
         const pr: PullRequestSummary = current ?? { number: input.prNumber, title: task.title, url: input.prUrl ?? `https://github.com/${found.target.fullName}/pull/${input.prNumber}`, base: { ref: "main" }, head: { ref: input.branch }, additions: 0, deletions: 0, changedFiles: 0 };
         await finishMerged(input, found.target, pr, merged.result.data.sha, input.decidedBy ? { kind: "user", id: input.decidedBy } : systemActor, input.approvalId);

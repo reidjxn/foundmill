@@ -25,44 +25,42 @@ const code = async (p: Promise<unknown>) => {
 const roleOf = async (userId: string) => (await repos.memberships.get(hz.db, hz.A.businessId, userId))?.role ?? null;
 
 describe("team.humans: ownership stays with owners", () => {
-  it("an admin cannot demote the owner, by role or by inviting them again", async () => {
+  it("an admin cannot demote the owner, by role or by an invitation the owner accepts", async () => {
     const admin = hz.caller({ userId: hz.A.adminId });
     const businessId = hz.A.businessId;
     expect(await code(admin.team.humans.role({ businessId, userId: hz.A.ownerId, role: "viewer" }))).toBe("FORBIDDEN");
     expect(await code(admin.team.humans.role({ businessId, userId: hz.A.ownerId, sectionPermissions: { billing: "none" } }))).toBe("FORBIDDEN");
-    expect(await code(admin.team.humans.invite({ businessId, userId: hz.A.ownerId, role: "viewer" }))).toBe("CONFLICT");
+    // A collaborator invitation the owner opens changes nothing: they are already one of the project's people.
+    const { link } = await admin.invitation.create({ businessId, role: "collaborator" });
+    expect(await hz.caller({ userId: hz.A.ownerId }).invitation.accept({ token: link.split("/i/")[1]! })).toEqual({ businessId, already: true });
     expect(await roleOf(hz.A.ownerId)).toBe("owner");
     // So the takeover path (demote, then remove) is closed too, and the owner keeps owner-only actions.
     expect(await code(admin.team.humans.remove({ businessId, userId: hz.A.ownerId }))).toBe("BAD_REQUEST");
     expect(await code(hz.caller({ userId: hz.A.ownerId }).business.get({ businessId }))).toBe("OK");
   });
 
-  it("an admin cannot grant ownership; an invitation never grants it", async () => {
+  it("an admin cannot grant ownership, by role or by a cofounder invitation (an owner's alone)", async () => {
     const admin = hz.caller({ userId: hz.A.adminId });
     const businessId = hz.A.businessId;
     expect(await code(admin.team.humans.role({ businessId, userId: hz.A.memberId, role: "owner" }))).toBe("FORBIDDEN");
-    const newcomer = await hz.h.createUser("guards-newcomer@test.local");
-    expect(await code(admin.team.humans.invite({ businessId, userId: newcomer, role: "owner" }))).toBe("BAD_REQUEST");
+    expect(await code(admin.invitation.create({ businessId, role: "cofounder" }))).toBe("FORBIDDEN");
     expect(await roleOf(hz.A.memberId)).toBe("member");
-    expect(await roleOf(newcomer)).toBeNull();
   });
 
-  it("an invitation never overwrites an existing member, the inviter included", async () => {
+  it("an invitation never overwrites an existing member, the inviter included, and stays for the person it was for", async () => {
     const owner = hz.caller({ userId: hz.A.ownerId });
     const businessId = hz.A.businessId;
-    // The sole owner "inviting" themselves as a member would have orphaned the business (ARB-03).
-    expect(await code(owner.team.humans.invite({ businessId, userId: hz.A.ownerId, role: "member" }))).toBe("CONFLICT");
-    expect(await code(owner.team.humans.invite({ businessId, userId: hz.A.memberId, role: "admin", sectionPermissions: { finance: "write" } }))).toBe("CONFLICT");
+    // The sole owner accepting their own collaborator invitation would have orphaned the business (ARB-03).
+    const { link } = await owner.invitation.create({ businessId, role: "collaborator" });
+    const token = link.split("/i/")[1]!;
+    expect(await owner.invitation.accept({ token })).toEqual({ businessId, already: true });
+    expect(await hz.caller({ userId: hz.A.memberId }).invitation.accept({ token })).toEqual({ businessId, already: true });
     expect(await roleOf(hz.A.ownerId)).toBe("owner");
     expect((await repos.memberships.get(hz.db, businessId, hz.A.memberId))?.role).toBe("member");
-    // A newcomer takes a seat: on a plan with seats to spare the invitation goes through.
-    await owner.billing.changeTier({ businessId, tier: "scale" });
-    try {
-      const newcomer = await hz.h.createUser("guards-invitee@test.local");
-      expect((await owner.team.humans.invite({ businessId, userId: newcomer, role: "viewer" })).role).toBe("viewer");
-    } finally {
-      await owner.billing.changeTier({ businessId, tier: "free" });
-    }
+    // A newcomer accepts it: a collaborator (THESIS_REVIEW 3.3), whose walls are the role's own.
+    const newcomer = await hz.h.createUser("guards-invitee@test.local");
+    expect(await hz.caller({ userId: newcomer }).invitation.accept({ token })).toEqual({ businessId, already: false });
+    expect(await repos.memberships.get(hz.db, businessId, newcomer)).toMatchObject({ role: "collaborator", sectionPermissions: {}, expiresAt: null });
   });
 
   it("nobody edits their own role or section permissions", async () => {

@@ -1,9 +1,10 @@
 /** businesses — the business record (BUILD §7.2 "Accounts and businesses", routers business.*). */
-import { AGENT_STOP_REASONS, ARCHETYPES, BUSINESS_MODES, ConflictError, DATA_REGIONS, DEFAULT_BUSINESS_CURRENCY, GAME_MODES, MODEL_BILLING, PLAN_TIERS, ValidationError, slugify, uuid, type AgentStopReason, type BusinessMode, type GameMode, type MembershipRole, type PlanTier } from "@foundmill/shared";
-import { and, asc, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import { AGENT_STOP_REASONS, ARCHETYPES, BUSINESS_MODES, ConflictError, DATA_REGIONS, DEFAULT_BUSINESS_CURRENCY, GAME_MODES, MODEL_BILLING, OWNER_ROLES, PLAN_TIERS, ValidationError, slugify, uuid, type AgentStopReason, type BusinessMode, type GameMode, type MembershipRole, type PlanTier } from "@foundmill/shared";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
-import { auditLog, businessLogos, businesses, memberships, type Business } from "../schema";
-import { Currency, changes, defined, Id, IsoDateInput, maybeOne, MinorAmount, one, parseInput, rowsOf, uniqueViolation, type Executor } from "./_shared";
+import { auditLog, businessLogos, businesses, founderNotifications, memberships, type Business } from "../schema";
+import { Currency, changes, Id, IsoDateInput, maybeOne, MinorAmount, one, parseInput, rowsOf, uniqueViolation, type Executor } from "./_shared";
+import { membershipNotEnded } from "./memberships";
 
 const HexColour = z.string().regex(/^#[0-9a-fA-F]{6}$/, "brand colors are #RRGGBB");
 /** ISO 4217: three letters (0025 holds the column to the same shape). */
@@ -88,6 +89,10 @@ export const BUSINESS_DELETION_DELAY_DAYS = 7;
 /** What Settings › Business shows under the Slug field when another business already has the slug. */
 export const SLUG_TAKEN = "That slug is taken";
 
+/** The skip reason a founder notice records when the gateway's hard daily ceiling held it back (it delays the purge). */
+export const DELETION_NOTICE_HELD_REASON = "reserved_hard_ceiling";
+const DAY_MS = 86_400_000;
+
 export const businessesRepo = {
   /** The business, or NotFoundError. Archived businesses are not found unless `includeArchived`. */
   async get(db: Executor, businessId: string, options: { includeArchived?: boolean } = {}): Promise<Business> {
@@ -105,14 +110,15 @@ export const businessesRepo = {
 
   /**
    * Account-scoped: every business the user is a member of, newest first. `isExample` marks an example membership
-   * (0065): a demo the person is walking around, never "their" business (pickers prefer a real one).
+   * (0065): a demo the person is walking around, never "their" business (pickers prefer a real one). A membership that
+   * has ended (0092: a collaborator's date passed) offers nothing, so its business is not listed.
    */
   async listForUser(db: Executor, userId: string): Promise<(Business & { role: string; isExample: boolean })[]> {
     const rows = await db
       .select({ business: businesses, role: memberships.role, source: memberships.source })
       .from(memberships)
       .innerJoin(businesses, eq(businesses.id, memberships.businessId))
-      .where(and(eq(memberships.userId, userId), notArchived))
+      .where(and(eq(memberships.userId, userId), notArchived, membershipNotEnded))
       .orderBy(desc(businesses.createdAt));
     return rows.map((r) => ({ ...r.business, role: r.role, isExample: r.source === "example" }));
   },
@@ -168,7 +174,7 @@ export const businessesRepo = {
   },
 
   /**
-   * Account-scoped: the archived businesses the user owns, most recently archived first (Settings › Danger zone
+   * Account-scoped: the archived businesses the user owns (as an owner or a cofounder), most recently archived first (Settings › Danger zone
    * promises an owner can restore one; New business lists them with Restore, Export and Delete permanently).
    */
   async listArchivedForUser(db: Executor, userId: string): Promise<Business[]> {
@@ -176,7 +182,7 @@ export const businessesRepo = {
       .select({ business: businesses })
       .from(memberships)
       .innerJoin(businesses, eq(businesses.id, memberships.businessId))
-      .where(and(eq(memberships.userId, userId), eq(memberships.role, "owner"), isNotNull(businesses.archivedAt)))
+      .where(and(eq(memberships.userId, userId), inArray(memberships.role, [...OWNER_ROLES]), isNotNull(businesses.archivedAt)))
       .orderBy(desc(businesses.archivedAt));
     return rows.map((r) => r.business);
   },
@@ -426,22 +432,39 @@ export const businessesRepo = {
    * chain is a request, not a cancellation, and its date has passed). Archived businesses are included.
    */
   async deletionsDue(db: Executor, now: Date = new Date()): Promise<{ businessId: string; scheduledFor: Date; requestedAt: Date }[]> {
-    const rows = rowsOf<{ business_id: string; action: string; scheduled_for: string | null; created_at: Date | string }>(
+    const rows = rowsOf<{ id: string; business_id: string; action: string; scheduled_for: string | null; created_at: Date | string }>(
       await db.execute(sql`
-        select business_id, action, details ->> 'scheduledFor' as scheduled_for, created_at
+        select id, business_id, action, details ->> 'scheduledFor' as scheduled_for, created_at
           from (
-            select distinct on (business_id) business_id, action, details, created_at
+            select distinct on (business_id) id, business_id, action, details, created_at
               from ${auditLog}
              where action in (${BUSINESS_DELETION_REQUEST_ACTION}, ${BUSINESS_DELETION_CANCEL_ACTION})
              order by business_id, seq desc
           ) latest
          where action = ${BUSINESS_DELETION_REQUEST_ACTION}`),
     );
-    return rows
-      .map((r) => {
-        const requestedAt = new Date(r.created_at);
-        const scheduled = r.scheduled_for ? new Date(r.scheduled_for) : null;
-        return { businessId: r.business_id, requestedAt, scheduledFor: scheduled && !Number.isNaN(scheduled.getTime()) ? scheduled : new Date(requestedAt.getTime() + BUSINESS_DELETION_DELAY_DAYS * 86_400_000) };
+    const requests = rows.map((r) => {
+      const requestedAt = new Date(r.created_at);
+      const scheduled = r.scheduled_for ? new Date(r.scheduled_for) : null;
+      return { requestId: r.id, businessId: r.business_id, requestedAt, scheduledFor: scheduled && !Number.isNaN(scheduled.getTime()) ? scheduled : new Date(requestedAt.getTime() + BUSINESS_DELETION_DELAY_DAYS * 86_400_000) };
+    });
+    // A deletion request whose founder notice the gateway could not send at all (past the platform's hard daily
+    // ceiling, `reserved_hard_ceiling`; security review P2-3, its bounds check) waits longer: its day moves out by the
+    // days that were left when the notice was held back, and by a day at least, counted from the latest such notice.
+    const due = requests.filter((r) => r.scheduledFor.getTime() <= now.getTime());
+    if (due.length === 0) return [];
+    const held = await db
+      .select({ dedupeKey: founderNotifications.dedupeKey, at: sql<Date | string>`max(${founderNotifications.createdAt})` })
+      .from(founderNotifications)
+      .where(and(eq(founderNotifications.skipReason, DELETION_NOTICE_HELD_REASON), inArray(founderNotifications.dedupeKey, due.map((r) => `founder_notice:${r.requestId}`))))
+      .groupBy(founderNotifications.dedupeKey);
+    const heldAt = new Map(held.map((h) => [h.dedupeKey, new Date(h.at)]));
+    return due
+      .map(({ requestId, ...r }) => {
+        const at = heldAt.get(`founder_notice:${requestId}`);
+        if (!at) return r;
+        const left = Math.max(DAY_MS, r.scheduledFor.getTime() - at.getTime());
+        return { ...r, scheduledFor: new Date(r.scheduledFor.getTime() + left) };
       })
       .filter((r) => r.scheduledFor.getTime() <= now.getTime());
   },

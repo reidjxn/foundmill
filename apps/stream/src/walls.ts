@@ -21,7 +21,8 @@
  *
  * An account-scoped event (`ACCOUNT_EVENT_TYPES`: a fact about one person, such as their profile going public, or a
  * sign-up that a public page brought: `signup.attributed` for the new person, `referral.arrived` for the person
- * credited) is walled from every reader of a business stream in the same way, and has no line in the table: it is
+ * credited, or a founder notice Foundmill emailed them: `founder_notice.sent`, security review P2-3, whose reader may
+ * have been removed from the project) is walled from every reader of a business stream in the same way, and has no line in the table: it is
  * never written to a business and never relayed to `ev:`. It travels on the person's own `ae:<userId>`, where
  * `viewAccountEvent` lets through only that person's own account events, cut to the fields a person may read of them.
  */
@@ -139,6 +140,10 @@ export const EVENT_WALLS = {
   // The team drafted a post for the founder to share by tap: ids and the trigger's kind, never the words. The Creative
   // tab and Today follow it.
   "post.drafted": { sections: ["distribution"] },
+  // Invitations to the project: the People tab (Settings, under the Team section).
+  "invitation.sent": { sections: ["team"] },
+  "invitation.accepted": { sections: ["team"] },
+  "invitation.declined": { sections: ["team"] },
 } as const satisfies { readonly [K in BusinessEventType]: EventWall };
 
 /** What one reader may see of business events: their walls (sections they may not read at all). */

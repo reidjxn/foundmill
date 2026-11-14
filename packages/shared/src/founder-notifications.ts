@@ -5,14 +5,15 @@
  * the platform email's (notify-email.ts: three a day per person, briefs aside; 30 minutes for a decision that holds up
  * work, a day for the rest).
  */
-import { EMAIL_NOTIFICATION_KINDS, type EmailNotificationKind } from "./constants";
+import { ACCOUNT_SAFETY_EMAIL_KINDS, EMAIL_NOTIFICATION_KINDS, type AccountSafetyEmailKind, type EmailNotificationKind } from "./constants";
 
 /**
  * The kinds are the platform's own (`EMAIL_NOTIFICATION_KINDS`, constants.ts): one list, one preference
  * (`account_preferences.notifications.email`), one sender (the gateway's `/v1/notify/email`), founder 2026-11-12.
  */
-export const FOUNDER_NOTIFICATION_KINDS = EMAIL_NOTIFICATION_KINDS;
-export type FounderNotificationKind = EmailNotificationKind;
+export const FOUNDER_NOTIFICATION_KINDS = [...EMAIL_NOTIFICATION_KINDS, ...ACCOUNT_SAFETY_EMAIL_KINDS] as const;
+/** The record's kinds: the person's own kinds and the account-safety notices (security review P2-3), which hold no switch. */
+export type FounderNotificationKind = EmailNotificationKind | AccountSafetyEmailKind;
 
 export const FOUNDER_NOTIFICATION_CHANNELS = ["email", "browser"] as const;
 export type FounderNotificationChannel = (typeof FOUNDER_NOTIFICATION_CHANNELS)[number];

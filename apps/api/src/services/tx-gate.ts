@@ -150,6 +150,18 @@ export interface TransactionGate {
   stats(): TransactionGateStats;
 }
 
+/** Each request's view (`forRequest`) and the database behind it. */
+const behindView = new WeakMap<object, object>();
+
+/**
+ * The database behind a request's view, for work the request starts and does not wait for (a post draft queued by
+ * the Board's toggle): such work outlives the request, so it must not stop when the client closes it. Background work
+ * uses the database directly, as the relays do. Anything else is returned as it is.
+ */
+export function ungated<D extends object>(db: D): D {
+  return (behindView.get(db) as D | undefined) ?? db;
+}
+
 export const DEFAULT_GATE_WAIT_MS = 15_000;
 /** Transactions one request holds at once. */
 export const REQUEST_TRANSACTION_LIMIT = 4;
@@ -200,7 +212,9 @@ export function createTransactionGate(options: TransactionGateOptions): Transact
         }
       };
       // The same database with one method replaced: every other property resolves through the prototype chain.
-      return Object.create(db, { transaction: { value: gated, enumerable: false, writable: false, configurable: true } }) as D;
+      const view = Object.create(db, { transaction: { value: gated, enumerable: false, writable: false, configurable: true } }) as D;
+      behindView.set(view, db);
+      return view;
     },
     stats: () => ({ held: total.held, waiting: total.waiting, peak: total.peak, timeouts, total: total.limit, perRequest }),
   };

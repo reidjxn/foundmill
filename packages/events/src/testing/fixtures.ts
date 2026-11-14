@@ -557,12 +557,17 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
   "milestone.hidden": { milestoneId: fixtureId("milestone"), key: "page_live", slug: "northwind-skincare", url: `https://foundmill.example/m/${fixtureId("milestone")}` },
   "share.opened": { network: "x", kind: "milestone", refId: fixtureId("milestone"), target: "tap" },
   "post.drafted": { assetId: fixtureId("asset-post"), trigger: "page_published", subject: "page_live", agentId: FIXTURE_AGENT_ID },
+  "invitation.sent": { invitationId: fixtureId("invitation"), role: "collaborator", emailed: false },
+  "invitation.accepted": { invitationId: fixtureId("invitation"), role: "cofounder", userId: fixtureId("user") },
+  "invitation.declined": { invitationId: fixtureId("invitation"), role: "collaborator" },
   // Account-scoped (a person's own): written with `accountFixtureInput`, never with `fixtureInput`.
   "profile.published": { handle: "maya-okafor" },
   "profile.unpublished": { handle: "maya-okafor" },
   // One sign-up, two people, two rows: the new person's and the credited person's. A public address and nothing else.
   "signup.attributed": { sourceKind: "project_page", sourceRef: "northwind-skincare" },
   "referral.arrived": { sourceKind: "person_profile", sourceRef: "maya-okafor" },
+  // A founder notice for the person emailed: the notice and the project's and the record's ids, nobody's account.
+  "founder_notice.sent": { notice: "removed", businessId: fixtureId("business"), notificationId: fixtureId("notification"), offersCancel: true, simulated: true },
 };
 
 /** A valid `WriteEventInput` for the given business-scoped type, with the fixture payload and envelope. */

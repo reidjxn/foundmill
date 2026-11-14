@@ -66,11 +66,18 @@ function newWorld(bytesPerBusiness: number, publicRepos: ReadonlySet<string>) {
     throw notFound(`ref ${ref} in ${r.repo.full_name}`);
   };
   const prList = (fullName: string) => pulls.get(fullName) ?? pulls.set(fullName, []).get(fullName)!;
-  /** The branch a ref names (HEAD → default), or null for a commit sha. */
+  /**
+   * The branch a ref names (HEAD → default), the branch whose head a commit sha is (GitHub reads a file at a commit, so
+   * the mock does too, for the commits it still knows), or null for any other sha.
+   */
   const branchOf = (r: GhFixtureRepo, ref: string): string | null => {
     if (ref === "HEAD") return r.repo.default_branch;
     const name = ref.replace(/^refs\/heads\//, "");
-    return r.branches[name] ? name : null;
+    if (r.branches[name]) return name;
+    if (!/^[0-9a-f]{7,40}$/.test(ref)) return null;
+    const heads = Object.entries(r.branches).filter(([, sha]) => sha.startsWith(ref));
+    // The default branch first: branches cut from it and never committed to share its head and its files.
+    return heads.find(([b]) => b === r.repo.default_branch)?.[0] ?? heads.find(([b]) => trees.has(treeKey(r, b)))?.[0] ?? heads[0]?.[0] ?? null;
   };
   const ownTree = (r: GhFixtureRepo, ref: string) => {
     const branch = branchOf(r, ref);

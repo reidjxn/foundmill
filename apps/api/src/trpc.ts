@@ -11,10 +11,10 @@ import { liveModeOpen } from "@foundmill/config";
 import { repos, SLUG_TAKEN, uniqueViolation, withRls, type Business, type DbTx, type Executor, type Membership } from "@foundmill/db";
 import type { EventPayloadInput } from "@foundmill/events";
 import { isModelBillingError } from "@foundmill/models";
-import { assertAllowlisted } from "./services/access";
+import { admitOrWait, assertConfirmedSignIn } from "./services/access";
 import { modelBillingAppError } from "./services/model-errors";
 import { writeEventRow } from "./services/events";
-import { AppError, ConflictError, DEFAULT_AGENT_STYLE, NotFoundError, WRITE_ROLES, effectivePermission, isAgentStyle, type Actor, type AgentStyle, type BusinessEventType, type MembershipRole, type PermissionLevel, type Section } from "@foundmill/shared";
+import { ADMIN_ROLES, AppError, ConflictError, DEFAULT_AGENT_STYLE, NotFoundError, OWNER_ROLES, WRITE_ROLES, effectivePermission, isAgentStyle, type Actor, type AgentStyle, type BusinessEventType, type MembershipRole, type PermissionLevel, type Section } from "@foundmill/shared";
 import type { Context } from "./context";
 
 export const Id = z.guid();
@@ -277,10 +277,20 @@ const wakeRelay = t.middleware(async ({ ctx, type, next }) => {
 
 export const publicProcedure = t.procedure.use(mapErrors).use(wakeRelay);
 
-export const protectedProcedure = publicProcedure.use(({ ctx, next }) => {
+export const protectedProcedure = publicProcedure.use(async ({ ctx, next }) => {
   if (!ctx.userId) throw new TRPCError({ code: "UNAUTHORIZED", message: "Sign in to continue" });
-  // A deployment that is not open to everyone admits only the accounts SIGNUP_ALLOWLIST names (services/access.ts).
-  assertAllowlisted(ctx.env, { userId: ctx.userId, email: ctx.email, emailConfirmed: ctx.emailConfirmed });
+  // Admit now or wait (services/access.ts): the list, an admission, or open sign-up's ceiling; else a typed refusal.
+  await admitOrWait(ctx, { userId: ctx.userId, email: ctx.email, emailConfirmed: ctx.emailConfirmed });
+  return next({ ctx: { ...ctx, userId: ctx.userId } });
+});
+
+/**
+ * Signed in with a confirmed address, admitted or not: only for the procedure that is how a person gets in
+ * (`invitation.accept`). Everything else is `protectedProcedure`.
+ */
+export const signedInProcedure = publicProcedure.use(({ ctx, next }) => {
+  if (!ctx.userId) throw new TRPCError({ code: "UNAUTHORIZED", message: "Sign in to continue" });
+  assertConfirmedSignIn({ userId: ctx.userId, email: ctx.email, emailConfirmed: ctx.emailConfirmed });
   return next({ ctx: { ...ctx, userId: ctx.userId } });
 });
 
@@ -365,16 +375,16 @@ export function sectionPermission(section: Section, level: PermissionLevel = "wr
   });
 }
 
-/** Mutations: owner/admin/member only (viewers and advisors never write — RLS enforces the same). */
+/** Mutations: owner, cofounder, admin, member and collaborator (viewers and advisors never write — RLS enforces the same). */
 export const writeProcedure = businessProcedure.use(requireRoles(WRITE_ROLES, "changes"));
-/** Owner/admin only: modes, holiday, kill switch, staff, keys, billing, integrations, structure. */
-export const adminProcedure = businessProcedure.use(requireRoles(["owner", "admin"], "administration"));
-/** Owner only: tier changes, permanent actions. */
-export const ownerProcedure = businessProcedure.use(requireRoles(["owner"], "owner actions"));
-/** Owner/admin on a business that may be archived (export). */
-export const adminArchivedProcedure = archivedBusinessProcedure.use(requireRoles(["owner", "admin"], "administration"));
-/** Owner only on a business that may be archived (restore, permanent deletion). */
-export const ownerArchivedProcedure = archivedBusinessProcedure.use(requireRoles(["owner"], "owner actions"));
+/** An owner's standing (an owner or a cofounder) or an admin: modes, holiday, kill switch, people, keys, billing, integrations, structure. */
+export const adminProcedure = businessProcedure.use(requireRoles(ADMIN_ROLES, "administration"));
+/** An owner's standing only (an owner or a cofounder, THESIS_REVIEW 3.3): tier changes, permanent actions. */
+export const ownerProcedure = businessProcedure.use(requireRoles(OWNER_ROLES, "owner actions"));
+/** An owner's standing or an admin, on a business that may be archived (export). */
+export const adminArchivedProcedure = archivedBusinessProcedure.use(requireRoles(ADMIN_ROLES, "administration"));
+/** An owner's standing only, on a business that may be archived (restore, permanent deletion). */
+export const ownerArchivedProcedure = archivedBusinessProcedure.use(requireRoles(OWNER_ROLES, "owner actions"));
 
 /**
  * Closes the LIVE surfaces (live.*, going live, committing as LIVE) while `FLAGS.liveMode` is off and the deployment has

@@ -198,12 +198,12 @@ for (const width of [1280, 1440]) {
       expect(chart.smallest, "node text never drops below 11 px").toBeGreaterThanOrEqual(11);
 
       await openTab(page, team, "staff", "team/staff");
-      await expect(page.getByRole("grid", { name: "Staff" })).toBeVisible({ timeout: LONG });
+      await expect(page.getByRole("grid", { name: "People" })).toBeVisible({ timeout: LONG });
       // A member walled off a section says so ("Finance · no access"), never "Role default" (RUI-04).
-      const walled = page.getByRole("grid", { name: "Staff" }).getByText(/· no access/);
+      const walled = page.getByRole("grid", { name: "People" }).getByText(/· no access/);
       if (await walled.count()) await expect(walled.first()).toBeVisible();
       // Nobody edits their own role or permissions (team.humans.role refuses it): the founder's own row offers neither.
-      await page.getByRole("grid", { name: "Staff" }).getByRole("row").filter({ hasText: "You" }).first().click({ button: "right" });
+      await page.getByRole("grid", { name: "People" }).getByRole("row").filter({ hasText: "You" }).first().click({ button: "right" });
       await expect(page.getByRole("menuitem", { name: "Role and permissions…" })).toHaveAttribute("aria-disabled", "true");
       await page.keyboard.press("Escape");
     });

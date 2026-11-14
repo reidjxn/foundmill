@@ -111,6 +111,8 @@ export interface Context extends ApiDeps {
    * up on every call.
    */
   accessMemo?: Map<string, Promise<BusinessAccess>>;
+  /** The admission answer (services/access.ts `admitOrWait`) per person for this HTTP request: a batch asks once. */
+  admissionMemo?: Map<string, Promise<void>>;
 }
 
 /** A signed-in user for the in-process caller and tests. */
@@ -238,7 +240,7 @@ export function createContextFactory(deps: ApiDeps) {
     // The request's own view of the database: its transactions wait for the gate's permits, and it starts none once the
     // client has closed the request.
     const db = deps.txGate ? deps.txGate.forRequest(deps.db, opts.req.signal) : deps.db;
-    return { ...deps, db, userId: user?.userId ?? null, email: user?.email ?? null, authenticatedAt: user?.authenticatedAt ?? null, emailConfirmed, requestId, clientAddress: clientAddressOf(opts.req.headers, c), accessMemo: new Map() };
+    return { ...deps, db, userId: user?.userId ?? null, email: user?.email ?? null, authenticatedAt: user?.authenticatedAt ?? null, emailConfirmed, requestId, clientAddress: clientAddressOf(opts.req.headers, c), accessMemo: new Map(), admissionMemo: new Map() };
   };
 }
 

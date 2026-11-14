@@ -9,3 +9,6 @@ export * from "./public/PersonPage";
 export * from "./public/LegalPage";
 // The landing page's idea box card (docs/IDEA_BOX.md).
 export * from "./public/IdeaCard";
+// An invitation to a project at /i/<token> (docs/NETWORK.md F5), and "You're on the list." (the api's `on_waitlist`).
+export * from "./public/InvitationCard";
+export * from "./public/OnWaitlistCard";

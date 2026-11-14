@@ -733,12 +733,13 @@ export function Folded({ folded, show, hide, testId, children }: FoldedProps) {
 /**
  * The note body in the reading style, with the first mention of each defined term carrying its definition on hover
  * (Markdown `terms`; off while guidance is off). Dugout's Markdown keeps its own props, so the test id lives on this
- * wrapper.
+ * wrapper. Images never load: a note quotes names and text other people chose (a customer's name at checkout), and an
+ * image there would make the reader's browser fetch from a stranger's server; it shows its alt text instead.
  */
 export const InboxNote = memo(function InboxNote({ bodyMd }: { bodyMd: string }) {
   return (
     <div data-testid="inbox-note">
-      <Markdown variant="reading" className="t-reading" terms>
+      <Markdown variant="reading" className="t-reading" terms images={false}>
         {bodyMd}
       </Markdown>
     </div>
