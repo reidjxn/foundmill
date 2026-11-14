@@ -169,7 +169,7 @@ const badgeQueries = {
       .from(posts)
       .where(and(inArray(posts.communityId, moderated), isNull(posts.archivedAt), or(eq(posts.status, "pending_review"), and(eq(posts.status, "visible"), inArray(posts.id, reported)))));
   },
-  /** The person's own confirmation that they are 18 or older: the account's record (0104), which every check reads. */
+  /** The person's own confirmation that they are 18 or older: the account's record (0100), which every check reads. */
   adultConfirmedAt: (_db: Executor, userId: string) => adultsRepo.confirmedAtSql(userId),
 };
 
@@ -192,10 +192,10 @@ export const socialRepo = {
       .limit(limit);
   },
 
-  // the network is for adults (0027; since 0104 the account's own confirmation at sign-up) -----------------------------
+  // the network is for adults (0027; since 0100 the account's own confirmation at sign-up) -----------------------------
   /**
    * When this person confirmed that they are 18 or older; null when they have not (BUILD §11.14 "18+ only"). Reads the
-   * account's record (`adult_confirmations`, 0104): a confirmation at sign-up counts for the network, and every row of
+   * account's record (`adult_confirmations`, 0100): a confirmation at sign-up counts for the network, and every row of
    * `network_attestations` was copied there and is kept in step.
    */
   async adultConfirmedAt(db: Executor, userId: string): Promise<Date | null> {
@@ -218,7 +218,7 @@ export const socialRepo = {
   },
 
   /**
-   * Records the person's own confirmation that they are 18 or older, on the account (`adult_confirmations`, 0104; a
+   * Records the person's own confirmation that they are 18 or older, on the account (`adult_confirmations`, 0100; a
    * trigger writes the network's row too). The first one stands; asking again changes nothing.
    */
   async confirmAdult(db: Executor, userId: string): Promise<Date> {

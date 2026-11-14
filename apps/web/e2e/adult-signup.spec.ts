@@ -4,7 +4,7 @@ import { LONG, devApi, signInAs } from "./helpers";
 
 /**
  * "I am 18 or older", confirmed once at sign-up, for the whole product (CLAUDE.md, founder 2026-11-11; the api's
- * `adult_confirmations`, 0104). Stack and commands: e2e/README.md.
+ * `adult_confirmations`, 0100). Stack and commands: e2e/README.md.
  *
  *   - 1280 px: a new account meets the box on the profile form; Continue stays on the form until it is ticked, then the
  *     profile is created and the person goes on; editing the profile afterwards never shows the box again;

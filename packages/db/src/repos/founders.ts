@@ -116,7 +116,7 @@ export const foundersRepo = {
    * businesses with the role held in each as `businesses.listForUser` answers them (newest first). Until 2026-10-15 these
    * were three statements on three pooled connections. Each business says whether it is held through an example
    * membership (`isExample`, 0065), so the index route and the LIVE pages never take a demo for the founder's own.
-   * `adultConfirmed`: the account's "I am 18 or older" is on record (`adults.confirmedAt` has a date; 0104), in the same
+   * `adultConfirmed`: the account's "I am 18 or older" is on record (`adults.confirmedAt` has a date; 0100), in the same
    * statement.
    */
   async account(db: Executor, userId: string): Promise<{ profile: FounderProfile | null; memberships: Membership[]; businesses: (Business & { role: string; isExample: boolean })[]; adultConfirmed: boolean }> {

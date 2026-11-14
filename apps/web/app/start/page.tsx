@@ -34,7 +34,7 @@ export default async function StartPage({ searchParams }: { searchParams: Promis
   const claim = (await searchParams)[IDEA_CLAIM_PARAM];
   const keepCardPath = await cardToKeep(server.api, (await cookies()).get(IDEA_COOKIE)?.value ?? null, typeof claim === "string" ? claim : null);
   // The one routing table for a person just signed in (lib/auth/start-destination.ts).
-  // A profile counts once the person's "I am 18 or older" is on record too (0104): /onboarding asks for what is missing.
+  // A profile counts once the person's "I am 18 or older" is on record too (0100): /onboarding asks for what is missing.
   redirect(startDestination({ profileComplete: profile.complete && profile.adultConfirmed, businesses: profile.businesses, lastBusinessId: await getLastBusinessId(), keepCardPath }));
 }
 

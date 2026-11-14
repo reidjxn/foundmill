@@ -204,7 +204,7 @@ export async function completeProfile(page: Page): Promise<void> {
 
 /**
  * Ticks "I am 18 or older" on the founder profile form when the form asks for it (a new account with no confirmation
- * on record, 0104); the seeded founder has confirmed, so the form does not ask them.
+ * on record, 0100); the seeded founder has confirmed, so the form does not ask them.
  */
 export async function confirmAdultOnForm(page: Page): Promise<void> {
   const adult = page.getByTestId("profile-adult");

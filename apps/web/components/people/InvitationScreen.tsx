@@ -14,7 +14,7 @@
  *     confirmed address and nothing else);
  *   - signed in: Accept (`invitation.accept`, then the project) or Not now (nothing happens); "Decline" says no for good.
  *     A person whose "I am 18 or older" is not on record yet (`founder.adult.get`) ticks it above Accept, which sends it
- *     with the accept (0104); one who confirmed already is never shown the box.
+ *     with the accept (0100); one who confirmed already is never shown the box.
  * Opening the page changes nothing: a mail scanner that follows the link accepts nothing.
  */
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -67,7 +67,7 @@ export function InvitationScreen({ token, signedIn, preview: given, adultConfirm
     }),
   );
   const decline = useMutation(trpc.invitation.decline.mutationOptions({ onSuccess: () => setDeclined(true) }));
-  // 18 or older (0104): joining a project needs it on record, asked here once when it is not.
+  // 18 or older (0100): joining a project needs it on record, asked here once when it is not.
   const adultQ = useQuery(trpc.founder.adult.get.queryOptions(undefined, { enabled: signedIn && adultConfirmed === undefined, retry: false, staleTime: Infinity }));
   const [adult, setAdult] = useState(false);
   const [adultMissing, setAdultMissing] = useState(false);

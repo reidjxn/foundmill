@@ -476,7 +476,7 @@ describe("#28: the network is for adults", () => {
   it("taking charge of a LIVE business asks a person here before sign-up asked; the sign-up confirmation answers it", async () => {
     const userId = await hz.h.createUser("adult-commit@live-social.test");
     const caller = as(userId);
-    // A profile from before 0104: no confirmation on record.
+    // A profile from before 0100: no confirmation on record.
     await repos.founders.upsert(hz.db, userId, { displayName: "Noor", experience: "first-time", skills: { sales: 10 }, targetMarkets: ["EU"], riskAppetite: "medium" });
     const [first] = (await caller.idea.generate({ prompt: "invoicing for freelance designers" })).ideas;
     // Without the confirmation nothing is created: no business, and the idea stays uncommitted.

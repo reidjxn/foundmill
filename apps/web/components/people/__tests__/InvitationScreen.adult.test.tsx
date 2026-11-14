@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 /**
- * 18 or older on an invitation (0104): only a confirmation the api reported hides the box. While `founder.adult.get`
+ * 18 or older on an invitation (0100): only a confirmation the api reported hides the box. While `founder.adult.get`
  * is asked, Accept waits; if it fails, the box shows; if Accept is refused with `adult_unconfirmed`, the box shows and
  * the next Accept carries `confirmAdult: true`.
  */

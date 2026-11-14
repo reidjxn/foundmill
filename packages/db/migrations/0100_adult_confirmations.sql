@@ -1,4 +1,4 @@
--- 0104 — "I am 18 or older", confirmed once at sign-up, for the whole product (CLAUDE.md, founder 2026-11-11;
+-- 0100 — "I am 18 or older", confirmed once at sign-up, for the whole product (CLAUDE.md, founder 2026-11-11;
 -- docs/THESIS_REVIEW.md package 2.2). Until now the confirmation was the network's (`network_attestations`, 0027),
 -- asked before a first network action or when a business went LIVE. This table is the account's record and the source
 -- of truth: the api asks for it when a new account creates its profile (`founder.profile.update`, the

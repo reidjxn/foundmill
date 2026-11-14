@@ -159,7 +159,7 @@ export function LoginForm({ nextParam = null, errorParam = null, google = google
               ) : null}
             </form>
             {/* Google's sign-in review and the EU and US privacy laws ask for the two documents where an account starts. The
-                age is said here and confirmed once, with a box, after the first sign-in (0104): never on every sign-in. */}
+                age is said here and confirmed once, with a box, after the first sign-in (0100): never on every sign-in. */}
             <p className="text-small text-secondary" data-testid="login-legal">
               {APP_NAME} is for people 18 or older: a new account confirms it once. By continuing, you agree to the{" "}
               <a href={LEGAL_ROUTES.terms} className="entity-link">

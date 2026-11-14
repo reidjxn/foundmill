@@ -19,7 +19,7 @@ export interface StudioViewer {
   email: string | null;
   profile: FounderProfileGet["profile"];
   /**
-   * The person may go on past sign-up: the founder profile exists AND their "I am 18 or older" is on record (0104).
+   * The person may go on past sign-up: the founder profile exists AND their "I am 18 or older" is on record (0100).
    * Every first-run page sends a person without both to /onboarding, which asks for whichever is missing.
    */
   complete: boolean;

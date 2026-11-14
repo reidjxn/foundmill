@@ -1,5 +1,5 @@
 /**
- * "I am 18 or older", once, at sign-up, for the whole product (services/adults.ts; 0104). A new account cannot create
+ * "I am 18 or older", once, at sign-up, for the whole product (services/adults.ts; 0100). A new account cannot create
  * its profile, start a project or join one without the confirmation; it is recorded once, on the account, by the
  * `adult_confirmation` step of `onPersonCreated`; a person the network already asked (`network_attestations`) is never
  * asked again; a person from before is asked once (`founder.adult.confirm`); and going LIVE accepts the sign-up
@@ -85,7 +85,7 @@ describe("a new account confirms at sign-up", () => {
 describe("nobody who confirmed is asked twice", () => {
   it("a person the network already asked creates their profile without the box, and reads as confirmed", async () => {
     const p = await newcomer();
-    // As the network recorded it before 0104 (the api now writes the account's record; this table is still read).
+    // As the network recorded it before 0100 (the api now writes the account's record; this table is still read).
     await hz.db.execute(sql`insert into network_attestations (user_id) values (${p.userId}::uuid)`);
     expect((await p.me.founder.adult.get()).confirmed).toBe(true);
     await p.me.founder.profile.update(answer);

@@ -170,7 +170,7 @@ export const founderRouter = router({
       const { profile, memberships, businesses, adultConfirmed } = await repos.founders.account(ctx.db, ctx.userId);
       // `features.liveMode`: whether LIVE is open here (the commit screen offers Live only then). `userId` is the account ID
       // a co-founder is added by (Settings › Members); the founder can always read their own. `complete`: the profile
-      // exists; `adultConfirmed`: the person confirmed they are 18 or older (0104). A client goes on past sign-up only
+      // exists; `adultConfirmed`: the person confirmed they are 18 or older (0100). A client goes on past sign-up only
       // with both, and asks for the confirmation once when it is missing (`founder.adult.confirm`).
       return { userId: ctx.userId, profile, complete: profile !== null, adultConfirmed, email: ctx.email, memberships, businesses, features: { liveMode: liveModeOpen(ctx.env) } };
     }),
@@ -204,7 +204,7 @@ export const founderRouter = router({
     }),
   }),
   /**
-   * founder.adult.get/confirm: "I am 18 or older", for the whole product (0104, services/adults.ts). Signed in with a
+   * founder.adult.get/confirm: "I am 18 or older", for the whole product (0100, services/adults.ts). Signed in with a
    * confirmed address, admitted or not (`signedInProcedure`), so an invitee is asked before accepting and the phone app
    * can ask before anything else. `confirm` is for a person whose account has no confirmation yet (here before this
    * record existed, or a profile save whose step did not finish): the first confirmation stands, and a second call

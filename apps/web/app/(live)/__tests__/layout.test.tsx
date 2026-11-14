@@ -38,7 +38,7 @@ describe("(live) layout", () => {
     expect(state.redirect).not.toHaveBeenCalled();
   });
 
-  it("sends a person whose 18 or older is not on record to /onboarding, which asks once (0104)", async () => {
+  it("sends a person whose 18 or older is not on record to /onboarding, which asks once (0100)", async () => {
     state.businesses = [];
     state.adultConfirmed = false;
     try {

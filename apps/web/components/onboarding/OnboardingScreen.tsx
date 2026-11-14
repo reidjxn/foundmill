@@ -121,7 +121,7 @@ export interface OnboardingScreenProps {
    */
   via?: string | null;
   /**
-   * Whether the account's "I am 18 or older" is on record (`founder.profile.get` `adultConfirmed`; 0104). A new account
+   * Whether the account's "I am 18 or older" is on record (`founder.profile.get` `adultConfirmed`; 0100). A new account
    * without it ticks the box on the form, and the save that creates the profile carries it; a person with a profile and
    * no record (here before sign-up asked) sees the one step instead of the form (`AdultStep`). Required: the page reads
    * it from the api, and a screen that does not know never assumes it. A save the api refuses with `adult_unconfirmed`

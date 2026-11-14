@@ -133,7 +133,7 @@ test.describe("invitations", () => {
     await signInAs(page, randomUUID(), path);
     await expect(page.getByTestId("invitation")).toHaveAttribute("data-state", "pending", { timeout: LONG });
     const note = page.locator("[data-invitation-note]");
-    // A new account confirms it is 18 or older on the invitation (0104); the address is still checked first.
+    // A new account confirms it is 18 or older on the invitation (0100); the address is still checked first.
     await page.getByTestId("invitation-adult").getByRole("checkbox", { name: "I am 18 or older" }).check();
     await page.getByTestId("invitation-accept").click();
     await expect(note).toHaveText("Sign in with the address this invitation was sent to.", { timeout: LONG });
@@ -155,7 +155,7 @@ test.describe("invitations", () => {
     const page = await context.newPage();
     await signInAs(page, invitee, path);
     await expect(page.getByTestId("invitation")).toHaveAttribute("data-state", "pending", { timeout: LONG });
-    // Joining is for people 18 or older: Accept waits for the box, which is asked once (0104).
+    // Joining is for people 18 or older: Accept waits for the box, which is asked once (0100).
     const adult = page.getByTestId("invitation-adult");
     await page.getByTestId("invitation-accept").click();
     await expect(adult).toContainText("Confirm that you are 18 or older to accept.");

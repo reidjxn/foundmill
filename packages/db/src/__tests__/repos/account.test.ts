@@ -38,7 +38,7 @@ describe("repos.founders.account", () => {
     await r.db.update(s.businesses).set({ archivedAt: new Date() }).where(eq(s.businesses.id, archived!.id));
     await repos.founders.upsert(r.db, founder, { displayName: "Ada O'Hara", experience: "Two exits", skills: { sales: 14, code: 9 }, budgetMinor: 250000, currency: "GBP", targetMarkets: ["UK", "US, East"], constraints: ['No "cold" calls'], visibility: "connections" });
 
-    // Their "I am 18 or older" (0104) is answered in the same statement.
+    // Their "I am 18 or older" (0100) is answered in the same statement.
     await repos.adults.confirm(r.db, founder);
     const expected = await separately(founder);
     expect(expected.adultConfirmed).toBe(true);

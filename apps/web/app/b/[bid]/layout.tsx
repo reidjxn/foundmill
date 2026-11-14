@@ -63,7 +63,7 @@ export default async function BusinessLayout({ params, children }: { params: Par
   } catch (err) {
     return <ApiErrorPage error={err} email={server.auth.email} />;
   }
-  // AC-11.1.1: no /b/* before the founder profile exists, and the person's "I am 18 or older" is on record (0104).
+  // AC-11.1.1: no /b/* before the founder profile exists, and the person's "I am 18 or older" is on record (0100).
   if (!profile.complete || !profile.adultConfirmed) redirect("/onboarding");
 
   let loaded;

@@ -1,5 +1,5 @@
 /**
- * "I am 18 or older" (0104): the api's refusal of a step that needs it, which the screens that ask recognize.
+ * "I am 18 or older" (0100): the api's refusal of a step that needs it, which the screens that ask recognize.
  */
 
 /** The api's refusal code (apps/api services/adults.ts `ADULT_UNCONFIRMED_CODE`). */

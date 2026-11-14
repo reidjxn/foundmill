@@ -150,7 +150,7 @@ export type AccountPreferences = typeof accountPreferences.$inferSelect;
 export type NewAccountPreferences = typeof accountPreferences.$inferInsert;
 
 /**
- * 0104 — the person's own statement that they are 18 or older, confirmed once at sign-up for the whole product (founder,
+ * 0100 — the person's own statement that they are 18 or older, confirmed once at sign-up for the whole product (founder,
  * 2026-11-11). One row per account, ever; the source of truth (`network_attestations`, 0027, is kept in step with it by
  * triggers). A person reads and inserts only their own row; `confirmed_at` is the database's time (a trigger), never the
  * client's, and no client may update or delete it.

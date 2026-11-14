@@ -223,7 +223,7 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
   it("starting LIVE needs the 18+ attestation (the network is for adults only) from a person here before sign-up asked (audit GLS2F-09)", async () => {
     const userId = await hz.h.createUser("adult@test.local");
     const caller = hz.caller({ userId, email: "adult@test.local" });
-    // A profile from before 0104: no confirmation on record.
+    // A profile from before 0100: no confirmation on record.
     await repos.founders.upsert(hz.db, userId, { displayName: "Ana", experience: "first-time", skills: { sales: 10 }, targetMarkets: ["US"], riskAppetite: "low" });
     const [idea] = (await caller.idea.generate({ prompt: "bookkeeping for tattoo studios" })).ideas;
     await expect(caller.idea.commit({ ideaId: idea!.id, name: "Adult Co", archetype: "b2b_saas", gameMode: "live" })).rejects.toMatchObject({ code: "FORBIDDEN" });

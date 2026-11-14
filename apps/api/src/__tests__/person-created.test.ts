@@ -52,7 +52,7 @@ const TOKEN = "idea-draft-token-PRIVATE-9f2c";
 beforeAll(async () => {
   hz = await createApiHarness({ prefix: "person-created" });
   ida = await hz.h.createUser("person-created-ida@test.local");
-  // A public profile is public once its person confirmed 18 or older (0104).
+  // A public profile is public once its person confirmed 18 or older (0100).
   await repos.adults.confirm(hz.db, ida);
   await repos.founders.upsert(hz.db, ida, { displayName: "Ida Moss" });
   await repos.personProfiles.save(hz.db, ida, { handle: "ida-moss", content: person() });

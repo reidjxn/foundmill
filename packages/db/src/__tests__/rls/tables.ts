@@ -196,7 +196,7 @@ export const NON_TENANT_TABLES = [
   "businesses",
   "founder_profiles",
   "account_preferences",
-  // 0104: "I am 18 or older", once per account (user-owned, no business_id); covered by rls/adult-confirmations.test.ts.
+  // 0100: "I am 18 or older", once per account (user-owned, no business_id); covered by rls/adult-confirmations.test.ts.
   "adult_confirmations",
   // 0074: a person's phones (user-owned, no business_id); covered by rls/founder-devices.test.ts.
   "founder_devices",

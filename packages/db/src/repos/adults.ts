@@ -1,5 +1,5 @@
 /**
- * adult_confirmations (0104) — account-scoped (userId first): the person's own statement that they are 18 or older,
+ * adult_confirmations (0100) — account-scoped (userId first): the person's own statement that they are 18 or older,
  * confirmed once at sign-up for the whole product (founder, 2026-11-11), and the source of truth for every check that
  * asks (the profile that creates an account, an invitation's accept, a new project, the network, going LIVE). The
  * network's `network_attestations` (0027) is kept in step with it by triggers, so a person the network already asked
@@ -33,7 +33,7 @@ export const adultsRepo = {
    */
   async confirm(db: Executor, userId: string): Promise<{ confirmedAt: Date; created: boolean }> {
     const id = parseInput(Id, userId, "user id");
-    // `user_id` alone: a client role may name no other column (0104's column grant), and every other value is the
+    // `user_id` alone: a client role may name no other column (0100's column grant), and every other value is the
     // database's. Drizzle's insert lists every column (as `default`), so the statement is written out.
     const inserted = rowsOf<{ user_id: string }>(await db.execute(sql`insert into adult_confirmations (user_id) values (${id}::uuid) on conflict (user_id) do nothing returning user_id`));
     // Read back through the schema, so the time is the same Date every other read answers.

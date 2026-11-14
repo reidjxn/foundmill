@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 /**
- * 18 or older, once, at sign-up (0104): a new founder with no confirmation on record ticks "I am 18 or older" on the
+ * 18 or older, once, at sign-up (0100): a new founder with no confirmation on record ticks "I am 18 or older" on the
  * form, and the save that creates the profile carries `confirmAdult: true`; Continue does nothing without it. A
  * founder already confirmed is never shown the box. A founder with a profile and no confirmation (here before sign-up
  * asked) sees the one step instead of the form, and goes on once it is recorded.

@@ -1,6 +1,6 @@
 /**
  * "I am 18 or older", for the whole product, confirmed once at sign-up (CLAUDE.md, founder 2026-11-11;
- * docs/THESIS_REVIEW.md package 2.2). The record is the account's (`adult_confirmations`, 0104): the person's own
+ * docs/THESIS_REVIEW.md package 2.2). The record is the account's (`adult_confirmations`, 0100): the person's own
  * statement with the database's time, the source of truth for every check that asks, the network's and going LIVE's
  * included (`network_attestations` is kept in step with it). Nobody who confirmed once is asked again.
  *

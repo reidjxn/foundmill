@@ -1,5 +1,5 @@
 /**
- * 0104 — adult_confirmations: "I am 18 or older", confirmed once at sign-up for the whole product. Account-scoped, so
+ * 0100 — adult_confirmations: "I am 18 or older", confirmed once at sign-up for the whole product. Account-scoped, so
  * the cross-tenant question is cross-account: a person reads and inserts only their own row, never someone else's; no
  * client updates or deletes one; the time is the database's, whatever the client sends; and the network's
  * `network_attestations` (0027) stays in step both ways, its old rows copied with their own time.
@@ -19,7 +19,7 @@ let B: BusinessFixture;
 
 const denied = /permission denied/;
 /** The migration's number may change when branches merge: this is the one place this file names it. */
-const TAG = "0104_adult_confirmations";
+const TAG = "0100_adult_confirmations";
 const LONG_AGO = new Date("2001-01-01T00:00:00Z");
 
 beforeAll(async () => {
@@ -31,7 +31,7 @@ afterAll(() => h?.close());
 
 const rowsFor = (userId: string) => h.service().run((tx) => tx.select().from(s.adultConfirmations).where(eq(s.adultConfirmations.userId, userId)));
 
-describe("adult_confirmations (0104): each person their own row", () => {
+describe("adult_confirmations (0100): each person their own row", () => {
   it("a person inserts and reads their own confirmation, and reads nobody else's", async () => {
     const mine = await h.asUser(A.ownerId).run((tx) => adultsRepo.confirm(tx, A.ownerId));
     expect(mine.created).toBe(true);
@@ -59,7 +59,7 @@ describe("adult_confirmations (0104): each person their own row", () => {
 
   it("the database sets the time: a client names only user_id, cannot backdate it, and the first confirmation stands", async () => {
     const before = Date.now() - 60_000;
-    // Naming any column but user_id is refused (0104's column grant): no time, no id, no created_at of the client's own.
+    // Naming any column but user_id is refused (0100's column grant): no time, no id, no created_at of the client's own.
     for (const column of ["confirmed_at", "created_at", "updated_at"]) {
       await expect(h.asUser(B.ownerId).execute(sql`insert into adult_confirmations (user_id, ${sql.raw(column)}) values (${B.ownerId}::uuid, '2001-01-01T00:00:00Z')`), column).rejects.toThrow(denied);
     }
@@ -129,8 +129,8 @@ describe("adult_confirmations and network_attestations stay in step", () => {
   });
 });
 
-describe("0104 copies every earlier network attestation, with its own time", () => {
-  it("a person the network asked before 0104 is confirmed, at the time they confirmed", async () => {
+describe("0100 copies every earlier network attestation, with its own time", () => {
+  it("a person the network asked before 0100 is confirmed, at the time they confirmed", async () => {
     const all = readMigrations();
     const before = await createTestDb({ migrations: all.filter((m) => m.tag < TAG) });
     try {

@@ -58,7 +58,7 @@ const publicHandles = async (runner = h.service()) => (await runner.execute<{ ha
 
 /**
  * A founder profile written as the api writes it (service role), with private values planted. The api creates a
- * profile only for a person who confirmed they are 18 or older (0104), so the confirmation comes first.
+ * profile only for a person who confirmed they are 18 or older (0100), so the confirmation comes first.
  */
 async function makeProfile(userId: string, displayName: string, options: { adult?: boolean } = {}) {
   if (options.adult !== false) await repos.adults.confirm(h.db as never, userId);
@@ -211,7 +211,7 @@ describe("public_person_profiles: what anyone may read", () => {
     expect(await repos.personProfiles.public.byHandle(h.db as never, "")).toBeNull();
   });
 
-  it("0104: a public profile reads as public only once its person confirmed they are 18 or older", async () => {
+  it("0100: a public profile reads as public only once its person confirmed they are 18 or older", async () => {
     const p = await h.createUser("person-unconfirmed@test.local");
     // A profile from before sign-up asked: public, published, with no confirmation on record.
     await makeProfile(p, "Uma Unconfirmed", { adult: false });

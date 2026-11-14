@@ -1,7 +1,7 @@
 "use client";
 /**
  * The one step a person whose account has no "I am 18 or older" on record sees, once, the next time they arrive
- * (CLAUDE.md: 18 or older for the whole product, confirmed once at sign-up; the api's `adult_confirmations`, 0104).
+ * (CLAUDE.md: 18 or older for the whole product, confirmed once at sign-up; the api's `adult_confirmations`, 0100).
  * It is for people who were here before sign-up asked, and for a profile whose save did not record it. Every signed-in
  * page that needs a profile sends such a person to /onboarding, which shows this instead of the form.
  *

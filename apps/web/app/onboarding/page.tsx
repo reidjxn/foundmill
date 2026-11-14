@@ -6,7 +6,7 @@
  * reference to the form, which sends it with the save that creates the profile. The cookie stays out of reach of the
  * page's scripts; a founder who already has a profile is handed nothing.
  *
- * 18 or older (0104): a new founder ticks "I am 18 or older" on the form, sent with the save that creates the profile;
+ * 18 or older (0100): a new founder ticks "I am 18 or older" on the form, sent with the save that creates the profile;
  * a founder with a profile and no confirmation on record sees one step instead (components/onboarding/AdultStep.tsx),
  * which works from 390 px.
  */
