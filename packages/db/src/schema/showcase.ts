@@ -23,6 +23,13 @@ export interface ShowcaseMedia {
     milestoneId: string;
     /** The approval the gateway opened in the house's Needs you before spending, while it waits. */
     approvalId?: string | null;
+    /**
+     * When the start call was made (written BEFORE the call, under the request's claim): a clip with a start and no task
+     * is never started again, because the vendor may have taken the first call (no double spend).
+     */
+    startedAt?: string | null;
+    /** When the start call was made again under the house's approval (written before it, for the same reason). */
+    approvedCallAt?: string | null;
     taskId?: string | null;
     status?: string | null;
     url?: string | null;
@@ -35,6 +42,8 @@ export interface ShowcaseMedia {
   waiting?: "not_connected" | "simulated" | "failed" | null;
   /** When the clips were deleted (a withdrawal deletes the unposted media). */
   deletedAt?: string | null;
+  /** The sweep that is making the clips now holds the request until then (`showcaseRepo.claimMedia`). */
+  claimedUntil?: string | null;
 }
 
 export const showcaseRequests = pgTable(

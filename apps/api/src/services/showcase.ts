@@ -35,6 +35,7 @@
 import { createHash } from "node:crypto";
 import { runShowcaseScriptStep, showcaseScriptFacts } from "@foundmill/agents";
 import { APP_NAME, HOUSE_BUSINESS_ID, showcaseMayAsk } from "@foundmill/config";
+import { VIDEO_MODELS } from "@foundmill/models";
 import { repos, type Db, type Executor, type ShowcaseConsent, type ShowcaseMedia, type ShowcaseRequest } from "@foundmill/db";
 import {
   AppError,
@@ -97,8 +98,9 @@ export const SHOWCASE_CLIP = {
   prompt: "A slow, steady push-in on this card. Keep every word, date, color and the logo exactly as they are. No people, no faces, no new text.",
   ratio: "720:1280",
   durationSeconds: 5,
-  model: "gen4_turbo",
-  /** Runway's credits for the clip, in US cents (gen4_turbo, 5 credits a second): an Estimate the approval is asked for. */
+  /** The video model, from packages/models `routing.ts` (model ids live only there). */
+  model: VIDEO_MODELS.showcase_clip,
+  /** Runway's credits for the clip, in US cents (5 credits a second for 5 seconds): an Estimate the approval is asked for. */
   amountMinor: 25,
   currency: "USD",
 } as const;
@@ -261,7 +263,7 @@ export async function requestShowcase(ctx: BusinessContext, input: { subjectBusi
     await repos.audit.append(tx, houseId, { actorKind: "user", actorId: ctx.userId, action: "showcase.requested", target: { kind: "showcase_request", id: created.id }, details: { subjectBusinessId: input.subjectBusinessId } });
     return created;
   });
-  queueShowcaseAdvance(engineDeps(ctx, deps), row.id);
+  // The video is made by the sweep only (review finding 2): nothing here spends anything.
   return requestView(row);
 }
 
@@ -311,14 +313,8 @@ export async function endShowcase(deps: ShowcaseDeps, requestId: string, state: 
   });
 }
 
-/** What the answers come to now; approves (writing the house's draft) or ends the request. Inside the caller's transaction, with the request locked. */
-async function settleLocked(deps: ShowcaseDeps, tx: Executor, request: ShowcaseRequest, now: Date): Promise<{ end: { state: "declined" | "withdrawn" | "expired"; reason: ShowcaseWithdrawReason } | null }> {
-  if (request.state !== "asking" || !request.askedAt) return { end: null };
-  const consents = await repos.showcase.consentsOf(tx, request.id);
-  const owners = await repos.showcase.currentOwnerIds(tx, request.subjectBusinessId);
-  const settled = settleShowcase(consents.map((c) => ({ userId: c.userId, answer: c.answer, withdrawnAt: c.withdrawnAt, expiresAt: c.expiresAt })), owners, now);
-  if (settled.state === "asking") return { end: null };
-  if (settled.state !== "approved") return { end: { state: settled.state, reason: settled.reason } };
+/** Every current founder said yes to the same video: the house's draft, the approval's 30 days, and the events. With the request locked. */
+async function approveLocked(deps: ShowcaseDeps, tx: Executor, request: ShowcaseRequest, now: Date): Promise<void> {
   const houseId = houseOf(deps);
   const agentId = await repos.showcase.socialAgentId(tx, houseId);
   const subject = request.preview.shots.at(-1)?.key ?? "page_live";
@@ -326,7 +322,6 @@ async function settleLocked(deps: ShowcaseDeps, tx: Executor, request: ShowcaseR
   await repos.showcase.updateRequest(tx, request.id, { state: "approved", approvedUntil: new Date(now.getTime() + SHOWCASE_APPROVAL_TTL_MS), assetId: asset.id, settledAt: now });
   await writeEventRow(tx, { businessId: houseId, type: "showcase.approved", actor: SYSTEM, payload: { requestId: request.id, subjectBusinessId: request.subjectBusinessId, assetId: asset.id } });
   await writeEventRow(tx, { businessId: request.subjectBusinessId, type: "showcase.settled", actor: SYSTEM, payload: { requestId: request.id, state: "approved" } });
-  return { end: null };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -348,19 +343,63 @@ async function runwayConnected(db: Executor, houseId: string): Promise<boolean> 
   return !!row && row.status === "connected" && row.archivedAt === null;
 }
 
-/** One step of the clips: start the ones not started (the gateway asks the house first), follow the ones running. */
-async function advanceClips(deps: ShowcaseDeps, request: ShowcaseRequest): Promise<ShowcaseMedia> {
+/** How long one sweep holds a request while it makes clips (`claimMedia`); a crashed sweep's hold runs out. */
+export const SHOWCASE_MEDIA_CLAIM_MS = 5 * 60 * 1000;
+/** A clip's link is renewed when it has less than this left (Runway's links last 24 to 48 hours). */
+export const SHOWCASE_LINK_RENEW_MS = 6 * 60 * 60 * 1000;
+
+const iso = (d: Date) => d.toISOString();
+
+/** Whether every clip of the video has a link that still works now. A founder answers only a video they can play. */
+export function linksFresh(request: Pick<ShowcaseRequest, "preview" | "media">, now: Date): boolean {
+  const clips = request.preview.video?.clips ?? [];
+  if (clips.length === 0) return false;
+  return clips.every((c) => {
+    const m = request.media.clips?.find((x) => x.taskId === c.taskId);
+    return !!c.url && !!m?.urlsExpireAt && new Date(m.urlsExpireAt).getTime() > now.getTime();
+  });
+}
+
+/**
+ * One step of the clips, by the sweep only, under the request's claim. A start call is written down BEFORE it is made
+ * (`startedAt`, or `approvedCallAt` for the call made again under the house's approval), so a clip whose answer was lost
+ * is never started again: it fails, and the house asks again with a new request. A clip waiting for the house's
+ * approval asks nothing until the approval is answered; a declined or lapsed approval fails the clip.
+ */
+async function advanceClips(deps: ShowcaseDeps, request: ShowcaseRequest, now: Date): Promise<ShowcaseMedia> {
   const houseId = houseOf(deps);
   const media: ShowcaseMedia = { ...request.media, clips: [...(request.media.clips ?? [])] };
   if (!(await runwayConnected(deps.db, houseId)) || !deps.gateway.toolCall) return { ...media, waiting: "not_connected" };
   const agentId = await repos.showcase.socialAgentId(deps.db, houseId);
   if (!agentId) return { ...media, waiting: "not_connected" };
+  const save = (clip: Clip) => {
+    const at = media.clips!.findIndex((c) => c.milestoneId === clip.milestoneId);
+    if (at >= 0) media.clips![at] = clip;
+    else media.clips!.push(clip);
+    return repos.showcase.updateRequest(deps.db, request.id, { media });
+  };
   for (const shot of request.preview.shots) {
-    const at = media.clips!.findIndex((c) => c.milestoneId === shot.milestoneId);
-    const clip: Clip = at >= 0 ? { ...media.clips![at]! } : { milestoneId: shot.milestoneId };
-    if (clip.simulated || clip.failed || clip.status === "SUCCEEDED") {
-      // nothing to do for this one
-    } else if (!clip.taskId) {
+    const found = media.clips!.find((c) => c.milestoneId === shot.milestoneId);
+    const clip: Clip = found ? { ...found } : { milestoneId: shot.milestoneId };
+    if (clip.simulated || clip.failed || clip.status === "SUCCEEDED") continue;
+    if (!clip.taskId) {
+      if (clip.approvalId) {
+        const approval = await repos.approvals.find(deps.db, houseId, clip.approvalId);
+        if (!approval || approval.outcome === "rejected" || approval.outcome === "expired") {
+          await save({ ...clip, failed: true });
+          continue;
+        }
+        if (approval.outcome !== "approved") continue;
+        if (clip.approvedCallAt) {
+          await save({ ...clip, failed: true });
+          continue;
+        }
+        clip.approvedCallAt = iso(now);
+      } else if (clip.startedAt) {
+        await save({ ...clip, failed: true });
+        continue;
+      } else clip.startedAt = iso(now);
+      await save(clip);
       const out = await deps.gateway.toolCall({
         businessId: houseId,
         agentId,
@@ -377,6 +416,12 @@ async function advanceClips(deps: ShowcaseDeps, request: ShowcaseRequest): Promi
         clip.status = "PENDING";
       } else if (out.outcome === "ask") clip.approvalId = out.approvalId;
       else if (out.outcome === "deny") clip.failed = true;
+      else {
+        // Rate limited: the gateway made no call, so the next sweep may start it.
+        clip.startedAt = null;
+        clip.approvedCallAt = null;
+      }
+      await save(clip);
     } else {
       const out = await deps.gateway.toolCall({ businessId: houseId, agentId, connector: SHOWCASE_CLIP.connector, tool: SHOWCASE_CLIP.taskTool, args: { taskId: clip.taskId } });
       if (out.outcome === "allow" && out.result.ok) {
@@ -388,13 +433,42 @@ async function advanceClips(deps: ShowcaseDeps, request: ShowcaseRequest): Promi
         clip.urlsExpireAt = typeof data.urlsExpireAt === "string" ? data.urlsExpireAt : null;
         if (clip.status === "FAILED" || clip.status === "CANCELLED") clip.failed = true;
       }
+      await save(clip);
     }
-    if (at >= 0) media.clips![at] = clip;
-    else media.clips!.push(clip);
   }
   const clips = media.clips!;
   const waiting = clips.some((c) => c.simulated) ? "simulated" : clips.some((c) => c.failed) ? "failed" : null;
   return { ...media, waiting };
+}
+
+/**
+ * Renews the links of an asked video that run out soon (looking a task up spends nothing), in the request's preview and
+ * every founder's copy. The hash does not change: it is taken of the task ids, not of where a clip is served from.
+ */
+async function renewLinks(deps: ShowcaseDeps, request: ShowcaseRequest, now: Date): Promise<void> {
+  const houseId = houseOf(deps);
+  const video = request.preview.video;
+  if (!video || request.media.deletedAt || !deps.gateway.toolCall) return;
+  const due = video.clips.filter((c) => {
+    const m = request.media.clips?.find((x) => x.taskId === c.taskId);
+    return !m?.urlsExpireAt || new Date(m.urlsExpireAt).getTime() - now.getTime() < SHOWCASE_LINK_RENEW_MS;
+  });
+  if (due.length === 0) return;
+  const agentId = await repos.showcase.socialAgentId(deps.db, houseId);
+  if (!agentId || !(await runwayConnected(deps.db, houseId))) return;
+  const media: ShowcaseMedia = { ...request.media, clips: [...(request.media.clips ?? [])] };
+  const clips = video.clips.map((c) => ({ ...c }));
+  for (const c of due) {
+    const out = await deps.gateway.toolCall({ businessId: houseId, agentId, connector: SHOWCASE_CLIP.connector, tool: SHOWCASE_CLIP.taskTool, args: { taskId: c.taskId } });
+    if (out.outcome !== "allow" || !out.result.ok) continue;
+    const data = dataOf(out);
+    const url = Array.isArray(data.outputUrls) ? data.outputUrls.find((u): u is string => typeof u === "string" && u.startsWith("https://")) : undefined;
+    if (!url) continue;
+    clips.find((x) => x.taskId === c.taskId)!.url = url;
+    const at = media.clips!.findIndex((x) => x.taskId === c.taskId);
+    if (at >= 0) media.clips![at] = { ...media.clips![at]!, url, urlsExpireAt: typeof data.urlsExpireAt === "string" ? data.urlsExpireAt : null };
+  }
+  await repos.showcase.refreshPreview(deps.db, request.id, { ...request.preview, video: { clips } }, media);
 }
 
 /** The video is final: one real, finished clip per shot. A simulated clip never is. */
@@ -412,29 +486,70 @@ async function stillLive(db: Executor, request: ShowcaseRequest): Promise<Showca
   return null;
 }
 
+/** One founder's own row and own note, on the video as it is now. */
+async function askOne(tx: Executor, request: ShowcaseRequest, userId: string, preview: ShowcasePreview, hash: string, expiresAt: Date): Promise<void> {
+  const consent = await repos.showcase.createConsent(tx, { businessId: request.subjectBusinessId, requestId: request.id, userId, preview, previewHash: hash, expiresAt });
+  const note = await repos.showcase.createNote(tx, request.subjectBusinessId, { forUserId: userId, subject: WORDS.subject(preview.projectName), bodyMd: WORDS.body, decision: { key: SHOWCASE_CONSENT_KEY, requestId: request.id, consentId: consent.id, options: [] } });
+  await repos.showcase.linkNote(tx, consent.id, note.id);
+}
+
 /** Sends the final video to every founder: their own row, their own note in Needs you. With the request locked. */
-async function sendAsks(deps: ShowcaseDeps, tx: Executor, request: ShowcaseRequest, video: NonNullable<ShowcasePreview["video"]>, media: ShowcaseMedia, now: Date): Promise<{ end: ShowcaseWithdrawReason | null }> {
+async function sendAsks(tx: Executor, request: ShowcaseRequest, video: NonNullable<ShowcasePreview["video"]>, media: ShowcaseMedia, now: Date): Promise<{ end: ShowcaseWithdrawReason | null }> {
   const owners = await repos.showcase.currentOwnerIds(tx, request.subjectBusinessId);
   if (owners.length === 0) return { end: "founders_changed" };
   const preview: ShowcasePreview = { ...request.preview, video };
   const hash = previewHash(preview);
   const expiresAt = new Date(now.getTime() + SHOWCASE_ASK_TTL_MS);
-  for (const userId of owners) {
-    const consent = await repos.showcase.createConsent(tx, { businessId: request.subjectBusinessId, requestId: request.id, userId, preview, previewHash: hash, expiresAt });
-    const note = await repos.showcase.createNote(tx, request.subjectBusinessId, { forUserId: userId, subject: WORDS.subject(preview.projectName), bodyMd: WORDS.body, decision: { key: SHOWCASE_CONSENT_KEY, requestId: request.id, consentId: consent.id, options: [] } });
-    await repos.showcase.linkNote(tx, consent.id, note.id);
-  }
-  await repos.showcase.updateRequest(tx, request.id, { preview, previewHash: hash, media, askedAt: now, expiresAt });
+  for (const userId of owners) await askOne(tx, request, userId, preview, hash, expiresAt);
+  await repos.showcase.updateRequest(tx, request.id, { preview, previewHash: hash, media: { ...media, claimedUntil: null }, askedAt: now, expiresAt });
   await writeEventRow(tx, { businessId: request.subjectBusinessId, type: "showcase.asked", actor: SYSTEM, payload: { requestId: request.id } });
   return { end: null };
 }
 
 /**
- * One step for one open request, the only entry point of the engine (the sweep, the hooks and a new request call it):
- * end it if the project is no longer what it was asked for or the answers say so; otherwise move its video on and, once
- * the video is final, send the ask. Never throws: a failed step is logged and tried again by the next sweep.
+ * A founder joined after the ask went out (review finding 9; the design: "a new cofounder is asked too"): they get their
+ * own row and note on the same video, for 14 days, and the others' answers stand. An approved request goes back to
+ * asking until they answer: its draft is set aside (a new one is written when every founder said yes).
  */
-export async function advanceShowcase(deps: ShowcaseDeps, requestId: string): Promise<void> {
+async function askNewFounders(tx: Executor, request: ShowcaseRequest, missing: readonly string[], now: Date): Promise<void> {
+  const expiresAt = new Date(now.getTime() + SHOWCASE_ASK_TTL_MS);
+  for (const userId of missing) await askOne(tx, request, userId, request.preview, request.previewHash, expiresAt);
+  if (request.state === "approved") {
+    if (request.assetId) await repos.showcase.rejectDraft(tx, request.businessId, request.assetId);
+    await repos.showcase.updateRequest(tx, request.id, { state: "asking", approvedUntil: null, assetId: null, settledAt: null, expiresAt });
+  } else await repos.showcase.updateRequest(tx, request.id, { expiresAt: request.expiresAt && request.expiresAt > expiresAt ? request.expiresAt : expiresAt });
+  await writeEventRow(tx, { businessId: request.subjectBusinessId, type: "showcase.asked", actor: SYSTEM, payload: { requestId: request.id } });
+}
+
+type End = { state: "declined" | "withdrawn" | "expired"; reason: ShowcaseWithdrawReason };
+
+/** The founders now against the answers, with the request locked: end it, ask the new founders, approve, or wait. */
+async function reconcileLocked(deps: ShowcaseDeps, tx: Executor, request: ShowcaseRequest, now: Date): Promise<End | null> {
+  if (!request.askedAt) return null;
+  const consents = await repos.showcase.consentsOf(tx, request.id);
+  const owners = await repos.showcase.currentOwnerIds(tx, request.subjectBusinessId);
+  const settled = settleShowcase(consents.map((c) => ({ userId: c.userId, answer: c.answer, withdrawnAt: c.withdrawnAt, expiresAt: c.expiresAt })), owners, now);
+  if (settled.state === "declined" || settled.state === "withdrawn" || settled.state === "expired") return { state: settled.state, reason: settled.reason };
+  if (settled.state === "asking" && settled.missing.length) {
+    await askNewFounders(tx, request, settled.missing, now);
+    return null;
+  }
+  if (request.state === "approved") {
+    if (!request.approvedUntil || request.approvedUntil.getTime() <= now.getTime()) return { state: "expired", reason: "approval_lapsed" };
+    return null;
+  }
+  if (settled.state === "approved") await approveLocked(deps, tx, request, now);
+  return null;
+}
+
+/**
+ * One step for one open request. Every caller ends it if the project is no longer what it was asked for, the answers
+ * say so or it ran out (a request that never went out for an answer ends 14 days after it was made), and asks a founder
+ * who joined. Only the sweep (`media: true`) spends anything or renews anything: it makes the clips under the request's
+ * claim, sends the ask once the video is final, and renews the links of an asked video. The hooks after a change in a
+ * project (`queueShowcaseCheck`) never make a clip. Never throws: a failed step is logged and tried again by the sweep.
+ */
+export async function advanceShowcase(deps: ShowcaseDeps, requestId: string, options: { media?: boolean } = {}): Promise<void> {
   const houseId = houseOf(deps);
   try {
     const request = await repos.showcase.getRequest(deps.db, houseId, requestId);
@@ -445,32 +560,36 @@ export async function advanceShowcase(deps: ShowcaseDeps, requestId: string): Pr
       await endShowcase(deps, request.id, "withdrawn", gone);
       return;
     }
-    if (request.state === "approved") {
-      const owners = await repos.showcase.currentOwnerIds(deps.db, request.subjectBusinessId);
-      const yes = (await repos.showcase.consentsOf(deps.db, request.id)).filter((c) => c.answer === "yes" && !c.withdrawnAt).map((c) => c.userId);
-      if (!request.approvedUntil || request.approvedUntil.getTime() <= now.getTime()) await endShowcase(deps, request.id, "expired", "approval_lapsed");
-      else if (owners.length !== yes.length || owners.some((o) => !yes.includes(o))) await endShowcase(deps, request.id, "withdrawn", "founders_changed");
+    if (!request.askedAt && now.getTime() - request.createdAt.getTime() >= SHOWCASE_ASK_TTL_MS) {
+      await endShowcase(deps, request.id, "expired", "expired");
       return;
     }
     if (request.askedAt) {
       const ended = await deps.db.transaction(async (tx) => {
         const locked = await repos.showcase.getRequest(tx, houseId, request.id, { forUpdate: true });
-        return locked ? (await settleLocked(deps, tx, locked, now)).end : null;
+        return locked && isShowcaseOpen(locked.state) ? reconcileLocked(deps, tx, locked, now) : null;
       });
       if (ended) await endShowcase(deps, request.id, ended.state, ended.reason);
+      else if (options.media) {
+        const fresh = await repos.showcase.getRequest(deps.db, houseId, request.id);
+        if (fresh && isShowcaseOpen(fresh.state)) await renewLinks(deps, fresh, now);
+      }
       return;
     }
-    // Not asked yet: the video first.
-    const media = await advanceClips(deps, request);
-    const video = finalClips(request, media);
+    if (!options.media) return;
+    // Not asked yet: the video first, by one sweep at a time.
+    if (!(await repos.showcase.claimMedia(deps.db, request.id, now, new Date(now.getTime() + SHOWCASE_MEDIA_CLAIM_MS)))) return;
+    const claimed = (await repos.showcase.getRequest(deps.db, houseId, request.id))!;
+    const media = await advanceClips(deps, claimed, now);
+    const video = finalClips(claimed, media);
     const end = await deps.db.transaction(async (tx) => {
       const locked = await repos.showcase.getRequest(tx, houseId, request.id, { forUpdate: true });
       if (!locked || locked.state !== "asking" || locked.askedAt) return null;
       if (!video) {
-        await repos.showcase.updateRequest(tx, locked.id, { media });
+        await repos.showcase.updateRequest(tx, locked.id, { media: { ...media, claimedUntil: null } });
         return null;
       }
-      return (await sendAsks(deps, tx, locked, video, media, now)).end;
+      return (await sendAsks(tx, locked, video, media, now)).end;
     });
     if (end) await endShowcase(deps, request.id, "withdrawn", end);
   } catch (err) {
@@ -484,22 +603,16 @@ export async function settleShowcaseRuns(): Promise<void> {
   while (running.size) await Promise.allSettled([...running]);
 }
 
-/** `advanceShowcase`, not waited on, on the database itself (it outlives the request that asked for it). */
-export function queueShowcaseAdvance(deps: ShowcaseDeps, requestId: string): void {
-  const run = advanceShowcase({ ...deps, db: ungated(deps.db) }, requestId).finally(() => running.delete(run));
-  running.add(run);
-}
-
 /**
  * After something that may withdraw a video changed in a project (its page went private, a milestone was hidden, a
- * founder joined, left or changed role): check its open request now rather than at the next sweep. Never throws and is
- * never waited on.
+ * founder joined, left or changed role): check its open request now rather than at the next sweep. Liveness and the
+ * answers only: it never makes a clip (review finding 2). Never throws and is never waited on.
  */
 export function queueShowcaseCheck(deps: ShowcaseDeps, subjectBusinessId: string): void {
   const db = ungated(deps.db);
   const run = repos.showcase
     .openForSubject(db, subjectBusinessId)
-    .then((r) => (r ? advanceShowcase({ ...deps, db }, r.id) : undefined))
+    .then((r) => (r ? advanceShowcase({ ...deps, db }, r.id, { media: false }) : undefined))
     .catch((err) => deps.log.warn({ subjectBusinessId, err: err instanceof Error ? err.message : String(err) }, "showcase: check failed"))
     .finally(() => running.delete(run));
   running.add(run);
@@ -521,7 +634,7 @@ export function startShowcaseSweep(deps: ShowcaseDeps, everyMs = SHOWCASE_SWEEP_
     try {
       for (const r of await repos.showcase.listOpen(deps.db)) {
         if (stopped) break;
-        await advanceShowcase(deps, r.id);
+        await advanceShowcase(deps, r.id, { media: true });
       }
     } catch (err) {
       deps.log.warn({ err: err instanceof Error ? err.message : String(err) }, "showcase: sweep failed (tried again later)");
@@ -579,7 +692,8 @@ async function askView(db: Executor, consent: ShowcaseConsent, now: Date): Promi
     withdrawn: consent.withdrawnAt !== null,
     expiresAt: consent.expiresAt,
     state,
-    canAnswer: open && consent.answer === null && !!request && request.previewHash === consent.previewHash,
+    // A video whose link ran out cannot be watched, so it cannot be answered until the sweep renews it (finding 5).
+    canAnswer: open && consent.answer === null && !!request && request.previewHash === consent.previewHash && linksFresh(request, now),
     canWithdraw: (state === "asking" || state === "approved") && consent.answer === "yes" && consent.withdrawnAt === null,
   };
 }
@@ -612,10 +726,11 @@ export async function answerAsk(ctx: BusinessContext, input: { consentId: string
     const request = await repos.showcase.requestById(tx, own.requestId, { forUpdate: true });
     const consent = await repos.showcase.consentFor(tx, ctx.businessId, ctx.userId, { consentId: own.id }, { forUpdate: true });
     if (!request || !consent || request.state !== "asking" || !request.askedAt || consent.answer !== null || consent.expiresAt.getTime() <= now.getTime() || request.previewHash !== consent.previewHash) throw new AppError("showcase_closed", WORDS.closed, 409);
+    if (input.answer === "yes" && !linksFresh(request, now)) throw new AppError("showcase_video_stale", WORDS.videoStale, 409);
     await repos.showcase.answer(tx, consent.id, input.answer, now);
     if (consent.inboxItemId) await repos.showcase.closeNote(tx, ctx.businessId, consent.inboxItemId, "answered");
     await repos.audit.append(tx, ctx.businessId, { actorKind: "user", actorId: ctx.userId, action: "showcase.answered", target: { kind: "showcase_consent", id: consent.id }, details: {} });
-    return (await settleLocked(engine, tx, request, now)).end;
+    return reconcileLocked(engine, tx, (await repos.showcase.requestById(tx, own.requestId))!, now);
   });
   if (end) await endShowcase(engine, own.requestId, end.state, end.reason);
   return askView(ctx.db, (await ctx.rls((tx) => repos.showcase.consentFor(tx, ctx.businessId, ctx.userId, { consentId: own.id })))!, now);

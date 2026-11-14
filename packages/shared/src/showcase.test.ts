@@ -67,7 +67,7 @@ describe("settleShowcase: one founder's no, withdrawal or departure overrides th
 
   it("every current founder's yes approves; one still to answer keeps it asking", () => {
     expect(settleShowcase([consent("a", "yes"), consent("b", "yes")], ["a", "b"], now)).toEqual({ state: "approved" });
-    expect(settleShowcase([consent("a", "yes"), consent("b", null)], ["a", "b"], now)).toEqual({ state: "asking" });
+    expect(settleShowcase([consent("a", "yes"), consent("b", null)], ["a", "b"], now)).toEqual({ state: "asking", missing: [] });
   });
 
   it("one no declines, whatever the others said", () => {
@@ -78,10 +78,12 @@ describe("settleShowcase: one founder's no, withdrawal or departure overrides th
     expect(settleShowcase([consent("a", "yes", { withdrawnAt: now }), consent("b", "yes")], ["a", "b"], now)).toEqual({ state: "withdrawn", reason: "founder_withdrew" });
   });
 
-  it("a founder who left, or a new founder who was never asked, withdraws it", () => {
+  it("a founder who left withdraws it; a new founder who was never asked is asked on the same request", () => {
     expect(settleShowcase([consent("a", "yes"), consent("b", "yes")], ["a"], now)).toEqual({ state: "withdrawn", reason: "founders_changed" });
-    expect(settleShowcase([consent("a", "yes")], ["a", "new"], now)).toEqual({ state: "withdrawn", reason: "founders_changed" });
     expect(settleShowcase([consent("a", "yes")], [], now)).toEqual({ state: "withdrawn", reason: "founders_changed" });
+    // Review finding 9: a new cofounder is asked too, and the others' yes keeps until they answer.
+    expect(settleShowcase([consent("a", "yes")], ["a", "new"], now)).toEqual({ state: "asking", missing: ["new"] });
+    expect(settleShowcase([consent("a", "yes"), consent("new", null)], ["a", "new"], now)).toEqual({ state: "asking", missing: [] });
   });
 
   it("an ask nobody finished in time expires", () => {

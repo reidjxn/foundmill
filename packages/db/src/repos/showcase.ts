@@ -134,6 +134,19 @@ export const showcaseRepo = {
     return row!;
   },
 
+  /**
+   * Takes the request for one step of its clips, until `until`: only while it is asking and not asked yet, and nobody
+   * else holds it. One atomic update, so two sweeps (two api replicas) never both start clips. True when taken.
+   */
+  async claimMedia(db: Executor, requestId: string, now: Date, until: Date): Promise<boolean> {
+    const rows = await db
+      .update(showcaseRequests)
+      .set({ media: sql`jsonb_set(${showcaseRequests.media}, '{claimedUntil}', to_jsonb(${until.toISOString()}::text))` })
+      .where(and(eq(showcaseRequests.id, requestId), eq(showcaseRequests.state, "asking"), isNull(showcaseRequests.askedAt), sql`coalesce((${showcaseRequests.media} ->> 'claimedUntil')::timestamptz, '-infinity'::timestamptz) <= ${now.toISOString()}::timestamptz`))
+      .returning({ id: showcaseRequests.id });
+    return rows.length > 0;
+  },
+
   /** Ends an open request: the state and the reason, once. False when it was not open any more. */
   async endRequest(db: Executor, requestId: string, state: "declined" | "withdrawn" | "expired", reason: ShowcaseWithdrawReason, now: Date): Promise<boolean> {
     const rows = await db

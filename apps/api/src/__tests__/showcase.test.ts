@@ -14,7 +14,10 @@ import { HOUSE_BUSINESS_ID } from "@foundmill/config";
 import { repos } from "@foundmill/db";
 import { SHOWCASE_APPROVAL_TTL_MS, type ProjectPageContent } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { VIDEO_MODELS } from "@foundmill/models";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ApiGatewayClient, GatewayToolCallOutcome, GatewayToolCallRequest } from "../services/gateway";
 import { advanceShowcase, settleShowcaseRuns, showcaseShareGate } from "../services/showcase";
 import { createApiHarness, type ApiHarness } from "./harness";
@@ -34,7 +37,7 @@ const runway = {
       return { outcome: "allow", auditId: "a", result: { ok: true, data: { untrusted: true, content: { taskId: `0000000${runway.calls.length}-0000-4000-8000-000000000000`.slice(-36).padStart(36, "0"), estimatedCredits: 25 } }, ...(runway.mode === "simulated" ? { simulated: true as const, notice: "Simulated" } : {}) } };
     }
     const taskId = (input.args as { taskId: string }).taskId;
-    return { outcome: "allow", auditId: "a", result: { ok: true, data: { untrusted: true, content: { taskId, status: "SUCCEEDED", outputUrls: [`https://cdn.runway.test/${taskId}.mp4`], urlsExpireAt: new Date(Date.now() + 86_400_000).toISOString() } }, ...(runway.mode === "simulated" ? { simulated: true as const } : {}) } };
+    return { outcome: "allow", auditId: "a", result: { ok: true, data: { untrusted: true, content: { taskId, status: "SUCCEEDED", outputUrls: [`https://cdn.runway.test/${taskId}.mp4?lookup=${runway.calls.length}`], urlsExpireAt: new Date(Date.now() + 86_400_000).toISOString() } }, ...(runway.mode === "simulated" ? { simulated: true as const } : {}) } };
   },
 };
 
@@ -45,7 +48,7 @@ beforeAll(async () => {
   const refuse = () => {
     throw new Error("gateway not running in tests");
   };
-  const gateway = new Proxy({ toolCall: runway.toolCall } as unknown as ApiGatewayClient, { get: (t, p) => (p in t ? (t as never)[p] : refuse) });
+  const gateway = new Proxy({ toolCall: (input: GatewayToolCallRequest) => runway.toolCall(input) } as unknown as ApiGatewayClient, { get: (t, p) => (p in t ? (t as never)[p] : refuse) });
   hz = await createApiHarness({ prefix: "showcase", gateway });
   [houseOwner, houseMember] = await Promise.all([hz.h.createUser("showcase-house-owner@test.local"), hz.h.createUser("showcase-house-member@test.local")]);
   await repos.businesses.create(hz.db, { id: HOUSE_BUSINESS_ID, name: "Foundmill House", archetype: "b2b_saas" });
@@ -94,10 +97,17 @@ async function project(name: string, options: { cofounder?: boolean; demo?: bool
 async function askedFor(p: Awaited<ReturnType<typeof project>>) {
   const req = await house().showcase.request({ businessId: HOUSE_BUSINESS_ID, subjectBusinessId: p.id });
   await settleShowcaseRuns();
-  await advanceShowcase({ db: hz.db, gateway: hz.deps.gateway, env: hz.deps.env, log: hz.deps.log }, req.id);
+  // Two sweeps: the first starts the clips, the second follows them and sends the ask once the video is final.
+  await sweepStep(req.id);
+  await sweepStep(req.id);
   return req;
 }
-const step = (requestId: string) => advanceShowcase({ db: hz.db, gateway: hz.deps.gateway, env: hz.deps.env, log: hz.deps.log }, requestId);
+const engine = (now?: () => Date) => ({ db: hz.db, gateway: hz.deps.gateway, env: hz.deps.env, log: hz.deps.log, ...(now ? { now } : {}) });
+/** One step as the sweep runs it: the only caller that makes clips or renews links. */
+const sweepStep = (requestId: string, now?: () => Date) => advanceShowcase(engine(now), requestId, { media: true });
+/** One step as a hook runs it after a change in a project: liveness and the answers only. */
+const step = (requestId: string, now?: () => Date) => advanceShowcase(engine(now), requestId);
+const generateCalls = () => runway.calls.filter((c) => c.tool === "generate_video_from_image").length;
 const requestRow = async (id: string) => (await repos.showcase.requestById(hz.db, id))!;
 const noteOf = async (businessId: string, userId: string) => (await hz.db.execute(sql`select id from inbox_items where business_id = ${businessId} and for_user_id = ${userId}`)) as unknown as { rows: { id: string }[] };
 const askOf = async (who: Awaited<ReturnType<typeof project>>["owner"], businessId: string, userId: string) => who.showcase.ask({ businessId, inboxItemId: (await noteOf(businessId, userId)).rows[0]!.id });
@@ -124,7 +134,7 @@ describe("who asks, and who may be asked", () => {
     expect(await off.owner.showcase.setting.get({ businessId: off.id })).toEqual({ mayAsk: true, chosen: false, canChange: true });
     await off.owner.showcase.setting.set({ businessId: off.id, mayAsk: false });
     expect(await code(house().showcase.request({ businessId: HOUSE_BUSINESS_ID, subjectBusinessId: off.id }))).toBe("showcase_not_eligible");
-    const recent = await project("Recent");
+    const recent = await project("Again");
     const req = await house().showcase.request({ businessId: HOUSE_BUSINESS_ID, subjectBusinessId: recent.id });
     await settleShowcaseRuns();
     await house().showcase.withdraw({ businessId: HOUSE_BUSINESS_ID, requestId: req.id });
@@ -184,7 +194,7 @@ describe("the video, and the ask once it is final", () => {
 
 describe("the answers: one founder's no, withdrawal or departure overrides the others' yes", () => {
   it("a solo founder's yes approves and writes the house's draft", async () => {
-    const p = await project("Solo");
+    const p = await project("Maple");
     const req = await askedFor(p);
     const mine = await askOf(p.owner, p.id, p.ownerId);
     expect(await p.owner.showcase.answer({ businessId: p.id, consentId: mine.consentId, answer: "yes" })).toMatchObject({ answer: "yes", state: "approved", canWithdraw: true });
@@ -236,15 +246,28 @@ describe("the answers: one founder's no, withdrawal or departure overrides the o
     expect(await code(house().share.opened({ businessId: HOUSE_BUSINESS_ID, kind: "draft", refId: approved.assetId, network: "instagram", target: "tap" }))).toBe("showcase_share_refused");
   });
 
-  it("a founder who joins after the yes withdraws it: they were never asked", async () => {
+  it("review finding 9: a founder who joins after the yes is asked on the same request, and approves it with their yes", async () => {
     const p = await project("Joined");
     const req = await askedFor(p);
     await p.owner.showcase.answer({ businessId: p.id, consentId: (await askOf(p.owner, p.id, p.ownerId)).consentId, answer: "yes" });
     const assetId = (await requestRow(req.id)).assetId!;
     await repos.memberships.add(hz.db, p.id, { userId: p.cofounderId, role: "cofounder" });
+    // Until the new cofounder says yes, nothing can be shared.
     expect((await showcaseShareGate(hz.db, HOUSE_BUSINESS_ID, assetId, new Date()))?.refusal).toBe("founders_changed");
     await step(req.id);
-    expect(await requestRow(req.id)).toMatchObject({ state: "withdrawn", withdrawReason: "founders_changed" });
+    // Not ended: back to asking, the old draft set aside, and the new cofounder has their own note on the same video.
+    expect(await requestRow(req.id)).toMatchObject({ state: "asking", assetId: null, approvedUntil: null, withdrawReason: null });
+    expect((await repos.showcase.draft(hz.db, HOUSE_BUSINESS_ID, assetId))!.approvalState).toBe("rejected");
+    expect((await noteOf(p.id, p.cofounderId)).rows).toHaveLength(1);
+    const theirs = await askOf(p.cofounder, p.id, p.cofounderId);
+    expect(theirs).toMatchObject({ canAnswer: true, state: "asking" });
+    // A second check does not ask them twice.
+    await step(req.id);
+    expect((await noteOf(p.id, p.cofounderId)).rows).toHaveLength(1);
+    await p.cofounder.showcase.answer({ businessId: p.id, consentId: theirs.consentId, answer: "yes" });
+    const approved = await requestRow(req.id);
+    expect(approved).toMatchObject({ state: "approved" });
+    expect((await showcaseShareGate(hz.db, HOUSE_BUSINESS_ID, approved.assetId!, new Date()))?.refusal).toBeNull();
   });
 
   it("a founder who leaves while asking withdraws it", async () => {
@@ -254,6 +277,97 @@ describe("the answers: one founder's no, withdrawal or departure overrides the o
     await hz.db.execute(sql`delete from memberships where business_id = ${p.id} and user_id = ${p.cofounderId}`);
     await step(req.id);
     expect(await requestRow(req.id)).toMatchObject({ state: "withdrawn", withdrawReason: "founders_changed" });
+  });
+});
+
+describe("review findings 2, 3, 5, 8 and 10: spend, approvals, links, leaving and the model id", () => {
+  it("2: a hook after a change in a project never starts a clip; only the sweep does, and two sweeps at once start each clip once", async () => {
+    const p = await project("Hooked");
+    await house().showcase.request({ businessId: HOUSE_BUSINESS_ID, subjectBusinessId: p.id });
+    await settleShowcaseRuns();
+    expect(generateCalls()).toBe(0);
+    // A role change on a collaborator (not a founder) runs the project's check: still no clip.
+    await p.owner.team.humans.role({ businessId: p.id, userId: p.collaboratorId, role: "viewer" });
+    await settleShowcaseRuns();
+    expect(generateCalls()).toBe(0);
+    const req = (await repos.showcase.openForSubject(hz.db, p.id))!;
+    await Promise.all([sweepStep(req.id), sweepStep(req.id), sweepStep(req.id)]);
+    expect(generateCalls()).toBe(1);
+    // The claim is let go once the step is done; a later sweep follows the clip and never starts it again.
+    await sweepStep(req.id);
+    expect(generateCalls()).toBe(1);
+    expect((await requestRow(req.id)).askedAt).not.toBeNull();
+  });
+
+  it("2: a start whose answer was lost is never made again (no double spend): the clip fails", async () => {
+    const p = await project("Lost");
+    await house().showcase.request({ businessId: HOUSE_BUSINESS_ID, subjectBusinessId: p.id });
+    const req = (await repos.showcase.openForSubject(hz.db, p.id))!;
+    const real = runway.toolCall;
+    runway.toolCall = async (input) => {
+      runway.calls.push(input);
+      throw new Error("the gateway did not answer");
+    };
+    try {
+      await sweepStep(req.id);
+    } finally {
+      runway.toolCall = real;
+    }
+    // The crashed step's claim holds for 5 minutes; the next sweep after it finds the start written and no task.
+    await sweepStep(req.id, () => new Date(Date.now() + 6 * 60_000));
+    expect(generateCalls()).toBe(1);
+    expect((await requestRow(req.id)).media).toMatchObject({ waiting: "failed" });
+  });
+
+  it("3: a clip waiting for the house's approval is not asked again; a declined or missing approval fails it", async () => {
+    runway.mode = "ask";
+    const p = await project("Declined approval");
+    const req = await askedFor(p);
+    await sweepStep(req.id);
+    expect(generateCalls()).toBe(1);
+    expect((await requestRow(req.id)).media).toMatchObject({ waiting: "failed" });
+    expect((await requestRow(req.id)).askedAt).toBeNull();
+  });
+
+  it("5: a founder cannot answer a video whose link ran out; the sweep renews it and the answer goes through", async () => {
+    const p = await project("Stale");
+    const req = await askedFor(p);
+    const row = await requestRow(req.id);
+    const before = row.preview.video!.clips[0]!.url;
+    await repos.showcase.updateRequest(hz.db, req.id, { media: { ...row.media, clips: row.media.clips!.map((c) => ({ ...c, urlsExpireAt: new Date(Date.now() - 1000).toISOString() })) } });
+    const mine = await askOf(p.owner, p.id, p.ownerId);
+    expect(mine.canAnswer).toBe(false);
+    expect(await code(p.owner.showcase.answer({ businessId: p.id, consentId: mine.consentId, answer: "yes" }))).toBe("showcase_video_stale");
+    // A hook renews nothing; the sweep does.
+    await step(req.id);
+    expect((await askOf(p.owner, p.id, p.ownerId)).canAnswer).toBe(false);
+    await sweepStep(req.id);
+    const renewed = await askOf(p.owner, p.id, p.ownerId);
+    expect(renewed.canAnswer).toBe(true);
+    expect(renewed.preview.video!.clips[0]!.url).not.toBe(before);
+    // The hash is of the task ids, so the renewed link needs no new ask.
+    expect((await requestRow(req.id)).previewHash).toBe(row.previewHash);
+    expect(await p.owner.showcase.answer({ businessId: p.id, consentId: mine.consentId, answer: "yes" })).toMatchObject({ state: "approved" });
+  });
+
+  it("8: leaving a business runs the same check as the other changes in its people", async () => {
+    const p = await project("Leaver");
+    const spy = vi.spyOn(repos.showcase, "openForSubject");
+    try {
+      await p.collaborator.business.example.leave({ businessId: p.id });
+      await settleShowcaseRuns();
+      expect(spy.mock.calls.some((c) => c[1] === p.id)).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("10: the clip's model comes from packages/models routing.ts, and the service names no model itself", async () => {
+    const p = await project("Model");
+    await askedFor(p);
+    expect(runway.calls.find((c) => c.tool === "generate_video_from_image")?.args).toMatchObject({ model: VIDEO_MODELS.showcase_clip });
+    const source = readFileSync(fileURLToPath(new URL("../services/showcase.ts", import.meta.url)), "utf8");
+    expect(source).not.toMatch(/["'`]gen[0-9][\w.]*["'`]/);
   });
 });
 
@@ -275,7 +389,7 @@ describe("the share gate and the other ways a video is withdrawn", () => {
     const { req, assetId } = await approved("Lapsed");
     const later = new Date(Date.now() + SHOWCASE_APPROVAL_TTL_MS + 1000);
     expect((await showcaseShareGate(hz.db, HOUSE_BUSINESS_ID, assetId, later))?.refusal).toBe("approval_lapsed");
-    await advanceShowcase({ db: hz.db, gateway: hz.deps.gateway, env: hz.deps.env, log: hz.deps.log, now: () => later }, req.id);
+    await step(req.id, () => later);
     expect(await requestRow(req.id)).toMatchObject({ state: "expired", withdrawReason: "approval_lapsed" });
   });
 
@@ -297,8 +411,19 @@ describe("the share gate and the other ways a video is withdrawn", () => {
   it("an unanswered ask expires after 14 days", async () => {
     const p = await project("Expiry");
     const req = await askedFor(p);
-    await advanceShowcase({ db: hz.db, gateway: hz.deps.gateway, env: hz.deps.env, log: hz.deps.log, now: () => new Date(Date.now() + 15 * 86_400_000) }, req.id);
+    await step(req.id, () => new Date(Date.now() + 15 * 86_400_000));
     expect(await requestRow(req.id)).toMatchObject({ state: "expired", withdrawReason: "expired" });
+  });
+
+  it("review finding 4: a request that never went out for an answer ends 14 days after it was made", async () => {
+    await connectRunway(false);
+    const p = await project("NeverAsked");
+    const req = await askedFor(p);
+    expect((await requestRow(req.id)).askedAt).toBeNull();
+    await step(req.id, () => new Date(Date.now() + 15 * 86_400_000));
+    expect(await requestRow(req.id)).toMatchObject({ state: "expired", withdrawReason: "expired" });
+    // The project is not blocked for good: the one-open index is free again.
+    expect(await repos.showcase.openForSubject(hz.db, p.id)).toBeNull();
   });
 
   it("switching the setting off withdraws an open ask", async () => {

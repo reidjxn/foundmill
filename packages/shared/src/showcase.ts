@@ -188,22 +188,32 @@ export interface ShowcaseConsentFacts {
   expiresAt: Date;
 }
 
-export type ShowcaseSettlement = { state: "asking" } | { state: "approved" } | { state: "declined" | "withdrawn" | "expired"; reason: ShowcaseWithdrawReason };
+export type ShowcaseSettlement =
+  | {
+      state: "asking";
+      /** Founders who joined after the ask went out and were never asked: they are asked on the same request (design: "a new cofounder is asked too"). */
+      missing: string[];
+    }
+  | { state: "approved" }
+  | { state: "declined" | "withdrawn" | "expired"; reason: ShowcaseWithdrawReason };
 
 /**
- * What the answers come to, against the founders as they are now. Any ONE founder's No or Withdraw ends it; a founder who
- * left or a new one who was never asked ends it too (the founders changed); an ask nobody finished in time expires. Only
- * a yes from every current founder, on the same video, approves.
+ * What the answers come to, against the founders as they are now. Any ONE founder's No or Withdraw ends it, and so does
+ * a founder's departure (their yes no longer stands for the project); an ask nobody finished in time expires. A founder
+ * who joined after the ask went out is not a reason to end it: they are `missing`, and are asked on the same request.
+ * Only a yes from every current founder, on the same video, approves.
  */
 export function settleShowcase(consents: readonly ShowcaseConsentFacts[], currentOwnerIds: readonly string[], now: Date): ShowcaseSettlement {
   if (consents.some((c) => c.answer === "no")) return { state: "declined", reason: "declined" };
   if (consents.some((c) => c.withdrawnAt)) return { state: "withdrawn", reason: "founder_withdrew" };
   const asked = new Set(consents.map((c) => c.userId));
   const current = new Set(currentOwnerIds);
-  if (current.size === 0 || asked.size !== current.size || [...current].some((id) => !asked.has(id))) return { state: "withdrawn", reason: "founders_changed" };
+  if (current.size === 0 || [...asked].some((id) => !current.has(id))) return { state: "withdrawn", reason: "founders_changed" };
+  const missing = [...current].filter((id) => !asked.has(id));
+  if (missing.length) return { state: "asking", missing };
   if (consents.every((c) => c.answer === "yes")) return { state: "approved" };
   if (consents.some((c) => c.answer === null && c.expiresAt.getTime() <= now.getTime())) return { state: "expired", reason: "expired" };
-  return { state: "asking" };
+  return { state: "asking", missing: [] };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -308,6 +318,8 @@ export function showcaseWords(appName: string) {
     /** Refusals. */
     onlyFounders: "Only the project's founders answer this.",
     closed: "This ask is closed.",
+    /** A clip's link ran out (Runway's links last a day or two); the house renews it within minutes. */
+    videoStale: "The video's link ran out, so it cannot be played right now. It is renewed within a few minutes; answer once you have watched it.",
   } as const;
 }
 

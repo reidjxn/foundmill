@@ -53,6 +53,17 @@ export const SPEECH_MODELS = {
 export type SpeechModelKey = keyof typeof SPEECH_MODELS;
 
 /**
+ * Video models (Runway, the `runway` connector of PR #109, on the house business's own key). Verified against Runway's
+ * pricing guide on 2026-11-13: gen4_turbo makes a clip from a picture at 5 credits a second. Called only through the
+ * gateway's `runway` tools; never routed through the Claude client.
+ */
+export const VIDEO_MODELS = {
+  /** One clip per card of a showcase video (apps/api `services/showcase.ts`). */
+  showcase_clip: "gen4_turbo",
+} as const;
+export type VideoModelKey = keyof typeof VIDEO_MODELS;
+
+/**
  * Panel models: the other assistants a project's AI visibility is checked against (the `openai`, `gemini` and
  * `perplexity` connectors' `ask_panel`). Each runs on the founder's own key at that vendor, with the vendor's web search
  * on, so the answer is close to what a person asking that assistant reads. Verified against each vendor's docs on
