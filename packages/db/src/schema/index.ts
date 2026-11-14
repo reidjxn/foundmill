@@ -32,3 +32,4 @@ export * from "./founder-return";
 export * from "./idea-box";
 export * from "./post-media";
 export * from "./people";
+export * from "./showcase";

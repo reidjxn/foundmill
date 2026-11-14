@@ -34,6 +34,7 @@ import { draftMedia, type PostMediaToolStatus } from "./post-media";
 import { writeEventRow } from "./events";
 import type { ApiLogger } from "./log";
 import { WORKFLOWS, workflowIds, type TemporalService } from "./temporal";
+import { showcaseShareDraft } from "./showcase";
 import { ungated } from "./tx-gate";
 
 export interface PostDraftDeps {
@@ -146,6 +147,12 @@ export async function teamPostShares(tx: Executor, scope: { businessId: string; 
   // role that can see the draft, a collaborator included, is told the same thing.
   const media = scope.media ? await draftMedia(tx, { businessId: scope.businessId, businessName: scope.businessName, isDemo: scope.isDemo, env: scope.media.env, tools: scope.media.tools }, posts.map((p) => p.asset.id)) : new Map<string, PostDraftMedia>();
   for (const { asset, ref } of posts) {
+    // A showcase post (the house's, 0103) is offered only while its gate passes, with the words and link the founders approved.
+    if (ref.trigger === "showcase_approved") {
+      const shared = await showcaseShareDraft(tx, scope.businessId, asset.id, new Date());
+      if (shared) out.set(asset.id, shared);
+      continue;
+    }
     const draft = teamPostShareDraft({ text: asset.body ?? "", ref, page, cardShown: shown.has(ref.refId) });
     const m = media.get(asset.id);
     out.set(asset.id, m ? { ...draft, media: m } : draft);

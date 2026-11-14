@@ -52,6 +52,7 @@ import {
 } from "@foundmill/dugout";
 import type { DeptColourToken, EntityKind } from "@foundmill/shared";
 import { PAGE_READY_NOTE, isPageReadyDecision } from "@foundmill/shared/project-page";
+import { isShowcaseConsentDecision } from "@foundmill/shared/showcase";
 import { POSTAL_ADDRESS_NOTE, isPostalAddressDecision } from "@foundmill/shared/platform-mail";
 import { moduleTabHref } from "@foundmill/widgets/shared/departments";
 import { humanSender, NETWORK_SENDER } from "@foundmill/widgets/shared/note-tags";
@@ -75,6 +76,7 @@ import { roleBesideName } from "@/components/conversation/logic";
 import { ApprovalPanel } from "./ApprovalPanel";
 import { ConfirmPlanDialog } from "./ConfirmPlanDialog";
 import { SIGNOFF_NOTES_ID, SignoffPanel } from "./SignoffPanel";
+import { ShowcaseConsentPanel } from "./ShowcaseConsentPanel";
 import { Exhibit } from "./Exhibit";
 import { readExhibit } from "./exhibits";
 import { NoteTagChip } from "./InboxList";
@@ -561,6 +563,9 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
         ) : null}
 
         <InboxNote bodyMd={item.bodyMd} />
+
+        {/* A founder's own showcase ask (0103): watched and answered here, signed in. */}
+        {isShowcaseConsentDecision(item.decision) ? <ShowcaseConsentPanel businessId={businessId} inboxItemId={item.id} /> : null}
 
         {approval ? <ApprovalPanel approval={approval} businessId={businessId} departments={departments} reason={reason} onReasonChange={setReason} answered={isAnswered || decide.isPending} /> : null}
         {signoff ? <SignoffPanel signoff={signoff} notes={reason} onNotesChange={(v) => { setReason(v); if (v.trim()) setNeedsNotes(false); }} answered={isAnswered || decide.isPending} needsNotes={needsNotes} chosenOption={answered?.optionId ?? null} /> : null}

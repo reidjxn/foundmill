@@ -66,6 +66,7 @@ import { teamPostsRepo } from "./team-posts";
 import { postMediaRepo } from "./post-media";
 import { ideaDraftsRepo, waitlistRepo } from "./idea-drafts";
 import { admissionsRepo, invitationsRepo } from "./people";
+import { showcaseRepo } from "./showcase";
 import { adultsRepo } from "./adults";
 import { founderCancelLinksRepo, founderDeparturesRepo } from "./founder-departures";
 
@@ -135,6 +136,7 @@ export const repos = {
   postMedia: postMediaRepo,
   admissions: admissionsRepo,
   invitations: invitationsRepo,
+  showcase: showcaseRepo,
   adults: adultsRepo,
   founderDepartures: founderDeparturesRepo,
   founderCancelLinks: founderCancelLinksRepo,
@@ -207,3 +209,4 @@ export * from "./attributions";
 export * from "./team-posts";
 export * from "./post-media";
 export * from "./people";
+export * from "./showcase";

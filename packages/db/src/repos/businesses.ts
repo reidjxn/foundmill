@@ -250,6 +250,7 @@ export const businessesRepo = {
       autopilotOwnMaxCyclesPerDay: null,
       autopilotOwnSpendCeilingMinor: null,
       distributionStartedAt: null,
+      showcaseMayAsk: null,
       createdAt: new Date(),
       updatedAt: new Date(),
       archivedAt: null,

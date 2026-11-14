@@ -469,6 +469,23 @@ export const PostDraftOutput = z.object({
 });
 export type PostDraftOutput = z.infer<typeof PostDraftOutput>;
 
+// ---------------------------------------------------------------------------------------------------------------------
+// The script of a showcase video (docs/THESIS_REVIEW.md §13 item 15; packages/agents `showcase-script.ts`): the house's
+// social agent writes at most three shots, one per card of the project's public story, and the post's words. The code
+// checks every word before anything is stored (`finaliseShowcaseScript`).
+// ---------------------------------------------------------------------------------------------------------------------
+
+export const ShowcaseScriptOutput = z.object({
+  /** One per card, in the order the video shows them: the card's code from the request and the words on it ("Nov 12: page live"). */
+  shots: z
+    .array(z.object({ card: z.string().min(1).max(8), caption: z.string().min(1).max(120) }))
+    .min(1)
+    .max(3),
+  /** The post that goes with the video: one or two short sentences of plain text. */
+  post: z.string().min(1).max(600),
+});
+export type ShowcaseScriptOutput = z.infer<typeof ShowcaseScriptOutput>;
+
 export const CHART_OF_ACCOUNTS = [
   "revenue",
   "refunds",

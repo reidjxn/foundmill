@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ALWAYS_THINKS, IMAGE_MODELS, LOW_EFFORT_MAX_TOKENS, MODELS, MODEL_CAPABILITIES, PLAIN_MAX_TOKENS, ROUTES, THINKING_MAX_TOKENS, maxTokensFor, resolveModel, routeAcceptsImages } from "./routing";
+import { ALWAYS_THINKS, IMAGE_MODELS, VIDEO_MODELS, LOW_EFFORT_MAX_TOKENS, MODELS, MODEL_CAPABILITIES, PLAIN_MAX_TOKENS, ROUTES, THINKING_MAX_TOKENS, maxTokensFor, resolveModel, routeAcceptsImages } from "./routing";
 
 describe("routing (BUILD §10.1)", () => {
   it("MODELS and ROUTES are exactly the spec table", () => {
@@ -135,6 +135,13 @@ describe("routing (BUILD §10.1)", () => {
   it("plain routes accept any override silently", () => {
     expect(resolveModel("codeReview", "haiku")).toMatchObject({ modelKey: "haiku", warning: undefined });
     expect(resolveModel("classifier", "opus").modelId).toBe(MODELS.opus);
+  });
+});
+
+describe("video models", () => {
+  it("the showcase clip's video model lives here and is not a Claude route", () => {
+    expect(VIDEO_MODELS).toEqual({ showcase_clip: "gen4_turbo" });
+    expect(Object.keys(ROUTES)).not.toContain("showcase_clip");
   });
 });
 

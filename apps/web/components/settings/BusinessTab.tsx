@@ -21,6 +21,7 @@ import { useTRPC, useTRPCClient } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
 import { useInvalidateRouters } from "./SettingsScreen";
 import { PersonalOrLiveSection } from "./PersonalOrLiveSection";
+import { ShowcaseSection } from "./ShowcaseSection";
 import { AdminOnly, FormRow, Hint, SaveBar, SettingsSection, useSettingsToast } from "./shared";
 import { businessFields, businessSavePayload, changedFields, initialBusinessForm, rebaseBusinessForm, type BusinessFields } from "./business-form";
 
@@ -194,6 +195,7 @@ export function BusinessTab() {
         />
       </SettingsSection>
       <PersonalOrLiveSection />
+      <ShowcaseSection />
     </AdminOnly>
   );
 }

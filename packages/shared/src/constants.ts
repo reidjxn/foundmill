@@ -472,6 +472,7 @@ export const EVENT_TYPES = [
   "referral.arrived",
   "post.drafted",
   "invitation.sent", "invitation.accepted", "invitation.declined",
+  "showcase.requested", "showcase.approved", "showcase.withdrawn", "showcase.asked", "showcase.settled",
   "founder_notice.sent",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
