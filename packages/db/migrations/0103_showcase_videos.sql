@@ -126,3 +126,12 @@ create index inbox_items_for_user_id_idx on inbox_items (for_user_id) where for_
 create policy inbox_items_for_user on inbox_items as restrictive for all
   using (for_user_id is null or for_user_id = auth.uid())
   with check (for_user_id is null or for_user_id = auth.uid());
+
+--> statement-breakpoint
+-- The house's asks and the draft post they lead to are Distribution's, which a collaborator reads; a project's showcase.asked and showcase.settled are Settings', so they stay closed.
+-- `fm_collaborator_event_types()` (0099) follows apps/stream `EVENT_WALLS`: the same list, plus `showcase.requested`, `showcase.approved`, `showcase.withdrawn`.
+-- `create or replace` keeps its owner, its grants and the policies that call it.
+create or replace function fm_collaborator_event_types() returns text[]
+language sql immutable parallel safe set search_path = pg_catalog, public, pg_temp as $$
+  select array['idea.committed', 'spec.proposal_created', 'spec.version_published', 'source.added', 'source.scored', 'task.started', 'task.progressed', 'task.completed', 'task.blocked', 'task.design_checked', 'pr.merged', 'deploy.succeeded', 'lead.created', 'lead.replied', 'campaign.launched', 'channel.threshold_breached', 'signup.created', 'activation.reached', 'customer.converted', 'agent.health_changed', 'training.completed', 'agent.promoted', 'approval.requested', 'approval.resolved', 'mode.changed', 'holiday.started', 'holiday.ended', 'cycle.started', 'cycle.completed', 'cycle.run_started', 'cycle.run_ended', 'autopilot.changed', 'autopilot.cycle_started', 'inbox.item_created', 'inbox.item_updated', 'decision.made', 'foundations.progressed', 'product.research_drafted', 'conversation.message_posted', 'membership.changed', 'business.updated', 'agent.message_sent', 'product.signoff_decided', 'distribution.started', 'goal.proposed', 'goal.approved', 'goal.change_requested', 'goal.achieved', 'page.published', 'team_call.started', 'team_call.ended', 'page.unpublished', 'page.followed', 'mail.sent', 'milestone.shown', 'milestone.hidden', 'post.drafted', 'invitation.sent', 'invitation.accepted', 'invitation.declined', 'showcase.requested', 'showcase.approved', 'showcase.withdrawn']::text[]
+$$;
