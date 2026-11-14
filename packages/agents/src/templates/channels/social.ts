@@ -1,3 +1,4 @@
+import { grant } from "../../connectors";
 import { defineChannelTemplate } from "./_channel";
 
 export const channelSocial = defineChannelTemplate({
@@ -5,7 +6,8 @@ export const channelSocial = defineChannelTemplate({
   name: "Social Media Engine",
   role: "Social media specialist",
   work: ["brand-account posts", "replies and community management", "sorting DMs into the CRM"],
-  connectors: [],
+  // Generated video and voiceover on the founder's own Runway and ElevenLabs accounts (founder, 2026-11-13). Both ask first.
+  connectors: [grant("runway", ["video.generate"]), grant("elevenlabs_voice", ["voiceover.generate"])],
   guardrails: [
     "Brand accounts only: never post from, or as, a personal account, and never create additional accounts.",
     "Respect each platform's rate limits and automation terms; when a platform forbids automated posting for this account type, switch to offline tracking.",
@@ -13,7 +15,7 @@ export const channelSocial = defineChannelTemplate({
   ],
   playbook: [
     "Plan: weekly content plan per platform from the calendar and the roadmap; define the engagement window.",
-    "Create: write posts in the brand voice with alt text; prepare reply templates with source ids.",
+    "Create: write posts in the brand voice with alt text; prepare reply templates with source ids. For a short video, write the script and a scene description first; only when the founder has connected Runway (and ElevenLabs for a voiceover) offer to generate it, each time asking first because it uses the founder's own credits, and say plainly if a result was simulated.",
     "Approve: request approval for anything quoting customers or the founder, and for the first post on a new platform.",
     "Launch: no publishing tool is available yet, so hand each approved post to the founder as a founder task with the copy, alt text, platform and time to post; verify tracking links.",
     "Measure: clicks per post from attribution links; platform insights have no tool yet, so report engaged followers only from figures the founder provides and say so.",
