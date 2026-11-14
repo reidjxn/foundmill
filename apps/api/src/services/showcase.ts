@@ -54,6 +54,7 @@ import {
   settleShowcase,
   showcaseDraftCanonical,
   showcaseEligibility,
+  showcaseNameSafety,
   showcaseLink,
   showcasePreviewCanonical,
   showcaseShareRefusal,
@@ -118,6 +119,7 @@ const INELIGIBLE_WORDS: Readonly<Record<ShowcaseIneligible, string>> = {
   recent_request: "This project was asked in the last 30 days.",
   recent_no: "This project's founders said no in the last 90 days.",
   setting_off: `This project's founders switched off "${WORDS.setting}".`,
+  name_unsafe: "This project's name carries a web address, an email address, a phone number or markup, so it cannot go into a post.",
 };
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -162,6 +164,8 @@ async function eligibilityOf(db: Executor, houseId: string, subjectBusinessId: s
       lastRequestAt: f.lastRequestAt,
       lastDeclinedAt: f.lastDeclinedAt,
       mayAsk: showcaseMayAsk(f.business?.showcaseMayAsk),
+      // Only whether the name is safe to post (a link, an address, a phone number, markup): never what it says.
+      nameSafe: showcaseNameSafety(story?.name ?? f.business?.name ?? "") === null,
     },
     now,
   );

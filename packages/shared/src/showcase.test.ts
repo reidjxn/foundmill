@@ -56,6 +56,11 @@ describe("showcaseEligibility", () => {
   it("refuses a project whose founders switched the setting off", () => {
     expect(reason({ mayAsk: false })).toBe("setting_off");
   });
+
+  it("refuses a name only when it is unsafe to post, never for its words", () => {
+    expect(reason({ nameSafe: false })).toBe("name_unsafe");
+    expect(reason({ nameSafe: true })).toBeNull();
+  });
 });
 
 const consent = (userId: string, answer: ShowcaseConsentFacts["answer"], over: Partial<ShowcaseConsentFacts> = {}): ShowcaseConsentFacts => ({ userId, answer, withdrawnAt: null, expiresAt: later(1000), ...over });

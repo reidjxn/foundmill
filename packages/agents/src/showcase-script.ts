@@ -33,6 +33,12 @@ export const SHOWCASE_SCRIPT_RESERVE_TOKENS = 700;
 export const SHOWCASE_SCRIPT_MAX_CALLS = 2;
 /** The longest caption on a shot. */
 export const SHOWCASE_CAPTION_MAX = 48;
+/**
+ * Where the project's name goes in the script. The model never writes the name: it writes this, and the code puts the
+ * name in, verbatim from the public story (`finaliseShowcaseScript`). So the founders' chosen name is never judged, and
+ * everything the model did write is checked with the placeholder masked.
+ */
+export const SHOWCASE_NAME_PLACEHOLDER = "%project%";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // What the agent is given
@@ -78,7 +84,7 @@ export function showcaseScriptFacts(story: ShowcaseStoryInput): ShowcaseScriptFa
 }
 
 /** Why an answer was not used: a code for the log and the retry; the words are never kept. */
-export const SHOWCASE_SCRIPT_REFUSALS = ["limits", "unknown_card", "too_long", "markup", "digit", "unknown_fact", "ranking", "lack", "people", "work", "banned"] as const;
+export const SHOWCASE_SCRIPT_REFUSALS = ["limits", "unknown_card", "too_long", "markup", "digit", "unknown_fact", "ranking", "lack", "people", "work", "banned", "name_written", "no_placeholder"] as const;
 export type ShowcaseScriptRefusal = (typeof SHOWCASE_SCRIPT_REFUSALS)[number];
 
 export const SHOWCASE_SCRIPT_RETRY_NOTES: Readonly<Record<ShowcaseScriptRefusal, string>> = {
@@ -93,6 +99,8 @@ export const SHOWCASE_SCRIPT_RETRY_NOTES: Readonly<Record<ShowcaseScriptRefusal,
   people: "Your last script was not used: it mentioned people. Say nothing about who built it, how many or what they are called.",
   work: "Your last script was not used: it mentioned jobs, work or careers. Say what happened and nothing about why.",
   banned: "Your last script was not used: it used a word this product never uses. Say what happened in plain words.",
+  name_written: `Your last script was not used: it wrote the project's name. Never write the name: write ${SHOWCASE_NAME_PLACEHOLDER} where it goes.`,
+  no_placeholder: `Your last script was not used: the post did not name the project. Write ${SHOWCASE_NAME_PLACEHOLDER} where the project's name goes.`,
 };
 
 export interface ShowcaseScriptRequest {
@@ -144,14 +152,15 @@ const CLAIM_RE = /\b(?:customers?|clients?|users?|subscribers?|sign-?ups?|orders
 const URL_RE = /\b(?:https?:\/\/|www\.)\S+|\b[a-z0-9-]+\.(?:com|net|org|io|ai|app|co|dev|xyz)\b|[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.[A-Za-z]{2,}|(?:^|\s)@[A-Za-z0-9_]{2,}|#[\p{L}\p{N}_]+/iu;
 const MARKUP_RE = /\*\*|__|`|<\/?[a-z][^>]*>|\[\[|\]\(|!|\p{Extended_Pictographic}/u;
 
-/**
- * Removes what the facts allow: every card's label (words the platform builds from the milestone's key), both forms of
- * every date and, unless `keepName`, the project's name. The framing checks (lack, people, ranking, work, banned terms)
- * keep the name (review finding 6): a name the founders typed is checked like any other words.
- */
-function withoutFacts(text: string, facts: ShowcaseScriptFacts, keepName = false): string {
+/** The model's words with the placeholder masked: what every check reads (the name itself is never checked here). */
+const masked = (text: string): string => text.split(SHOWCASE_NAME_PLACEHOLDER).join(" ");
+/** The words as they would be posted: the placeholder replaced by the name, verbatim. */
+const withName = (text: string, facts: ShowcaseScriptFacts): string => text.split(SHOWCASE_NAME_PLACEHOLDER).join(facts.projectName);
+
+/** Removes what the facts allow: every card's label (words the platform builds from the milestone's key) and both forms of every date. */
+function withoutFacts(text: string, facts: ShowcaseScriptFacts): string {
   let out = text;
-  const allowed = [...(keepName ? [] : [facts.projectName]), ...facts.cards.flatMap((c) => [c.on, c.onShort, c.label])].filter(Boolean).sort((a, b) => b.length - a.length);
+  const allowed = facts.cards.flatMap((c) => [c.on, c.onShort, c.label]).filter(Boolean).sort((a, b) => b.length - a.length);
   for (const a of allowed) out = out.replace(new RegExp(escape(a), "gi"), " ");
   return out;
 }
@@ -165,7 +174,7 @@ const POST_WORDS = new Set(
 
 const words = (s: string): string[] => (s.toLowerCase().match(/\p{L}[\p{L}'’-]*/gu) ?? []).map((w) => w.replace(/['’]s$/, ""));
 
-/** The framing a showcase never carries, in `text` (the name included): work, lack, people, rankings, banned terms. */
+/** The framing a showcase never carries, in what the model wrote: work, lack, people, rankings, banned terms. */
 function framingProblem(text: string, rest: string): ShowcaseScriptRefusal | null {
   if (POST_SUBTEXT_PATTERNS.some((re) => (text.match(new RegExp(re.source, re.flags)) ?? []).length > 0) || WORK_RE.test(rest)) return "work";
   if (LACK_RE.test(rest)) return "lack";
@@ -176,46 +185,45 @@ function framingProblem(text: string, rest: string): ShowcaseScriptRefusal | nul
 }
 
 /**
- * Whether the project's name itself carries framing a showcase never says ("Solo Bakes", "Top Shop"). Such a project is
- * not featured: whatever the script writes, the name would say it for it.
+ * Why a script cannot be used, or null when it can. Pure. The script is the model's answer as written: the project's
+ * name appears only as `SHOWCASE_NAME_PLACEHOLDER`. The model may not write the name itself, and the post must name the
+ * project through the placeholder. Every check reads the model's own words with the placeholder masked, and the lengths
+ * are taken of the words as they would be posted, with the name put in.
  */
-export function showcaseNameProblem(name: string): ShowcaseScriptRefusal | null {
-  return framingProblem(name, name);
-}
-
-/** Why a script cannot be used, or null when it can. Pure. */
 export function checkShowcaseScript(script: { shots: readonly { card: string; caption: string }[]; post: string }, facts: ShowcaseScriptFacts): ShowcaseScriptRefusal | null {
   const post = script.post.replace(/\s+/g, " ").trim();
-  const named = showcaseNameProblem(facts.projectName);
-  if (named) return named;
+  const name = facts.projectName.toLowerCase();
+  const writesName = (t: string) => name.length > 0 && t.toLowerCase().includes(name);
+  if (writesName(post) || script.shots.some((s) => writesName(s.caption))) return "name_written";
+  if (!post.includes(SHOWCASE_NAME_PLACEHOLDER)) return "no_placeholder";
   if (!script.shots.length || script.shots.length > SHOWCASE_MAX_SHOTS || post.length < 12 || !/\p{L}{2,}/u.test(post)) return "limits";
   const seen = new Set<string>();
   for (const s of script.shots) {
     const card = facts.cards.find((c) => c.card === s.card.trim());
     if (!card || seen.has(card.card)) return "unknown_card";
     seen.add(card.card);
-    if (!s.caption.trim() || !/\p{L}{2,}/u.test(s.caption)) return "limits";
-    if (s.caption.trim().length > SHOWCASE_CAPTION_MAX) return "too_long";
+    if (!masked(s.caption).trim() || !/\p{L}{2,}/u.test(masked(s.caption))) return "limits";
+    if (withName(s.caption, facts).trim().length > SHOWCASE_CAPTION_MAX) return "too_long";
     // A caption names its own card's milestone; it may name its own card's date and nothing else.
     if (!s.caption.toLowerCase().includes(card.label.toLowerCase())) return "unknown_fact";
     const others = facts.cards.filter((c) => c.card !== card.card);
     if (others.some((o) => o.onShort !== card.onShort && s.caption.includes(o.onShort))) return "unknown_fact";
   }
-  if (post.length > facts.maxChars) return "too_long";
-  const all = [...script.shots.map((s) => s.caption), post];
+  if (withName(post, facts).length > facts.maxChars) return "too_long";
+  const all = [...script.shots.map((s) => masked(s.caption)), masked(post)];
   for (const text of all) {
     if (URL_RE.test(text) || MARKUP_RE.test(text) || /[[\]<>{}]/.test(text)) return "markup";
     const rest = withoutFacts(text, facts);
-    // A digit outside a date (and outside the project's own name).
+    // A digit outside a date.
     if (/\d/.test(rest)) return "digit";
     if (new RegExp(`\\b(?:${MONTHS})\\b`).test(rest)) return "unknown_fact";
-    const framing = framingProblem(text, withoutFacts(text, facts, true));
+    const framing = framingProblem(text, rest);
     if (framing) return framing;
     if (CLAIM_RE.test(rest)) return "unknown_fact";
   }
-  // Facts only: past the name, the labels and the dates, a caption and a post carry only the plain words of a sentence.
-  for (const s of script.shots) if (words(withoutFacts(s.caption, facts)).some((w) => !CAPTION_WORDS.has(w))) return "unknown_fact";
-  if (words(withoutFacts(post, facts)).some((w) => !POST_WORDS.has(w) && w !== APP_NAME.toLowerCase())) return "unknown_fact";
+  // Facts only: past the labels and the dates, a caption and a post carry only the plain words of a sentence.
+  for (const s of script.shots) if (words(withoutFacts(masked(s.caption), facts)).some((w) => !CAPTION_WORDS.has(w))) return "unknown_fact";
+  if (words(withoutFacts(masked(post), facts)).some((w) => !POST_WORDS.has(w) && w !== APP_NAME.toLowerCase())) return "unknown_fact";
   return null;
 }
 
@@ -238,7 +246,8 @@ export function finaliseShowcaseScript(json: unknown, facts: ShowcaseScriptFacts
   // Date order, as the story shows them.
   const order = new Map(facts.cards.map((c, i) => [c.card, i]));
   const sorted = [...shots].sort((a, b) => (order.get(a.card) ?? 0) - (order.get(b.card) ?? 0));
-  return { shots: sorted.map((s) => ({ milestoneId: facts.cards.find((c) => c.card === s.card)!.milestoneId, caption: s.caption })), postText: post };
+  // The code puts the name in, verbatim from the public story: the model never wrote it.
+  return { shots: sorted.map((s) => ({ milestoneId: facts.cards.find((c) => c.card === s.card)!.milestoneId, caption: withName(s.caption, facts) })), postText: withName(post, facts) };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

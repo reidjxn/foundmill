@@ -157,9 +157,11 @@ export interface ShowcaseEligibilityFacts {
   lastDeclinedAt: Date | null;
   /** "Foundmill may ask to feature this project", as the project reads it (`showcaseMayAsk`). */
   mayAsk: boolean;
+  /** The project's name is safe to put in a post (`showcaseNameSafety`); its words are never judged. Default: safe. */
+  nameSafe?: boolean;
 }
 
-export const SHOWCASE_INELIGIBLE = ["page_private", "no_real_milestone", "sample", "house", "open_request", "recent_request", "recent_no", "setting_off"] as const;
+export const SHOWCASE_INELIGIBLE = ["page_private", "no_real_milestone", "sample", "house", "open_request", "recent_request", "recent_no", "setting_off", "name_unsafe"] as const;
 export type ShowcaseIneligible = (typeof SHOWCASE_INELIGIBLE)[number];
 
 /** Whether the house may ask this project now, and if not, the first reason. */
@@ -169,6 +171,7 @@ export function showcaseEligibility(f: ShowcaseEligibilityFacts, now: Date): { e
   if (f.isSample) return no("sample");
   if (!f.mayAsk) return no("setting_off");
   if (!f.pagePublic) return no("page_private");
+  if (f.nameSafe === false) return no("name_unsafe");
   if (!f.shownMilestones.some((m) => isShowcaseMilestoneKey(m.key) && !m.simulated)) return no("no_real_milestone");
   if (f.openRequest) return no("open_request");
   if (f.lastRequestAt && now.getTime() - f.lastRequestAt.getTime() < SHOWCASE_RECENT_MS) return no("recent_request");
@@ -251,6 +254,33 @@ export function showcaseShareRefusal(f: ShowcaseShareFacts, now: Date): Showcase
   if (current.size === 0 || yes.size !== current.size || [...current].some((id) => !yes.has(id))) return "founders_changed";
   if (!f.pagePublic) return "page_private";
   if (!f.milestonesShown) return "milestone_hidden";
+  return null;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The project's name
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** The longest name a business may have (packages/db `CreateBusinessInput`): what its page shows. */
+export const SHOWCASE_NAME_MAX = 120;
+
+export const SHOWCASE_NAME_PROBLEMS = ["url", "email", "phone", "markup", "control", "too_long"] as const;
+export type ShowcaseNameProblem = (typeof SHOWCASE_NAME_PROBLEMS)[number];
+
+/**
+ * Whether the project's name is unsafe to put in a post the house shares: a web address, an email address or a phone
+ * number (a post would carry someone's contact or a link nobody approved), markup, control or invisible characters, or
+ * more than the page shows. Nothing else about the name is judged: it is the founders' own choice ("Solo Sourdough",
+ * "One Kitchen" and "Top Shelf" are names like any other), and the script never writes it (packages/agents
+ * `SHOWCASE_NAME_PLACEHOLDER`: the code puts it in, verbatim).
+ */
+export function showcaseNameSafety(name: string): ShowcaseNameProblem | null {
+  if (name.length > SHOWCASE_NAME_MAX) return "too_long";
+  if (/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/u.test(name)) return "control";
+  if (/[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/.test(name)) return "email";
+  if (/\b(?:https?:\/\/|www\.)|\b[a-z0-9-]+\.(?:com|net|org|io|ai|app|co|dev|xyz|me|shop|store|site|online|uk|us|eu)\b/i.test(name)) return "url";
+  if (/(?:\+\d[\d\s().-]{6,}\d)|\b\d{3}[\s.-]\d{3}[\s.-]\d{4}\b|\b\d{9,}\b/.test(name)) return "phone";
+  if (/[<>`]|\*\*|__|\[\[|\]\(|\[[^\]]*\]/.test(name)) return "markup";
   return null;
 }
 

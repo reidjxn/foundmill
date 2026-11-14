@@ -134,11 +134,30 @@ describe("who asks, and who may be asked", () => {
     expect(await off.owner.showcase.setting.get({ businessId: off.id })).toEqual({ mayAsk: true, chosen: false, canChange: true });
     await off.owner.showcase.setting.set({ businessId: off.id, mayAsk: false });
     expect(await code(house().showcase.request({ businessId: HOUSE_BUSINESS_ID, subjectBusinessId: off.id }))).toBe("showcase_not_eligible");
-    const recent = await project("Again");
+    const recent = await project("Recent");
     const req = await house().showcase.request({ businessId: HOUSE_BUSINESS_ID, subjectBusinessId: recent.id });
     await settleShowcaseRuns();
     await house().showcase.withdraw({ businessId: HOUSE_BUSINESS_ID, requestId: req.id });
     expect(await code(house().showcase.request({ businessId: HOUSE_BUSINESS_ID, subjectBusinessId: recent.id }))).toBe("showcase_not_eligible");
+  });
+});
+
+describe("the project's name is the founders' own: put in verbatim, never judged, refused only when unsafe", () => {
+  it("a project named \"Solo Sourdough\" is eligible, and its video's post shows the name verbatim", async () => {
+    const p = await project("Solo Sourdough");
+    const name = (await repos.businesses.get(hz.db, p.id)).name;
+    expect((await house().showcase.candidates({ businessId: HOUSE_BUSINESS_ID })).find((c) => c.businessId === p.id)).toMatchObject({ eligible: true, why: null });
+    const req = await askedFor(p);
+    const ask = await askOf(p.owner, p.id, p.ownerId);
+    expect(ask.preview.postText).toContain(name);
+    expect(ask.preview.postText).not.toContain("%project%");
+    expect((await requestRow(req.id)).preview.projectName).toBe(name);
+  });
+
+  it("a name that carries a web address is refused", async () => {
+    const p = await project("Maple Bakes at maplebakes.com");
+    expect((await house().showcase.candidates({ businessId: HOUSE_BUSINESS_ID })).find((c) => c.businessId === p.id)).toMatchObject({ eligible: false, why: expect.stringMatching(/web address/) });
+    expect(await code(house().showcase.request({ businessId: HOUSE_BUSINESS_ID, subjectBusinessId: p.id }))).toBe("showcase_not_eligible");
   });
 });
 
@@ -194,7 +213,7 @@ describe("the video, and the ask once it is final", () => {
 
 describe("the answers: one founder's no, withdrawal or departure overrides the others' yes", () => {
   it("a solo founder's yes approves and writes the house's draft", async () => {
-    const p = await project("Maple");
+    const p = await project("Solo");
     const req = await askedFor(p);
     const mine = await askOf(p.owner, p.id, p.ownerId);
     expect(await p.owner.showcase.answer({ businessId: p.id, consentId: mine.consentId, answer: "yes" })).toMatchObject({ answer: "yes", state: "approved", canWithdraw: true });

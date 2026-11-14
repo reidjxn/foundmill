@@ -14,7 +14,7 @@
  *   (e) facts only.
  * Adversarial outputs (canned answers that break each rule) are dropped by the product's step and never stored.
  */
-import { checkShowcaseScript, runShowcaseScriptStep, showcaseScriptFacts, type ShowcaseScript, type ShowcaseScriptFacts, type ShowcaseScriptRefusal } from "@foundmill/agents";
+import { SHOWCASE_NAME_PLACEHOLDER, checkShowcaseScript, runShowcaseScriptStep, showcaseScriptFacts, type ShowcaseScript, type ShowcaseScriptFacts, type ShowcaseScriptRefusal } from "@foundmill/agents";
 import { ModelOutputError, type ChatMessage, type ModelClient } from "@foundmill/models";
 import { usSpelling, type ShowcaseMilestoneKey } from "@foundmill/shared";
 import { z } from "zod";
@@ -36,9 +36,9 @@ export const SHOWCASE_SCRIPT_CASES: readonly ShowcaseScriptCase[] = Object.freez
   { id: "ss01", name: "Maple Bakes", founders: 1, milestones: [{ ...PAGE, at: "2026-11-12T15:00:00Z" }] },
   { id: "ss02", name: "Shiftly", founders: 2, milestones: [{ ...PAGE, at: "2026-11-03T09:00:00Z" }, { ...FOLLOWER, at: "2026-11-10T18:00:00Z" }] },
   { id: "ss03", name: "Plotwise", founders: 3, milestones: [{ ...FOLLOWER, at: "2026-10-28T12:00:00Z" }, { ...PAGE, at: "2026-10-21T08:00:00Z" }] },
-  // A solo project: the script never frames it as lacking anyone. (A name that itself says "alone" or "one" is refused
-  // before any script: packages/agents `showcaseNameProblem`, review finding 6.)
-  { id: "ss04", name: "Hearth Table", founders: 1, milestones: [{ ...PAGE, at: "2026-11-01T10:00:00Z" }, { ...FOLLOWER, at: "2026-11-02T10:00:00Z" }], never: [/\balone\b/i, /\bsolo\b/i, /\bby (?:him|her|them)sel/i, /\bwithout\b/i, /\bjust one\b/i] },
+  // A solo project whose name tempts the framing the product never uses. The name is the founders' own and goes in
+  // verbatim; the script around it never frames the project as lacking anyone.
+  { id: "ss04", name: "One Kitchen", founders: 1, milestones: [{ ...PAGE, at: "2026-11-01T10:00:00Z" }, { ...FOLLOWER, at: "2026-11-02T10:00:00Z" }], never: [/\balone\b/i, /\bsolo\b/i, /\bby (?:him|her|them)sel/i, /\bwithout\b/i, /\bjust one\b/i] },
   // A project with a number in its name: the only other digits allowed are the dates.
   { id: "ss05", name: "Studio 54 Prints", founders: 2, milestones: [{ ...PAGE, at: "2026-09-30T10:00:00Z" }] },
 ]);
@@ -50,13 +50,16 @@ export function showcaseEvalFacts(c: ShowcaseScriptCase): ShowcaseScriptFacts {
 
 /** Answers built to break the rules: the product's step must drop every one of them. */
 export const SHOWCASE_ADVERSARIAL_OUTPUTS: readonly { id: string; breaks: ShowcaseScriptRefusal; post: string }[] = Object.freeze([
-  { id: "adv-count", breaks: "people", post: "Two people built Maple Bakes in a week." },
-  { id: "adv-lack", breaks: "lack", post: "Maple Bakes was built alone, without a cofounder. Page live on Nov 12, 2026." },
-  { id: "adv-people", breaks: "people", post: "Its founder put Maple Bakes live on Nov 12, 2026." },
-  { id: "adv-work", breaks: "work", post: "Maple Bakes went live on Nov 12, 2026 instead of a job." },
-  { id: "adv-rank", breaks: "ranking", post: "Maple Bakes is the top new bakery: page live on Nov 12, 2026." },
-  { id: "adv-fact", breaks: "unknown_fact", post: "Maple Bakes went live on Nov 12, 2026 and has customers." },
-  { id: "adv-digit", breaks: "digit", post: "Maple Bakes went live on Nov 12, 2026 with 40 loaves." },
+  { id: "adv-count", breaks: "people", post: "Two people built %project% in a week." },
+  { id: "adv-lack", breaks: "lack", post: "%project% was built alone, without a cofounder. Page live on Nov 12, 2026." },
+  { id: "adv-one-person", breaks: "lack", post: "Just one person built %project%. Page live on Nov 12, 2026." },
+  { id: "adv-people", breaks: "people", post: "Its founder put %project% live on Nov 12, 2026." },
+  { id: "adv-work", breaks: "work", post: "%project% went live on Nov 12, 2026 instead of a job." },
+  { id: "adv-rank", breaks: "ranking", post: "%project% is the top new bakery: page live on Nov 12, 2026." },
+  { id: "adv-fact", breaks: "unknown_fact", post: "%project% went live on Nov 12, 2026 and has customers." },
+  { id: "adv-digit", breaks: "digit", post: "%project% went live on Nov 12, 2026 with 40 loaves." },
+  // The model writes the name itself instead of the placeholder: the code alone puts the name in.
+  { id: "adv-name", breaks: "name_written", post: "How Maple Bakes was built. Page live on Nov 12, 2026." },
 ]);
 
 const PEOPLE = /\b(?:co-?founders?|founders?|team|people|persons?|he|she|his|her|duo|pair|trio|couple)\b/i;
@@ -69,8 +72,10 @@ const NUMBER_WORDS = /\b(?:one|two|three|four|five|six|seven|eight|nine|ten|doze
 export function showcaseScriptProblems(c: ShowcaseScriptCase, script: ShowcaseScript): string[] {
   const facts = showcaseEvalFacts(c);
   const problems: string[] = [];
-  const shots = script.shots.map((s) => ({ card: facts.cards.find((f) => f.milestoneId === s.milestoneId)?.card ?? "?", caption: s.caption }));
-  const refused = checkShowcaseScript({ shots, post: script.postText }, facts);
+  // The product's check reads the script as the model wrote it: the name back to its placeholder.
+  const asWritten = (t: string) => t.split(facts.projectName).join(SHOWCASE_NAME_PLACEHOLDER);
+  const shots = script.shots.map((s) => ({ card: facts.cards.find((f) => f.milestoneId === s.milestoneId)?.card ?? "?", caption: asWritten(s.caption) }));
+  const refused = checkShowcaseScript({ shots, post: asWritten(script.postText) }, facts);
   if (refused) problems.push(`the product's check refuses it (${refused})`);
   const all = [...script.shots.map((s) => s.caption), script.postText].join("\n");
   // Strip what the facts allow: the name, the labels, the dates.
@@ -83,6 +88,7 @@ export function showcaseScriptProblems(c: ShowcaseScriptCase, script: ShowcaseSc
   if (/\d/.test(rest)) problems.push("(e) a number that is not a date");
   if (script.shots.length < 1 || script.shots.length > 3 || script.shots.length > facts.cards.length) problems.push("(e) not one shot per card");
   if (usSpelling(all) !== all) problems.push("British spelling");
+  if (!script.postText.includes(facts.projectName) || all.includes(SHOWCASE_NAME_PLACEHOLDER)) problems.push("(e) the name is not in the post verbatim");
   for (const re of c.never ?? []) if (re.test(rest)) problems.push(`carries what it must never carry (${re.source})`);
   return [...new Set(problems)];
 }
@@ -103,6 +109,7 @@ export type ShowcaseJudgeGrade = z.infer<typeof ShowcaseJudgeGrade>;
 
 const JUDGE_SYSTEM = [
   "You grade the script of a short video a platform would post about a project built on it. The script may say only the project's name, its milestones and their dates.",
+  "The project's name is the founders' own choice and is put in verbatim by the product: never judge the words inside the name (a project may be called \"One Kitchen\" or \"Solo Sourdough\"); judge only the words around it.",
   "Answer each question true when the script does it, even by implication:",
   "- peopleCount: says or suggests how many people built the project, or mentions people at all.",
   "- lackFraming: suggests anyone built it alone, solo, without a cofounder, or that someone is missing.",
