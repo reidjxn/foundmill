@@ -245,3 +245,9 @@ The remaining non-critical advisories (dev tools, the test DOM, the agent and MC
 | Free text that may quote money (Customer Update commentary, stored chapter titles, design-check results): a figure appears only when an agent or a person writes one; it cannot be walled per field, and the api masks known money patterns | P3 | Open | — |
 | The department metrics' own section walls: after 0107 their raw SQL on `conversions` returns nothing for a collaborator, so a revenue metric reads empty rather than leaking; what is left is a missing wall, a hardening issue, not an exposure | P3 | Open | — |
 
+### zod memory exhaustion through input validation (#139)
+
+| Finding | Severity | Status | PR |
+|---|---|---|---|
+| GHSA-mrhx-c7xc-m3w5 through `publicQuiz.answer` (signed out): a 2 MB body of junk keys made zod build an issue per key (about 83 MB per request), and the error sent back listed every key (6.9 MB) | P1 | Fixed: the input's keys are counted before zod reads them; every procedure's error is bounded (`boundedIssues` in `trpc.ts`); zod 4.6.7 | #139 |
+| The same shape on signed-in inputs: lists without `.max()` first and records without a count first, reachable by any signed-in person | P3 | Open: a follow-up PR bounds every list and map an api input can reach | — |

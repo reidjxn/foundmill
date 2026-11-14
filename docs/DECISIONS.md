@@ -4587,3 +4587,17 @@ Drizzle's postgres-js driver makes the date and time serializers pass values thr
 
 - A test that measures time keeps its strict bound on a developer's machine. When `CI` is set it gets a budget a loaded runner meets that still catches the regression it guards, as in packages/policy's evaluate test.
 - A test that asserts a number is absent from output carrying random UUIDs or tokens checks with those blanked, or matches the amount as it would read (`$777`).
+
+## 2026-11-14 — An input zod checks item by item is counted before zod reads it; every invalid input's error is bounded (security fix) (#139)
+
+- zod builds an issue object for each failing key of a record, and for each failing element of an array whose `.max()` doesn't come first (GHSA-mrhx-c7xc-m3w5). The signed-out `publicQuiz.answer` took such a record, so a 2 MB body of junk keys made the api hold about 83 MB per request.
+- `AnswersInput` counts a plain object's keys first (`z.custom`, stopping past the four questions), then parses a strict object. Oversized or odd input (a Map, `__proto__`) is one short issue. The same answers are accepted and refused as before.
+- A backstop in `trpc.ts` for every procedure: an invalid input's error carries at most 20 issues, with messages cut to 200 characters and unknown-key lists cut to 20. The message names at most 10 issues and counts the rest. Over HTTP a 1.6 MB junk body is now a 400 under 10 KB (6.9 MB before).
+- zod 4.6.5 → 4.6.7 through the catalog, with an override so no 4.6.5 copy is left. 4.6.7 stops an array at its `.max()` when the max comes first; it never caps a record.
+- The signed-in inputs with the same shape (lists and maps without a count first) are a separate follow-up PR.
+
+## 2026-11-14 — An e2e check on a note waits for the reading pane to show that note (#140, #141)
+
+- A spec that clicks one row after another and checks the reading pane waits for `inbox-item`'s `data-item-id` to equal the clicked row's id (`InboxList` sets `data-item-id` on each row) before it reads anything. Otherwise it can read the previous note.
+- A check on something that may or may not be on the page asserts a count on a filtered locator (`filter({ hasText }).toHaveCount(0)`), never `count()` followed by an assertion: the element can unmount between the two.
+- A list check doesn't depend on list order when other specs in the shard add rows: entity-profile searches `role:customer stage:customer`, which the seed gives only to a paying customer.

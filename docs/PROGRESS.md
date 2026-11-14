@@ -2168,3 +2168,15 @@ Behind a Finance wall no procedure returns a Finance figure (cycle cost, vacatio
 The changes are to tests only:
 - gateway `large-result` and connectors `quarantine-scan`: CI timing budgets;
 - gateway `notify-email` ("777") and api `milestones-show` ("4900"): random ids blanked before the check.
+
+## 2026-11-14 — Security fix: zod memory DoS on a signed-out input (#139)
+
+- `publicQuiz.answer` counts its keys before zod reads them; any invalid input's error is bounded (20 issues, short messages); zod 4.6.7 everywhere.
+- Tests: 150,000 junk keys are one issue; over HTTP a junk body is a 400 under 10 KB; bounded issues for any error; zod's early stop at `.max()`.
+
+## 2026-11-14 — Main green again: inbox, entity-profile and foundations specs (#140, #141)
+
+The changes are to tests, plus one attribute:
+- inbox `status-strip captions`: waits for the reading pane to show each clicked row (`data-item-id` on the rows), and checks the status strip without a count-then-assert race;
+- entity-profile: finds a paying customer by stage instead of list order;
+- foundations: waits for the decision's options before counting them.
