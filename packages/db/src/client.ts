@@ -142,7 +142,11 @@ export function createDb(url: string, options: CreateDbOptions = {}): AnyDb {
   return withDateParams(client, drizzle({ client, schema, logger: options.logger ?? false }));
 }
 
-/** The date and time types Drizzle's postgres-js driver makes pass through unchanged (drizzle-orm 0.45 `postgres-js/driver`). */
+/**
+ * The types whose serializers Drizzle's postgres-js driver makes pass through unchanged (drizzle-orm 0.45
+ * `postgres-js/driver`): timestamptz, date, time, timestamp, their arrays (1182 date[], 1185 timestamptz[], 1115
+ * timestamp[]) and 1231 numeric[]. A `Date` only ever reaches 1184; the list is Drizzle's, kept whole.
+ */
 const DATE_TIME_TYPES = ["1184", "1082", "1083", "1114", "1182", "1185", "1115", "1231"] as const;
 
 /**
@@ -153,6 +157,9 @@ const DATE_TIME_TYPES = ["1184", "1082", "1083", "1114", "1182", "1185", "1115",
  * writer, which throws (`The "string" argument must be of type string … Received an instance of Date`). The PGlite tests
  * never saw it. This keeps text as text and writes a `Date` as its ISO string. Call it after `drizzle({ client })`,
  * which is what installs the pass-through.
+ *
+ * A raw `Date` is always a timestamptz here (PGlite instead lets the server pick the type). Compared with a timestamptz
+ * column that is exact; for a `date` or `timestamp without time zone` value, pass `toISOString()` or cast explicitly.
  */
 export function withDateParams<D>(client: Sql, db: D): D {
   const serializers = client.options.serializers as Record<string, (v: unknown) => unknown>;

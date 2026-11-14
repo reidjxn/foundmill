@@ -16,7 +16,7 @@ import type { Socket } from "node:net";
 import type { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import type { Db } from "../client";
+import { withDateParams, type Db } from "../client";
 import * as schema from "../schema";
 
 export interface WireDb {
@@ -159,7 +159,7 @@ export async function createWireDb(pg: PGlite, options: { describe?: boolean } =
     const unsafe = client.unsafe;
     Object.assign(client, { unsafe: (query: string, args?: unknown[], queryOptions?: postgres.UnsafeQueryOptions) => unsafe(query, args as postgres.ParameterOrJSON<never>[], { ...queryOptions, prepare: true }) });
   }
-  const db = drizzle({ client, schema }) as unknown as Db;
+  const db = withDateParams(client, drizzle({ client, schema })) as unknown as Db;
   await client`select 1`;
   const current = () => {
     if (!socket) throw new Error("createWireDb: not connected");

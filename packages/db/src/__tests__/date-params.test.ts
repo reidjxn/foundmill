@@ -3,7 +3,8 @@
  * values through, so postgres.js handed the `Date` itself to its wire writer and the query threw. PGlite accepted it, so
  * only the real-Postgres run saw it (founder cancel links, credit lots, the post attribution week summary).
  * `withDateParams` writes a `Date` as its ISO string. The second block runs against a real Postgres when
- * RLS_TEST_DATABASE_URL is set, through `createDb` itself, with prepared statements on (direct) and off (pooler).
+ * RLS_TEST_DATABASE_URL is set, through `createDb` itself: as Drizzle sends it (`client.unsafe`, which never prepares),
+ * and with the statement prepared and described by the server first, as `createWireDb({ describe: true })` forces it.
  */
 import { sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
@@ -26,9 +27,14 @@ describe("withDateParams", () => {
 const url = realPostgresUrl();
 
 describe.skipIf(!url)("a Date in a raw sql template, on a real Postgres", () => {
-  for (const prepare of [true, false]) {
-    it(`compares, sets and returns it (prepared statements ${prepare ? "on" : "off"})`, async () => {
-      const db = createDb(url!, { max: 1, prepare });
+  for (const describeFirst of [false, true]) {
+    it(`compares, sets and returns it (${describeFirst ? "prepared and described first" : "as Drizzle sends it"})`, async () => {
+      const db = createDb(url!, { max: 1 });
+      if (describeFirst) {
+        const client = db.$client as unknown as { unsafe: (q: string, a?: unknown[], o?: Record<string, unknown>) => unknown };
+        const unsafe = client.unsafe.bind(client);
+        client.unsafe = (q, a, o) => unsafe(q, a, { ...o, prepare: true });
+      }
       try {
         const at = new Date("2026-11-14T15:00:00.000Z");
         const rows = (await db.execute(sql`select ${at}::timestamptz = '2026-11-14T15:00:00Z'::timestamptz as same, now() > ${at} as later, ${new Date(0)} < now() as epoch`)) as unknown as Array<Record<string, unknown>>;
