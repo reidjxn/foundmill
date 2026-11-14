@@ -258,6 +258,8 @@ test.describe("entity profile for a collaborator", () => {
     try {
       await signInAs(theirs, randomUUID(), invitation);
       await expect(theirs.getByTestId("invitation")).toHaveAttribute("data-state", "pending", { timeout: LONG });
+      // A new account confirms it is 18 or older on the invitation (0100).
+      await theirs.getByTestId("invitation-adult").getByRole("checkbox", { name: "I am 18 or older" }).check();
       await theirs.getByTestId("invitation-accept").click();
       await theirs.waitForURL(new RegExp(`/b/${bid}/|/onboarding`), { timeout: LONG });
       // A new person first meets their profile (the project's layout asks for it), then opens the record.
