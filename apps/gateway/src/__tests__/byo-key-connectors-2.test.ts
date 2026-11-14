@@ -264,15 +264,17 @@ describe("resend.send_mail carries the gateway's own unsubscribe link", () => {
     return { r, bodies };
   };
 
-  it("signs the link for this project and recipient, and the agent cannot supply one", async () => {
+  // One gateway per case (as #101 did for IndexNow): two setups in one case ran past the 30 s timeout on CI.
+  it("signs the link for this project and recipient", async () => {
     const { r, bodies } = await sendBody(MAIL_CONFIG);
     expect(asAllow(r).result.ok).toBe(true);
     expect(bodies).toHaveLength(1);
     const header = (bodies[0]!.headers as Record<string, string>)["List-Unsubscribe"]!;
     expect(header).toMatch(/^<https:\/\/ingest\.foundmill\.test\/mail\/unsubscribe\?t=[^>]+>$/);
     expect(String(bodies[0]!.text)).toContain(header.slice(1, -1));
-    await open?.close();
-    open = null;
+  });
+
+  it("refuses a link the agent supplies, before any vendor request", async () => {
     const own = await sendBody(MAIL_CONFIG, { ...MAIL, unsubscribeUrl: "https://elsewhere.example/stop" });
     expect(asAllow(own.r).result).toMatchObject({ ok: false, error: { code: "invalid_args" } });
     expect(own.bodies).toEqual([]);
