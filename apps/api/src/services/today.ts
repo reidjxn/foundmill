@@ -123,7 +123,7 @@ async function quickAnswerFor(tx: DbTx, ctx: BusinessContext, item: InboxItem, a
 
 /** The first notes of Needs you as this reader sees them, and how many wait in all. */
 export async function needsYouFor(tx: DbTx, ctx: BusinessContext): Promise<{ items: NeedsYouItem[]; total: number }> {
-  const [page, counts] = await Promise.all([repos.inbox.list(tx, ctx.businessId, { tab: "respond", limit: TODAY_NEEDS_YOU_MAX }, ctx.userId), repos.inbox.countByTab(tx, ctx.businessId)]);
+  const [page, counts] = await Promise.all([repos.inbox.list(tx, ctx.businessId, { tab: "respond", limit: TODAY_NEEDS_YOU_MAX }, ctx.userId), repos.inbox.countByTab(tx, ctx.businessId, ctx.userId)]);
   const rows = page.items.slice(0, TODAY_NEEDS_YOU_MAX);
   if (rows.length === 0) return { items: [], total: counts.respond };
   const walls = inboxWalls(ctx.membership);

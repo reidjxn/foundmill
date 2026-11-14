@@ -141,6 +141,24 @@ describe("businesses.showcase_may_ask and inbox_items.for_user_id 0105", () => {
     expect(await h.asUser(cofounder).run((tx) => tx.select({ id: s.inboxItems.id }).from(s.inboxItems).where(eq(s.inboxItems.id, project.inboxItemId)))).toHaveLength(1);
   });
 
+  it("review finding 7: the privileged connection's Inbox reads leave out a note for one person unless that person is the viewer", async () => {
+    const [note] = await h.db.insert(s.inboxItems).values({ businessId: project.businessId, type: "decision", subject: "Privileged read", forUserId: project.ownerId, blocksContinue: true }).returning({ id: s.inboxItems.id });
+    const svc = h.service();
+    // The orchestrator, the composer and the push notifier read with no viewer: nobody's own note.
+    const noViewer = await svc.run((tx) => repos.inbox.list(tx, project.businessId, { tab: "respond", limit: 100 }));
+    expect(noViewer.items.map((i) => i.id)).not.toContain(note!.id);
+    // A viewer sees their own note and nobody else's.
+    expect((await svc.run((tx) => repos.inbox.list(tx, project.businessId, { tab: "respond", limit: 100 }, project.ownerId))).items.map((i) => i.id)).toContain(note!.id);
+    expect((await svc.run((tx) => repos.inbox.list(tx, project.businessId, { tab: "respond", limit: 100 }, cofounder))).items.map((i) => i.id)).not.toContain(note!.id);
+    const before = await svc.run((tx) => repos.inbox.countByTab(tx, project.businessId));
+    const mine = await svc.run((tx) => repos.inbox.countByTab(tx, project.businessId, project.ownerId));
+    expect(mine.respond).toBeGreaterThan(before.respond);
+    const blocking = await svc.run((tx) => repos.inbox.countBlocking(tx, project.businessId));
+    await h.db.update(s.inboxItems).set({ forUserId: null }).where(eq(s.inboxItems.id, note!.id));
+    expect(await svc.run((tx) => repos.inbox.countBlocking(tx, project.businessId))).toBe(blocking + 1);
+    await h.db.delete(s.inboxItems).where(eq(s.inboxItems.id, note!.id));
+  });
+
   it("the waiting-note email reads a note for one person only for that person", async () => {
     const [note] = await h.db.insert(s.inboxItems).values({ businessId: project.businessId, type: "decision", subject: "Only yours", forUserId: cofounder, decision: { kind: "showcase_consent", options: [] }, createdAt: new Date(Date.now() - 2 * 86_400_000) }).returning({ id: s.inboxItems.id });
     const svc = h.service();
