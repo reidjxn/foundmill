@@ -1,5 +1,5 @@
 /**
- * The optional "which one is for you" quiz on a project's public page (migration 0101; @foundmill/shared
+ * The optional "which one is for you" quiz on a project's public page (migration 0105; @foundmill/shared
  * `page-quiz.ts`). Off until the founder turns it on.
  *
  * - **Reading** (`pageQuiz.get`, Product read): the quiz as it stands, the counts of the current version, whether the

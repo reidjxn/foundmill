@@ -2,7 +2,7 @@ import { expect, test, type Browser, type Page } from "@playwright/test";
 import { LONG, commitThrowaway, devApi, dismissCoachmarks, expectTapTarget, settled } from "./helpers";
 
 /**
- * The optional "Which one is for you?" quiz on a project's public page (migration 0101), on the mock model. A throwaway
+ * The optional "Which one is for you?" quiz on a project's public page (migration 0105), on the mock model. A throwaway
  * project publishes its page; with only three customers on record, Product › Public page says plainly that the team
  * waits for six and offers nothing to press. With seven real customers (added through the CRM as the founder would),
  * the team drafts the quiz; the panel says what it rested on, each type's real count, and that nothing is public. The

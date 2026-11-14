@@ -1,5 +1,5 @@
 /**
- * The page quiz (migration 0101): readiness before any call, what the agent is given (no names, the customers'
+ * The page quiz (migration 0105): readiness before any call, what the agent is given (no names, the customers'
  * words as untrusted data), the check of its answer (each refusal), the retry, the team's own "too little data", and
  * that mock mode drafts within the same rules.
  */

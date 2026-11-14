@@ -1,5 +1,5 @@
 /**
- * pageQuiz.* and publicQuiz.* — the optional quiz on a project's public page (services/page-quiz.ts, 0101), on the mock
+ * pageQuiz.* and publicQuiz.* — the optional quiz on a project's public page (services/page-quiz.ts, 0105), on the mock
  * model. Too few real customers is refused before any call and writes nothing; a draft comes only from the project's
  * own customers (an archived contact, an unverified name the Composer guessed and a lead are not customers); a member
  * edits a draft but only an owner or an admin approves and turns it on; approving puts nothing on the page; the public

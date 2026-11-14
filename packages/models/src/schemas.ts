@@ -470,7 +470,7 @@ export const PostDraftOutput = z.object({
 export type PostDraftOutput = z.infer<typeof PostDraftOutput>;
 
 // ---------------------------------------------------------------------------------------------------------------------
-// The optional "which one is for you" quiz on a project's public page (migration 0101; packages/agents `page-quiz.ts`):
+// The optional "which one is for you" quiz on a project's public page (migration 0105; packages/agents `page-quiz.ts`):
 // the team sorts the project's real customers into 2 to 4 types, each resting on customers it names by their opaque
 // ref, or says there is too little data. Every word is checked by packages/agents `finalisePageQuiz` before it is
 // stored, and the founder approves it before anything is public.

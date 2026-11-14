@@ -13,7 +13,7 @@
  * (`?via=p.<slug>`, @foundmill/shared/via). A paid plan shows none of it. Once the founders show a milestone the
  * project has a story (`./story`, `page.story`): the mark and the line after a follow then lead there instead of to the
  * landing page, with the same `via`, and the line's link reads "See how it was made". When the founders turned on their
- * quiz (0101), "Which one is for you?" comes before the Follow form; it posts to ./quiz-actions.ts.
+ * quiz (0105), "Which one is for you?" comes before the Follow form; it posts to ./quiz-actions.ts.
  */
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";

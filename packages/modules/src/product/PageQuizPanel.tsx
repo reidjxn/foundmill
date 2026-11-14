@@ -1,6 +1,6 @@
 "use client";
 /**
- * Product › Public page › "Quiz on your page" (migration 0101; apps/api services/page-quiz.ts): the optional
+ * Product › Public page › "Quiz on your page" (migration 0105; apps/api services/page-quiz.ts): the optional
  * "Which one is for you?" quiz, off until the founder turns it on. The team drafts it from the project's real customers
  * on the founder's press (never on its own); the founder reads every word, changes what they like, adds their own pay
  * link to an offer, approves it and turns it on or off. A phone-width preview beside the editor is drawn by the same

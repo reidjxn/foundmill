@@ -1,5 +1,5 @@
 /**
- * Offline checks of the page quiz eval (migration 0101): the cases cover what the rule asks (a sound draft, too few
+ * Offline checks of the page quiz eval (migration 0105): the cases cover what the rule asks (a sound draft, too few
  * customers, customers that do not split, an instruction inside a reply, no purchases at all), the rubric catches each
  * thing a draft must not do, and the mock `projectPage` route (what mock-mode founders get) passes every case through
  * the product's own step. The live run is `pnpm evals` (page-quiz.eval.test.ts), which skips without a key.

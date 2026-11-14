@@ -1,5 +1,5 @@
 /**
- * 0101 `page_quizzes`, `page_quiz_counts` and the view `public_page_quizzes` (the optional quiz on a public page).
+ * 0105 `page_quizzes`, `page_quiz_counts` and the view `public_page_quizzes` (the optional quiz on a public page).
  *
  * One row per business and no client inserts, so neither table is in the generated cross-tenant suite; this file covers
  * the same cases by hand and the ones only these tables have:

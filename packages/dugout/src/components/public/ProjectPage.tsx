@@ -9,7 +9,7 @@
  * something to say. Every string is a text node: nothing here is ever read as markdown or HTML. The layout follows its
  * own width (a container query at `--container-page-wide`), not the window's, so the preview frame lays it out as a
  * phone does. The one form is the "Follow" form (`ProjectFollowForm`, package 1.6), passed in as `follow` when the
- * founders left it on; the page itself sends nothing. When the founders turned on their quiz (`ProjectQuiz`, 0101) it
+ * founders left it on; the page itself sends nothing. When the founders turned on their quiz (`ProjectQuiz`, 0105) it
  * comes just before, as `quiz`.
  *
  * The foot carries the mark, "Built on Foundmill" (docs/NETWORK.md F2; founder, 2026-11-12): small, quiet, and made for
@@ -58,7 +58,7 @@ export interface ProjectPageProps extends Omit<HTMLAttributes<HTMLElement>, "chi
   variant?: "page" | "preview";
   /** The "Follow" form (`ProjectFollowForm`), after everything the founders wrote; nothing when the page has none. */
   follow?: ReactNode;
-  /** The optional "Which one is for you?" quiz (`ProjectQuiz`, 0101), just before the Follow form; nothing when it is off. */
+  /** The optional "Which one is for you?" quiz (`ProjectQuiz`, 0105), just before the Follow form; nothing when it is off. */
   quiz?: ReactNode;
 }
 

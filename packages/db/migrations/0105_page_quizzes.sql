@@ -1,4 +1,4 @@
--- 0101 — an optional "which one is for you" quiz on a project's public page. A visitor answers 2 to 4 short questions
+-- 0105 — an optional "which one is for you" quiz on a project's public page. A visitor answers 2 to 4 short questions
 -- and sees which of the project's offers probably fits them, with the page's own Follow form or the founder's own pay
 -- link; every offer stays in view. Off until the founder turns it on. The team drafts it only from the project's real
 -- customers (Customers rows, their replies and their purchases) and the founder approves every word before anything is

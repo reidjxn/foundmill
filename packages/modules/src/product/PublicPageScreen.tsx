@@ -466,7 +466,7 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
         ) : null}
       </Panel>
 
-      {/* The optional "Which one is for you?" quiz on the page (0101): off until the founder turns it on. */}
+      {/* The optional "Which one is for you?" quiz on the page (0105): off until the founder turns it on. */}
       {data && !data.isSample && data.saved ? <PageQuizPanel /> : null}
 
       {shareDraft ? <SharePost open={sharing} onOpenChange={setSharing} title={SHARE_OPEN_WORDS.pageTitle} description={SHARE_OPEN_WORDS.description} draft={shareDraft} appName={APP_NAME} onShare={recordShare} /> : null}

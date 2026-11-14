@@ -241,7 +241,7 @@ export const NON_TENANT_TABLES = [
   "founder_notifications",
   // 0088: who or what brought a new person (user-owned, service role only); rls/attributions.test.ts.
   "attributions",
-  // 0101: the page quiz, one row per business (the generated suite inserts a second; clients never insert), and its
+  // 0105: the page quiz, one row per business (the generated suite inserts a second; clients never insert), and its
   // anonymous counts, written by services only; covered by rls/page-quizzes.test.ts.
   "page_quizzes",
   "page_quiz_counts",

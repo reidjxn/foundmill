@@ -1,4 +1,4 @@
-/** 0101 — the optional "which one is for you" quiz on a project's public page, and its anonymous counts per result. */
+/** 0105 — the optional "which one is for you" quiz on a project's public page, and its anonymous counts per result. */
 import type { PageQuizDefinition, PageQuizEvidence, PageQuizStatus } from "@foundmill/shared";
 import { bigint, boolean, index, integer, jsonb, pgTable, pgView, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
@@ -58,7 +58,7 @@ export const pageQuizCounts = pgTable(
 export type PageQuizCount = typeof pageQuizCounts.$inferSelect;
 
 /**
- * What a visitor reads of a live quiz (0101): the page's address, the version, the definition and whether the page has
+ * What a visitor reads of a live quiz (0105): the page's address, the version, the definition and whether the page has
  * its Follow form. The service connection's only. Rows exist only while the quiz is live and its page is public.
  */
 export const publicPageQuizzes = pgView("public_page_quizzes", {

@@ -1,5 +1,5 @@
 /**
- * Mock page quiz (migration 0101; packages/agents `page-quiz.ts`): the Product lead's quiz drafted from the same facts
+ * Mock page quiz (migration 0105; packages/agents `page-quiz.ts`): the Product lead's quiz drafted from the same facts
  * the live request carries (`buildPageQuizRequest`) and within the same rules, so the local stack and the Playwright
  * suite exercise the whole path without a key. Deterministic and honest:
  *   - customers are grouped by the first thing they bought; a group is a type only with at least `min_per_type`

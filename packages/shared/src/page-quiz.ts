@@ -1,5 +1,5 @@
 /**
- * The "which one is for you" quiz on a project's public page (migration 0101 `page_quizzes`). Optional and off until
+ * The "which one is for you" quiz on a project's public page (migration 0105 `page_quizzes`). Optional and off until
  * the founder turns it on. A visitor answers 2 to 4 short questions and sees which of the project's offers probably fits
  * them, with the page's own Follow form or the founder's own pay link; every offer stays in view the whole time.
  *

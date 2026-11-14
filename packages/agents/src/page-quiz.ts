@@ -1,5 +1,5 @@
 /**
- * The optional "which one is for you" quiz on a project's public page (migration 0101), drafted by the Product lead
+ * The optional "which one is for you" quiz on a project's public page (migration 0105), drafted by the Product lead
  * from the project's real customers. Drafting is the founder's request; approving and turning it on are their own
  * presses (no agent tool reaches them).
  *

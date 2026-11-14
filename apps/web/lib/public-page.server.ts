@@ -38,7 +38,7 @@ export async function publicIndexNowKeyFile(slug: string, key: string): Promise<
 export type PublicPageQuiz = NonNullable<RouterOutputs["publicQuiz"]["bySlug"]>;
 
 /**
- * The live quiz on the page at `slug` (0101), or null: none, turned off, or the read failed. Optional on the page, so a
+ * The live quiz on the page at `slug` (0105), or null: none, turned off, or the read failed. Optional on the page, so a
  * failure leaves the quiz out rather than the page.
  */
 export const publicPageQuiz = cache(async (slug: string): Promise<PublicPageQuiz | null> => publicApi().publicQuiz.bySlug.query({ slug }).catch(() => null));

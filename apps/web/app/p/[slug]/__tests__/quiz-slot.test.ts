@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * Where the page quiz (0101) may appear: only on the project's own public page, `/p/<slug>`, and only from the api's
+ * Where the page quiz (0105) may appear: only on the project's own public page, `/p/<slug>`, and only from the api's
  * live quiz read (which lists nothing for a sample business, a page that is not public, or a quiz turned off). The
  * story page and a milestone card never read it or draw it (the network session, Nov 13, 2026).
  */

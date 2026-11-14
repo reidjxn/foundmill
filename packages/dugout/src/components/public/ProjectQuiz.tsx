@@ -1,5 +1,5 @@
 /**
- * "Which one is for you?" on a project's public page (migration 0101; @foundmill/shared `page-quiz.ts`): an optional
+ * "Which one is for you?" on a project's public page (migration 0105; @foundmill/shared `page-quiz.ts`): an optional
  * quiz the founders turn on, built from their real customers and approved word by word. A visitor answers 2 to 4 short
  * questions and sees which offer probably fits them, with the page's own Follow form or the founders' own link. Every
  * offer stays in view below the questions, the result or not: nothing is hidden behind the quiz, nothing counts down,

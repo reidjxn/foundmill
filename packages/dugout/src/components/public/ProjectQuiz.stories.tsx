@@ -25,7 +25,7 @@ const QUIZ: PageQuizDefinition & { slug: string; version: number } = {
 };
 
 /**
- * The optional quiz on a project's public page (0101) at the two widths it is checked at. Every offer stays in view
+ * The optional quiz on a project's public page (0105) at the two widths it is checked at. Every offer stays in view
  * under the questions; the result names the offer and points to the page's own Follow form or the founders' own link.
  */
 const meta = {

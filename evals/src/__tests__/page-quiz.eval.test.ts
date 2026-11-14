@@ -1,5 +1,5 @@
 /**
- * Live page quiz eval (Sonnet, `projectPage`; migration 0101). Runs only with MODEL_MODE=live and a key (`pnpm evals`);
+ * Live page quiz eval (Sonnet, `projectPage`; migration 0105). Runs only with MODEL_MODE=live and a key (`pnpm evals`);
  * skipped otherwise. Gate: for every case, what the product would store never invents a customer type (each rests on at
  * least two customers from the input), never claims a number the inputs do not carry, never pushes, points only to the
  * project's own offers, and a case with too little data is refused in one plain sentence with the real count; the
