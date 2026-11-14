@@ -438,7 +438,7 @@ export type DecisionType = (typeof DECISION_TYPES)[number];
 export const EVENT_TYPES = [
   "idea.committed", "spec.proposal_created", "spec.version_published",
   "source.added", "source.scored",
-  "task.started", "task.progressed", "task.completed", "task.blocked",
+  "task.started", "task.progressed", "task.completed", "task.blocked", "task.design_checked",
   "pr.merged", "deploy.succeeded",
   "lead.created", "lead.replied", "campaign.launched", "channel.threshold_breached",
   "signup.created", "activation.reached", "payment.received", "customer.converted",

@@ -330,6 +330,29 @@ describe("approvals must be decidable (first-time founder report, Nov 8, 2026)",
     expect((await repos.inbox.get(hz.db, hz.A.businessId, g.itemId)).subject).toMatch(/^Legal Lead needs GitHub connected/);
   });
 
+  it("a code change's approval carries the task's design check: what the reviewer saw and suggested (item 13)", async () => {
+    const A = hz.A.businessId;
+    const task = await repos.tasks.create(hz.db, A, { kind: "code", title: "Pricing page", goalMd: "x", assigneeAgentId: hz.A.agentId, status: "review" });
+    const result = {
+      status: "reviewed",
+      reason: null,
+      pages: ["/pricing"],
+      fixes: [{ rank: 1, page: "/pricing", viewport: "phone", element: "the plan table", problem: "The page scrolls sideways at 390 px.", fix: "Stack the plans in one column.", principle: "responsive", severity: "high" }],
+      unreadable: [],
+      before: [{ id: "before-1-phone", page: "/pricing", viewport: "phone", width: 390, height: 844, cut: false, sha256: "a".repeat(64) }],
+      after: [],
+      fixesAsked: true,
+    };
+    await repos.events.write(hz.db, A, { type: "task.design_checked", actor: { kind: "agent", id: hz.A.agentId }, entityIds: [task.id], payload: { taskId: task.id, kind: "code", title: "Pricing page", assigneeAgentId: hz.A.agentId, sessionId: null, result }, occurredAt: new Date() });
+    const approval = await repos.approvals.create(hz.db, A, { agentId: hz.A.agentId, taskId: task.id, connectorKey: "github", tool: "merge_pr", args: { title: "Pricing page", branch: `agent/${task.id}` }, reasons: ["merging to main asks first"] });
+    const { item } = await openApprovalItem(hz.db, A, approval, { agentId: hz.A.agentId, agentName: "Frontend Engineer", connectorName: "GitHub" });
+    const view = (await owner().inbox.get({ businessId: A, itemId: item.id })).approval!;
+    const rows = Object.fromEntries(view.what!.rows.map((r) => [r.label, r.value]));
+    expect(rows["Design check"]).toBe("A reviewer looked at screenshots of 1 page at desktop and 390 px and suggested 1 fix; the agent was asked to apply them once.");
+    expect(rows["Design fixes"]).toBe("1. /pricing at 390 px, the plan table: The page scrolls sideways at 390 px. Fix: Stack the plans in one column.");
+    expect(rows.Screenshots).toMatch(/^1 screenshot before, 0 screenshots after the fixes/);
+  });
+
   it("rejecting a request that said nothing about what it would run sends the ask for the details to the agent", async () => {
     const task = await repos.tasks.create(hz.db, hz.A.businessId, { kind: "ops", title: "Reach the first venues", goalMd: "x", assigneeAgentId: hz.A.agentId, status: "blocked" });
     const approval = await repos.approvals.create(hz.db, hz.A.businessId, { agentId: hz.A.agentId, taskId: task.id, connectorKey: "sendgrid", tool: "send_mail", args: {}, reasons: ["contacts a third party"] });
