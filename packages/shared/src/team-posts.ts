@@ -14,17 +14,21 @@
  *
  * Pure, no Zod: browser code imports this from "@foundmill/shared/team-posts".
  */
-import { fitPostText, postTextBudget, type PostDraft } from "./post-draft";
+import { fitPostText, postTextBudget, type PostDraft, type PostDraftVariant, type PostNetwork } from "./post-draft";
 import { milestonePostDraft, pagePostDraft } from "./share-drafts";
 import { TAP_POST_NETWORKS } from "./share-targets";
+import { POST_CODE_ALPHABET, POST_CODE_LENGTH, isPostCode, withVia } from "./via";
 
 /**
  * What makes the team write a post (append-only):
  * - `page_published`: the project's page went live for the first time.
  * - `milestone_shown`: a founder chose to show a reached milestone on the page.
  * - `first_follower`: the first person confirmed that they follow the project.
+ * - `showcase_approved`: every founder of a project said yes to the final showcase video the house made about it
+ *   (./showcase.ts). Written in the house business only; its `refId` is the showcase request, its subject the milestone
+ *   the video was asked for. Sharing it passes the showcase gate first (`showcaseShareRefusal`).
  */
-export const TEAM_POST_TRIGGERS = ["page_published", "milestone_shown", "first_follower"] as const;
+export const TEAM_POST_TRIGGERS = ["page_published", "milestone_shown", "first_follower", "showcase_approved"] as const;
 export type TeamPostTrigger = (typeof TEAM_POST_TRIGGERS)[number];
 
 /**
@@ -85,6 +89,7 @@ export function isTeamPost(asset: { kind?: string | null; contentRef?: string | 
 /** The title of the asset on the Creative tab: written by code from the subject, never by the model. */
 export function teamPostTitle(ref: Pick<TeamPostRef, "trigger" | "subject">): string {
   if (ref.trigger === "milestone_shown") return `A post about your milestone: ${TEAM_POST_SUBJECT_LABELS[ref.subject]}`;
+  if (ref.trigger === "showcase_approved") return "A showcase video every founder of the project approved";
   return ref.subject === "page_live" ? "A post about your page going live" : "A post about your first follower";
 }
 
@@ -106,25 +111,61 @@ export interface TeamPostShareInput {
   page: TeamPostPage | null;
   /** True while the milestone a `milestone_shown` post names is on the page, so its card answers. */
   cardShown?: boolean;
+  /** The post's codes: each link then carries `s.<code>` in place of the page's `p.<slug>` (still exactly one `via`). */
+  codes?: TeamPostCodes | null;
+}
+
+/**
+ * The post's own codes (packages/db `post_links`, minted in the transaction that stores the draft): one per network,
+ * and `link` for everything that is not one network's window (a copied link, a message to someone, the device's own
+ * share sheet). A sample business has none.
+ */
+export interface TeamPostCodes {
+  link: string | null;
+  networks: Partial<Record<PostNetwork, string>>;
+}
+
+/**
+ * A code of the right shape and length, for working out how long a post may be before its codes exist (the words are
+ * written first; the codes are minted with them). Never stored, never shared.
+ */
+export const TEAM_POST_CODE_FOR_LENGTH = POST_CODE_ALPHABET.charAt(0).repeat(POST_CODE_LENGTH);
+
+/** `link` with the post's code as its `via`, or `link` as it is when there is no code. */
+const withCode = (link: string | undefined, code: string | null | undefined): string | undefined => (link && isPostCode(code) ? withVia(link, { kind: "post", ref: code }) : link);
+
+/** The draft with every network's link carrying that network's code, and the draft's own link the general one. */
+function withCodes(draft: PostDraft, codes: TeamPostCodes | null | undefined): PostDraft {
+  if (!codes || !draft.link) return draft;
+  const base = draft.link;
+  const variants: Partial<Record<PostNetwork, PostDraftVariant>> = { ...draft.variants };
+  for (const [network, code] of Object.entries(codes.networks) as [PostNetwork, string][]) {
+    const link = withCode(variants[network]?.link ?? base, code);
+    if (link && link !== base) variants[network] = { ...(variants[network] ?? { text: draft.text }), link };
+  }
+  return { ...draft, link: withCode(base, codes.link), variants };
 }
 
 /**
  * The post as the share panel opens it: the team's words, and the link and picture the code attaches. A post about a
  * shown milestone points to the milestone's card while the card is up; every other post points to the project's page.
- * Both carry the page's `via` reference. Nothing is fitted here: `shareTargets` fits the draft to each network every
- * time the words change, so a change the founder makes in the panel reaches every network.
+ * Each link carries one `via`: the post's own code for that network when the post has codes (`s.<code>`), else the
+ * page's (`p.<slug>`). Nothing is fitted here: `shareTargets` fits the draft to each network every time the words
+ * change, so a change the founder makes in the panel reaches every network.
  */
 export function teamPostShareDraft(input: TeamPostShareInput): PostDraft {
   const text = input.text.trim();
-  if (!input.page) return { text, variants: {} };
+  // A showcase post is shared only through its gate, with the link of the preview the founders approved (apps/api
+  // `showcaseShares`); on its own it carries nothing to share.
+  if (!input.page || input.ref.trigger === "showcase_approved") return { text, variants: {} };
   if (input.ref.trigger === "milestone_shown" && input.cardShown) {
     const card = milestonePostDraft({ origin: input.page.origin, slug: input.page.slug, projectName: input.page.projectName, milestoneId: input.ref.refId, label: TEAM_POST_SUBJECT_LABELS[input.ref.subject] });
     // The card's tall picture stays for the networks that take one; their words are the team's.
     const variants = Object.fromEntries(Object.entries(card.variants).map(([network, v]) => [network, { ...v, text }]));
-    return { ...card, text, variants };
+    return withCodes({ ...card, text, variants }, input.codes);
   }
   const page = pagePostDraft(input.page);
-  return { text, link: page.link, image: page.image, variants: {} };
+  return withCodes({ text, link: page.link, image: page.image, variants: {} }, input.codes);
 }
 
 /**

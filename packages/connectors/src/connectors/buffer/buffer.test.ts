@@ -1,3 +1,4 @@
+import { HOUSE_BUSINESS_ID } from "@foundmill/config";
 import { describe, expect, it } from "vitest";
 import { postTextLength } from "@foundmill/shared/post-draft";
 import { ConfigError, ConnectInputError } from "../../contract";
@@ -106,6 +107,19 @@ describe("buffer mock", () => {
     expect(await code(queue("unknown_channel_1"))).toBe("channel_not_found");
     expect(await code(queue(CH_X.id, {}, { mode: "at", dueAt: "2020-01-01T00:00:00Z" }))).toBe("due_time_invalid");
     expect(m.queuedFor(TEST_BUSINESS_ID)).toHaveLength(0);
+  });
+
+  it("the house never queues a showcase post: a draft pointing at a project's story address is refused there, and only there", async () => {
+    const m = createBufferMock();
+    const house = ctx(m, HOUSE_BUSINESS_ID);
+    const story = "https://foundmill.com/p/hearth-table/story?via=p.hearth-table";
+    expect((await m.callTool("queue_post", queue(CH_X.id, { link: story }), house)).error?.code).toBe("showcase_tap_to_post");
+    expect((await m.callTool("queue_post", queue(CH_X.id, { text: `See ${story}` }), house)).error?.code).toBe("showcase_tap_to_post");
+    expect((await m.callTool("queue_post", queue(CH_X.id, { variants: { x: { text: "Hearth Table's page is live", link: story } } }), house)).error?.code).toBe("showcase_tap_to_post");
+    expect(m.queuedFor(HOUSE_BUSINESS_ID)).toHaveLength(0);
+    // The house's other posts, and any project's own story post, are queued as before.
+    expect((await m.callTool("queue_post", queue(CH_X.id, { text: "What we shipped", link: "https://foundmill.com/blog/notes" }), house)).ok).toBe(true);
+    expect((await m.callTool("queue_post", queue(CH_X.id, { link: story }), ctx(m, "biz-hearth"))).ok).toBe(true);
   });
 
   it("holds the double-post guard and the daily cap", async () => {

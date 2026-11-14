@@ -3,17 +3,19 @@
  * legal pages, the cookies the policy lists are the cookies the site sets, every link is one the page will follow,
  * every anchor is unique, and US English (the CI checks cover the words; this covers the structure).
  */
+import { APP_NAME } from "@foundmill/config";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 import { isSafeLegalHref, type LegalDocument, type LegalText } from "@foundmill/dugout";
 import { IDEA_COOKIE } from "@foundmill/shared";
-import { VIA_COOKIE } from "@foundmill/shared/via";
+import { APP_POSTAL_ADDRESS } from "@foundmill/config";
+import { VIA_COOKIE, VIA_POST_COOKIE, VIA_POST_MAX_AGE_SECONDS } from "@foundmill/shared/via";
 import { LAST_BUSINESS_COOKIE } from "@/lib/auth/constants";
 import { DATE_FORMAT_COOKIE } from "@/lib/date-format";
 import { TEXT_SIZE_COOKIE } from "@/components/providers/text-size-cookie";
 import { LEGAL_ENTITY, entityLine } from "../facts";
-import { PRIVACY, PRIVACY_COOKIES } from "../privacy";
+import { POST_COOKIE_DAYS, PRIVACY, PRIVACY_COOKIES } from "../privacy";
 import { TERMS } from "../terms";
 
 const REPO = resolve(__dirname, "../../../../..");
@@ -54,6 +56,17 @@ describe("the legal pages", () => {
     expect(found).toEqual([]);
   });
 
+  it("take the registered address from its one source, which holds the address and not the name", () => {
+    expect(LEGAL_ENTITY.postalAddress).toBe(APP_POSTAL_ADDRESS);
+    expect(entityLine()).toContain(APP_POSTAL_ADDRESS);
+    // The street is written once, in packages/config (every email Foundmill sends shows it, US CAN-SPAM).
+    const street = APP_POSTAL_ADDRESS.split(",")[0]!;
+    const holders = [...sourceFiles(join(REPO, "apps")), ...sourceFiles(join(REPO, "packages"))]
+      .map((p) => relative(REPO, p))
+      .filter((p) => readFileSync(join(REPO, p), "utf8").includes(street));
+    expect(holders).toEqual([join("packages", "config", "src", "brand.ts")]);
+  });
+
   it("state the company, its number and its country in both documents", () => {
     for (const doc of [TERMS, PRIVACY]) {
       const text = walk(doc).text.join(" ");
@@ -64,8 +77,16 @@ describe("the legal pages", () => {
 
   it("list exactly the cookies the site sets (the development-only sign-in cookies aside)", () => {
     const listed = PRIVACY_COOKIES.map((c) => c.term).filter((t) => !t.startsWith("sb-"));
-    expect(listed.sort()).toEqual([LAST_BUSINESS_COOKIE, DATE_FORMAT_COOKIE, TEXT_SIZE_COOKIE, IDEA_COOKIE, VIA_COOKIE].sort());
+    expect(listed.sort()).toEqual([LAST_BUSINESS_COOKIE, DATE_FORMAT_COOKIE, TEXT_SIZE_COOKIE, IDEA_COOKIE, VIA_COOKIE, VIA_POST_COOKIE].sort());
     expect(PRIVACY_COOKIES.some((c) => c.term.startsWith("sb-") && c.term.endsWith("auth-token"))).toBe(true);
+  });
+
+  it("says how long fm_post lives from the constant the cookie is set with: exactly 7 days (604,800 seconds)", () => {
+    expect(VIA_POST_MAX_AGE_SECONDS).toBe(604_800);
+    expect(POST_COOKIE_DAYS).toBe(7);
+    const row = PRIVACY_COOKIES.find((c) => c.term === VIA_POST_COOKIE)!;
+    expect(row.detail).toBe(`Remembers the public code in the link of the last post from a project on ${APP_NAME} that brought you here, if one did, so the project can see which post led to your follow. 7 days.`);
+    expect(row.detail.endsWith(`${POST_COOKIE_DAYS} days.`)).toBe(true);
   });
 
   it("link only to places the page follows, with unique anchors, and hold no placeholders", () => {

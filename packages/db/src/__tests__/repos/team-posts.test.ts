@@ -5,7 +5,7 @@
  */
 import { buildPostDraftRequest, postDraftFacts } from "@foundmill/agents";
 import { createModelClient, type CompleteRequest, type ModelClient } from "@foundmill/models";
-import { CHANNEL_META, TEAM_POST_CAPS, parseTeamPostRef, teamPostRef, teamPostShareDraft, type ProjectPageContent } from "@foundmill/shared";
+import { CHANNEL_META, POST_NETWORKS, TEAM_POST_CAPS, parseTeamPostRef, teamPostRef, teamPostShareDraft, type ProjectPageContent } from "@foundmill/shared";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { awardFirstFollowerMilestone, awardPageLiveMilestone } from "../../milestones";
@@ -115,6 +115,42 @@ describe("repos.teamPosts.write", () => {
     expect(audit!.details).toMatchObject({ trigger: "page_published", subject: "page_live", refId: pageId, model: { costLabel: "Estimate" } });
     // Never the words.
     expect(JSON.stringify(audit!.details)).not.toContain("has a page now");
+  });
+
+  it("mints the post's codes with it: one link per network and one for a copied or sent link, each its own code", async () => {
+    const [post] = await teamRows(A.businessId);
+    const links = await r.h.db.select().from(s.postLinks).where(eq(s.postLinks.assetId, post!.id));
+    expect(links.map((l) => l.network ?? null).sort((a, b) => String(a).localeCompare(String(b)))).toEqual([...POST_NETWORKS, null].sort((a, b) => String(a).localeCompare(String(b))));
+    for (const l of links) expect(l).toMatchObject({ businessId: A.businessId, simulated: false, firstVisitedAt: null, code: expect.stringMatching(/^[a-z2-7]{10}$/) });
+    expect(new Set(links.map((l) => l.code)).size).toBe(links.length);
+    const codes = (await repos.postLinks.codesFor(r.db, A.businessId, [post!.id])).get(post!.id)!;
+    expect(Object.keys(codes.networks).sort()).toEqual([...POST_NETWORKS].sort());
+    expect(codes.link).toMatch(/^[a-z2-7]{10}$/);
+    // Another business reads no codes of it.
+    expect((await repos.postLinks.codesFor(r.db, B.businessId, [post!.id])).size).toBe(0);
+    // The owner reads them through RLS; another business's owner does not.
+    expect(await r.as(A.ownerId, (tx) => tx.select().from(s.postLinks).where(eq(s.postLinks.assetId, post!.id)))).toHaveLength(links.length);
+    expect(await r.as(B.ownerId, (tx) => tx.select().from(s.postLinks).where(eq(s.postLinks.assetId, post!.id)))).toHaveLength(0);
+  });
+
+  it("a sample business mints no codes, and a publish through a mock connector mints simulated ones", async () => {
+    await r.h.db.update(s.businesses).set({ isDemo: true }).where(eq(s.businesses.id, B.businessId));
+    try {
+      const out = await repos.teamPosts.write(r.db, B.businessId, { ref: { trigger: "page_published", subject: "page_live", refId: B.businessId }, text: "Bravo Candles has a page now.", authoredByAgentId: B.agentId, now: NOW });
+      expect(out.written).toBe(true);
+      expect(await r.h.db.select().from(s.postLinks).where(eq(s.postLinks.assetId, out.asset!.id))).toHaveLength(0);
+    } finally {
+      await r.h.db.update(s.businesses).set({ isDemo: false }).where(eq(s.businesses.id, B.businessId));
+      await clear(B.businessId);
+    }
+    const simulated = await repos.teamPosts.write(r.db, B.businessId, { ref: { trigger: "page_published", subject: "page_live", refId: B.businessId }, text: "Bravo Candles has a page now.", authoredByAgentId: B.agentId, now: NOW, simulatedLinks: true });
+    const links = await r.h.db.select().from(s.postLinks).where(eq(s.postLinks.assetId, simulated.asset!.id));
+    expect(links.length).toBe(POST_NETWORKS.length + 1);
+    expect(links.every((l) => l.simulated)).toBe(true);
+    // A simulated link never resolves: no visit, no follow.
+    expect(await repos.postLinks.visit(r.db, links[0]!.code, NOW)).toBeNull();
+    expect(await repos.postLinks.followable(r.db, B.businessId, links[0]!.code)).toBeNull();
+    await clear(B.businessId);
   });
 
   it("writes once per trigger: a second delivery writes nothing, whatever became of the first draft", async () => {

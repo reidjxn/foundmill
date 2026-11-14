@@ -16,7 +16,7 @@ afterAll(() => hz.close());
 async function commit(email: string, extra: { autopilot?: boolean; overnight?: { timeZone: string } }) {
   const userId = await hz.h.createUser(email);
   const caller = hz.caller({ userId, email });
-  await caller.founder.profile.update({ displayName: "Reid", experience: "first-time", skills: { engineering: 12 }, targetMarkets: ["US"], riskAppetite: "medium" });
+  await caller.founder.profile.update({ confirmAdult: true, displayName: "Reid", experience: "first-time", skills: { engineering: 12 }, targetMarkets: ["US"], riskAppetite: "medium" });
   const generated = await caller.idea.generate({ prompt: "Booking for tutors" });
   const result = await caller.idea.commit({ ideaId: generated.ideas[0]!.id, name: `Tutorlane ${email.slice(0, 4)}`, archetype: "b2b_saas", gameMode: "personal", ...extra });
   return repos.businesses.get(hz.db, result.business.id);

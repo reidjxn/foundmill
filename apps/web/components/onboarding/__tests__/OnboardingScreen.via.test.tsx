@@ -40,7 +40,7 @@ function renderScreen(props: Partial<React.ComponentProps<typeof OnboardingScree
     <QueryClientProvider client={client}>
       <ToastProvider>
         <TooltipProvider>
-          <OnboardingScreen profile={null} email="reid.jackson@example.com" {...props} />
+          <OnboardingScreen profile={null} email="reid.jackson@example.com" adultConfirmed {...props} />
         </TooltipProvider>
       </ToastProvider>
     </QueryClientProvider>,

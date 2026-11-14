@@ -1,6 +1,6 @@
 /** crm.search/entity.list/get/update/merge/unmerge/create/requestDeletion/notes/roles (BUILD §11.12; AC-11.12.2 via RLS, AC-11.12.3 merge/unmerge). */
 import { AddRoleInput, EntityListFilter, STRONG_IDENTIFIERS, SearchInput, UpdateEntityInput, repos } from "@foundmill/db";
-import { AppError } from "@foundmill/shared";
+import { AppError, hasSectionAccess } from "@foundmill/shared";
 import { z } from "zod";
 import { Id, audit, router, sectionRead, sectionWrite } from "../trpc";
 
@@ -85,13 +85,16 @@ export const crmRouter = router({
           repos.followers.consentStates(tx, ctx.businessId, [entity.id]),
         ]);
         // Each win carries its Customer Update id (null when it has none), so Re-watch and Activity link straight to it.
-        const conversions = (await repos.journeys.labelConversions(tx, ctx.businessId, journeys.items)).map(({ entityName: _name, ...c }) => c);
+        // A payment's amount is Finance's: a reader walled off Finance (a collaborator among them) gets it as null and
+        // `moneyHidden`, so the Commercial tab says the figures are hidden rather than show a total of nothing.
+        const moneyHidden = !hasSectionAccess(ctx.membership, "finance", "read");
+        const conversions = (await repos.journeys.labelConversions(tx, ctx.businessId, journeys.items)).map(({ entityName: _name, ...c }) => ({ ...c, amountMinor: moneyHidden ? null : c.amountMinor }));
         // A follower of the public page (0079, double opt-in): when they confirmed ("Agreed to email on Oct 7, 2026"), or
         // that they signed up and have not confirmed yet ("Not confirmed yet").
         const consent = consents.get(entity.id);
         const emailConsentAt = consent?.state === "confirmed" ? consent.confirmedAt : null;
         const emailConsentPending = consent?.state === "pending";
-        return { entity, profile, roles, relationships, interactions: interactions.items, mentions, conversions, mergeHistory, emailConsentAt, emailConsentPending, redirectedFrom: entity.id !== input.entityId ? input.entityId : null };
+        return { entity, profile, roles, relationships, interactions: interactions.items, mentions, conversions, moneyHidden, mergeHistory, emailConsentAt, emailConsentPending, redirectedFrom: entity.id !== input.entityId ? input.entityId : null };
       }),
     ),
     update: write.input(z.object({ entityId: Id, patch: UpdateEntityInput })).mutation(({ ctx, input }) =>

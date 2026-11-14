@@ -11,7 +11,9 @@
  *   - 0094: a collaborator reads none of the rows of the admin-written and Money tables (`COLLABORATOR_CLOSED_TABLES`),
  *     while the owner, a cofounder, an admin, a member and a viewer read them as before;
  *   - 0095: a collaborator reads, inserts, updates and deletes nothing of the Money and Legal tables members write
- *     (`COLLABORATOR_CLOSED_MONEY_LEGAL`), while the owner, a cofounder, an admin and a member write them as before.
+ *     (`COLLABORATOR_CLOSED_MONEY_LEGAL`), while the owner, a cofounder, an admin and a member write them as before;
+ *   - 0107: a collaborator reads no row of `conversions` (`COLLABORATOR_READS_THROUGH_VIEW`: through `member_conversions`
+ *     instead, without the amounts; rls/collaborator-finance.test.ts), while everyone else reads it as before.
  * Test names carry the table name so a failure says which table regressed.
  */
 import { and, eq, getTableName, sql } from "drizzle-orm";
@@ -20,7 +22,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { DbTx } from "../../client";
 import { createTestDb, type Runner, type TestHarness } from "../../testing/pglite";
 import { createBusinessFixture, RLS_DENIED, type BusinessFixture } from "./fixtures";
-import { COLLABORATOR_CLOSED_MONEY_LEGAL, COLLABORATOR_CLOSED_TABLES, TENANT_TABLES, type TenantTable, type TenantTableSpec } from "./tables";
+import { COLLABORATOR_CLOSED_MONEY_LEGAL, COLLABORATOR_CLOSED_TABLES, COLLABORATOR_READS_THROUGH_VIEW, TENANT_TABLES, type TenantTable, type TenantTableSpec } from "./tables";
 
 let h: TestHarness;
 let A: BusinessFixture;
@@ -150,8 +152,9 @@ describe.each(TENANT_TABLES.map((t) => [t.name, t] as const))("%s", (_name, t) =
   });
 
   const moneyLegal = COLLABORATOR_CLOSED_MONEY_LEGAL.includes(t.name);
-  const closedToCollaborator = COLLABORATOR_CLOSED_TABLES.includes(t.name) || moneyLegal;
-  it(`${t.name}: cofounder and collaborator of A read A's rows${closedToCollaborator ? ` (a collaborator none: ${moneyLegal ? "0095" : "0094"})` : ""}, never B's, and cannot write into B`, async () => {
+  const throughView = COLLABORATOR_READS_THROUGH_VIEW.includes(t.name);
+  const closedToCollaborator = COLLABORATOR_CLOSED_TABLES.includes(t.name) || moneyLegal || throughView;
+  it(`${t.name}: cofounder and collaborator of A read A's rows${closedToCollaborator ? ` (a collaborator none: ${moneyLegal ? "0095" : throughView ? "0107" : "0094"})` : ""}, never B's, and cannot write into B`, async () => {
     expect(await countAs(h.asUser(cofounderId), table, A.businessId)).toBeGreaterThanOrEqual(1);
     if (closedToCollaborator) {
       expect(await countAs(h.asUser(collaboratorId), table, A.businessId)).toBe(0);
@@ -270,7 +273,7 @@ describe("tenant tables catalogue", () => {
          and table_name in (select tablename from pg_tables where schemaname = 'public')
        order by table_name`);
     const inSql = (res as unknown as { rows: { table_name: string }[] }).rows.map((r) => r.table_name);
-    const covered = new Set([...TENANT_TABLES.map((t) => t.name), "memberships", "credentials", "dashboard_layouts", "inbox_item_reads", "project_pages", "project_mail", "founder_presence", "founder_visit_days", "founder_notifications", "invitations", "founder_departures", "founder_cancel_links"]);
+    const covered = new Set([...TENANT_TABLES.map((t) => t.name), "memberships", "credentials", "dashboard_layouts", "inbox_item_reads", "project_pages", "project_mail", "founder_presence", "founder_visit_days", "founder_notifications", "invitations", "founder_departures", "founder_cancel_links", "project_postal_addresses", "post_media", "showcase_requests", "showcase_consents", "page_quizzes", "page_quiz_counts"]);
     const missing = inSql.filter((n) => !covered.has(n));
     expect(missing).toEqual([]);
   });

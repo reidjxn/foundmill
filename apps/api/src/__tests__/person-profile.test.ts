@@ -27,6 +27,8 @@ let n = 0;
 async function person(displayName: string, options: { profile?: boolean } = {}) {
   n += 1;
   const userId = await hz.h.createUser(`person-${n}@test.local`);
+  // A public profile is public once its person confirmed 18 or older (0100).
+  if (options.profile !== false) await repos.adults.confirm(hz.db, userId);
   if (options.profile !== false) await repos.founders.upsert(hz.db, userId, { displayName, experience: "PRIVATE-experience", residence: "PRIVATE-residence", citizenship: "PRIVATE-citizenship", budgetMinor: 1_234_567, skills: { finance: 19 }, constraints: ["PRIVATE-constraint"], riskAppetite: "PRIVATE-risk", timeCommitment: "PRIVATE-time", targetMarkets: ["PRIVATE-market"] });
   return { userId, me: hz.caller({ userId }) };
 }
@@ -206,11 +208,11 @@ describe("the display name, changed in Your profile", () => {
     const p = await person("Nia Cole");
     await p.me.founder.publicProfile.publish({ content: content() });
     for (const [name, reason] of [["Nia nia@example.com", "personal_data"], ["Nia 555 201 3344", "personal_data"], ["Nia <script>", "markup"]] as const) {
-      await expect(p.me.founder.profile.update({ displayName: name }), name).rejects.toThrow(PERSON_HOLD_MESSAGES[reason]);
+      await expect(p.me.founder.profile.update({ confirmAdult: true, displayName: name }), name).rejects.toThrow(PERSON_HOLD_MESSAGES[reason]);
     }
     expect((await hz.caller(null).publicPerson.byHandle({ handle: "nia-cole" }))?.displayName).toBe("Nia Cole");
     // An ordinary new name goes out at once.
-    await p.me.founder.profile.update({ displayName: "Nia Cole-Hart" });
+    await p.me.founder.profile.update({ confirmAdult: true, displayName: "Nia Cole-Hart" });
     expect((await hz.caller(null).publicPerson.byHandle({ handle: "nia-cole" }))?.displayName).toBe("Nia Cole-Hart");
   });
 
@@ -222,19 +224,19 @@ describe("the display name, changed in Your profile", () => {
     const page = (showFounders: boolean): ProjectPageContent => ({ pitch: "Chairs", about: "Made by hand.", forWhom: "", stage: "building", showFounders, followForm: false });
     // A page that does not name its founders: the name is nobody else's business.
     await repos.pages.publish(hz.db, b.id, { content: page(false), slug: `omar-makes-${n}`, userId: p.userId });
-    await p.me.founder.profile.update({ displayName: "Omar omar@example.com" });
-    await p.me.founder.profile.update({ displayName: "Omar Diaz" });
+    await p.me.founder.profile.update({ confirmAdult: true, displayName: "Omar omar@example.com" });
+    await p.me.founder.profile.update({ confirmAdult: true, displayName: "Omar Diaz" });
     // Named on it: held.
     await repos.pages.publish(hz.db, b.id, { content: page(true), slug: `omar-makes-${n}`, userId: p.userId });
-    await expect(p.me.founder.profile.update({ displayName: "Omar omar@example.com" })).rejects.toThrow(PERSON_HOLD_MESSAGES.personal_data);
+    await expect(p.me.founder.profile.update({ confirmAdult: true, displayName: "Omar omar@example.com" })).rejects.toThrow(PERSON_HOLD_MESSAGES.personal_data);
     expect((await hz.caller(null).publicPage.bySlug({ slug: `omar-makes-${n}` }))?.founderNames).toEqual(["Omar Diaz"]);
     // Other fields of the profile change as before, and the same name is no change.
-    await p.me.founder.profile.update({ displayName: "Omar Diaz", riskAppetite: "low" });
+    await p.me.founder.profile.update({ confirmAdult: true, displayName: "Omar Diaz", riskAppetite: "low" });
   });
 
   it("is free while nothing public shows it, and the publish that follows screens it", async () => {
     const p = await person("Pia Lund");
-    await p.me.founder.profile.update({ displayName: "Pia pia@example.com" });
+    await p.me.founder.profile.update({ confirmAdult: true, displayName: "Pia pia@example.com" });
     expect((await repos.founders.get(hz.db, p.userId))?.displayName).toBe("Pia pia@example.com");
     expect(await p.me.founder.publicProfile.publish({ content: content() })).toMatchObject({ outcome: "held", reason: "personal_data" });
     expect(await hz.caller(null).publicPerson.byHandle({ handle: "pia-lund" })).toBeNull();
@@ -263,7 +265,7 @@ describe("the display name, changed in Your profile", () => {
 
   it("a name with a bidi control is refused", async () => {
     const p = await person("Rena Holt");
-    await expect(p.me.founder.profile.update({ displayName: "Rena\u202eHolt" })).rejects.toThrow(/direction of the text/);
+    await expect(p.me.founder.profile.update({ confirmAdult: true, displayName: "Rena\u202eHolt" })).rejects.toThrow(/direction of the text/);
   });
 });
 

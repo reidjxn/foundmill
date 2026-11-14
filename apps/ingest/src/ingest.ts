@@ -17,6 +17,7 @@ import { NotFoundError, ValidationError, type Actor, type EventType } from "@fou
 import { linkContractSignature } from "./contracts";
 import { conversionFactsFor, recordConversionForEvent, type ConversionOutcome } from "./conversions";
 import { linkCustomer } from "./customers";
+import { creditPostOutcome } from "./post-outcomes";
 import type { IngestLogger } from "./types";
 
 export interface IngestedEvent {
@@ -111,6 +112,9 @@ export async function ingestPlatformEvents(db: Db, events: readonly PlatformEven
       const row = await writeEventRow(tx, { businessId: toWrite.businessId, type: toWrite.type, actor: toWrite.actor, entityIds: toWrite.entityIds, occurredAt: toWrite.occurredAt, payload: toWrite.payload, id: toWrite.id, idempotencyKey });
       if (row.id !== event.id) return { row, written: false, conversion: null as ConversionOutcome | null }; // same idempotency key, earlier row
       const conversion = facts ? await recordConversionForEvent(tx, toWrite, facts, actor, (t, input) => writeEventRow(t, input), linked?.entityId ?? null) : null;
+      // A real reply or payment from a follower a shared post brought is credited to that post, in this transaction
+      // (item 8; ./post-outcomes.ts). The row's own actor and payload decide: a simulated delivery credits nothing.
+      await creditPostOutcome(writeEventRow, tx, { id: row.id, businessId: row.businessId, type: row.type, actor: row.actor as { kind: string; id: string }, payload: row.payload as Record<string, unknown>, occurredAt: row.occurredAt });
       return { row, written: true, conversion };
     });
     if (!result) {

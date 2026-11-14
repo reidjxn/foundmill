@@ -177,6 +177,15 @@ function stateFor(viewerId?: string | null): SQL<InboxState> {
   return sql<InboxState>`case when "inbox_items"."state" = 'unread' and exists (select 1 from "inbox_item_reads" "r" where "r"."inbox_item_id" = "inbox_items"."id" and "r"."user_id" = ${viewerId}::uuid) then 'read' else "inbox_items"."state" end`;
 }
 
+/**
+ * Whose notes a read may see (0103 `for_user_id`): with a viewer, the notes for everyone and the viewer's own; without
+ * one (the orchestrator, the composer, the push notifier on the privileged connection, which RLS does not narrow), the
+ * notes for everyone only. A founder's own showcase ask is never read for, or shown to, anyone else.
+ */
+export function inboxAudience(viewerId?: string | null) {
+  return viewerId ? or(isNull(inboxItems.forUserId), eq(inboxItems.forUserId, viewerId)) : isNull(inboxItems.forUserId);
+}
+
 function tabCondition(tab: InboxTab) {
   switch (tab) {
     case "all":
@@ -262,6 +271,7 @@ export const inboxRepo = {
         and(
           eq(inboxItems.businessId, businessId),
           isNull(inboxItems.archivedAt),
+          inboxAudience(viewerId),
           tabCondition(f.tab),
           states?.length ? inArray(state, states) : undefined,
           types?.length ? inArray(inboxItems.type, types) : undefined,
@@ -291,14 +301,14 @@ export const inboxRepo = {
     const rows = await db
       .select({ n: sql<number>`count(*)::int` })
       .from(inboxItems)
-      .where(and(eq(inboxItems.businessId, businessId), eq(inboxItems.blocksContinue, true), inArray(inboxItems.state, ["unread", "read"]), isNull(inboxItems.archivedAt)));
+      .where(and(eq(inboxItems.businessId, businessId), eq(inboxItems.blocksContinue, true), inArray(inboxItems.state, ["unread", "read"]), isNull(inboxItems.archivedAt), isNull(inboxItems.forUserId)));
     return Number(rows[0]?.n ?? 0);
   },
 
   /** Items per tab, in one statement (a `count(*) filter (where …)` per tab) rather than one query per tab. */
-  async countByTab(db: Executor, businessId: string): Promise<Record<InboxTab, number>> {
+  async countByTab(db: Executor, businessId: string, viewerId?: string | null): Promise<Record<InboxTab, number>> {
     const counts = Object.fromEntries(INBOX_TABS.map((tab) => [tab, sql<number>`count(*) filter (where ${tabCondition(tab) ?? sql`true`})::int`]));
-    const rows = await db.select(counts).from(inboxItems).where(and(eq(inboxItems.businessId, businessId), isNull(inboxItems.archivedAt)));
+    const rows = await db.select(counts).from(inboxItems).where(and(eq(inboxItems.businessId, businessId), isNull(inboxItems.archivedAt), inboxAudience(viewerId)));
     const row: Record<string, unknown> = rows[0] ?? {};
     return Object.fromEntries(INBOX_TABS.map((tab) => [tab, Number(row[tab] ?? 0)])) as Record<InboxTab, number>;
   },

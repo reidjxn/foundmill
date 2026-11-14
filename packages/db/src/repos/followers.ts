@@ -47,6 +47,12 @@ export interface RecordFollowerInput {
   /** The sentence beside the box, exactly as the visitor read it. */
   consentText: string;
   at?: Date;
+  /**
+   * The post link the visitor last arrived through (0106), already checked by the caller (`postLinks.followable`: the
+   * business's own, not simulated, visited). A new signup keeps it; a repeat signup that is still pending takes the
+   * newer one (last touch).
+   */
+  postLinkId?: string | null;
 }
 
 /**
@@ -114,7 +120,12 @@ export const followersRepo = {
       // An existing contact keeps its name, its lawful basis and its roles: the signup only adds a pending record.
       if (known.deletionRequestedAt) return nothing("suppressed");
       const existing = maybeOne(await db.select({ id: contactConsents.id, confirmedAt: contactConsents.confirmedAt, withdrawnAt: contactConsents.withdrawnAt }).from(contactConsents).where(and(pageConsent(businessId), eq(contactConsents.entityId, known.id))).limit(1));
-      if (existing) return existing.confirmedAt || existing.withdrawnAt ? nothing("repeat") : { status: "pending", entityId: known.id, consentId: existing.id, entityCreated: false };
+      if (existing) {
+        if (existing.confirmedAt || existing.withdrawnAt) return nothing("repeat");
+        // Still pending: the post the visitor came back through last is the one a confirmation will credit.
+        if (input.postLinkId) await db.update(contactConsents).set({ postLinkId: input.postLinkId, updatedAt: input.at ?? new Date() }).where(and(eq(contactConsents.businessId, businessId), eq(contactConsents.id, existing.id), isNull(contactConsents.confirmedAt)));
+        return { status: "pending", entityId: known.id, consentId: existing.id, entityCreated: false };
+      }
       entityId = known.id;
     } else {
       // A contact the founder archived is not brought back by a signup (nor duplicated).
@@ -132,7 +143,7 @@ export const followersRepo = {
     }
     const rows = await db
       .insert(contactConsents)
-      .values({ businessId, entityId, purpose: FOLLOW_CONSENT_PURPOSE, source: FOLLOW_SOURCE, sourceRef: input.slug, pageId: input.pageId, consentText: input.consentText, agreedAt: input.at ?? new Date() })
+      .values({ businessId, entityId, purpose: FOLLOW_CONSENT_PURPOSE, source: FOLLOW_SOURCE, sourceRef: input.slug, pageId: input.pageId, consentText: input.consentText, agreedAt: input.at ?? new Date(), postLinkId: input.postLinkId ?? null })
       .onConflictDoNothing({ target: [contactConsents.businessId, contactConsents.entityId, contactConsents.purpose, contactConsents.source] })
       .returning({ id: contactConsents.id });
     const consent = rows[0];

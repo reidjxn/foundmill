@@ -188,6 +188,11 @@ export function shareHostOf(network: PostNetwork): string | null {
   return NETWORK_SHARES[network]?.host ?? null;
 }
 
+/** The network's name as a founder reads it ("X", "LinkedIn"); the key itself for a network with no share target. */
+export function shareLabelOf(network: PostNetwork): string {
+  return NETWORK_SHARES[network]?.label ?? network;
+}
+
 /** The query parameters an address of `network` may carry. */
 export function shareParamsOf(network: PostNetwork): readonly string[] {
   return NETWORK_SHARES[network]?.params ?? [];

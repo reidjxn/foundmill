@@ -5,7 +5,7 @@
  * one business at a time; the orchestrator's sweep never reads it, so its five-minute pass costs nothing more. Nothing
  * here decides what is real or what the person may see: packages/shared `realOutcomes` and the gateway's walls do.
  */
-import { BRIEF_BOOKED_DAYS, BRIEF_EVENT_TYPES, type BookedFact, type BriefEventLike } from "@foundmill/shared";
+import { BRIEF_BOOKED_DAYS, BRIEF_EVENT_TYPES, type BookedFact, type BriefEventLike, type ViaPost } from "@foundmill/shared";
 import { repos } from "./repos";
 import type { Executor } from "./repos/_shared";
 
@@ -36,7 +36,12 @@ export interface BriefFacts {
   agents: BriefAgent[];
   /** When this person's last brief or weekly review went out from this business; null for a first one. */
   lastBriefAt: Date | null;
+  /** The shared team post each credited follow, reply or payment came through, by its event id (item 8). */
+  viaPosts: Map<string, ViaPost>;
 }
+
+/** The outcome events a post can be credited with (packages/db `post_attributions`). */
+const CREDITABLE_TYPES: ReadonlySet<string> = new Set(["page.followed", "lead.replied", "payment.received"]);
 
 const titleOf = (t: { founderTitle: string | null; title: string }) => (t.founderTitle ?? t.title).trim();
 
@@ -66,6 +71,7 @@ export async function loadBriefFacts(db: Executor, businessId: string, userId: s
   const ready = oldestFirst(queued.items.filter((t) => t.status === "ready"));
   const planned = oldestFirst(queued.items.filter((t) => t.status === "planned"));
   const autopilotOn = !!business?.autopilotEnabled && !business.autopilotPausedReason;
+  const viaPosts = await repos.postAttributions.viaPostFor(db, businessId, events.filter((e) => CREDITABLE_TYPES.has(e.type)).map((e) => e.id));
   return {
     events,
     booked,
@@ -75,5 +81,6 @@ export async function loadBriefFacts(db: Executor, businessId: string, userId: s
     stopped: !!business?.agentsStoppedAt,
     agents: agents.items.filter((a) => !a.archivedAt).map((a) => ({ id: a.id, name: a.name, role: a.role, personaKey: a.personaKey ?? null, agentType: a.agentType, layer: a.layer ?? null })),
     lastBriefAt,
+    viaPosts,
   };
 }

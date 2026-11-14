@@ -2,10 +2,11 @@
  * goal.current / goal.ensure / goal.approve / goal.requestChange — the business's goal (founder, 2026-11-07: "Your goal").
  * `ensure` is what Home calls once per visit (any member; idempotent; it writes only for a member who can write to the
  * Inbox); the decisions are the same as the Chief of Staff's note in the Inbox (services/goals.ts). A change request may
- * call the goal route, so it spends the planning allowance.
+ * call the goal route, so it spends the planning allowance. A revenue goal's money is the Finance section's: every answer
+ * shows it only to a reader of Finance (`goalView`, `goalAsSeenBy`).
  */
 import { z } from "zod";
-import { approveGoal, ensureGoal, goalView, requestGoalChange } from "../services/goals";
+import { approveGoal, ensureGoal, goalAsSeenBy, goalView, requestGoalChange } from "../services/goals";
 import { modelLimited } from "../services/model-limits";
 import { Id, businessProcedure, router, sectionWrite } from "../trpc";
 
@@ -19,13 +20,13 @@ export const goalRouter = router({
   }),
   approve: write.input(z.object({ goalId: Id })).mutation(async ({ ctx, input }) => {
     const result = await approveGoal(ctx, { goalId: input.goalId, via: "goal" });
-    return { goal: result.goal, inboxItemId: result.answered?.item.id ?? null };
+    return { goal: goalAsSeenBy(result.goal, ctx), inboxItemId: result.answered?.item.id ?? null };
   }),
   requestChange: write
     .input(z.object({ goalId: Id, notes: z.string().trim().min(1).max(2000) }))
     .use(modelLimited("plan"))
     .mutation(async ({ ctx, input }) => {
       const result = await requestGoalChange(ctx, { goalId: input.goalId, notes: input.notes, via: "goal" });
-      return { goal: result.goal, revised: result.revised?.goal ?? null, revisedItemId: result.revised?.item.id ?? null };
+      return { goal: goalAsSeenBy(result.goal, ctx), revised: goalAsSeenBy(result.revised?.goal ?? null, ctx), revisedItemId: result.revised?.item.id ?? null };
     }),
 });

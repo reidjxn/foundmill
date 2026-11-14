@@ -196,9 +196,19 @@ export async function completeProfile(page: Page): Promise<void> {
   await markets.press("Enter");
   await page.getByRole("button", { name: "Remote only" }).click();
   await page.getByLabel("Medium").check();
+  await confirmAdultOnForm(page);
   await page.getByTestId("profile-submit-bottom").click();
   await expect(page).toHaveURL(/\/new$/, { timeout: LONG });
   await expect(page.getByTestId("doors")).toBeVisible();
+}
+
+/**
+ * Ticks "I am 18 or older" on the founder profile form when the form asks for it (a new account with no confirmation
+ * on record, 0100); the seeded founder has confirmed, so the form does not ask them.
+ */
+export async function confirmAdultOnForm(page: Page): Promise<void> {
+  const adult = page.getByTestId("profile-adult");
+  if (await adult.count()) await adult.getByRole("checkbox", { name: "I am 18 or older" }).check();
 }
 
 /** Opens the Ideation Studio and waits until idea.list has answered (the grid only renders then). */

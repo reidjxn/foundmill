@@ -206,7 +206,21 @@ export async function resolveApproval(ctx: BusinessContext, input: { approvalId:
     await audit(tx, ctx, { action: "team.approvals.resolve", target: { kind: "approval", id: approval.id }, details: { outcome: input.outcome } });
     return r;
   });
-  return { ...recorded.approval, answer: await deliverApprovalAnswer(ctx, recorded) };
+  return { ...approvalAsSeenBy(ctx.membership, recorded.approval), answer: await deliverApprovalAnswer(ctx, recorded) };
+}
+
+/**
+ * One approval row as this person may read it, the walls of `pendingApprovals`: behind a Finance wall no amount, no
+ * currency and no figures in the reasons (nor the arguments of a call that spends), and no arguments for a reader who
+ * cannot read the section the call changes. The answer of `team.approvals.resolve` (the collaborator's walls, Nov 14,
+ * 2026: someone with write on a section may answer a request that spends, without reading Finance).
+ */
+export function approvalAsSeenBy<A extends Approval>(membership: SectionMembership, a: A): A {
+  const financeWalled = !hasSectionAccess(membership, "finance", "read");
+  const section = approvalSection(a);
+  const argsHidden = (section !== null && !hasSectionAccess(membership, section, "read")) || (financeWalled && (a.amountMinor ?? 0) > 0);
+  if (!financeWalled && !argsHidden) return a;
+  return { ...a, args: argsHidden ? {} : a.args, amountMinor: financeWalled ? null : a.amountMinor, currency: financeWalled ? null : a.currency, reasons: financeWalled ? a.reasons.map(maskFinance) : a.reasons };
 }
 
 /**

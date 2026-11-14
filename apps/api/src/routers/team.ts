@@ -2,11 +2,12 @@
 import { TEMPLATE_KEYS, getTemplate, hasTemplate, listTemplates } from "@foundmill/agents";
 import { CREDITS_CURRENCY } from "@foundmill/config";
 import { SectionPermissions, membershipEnded, repos, type AgentRosterActivity } from "@foundmill/db";
-import { ADMIN_ROLES, DECISION_TYPES, DEFAULT_AGENT_STYLE, ForbiddenError, hasSectionAccess, isOwnerRole, MEMBERSHIP_ROLES, NotFoundError, ValidationError, agentTier, characterFor, leadAgentIds } from "@foundmill/shared";
+import { ADMIN_ROLES, DECISION_TYPES, DEFAULT_AGENT_STYLE, eventAsSeenBy, ForbiddenError, hasSectionAccess, isOwnerRole, MEMBERSHIP_ROLES, NotFoundError, ValidationError, agentTier, characterFor, leadAgentIds } from "@foundmill/shared";
 import { z } from "zod";
 import { pendingApprovals, resolveApproval } from "../services/approvals";
 import { founderChangeNote, noticeNames, recentlyLowered, refundingOnFailure, takeFounderChange, tellFoundersQuietly, type FounderChangeRefund } from "../services/founder-notices";
 import { assertWithinGrantorAccess } from "../services/grants";
+import { afterPeopleChange } from "../services/showcase";
 import { modelLimited } from "../services/model-limits";
 import { ensurePortraits } from "../services/personas";
 import { archivePlaybook, compilePlaybookText, createPlaybook, setPlaybookEnabled, toPlaybookView, updatePlaybook } from "../services/playbooks";
@@ -121,7 +122,9 @@ export const teamRouter = router({
           const rating20 = mean === null ? null : Math.round(mean * 10) / 10;
           const rating = mean === null ? null : Math.round(mean * 5) / 10;
           const seen = activity.get(a.id);
-          const last = health.get(a.id);
+          // The health event as this reader may read it: behind a Finance wall, without its budget (the stream's wall).
+          const healthEvent = health.get(a.id);
+          const last = healthEvent ? eventAsSeenBy(ctx.membership, healthEvent) : undefined;
           const changed = last ? (last.payload as { to?: string; reason?: string; signals?: { loopDetected?: boolean; credentialExpired?: boolean; rateLimited?: boolean }; expectedReturnAt?: string | null }) : null;
           // The last health event explains the status only while the agent still has that status.
           const explains = changed && changed.to === a.status ? changed : null;
@@ -279,7 +282,8 @@ export const teamRouter = router({
         const names = await noticeNames(ctx.db, ctx.userId, input.userId);
         // The founder change taken below is given back when the transaction fails after it (final review, P3).
         const refund: { current: FounderChangeRefund | null } = { current: null };
-        const changed = await refundingOnFailure(refund, () => ctx.rls(async (tx) => {
+        // A founder's role changed: a showcase ask about the project is checked again (services/showcase.ts).
+        const changed = await refundingOnFailure(refund, () => afterPeopleChange(ctx, ctx.rls(async (tx) => {
           if (input.userId === ctx.userId) throw new ValidationError("You cannot change your own role or section permissions; another owner or admin can");
           // Judged on fresh rows, not on the request's: the business's people changes take turns (the owner lock, as
           // `setRole` and `remove` take it), the editor's own row is re-read under a share lock and the person's under an
@@ -315,7 +319,7 @@ export const teamRouter = router({
           const lowered = isOwnerRole(fromRole) && !isOwnerRole(membership.role);
           if (lowered) await founderChangeNote(tx, { names, businessId: ctx.businessId, actorUserId: ctx.userId, subjectUserId: input.userId, notice: "role_changed", fromRole, toRole: membership.role, timeZone: ctx.business.timeZone });
           return { membership, auditId: entry.id, lowered };
-        }));
+        })));
         // Every founder and the person themselves hear it by email, once the change has committed.
         if (changed.lowered) await tellFoundersQuietly(ctx, { businessId: ctx.businessId, auditId: changed.auditId, notice: "role_changed", actorUserId: ctx.userId, subjectUserId: input.userId });
         return changed.membership;
@@ -328,7 +332,8 @@ export const teamRouter = router({
      */
     remove: staffAdmin.input(z.object({ userId: Id })).mutation(async ({ ctx, input }) => {
       const [names, lowered] = await Promise.all([noticeNames(ctx.db, ctx.userId, input.userId), recentlyLowered(ctx.db, ctx.businessId, input.userId)]);
-      const removed = await ctx.rls(async (tx) => {
+      // Someone left the project: a showcase ask about it is checked again (services/showcase.ts).
+      const removed = await afterPeopleChange(ctx, ctx.rls(async (tx) => {
         if (input.userId === ctx.userId) throw new ValidationError("Leave the business from Settings instead of removing yourself");
         const target = await repos.memberships.get(tx, ctx.businessId, input.userId);
         // An owner's standing is stepped down first (an owner or a cofounder changes the role), then removed.
@@ -341,7 +346,7 @@ export const teamRouter = router({
         if (target) await emit(tx, ctx, { type: "membership.changed", payload: { userId: input.userId, change: "removed" } });
         if (lately) await founderChangeNote(tx, { names, businessId: ctx.businessId, actorUserId: ctx.userId, subjectUserId: input.userId, notice: "removed", fromRole: lately, timeZone: ctx.business.timeZone });
         return { auditId: entry.id, wasFounder: lately !== null };
-      });
+      }));
       if (removed.wasFounder) await tellFoundersQuietly(ctx, { businessId: ctx.businessId, auditId: removed.auditId, notice: "removed", actorUserId: ctx.userId, subjectUserId: input.userId });
       return { removed: true };
     }),
