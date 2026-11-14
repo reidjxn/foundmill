@@ -16,6 +16,7 @@ export { FOUNDER_TITLE_CORPUS, founderTitlesSystemPrompt, runFounderTitlesCase, 
 export { PROJECT_PAGE_CASES, projectPageInputs, projectPageProblems, runProjectPageCase, type ProjectPageCase, type ProjectPageCaseResult } from "./project-page";
 export { SECOND_READ_CASES, SECOND_READ_INJECTION_PAGE, caseFactChecker, injectionFactChecker, runSecondReadCase, runSecondReadInjectionCase, secondReadProblems, type SecondReadCase, type SecondReadCaseResult, type SecondReadInjectionResult } from "./second-read";
 export { POST_DRAFT_CASES, POST_DRAFT_EVAL_LINK, postDraftEvalFacts, postDraftProblems, runPostDraftCase, type PostDraftCase, type PostDraftCaseResult } from "./post-draft";
+export { POST_MEDIA_CLAIM_CASES, POST_MEDIA_OUTCOMES, VIDEO_EXISTS_RE, postMediaOutcomeProblems, runPostMediaClaimCase, type PostMediaClaimCase, type PostMediaCaseResult } from "./post-media";
 export { SUBTEXT_PATTERNS, TEAM_CALL_CASES, TEAM_CALL_EVAL_IDS, TEAM_CALL_PARTICIPANTS, WRAP_UP_TRANSCRIPT, runTeamCallCase, subtextHit, teamCallProblems, type TeamCallCase, type TeamCallCaseKind, type TeamCallCaseResult, type TeamCallRoundResult, type TeamCallRoundSpec } from "./team-call";
 export { GOAL_EVAL_CURRENCY, GOAL_EVAL_TODAY, GOAL_PROPOSAL_CASES, goalSentenceProblems, runGoalProposalCase, summariseGoalProposals, type GoalProposalCase, type GoalProposalCaseResult, type GoalProposalSummary } from "./goal-proposal";
 export {

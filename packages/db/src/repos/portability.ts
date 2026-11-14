@@ -74,6 +74,9 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   channels: t(s.channels, "distribution"),
   campaigns: t(s.campaigns, "distribution"),
   assets: t(s.assets, "distribution"),
+  // A post draft's media (0102): where each video and voiceover stands, never the file itself (up to 200 MB a project
+  // would ride inside one page of JSON); a ready one is saved from the share panel.
+  post_media: t(s.postMedia, "distribution", { omit: ["content"] }),
   channel_metrics: t(s.channelMetrics, "distribution"),
   suppression_list: t(s.suppressionList, "distribution"),
   visitors: t(s.visitors, "distribution"),

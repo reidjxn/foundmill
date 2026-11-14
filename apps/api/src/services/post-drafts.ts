@@ -19,7 +19,8 @@
  * - **Never in the way.** A request never throws and is never waited on: publishing a page or showing a milestone
  *   answers as it did before.
  *
- * `teamPostShares` builds what the Creative tab opens the share panel with. A share is recorded as a share that was
+ * `teamPostShares` builds what the Creative tab opens the share panel with (with the draft's optional media, a short
+ * video and a voiceover on the founder's own accounts: services/post-media.ts). A share is recorded as a share that was
  * opened (`share.opened`, services/shares.ts, which also stops a waiting post from waiting); nothing says a post was
  * posted.
  */
@@ -27,8 +28,9 @@ import { POST_DRAFT_CHANNEL } from "@foundmill/agents";
 import { channelAvailability } from "@foundmill/connectors";
 import { draftTeamPost, repos, type Asset, type Db, type Executor, type TeamPostDraftResult, type TeamPostTriggerInput } from "@foundmill/db";
 import type { ModelClient } from "@foundmill/models";
-import { parseTeamPostRef, teamPostShareDraft, type Env, type PostDraft } from "@foundmill/shared";
+import { parseTeamPostRef, teamPostShareDraft, type Env, type PostDraft, type PostDraftMedia } from "@foundmill/shared";
 import { channelFactsFor } from "./channel-availability";
+import { draftMedia, type PostMediaToolStatus } from "./post-media";
 import { writeEventRow } from "./events";
 import type { ApiLogger } from "./log";
 import { WORKFLOWS, workflowIds, type TemporalService } from "./temporal";
@@ -127,7 +129,7 @@ export function queuePostDraft(deps: PostDraftDeps, businessId: string, trigger:
  * the code attaches (the milestone's card while it is on the page, else the project's page, with the page's `via`; no
  * link while the page is down). Built from what is public anyway, so any reader of the tab may have it.
  */
-export async function teamPostShares(tx: Executor, scope: { businessId: string; businessName: string; isDemo: boolean; appUrl: string }, rows: readonly Asset[]): Promise<Map<string, PostDraft>> {
+export async function teamPostShares(tx: Executor, scope: { businessId: string; businessName: string; isDemo: boolean; appUrl: string; media?: { env: Pick<Env, "APP_ENV" | "SESSION_TOKEN_SECRET">; tools: PostMediaToolStatus } }, rows: readonly Asset[]): Promise<Map<string, PostDraft>> {
   const out = new Map<string, PostDraft>();
   const posts = rows.flatMap((a) => {
     const ref = a.kind === "post" && a.body?.trim() ? parseTeamPostRef(a.contentRef) : null;
@@ -138,6 +140,15 @@ export async function teamPostShares(tx: Executor, scope: { businessId: string; 
   const published = pageRow?.published ?? null;
   const page = pageRow && published ? { origin: scope.appUrl, slug: pageRow.slug, projectName: scope.businessName, pitch: published.pitch } : null;
   const shown = page ? await repos.teamPosts.shownMilestoneIds(tx, scope.businessId, posts.filter((p) => p.ref.trigger === "milestone_shown").map((p) => p.ref.refId)) : new Set<string>();
-  for (const { asset, ref } of posts) out.set(asset.id, teamPostShareDraft({ text: asset.body ?? "", ref, page, cardShown: shown.has(ref.refId) }));
+  // The draft's optional media (services/post-media.ts): a short video and a voiceover on the founder's own accounts,
+  // or, with neither, whether the tools are connected, so a text-only draft can say why.
+  // The tools' status was read on the service connection and reduced to two booleans (`postMediaToolStatus`), so every
+  // role that can see the draft, a collaborator included, is told the same thing.
+  const media = scope.media ? await draftMedia(tx, { businessId: scope.businessId, businessName: scope.businessName, isDemo: scope.isDemo, env: scope.media.env, tools: scope.media.tools }, posts.map((p) => p.asset.id)) : new Map<string, PostDraftMedia>();
+  for (const { asset, ref } of posts) {
+    const draft = teamPostShareDraft({ text: asset.body ?? "", ref, page, cardShown: shown.has(ref.refId) });
+    const m = media.get(asset.id);
+    out.set(asset.id, m ? { ...draft, media: m } : draft);
+  }
   return out;
 }

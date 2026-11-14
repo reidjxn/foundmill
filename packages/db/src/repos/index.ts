@@ -63,6 +63,7 @@ import { notificationsRepo } from "./notifications";
 import { notifyFactsRepo } from "./notify-facts";
 import { attributionsRepo } from "./attributions";
 import { teamPostsRepo } from "./team-posts";
+import { postMediaRepo } from "./post-media";
 import { ideaDraftsRepo, waitlistRepo } from "./idea-drafts";
 import { admissionsRepo, invitationsRepo } from "./people";
 import { adultsRepo } from "./adults";
@@ -131,6 +132,7 @@ export const repos = {
   accountEvents: accountEventsRepo,
   attributions: attributionsRepo,
   teamPosts: teamPostsRepo,
+  postMedia: postMediaRepo,
   admissions: admissionsRepo,
   invitations: invitationsRepo,
   adults: adultsRepo,
@@ -203,4 +205,5 @@ export * from "./notify-facts";
 export * from "./account-events";
 export * from "./attributions";
 export * from "./team-posts";
+export * from "./post-media";
 export * from "./people";

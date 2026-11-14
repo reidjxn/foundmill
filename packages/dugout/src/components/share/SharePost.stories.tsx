@@ -34,6 +34,18 @@ export const Milestone: Story = {};
 /** The project's page, once it is live. */
 export const Page: Story = { args: { title: "Share your page", draft: page } };
 
+/** A post the team drafted with a short video made on the founder's own account (a placeholder address here). */
+export const WithVideo: Story = {
+  name: "With a short video",
+  args: {
+    title: "Share this post",
+    draft: { ...page, media: { videoTools: "connected", voiceTools: "not_connected", video: { kind: "video", state: "ready", mediaId: "6f1d2c3b-4a5e-4f60-8a7b-9c0d1e2f3a4b", simulated: false, mime: "video/mp4", bytes: 2_400_000, durationSeconds: 5, url: "/api/post-media/storybook-placeholder-token.0000", fileName: "northwind-skincare-video.mp4" } } },
+  },
+};
+
+/** A post the team drafted while the video tools are not connected: text only, and it says so. */
+export const TextOnly: Story = { name: "Video tools not connected", args: { title: "Share this post", draft: { ...page, media: { videoTools: "not_connected", voiceTools: "not_connected" } } } };
+
 /** A drafted post while the page is not published: no link, so the windows that only take a link fall to a copy of the words. */
 export const DraftWithoutLink: Story = {
   name: "A drafted post, no link",
