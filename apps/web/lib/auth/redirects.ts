@@ -20,8 +20,10 @@ import { STALE_BUSINESS_PARAM, lastBusinessHome } from "./last-business";
  * Routes that never need a session. `/p/` is a project's public page (app/p/[slug]) and `/u/` a person's public profile
  * (app/u/[handle]), both open to anyone signed out. `/a/<token>` (a one-click answer) and `/email/pause` are opened from
  * a founder email, often on a phone with no session; `/email/unsubscribe` takes a mail app's one-click unsubscribe.
+ * `/i/<token>` (an invitation to a project) is opened by people who may have no account yet: the page says "Sign in"
+ * itself and comes back with `next`.
  */
-const PUBLIC_PREFIXES = ["/login", "/auth/", "/_next/", "/brand/", "/favicon", "/icon", "/apple-icon", "/opengraph-image", "/robots.txt", "/sitemap.xml", "/health", "/examples/", "/p/", "/u/", "/m/", "/a/", "/email/pause", "/email/unsubscribe", "/terms", "/privacy"];
+const PUBLIC_PREFIXES = ["/login", "/auth/", "/_next/", "/brand/", "/favicon", "/icon", "/apple-icon", "/opengraph-image", "/robots.txt", "/sitemap.xml", "/health", "/examples/", "/p/", "/u/", "/m/", "/a/", "/email/pause", "/email/unsubscribe", "/terms", "/privacy", "/i/"];
 
 /** The signed-in index (app/start/page.tsx): a signed-in `/` the proxy cannot answer itself is rewritten here. */
 export const SIGNED_IN_INDEX = "/start";

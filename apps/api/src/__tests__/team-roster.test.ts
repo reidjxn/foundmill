@@ -198,17 +198,15 @@ describe("team.humans and team.responsibilities (W19)", () => {
   }, 120_000);
   afterAll(() => hz.close());
 
-  it("adds a co-founder by the email they sign in with; an unknown email says what to do (WEB-12)", async () => {
+  it("a cofounder joins through an invitation they accept: the silent add by email or account id is gone (THESIS 3.1)", async () => {
     const { businessId, ownerId } = hz.A;
     const newcomer = await hz.h.createUser("cofounder-w19@test.local");
     const owner = hz.caller({ userId: ownerId });
-    // The fixture business already fills the free tier's one seat.
-    await owner.billing.changeTier({ businessId, tier: "scale" });
-    await expect(owner.team.humans.invite({ businessId, email: "nobody-w19@test.local" })).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringMatching(/No account signs in with that email/) });
-    await expect(owner.team.humans.invite({ businessId })).rejects.toMatchObject({ code: "BAD_REQUEST" });
-    const added = await owner.team.humans.invite({ businessId, email: "Cofounder-W19@test.local", role: "admin" });
-    expect(added).toMatchObject({ userId: newcomer, role: "admin" });
-    await expect(owner.team.humans.invite({ businessId, userId: newcomer })).rejects.toMatchObject({ code: "CONFLICT" });
+    expect("invite" in (owner.team.humans as Record<string, unknown>)).toBe(false);
+    // A cofounder invitation names the person's address, and only the account signed in with it accepts.
+    const { link } = await owner.invitation.create({ businessId, role: "cofounder", email: "cofounder-w19@test.local" });
+    expect(await hz.caller({ userId: newcomer, email: "cofounder-w19@test.local" }).invitation.accept({ token: link.split("/i/")[1]! })).toEqual({ businessId, already: false });
+    expect(await repos.memberships.get(hz.db, businessId, newcomer)).toMatchObject({ role: "cofounder", sectionPermissions: {} });
     // founder.profile.get tells a person their own account ID.
     expect((await hz.caller({ userId: newcomer }).founder.profile.get()).userId).toBe(newcomer);
   });

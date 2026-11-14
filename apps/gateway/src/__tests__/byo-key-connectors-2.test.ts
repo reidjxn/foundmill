@@ -264,7 +264,7 @@ describe("resend.send_mail carries the gateway's own unsubscribe link", () => {
     return { r, bodies };
   };
 
-  // One gateway per case (as #101 did for IndexNow): two setups in one case ran past the 30 s timeout on CI.
+  // One gateway per case (each setup takes over 10 s on a loaded CI runner; two in one case outran its 30 s timeout).
   it("signs the link for this project and recipient", async () => {
     const { r, bodies } = await sendBody(MAIL_CONFIG);
     expect(asAllow(r).result.ok).toBe(true);
@@ -274,7 +274,7 @@ describe("resend.send_mail carries the gateway's own unsubscribe link", () => {
     expect(String(bodies[0]!.text)).toContain(header.slice(1, -1));
   });
 
-  it("refuses a link the agent supplies, before any vendor request", async () => {
+  it("refuses an unsubscribe link the agent supplies", async () => {
     const own = await sendBody(MAIL_CONFIG, { ...MAIL, unsubscribeUrl: "https://elsewhere.example/stop" });
     expect(asAllow(own.r).result).toMatchObject({ ok: false, error: { code: "invalid_args" } });
     expect(own.bodies).toEqual([]);

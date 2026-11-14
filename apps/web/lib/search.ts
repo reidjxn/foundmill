@@ -43,7 +43,8 @@ export const SETTINGS_TABS = [
   { slug: "departments", label: "Departments" },
   // "Your words" on screen (docs/UX_AUDIT_AND_PLAN.md §7.17); the slug stays "glossary", and "glossary" stays a keyword.
   { slug: "glossary", label: "Your words" },
-  { slug: "members", label: "Members" },
+  // "People" on screen (THESIS_REVIEW 3.3, the words for people); the slug stays "members".
+  { slug: "members", label: "People" },
   { slug: "integrations", label: "Integrations" },
   { slug: "keys", label: "Keys" },
   { slug: "billing", label: "Billing" },

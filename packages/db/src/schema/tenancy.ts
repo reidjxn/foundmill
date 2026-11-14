@@ -1,9 +1,9 @@
-/** 0001 — memberships (tenancy), 0065 — `source`. Helper functions is_member/has_role/is_public live in SQL only. */
+/** 0001 — memberships (tenancy), 0065 — `source`, 0092 — the cofounder and collaborator roles and `expires_at`. Helper functions is_member/has_role/is_public live in SQL only. */
 import { MEMBERSHIP_ROLES, MEMBERSHIP_SOURCES, type MembershipSource } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { index, jsonb, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
-import { emptyObject, id, timestamps } from "./_common";
+import { emptyObject, id, timestamps, tstz } from "./_common";
 import { businessId } from "./_refs";
 
 /** How a membership came to be (0065): the tuple lives in @foundmill/shared/constants next to MEMBERSHIP_ROLES. */
@@ -18,6 +18,8 @@ export const memberships = pgTable(
     role: text("role", { enum: MEMBERSHIP_ROLES }).notNull(),
     sectionPermissions: jsonb("section_permissions").$type<Record<string, "read" | "write" | "none">>().notNull().default(emptyObject),
     source: text("source", { enum: MEMBERSHIP_SOURCES }).notNull().default("invite"),
+    /** 0092: when a collaborator's access ends (null: no end); only a collaborator's row carries one. */
+    expiresAt: tstz("expires_at"),
     ...timestamps(),
   },
   (t) => [

@@ -225,6 +225,20 @@ describe("email from Foundmill to a person (gateway)", () => {
     for (const p of [off, opened, walled, visitor, fresh, stranger]) expect(sentTo(p.email)).toHaveLength(0);
   });
 
+  it("never to a collaborator whose access has ended (0092), though one whose date is ahead is told", async () => {
+    const ended = await person({ role: "member" });
+    await g.h.pg.query("update memberships set role = 'collaborator', expires_at = now() - interval '1 hour' where business_id = $1 and user_id = $2", [g.businessId, ended.userId]);
+    expect((await ask(about(ended))).body.reason).toBe("not_member");
+    expect(sentTo(ended.email)).toHaveLength(0);
+    // The api's pass does not even list them (repos.notifyEmail.waitingAnswers).
+    const waiting = await repos.notifyEmail.waitingAnswers(g.db, { olderThan: new Date(), since: new Date(Date.now() - 7 * 24 * HOURS) });
+    expect(waiting.some((w) => w.userId === ended.userId)).toBe(false);
+    const current = await person({ role: "member" });
+    await g.h.pg.query("update memberships set role = 'collaborator', expires_at = now() + interval '7 days' where business_id = $1 and user_id = $2", [g.businessId, current.userId]);
+    expect((await repos.notifyEmail.waitingAnswers(g.db, { olderThan: new Date(), since: new Date(Date.now() - 7 * 24 * HOURS) })).some((w) => w.userId === current.userId)).toBe(true);
+    expect((await ask(about(current))).body.sent).toBe(true);
+  });
+
   it("never about a sample business", async () => {
     const p = await person();
     await g.h.pg.query("update businesses set is_demo = true where id = $1", [g.businessId]);
@@ -281,8 +295,11 @@ describe("email from Foundmill to a person (gateway)", () => {
     await g.deps.rateLimits.hit(notifyPersonDayKey(p.userId), 86_400_000, Date.now());
     await g.deps.rateLimits.hit(notifyPersonDayKey(p.userId), 86_400_000, Date.now());
     await g.deps.rateLimits.hit(notifyPersonDayKey(p.userId), 86_400_000, Date.now());
+    // The brief's news is a real outcome (item 10): the Customer Update note alone is not one, the vendor's payment is.
+    await g.h.db.insert(s.events).values({ businessId: g.businessId, type: "payment.received", occurredAt: new Date(Date.now() - HOURS), actor: { kind: "webhook", id: "stripe" }, payload: { conversionId: crypto.randomUUID(), amount: { amountMinor: 1_900, currency: "USD" }, firstPayment: true } });
     const day = new Date().toISOString().slice(0, 10);
-    expect((await ask({ userId: p.userId, kind: "daily_brief", businessId: g.businessId, data: { day } })).body).toMatchObject({ sent: true });
+    const brief = await ask({ userId: p.userId, kind: "daily_brief", businessId: g.businessId, data: { day } });
+    expect(brief.body, JSON.stringify(brief.body)).toMatchObject({ sent: true });
     // Once per day.
     expect((await ask({ userId: p.userId, kind: "daily_brief", businessId: g.businessId, data: { day } })).body).toMatchObject({ sent: false, reason: "already_sent" });
     // A kind without the id it needs is refused before anything is read.
@@ -301,5 +318,40 @@ describe("email from Foundmill to a person (gateway)", () => {
     expect((await ask({ ...about(p), data: { inboxItemId: p.itemId, subject: "Click here" } })).status).toBe(400);
     expect((await ask({ ...about(p), kind: "weekly_summary" })).status).toBe(400);
     expect(sentTo(p.email)).toHaveLength(0);
+  });
+
+  it("the morning brief is four sections; What worked lists real outcomes only, and a brief turned off is never sent", async () => {
+    await g.h.pg.query("update businesses set committed_at = coalesce(committed_at, $1) where id = $2", [new Date(Date.now() - 48 * HOURS).toISOString(), g.businessId]);
+    const p = await person();
+    const off = await person();
+    await repos.preferences.update(g.db, off.userId, { email: { daily_brief: false } });
+    const at = new Date(Date.now() - 2 * HOURS);
+    const agent = { kind: "agent", id: g.agentId };
+    const stripe = { kind: "webhook", id: "stripe" };
+    const simulate = { kind: "system", id: "simulate" };
+    const ref = () => crypto.randomUUID();
+    await g.h.db.insert(s.events).values([
+      { businessId: g.businessId, type: "mail.sent", occurredAt: at, actor: agent, payload: { messageRef: ref(), agentId: g.agentId, channelKey: "email_automation", simulated: false } },
+      ...[1, 2, 3].map(() => ({ businessId: g.businessId, type: "mail.sent", occurredAt: at, actor: agent, payload: { messageRef: ref(), agentId: g.agentId, channelKey: "email_automation", simulated: true } })),
+      { businessId: g.businessId, type: "payment.received", occurredAt: at, actor: simulate, payload: { conversionId: ref(), amount: { amountMinor: 77_700, currency: "USD" }, firstPayment: true } },
+      { businessId: g.businessId, type: "payment.received", occurredAt: at, actor: stripe, payload: { conversionId: ref(), amount: { amountMinor: 4_900, currency: "USD" }, firstPayment: true } },
+    ]);
+    const day = new Date().toISOString().slice(0, 10);
+    expect((await ask({ userId: p.userId, kind: "daily_brief", businessId: g.businessId, data: { day } })).body).toMatchObject({ sent: true });
+    const [sent] = sentTo(p.email);
+    // The earlier test's real payment is in the window too: two real payments, never the simulated third.
+    expect(sent!.subject).toBe("Gateway Test Club: 2 payments came in");
+    const text = sent!.text;
+    const order = ["WHAT WORKED", "WAITING ON YOU", "WHAT'S NEXT"].map((h) => text.indexOf(h));
+    expect(order.every((i) => i >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(text).toContain("A new customer paid $49.00");
+    expect(text).toMatch(/- 1 email went out from your project's address/);
+    // The simulated payment and the three simulated emails are nowhere.
+    expect(text).not.toContain("777");
+    expect(text).not.toMatch(/[2-9] emails went out/);
+    // Off in the person's preferences: never sent, recorded as such.
+    expect((await ask({ userId: off.userId, kind: "daily_brief", businessId: g.businessId, data: { day } })).body.reason).toBe("turned_off");
+    expect(sentTo(off.email)).toHaveLength(0);
   });
 });
