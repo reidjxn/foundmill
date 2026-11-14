@@ -136,11 +136,15 @@ export const journeyRouter = router({
       ]);
       const customers = { today, thisWeek: weekCounts.payment ?? 0, previousWeek: previousCounts.payment ?? 0, total: allCounts.payment ?? 0 };
       const conversionCount = Object.values(counts).reduce((n, c) => n + c, 0);
+      const walls = journeyWalls(ctx.membership);
+      // Behind a Finance wall a chapter is built without money, so neither its totals nor its provisional title
+      // ("Growth", "A tough quarter": revenue against the quarter before) say what the revenue did.
+      const quarterRows = walls.finance ? quarters.map((q) => ({ ...q, spendMinor: 0, revenueMinor: 0 })) : quarters;
       const chapters = buildChapters({
         startDay: firstDay,
         today: to,
         horizonQuarters: 2,
-        daily: quarters.map((q) => ({ ...q, departmentId: null, agentHours: Number(q.agentHours) })),
+        daily: quarterRows.map((q) => ({ ...q, departmentId: null, agentHours: Number(q.agentHours) })),
         milestones: milestones.map((m) => ({ kind: m.kind, label: m.label, achievedAt: m.achievedAt.toISOString(), ref: m.ref ?? null, visibility: m.visibility, trophyKey: null })),
         titles,
       });
@@ -152,7 +156,7 @@ export const journeyRouter = router({
       // Ribbon and the revenue widgets read `departmentId: null` and numbers.
       const dailyRows = rows.map((r) => ({ ...r, departmentId: r.departmentId === NO_DEPARTMENT_ID ? null : r.departmentId, agentHours: Number(r.agentHours), spendMinor: Number(r.spendMinor), revenueMinor: Number(r.revenueMinor) }));
       const labelled = conversions.items.length ? await repos.journeys.labelConversions(tx, ctx.businessId, conversions.items) : [];
-      return wallRibbon({ rows: dailyRows, conversions: labelled.map((c) => ({ ...c, occurredAt: c.occurredAt.toISOString() })), conversionCount, milestones: milestones.map((m) => ({ ...m, achievedAt: m.achievedAt.toISOString() })), chapters, customers, kickoff: firstDay, firstDay, today: to, forecastLabel: "Forecast" as const }, journeyWalls(ctx.membership));
+      return wallRibbon({ rows: dailyRows, conversions: labelled.map((c) => ({ ...c, occurredAt: c.occurredAt.toISOString() })), conversionCount, milestones: milestones.map((m) => ({ ...m, achievedAt: m.achievedAt.toISOString() })), chapters, customers, kickoff: firstDay, firstDay, today: to, forecastLabel: "Forecast" as const }, walls);
     }),
   ),
 

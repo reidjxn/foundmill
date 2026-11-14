@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activityItems, applyChipFilters, commercialSummary, deletionRequestNote, documentItems, exportEntityJson, groupByForView, groupCounts, introPaths, isCustomerWin, isEntityTab, leadScore, loadedSummary, mergeBanner, nextActiveHit, primaryRole, relationshipStrength, rowFromEntity, rowsFromSearch, strengthRating, CRM_VIEWS, type EntityGet, type RelationshipRecord } from "../logic";
+import { AMOUNTS_HIDDEN, activityItems, applyChipFilters, commercialSummary, deletionRequestNote, documentItems, exportEntityJson, groupByForView, groupCounts, introPaths, isCustomerWin, isEntityTab, leadScore, loadedSummary, mergeBanner, moneyHidden, nextActiveHit, primaryRole, relationshipStrength, rowFromEntity, rowsFromSearch, strengthRating, CRM_VIEWS, type EntityGet, type RelationshipRecord } from "../logic";
 import { parseCrmQuery } from "../search";
 
 const entity = (over: Record<string, unknown> = {}) => ({ id: "e1", businessId: "b", kind: "person", displayName: "Ana Lind", aliases: [], avatarUrl: null, identifiers: { email: "ana@example.com" }, lawfulBasis: "contract", source: "stripe", embedding: null, search: null, visibility: "private", agentId: null, mergedIntoId: null, createdAt: new Date("2026-01-10"), updatedAt: new Date("2026-09-01"), archivedAt: null, ...over });
@@ -108,6 +108,15 @@ describe("profile derivations", () => {
     expect(items.find((i) => i.id === "c-c2")?.description).toBe("€49.00");
     const gbp = activityItems({ interactions: [], mentions: [], conversions: [{ id: "g1", kind: "payment", amountMinor: 3534999, currency: "GBP", occurredAt: new Date("2026-10-01"), journeyId: null }, { id: "y1", kind: "payment", amountMinor: 5000, currency: "JPY", occurredAt: new Date("2026-10-02"), journeyId: null }] } as never, { inbox: (id) => id, journey: (id) => id });
     expect(gbp.map((i) => i.description)).toEqual(["¥5,000", "£35,349.99"]);
+    // Behind a Finance wall (a collaborator) the api sends payments with no amount: no figure anywhere, nothing crashes.
+    const hiddenConversions = conversions.map((c) => ({ ...(c as object), amountMinor: null })) as never[];
+    expect(moneyHidden({ moneyHidden: true, conversions: hiddenConversions } as never)).toBe(true);
+    expect(moneyHidden({ moneyHidden: false, conversions } as never)).toBe(false);
+    expect(moneyHidden({ conversions: hiddenConversions } as never)).toBe(true);
+    expect(commercialSummary(hiddenConversions as never, "EUR")).toMatchObject({ payments: 2, totalMinor: 0 });
+    const hiddenItems = activityItems({ interactions: [], mentions: [], conversions: hiddenConversions } as never, { inbox: (id) => id, journey: (id) => id });
+    expect(hiddenItems.find((i) => i.id === "c-c2")).toMatchObject({ title: "Payment", description: undefined });
+    expect(AMOUNTS_HIDDEN).toBe("Hidden: your access does not include Finance");
     // Fixed dates, newest first: two `new Date()` calls a millisecond apart flipped the order (CI, Nov 6, 2026).
     const docs = documentItems({ interactions: [{ id: "i1", kind: "email", occurredAt: new Date("2026-06-02"), summary: "", contentRef: "vault://x" }], mentions: [{ id: "m2", containerKind: "spec_block", containerId: "s1", createdAt: new Date("2026-06-01") }] } as never, { inbox: (id) => id });
     expect(docs.map((d) => [d.kind, d.encrypted])).toEqual([

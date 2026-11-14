@@ -324,7 +324,7 @@ export function activityItems(get: Pick<EntityGet, "interactions" | "mentions" |
   }
   for (const c of get.conversions) {
     const won = isCustomerWin(c);
-    items.push({ id: `c-${c.id}`, at: toIso(c.occurredAt) ?? new Date(0).toISOString(), kind: "conversion", title: c.kind === "payment" ? (won ? "Payment" : "Repeat payment") : c.kind === "activation" ? "Activated" : "Signed up", description: c.kind === "payment" ? formatMoney({ amountMinor: Number(c.amountMinor), currency: c.currency }) : undefined, href: won && c.journeyId ? links.journey(c.journeyId) : undefined });
+    items.push({ id: `c-${c.id}`, at: toIso(c.occurredAt) ?? new Date(0).toISOString(), kind: "conversion", title: c.kind === "payment" ? (won ? "Payment" : "Repeat payment") : c.kind === "activation" ? "Activated" : "Signed up", description: c.kind === "payment" && c.amountMinor !== null ? formatMoney({ amountMinor: Number(c.amountMinor), currency: c.currency }) : undefined, href: won && c.journeyId ? links.journey(c.journeyId) : undefined });
   }
   return items.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
 }
@@ -365,6 +365,12 @@ export interface CommercialSummary {
   signedUpAt: string | null;
   activatedAt: string | null;
 }
+
+/** What the Commercial tab says where an amount would be, for a reader walled off Finance (`crm.entity.get` `moneyHidden`). */
+export const AMOUNTS_HIDDEN = "Hidden: your access does not include Finance";
+
+/** Whether this reader gets the payments without their amounts (no Finance read: a collaborator, or a member walled off it). */
+export const moneyHidden = (get: Pick<EntityGet, "moneyHidden" | "conversions">): boolean => get.moneyHidden === true || get.conversions.some((c) => c.kind === "payment" && c.amountMinor === null);
 
 /**
  * `businessCurrency` labels a history without payments. Payments in several currencies are never added together: the

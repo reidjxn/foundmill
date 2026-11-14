@@ -666,6 +666,13 @@
       "when": 1796138040000,
       "tag": "0106_post_attributions",
       "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1796138640000,
+      "tag": "0107_collaborator_finance_fields",
+      "breakpoints": true
     }
   ]
 }

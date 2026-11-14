@@ -131,6 +131,16 @@ function walledFromFinance(view: GoalView | null, ctx: BusinessContext): GoalVie
   return { ...view, sentence: `Reach a revenue goal by ${goalDateWords(view.dueOn, todayOf(ctx))}`, target: null, startValue: null, progress: null };
 }
 
+/**
+ * A stored goal row as this reader may see it (the answers of `goal.approve` and `goal.requestChange`): a revenue goal
+ * read by someone walled off Finance keeps its date and loses its money, as `goalView` shows it (the stream's `goal.*`
+ * walls hide the same numbers).
+ */
+export function goalAsSeenBy<G extends Goal | null>(goal: G, ctx: Pick<BusinessContext, "membership" | "business">): G {
+  if (!goal || goal.metricKind !== "revenue_month" || effectivePermission(ctx.membership, "finance") !== "none") return goal;
+  return { ...goal, sentence: `Reach a revenue goal by ${goalDateWords(goal.dueOn, todayOf(ctx))}`, targetValue: null, startValue: null, achievedValue: null };
+}
+
 /** The active goal and the open proposal as the screens read them. */
 export async function goalView(tx: DbTx, ctx: BusinessContext): Promise<GoalViews> {
   const [current, counters] = await Promise.all([repos.goals.current(tx, ctx.businessId), goalCounters(tx, ctx.businessId)]);

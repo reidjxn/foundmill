@@ -37,7 +37,8 @@ const status = (over: Partial<ContinueResult["status"]> = {}): ContinueResult["s
 
 type Summary = ContinueResult["summary"];
 const summary = (over: Partial<Summary> = {}): Summary => ({ kind: "started", headline: "Cycle 2 started: 6 tasks ready to build", plainHeadline: "The next round of work started: 6 tasks ready to build", detail: `The team is at work. What they finish and what they need from you come back as notes in the Inbox. ${RUN_UNTIL_DONE}`, readyTasks: 6, stage: "building", orchestrator: true, ...over });
-const result = (over: Partial<ContinueResult>): ContinueResult => ({ action: "started", mode: "temporal", workflow: null, item: null, status: status(), continueState: { kind: "processing" }, run: null, summary: summary(), ...over });
+// A cast: the answer is a union (the note of an in-process step comes back as the person may read it), and a Partial of a union spreads into neither member.
+const result = (over: Partial<ContinueResult>): ContinueResult => ({ action: "started", mode: "temporal", workflow: null, item: null, status: status(), continueState: { kind: "processing" }, run: null, summary: summary(), ...over }) as ContinueResult;
 const RUN = { id: "22222222-2222-4222-8222-222222222222", startedAt: "2026-11-07T10:00:00.000Z", rounds: 0 };
 
 describe("one press of Continue (BUILD §9.4; first-time founder report, Nov 8, 2026: the api's one sentence is the toast)", () => {
@@ -52,7 +53,7 @@ describe("one press of Continue (BUILD §9.4; first-time founder report, Nov 8, 
 
   it("no orchestrator: a warning that says no agent worked, with the note that stood in to open", () => {
     const item = { id: "11111111-1111-4111-8111-111111111111", subject: "Three decisions for the Board" } as unknown as NonNullable<ContinueResult["item"]>;
-    const local = result({ mode: "local", item, summary: summary({ kind: "orchestrator_unreachable", headline: "The team cannot run right now: the orchestrator is not reachable", plainHeadline: "The team cannot run right now: the orchestrator is not reachable", detail: "No agent worked. One note was written from what the business already knows: “Three decisions for the Board”.", orchestrator: false }) });
+    const local = result({ mode: "local", item: item as never, summary: summary({ kind: "orchestrator_unreachable", headline: "The team cannot run right now: the orchestrator is not reachable", plainHeadline: "The team cannot run right now: the orchestrator is not reachable", detail: "No agent worked. One note was written from what the business already knows: “Three decisions for the Board”.", orchestrator: false }) });
     expect(describeContinue(local)).toEqual({ title: "The team cannot run right now: the orchestrator is not reachable", description: "No agent worked. One note was written from what the business already knows: “Three decisions for the Board”.", tone: "warn", itemId: item.id });
     // The e2e specs' toast regex matches every headline the api writes, Builder view on or off.
     for (const t of ["Cycle 2 started: 6 tasks ready to build", "The next round of work started: 6 tasks ready to build", "The next round of work started: nothing is ready to build yet", "The team cannot run right now: the orchestrator is not reachable", "Cycle 4 resumed", "The round of work resumed", "A round of work is already running"]) expect(t).toMatch(/(cycle \d+|round of work) started|cannot run right now|(cycle \d+|round of work) resumed|already running/i);
