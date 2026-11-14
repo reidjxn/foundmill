@@ -17,7 +17,7 @@ import { routes } from "@foundmill/widgets/shared/routes";
 import { pickCurrentBusiness } from "./current-business";
 
 export interface StartInput {
-  /** `founder.profile.get` complete: the founder profile exists. */
+  /** `founder.profile.get` complete and adultConfirmed: the founder profile exists and "I am 18 or older" is on record. */
   profileComplete: boolean;
   /** `founder.profile.get` businesses, newest first; an example membership carries `isExample`. */
   businesses: readonly { id: string; isExample?: boolean }[];

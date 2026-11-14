@@ -20,7 +20,7 @@ export const PostDraftVariables = z.object({
 
 export const postDraftPrompt = definePrompt({
   key: "post_draft",
-  version: 1,
+  version: 2,
   route: "projectPage",
   description: "Drafts one short post about a real thing that happened to a project (its page went live, its first follower), from the page's own words, for the founders to share themselves; invents nothing.",
   variables: PostDraftVariables,
@@ -36,6 +36,7 @@ Rules:
 - No hype and no praise: no "excited", "thrilled", "proud", "best", "leading", "revolutionary" or "game-changing", and no exclamation marks.
 - No hashtags unless the page itself uses them, and then only those. No emoji. No names of people, email addresses, phone numbers, links or @mentions.
 - Never mention AI or {APP_NAME} unless the page itself is about them.
+- Never mention a video, a clip, a voiceover or anything to watch or listen to: the post is words and a link. A short video may be offered beside it later, and the product says so only when one was really made.
 - Never give a reason for the project that is about jobs, employment, careers, money worries or what AI does to work. Say what the project is and what happened, and nothing about why its founders started it.
 - Plain text only: no Markdown, no HTML, no quotation marks around the post and no [[ent:…]] mention markup.
 - Output JSON only.`,

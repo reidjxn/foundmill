@@ -74,6 +74,9 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   channels: t(s.channels, "distribution"),
   campaigns: t(s.campaigns, "distribution"),
   assets: t(s.assets, "distribution"),
+  // A post draft's media (0102): where each video and voiceover stands, never the file itself (up to 200 MB a project
+  // would ride inside one page of JSON); a ready one is saved from the share panel.
+  post_media: t(s.postMedia, "distribution", { omit: ["content"] }),
   channel_metrics: t(s.channelMetrics, "distribution"),
   suppression_list: t(s.suppressionList, "distribution"),
   visitors: t(s.visitors, "distribution"),
@@ -103,6 +106,8 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   credit_balances: t(s.creditBalances, "billing"),
   // Credit top-ups: what was bought and when. The Stripe session and its payment page stay out (provider plumbing).
   billing_checkouts: t(s.billingCheckouts, "billing", { omit: ["externalId", "checkoutUrl", "paidEventId"] }),
+  // Bought credits by purchase: how much is left of each and when it expires (0098).
+  credit_lots: t(s.creditLots, "billing"),
   // legal
   legal_entities: t(s.legalEntities, "legal"),
   incorporations: t(s.incorporations, "legal"),
@@ -123,6 +128,8 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   memberships: t(s.memberships, "settings", { pick: ["id", "userId", "role", "createdAt"], rows: ne(s.memberships.source, "example") }),
   integrations: t(s.integrations, "settings", { pick: ["id", "connectorKey", "status", "authKind", "scopes", "accountLabel", "lastHealthAt", "lastError", "createdAt", "updatedAt"] }),
   project_mail: t(s.projectMail, "settings", { pick: ["id", "localPart", "status", "dailyCap", "createdAt"] }),
+  // The founders' postal address for marketing email (0101): the business's own, so it travels with it.
+  project_postal_addresses: t(s.projectPostalAddresses, "settings", { pick: ["id", "address", "createdAt", "updatedAt"] }),
   app_installations: t(s.appInstallations, "settings", { pick: ["id", "connectorKey", "accountLabel", "verifiedAt", "createdAt"] }),
   policies: t(s.policies, "settings"),
   holiday_periods: t(s.holidayPeriods, "settings"),

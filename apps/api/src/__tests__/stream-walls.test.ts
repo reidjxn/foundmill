@@ -80,7 +80,7 @@ describe("staff changes reach apps/stream", () => {
     await owner.billing.changeTier({ businessId, tier: "scale" });
     try {
       const { link } = await owner.invitation.create({ businessId, role: "collaborator" });
-      await hz.caller({ userId: newcomer }).invitation.accept({ token: link.split("/i/")[1]! });
+      await hz.caller({ userId: newcomer }).invitation.accept({ confirmAdult: true, token: link.split("/i/")[1]! });
     } finally {
       await owner.billing.changeTier({ businessId, tier: "free" });
     }

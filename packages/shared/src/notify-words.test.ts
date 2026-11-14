@@ -15,10 +15,17 @@ const ctx: RetentionEmailContext = {
   offLink: "https://ingest.foundmill.com/mail/notify/off?t=off",
   pauseLink: "https://foundmill.com/email/pause?t=x",
   oneClick: null,
+  postalAddress: "Box 1, 11422 Stockholm, Sweden",
 };
 const stats = (over: Partial<ReturnType<typeof briefStats>> = {}) => ({ since: ago(1440), rounds: 1, tasksDone: 1, costMinor: 0, costCurrency: "USD", wins: [], milestones: [], ...over });
 
 describe("retentionEmail", () => {
+  it("carries Foundmill's postal address in the footer of every kind (US CAN-SPAM)", () => {
+    const e = retentionEmail({ kind: "win", item: item("w1", "customer_won", 5) }, ctx);
+    expect(e.text.trimEnd().endsWith("Postal address: Foundmill, Box 1, 11422 Stockholm, Sweden.")).toBe(true);
+    expect(e.html).toContain("<br>Postal address: Foundmill, Box 1, 11422 Stockholm, Sweden.</p>");
+  });
+
   it("links back with where the person came from, and ends with the switch and the pause", () => {
     const e = retentionEmail({ kind: "win", item: item("w1", "customer_won", 5, { subject: "Ana from [[ent:abc|Bloom]] paid" }) }, ctx);
     expect(e.text).toContain("https://foundmill.com/b/b1/inbox/w1?via=email&n=n1");

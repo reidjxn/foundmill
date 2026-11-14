@@ -14,14 +14,20 @@ import { QUERY_TIMEOUT_MS } from "../trpc";
 describe("same-origin API reads", () => {
   it("rewrites the same-origin path to the API's tRPC endpoint", () => {
     expect(SAME_ORIGIN_TRPC_PATH).toBe("/api/trpc");
-    expect(apiRewrites("https://api.foundmill.com/")).toEqual([{ source: "/api/trpc/:path*", destination: "https://api.foundmill.com/trpc/:path*" }]);
+    expect(apiRewrites("https://api.foundmill.com/")).toEqual([
+      { source: "/api/trpc/:path*", destination: "https://api.foundmill.com/trpc/:path*" },
+      { source: "/api/post-media/:token", destination: "https://api.foundmill.com/post-media/:token" },
+    ]);
   });
 
   it("hands a batched read to the API with its procedures and input untouched (next.config.ts)", async () => {
     const input = JSON.stringify({ "0": { json: { businessId: "b1", limit: 50 } }, "1": { json: { businessId: "b1" } } });
     const url = `http://localhost:3000/api/trpc/inbox.list,cycle.status?batch=1&input=${encodeURIComponent(input)}`;
     // vitest runs with NEXT_PUBLIC_API_URL=http://localhost:4000 (vitest.config.ts), as the local stack does.
-    expect(await nextConfig.rewrites!()).toEqual([{ source: "/api/trpc/:path*", destination: "http://localhost:4000/trpc/:path*" }]);
+    expect(await nextConfig.rewrites!()).toEqual([
+      { source: "/api/trpc/:path*", destination: "http://localhost:4000/trpc/:path*" },
+      { source: "/api/post-media/:token", destination: "http://localhost:4000/post-media/:token" },
+    ]);
     const res = await unstable_getResponseFromNextConfig({ url, nextConfig });
     // (Next's test helper drops the destination's port; the server keeps it.)
     const target = new URL(getRewrittenUrl(res) ?? "");
@@ -35,6 +41,7 @@ describe("same-origin API reads", () => {
     const headers = await nextConfig.headers!();
     const own = headers.find((h) => h.source === `${SAME_ORIGIN_TRPC_PATH}/:path*`);
     expect(own?.headers).toEqual([...SAME_ORIGIN_API_HEADERS]);
+    expect(headers.find((h) => h.source === "/api/post-media/:token")?.headers).toEqual([...SAME_ORIGIN_API_HEADERS]);
     expect(SAME_ORIGIN_API_HEADERS).toContainEqual({ key: "x-vercel-enable-rewrite-caching", value: "0" });
     expect(nextConfig.experimental?.proxyTimeout).toBeGreaterThan(QUERY_TIMEOUT_MS);
   });
@@ -43,6 +50,8 @@ describe("same-origin API reads", () => {
     const matches = (path: string) => unstable_doesMiddlewareMatch({ config: proxyConfig, nextConfig, url: `http://localhost:3000${path}` });
     expect(matches("/api/trpc/inbox.list,cycle.status?batch=1&input=%7B%7D")).toBe(false);
     expect(matches("/api/trpc/founder.profile.get?batch=1")).toBe(false);
+    // A post draft's media link: the token is the key, no session work runs on it.
+    expect(matches("/api/post-media/abcdefghijklmnopqrstuvwxyz.0123456789")).toBe(false);
     for (const page of ["/", "/login", "/b/b1/home", "/b/b1/inbox", "/b/b1/d/finance/overview", "/api/other"]) expect(matches(page), page).toBe(true);
   });
 

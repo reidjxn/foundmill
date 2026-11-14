@@ -27,6 +27,7 @@ import {
   ALWAYS_LIVE_CONNECTORS,
   canonicalJson,
   isConfigError,
+  isServiceMediaTool,
   isServiceOnlyConnector,
   isUntrusted,
   mockIntegrationRecord,
@@ -792,7 +793,7 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
   // A project's Foundmill sending address: its own guards, after Cedar and before the vendor (platform-mail.ts).
   let platformMail: PreparedPlatformMail | null = null;
   if (connector.key === PLATFORM_MAIL_KEY) {
-    const decision = await preparePlatformMail({ db: deps.db, rateLimits: deps.rateLimits, config: deps.platformMail, ...(deps.appEnv !== undefined ? { appEnv: deps.appEnv } : {}) }, { business: loaded.business, args: guarded.args, mode, now: now().getTime() });
+    const decision = await preparePlatformMail({ db: deps.db, rateLimits: deps.rateLimits, config: deps.platformMail, ...(deps.appEnv !== undefined ? { appEnv: deps.appEnv } : {}) }, { business: loaded.business, args: guarded.args, mode, now: now().getTime(), agentId: session.agentId, log });
     if (!decision.ok) {
       const reasons = [decision.reason];
       const audit = await appendAudit(deps, session, req, { outcome: "deny", reasons, policyIds: [decision.policyId] });
@@ -858,6 +859,10 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
     } else if (archive) {
       const { facts: _withheld, ...withoutFacts } = toAgentEnvelope(result.data);
       data = { ...withoutFacts, content: null, quarantined: true, unavailable: ARCHIVE_WITHHELD };
+    } else if (session.sessionId === null && isServiceMediaTool(connector.key, tool.name)) {
+      // A media file the platform stores (a post draft's voiceover), asked for by a platform token outside any session:
+      // code stores it and no agent reads it, so it is handed over as it came, inside the envelope with its notice.
+      // An agent session calling the same tool still gets the reader's digest below.
     } else if (deps.reader && grantsOutboundTools(deps.registry, session.allowedTools)) {
       // An agent that can contact people, spend or do something irreversible never reads third-party text raw: a model with no
       // tools reads it and the agent gets typed fields only (BUILD §9.8 step 2). If the reader fails, the agent gets nothing.

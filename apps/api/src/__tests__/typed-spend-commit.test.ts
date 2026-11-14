@@ -20,7 +20,7 @@ describe("a typed spend in a freshly committed business", () => {
     it(`${archetype}: LinkedIn ads asks for the go-ahead, whichever agent runs the channel`, async () => {
       const userId = await hz.h.createUser(`founder-${archetype}@test.local`);
       const caller = hz.caller({ userId, email: `founder-${archetype}@test.local` });
-      await caller.founder.profile.update({ displayName: "Reid", experience: "first-time", skills: { engineering: 14, sales: 8 }, targetMarkets: ["US"], riskAppetite: "medium" });
+      await caller.founder.profile.update({ confirmAdult: true, displayName: "Reid", experience: "first-time", skills: { engineering: 14, sales: 8 }, targetMarkets: ["US"], riskAppetite: "medium" });
       const idea = (await caller.idea.generate({ prompt: "tools for climate operators" })).ideas[0]!;
       const { business } = await caller.idea.commit({ ideaId: idea.id, name: `Typed Spend ${archetype}`, archetype, gameMode: "personal", kit: { primary: "#1B4FD8", secondary: "#F5C400" } });
 

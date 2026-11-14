@@ -41,6 +41,8 @@ export const runwayMock = buildMockConnector({
       simulated: true as const,
       notice: MOCK_NOTICE,
     }),
+    // Nothing was made, so there is nothing to copy: no bytes, and never "ready".
+    download_video: async ({ taskId }) => ({ taskId: taskId.toLowerCase(), status: "SUCCEEDED", ready: false, mime: null, base64: null, bytes: 0, simulated: true as const, notice: MOCK_NOTICE }),
   },
   connect: async (businessId) => mockIntegrationRecord(RUNWAY_KEY, businessId, { accountLabel: "Runway (mock)" }),
   healthcheck: async () => mockHealth(RUNWAY_KEY),

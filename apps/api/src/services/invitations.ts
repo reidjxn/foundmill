@@ -60,6 +60,7 @@ import type { Executor } from "@foundmill/db";
 import type { Context } from "../context";
 import { audit, emit, type BusinessContext } from "../trpc";
 import { admitThroughInvitation, rememberAdmitted } from "./access";
+import { requireAdult } from "./adults";
 import { assertWithinGrantorAccess, withinGrantorAccess } from "./grants";
 import { callerLimitKey } from "./pages";
 import { queueShowcaseCheck } from "./showcase";
@@ -275,8 +276,13 @@ export interface Accepter {
   emailConfirmed: boolean;
 }
 
-/** `invitation.accept` (see the file comment). */
-export async function acceptInvitation(ctx: Pick<Context, "db" | "env" | "limits" | "log" | "gateway">, accepter: Accepter, token: string): Promise<AcceptedInvitation> {
+/**
+ * `invitation.accept` (see the file comment). Joining a project is for people 18 or older (services/adults.ts): an
+ * accepter with no confirmation on record ticks "I am 18 or older" on the invitation (`confirmAdult`), which is recorded
+ * once, on the account, before the membership is added; without it the accept is refused with `adult_unconfirmed` and
+ * changes nothing. A dead or someone else's link answers as before, whatever `confirmAdult` says.
+ */
+export async function acceptInvitation(ctx: Pick<Context, "db" | "env" | "limits" | "log" | "gateway">, accepter: Accepter, token: string, options: { confirmAdult?: boolean } = {}): Promise<AcceptedInvitation> {
   const userId = accepter.userId;
   await takeOrThrow(ctx.limits, "Accepting invitations", [{ key: invitationLimitKeys.accept(userId), rule: INVITATION_LIMITS.acceptPerAccount }]);
   const unavailable = () => new AppError("invitation_unavailable", INVITATION_UNAVAILABLE_MESSAGE, 404);
@@ -286,6 +292,7 @@ export async function acceptInvitation(ctx: Pick<Context, "db" | "env" | "limits
   // An invitation to an address is that address's: any other account is told to sign in with the address it was sent
   // to, and learns nothing more (not the address, not the project beyond what the page already shows).
   if (working.email !== null && !sameAddress(working.email, accepter.email)) throw otherAddress();
+  await requireAdult(ctx.db, userId, options.confirmAdult);
   const businessId = working.businessId;
   const result = await ctx.db.transaction(async (tx) => {
     const existing = await repos.memberships.get(tx, businessId, userId);

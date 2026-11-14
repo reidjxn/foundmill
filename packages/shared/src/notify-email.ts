@@ -11,6 +11,7 @@
  * gateway route, picked by the orchestrator's notifier; their words are in `notify-words.ts`.
  */
 import type { EmailNotificationKind } from "./constants";
+import { postalAddressLine } from "./platform-mail";
 
 /** A note has to wait this long, unopened by the person, before they are emailed about it. */
 export const NOTIFY_WAIT_MS = 24 * 60 * 60 * 1000;
@@ -81,6 +82,8 @@ export interface DecisionWaitingFacts {
   pauseLink?: string;
   /** A one-click answer (retention plan; founder 2026-11-11): the recommended, reversible, free option; absent: none. */
   answer?: { label: string; consequence: string; link: string } | null;
+  /** Foundmill's registered postal address (`APP_POSTAL_ADDRESS`), in every email it sends (US CAN-SPAM). */
+  postalAddress: string;
 }
 
 export interface NotifyEmailText {
@@ -154,14 +157,15 @@ export function decisionWaitingEmail(f: DecisionWaitingFacts): NotifyEmailText {
   const answer = f.answer ? { label: oneLine(withoutLinks(f.answer.label), 80), consequence: oneLine(withoutLinks(f.answer.consequence), 300), link: f.answer.link } : null;
   const answerText = answer ? `\n\nAnswer “${answer.label}”: ${answer.link}\nThis is the recommended answer and can be changed later${answer.consequence ? `: ${answer.consequence}` : "."}` : "";
   const pauseText = f.pauseLink ? `\nPause every email: ${f.pauseLink}` : "";
-  const text = `${hi}\n\n${lead}\n${quoted}\n\nOpen it: ${f.link}${answerText}\n\n${NOTIFY_NO_REPLY_LINE}\n\n--\n${footer}${pauseText}`;
+  const postal = postalAddressLine(`${f.appName}, ${f.postalAddress}`);
+  const text = `${hi}\n\n${lead}\n${quoted}\n\nOpen it: ${f.link}${answerText}\n\n${NOTIFY_NO_REPLY_LINE}\n\n--\n${footer}${pauseText}\n${postal}`;
   const html = [
     `<p>${escapeHtml(hi)}</p>`,
     `<p>${escapeHtml(lead)}<br>${escapeHtml(quoted)}</p>`,
     `<p><a href="${href(f.link)}">Open it</a></p>`,
     ...(answer ? [`<p><a href="${href(answer.link)}">Answer “${escapeHtml(answer.label)}”</a><br>${escapeHtml(`This is the recommended answer and can be changed later${answer.consequence ? `: ${answer.consequence}` : "."}`)}</p>`] : []),
     `<p>${escapeHtml(NOTIFY_NO_REPLY_LINE)}</p>`,
-    `<hr><p>You get this because you are part of ${escapeHtml(project)} on ${escapeHtml(f.appName)}. <a href="${href(f.offLink)}">Turn these emails off</a>${f.pauseLink ? ` · <a href="${href(f.pauseLink)}">Pause every email</a>` : ""}</p>`,
+    `<hr><p>You get this because you are part of ${escapeHtml(project)} on ${escapeHtml(f.appName)}. <a href="${href(f.offLink)}">Turn these emails off</a>${f.pauseLink ? ` · <a href="${href(f.pauseLink)}">Pause every email</a>` : ""}<br>${escapeHtml(postal)}</p>`,
   ].join("");
   return { subject: `${project} needs your answer`, text, html };
 }

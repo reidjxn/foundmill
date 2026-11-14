@@ -85,6 +85,9 @@ describe("follow confirmation (gateway)", () => {
     expect(FOLLOW_CONFIRM_EMAIL.text("Gateway Test Club", APP_NAME, link![0], builtOnWords(APP_NAME).foot("Gateway Test Club")).match(/https?:\/\//g)).toHaveLength(1);
     // The unsubscribe footer and header are there like on every message from the address.
     expect(body.headers["List-Unsubscribe"]).toMatch(/\/mail\/unsubscribe\?t=/);
+    // Double opt-in is transactional (US CAN-SPAM): it goes out though the founders entered no postal address.
+    expect(await repos.postalAddress.addressOf(g.db, g.businessId)).toBeNull();
+    expect(body.text).not.toContain("Postal address");
     const claims = readFollowConfirmToken(DEV_PLATFORM_MAIL_SECRET, decodeURIComponent(link![1]!), Date.now());
     expect(claims).toMatchObject({ businessId: g.businessId, consentId: f.consentId, emailHash: suppressionHashOfEmail("maya@example.com"), nonce: f.nonce });
     // Seven days.
@@ -155,7 +158,9 @@ describe("follow confirmation (gateway)", () => {
     expect(g.rateLimits.peek(PLATFORM_MAIL_CEILING_KEY, Date.now())).toBe(usedAll);
     expect(g.rateLimits.peek(followConfirmDayKey(g.businessId), Date.now())).toBeGreaterThanOrEqual(3);
     expect(g.rateLimits.peek(FOLLOW_CONFIRM_CEILING_KEY, Date.now())).toBeGreaterThanOrEqual(3);
-    // The founders' own send from the project's address still has its day.
+    // The founders' own send from the project's address still has its day (a marketing email needs their postal address,
+    // US CAN-SPAM, so it is on record first).
+    await repos.postalAddress.set(g.db, g.businessId, { address: "PO Box 1234, Springfield, IL 62701, USA", userId: null });
     const business = (await repos.businesses.get(g.db, g.businessId))!;
     const decision = await preparePlatformMail(
       { db: g.db, rateLimits: g.rateLimits, config: g.deps.platformMail, appEnv: "test" },
@@ -211,6 +216,8 @@ describe("follow confirmation (gateway)", () => {
   it("an agent's send to a follower who never confirmed is refused like an address first seen in untrusted content", async () => {
     const f = await pendingFollower("unconfirmed@example.com");
     const token = await g.token({ allowedTools: ["platform_mail:*"] });
+    // A marketing message: it needs the founders' postal address (US CAN-SPAM).
+    await repos.postalAddress.set(g.db, g.businessId, { address: "PO Box 1234, Springfield, IL 62701, USA", userId: null });
     const message = (to: string) => ({ connector: "platform_mail", tool: "send_mail", args: { to: { email: to }, subject: "News", text: "Hello from the project." } });
     const r = (await g.client.call(token, message("Unconfirmed@Example.com"))) as DenyResponse;
     expect(r.outcome).toBe("deny");

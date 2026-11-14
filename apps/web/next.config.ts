@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 import { canonicalHostRedirects, canonicalOrigin } from "./lib/auth/canonical-origin";
 import { parsePublicEnv } from "./lib/env";
-import { apiRewrites, SAME_ORIGIN_API_HEADERS, SAME_ORIGIN_TRPC_PATH } from "./lib/same-origin-api";
+import { apiRewrites, SAME_ORIGIN_API_HEADERS, SAME_ORIGIN_POST_MEDIA_PATH, SAME_ORIGIN_TRPC_PATH } from "./lib/same-origin-api";
 import { securityHeaders } from "./lib/security-headers";
 
 /**
@@ -42,6 +42,7 @@ const nextConfig: NextConfig = {
   headers: async () => [
     { source: "/:path*", headers: securityHeaders(env, { dev: process.env.NODE_ENV !== "production" }) },
     { source: `${SAME_ORIGIN_TRPC_PATH}/:path*`, headers: [...SAME_ORIGIN_API_HEADERS] },
+    { source: `${SAME_ORIGIN_POST_MEDIA_PATH}/:token`, headers: [...SAME_ORIGIN_API_HEADERS] },
   ],
   // The API URL the browser bundle uses (the same default when unset), read at build time like every NEXT_PUBLIC_*.
   rewrites: async () => apiRewrites(parsePublicEnv(env).apiUrl),

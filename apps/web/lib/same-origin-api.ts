@@ -17,9 +17,20 @@
 /** Where the browser sends its reads (relative to the page's origin). `proxy.ts` leaves it alone (its matcher). */
 export const SAME_ORIGIN_TRPC_PATH = "/api/trpc";
 
-/** next.config.ts `rewrites`: the same-origin path to the API's tRPC endpoint. */
+/**
+ * A post draft's media (the API's `GET /post-media/:token`, a signed link to one file): served from this origin so a
+ * <video> element, a "Save" link (the `download` attribute works only on the page's own origin) and the device's share
+ * sheet can all read it. `proxy.ts` leaves it alone too: the token is the key, no session is needed.
+ */
+export const SAME_ORIGIN_POST_MEDIA_PATH = "/api/post-media";
+
+/** next.config.ts `rewrites`: the same-origin paths to the API's tRPC endpoint and its post media route. */
 export function apiRewrites(apiUrl: string): { source: string; destination: string }[] {
-  return [{ source: `${SAME_ORIGIN_TRPC_PATH}/:path*`, destination: `${apiUrl.replace(/\/+$/, "")}/trpc/:path*` }];
+  const api = apiUrl.replace(/\/+$/, "");
+  return [
+    { source: `${SAME_ORIGIN_TRPC_PATH}/:path*`, destination: `${api}/trpc/:path*` },
+    { source: `${SAME_ORIGIN_POST_MEDIA_PATH}/:token`, destination: `${api}/post-media/:token` },
+  ];
 }
 
 /**

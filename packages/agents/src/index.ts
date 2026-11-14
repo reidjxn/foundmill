@@ -20,6 +20,7 @@ export * from "./design-check";
 export * from "./second-read";
 export * from "./post-draft";
 export * from "./showcase-script";
+export * from "./post-media";
 export * from "./plan-import";
 export * from "./ideation";
 export * from "./registry";
