@@ -143,6 +143,14 @@ export const EVENT_WALLS = {
   "invitation.sent": { sections: ["team"] },
   "invitation.accepted": { sections: ["team"] },
   "invitation.declined": { sections: ["team"] },
+  // Showcase videos (0105). In the house: its asks and the draft post they lead to (Customers › Creative). In a project:
+  // that an ask went out and how it settled, ids and the overall state only, filed with Settings so that a collaborator
+  // (who has none) hears nothing of the founders' ask.
+  "showcase.requested": { sections: ["distribution"] },
+  "showcase.approved": { sections: ["distribution"] },
+  "showcase.withdrawn": { sections: ["distribution"] },
+  "showcase.asked": { sections: ["settings"] },
+  "showcase.settled": { sections: ["settings"] },
 } as const satisfies { readonly [K in BusinessEventType]: EventWall };
 
 /** What one reader may see of business events: their walls (sections they may not read at all). */
