@@ -9,6 +9,11 @@
 import { interactions, repos } from "@foundmill/db";
 import { PAGE_QUIZ_MIN_CUSTOMERS, type PageQuizDefinition, type ProjectPageContent } from "@foundmill/shared";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { z } from "zod";
+import { AnswersInput } from "../routers/page-quiz";
+import { boundedIssues, issueSummary } from "../trpc";
+import superjson from "superjson";
+import { createApp } from "../app";
 import { answerPublicQuiz, PUBLIC_QUIZ_LIMITS, publicQuizLimitKeys } from "../services/page-quiz";
 import { createApiHarness, type ApiHarness } from "./harness";
 
@@ -236,5 +241,57 @@ describe("pageQuiz: security review fixes (Nov 13, 2026)", () => {
     await b.owner.page.publish({ businessId: b.id, content: page({ followForm: false }) });
     await expect(b.owner.pageQuiz.setLive({ businessId: b.id, on: true })).rejects.toThrow(/no Follow form/);
     expect((await repos.pageQuizzes.get(hz.db, b.id))?.status).toBe("approved");
+  });
+});
+
+describe("pageQuiz: a signed-out answer cannot make zod build an issue per key (GHSA-mrhx-c7xc-m3w5)", () => {
+  // 150,000 junk keys: about 1.6 MB, under the api's 2 MB body limit.
+  const junk = () => Object.fromEntries(Array.from({ length: 150_000 }, (_, i) => [`k${i}`, 1]));
+
+  it("oversized or odd answers are one short issue; one answer per question still parses as before", () => {
+    const refused = AnswersInput.safeParse(junk());
+    expect(refused.success).toBe(false);
+    expect(refused.error!.issues).toHaveLength(1);
+    expect(JSON.stringify(refused.error!.issues).length).toBeLessThan(500);
+    for (const odd of [{ q5: "a1" }, { q1: "a1234" }, { __proto__: null, q1: "a1" }, new Map([["q1", "a1"]]), ["a1"], null, "q1", { q1: "a1", q2: "a1", q3: "a1", q4: "a1", q5: "a1" }]) {
+      expect(AnswersInput.safeParse(odd).success, JSON.stringify(odd)).toBe(false);
+    }
+    expect(AnswersInput.safeParse(JSON.parse('{"__proto__":"a1"}')).success).toBe(false);
+    expect(AnswersInput.parse({ q1: "a1", q3: "a2" })).toEqual({ q1: "a1", q3: "a2" });
+    expect(AnswersInput.parse({ q1: "a1", q2: "a2", q3: "a3", q4: "a4" })).toEqual({ q1: "a1", q2: "a2", q3: "a3", q4: "a4" });
+    expect(AnswersInput.parse({})).toEqual({});
+  });
+
+  it("through the signed-out route: refused as a bad request, with an error that stays small", async () => {
+    const err = await anon()
+      .publicQuiz.answer({ slug: "any-project", version: 1, answers: junk() as never })
+      .then(() => null, (e: unknown) => e as { code?: string; message: string; shape?: unknown });
+    expect(err?.code).toBe("BAD_REQUEST");
+    expect(err!.message.length).toBeLessThan(1_000);
+    expect(JSON.stringify(err!.shape ?? {}).length).toBeLessThan(10_000);
+  });
+
+  it("over HTTP, as a visitor sends it: a 400 whose body stays small, not a copy of every key", async () => {
+    const body = JSON.stringify(superjson.serialize({ slug: "any-project", version: 1, answers: junk() }));
+    expect(body.length).toBeLessThan(2 * 1024 * 1024);
+    const res = await createApp(hz.deps).request("/trpc/publicQuiz.answer", { method: "POST", headers: { "content-type": "application/json" }, body });
+    expect(res.status).toBe(400);
+    expect((await res.text()).length).toBeLessThan(10_000);
+  });
+
+  it("any procedure's error is bounded: at most 20 issues, short messages, at most 20 unknown keys each", () => {
+    const many = z.array(z.string()).safeParse(new Array(5_000).fill(1)).error!.issues;
+    expect(boundedIssues(many)).toHaveLength(20);
+    expect(issueSummary(many)).toMatch(/and 4990 more$/);
+    const keys = z.strictObject({}).safeParse(Object.fromEntries(Array.from({ length: 500 }, (_, i) => [`k${i}`, 1]))).error!.issues;
+    const [bounded] = boundedIssues(keys) as { keys: string[]; message: string }[];
+    expect(bounded!.keys).toHaveLength(20);
+    expect(bounded!.message.length).toBeLessThanOrEqual(200);
+  });
+
+  it("zod stops at an array's length limit (4.6.6 and later): the upgrade is in force", () => {
+    const refused = z.array(z.string()).max(50).safeParse(new Array(500_000).fill(1));
+    expect(refused.success).toBe(false);
+    expect(refused.error!.issues).toHaveLength(1);
   });
 });
