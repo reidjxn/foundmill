@@ -1,5 +1,5 @@
 /**
- * The house's Creative tab and a showcase post (0105; security review finding 1): a share window opens the moment a
+ * The house's Creative tab and a showcase post (0103; security review finding 1): a share window opens the moment a
  * control is pressed and is only reported afterwards, so the tab awaits `showcase.shareCheck` BEFORE it opens anything.
  * On a refusal nothing opens and the reason is said; on a yes the panel offers only the networks the founders approved,
  * with the words fixed and no share without a network.

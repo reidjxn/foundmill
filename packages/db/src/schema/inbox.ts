@@ -30,7 +30,7 @@ export const inboxItems = pgTable(
     costMinor: minor("cost_minor").notNull().default(0),
     currency: pricingCurrency(),
     /**
-     * 0105 — a note for one person only (a founder's own showcase ask). Null: a note for everyone who reads the Inbox, as
+     * 0103 — a note for one person only (a founder's own showcase ask). Null: a note for everyone who reads the Inbox, as
      * every note before it. A restrictive policy keeps it out of every other client's reads and writes.
      */
     forUserId: uuid("for_user_id").references(() => authUsers.id, { onDelete: "cascade" }),

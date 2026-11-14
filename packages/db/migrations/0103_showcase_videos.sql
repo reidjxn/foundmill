@@ -1,8 +1,8 @@
--- 0105 — showcase videos of real projects (docs/THESIS_REVIEW.md §13 item 15; approved by the network session, Nov 13,
+-- 0103 — showcase videos of real projects (docs/THESIS_REVIEW.md §13 item 15; approved by the network session, Nov 13,
 -- 2026). Foundmill's own business (the house, packages/config `HOUSE_BUSINESS_ID`) asks a project with a real, public
 -- milestone whether it may post a short video made only from the project's public story; every founder of the project
 -- approves the final video, and any one founder's No, Withdraw or departure overrides the others' yes. The number is a
--- placeholder (0105); the final number is set at rebase.
+-- placeholder (0103); the final number is set at rebase.
 --
 -- `showcase_requests` — business-scoped to the HOUSE: one row per ask, its overall state only, never who said what.
 --   `subject_business_id` the project; `preview` the snapshot of exactly what would be posted (the shots, the post's

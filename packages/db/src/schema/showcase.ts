@@ -1,6 +1,6 @@
 /**
- * 0105 — showcase videos of real projects (docs/THESIS_REVIEW.md §13 item 15). The SQL is the source of truth and holds
- * the rules (migrations/0105_showcase_videos.sql); these mirror it.
+ * 0103 — showcase videos of real projects (docs/THESIS_REVIEW.md §13 item 15). The SQL is the source of truth and holds
+ * the rules (migrations/0103_showcase_videos.sql); these mirror it.
  *
  *   - `showcaseRequests`: business-scoped to the house (`HOUSE_BUSINESS_ID`): one ask about one project, its overall
  *     state only. House members read it; only the api writes it, on the service connection.

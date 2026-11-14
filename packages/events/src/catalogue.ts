@@ -1981,13 +1981,13 @@ const invitationDeclined = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
-// Showcase videos of real projects (0105; docs/THESIS_REVIEW.md §13 item 15). Ids only, never narrated, and no event
+// Showcase videos of real projects (0103; docs/THESIS_REVIEW.md §13 item 15). Ids only, never narrated, and no event
 // carries an individual founder's answer: the house's three are about its request, the project's two about the ask.
 // None is an outside result (the north star counts a post only when it is made, which the product cannot see).
 // ---------------------------------------------------------------------------------------------------
 
 const ShowcaseRequestFacts = z.object({
-  /** The house's request (0105 `showcase_requests`). */
+  /** The house's request (0103 `showcase_requests`). */
   requestId: Id,
   /** The project it is about. */
   subjectBusinessId: Id,

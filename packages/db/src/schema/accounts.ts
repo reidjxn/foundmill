@@ -255,7 +255,7 @@ export const businesses = pgTable(
      */
     distributionStartedAt: tstz("distribution_started_at"),
     /**
-     * 0105 — "Foundmill may ask to feature this project" (showcase videos). Null until the founders choose; null reads as
+     * 0103 — "Foundmill may ask to feature this project" (showcase videos). Null until the founders choose; null reads as
      * packages/config `SHOWCASE_MAY_ASK_DEFAULT` (`showcaseMayAsk`). Written by the api only.
      */
     showcaseMayAsk: boolean("showcase_may_ask"),

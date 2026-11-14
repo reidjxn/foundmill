@@ -232,7 +232,7 @@ export async function main(): Promise<void> {
   // The idea box's unclaimed cards are deleted after 7 days (90 on the waitlist), at boot and every hour (docs/IDEA_BOX.md).
   void bootWork.then(() => {
     if (migrated && !lifecycle.stopping) ideaSweep = startIdeaBoxSweep(deps);
-    // Showcase videos (0105): asks that ran out, approvals that lapsed, clips to follow, founders who changed.
+    // Showcase videos (0103): asks that ran out, approvals that lapsed, clips to follow, founders who changed.
     if (migrated && !lifecycle.stopping) showcaseSweep = startShowcaseSweep(deps);
   });
   // Email from Foundmill to a person (packages 1.5 and 5.1): a note that waited a day for their answer, at boot and every

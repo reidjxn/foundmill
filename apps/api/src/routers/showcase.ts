@@ -1,5 +1,5 @@
 /**
- * showcase.* — showcase videos of real projects (services/showcase.ts; migration 0105). Two sides, each a business
+ * showcase.* — showcase videos of real projects (services/showcase.ts; migration 0103). Two sides, each a business
  * procedure checked again in the service:
  *   - the house (`HOUSE_BUSINESS_ID`), its owners only: `candidates`, `request`, `list`, `withdraw`;
  *   - a project, its founders only (an owner's standing): `ask` (their own ask and nothing of anyone else's),

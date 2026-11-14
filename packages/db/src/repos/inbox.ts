@@ -178,7 +178,7 @@ function stateFor(viewerId?: string | null): SQL<InboxState> {
 }
 
 /**
- * Whose notes a read may see (0105 `for_user_id`): with a viewer, the notes for everyone and the viewer's own; without
+ * Whose notes a read may see (0103 `for_user_id`): with a viewer, the notes for everyone and the viewer's own; without
  * one (the orchestrator, the composer, the push notifier on the privileged connection, which RLS does not narrow), the
  * notes for everyone only. A founder's own showcase ask is never read for, or shown to, anyone else.
  */

@@ -1,6 +1,6 @@
 "use client";
 /**
- * A founder's own showcase ask in Needs you (0105; docs/THESIS_REVIEW.md §13 item 15): the note's reading pane shows
+ * A founder's own showcase ask in Needs you (0103; docs/THESIS_REVIEW.md §13 item 15): the note's reading pane shows
  * exactly what would be posted and the founder answers signed in (`showcase.answer`, `showcase.withdrawMine`), never
  * through a one-click link. Each founder reads only their own ask; the api refuses anyone else.
  */

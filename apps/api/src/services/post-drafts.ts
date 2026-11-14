@@ -140,7 +140,7 @@ export async function teamPostShares(tx: Executor, scope: { businessId: string; 
   const page = pageRow && published ? { origin: scope.appUrl, slug: pageRow.slug, projectName: scope.businessName, pitch: published.pitch } : null;
   const shown = page ? await repos.teamPosts.shownMilestoneIds(tx, scope.businessId, posts.filter((p) => p.ref.trigger === "milestone_shown").map((p) => p.ref.refId)) : new Set<string>();
   for (const { asset, ref } of posts) {
-    // A showcase post (the house's, 0105) is offered only while its gate passes, with the words and link the founders approved.
+    // A showcase post (the house's, 0103) is offered only while its gate passes, with the words and link the founders approved.
     if (ref.trigger === "showcase_approved") {
       const draft = await showcaseShareDraft(tx, scope.businessId, asset.id, new Date());
       if (draft) out.set(asset.id, draft);

@@ -14,7 +14,7 @@
  *   signal: each group has its heading and its sentence.
  * - Where the browser offers the device's own share sheet, "Share…" comes first, and is never the only way.
  * - `onShare` is told which control was pressed (never the words). It is called and not waited on.
- * - `only`: a post approved for given networks (a showcase video every founder of a project said yes to, 0105). Only
+ * - `only`: a post approved for given networks (a showcase video every founder of a project said yes to, 0103). Only
  *   those networks are offered, the words cannot be changed (the founders approved these words), and nothing goes out
  *   without a network: no device sheet, no plain copy, no message apps.
  */

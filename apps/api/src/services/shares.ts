@@ -18,7 +18,7 @@
  * - Limited per person (`SHARE_OPENED_LIMIT`), so a held-down key cannot flood the outbox. Over the limit, and for
  *   anything that is not recorded, the answer is `{ recorded: false }` and never an error: the web calls this after the
  *   share itself and does not wait on it.
- * - A showcase post (the house's post of a video every founder approved, 0105) is refused unless the showcase gate
+ * - A showcase post (the house's post of a video every founder approved, 0103) is refused unless the showcase gate
  *   passes (services/showcase.ts `showcaseShareGate`) and the press names a network the founders were shown (never a
  *   copy or the device's sheet). A refused press is still recorded first, and one after a withdrawal tells the house
  *   where to take it down from; the refusal is an error, so the share control says why. The Creative tab awaits

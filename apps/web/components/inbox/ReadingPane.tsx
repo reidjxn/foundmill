@@ -560,7 +560,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
 
         <InboxNote bodyMd={item.bodyMd} />
 
-        {/* A founder's own showcase ask (0105): watched and answered here, signed in. */}
+        {/* A founder's own showcase ask (0103): watched and answered here, signed in. */}
         {isShowcaseConsentDecision(item.decision) ? <ShowcaseConsentPanel businessId={businessId} inboxItemId={item.id} /> : null}
 
         {approval ? <ApprovalPanel approval={approval} businessId={businessId} departments={departments} reason={reason} onReasonChange={setReason} answered={isAnswered || decide.isPending} /> : null}

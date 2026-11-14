@@ -2,7 +2,7 @@ import { expect, test, type Page, type Route } from "@playwright/test";
 import { LONG, NORTHWIND_BUSINESS_ID, dismissCoachmarks, openBusiness } from "./helpers";
 
 /**
- * A founder's own showcase ask in Needs you (0105; docs/THESIS_REVIEW.md §13 item 15), at 390 px and at 1280 px. The
+ * A founder's own showcase ask in Needs you (0103; docs/THESIS_REVIEW.md §13 item 15), at 390 px and at 1280 px. The
  * test stack has no house business and no Runway, so no real ask can go out here (a simulated clip never goes out for a
  * yes, and the api suite covers the whole path): the note and the ask are replayed onto a real Northwind note, the way
  * settings-plain.spec.ts replays a live connector. The founder sees exactly what would be posted (the video, the words,

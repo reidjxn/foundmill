@@ -1,6 +1,6 @@
 "use client";
 /**
- * Settings › Business: "Foundmill may ask to feature this project" (0105, showcase videos). On by default (one value in
+ * Settings › Business: "Foundmill may ask to feature this project" (0103, showcase videos). On by default (one value in
  * packages/config). It only lets Foundmill ask: every founder sees the final video and nothing is posted without each
  * one's yes. A founder switches it off; switching it off withdraws an open ask at once.
  */

@@ -103,7 +103,7 @@ export function assetSharedByTap(asset: Pick<AssetRow, "kind" | "body" | "approv
   return !!campaign && tapChannelIds.has(campaign.channelId);
 }
 
-/** The house's post of a showcase video every founder of a project approved (0105): shared only after its check. */
+/** The house's post of a showcase video every founder of a project approved (0103): shared only after its check. */
 export function showcasePostOf(asset: Pick<Partial<AssetRow>, "contentRef">): boolean {
   return parseTeamPostRef(asset.contentRef)?.trigger === "showcase_approved";
 }

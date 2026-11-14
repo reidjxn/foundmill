@@ -1,5 +1,5 @@
 /**
- * Showcase videos of real projects (0105; docs/THESIS_REVIEW.md §13 item 15). Service connection only: apps/api writes
+ * Showcase videos of real projects (0103; docs/THESIS_REVIEW.md §13 item 15). Service connection only: apps/api writes
  * both tables, on behalf of the house's owners and of the project's founders after it has checked who they are. The
  * founders' own reads of their row go through RLS (`showcase_consents_select`: their own row, while they hold an
  * owner's standing).
@@ -221,7 +221,7 @@ export const showcaseRepo = {
       .where(and(eq(inboxItems.businessId, businessId), eq(inboxItems.id, inboxItemId), inArray(inboxItems.state, ["unread", "read", "answered"])));
   },
 
-  /** A founder's own ask in the project's Needs you: a decision note for that person only (0105 `for_user_id`). */
+  /** A founder's own ask in the project's Needs you: a decision note for that person only (0103 `for_user_id`). */
   async createNote(db: Executor, businessId: string, input: { forUserId: string; subject: string; bodyMd: string; decision: ShowcaseConsentDecision }): Promise<InboxItem> {
     const [row] = await db.insert(inboxItems).values({ businessId, type: "decision", subject: input.subject, bodyMd: input.bodyMd, decision: input.decision as unknown as Record<string, unknown>, forUserId: input.forUserId }).returning();
     return row!;

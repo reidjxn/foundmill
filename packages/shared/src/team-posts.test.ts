@@ -57,7 +57,7 @@ describe("the reference a team post carries", () => {
   it("is only ever about a real result recorded from one event: never a customer, a count or money", () => {
     expect([...TEAM_POST_SUBJECTS]).toEqual(["page_live", "first_follower"]);
     expect(TEAM_POST_SUBJECT_LABELS).toEqual({ page_live: "Page live", first_follower: "First follower" });
-    // Append-only: `showcase_approved` (0105) is the house's post of a video every founder approved.
+    // Append-only: `showcase_approved` (0103) is the house's post of a video every founder approved.
     expect([...TEAM_POST_TRIGGERS]).toEqual(["page_published", "milestone_shown", "first_follower", "showcase_approved"]);
   });
 

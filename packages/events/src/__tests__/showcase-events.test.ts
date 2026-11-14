@@ -1,5 +1,5 @@
 /**
- * Showcase videos (0105): the house's `showcase.requested`, `showcase.approved`, `showcase.withdrawn` and the project's
+ * Showcase videos (0103): the house's `showcase.requested`, `showcase.approved`, `showcase.withdrawn` and the project's
  * `showcase.asked`, `showcase.settled` reach a metrics consumer through the outbox as typed events; a malformed one,
  * and one that tries to carry a founder's own answer, are refused at write time. None is narrated.
  */

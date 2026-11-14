@@ -1,6 +1,6 @@
 /**
  * Showcase videos of real projects (docs/THESIS_REVIEW.md §13 item 15; approved by the network session, Nov 13, 2026;
- * migration 0105). Foundmill's own business (the house, `HOUSE_BUSINESS_ID`) asks a project with a real, public
+ * migration 0103). Foundmill's own business (the house, `HOUSE_BUSINESS_ID`) asks a project with a real, public
  * milestone whether it may post a short video made only from the project's public story.
  *
  * - **Who asks.** Only people with an owner's standing in the house (`isOwnerRole`, never an example membership).
@@ -17,7 +17,7 @@
  *   `get_video_task` then follows each clip. A mock (simulated) result stays simulated and never goes out for a yes;
  *   without Runway the request simply waits for its media. A storyboard is never sent for consent.
  * - **The ask.** Once the media is final, every person with an owner's standing in the project gets their own note in
- *   the project's Needs you (0105 `for_user_id`; the waiting-note email opens it) and answers it signed in. Each
+ *   the project's Needs you (0103 `for_user_id`; the waiting-note email opens it) and answers it signed in. Each
  *   founder's row is theirs alone. An unanswered ask expires after 14 days; an approval lapses after 30.
  * - **From approval to post.** Every current founder's yes on the same video writes the house's draft post (trigger
  *   `showcase_approved`). It is shared only by a person's tap in the house, and only through `showcaseShareGate`:

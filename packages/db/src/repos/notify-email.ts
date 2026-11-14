@@ -56,7 +56,7 @@ export const notifyEmailRepo = {
           needsAnswer,
           lte(inboxItems.createdAt, input.olderThan),
           gte(inboxItems.createdAt, input.since),
-          // 0105: a note for one person (a founder's showcase ask) is that person's only.
+          // 0103: a note for one person (a founder's showcase ask) is that person's only.
           or(isNull(inboxItems.forUserId), eq(inboxItems.forUserId, memberships.userId)),
           // Qualified by hand (inbox.ts `stateFor`): the receipt is the person's own, for this note.
           sql`not exists (select 1 from "inbox_item_reads" "r" where "r"."inbox_item_id" = "inbox_items"."id" and "r"."user_id" = "memberships"."user_id")`,

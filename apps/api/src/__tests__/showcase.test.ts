@@ -1,5 +1,5 @@
 /**
- * Showcase videos of real projects (services/showcase.ts; migration 0105), end to end through the api's procedures:
+ * Showcase videos of real projects (services/showcase.ts; migration 0103), end to end through the api's procedures:
  *
  *   - only the house's owners ask; only an eligible project is asked (a sample, a hidden milestone, a recent ask and a
  *     project whose founders switched the setting off are refused);

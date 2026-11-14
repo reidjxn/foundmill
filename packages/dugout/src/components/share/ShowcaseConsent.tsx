@@ -1,6 +1,6 @@
 "use client";
 /**
- * A founder's own ask about a showcase video (docs/THESIS_REVIEW.md §13 item 15; 0105): exactly what would be posted
+ * A founder's own ask about a showcase video (docs/THESIS_REVIEW.md §13 item 15; 0103): exactly what would be posted
  * (the video, the post's words, the link and the networks), the sentence that a posted video cannot be pulled back,
  * and the founder's own answer. Nothing about any other founder's answer is shown, because nothing about it is known
  * here. It reads from 390 px (Needs you is outer product): one column, 44 px controls, nothing wider than the screen.

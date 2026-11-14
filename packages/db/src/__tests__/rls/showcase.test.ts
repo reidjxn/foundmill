@@ -1,5 +1,5 @@
 /**
- * 0105 — showcase videos: `showcase_requests` (the house's), `showcase_consents` (the project's, one row per founder),
+ * 0103 — showcase videos: `showcase_requests` (the house's), `showcase_consents` (the project's, one row per founder),
  * `businesses.showcase_may_ask` and `inbox_items.for_user_id`. The migration's header states the rules:
  *
  *   - house members read the house's requests (tenant RLS); the project cannot read them;
@@ -50,7 +50,7 @@ afterAll(() => h?.close());
 const requestsAs = (userId: string) => h.asUser(userId).run((tx) => tx.select({ id: s.showcaseRequests.id }).from(s.showcaseRequests));
 const consentsAs = (userId: string) => h.asUser(userId).run((tx) => tx.select({ id: s.showcaseConsents.id }).from(s.showcaseConsents));
 
-describe("showcase_requests 0105: the house's, read by its members, written by the service only", () => {
+describe("showcase_requests 0103: the house's, read by its members, written by the service only", () => {
   it("a house member reads the house's requests; the project's people read none", async () => {
     expect((await requestsAs(house.ownerId)).map((r) => r.id)).toEqual([requestId]);
     expect((await requestsAs(house.memberId)).map((r) => r.id)).toEqual([requestId]);
@@ -78,7 +78,7 @@ describe("showcase_requests 0105: the house's, read by its members, written by t
   });
 });
 
-describe("showcase_consents 0105: each founder reads their own row only", () => {
+describe("showcase_consents 0103: each founder reads their own row only", () => {
   it("the owner reads their own row and not the cofounder's; the cofounder reads theirs and not the owner's", async () => {
     expect((await consentsAs(project.ownerId)).map((r) => r.id)).toEqual([ownerConsentId]);
     expect((await consentsAs(cofounder)).map((r) => r.id)).toEqual([cofounderConsentId]);
@@ -120,7 +120,7 @@ describe("showcase_consents 0105: each founder reads their own row only", () => 
   });
 });
 
-describe("businesses.showcase_may_ask and inbox_items.for_user_id 0105", () => {
+describe("businesses.showcase_may_ask and inbox_items.for_user_id 0103", () => {
   it("the setting starts unset (the config's default decides)", async () => {
     const [row] = await h.service().run((tx) => tx.select({ v: s.businesses.showcaseMayAsk }).from(s.businesses).where(eq(s.businesses.id, project.businessId)));
     expect(row!.v).toBeNull();

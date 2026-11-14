@@ -245,7 +245,7 @@ export const NON_TENANT_TABLES = [
   // are not readable by a client, so the generic suite cannot select them); both in rls/invitations.test.ts.
   "account_admissions",
   "invitations",
-  // 0105: showcase requests (the house's, written by the service only) and consents (one founder's own row, read only
+  // 0103: showcase requests (the house's, written by the service only) and consents (one founder's own row, read only
   // by that founder); both in rls/showcase.test.ts.
   "showcase_requests",
   "showcase_consents",

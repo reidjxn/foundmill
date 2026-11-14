@@ -71,7 +71,7 @@ export async function createBusinessFixture(h: TestHarness, slug: string): Promi
   // An established business (channels running, campaigns live): its founder started distribution (0062). A test about the
   // first days commits a fresh business instead, which starts with distribution not started.
   // Named columns, not the schema's insert: the migration-point suites build this fixture on a database from before
-  // 0105, whose businesses have no `showcase_may_ask` yet.
+  // 0103, whose businesses have no `showcase_may_ask` yet.
   const business = first(
     ((await db.execute(sql`insert into businesses (name, slug, created_by, archetype, distribution_started_at) values (${slug.toUpperCase()}, ${slug}, ${ownerId}, 'b2b_saas', ${"2026-01-01T00:00:00Z"}::timestamptz) returning id`)) as unknown as { rows: { id: string }[] }).rows,
     "businesses",
@@ -119,7 +119,7 @@ export async function createBusinessFixture(h: TestHarness, slug: string): Promi
 
   const specBlock = first(await db.insert(s.specBlocks).values({ businessId, section: "vision", position: 0 }).returning({ id: s.specBlocks.id }), "spec_blocks");
 
-  // Named columns (as for businesses above): before 0105 inbox_items has no `for_user_id`.
+  // Named columns (as for businesses above): before 0103 inbox_items has no `for_user_id`.
   const inboxItem = first(
     ((await db.execute(sql`insert into inbox_items (business_id, type, subject, from_agent_id, body_md) values (${businessId}, 'decision', 'Pick a channel', ${agent.id}, 'Two options.') returning id`)) as unknown as { rows: { id: string }[] }).rows,
     "inbox_items",
