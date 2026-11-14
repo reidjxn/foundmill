@@ -167,6 +167,7 @@ test.describe("foundations", () => {
     await expect(inboxRow(page, "Where should the team start with what you imported?")).toBeVisible({ timeout: LONG });
     await inboxRow(page, "Where should the team start with what you imported?").click();
     await expect(page.getByTestId("inbox-item")).toHaveAttribute("data-type", "decision", { timeout: LONG });
-    expect(await page.getByTestId("decision-bar").getByRole("group", { name: "Options" }).getByRole("button").count()).toBeGreaterThanOrEqual(2);
+    // At least two options: wait for the second (a bare count() reads the bar before its options render).
+    await expect(page.getByTestId("decision-bar").getByRole("group", { name: "Options" }).getByRole("button").nth(1)).toBeVisible({ timeout: LONG });
   });
 });

@@ -280,7 +280,9 @@ test.describe("entity profile for a collaborator", () => {
     // The seed's sample business takes no invitations, so its paying customers are read with the api's answer for a
     // reader walled off Finance (amountMinor null, moneyHidden), which the test above gets from the api itself.
     await openBusiness(page, "crm");
-    await page.getByTestId("crm-search-input").fill("role:customer");
+    // Only the customers who have paid (stage "customer"; the seed gives one who has not "activated" or "signed_up"): the
+    // list is newest first, and the records other specs add before this one would push the seed's payers off the page.
+    await page.getByTestId("crm-search-input").fill("role:customer stage:customer");
     await page.keyboard.press("Enter");
     const rows = page.getByRole("grid", { name: "CRM records" }).getByRole("row");
     await expect(rows.nth(1).getByRole("link").first()).toBeVisible({ timeout: LONG });
@@ -289,7 +291,7 @@ test.describe("entity profile for a collaborator", () => {
       const href = await rows.nth(i).locator("a[href*='/crm/'][href$='/overview']").first().getAttribute("href").catch(() => null);
       if (href) hrefs.push(href.replace(/\/overview$/, "/commercial"));
     }
-    // Not every customer has paid yet (a signup or an activation): the first one whose Commercial tab lists a payment.
+    // Each of them has paid: the first whose Commercial tab has loaded its payments.
     const payments = page.getByTestId("commercial-payments");
     let commercial = "";
     for (const href of hrefs) {
