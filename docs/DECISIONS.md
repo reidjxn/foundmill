@@ -4462,7 +4462,15 @@ The month's balance row stays the one balance, and `credit_lots` tracks the boug
 
 `events_select` admits a collaborator only to the types on `fm_collaborator_event_types()`: those apps/stream `EVENT_WALLS` files only under sections a collaborator can read (`COLLABORATOR_SECTIONS`); a type filed under several sections needs every one readable, and a payload-dependent wall every outcome, as `viewEvent` decides. The list is an immutable, non-definer SQL function granted to authenticated and service_role only; apps/stream's `collaborator-event-types.test.ts` holds it to `EVENT_WALLS`, so a new event type, or one moved between sections, needs a migration that redefines it. A collaborator's writes to `events` are held to the same list, and `outbox` follows its event. A type list rather than "no events" because the collaborator's own screens (Continue, Today, Team, Development) read listed types under their RLS. Finance fields inside readable events, `conversions.amount_minor`, `journey_daily` revenue and spend, and `inbox_items` payloads are follow-ups (api reads on the service connection with fields cut).
 
-<!-- Begin: entries from pull requests still open when this was drafted (Nov 14, 2026): #127, #111, #125, #130, #118, #122, #128, #132. Taken from their bodies on Nov 14; re-check against their final bodies and migration numbers. -->
+## 2026-11-14 — Next.js 16.4.3 and dompurify 3.4.17 for current advisories (security fix) (#133)
+
+- `next` 16.3.8 had two critical RCE advisories (the image optimizer through `sharp`; `use cache`) and a high DoS through Server Actions. No 16.3.x fix exists, so the web moves to 16.4.3: the newest release over two weeks old that carries 16.4.1's fixes.
+- foundmill.com wasn't exposed to the image RCE. It already resolved `sharp` 0.35.5, and `images.unoptimized` makes `/_next/image` answer 404 before the optimizer runs. The Server Actions DoS did apply, through the Follow form.
+- `dompurify`, pinned at 3.4.15 by `monaco-editor`, is overridden to 3.4.17 in `pnpm-workspace.yaml`. This is the repository's first `overrides` entry: a deep pin is fixed there, with the reason beside it.
+
+## 2026-11-14 — A `Date` in a raw `sql` template is written as its ISO string (`withDateParams`) (#134)
+
+Drizzle's postgres-js driver makes the date and time serializers pass values through, so a `Date` with no column mapping reached postgres.js's wire writer and threw; PGlite hid it. We wrap the serializers once, in `createDb` and in the real-Postgres harness, rather than ask every call site to convert. Rejected: a lint rule against Dates in templates (it would miss values typed `unknown` and still leave the driver wrong).
 
 ## 2026-11-14 — 18 or older, once, at sign-up (0100) (#127)
 
@@ -4575,4 +4583,7 @@ The month's balance row stays the one balance, and `credit_lots` tracks the boug
 
 `EVENT_WALLS` lives in @foundmill/shared; the stream's `viewEvent` and the api's own-connection reads of the event log apply it through `redactEventPayload` / `eventAsSeenBy`, so a field hidden from a section is hidden everywhere by one line. In the database a collaborator reads `conversions` only through `member_conversions` (amount null; SELECT-only), and `journey_daily` spend and revenue are null for them. A view rather than a row filter, because Customers screens and counts need the payment rows; not a column grant, because every connection is `authenticated`. `inbox_items` keeps the api's redaction as its wall. Left open: agents' AI cost on the Team, free-text commentary, the department metrics' walls.
 
-<!-- End: entries from pull requests still open when this was drafted. -->
+## 2026-11-14 — Timing bounds in tests are strict locally and wider on CI; digit checks blank random ids first (#135)
+
+- A test that measures time keeps its strict bound on a developer's machine. When `CI` is set it gets a budget a loaded runner meets that still catches the regression it guards, as in packages/policy's evaluate test.
+- A test that asserts a number is absent from output carrying random UUIDs or tokens checks with those blanked, or matches the amount as it would read (`$777`).

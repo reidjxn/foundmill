@@ -2092,7 +2092,15 @@ Bought credits are kept 12 months from purchase and spent after the month's incl
 
 A collaborator's RLS connection no longer reads `payment.received`, the bank, runway, filing, contract, credential, network and Settings-metric events, nor their outbox rows (`fm_collaborator_event_types()`, 59 of 77 business types, held equal to the stream's `EVENT_WALLS` by a stream test). `events_write` and `outbox_write` were split per command, and a collaborator's writes are held to the same list. Everyone else is unchanged. Follow-ups listed above.
 
-<!-- Begin: entries from pull requests still open when this was drafted (Nov 14, 2026): #127, #111, #125, #130, #118, #122, #128, #132. Taken from their bodies on Nov 14; re-check against their final bodies and migration numbers. -->
+## 2026-11-14 — Security fix: Next.js 16.4.3 and dompurify 3.4.17 (#133)
+
+- Found by `pnpm audit` in the CI-scanning work.
+- Web typecheck, lint, unit tests, the production build and Playwright (landing, idea-box, public page, golden path) pass on a production build.
+- `pnpm audit --prod` finds no critical advisory.
+
+## 2026-11-14 — Dates in raw SQL on Postgres (#134)
+
+`createDb` now writes a `Date` in a raw `sql` template as its ISO string, which fixes the former founder's cancel link (#124), the credit lot queries and #128's week summary on a real Postgres. A real-Postgres test runs through `createDb` with prepared statements on and off.
 
 ## 2026-11-14 — 18 or older, confirmed once at sign-up for the whole product (0100) (#127)
 
@@ -2153,6 +2161,10 @@ Nov 13, 2026: Optional "Which one is for you?" quiz on public pages (0105):
 
 ## 2026-11-14 — Collaborators: Finance fields (#132)
 
-Behind a Finance wall no procedure returns a Finance figure (cycle cost, vacation figure, revenue goals, approval amounts, Ribbon chapter/milestone money, CRM payment amounts with `moneyHidden`, Inbox note cost). `EVENT_WALLS` moved to @foundmill/shared and the api cuts the same fields as the stream. Migration 0107 (placeholder): `member_conversions` and `journey_daily` without money for a collaborator. CRM › Commercial shows "—" and the reason. Follow-ups: agents' AI cost on the Team; free-text commentary; department metrics' walls.
+Behind a Finance wall no procedure returns a Finance figure (cycle cost, vacation figure, revenue goals, approval amounts, Ribbon chapter/milestone money, CRM payment amounts with `moneyHidden`, Inbox note cost). `EVENT_WALLS` moved to @foundmill/shared and the api cuts the same fields as the stream. Migration 0107: `member_conversions` and `journey_daily` without money for a collaborator. CRM › Commercial shows "—" and the reason. Follow-ups: agents' AI cost on the Team; free-text commentary; department metrics' walls.
 
-<!-- End: entries from pull requests still open when this was drafted. -->
+## 2026-11-14 — Four CI flakes fixed (#135)
+
+The changes are to tests only:
+- gateway `large-result` and connectors `quarantine-scan`: CI timing budgets;
+- gateway `notify-email` ("777") and api `milestones-show` ("4900"): random ids blanked before the check.
