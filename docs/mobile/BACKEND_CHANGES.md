@@ -71,6 +71,13 @@ Where a field is missing, add it to the existing procedure rather than a mobile-
 - **Supabase**: the Google provider with the web client id plus the iOS and Android client ids (the app signs in natively with `signInWithIdToken`, so the provider must list the native client ids as authorized), and the `foundmill://auth/callback` redirect already there.
 - **Apple on iOS (a decision for the founder)**: App Store Review Guideline 4.8 asks an app that offers a third-party sign-in (Google) to also offer an equivalent option that limits data to name and email and lets the person keep the email private; Sign in with Apple is the usual answer. Without it, an iOS build that offers Google is likely to be rejected. The email code alone may not count, since it is not the "equivalent" private option the guideline describes. If Apple is offered: the Supabase Apple provider, the api accepting `apple` the same way, and an Apple Services id.
 - **18 or older** (THESIS_REVIEW package 2.2): one confirmation procedure at sign-up and one refusal code the app can recognize before any business call; the app shows the screen and calls it.
+- **18 or older, built (#127, Nov 14, 2026; the pull request was still open when this was written, and its migration is 0100).** The procedures and the refusal:
+  - `founder.adult.get`: query, signed in (admitted or not). Input: none. Returns `{ confirmed: boolean, confirmedAt: string | null }` (ISO time).
+  - `founder.adult.confirm`: mutation, signed in (admitted or not). Input `{ confirm: true }`. Returns `{ confirmed: true, confirmedAt: string }`. Idempotent: the first confirmation stands, and a second call answers with the first time.
+  - `founder.profile.update`: new optional input `confirmAdult: true`. It's required to *create* a profile for an account that hasn't confirmed; a later save doesn't need it.
+  - `founder.profile.get`: now also returns `adultConfirmed: boolean`.
+  - `invitation.accept`: input `{ token, confirmAdult?: true }`. It's required when the account hasn't confirmed.
+  - Refusal: tRPC `FORBIDDEN` with `appCode: "adult_unconfirmed"` from `founder.profile.update` (create), `invitation.accept`, `idea.commit`, `business.setGameMode` (to live) and the network writes. Show the "I am 18 or older" box, then retry.
 - **The waitlist** (package 2.2): the refusal the app gets while waiting (place, referral link) in the API's own words, replacing `not_invited`.
 - Done when: the backend skill's sign-in section names the methods, the confirmation procedure and the refusal codes.
 

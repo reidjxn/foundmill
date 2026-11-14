@@ -189,3 +189,47 @@ New since Oct 7:
 - **N2 (high for email), open.** No per-business SendGrid inbound token, event-webhook key or Stripe endpoint secret is ever stored by the api or the web, so inbound mail would verify against one platform token for every business. To design with the platform sending address (package 1.5): derive the token per business and store the founder's own keys at connect.
 - **N3 (medium), open.** See SEC-10.
 - **N4 (low), open.** Any service that holds `SESSION_TOKEN_SECRET` can mint the `svc: api` token the push route trusts; `devices.register` moves a push token that another account holds. The second is also what lets two accounts share one phone, so it is left as it is and recorded.
+
+## Audit fixes, Nov 13 – 14, 2026
+
+Folded in from the "SECURITY_REVIEW entry" of each pull request (#116, #129), as written. #131 and #132 carry no such entry; their rows below are taken from their descriptions ("What it fixes", "Not closed here", "Left open").
+
+### The Nov 13 audit (#116)
+
+| Finding | Severity | Status | PR |
+|---|---|---|---|
+| Export ignores section walls | Medium | Fixed | #116 |
+| Admin lifts own walls via invite | Medium | Open (network session) | — |
+| Rollback, save or promote widens tool grants | Medium | Fixed | #116 |
+| fm_purge_business executable by client roles | Medium (critical if Data API on) | Fixed | #101 |
+| Delegated approval reused after withdrawal | Medium | Fixed | #116 |
+| SEC-9 gateway dev secret (and pause-link secret) | Low | Fixed | #116 |
+| Digest recipients not registered as untrusted | Medium | Fixed | #116 |
+| Inbox note remote images / links | Medium | Fixed | #116 |
+| Supabase redirect wildcard | Medium | Fixed in file; dashboard step pending | #116 |
+| Follow sign-ups spend the mail cap | Medium | Open (Turnstile PR after #93) | — |
+
+### The untrusted-content scan (#129)
+
+**Denial of service through a quadratic regex in the untrusted-content scan (fixed 2026-11-14).**
+- A long run of local-part characters with no "@" took seconds to scan: 11 s for 94 KB.
+- The fix is a linear scan anchored on "@", checked for equivalence against the old pattern.
+- Binary content is kept out of the reader's prompt.
+
+### A collaborator's reads of the event log (#131)
+
+| Finding | Status | PR |
+|---|---|---|
+| A collaborator's own RLS connection could select every event in the business (since 0092 a collaborator holds 'member' in every `has_role` check), including `payment.received` with its amount, `bank.balance_updated`, `runway.threshold_crossed`, `filing.due`, `contract.signed`, `credential.expiring` and the Settings-only metrics | Fixed in 0099: `events_select` admits a collaborator only to the types on `fm_collaborator_event_types()`, a collaborator's writes are held to the same list, and `outbox` follows its event | #131 |
+| Finance fields inside events a collaborator can read; `conversions.amount_minor`; `journey_daily` revenue and spend; `inbox_items` payloads | Open after #131 (follow-ups) | #132 |
+
+<!-- Begin: entries from pull requests still open when this was drafted (Nov 14, 2026): #132. Re-check against its final body and migration number. -->
+
+### Collaborators and Finance figures (#132)
+
+| Finding | Status | PR |
+|---|---|---|
+| The four Finance leaks #131 left open for collaborators (Finance fields inside readable events, `conversions.amount_minor`, `journey_daily` revenue and spend, `inbox_items`) | Fixed: the api cuts the same fields as the stream (`EVENT_WALLS` in @foundmill/shared, `eventAsSeenBy`); migration 0107 (placeholder number) gives a collaborator `conversions` only through `member_conversions` (amount null) and `journey_daily` without spend and revenue; `inbox_items` keeps the api's redaction as its wall | #132 |
+| Agents' AI cost (wages) on the Team table, the agent profile, recruitment and the hire catalog; free text that may quote money (Customer Update commentary, stored chapter titles, the design-check result); the department metrics' own section walls | Open | — |
+
+<!-- End: entries from pull requests still open when this was drafted. -->
