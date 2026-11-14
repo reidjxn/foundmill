@@ -154,12 +154,12 @@ export const founderRouter = router({
   profile: router({
     get: protectedProcedure.query(async ({ ctx }) => {
       // The profile, the memberships and the open businesses in one statement: one round trip on one pooled connection.
-      const [{ profile, memberships, businesses }, adultAt] = await Promise.all([repos.founders.account(ctx.db, ctx.userId), adultConfirmedAt(ctx.db, ctx.userId)]);
+      const { profile, memberships, businesses, adultConfirmed } = await repos.founders.account(ctx.db, ctx.userId);
       // `features.liveMode`: whether LIVE is open here (the commit screen offers Live only then). `userId` is the account ID
       // a co-founder is added by (Settings › Members); the founder can always read their own. `complete`: the profile
       // exists; `adultConfirmed`: the person confirmed they are 18 or older (0104). A client goes on past sign-up only
       // with both, and asks for the confirmation once when it is missing (`founder.adult.confirm`).
-      return { userId: ctx.userId, profile, complete: profile !== null, adultConfirmed: adultAt !== null, email: ctx.email, memberships, businesses, features: { liveMode: liveModeOpen(ctx.env) } };
+      return { userId: ctx.userId, profile, complete: profile !== null, adultConfirmed, email: ctx.email, memberships, businesses, features: { liveMode: liveModeOpen(ctx.env) } };
     }),
     /**
      * Creates the profile on the first save, updates it after. `guidanceTurnedOff` is true only on the save that created

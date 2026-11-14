@@ -24,6 +24,7 @@ const separately = async (userId: string) => ({
   profile: await repos.founders.get(r.db, userId),
   memberships: await repos.memberships.listForUser(r.db, userId),
   businesses: await repos.businesses.listForUser(r.db, userId),
+  adultConfirmed: (await repos.adults.confirmedAt(r.db, userId)) !== null,
 });
 
 describe("repos.founders.account", () => {
@@ -37,7 +38,10 @@ describe("repos.founders.account", () => {
     await r.db.update(s.businesses).set({ archivedAt: new Date() }).where(eq(s.businesses.id, archived!.id));
     await repos.founders.upsert(r.db, founder, { displayName: "Ada O'Hara", experience: "Two exits", skills: { sales: 14, code: 9 }, budgetMinor: 250000, currency: "GBP", targetMarkets: ["UK", "US, East"], constraints: ['No "cold" calls'], visibility: "connections" });
 
+    // Their "I am 18 or older" (0104) is answered in the same statement.
+    await repos.adults.confirm(r.db, founder);
     const expected = await separately(founder);
+    expect(expected.adultConfirmed).toBe(true);
     expect(expected.memberships).toHaveLength(3);
     expect(expected.businesses.map((b) => b.id).sort()).toEqual([r.A.businessId, r.B.businessId].sort());
     expect(await repos.founders.account(r.db, founder)).toEqual(expected);
@@ -58,8 +62,8 @@ describe("repos.founders.account", () => {
 
   it("answers no profile and empty lists for an account with nothing yet, and an archived profile reads as none", async () => {
     const nobody = await r.h.createUser("nobody@account.test");
-    expect(await repos.founders.account(r.db, nobody)).toEqual({ profile: null, memberships: [], businesses: [] });
-    expect(await repos.founders.account(wire.db, nobody)).toEqual({ profile: null, memberships: [], businesses: [] });
+    expect(await repos.founders.account(r.db, nobody)).toEqual({ profile: null, memberships: [], businesses: [], adultConfirmed: false });
+    expect(await repos.founders.account(wire.db, nobody)).toEqual({ profile: null, memberships: [], businesses: [], adultConfirmed: false });
 
     const member = r.A.memberId;
     await repos.founders.upsert(r.db, member, { displayName: "Member" });
