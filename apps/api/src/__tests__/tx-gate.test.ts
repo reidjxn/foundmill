@@ -9,7 +9,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../app";
-import { createTransactionGate, gateLimitsFor, RequestClosedError, Semaphore } from "../services/tx-gate";
+import { createTransactionGate, gateLimitsFor, RequestClosedError, Semaphore, ungated } from "../services/tx-gate";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 const tick = (ms = 0) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -188,6 +188,18 @@ describe("the transaction gate", () => {
     expect(view.select()).toBe("rows");
     expect(view.name).toBe("db");
     expect(Object.getPrototypeOf(view)).toBe(db);
+  });
+
+  it("work a request leaves running gets the database behind its view, which a closed request does not stop", async () => {
+    const pool = fakePool(4);
+    const closed = new AbortController();
+    const view = createTransactionGate({ total: 2, perRequest: 2 }).forRequest(pool, closed.signal);
+    closed.abort();
+    await expect(view.transaction(async () => undefined)).rejects.toBeInstanceOf(RequestClosedError);
+    expect(ungated(view)).toBe(pool);
+    await expect(ungated(view).transaction(async () => "done")).resolves.toBe("done");
+    // Anything that is not a request's view is itself.
+    expect(ungated(pool)).toBe(pool);
   });
 });
 

@@ -95,7 +95,7 @@ describe("business.example.open / leave", () => {
     expect(await code(viewer.business.stopAllAgents({ businessId: bid }))).toBe("FORBIDDEN");
     expect(await code(viewer.business.setBusinessMode({ businessId: bid, businessMode: "automated" }))).toBe("FORBIDDEN");
     expect(await code(viewer.inbox.refresh({ businessId: bid }))).toBe("FORBIDDEN");
-    expect(await code(viewer.team.humans.invite({ businessId: bid, userId: hz.A.memberId }))).toBe("FORBIDDEN");
+    expect(await code(viewer.invitation.create({ businessId: bid, role: "collaborator" }))).toBe("FORBIDDEN");
     expect((await repos.businesses.get(hz.db, bid)).name).toBe("Northwind Skincare");
     // Opening a note answers it as read but keeps no receipt (review F37): nothing of the explorer stays after they leave.
     const note = await repos.inbox.createHumanMessage(hz.db, bid, { fromUserId: hz.B.ownerId, subject: "Welcome", bodyMd: "A note to open." });

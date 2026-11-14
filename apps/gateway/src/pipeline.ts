@@ -21,7 +21,7 @@ import type { TurnstileConfig } from "./turnstile";
 import { AppError, mockResultsAllowed, NotFoundError } from "@foundmill/shared";
 import type { Vault } from "@foundmill/shared/crypto";
 import type { KeyValidation } from "@foundmill/models";
-import { bookUsage, codeRepositoryOf, openApprovalItem, repos, type Db, type Agent, type AppInstallation, type Business, type Integration } from "@foundmill/db";
+import { bookUsage, codeRepositoryOf, openApprovalItem, repos, type Db, type Agent, type AppInstallation, type Approval, type Business, type Integration } from "@foundmill/db";
 import { agentAutonomy, businessApprovalThreshold, evaluate, getPolicyEngine, type AgentCtxInput, type EvaluateInputInput, type EvaluateResult, type PolicyEngine, type ToolCtxInput } from "@foundmill/policy";
 import {
   ALWAYS_LIVE_CONNECTORS,
@@ -355,24 +355,32 @@ export async function executeToolCall(deps: GatewayDeps, session: SessionToken, 
     const granted = await repos.approvals.useGranted(deps.db, businessId, { sessionId: session.sessionId, agentId: session.agentId, connectorKey: connector.key, tool: tool.name, args: argsObject(args), amountMinor: req.context.amountMinor ?? 0, currency: req.context.currency ?? loaded.agent.currency });
     if (granted) {
       log.info({ approvalId: granted.id }, "tool call runs under the founder's approval");
-      // A call the vendor refused outright, or the gateway stopped before the vendor saw it, did nothing: the approval
-      // goes back, so the retry (or the next cycle) runs under it instead of asking the founder the same question again.
-      const giveBack = async (why: string) => {
-        if (await repos.approvals.releaseUse(deps.db, businessId, granted.id, session.sessionId).catch(() => false)) log.info({ approvalId: granted.id, why }, "the call did not run; the founder's approval is kept for the next try");
-      };
-      try {
-        const out = await allow(deps, session, req, loaded, { ...decision, reasons: [...decision.reasons, `Approved by the founder (approval ${granted.id})`] }, args, log, now, granted.id);
-        if (out.body.outcome === "deny") await giveBack("refused before the vendor call");
-        else if (out.body.outcome === "allow" && !out.body.result.ok && vendorRefusedOutright(out.body.result.error)) await giveBack(out.body.result.error?.code ?? "refused");
-        return out;
-      } catch (e) {
-        if (e instanceof GatewayError && NOT_RUN_ERRORS.has(e.code)) await giveBack(e.code);
-        throw e;
-      }
+      return runUnderApproval(deps, session, req, loaded, decision, args, log, now, granted);
     }
     return ask(deps, session, req, loaded, decision, args, log, now);
   }
   return allow(deps, session, req, loaded, decision, args, log, now);
+}
+
+/**
+ * Runs a gated call under the approval this session has just used (`useGranted`, or `useDecided` for one an agent
+ * decided). A call the vendor refused outright, or the gateway stopped before the vendor saw it, did nothing: the
+ * approval goes back, so the retry (or the next cycle) runs under it instead of asking the same question again.
+ */
+async function runUnderApproval(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, decision: EvaluateResult, args: unknown, log: GatewayLogger, now: () => Date, approval: Pick<Approval, "id" | "byKind">): Promise<ToolCallResult> {
+  const by = approval.byKind === "agent" ? "the agent Team › Responsibilities names" : "the founder";
+  const giveBack = async (why: string) => {
+    if (await repos.approvals.releaseUse(deps.db, session.businessId, approval.id, session.sessionId).catch(() => false)) log.info({ approvalId: approval.id, why }, "the call did not run; the approval is kept for the next try");
+  };
+  try {
+    const out = await allow(deps, session, req, loaded, { ...decision, reasons: [...decision.reasons, `Approved by ${by} (approval ${approval.id})`] }, args, log, now, approval.id);
+    if (out.body.outcome === "deny") await giveBack("refused before the vendor call");
+    else if (out.body.outcome === "allow" && !out.body.result.ok && vendorRefusedOutright(out.body.result.error)) await giveBack(out.body.result.error?.code ?? "refused");
+    return out;
+  } catch (e) {
+    if (e instanceof GatewayError && NOT_RUN_ERRORS.has(e.code)) await giveBack(e.code);
+    throw e;
+  }
 }
 
 async function loadContext(deps: GatewayDeps, session: SessionToken, connector: Connector, tool: McpToolDefinition, now: () => Date): Promise<Loaded> {
@@ -417,6 +425,8 @@ async function recordPlatformMailSent(deps: GatewayDeps, session: SessionToken, 
 
 /** Gateway errors raised before the vendor is called: the call did nothing. */
 const NOT_RUN_ERRORS = new Set(["vault_unavailable", "integration_not_connected", "connector_unconfigured"]);
+/** The refusal when an agent's approval was taken by another call twice in a row (`ask`): nothing ran, try again. */
+const DELEGATED_APPROVAL_TAKEN_POLICY_ID = "delegated-approval-taken";
 
 /**
  * The vendor answered and refused (a 4xx other than a timeout: GitHub's 405 "not mergeable" or 409 "base branch was
@@ -689,15 +699,32 @@ function decisionTypeFor(loaded: Loaded, req: CallRequestParsed, decision: Evalu
   return null;
 }
 
-async function ask(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, decision: EvaluateResult, args: unknown, log: GatewayLogger, now: () => Date): Promise<ToolCallResult> {
+async function ask(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, decision: EvaluateResult, args: unknown, log: GatewayLogger, now: () => Date, retried = false): Promise<ToolCallResult> {
   // One gated call has one approval (audit O-26): asked again while its approval is open (a retry, or the next session
   // on the task), the call waits on that one instead of queueing a second request and a second Inbox item.
   const open = await repos.approvals.claimOpen(deps.db, session.businessId, { sessionId: session.sessionId, agentId: session.agentId, connectorKey: loaded.connector.key, tool: loaded.tool.name, args: argsObject(args), amountMinor: req.context.amountMinor ?? 0, currency: req.context.currency ?? loaded.agent.currency });
   const queued = open ? { id: open.id, approvedByAgent: false } : await queueApproval(deps, session, req, loaded, decision, args, false);
   const approvalId = queued.id;
   if (queued.approvedByAgent) {
-    log.info({ approvalId }, "approval decided by the agent Team › Responsibilities names; the call goes ahead");
-    return allow(deps, session, req, loaded, decision, args, log, now);
+    // The agent's decision covers this call only: it is used now, so no later identical call runs under it (after the
+    // founder takes the delegation back, say).
+    const used = await repos.approvals.useDecided(deps.db, session.businessId, approvalId, session.sessionId);
+    if (used) {
+      log.info({ approvalId }, "approval decided by the agent Team › Responsibilities names; the call goes ahead");
+      return runUnderApproval(deps, session, req, loaded, decision, args, log, now, used);
+    }
+    // Another call used it first: that approval has no Inbox item, so waiting on it would wait for nothing. Ask again
+    // (once), which opens a fresh approval under the routing as it is now.
+    if (!retried) {
+      log.info({ approvalId }, "the agent's approval was used by another call; asking again");
+      return ask(deps, session, req, loaded, decision, args, log, now, true);
+    }
+    // Taken again: refuse this once rather than answer "ask" for an approval with no Inbox item. Nothing ran.
+    const reasons = ["Another call used this approval at the same moment, so nothing was run. Try again."];
+    const policyIds = [DELEGATED_APPROVAL_TAKEN_POLICY_ID];
+    const audit = await appendAudit(deps, session, req, { outcome: "deny", reasons, policyIds, approvalId });
+    log.warn({ approvalId }, "the agent's approval was used by another call twice; refused, try again");
+    return { status: 403, body: { outcome: "deny", reasons, policyIds, costMinor: 0, auditId: audit.id } };
   }
   const audit = await appendAudit(deps, session, req, { outcome: "ask", reasons: decision.reasons, policyIds: decision.policyIds, approvalId });
   log.info({ approvalId, reasons: decision.reasons }, "tool call needs approval");
@@ -840,6 +867,10 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
       // tools reads it and the agent gets typed fields only (BUILD §9.8 step 2). If the reader fails, the agent gets nothing.
       try {
         const digest = await deps.reader.digest({ content, businessId: session.businessId, agentId: session.agentId, sessionId: session.sessionId });
+        // The digest is third-party content too: an address the reader wrote out (one the raw scan missed or cut short)
+        // reaches the agent as an ordinary address, so it is remembered like the raw text's. If that fails, nothing is passed on.
+        const fromDigest = await deps.recipients.record(session.businessId, candidatesFromContent(digest));
+        if (fromDigest > 0) log.debug({ added: fromDigest }, "recipients first seen in the quarantined reader's digest recorded for this business");
         // `toAgentEnvelope` carries the tool's typed read (`facts`, already held to the facts limits) beside the digest.
         data = { ...toAgentEnvelope(result.data), content: digest, quarantined: true };
       } catch (err) {

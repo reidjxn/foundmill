@@ -16,6 +16,7 @@ export * from "./product-research";
 export * from "./model-billing";
 export * from "./foundations-staged";
 export * from "./project-page";
+export * from "./second-read";
 export * from "./post-draft";
 export * from "./post-media";
 export * from "./plan-import";

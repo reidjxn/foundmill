@@ -4,7 +4,7 @@
  * and what else brings the team back by itself. Owners and admins resume; everyone else sees why.
  */
 import { AGENT_STOP_REASON_WORDS } from "@foundmill/shared/chief-answers";
-import type { AgentStopReason, MembershipRole } from "@foundmill/shared/constants";
+import { isAdminRole, type AgentStopReason, type MembershipRole } from "@foundmill/shared/constants";
 
 export interface AgentsStoppedView {
   since: Date | string | null;
@@ -27,5 +27,5 @@ const HINT: Record<AgentStopReason, string | null> = {
 export function agentsStoppedView(business: { agentsStoppedAt?: Date | string | null; agentsStoppedReason?: AgentStopReason | null }, role: MembershipRole | string | null | undefined): AgentsStoppedView | null {
   if (!business.agentsStoppedAt) return null;
   const reason = business.agentsStoppedReason ?? "kill_switch";
-  return { since: business.agentsStoppedAt, reason: REASON[reason], canResume: role === "owner" || role === "admin", hint: HINT[reason] };
+  return { since: business.agentsStoppedAt, reason: REASON[reason], canResume: isAdminRole(role), hint: HINT[reason] };
 }

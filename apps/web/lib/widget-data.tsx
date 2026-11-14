@@ -44,7 +44,7 @@ export function withBusiness(businessId: string, input: Record<string, unknown> 
  * or a read scoped by an optional `businessId` (saved table views are kept per business).
  */
 const ACCOUNT_ROUTERS: ReadonlySet<string> = new Set(["founder", "idea", "import", "live", "ideaBox", "waitlist"]);
-const ACCOUNT_READS: ReadonlySet<string> = new Set(["health", "business.listArchived", "business.example.get", "publicPage.bySlug", "publicPage.indexNowKeyFile", "publicPerson.byHandle", "publicPage.storyBySlug", "publicPage.cardById", "teamCall.sharing.get", "email.action.get"]);
+const ACCOUNT_READS: ReadonlySet<string> = new Set(["health", "business.listArchived", "business.example.get", "publicPage.bySlug", "publicPage.indexNowKeyFile", "publicPerson.byHandle", "publicPage.storyBySlug", "publicPage.cardById", "teamCall.sharing.get", "email.action.get", "invitation.byToken"]);
 const BUSINESS_READS_IN_ACCOUNT_ROUTERS: ReadonlySet<string> = new Set(["founder.tableViews.get", "founder.presence.get", "founder.email.recent"]);
 
 /**

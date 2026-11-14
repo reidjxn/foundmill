@@ -110,7 +110,7 @@ import { forgetVia } from "@/app/onboarding/actions";
 export interface OnboardingScreenProps {
   profile: ProfileLike | null;
   email: string | null;
-  /** The signed-in person's account ID, shown so a co-founder can add them to a business. */
+  /** The signed-in person's account ID, for support (people join a project by invitation, not by it). */
   accountId?: string | null;
   /**
    * Who or what brought a new founder: the reference in the httpOnly `fm_via` cookie, read by the page on the server
@@ -353,7 +353,7 @@ export function OnboardingForm({
               Your profile is private. Agents read it as context; it is never shown on the network,
               even when a business goes live.
             </p>
-            {/* The account ID matters to a co-founder joining someone else's business, not to a first screen: behind a disclosure (A17). */}
+            {/* The account ID is for support, not for a first screen: behind a disclosure (A17). People join a project by invitation. */}
             {accountId ? (
               <details className="group/account px-1" data-testid="profile-account-id">
                 <summary className="flex w-fit cursor-pointer list-none items-center gap-1 rounded-sm text-small text-secondary transition-colors duration-hover ease-out hover:text-primary focus-visible:shadow-ring [&::-webkit-details-marker]:hidden">
@@ -362,7 +362,7 @@ export function OnboardingForm({
                     size="inline"
                     className="transition-transform duration-overlay ease-out group-open/account:rotate-90"
                   />
-                  For a co-founder joining you
+                  Your account ID
                 </summary>
                 <div className="mt-2">
                   <p className="t-data mb-1.5">Your account ID</p>

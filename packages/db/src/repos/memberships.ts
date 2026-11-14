@@ -1,18 +1,33 @@
 /**
- * memberships — staff of a business (BUILD §7.1; routers team.humans.*).
+ * memberships — the people of a business (BUILD §7.1; routers team.humans.*).
  *
- * Ownership is guarded here, in apps/api and in the database (0026_membership_guards): `add` never overwrites an
- * existing member, and neither `setRole` nor `remove` may leave a business without an owner. Both run under the
- * business's owner lock (`lockOwners`, the same lock 0035's trigger takes), so concurrent changes cannot each count the
- * other as the remaining owner.
+ * Ownership is guarded here, in apps/api and in the database (0026_membership_guards, 0092): `add` never overwrites an
+ * existing member, and neither `setRole` nor `remove` may leave a business without someone with an owner's standing
+ * (an owner or a cofounder, `OWNER_ROLES`). Both run under the business's owner lock (`lockOwners`, the same lock 0035's
+ * trigger takes), so concurrent changes cannot each count the other as the remaining owner.
+ *
+ * A collaborator's membership may end (`expires_at`, 0092). An ended membership opens nothing: `access` (what every
+ * procedure checks), `hasRole` and `listForUser` leave it out, as the database's `is_member` and `has_role` do. The
+ * lists of a business's people (`list`, `listNamed`) still show it, with its date, so the founders see it and can remove it.
  */
-import { ConflictError, DEFAULT_AGENT_STYLE, MEMBERSHIP_ROLES, ValidationError, isAgentStyle, type AgentStyle, type MembershipRole } from "@foundmill/shared";
-import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import { ConflictError, DEFAULT_AGENT_STYLE, MEMBERSHIP_ROLES, OWNER_ROLES, SECTIONS, ValidationError, isAgentStyle, isOwnerRole, type AgentStyle, type MembershipRole } from "@foundmill/shared";
+import { and, asc, eq, gt, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { accountPreferences, businesses, entities, memberships, MEMBERSHIP_SOURCES, type Business, type Membership } from "../schema";
 import { Id, maybeOne, one, parseInput, type Executor } from "./_shared";
 
-export const SectionPermissions = z.record(z.string(), z.enum(["read", "write", "none"]));
+/**
+ * A membership's own levels, by section: only the sections the walls know (`SECTIONS`), each "read", "write" or "none";
+ * a section left out takes the role's default. An unknown key is refused: stored, it would open that section the day a
+ * section of that name is added, without anyone having given it. 0096's CHECK says the same in the database.
+ */
+export const SectionPermissions = z.partialRecord(z.enum(SECTIONS), z.enum(["read", "write", "none"]), {
+  // zod reports the unknown keys as `unrecognized_keys`, an issue its types for this option leave out.
+  error: (issue) => {
+    const keys = (issue as { code: string; keys?: unknown }).code === "unrecognized_keys" ? (issue as { keys?: unknown }).keys : undefined;
+    return Array.isArray(keys) ? `No such section: ${keys.join(", ")}` : undefined;
+  },
+});
 export type SectionPermissions = z.infer<typeof SectionPermissions>;
 
 export const AddMembershipInput = z.object({
@@ -29,23 +44,33 @@ export const ALREADY_A_MEMBER_OF_EXAMPLE = "You are already a member of this bus
 
 /** An example membership (0065): a read-only walk around a seeded demo business, never staff and never a seat. */
 const notExample = ne(memberships.source, "example");
+/**
+ * A membership that has not ended (0092: a collaborator's `expires_at`, if any, is still ahead). Every read that hands
+ * a person something of a business (its email, its push, the switcher, an approval to decide) uses it, as `is_member` does.
+ */
+export const membershipNotEnded = or(isNull(memberships.expiresAt), gt(memberships.expiresAt, sql`now()`));
+const notEnded = membershipNotEnded;
+
+/** Whether a membership row has ended (a collaborator's `expires_at` has passed). */
+export const membershipEnded = (m: Pick<Membership, "expiresAt">, now = new Date()): boolean => m.expiresAt !== null && m.expiresAt !== undefined && m.expiresAt.getTime() <= now.getTime();
 
 export const membershipsRepo = {
   /**
    * The business's staff: every membership but the example viewers (0065), who are not staff, hold no seat and are
    * never listed to the owner. `includeExample` lists them too (counts, the cross-tenant suite).
    */
-  async list(db: Executor, businessId: string, filter: { role?: MembershipRole; includeExample?: boolean } = {}): Promise<Membership[]> {
+  async list(db: Executor, businessId: string, filter: { role?: MembershipRole; roles?: readonly MembershipRole[]; includeExample?: boolean; activeOnly?: boolean } = {}): Promise<Membership[]> {
     return db
       .select()
       .from(memberships)
-      .where(and(eq(memberships.businessId, businessId), filter.role ? eq(memberships.role, filter.role) : undefined, filter.includeExample ? undefined : notExample))
+      .where(and(eq(memberships.businessId, businessId), filter.role ? eq(memberships.role, filter.role) : undefined, filter.roles ? inArray(memberships.role, [...filter.roles]) : undefined, filter.includeExample ? undefined : notExample, filter.activeOnly ? notEnded : undefined))
       .orderBy(asc(memberships.createdAt));
   },
 
   /**
    * The business's founder as the screens show it: the owner who created the business while they still own it, else
-   * the longest-standing owner. The org chart is rooted at this person and agents with no line manager report to them.
+   * the longest-standing person with an owner's standing (an owner or a cofounder). The org chart is rooted at this
+   * person and agents with no line manager report to them.
    */
   async owner(db: Executor, businessId: string): Promise<Membership | null> {
     return maybeOne(
@@ -53,8 +78,8 @@ export const membershipsRepo = {
         .select({ m: memberships })
         .from(memberships)
         .innerJoin(businesses, eq(businesses.id, memberships.businessId))
-        .where(and(eq(memberships.businessId, businessId), eq(memberships.role, "owner")))
-        .orderBy(sql`(${memberships.userId} = ${businesses.createdBy}) desc`, asc(memberships.createdAt), asc(memberships.id))
+        .where(and(eq(memberships.businessId, businessId), inArray(memberships.role, [...OWNER_ROLES])))
+        .orderBy(sql`(${memberships.userId} = ${businesses.createdBy} and ${memberships.role} = 'owner') desc`, asc(memberships.createdAt), asc(memberships.id))
         .limit(1)
         .then((rows) => rows.map((r) => r.m)),
     );
@@ -86,6 +111,38 @@ export const membershipsRepo = {
   },
 
   /**
+   * The user's membership of the business while it has not ended (an ended collaborator's row reads as none). With
+   * `lock: "share"` (inside a transaction) the row is held `for share` until the transaction ends, so a role change or a
+   * removal waits for it: an invitation's accept re-checks its inviter this way.
+   */
+  async getActive(db: Executor, businessId: string, userId: string, options: { lock?: "share" } = {}): Promise<Membership | null> {
+    const q = db.select().from(memberships).where(and(eq(memberships.businessId, businessId), eq(memberships.userId, userId), notEnded)).limit(1);
+    return maybeOne(options.lock === "share" ? await q.for("share") : await q);
+  },
+
+  /**
+   * The signed-in user's own membership of the business, held `for share` until the transaction ends and read after the
+   * lock, so it is the latest committed row and stays so: a role change or a removal waits. For the RLS connection
+   * (`userId` is `auth.uid()`), where `getActive(…, { lock: "share" })` finds nothing: a locking read must also pass the
+   * update policy, which excludes one's own row (0026, 0092), so the lock is 0096's `lock_my_membership`. Null when the
+   * membership is gone or has ended. On the service connection use `getActive` with `lock: "share"`.
+   */
+  async getMineForShare(db: Executor, businessId: string, userId: string): Promise<Membership | null> {
+    const bid = parseInput(Id, businessId, "business id");
+    await db.execute(sql`select lock_my_membership(${bid}::uuid)`);
+    return membershipsRepo.getActive(db, bid, parseInput(Id, userId, "user id"));
+  },
+
+  /**
+   * Another person's membership row, held `for update` until the transaction ends (a change of it is judged on the row
+   * as it is, and nobody else changes it meanwhile). Under RLS only a row the caller may update comes back: null for
+   * their own row and for one the policy keeps from them (an admin and an owner's or a cofounder's row).
+   */
+  async getForUpdate(db: Executor, businessId: string, userId: string): Promise<Membership | null> {
+    return maybeOne(await db.select().from(memberships).where(and(eq(memberships.businessId, businessId), eq(memberships.userId, userId))).limit(1).for("update"));
+  },
+
+  /**
    * What apps/api's `businessProcedure` checks before every procedure: the user's membership and the business, in one
    * statement (one round trip pair instead of two lookups on two connections). No membership: both null, whether or
    * not the business exists, so a non-member learns nothing about it. A membership of an archived business comes back
@@ -99,7 +156,7 @@ export const membershipsRepo = {
       .from(memberships)
       .leftJoin(businesses, options.includeArchived ? eq(businesses.id, memberships.businessId) : and(eq(businesses.id, memberships.businessId), isNull(businesses.archivedAt)))
       .leftJoin(accountPreferences, eq(accountPreferences.userId, memberships.userId))
-      .where(and(eq(memberships.businessId, businessId), eq(memberships.userId, userId)))
+      .where(and(eq(memberships.businessId, businessId), eq(memberships.userId, userId), notEnded))
       .limit(1);
     const row = rows[0];
     return row
@@ -107,20 +164,20 @@ export const membershipsRepo = {
       : { membership: null, business: null, anthropomorphicAgents: false, agentStyle: DEFAULT_AGENT_STYLE };
   },
 
-  /** True when the user holds one of the roles in this business. */
+  /** True when the user holds one of the roles in this business, on a membership that has not ended. */
   async hasRole(db: Executor, businessId: string, userId: string, roles: readonly MembershipRole[]): Promise<boolean> {
     if (roles.length === 0) return false;
     const rows = await db
       .select({ id: memberships.id })
       .from(memberships)
-      .where(and(eq(memberships.businessId, businessId), eq(memberships.userId, userId), inArray(memberships.role, [...roles])))
+      .where(and(eq(memberships.businessId, businessId), eq(memberships.userId, userId), inArray(memberships.role, [...roles]), notEnded))
       .limit(1);
     return rows.length > 0;
   },
 
-  /** Account-scoped: every membership of a user. */
+  /** Account-scoped: every membership of a user that has not ended. */
   async listForUser(db: Executor, userId: string): Promise<Membership[]> {
-    return db.select().from(memberships).where(eq(memberships.userId, userId)).orderBy(asc(memberships.createdAt));
+    return db.select().from(memberships).where(and(eq(memberships.userId, userId), notEnded)).orderBy(asc(memberships.createdAt));
   },
 
   /**
@@ -137,6 +194,22 @@ export const membershipsRepo = {
       .returning();
     if (rows.length === 0) throw new ConflictError("That person is already a member of this business; change their role instead", { userId: v.userId });
     return one(rows, "membership");
+  },
+
+  /**
+   * Gives an ended membership (a collaborator whose access date passed) a new start: the role and section rules of the
+   * invitation the person accepted, no end date, `source: "invite"`. Only a row that has ended changes: the row, or null
+   * when there was none to renew (the person still belongs, or never did). Service connection (an invitation's accept).
+   */
+  async renewEnded(db: Executor, businessId: string, userId: string, input: { role: MembershipRole; sectionPermissions: SectionPermissions }): Promise<Membership | null> {
+    const role = parseInput(z.enum(MEMBERSHIP_ROLES), input.role, "role");
+    const sectionPermissions = parseInput(SectionPermissions, input.sectionPermissions, "section permissions");
+    const rows = await db
+      .update(memberships)
+      .set({ role, sectionPermissions, expiresAt: null, source: "invite" })
+      .where(and(eq(memberships.businessId, parseInput(Id, businessId, "business id")), eq(memberships.userId, parseInput(Id, userId, "user id")), sql`${memberships.expiresAt} is not null and ${memberships.expiresAt} <= now()`))
+      .returning();
+    return rows[0] ?? null;
   },
 
   /**
@@ -187,19 +260,31 @@ export const membershipsRepo = {
     await db.execute(sql`select pg_advisory_xact_lock(hashtext('memberships_owner'), hashtext(${id}::uuid::text))`);
   },
 
-  /** Changes a member's role. The last owner cannot be demoted: a business always keeps at least one owner. */
+  /**
+   * Changes a member's role. The last person with an owner's standing cannot lose it: a business always keeps at least
+   * one owner or cofounder. An end date stays only on a collaborator (0092): another role clears it.
+   */
   async setRole(db: Executor, businessId: string, userId: string, role: MembershipRole): Promise<Membership> {
     const r = parseInput(z.enum(MEMBERSHIP_ROLES), role, "role");
     return db.transaction(async (tx) => {
       // Lock before reading, so the owner count below is not a stale one (security review S9).
       await membershipsRepo.lockOwners(tx, businessId);
       const target = await membershipsRepo.get(tx, businessId, userId);
-      if (target?.role === "owner" && r !== "owner") {
-        const owners = await membershipsRepo.list(tx, businessId, { role: "owner" });
+      if (target && isOwnerRole(target.role) && !isOwnerRole(r)) {
+        const owners = await membershipsRepo.list(tx, businessId, { roles: OWNER_ROLES });
         if (owners.length <= 1) throw new ValidationError("A business must keep at least one owner");
       }
-      return one(await tx.update(memberships).set({ role: r }).where(and(eq(memberships.businessId, businessId), eq(memberships.userId, userId))).returning(), "membership", userId);
+      return one(await tx.update(memberships).set(r === "collaborator" ? { role: r } : { role: r, expiresAt: null }).where(and(eq(memberships.businessId, businessId), eq(memberships.userId, userId))).returning(), "membership", userId);
     });
+  },
+
+  /** When a collaborator's access ends (null: no end). Only a collaborator's row takes a date (0092's check says the same). */
+  async setExpiry(db: Executor, businessId: string, userId: string, expiresAt: Date | null): Promise<Membership> {
+    const at = parseInput(z.date().nullable(), expiresAt, "end date");
+    const target = await membershipsRepo.get(db, businessId, userId);
+    if (!target) return one([], "membership", userId);
+    if (at && target.role !== "collaborator") throw new ValidationError("Only a collaborator's access has an end date");
+    return one(await db.update(memberships).set({ expiresAt: at }).where(and(eq(memberships.businessId, businessId), eq(memberships.userId, userId))).returning(), "membership", userId);
   },
 
   async setSectionPermissions(db: Executor, businessId: string, userId: string, sectionPermissions: SectionPermissions): Promise<Membership> {
@@ -211,14 +296,14 @@ export const membershipsRepo = {
     );
   },
 
-  /** Removes the user from the business. The last owner cannot be removed. */
+  /** Removes the user from the business. The last owner (or cofounder) cannot be removed. */
   async remove(db: Executor, businessId: string, userId: string): Promise<void> {
     await db.transaction(async (tx) => {
       await membershipsRepo.lockOwners(tx, businessId);
       const target = await membershipsRepo.get(tx, businessId, userId);
       if (!target) return;
-      if (target.role === "owner") {
-        const owners = await membershipsRepo.list(tx, businessId, { role: "owner" });
+      if (isOwnerRole(target.role)) {
+        const owners = await membershipsRepo.list(tx, businessId, { roles: OWNER_ROLES });
         if (owners.length <= 1) throw new ValidationError("A business must keep at least one owner");
       }
       await tx.delete(memberships).where(and(eq(memberships.businessId, businessId), eq(memberships.userId, userId)));
