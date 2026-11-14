@@ -27,6 +27,28 @@ describe("approvalWhatExactly", () => {
     ]);
   });
 
+  it("a code change and its release carry the task's design check; an empty request stays empty (item 13)", () => {
+    const designCheck = {
+      status: "reviewed" as const,
+      reason: null,
+      pages: ["/pricing"],
+      fixes: [{ rank: 1, page: "/pricing", viewport: "phone" as const, element: "the plan table", problem: "The page scrolls sideways at 390 px.", fix: "Stack the plans in one column.", principle: "responsive" as const, severity: "high" as const }],
+      unreadable: [],
+      before: [{ id: "before-1-phone", page: "/pricing", viewport: "phone" as const, width: 390, height: 844, cut: false, sha256: "a".repeat(64) }],
+      after: [{ id: "after-1-phone", page: "/pricing", viewport: "phone" as const, width: 390, height: 844, cut: false, sha256: "b".repeat(64) }],
+      fixesAsked: true,
+    };
+    const release = approvalWhatExactly(call("merge_pr", { title: "Pricing page", branch: "agent/t1" }, { connectorKey: "github" }), { designCheck });
+    expect(release.rows.map((r) => r.label)).toEqual(["Branch", "Change", "Design check", "Design fixes", "Screenshots"]);
+    expect(release.rows[2]!.value).toBe("A reviewer looked at screenshots of 1 page at desktop and 390 px and suggested 1 fix; the agent was asked to apply them once.");
+    expect(release.rows[3]!.value).toBe("1. /pricing at 390 px, the plan table: The page scrolls sideways at 390 px. Fix: Stack the plans in one column.");
+    expect(release.rows[4]!.value).toBe("1 screenshot before, 1 screenshot after the fixes, kept with the task's saved code.");
+    const notSeen = approvalWhatExactly(call("merge_pr", { title: "Pricing page" }, { connectorKey: "github" }), { designCheck: { ...designCheck, status: "not_seen", reason: "the sandbox has no browser", fixes: [], before: [], after: [], fixesAsked: false } });
+    expect(notSeen.rows.find((r) => r.label === "Design check")!.value).toBe("Design check not done: the pages could not be shown in the sandbox (the sandbox has no browser), so there are no screenshots and nothing was reviewed.");
+    expect(notSeen.rows.some((r) => r.label === "Screenshots")).toBe(false);
+    expect(approvalWhatExactly(call("open_pr", {}, { connectorKey: "github" }), { designCheck })).toMatchObject({ empty: true, rows: [] });
+  });
+
   it("a release shows the second read of its change after the change's own rows, and says when it was practice mode", () => {
     const merge = call("merge_pr", { owner: "acme", repo: "shop", prNumber: 7, mergeMethod: "squash", commitTitle: "Deploy contract (#7)" }, { connectorKey: "github" });
     const plain = approvalWhatExactly(merge);
@@ -54,6 +76,33 @@ describe("approvalWhatExactly", () => {
     expect(stale).toContainEqual({ label: "Changed since", value: "The branch changed since the review, so what goes live is not exactly what was read." });
     expect(JSON.stringify(stale)).not.toContain("found nothing that should stop it");
     expect(approvalWhatExactly(merge, { review: { ...review, truncated: false, stale: false } }).rows).toContainEqual({ label: "Second read", value: "Review Agent read the change and found nothing that should stop it. Looks right." });
+  });
+
+  it("a release with both a second read and a design check: the change's rows, then the second read, then the design check", () => {
+    const merge = call("merge_pr", { owner: "acme", repo: "shop", prNumber: 7, mergeMethod: "squash", commitTitle: "Pricing page (#7)", headSha: "abcdef0123456789abcdef0123456789abcdef01" }, { connectorKey: "github" });
+    const review = { reviewerName: "Review Agent", verdict: "approve", summary: "Looks right.", simulated: false, findings: [], truncated: false, stale: true };
+    const designCheck = {
+      status: "reviewed" as const,
+      reason: null,
+      pages: ["/pricing"],
+      fixes: [{ rank: 1, page: "/pricing", viewport: "phone" as const, element: "the plan table", problem: "The page scrolls sideways at 390 px.", fix: "Stack the plans in one column.", principle: "responsive" as const, severity: "high" as const }],
+      unreadable: [],
+      before: [{ id: "before-1-phone", page: "/pricing", viewport: "phone" as const, width: 390, height: 844, cut: false, sha256: "a".repeat(64) }],
+      after: [],
+      fixesAsked: true,
+    };
+    const own = approvalWhatExactly(merge).rows;
+    const reviewOnly = approvalWhatExactly(merge, { review }).rows;
+    const both = approvalWhatExactly(merge, { review, designCheck });
+    expect(both.kind).toBe("release");
+    // The change's own rows (the reviewed version among them) first, unchanged.
+    expect(own).toContainEqual({ label: "Reviewed version", value: "abcdef0", mono: true });
+    expect(both.rows.slice(0, own.length)).toEqual(own);
+    // Then the whole second read, as it shows alone ("Changed since" included).
+    expect(reviewOnly.slice(own.length).map((r) => r.label)).toContain("Changed since");
+    expect(both.rows.slice(own.length, reviewOnly.length)).toEqual(reviewOnly.slice(own.length));
+    // Then the design check.
+    expect(both.rows.slice(reviewOnly.length).map((r) => r.label)).toEqual(["Design check", "Design fixes", "Screenshots"]);
   });
 
   it("a session's one-line summary is the headline when the arguments carry nothing else", () => {

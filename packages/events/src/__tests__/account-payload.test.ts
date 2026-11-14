@@ -76,13 +76,14 @@ describe("assertAccountPayloadSchema (when the catalog loads)", () => {
 
   it("every account-scoped declaration in the catalog passes, and names nobody but by a public address", () => {
     /** What each declaration's payload holds: a person's own handle, or the public address a sign-up came through. */
-    const fields: Record<(typeof ACCOUNT_EVENT_TYPES)[number], string[]> = {
+    const fields: Record<Exclude<(typeof ACCOUNT_EVENT_TYPES)[number], "founder_notice.sent">, string[]> = {
       "profile.published": ["handle"],
       "profile.unpublished": ["handle"],
       "signup.attributed": ["sourceKind", "sourceRef"],
       "referral.arrived": ["sourceKind", "sourceRef"],
     };
     for (const type of ACCOUNT_EVENT_TYPES) {
+      if (type === "founder_notice.sent") continue;
       const decl = EVENTS[type];
       const fixture = EVENT_FIXTURES[type] as Record<string, unknown>;
       expect(() => assertAccountPayloadSchema(type, decl.schema, decl.recordIds), type).not.toThrow();
@@ -97,6 +98,20 @@ describe("assertAccountPayloadSchema (when the catalog loads)", () => {
       const address = fields[type].at(-1)!;
       expect(decl.schema.safeParse({ ...fixture, [address]: "Maya Okafor" }).success, type).toBe(false);
     }
+  });
+
+  it("founder_notice.sent: the notice, the project's and the record's ids, two flags; nobody's account, nothing free-form", () => {
+    const decl = EVENTS["founder_notice.sent"];
+    const fixture = EVENT_FIXTURES["founder_notice.sent"] as Record<string, unknown>;
+    expect(() => assertAccountPayloadSchema("founder_notice.sent", decl.schema, decl.recordIds)).not.toThrow();
+    expect(() => assertAccountPayloadValues("founder_notice.sent", fixture, { recordIds: decl.recordIds, accountIds: [ME] })).not.toThrow();
+    expect(Object.keys(fixture).sort()).toEqual(["businessId", "notice", "notificationId", "offersCancel", "simulated"]);
+    expect(decl.recordIds).toEqual(["businessId", "notificationId"]);
+    expect(decl.schema.safeParse(fixture).success).toBe(true);
+    // Who did it, or whom it was about, by account: refused by the schema and by the writer's rule.
+    expect(decl.schema.safeParse({ ...fixture, actorUserId: OTHER }).success).toBe(false);
+    expect(decl.schema.safeParse({ ...fixture, notice: "promoted" }).success).toBe(false);
+    expect(ruleOf(() => assertAccountPayloadValues("founder_notice.sent", { ...fixture, businessId: OTHER }, { recordIds: decl.recordIds, accountIds: [ME, OTHER] }))).toBe("account_id");
   });
 
   it("the attribution events: an address that is, or holds, an account id is refused when written, for either reader", () => {

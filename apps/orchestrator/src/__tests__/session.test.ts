@@ -101,6 +101,32 @@ describe("runAgentSession (mock replay)", () => {
     expect(completed.items.some((e) => (e.payload as { sessionId: string }).sessionId === sessionId)).toBe(true);
   });
 
+  it("a replayed UI change gets a design check labeled simulated, with no screenshot and no review (item 13)", async () => {
+    const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
+    const input = { businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId };
+    const launch = { ...(await acts.prepareSession(input)), recordingKey: "northwind-bundle-picker" };
+    const result = await acts.runAgentSession(input, launch);
+    expect(result.outcome).toBe("done");
+    const checked = await repos.events.list(t.db, t.businessId, { type: "task.design_checked", limit: 20 });
+    const mine = checked.items.find((e) => (e.payload as { sessionId?: string }).sessionId === sessionId);
+    expect(mine).toBeDefined();
+    const record = (mine!.payload as { result: { status: string; before: unknown[]; after: unknown[]; fixes: unknown[]; pages: string[] } }).result;
+    expect(record).toMatchObject({ status: "simulated", before: [], after: [], fixes: [], pages: ["/"] });
+    const notes = (await readSessionEvents(t.redis, sessionId)).map((e) => e.event).filter((e) => e.kind === "note");
+    expect(notes.some((n) => n.kind === "note" && /^Design check simulated, not done/.test(n.text))).toBe(true);
+    await acts.finishSession(input, launch, result);
+  });
+
+  it("a replay that changes no UI file gets no design check", async () => {
+    const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
+    const input = { businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId };
+    const launch = { ...(await acts.prepareSession(input)), recordingKey: "ledgerly-webhook-retry" };
+    const result = await acts.runAgentSession(input, launch);
+    const checked = await repos.events.list(t.db, t.businessId, { type: "task.design_checked", limit: 20 });
+    expect(checked.items.some((e) => (e.payload as { sessionId?: string }).sessionId === sessionId)).toBe(false);
+    await acts.finishSession(input, launch, result);
+  });
+
   it("fails the session when the same call repeats three times and marks the agent failing", async () => {
     const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
     const input = { businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId };

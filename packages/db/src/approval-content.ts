@@ -5,7 +5,7 @@
  * its drafts the api loads). `empty` means the agent said nothing about what it would run: the note then asks the founder
  * to send it back for the details instead of asking for a yes.
  */
-import { CHANNEL_META, formatMoney, founderWords, type ChannelKey } from "@foundmill/shared";
+import { CHANNEL_META, designCheckRows, formatMoney, founderWords, type ChannelKey, type DesignCheckResult } from "@foundmill/shared";
 import type { Approval } from "./schema";
 
 export type ApprovalWhatKind = "code" | "release" | "campaign" | "message" | "spend" | "channel" | "other" | "none";
@@ -32,6 +32,8 @@ export interface ApprovalWhatContext {
   assets?: readonly { kind: string; title: string; body: string | null }[];
   /** A release: the second read of its diff by a different agent (apps/orchestrator `merge.reviewed`), when there was one. */
   review?: ApprovalReview | null;
+  /** The task's latest design check (item 13), for a code change or its release: its outcome, fixes and screenshots. */
+  designCheck?: DesignCheckResult | null;
 }
 
 /** The second read of a change, as the approval shows it. It informs the founder's decision and never makes it. */
@@ -162,16 +164,19 @@ export function approvalWhatExactly(approval: Pick<Approval, "connectorKey" | "t
     if (additions || deletions) take("Lines", `${additions || "0"} added, ${deletions || "0"} removed`, ["additions", "deletions"]);
     take("Diff", str(args, "diff", "patch") ? clip(str(args, "diff", "patch"), 600) : "", ["diff", "patch"], true);
     used.add("pr").add("pull_request").add("number");
+    // The design check is attached to the change, never what makes a request decidable: an empty request stays empty.
+    const withDesign = (what: ApprovalWhat): ApprovalWhat => (context.designCheck && !what.empty ? { ...what, rows: [...what.rows, ...designCheckRows(context.designCheck)] } : what);
     if (RELEASE_TOOLS.has(tool)) {
       // The commit the second read reviewed, as a short reference (apps/orchestrator mergeArgs).
       take("Reviewed version", str(args, "headSha").slice(0, 7), ["headSha"], true);
       const done = finish("release", title ? `A finished change goes live: “${clip(title, 120)}”` : "A finished change goes live");
-      // The second read goes after the change's own rows: it is about the change, not part of what runs.
-      return context.review ? { ...done, rows: [...done.rows, ...reviewRows(context.review)] } : done;
+      // After the change's own rows: first the second read (is the code right, and is it what was read), then the design
+      // check (how the pages look). Both are about the change, not part of what runs.
+      return withDesign(context.review ? { ...done, rows: [...done.rows, ...reviewRows(context.review)] } : done);
     }
     // The tool's name alone is not content: a migration with no file and no summary is an empty request.
     if (tool === "run_migration") return finish("code", file || files[0] || summary ? `A change to how the business's data is stored${file || files[0] ? `: ${file || files[0]}` : ""}` : null);
-    return finish("code", title ? clip(title, 160) : files.length ? `${files.length} file${files.length === 1 ? "" : "s"} change` : null);
+    return withDesign(finish("code", title ? clip(title, 160) : files.length ? `${files.length} file${files.length === 1 ? "" : "s"} change` : null));
   }
 
   if (CAMPAIGN_TOOLS.has(tool)) {

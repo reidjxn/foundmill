@@ -113,6 +113,16 @@ const SAMPLE_INPUT: Record<RouteKey, Record<string, unknown>> = {
     roadmap: [],
     founder_lines: [{ n: 1, text: "Fix the checkout bug for retail customers. Spend up to €500 on LinkedIn ads next week." }],
   },
+  designReview: {
+    screenshots: [
+      {
+        id: "s1",
+        page: "/",
+        viewport: "desktop",
+        description: { page: "/", viewport: "desktop", widthPx: 1440, scrollWidthPx: 1440, elements: [{ ref: "main > p", role: "text", text: "Fresh bread by 8 AM", fontSizePx: 16, color: "#aaaaaa", background: "#ffffff" }] },
+      },
+    ],
+  },
 };
 
 describe("MockModelClient", () => {

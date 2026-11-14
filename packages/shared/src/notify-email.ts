@@ -177,6 +177,11 @@ export const EMAIL_NOTIFICATION_LABELS: Readonly<Record<EmailNotificationKind, s
   weekly_review: "Weekly review",
   invitation_accepted: "Someone accepted my invitation",
 });
+/**
+ * A record's kind as Settings › Preferences › Email lists the latest emails: the switches' labels, and the founder
+ * notice (security review P2-3), which has no switch.
+ */
+export const FOUNDER_NOTIFICATION_LABELS: Readonly<Record<EmailNotificationKind | "founder_notice", string>> = Object.freeze({ ...EMAIL_NOTIFICATION_LABELS, founder_notice: "Who runs a project, or its deletion" });
 /** One line under each switch. */
 export const EMAIL_NOTIFICATION_HINTS: Readonly<Record<EmailNotificationKind, string>> = Object.freeze({
   decision_waiting: "30 minutes after you leave when it holds up the team's work; otherwise after a day.",
@@ -233,5 +238,12 @@ export const NOTIFY_EMAIL_REFUSALS = {
   per_inviter: "This person's invitations were already emailed as many times as one day allows, so nothing was sent. The link can still be copied.",
   address_ceiling: "Today's limit for invitation emails has been reached, so nothing was sent. The link can still be copied.",
   suppressed: "This address asked not to get invitations, so nothing was sent.",
+  not_founder: "This person is not one of the founders this notice is for, so nothing was sent.",
+  own_action: "This person did it themselves, so nothing was sent.",
+  hard_suppressed: "Mail to this address bounced or was reported as spam, so nothing was sent.",
+  safety_ceiling: "Today's limit for founder notices has been reached, so nothing was sent.",
+  project_ceiling: "Today's limit for founder notices about this project has been reached, so nothing was sent.",
+  folded: "This person already had this window's founder notices about this project, and the email that says more changes happened, so nothing more was sent.",
+  reserved_hard_ceiling: "Today's hard limit for essential founder notices has been reached, so nothing was sent. A deletion this person may cancel still shows on their home.",
 } as const;
 export type NotifyEmailNotSent = keyof typeof NOTIFY_EMAIL_REFUSALS;
