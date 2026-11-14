@@ -34,7 +34,7 @@ import type { Query } from "@anthropic-ai/claude-agent-sdk";
 import { AgentInstructions, buildSystemPrompt, docText, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, restoredWorkspaceNote, roleSkillsFor, ToolGrant, type AgentSkillPrompt, type AgentTemplate } from "@foundmill/agents";
 import { APP_NAME, CREDITS_CURRENCY, sandboxCostMicroMinor } from "@foundmill/config";
 import { firstChannelToOpen, resolveGrants } from "@foundmill/connectors";
-import { bookUsage, closeApprovalItem, loadByokApiKey, MICRO_PER_MINOR, repos, signoffDecisionBlock, type Agent, type AgentVersion, type Approval, type Business, type Task } from "@foundmill/db";
+import { bookUsage, checkPlatformCredits, closeApprovalItem, loadByokApiKey, MICRO_PER_MINOR, repos, signoffDecisionBlock, type Agent, type AgentVersion, type Approval, type Business, type Task } from "@foundmill/db";
 import { publishSessionEvent, type SessionEventInput } from "@foundmill/events";
 import { meter, MODEL_PRICING, resolveModel, type ModelId, type RouteKey } from "@foundmill/models";
 import { assertNoLongLivedCredentials, capturePages, MockSandbox, MockSandboxProvider, RECORDINGS, redactCredentialValues, stableHash32, type Sandbox, type SandboxSpecInput } from "@foundmill/sandbox";
@@ -52,7 +52,7 @@ import { AGENT_PAUSED_FAILURE, CANCELLED_REASON, type RunUsage } from "../sessio
 import { failureStreak } from "../retry";
 import { openApprovalNote } from "./approvals";
 import { LoopDetector } from "./loop";
-import { CREDITS_USED_UP_SUMMARY, SessionCredits, unbookedTokens } from "./session-credits";
+import { CREDITS_USED_UP_SUMMARY, keptModelForRun, SessionCredits, sessionKeepsModelOnLowCredits, unbookedTokens } from "./session-credits";
 import { budgetSummary, LIMIT_WORDS, sessionBudget, type SessionBudget } from "./session-budget";
 import { archiveSessionRecording } from "./recording";
 import { createSessionWorkspace, guardToolCall, hookOutputFor, removeSessionWorkspace, sdkEnvFor, sdkToolPolicyFor } from "./sdk-isolation";
@@ -769,8 +769,11 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       // A second read's revision keeps only the document tools (./second-read).
       const grants = await sessionGrantsFor(deps.db, input.businessId, task.id, resolveGrants(parseGrants(version, template)));
       const route: RouteKey = template.route;
-      const model = resolveModel(route, agent.modelKey);
       const { provider, mode, fellBackFrom } = await deps.sandbox();
+      // The credit saver: a session on the platform key whose month's credits are low runs routine work on the route's
+      // lower-cost model, unless its tools reach outside the business or spend money, or it does money or legal work.
+      const lowCredits = business.modelBilling !== "byok" && !sessionKeepsModelOnLowCredits({ module: template.module, toolRefs: grants.toolRefs }) && (await checkPlatformCredits(deps.db, input.businessId, { live: mode !== "mock", now: deps.clock.now() })).low;
+      const model = resolveModel(route, agent.modelKey, { lowCredits });
       // AC-11.6.6: the sandbox environment is asserted before anything is created.
       const env = buildSandboxEnv({ businessId: input.businessId, agentId: agent.id, taskId: task.id, sessionId: input.sessionId, gatewayUrl: deps.gateway.baseUrl });
       const pool = provider instanceof MockSandboxProvider ? provider.recordings : RECORDINGS;
@@ -781,6 +784,7 @@ export function createSessionActivities(deps: OrchestratorDeps) {
         sandboxMode: mode,
         fellBackFrom,
         modelKey: model.modelKey,
+        lowCredits: model.lowCredits === true,
         modelId: model.modelId,
         recordingKey,
         allowedTools: grants.toolRefs,
@@ -799,13 +803,18 @@ export function createSessionActivities(deps: OrchestratorDeps) {
      * pause/resume/shout/stop/decision commands. `run` says which commands are this run's and, after a park, where to
      * pick up; workflows started before runs existed pass nothing.
      */
-    async runAgentSession(input: AgentSessionInput, launch: SessionLaunch, briefText: string | null = null, runOptions: SessionRunOptions | null = null): Promise<SessionResult> {
+    async runAgentSession(input: AgentSessionInput, launched: SessionLaunch, briefText: string | null = null, runOptions: SessionRunOptions | null = null): Promise<SessionResult> {
       let run: SessionRunOptions = runOptions ?? { fromSeq: 0, resume: null };
       const retried = retriedFrom();
-      if (retried) run = { ...run, resume: { cursor: retried.cursor ?? run.resume?.cursor ?? null, progress: retried.progress ?? run.resume?.progress ?? initialProgress({ planSteps: launch.planSteps, acceptanceTests: launch.acceptanceTests }), reason: "retry" } };
+      if (retried) run = { ...run, resume: { cursor: retried.cursor ?? run.resume?.cursor ?? null, progress: retried.progress ?? run.resume?.progress ?? initialProgress({ planSteps: launched.planSteps, acceptanceTests: launched.acceptanceTests }), reason: "retry" } };
       const { agent, task, business, version, template, skills } = await loadContext(input);
+      // The credit saver's keep rule, checked again against the tools this run will hold (the token is minted from the
+      // agent's current tools, which may have changed since `prepareSession`): high-stakes tools go back to the usual model.
+      const kept = keptModelForRun(launched, { route: template.route, agentModel: agent.modelKey, module: template.module, toolRefs: resolveGrants(parseGrants(version, template)).toolRefs });
+      const launch: SessionLaunch = kept ? { ...launched, modelKey: kept.modelKey, modelId: kept.modelId } : launched;
       const startedAtMs = deps.clock.nowMs();
       const recorder = new SessionRecorder(deps, { input, launch, task, agent, startedAtMs, run });
+      if (kept) await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `This session now holds tools that reach outside the business, spend money or cannot be undone, so it runs on ${kept.modelKey[0]!.toUpperCase()}${kept.modelKey.slice(1)}, its usual model, even though credits are low.` });
       const signal = cancellation();
       const env = buildSandboxEnv({ businessId: input.businessId, agentId: agent.id, taskId: task.id, sessionId: input.sessionId, gatewayUrl: deps.gateway.baseUrl });
 
@@ -823,6 +832,8 @@ export function createSessionActivities(deps: OrchestratorDeps) {
           durationMs: deps.clock.nowMs() - startedAtMs,
           sandboxMs: recorder.sandboxMs,
           prNumber: recorder.prNumber,
+          // A run moved back up to its usual model books what it spent on that model (`finishSession`).
+          ...(kept ? { modelKey: kept.modelKey } : {}),
         };
       };
       const stoppedBeforeStart = (reason: string, summary: string): SessionResult => ({ ...base(), outcome: "stopped", reason, blockedReason: "stopped", approvalId: null, summary, providerSessionId: null });

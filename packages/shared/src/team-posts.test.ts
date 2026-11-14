@@ -3,6 +3,7 @@ import { postDraftFor, postTextBudget } from "./post-draft";
 import { TAP_POST_NETWORKS, shareTargets } from "./share-targets";
 import {
   TEAM_POST_CAPS,
+  TEAM_POST_CODE_FOR_LENGTH,
   TEAM_POST_DAY_MS,
   TEAM_POST_REF_PREFIX,
   TEAM_POST_SUBJECTS,
@@ -57,7 +58,8 @@ describe("the reference a team post carries", () => {
   it("is only ever about a real result recorded from one event: never a customer, a count or money", () => {
     expect([...TEAM_POST_SUBJECTS]).toEqual(["page_live", "first_follower"]);
     expect(TEAM_POST_SUBJECT_LABELS).toEqual({ page_live: "Page live", first_follower: "First follower" });
-    expect([...TEAM_POST_TRIGGERS]).toEqual(["page_published", "milestone_shown", "first_follower"]);
+    // Append-only: `showcase_approved` (0103) is the house's post of a video every founder approved.
+    expect([...TEAM_POST_TRIGGERS]).toEqual(["page_published", "milestone_shown", "first_follower", "showcase_approved"]);
   });
 
   it("gives the asset a title written by code", () => {
@@ -91,6 +93,30 @@ describe("teamPostShareDraft", () => {
     expect(postDraftFor(shown, "instagram")).toMatchObject({ text, image: { url: `${ORIGIN}/m/${MILESTONE_ID}/story-image` } });
     const hidden = teamPostShareDraft({ text, ref, page, cardShown: false });
     expect(hidden.link).toBe(`${ORIGIN}/p/maple-bakes?via=p.maple-bakes`);
+  });
+
+  it("with the post's codes, every network's link carries its own code and the copied link the general one, one via each", () => {
+    const networks = { x: "xxxxxxxxx2", linkedin: "lllllllll2", facebook: "fffffffff2", threads: "ttttttttt2", reddit: "rrrrrrrrr2", bluesky: "bbbbbbbbb2", instagram: "iiiiiiiii2", tiktok: "kkkkkkkkk2" } as const;
+    const codes = { link: "ggggggggg2", networks };
+    const viaOf = (link: string | undefined) => new URL(link!).searchParams.getAll(VIA_PARAM);
+    const d = teamPostShareDraft({ text, ref: { trigger: "page_published", subject: "page_live", refId: PAGE_ID }, page, codes });
+    expect(d.link).toBe(`${ORIGIN}/p/maple-bakes?via=s.ggggggggg2`);
+    for (const t of shareTargets(d)) {
+      expect(viaOf(t.link), t.network).toEqual([`s.${networks[t.network as keyof typeof networks]}`]);
+      if (t.href) expect(decodeURIComponent(t.href), t.network).not.toContain("via=p.");
+      if (t.kind === "tap") expect(t.shortened, t.network).toBe(false);
+    }
+    // A card post keeps its tall picture and gets the codes too.
+    const card = teamPostShareDraft({ text, ref: { trigger: "milestone_shown", subject: "page_live", refId: MILESTONE_ID }, page, cardShown: true, codes });
+    expect(postDraftFor(card, "instagram")).toMatchObject({ link: `${ORIGIN}/m/${MILESTONE_ID}?via=s.iiiiiiiii2`, image: { url: `${ORIGIN}/m/${MILESTONE_ID}/story-image` } });
+    expect(viaOf(card.link)).toEqual(["s.ggggggggg2"]);
+    // A code that is not one changes nothing; no codes (a sample business) keeps the page's via.
+    expect(teamPostShareDraft({ text, ref: { trigger: "page_published", subject: "page_live", refId: PAGE_ID }, page, codes: { link: "Not-A-Code", networks: {} } }).link).toBe(`${ORIGIN}/p/maple-bakes?via=p.maple-bakes`);
+    expect(teamPostShareDraft({ text, ref: { trigger: "page_published", subject: "page_live", refId: PAGE_ID }, page, codes: null }).link).toBe(`${ORIGIN}/p/maple-bakes?via=p.maple-bakes`);
+  });
+
+  it("works out the post's length with a code of the right length", () => {
+    expect(TEAM_POST_CODE_FOR_LENGTH).toMatch(/^[a-z2-7]{10}$/);
   });
 
   it("carries no link while the page is down, and still opens ready to post", () => {

@@ -43,12 +43,15 @@ import {
   EMAIL_NOTIFICATION_KINDS,
   FOUNDER_NOTICES,
   INVITATION_ROLES,
+  SHOWCASE_REQUEST_STATES,
+  SHOWCASE_WITHDRAW_REASONS,
   PUSH_PROVIDERS,
   SHARE_DESTINATIONS,
   SHARE_OPEN_TARGETS,
   SHARE_SUBJECT_KINDS,
   TEAM_POST_SUBJECTS,
   TEAM_POST_TRIGGERS,
+  POST_NETWORKS,
   SIGNOFF_KINDS,
   Severity,
   SkillGroup,
@@ -63,7 +66,8 @@ import {
   type EventScope,
   type EventType as EventTypeT,
 } from "@foundmill/shared";
-import { VIA_KINDS } from "@foundmill/shared/via";
+import { POST_OUTCOME_KINDS } from "@foundmill/shared/post-outcomes";
+import { ATTRIBUTION_VIA_KINDS } from "@foundmill/shared/via";
 import { assertAccountPayloadSchema } from "./account-payload";
 
 // ---------------------------------------------------------------------------------------------------
@@ -1798,6 +1802,37 @@ const pageFollowed = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
+// The optional "which one is for you" quiz on a project's public page (0105)
+// ---------------------------------------------------------------------------------------------------
+
+const QuizFacts = z.object({
+  quizId: Id,
+  /** The definition's version (it goes up with every change); counts are read per version. */
+  version: z.number().int().positive(),
+  /** How many customer types and questions it has: shape only, never the words. */
+  typeCount: z.number().int().min(2).max(4),
+  questionCount: z.number().int().min(2).max(4),
+});
+
+const quizApproved = declareEvent("quiz.approved", QuizFacts, {
+  doc: "A founder (an owner or an admin) approved every word of the project's page quiz, which the team drafted from the project's real customers. Approving puts nothing on the page: it stays off until they turn it on (`quiz.published`). Never narrated; apps/stream pushes it so the Public page tab follows.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+const quizPublished = declareEvent("quiz.published", QuizFacts.extend({ slug: z.string().min(3).max(40) }), {
+  doc: "A founder turned the approved quiz on: from now on it shows on the project's public page while the page is live. Not a real outcome on its own (nothing outside happened yet). Never narrated; pushed for the Public page tab.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+const quizUnpublished = declareEvent("quiz.unpublished", QuizFacts.extend({ slug: z.string().min(3).max(40) }), {
+  doc: "A founder turned the quiz off: it leaves the public page at once (the approved quiz is kept). Never narrated; pushed for the Public page tab.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+// ---------------------------------------------------------------------------------------------------
 // A message sent from the project's Foundmill address (0078, package 1.5)
 // ---------------------------------------------------------------------------------------------------
 
@@ -1931,6 +1966,44 @@ const postDrafted = declareEvent(
   },
 );
 
+/** Which post and where (item 8, packages/db `post_links`): the link's row, the post's asset and its network (null: a copied or sent link). */
+const PostLinkFacts = {
+  linkId: Id,
+  assetId: Id,
+  network: z.enum(POST_NETWORKS).nullable(),
+};
+
+const visitAttributed = declareEvent(
+  "visit.attributed",
+  z.object(PostLinkFacts),
+  {
+    // North star (CLAUDE.md, founder 2026-11-11; network decision Nov 13, 2026 "visits stay private"): a visit proves a
+    // link was opened, not that anything happened. It is never counted, shown or narrated; a follow needs one first.
+    doc: "A link of a post the team drafted and the founder shared was opened for the first time, in a browser that ran the public page's scripts (crawlers do not), by someone who is not a member of the project. Written once per link, when `post_links.first_visited_at` is set; a returning visit writes nothing. Ids and the network only: never an address, a device or a person. Not an outside result: the north star does not count it, nothing shows visit counts in public or in private, and it is never narrated.",
+    consumers: ["metrics"],
+    narratable: false,
+  },
+);
+
+const postOutcomeAttributed = declareEvent(
+  "post.outcome_attributed",
+  z.object({
+    ...PostLinkFacts,
+    /** What the post led to (`POST_OUTCOME_KINDS`). */
+    outcomeKind: z.enum(POST_OUTCOME_KINDS),
+    /** The real outcome's own event (`page.followed`, `lead.replied` or `payment.received`); one post at most per outcome. */
+    outcomeEventId: Id,
+  }),
+  {
+    // North star (CLAUDE.md, founder 2026-11-11): the outcome itself (`page.followed`, `lead.replied`,
+    // `payment.received`) is what counts, once. This only says which post it came through, so counting it too would
+    // count the same outcome twice: it is never counted toward the north star and never narrated.
+    doc: "A real outcome of the project came back through a post the team drafted and the founder shared (last touch, one post at most per outcome): a person who arrived through the post's link confirmed that they follow the project, replied for real within 30 days of following, or paid. Written in the transaction that records the credit (`post_attributions`). Ids, the network and the kind only: never the person, an address or an amount. Not counted toward the north star (its outcome event already is), and never narrated.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
 // ---------------------------------------------------------------------------------------------------
 // Invitations to a project (0091; docs/NETWORK.md F5, THESIS_REVIEW package 3.1)
 // ---------------------------------------------------------------------------------------------------
@@ -1979,6 +2052,71 @@ const invitationDeclined = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
+// Showcase videos of real projects (0103; docs/THESIS_REVIEW.md §13 item 15). Ids only, never narrated, and no event
+// carries an individual founder's answer: the house's three are about its request, the project's two about the ask.
+// None is an outside result (the north star counts a post only when it is made, which the product cannot see).
+// ---------------------------------------------------------------------------------------------------
+
+const ShowcaseRequestFacts = z.object({
+  /** The house's request (0103 `showcase_requests`). */
+  requestId: Id,
+  /** The project it is about. */
+  subjectBusinessId: Id,
+});
+
+const showcaseRequested = declareEvent("showcase.requested", ShowcaseRequestFacts, {
+  doc: "In the house business: someone with an owner's standing there asked to feature a project with a real, public milestone in a short video. The script is written; the video is made next (where Runway is connected on the house business, after the house approves the spend in Needs you), and the ask goes to the project's founders only once the video is final. Ids only; never narrated.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+const showcaseApproved = declareEvent(
+  "showcase.approved",
+  ShowcaseRequestFacts.extend({
+    /** The house's draft post (an `assets` row, trigger `showcase_approved`), shared only through the showcase gate. */
+    assetId: Id,
+  }),
+  {
+    doc: "In the house business: every founder of the project said yes to the final video, so a draft post waits on the house's Creative tab to be shared by tap, while the approval is in date. Nothing was posted. Never names who said yes; never narrated.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+const showcaseWithdrawn = declareEvent(
+  "showcase.withdrawn",
+  ShowcaseRequestFacts.extend({
+    /** Why it ended without a post: one founder's No or Withdraw, a change of founders, expiry, the page or a milestone no longer public, the setting off, or the house. */
+    reason: z.enum(SHOWCASE_WITHDRAW_REASONS),
+  }),
+  {
+    doc: "In the house business: a showcase request ended without a post. The draft is set aside, the unposted media deleted and its links disabled. Says why, never which founder; never narrated.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+const showcaseAsked = declareEvent("showcase.asked", z.object({ requestId: Id }), {
+  doc: "In the project: the house's final video went out for an answer: each founder has their own note in Needs you (and is emailed if it waits). Ids only; never narrated.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+const showcaseSettled = declareEvent(
+  "showcase.settled",
+  z.object({
+    requestId: Id,
+    /** Where the ask ended: approved by every founder, or declined, withdrawn or expired. Never who answered what. */
+    state: z.enum(SHOWCASE_REQUEST_STATES).exclude(["asking"]),
+  }),
+  {
+    doc: "In the project: the showcase ask is settled. Its overall state only, never an individual founder's answer; never narrated.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
 // Account events: a person's own public profile (0080; account-scoped, docs/ARCHITECTURE.md §5 "Account events")
 // ---------------------------------------------------------------------------------------------------
 
@@ -2010,8 +2148,8 @@ const profileUnpublished = declareAccountEvent("profile.unpublished", ProfileFac
 
 /** What the reference named, by its public address and nothing else. The same two fields for both readers. */
 const AttributionSource = z.strictObject({
-  /** A project's public page or a person's public profile (`VIA_KINDS`). */
-  sourceKind: z.enum(VIA_KINDS),
+  /** A project's public page or a person's public profile (`ATTRIBUTION_VIA_KINDS`). */
+  sourceKind: z.enum(ATTRIBUTION_VIA_KINDS),
   /**
    * The slug or handle as it arrived (3 to 40 lowercase letters, digits and hyphens). Public: it was in an address. An
    * address shaped like an id (32 letters a to f and digits in a row) is refused when the event is written, like any
@@ -2155,9 +2293,19 @@ export const EVENTS = {
   "referral.arrived": referralArrived,
   "founder_notice.sent": founderNoticeSent,
   "post.drafted": postDrafted,
+  "quiz.approved": quizApproved,
+  "quiz.published": quizPublished,
+  "quiz.unpublished": quizUnpublished,
   "invitation.sent": invitationSent,
   "invitation.accepted": invitationAccepted,
   "invitation.declined": invitationDeclined,
+  "showcase.requested": showcaseRequested,
+  "showcase.approved": showcaseApproved,
+  "showcase.withdrawn": showcaseWithdrawn,
+  "showcase.asked": showcaseAsked,
+  "showcase.settled": showcaseSettled,
+  "visit.attributed": visitAttributed,
+  "post.outcome_attributed": postOutcomeAttributed,
 } as const satisfies { readonly [K in EventTypeT]: EventDeclaration<K, z.ZodType, EventScopeOf<K>> };
 
 export type EventsRegistry = typeof EVENTS;

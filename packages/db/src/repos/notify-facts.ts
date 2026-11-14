@@ -33,7 +33,7 @@ export const notifyFactsRepo = {
     return db
       .select(itemColumns)
       .from(inboxItems)
-      .where(and(eq(inboxItems.businessId, businessId), eq(inboxItems.type, "decision"), inArray(inboxItems.state, ["unread", "read"]), isNull(inboxItems.archivedAt), isNotNull(inboxItems.decision)))
+      .where(and(eq(inboxItems.businessId, businessId), eq(inboxItems.type, "decision"), inArray(inboxItems.state, ["unread", "read"]), isNull(inboxItems.archivedAt), isNotNull(inboxItems.decision), isNull(inboxItems.forUserId)))
       .orderBy(asc(inboxItems.createdAt))
       .limit(limit);
   },
@@ -43,7 +43,7 @@ export const notifyFactsRepo = {
     return db
       .select(itemColumns)
       .from(inboxItems)
-      .where(and(eq(inboxItems.businessId, businessId), inArray(inboxItems.type, [...types] as never[]), gte(inboxItems.createdAt, since), isNull(inboxItems.archivedAt)))
+      .where(and(eq(inboxItems.businessId, businessId), inArray(inboxItems.type, [...types] as never[]), gte(inboxItems.createdAt, since), isNull(inboxItems.archivedAt), isNull(inboxItems.forUserId)))
       .orderBy(asc(inboxItems.createdAt))
       .limit(limit);
   },

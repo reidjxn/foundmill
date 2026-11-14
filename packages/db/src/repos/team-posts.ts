@@ -7,7 +7,8 @@
  *   is public: the business's name and time zone, the four public fields of its published page, where the social
  *   channel and its agent stand, and what was already drafted. Nothing about a follower, a customer or money is read.
  * - `write` and `drop` take a lock per business and check again inside it, so a trigger delivered twice writes once
- *   and the caps hold. A dropped attempt leaves an archived row with no words: the trigger is not tried again, and
+ *   and the caps hold. `write` also mints the post's public codes (0106 `post_links`: one per network and one for a
+ *   copied or sent link) in the same transaction, except for a sample business. A dropped attempt leaves an archived row with no words: the trigger is not tried again, and
  *   the attempt counts toward the caps.
  * - `markShared` and `dismiss` are the founder's two answers: a share that was opened (`approved`: their own press is
  *   the only approval a post needs) and "Not this one" (`rejected`). Nothing here says a post was posted.
@@ -20,6 +21,7 @@ import { TEAM_POST_CAPS, TEAM_POST_DAY_MS, TEAM_POST_REF_PREFIX, TEAM_POST_WEEK_
 import { and, desc, eq, gte, inArray, isNull, like, sql } from "drizzle-orm";
 import { agents, assets, businesses, channels, milestones, projectPages, type Asset } from "../schema";
 import { auditRepo } from "./audit";
+import { postLinksRepo } from "./post-attributions";
 import { maybeOne, type Executor } from "./_shared";
 
 /** What made the team write: the event, and the row it names where it names one. */
@@ -93,6 +95,11 @@ export interface WriteTeamPostInput {
   caps?: { perDay: number; perWeek: number };
   /** The draft's event, written through the outbox in the same transaction. */
   onWritten?: (tx: Executor, asset: Asset) => Promise<unknown>;
+  /**
+   * The post goes out through a mock connector (a publish that is simulated): its links are minted `simulated` and never
+   * resolve. A post the founder shares by tap is shared for real, whatever the connectors, so this is false for it.
+   */
+  simulatedLinks?: boolean;
 }
 
 export const teamPostsRepo = {
@@ -179,6 +186,10 @@ export const teamPostsRepo = {
         .values({ businessId, campaignId: null, kind: "post", title: teamPostTitle(input.ref), contentRef: teamPostRef(input.ref), body: input.text.slice(0, 8000), approvalState: "draft", authoredByAgentId: input.authoredByAgentId, createdAt: now })
         .returning();
       if (!asset) return { written: false, asset: null, skip: null };
+      // The post's own codes (0106), so a real outcome that comes back through one of its links is credited to it. A
+      // sample business shows nothing in public and gets none.
+      const business = maybeOne(await tx.select({ isDemo: businesses.isDemo }).from(businesses).where(eq(businesses.id, businessId)).limit(1));
+      if (business && !business.isDemo) await postLinksRepo.mint(tx, businessId, asset.id, { simulated: input.simulatedLinks === true });
       await auditRepo.append(tx, businessId, {
         actorKind: input.authoredByAgentId ? "agent" : "system",
         actorId: input.authoredByAgentId,

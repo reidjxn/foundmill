@@ -12,6 +12,7 @@
  */
 import { CHANNEL_KEYS } from "@foundmill/shared";
 import type { AnyPgColumn, PgTable } from "drizzle-orm/pg-core";
+import { newPostCode } from "../../repos/post-attributions";
 import * as s from "../../schema";
 import type { BusinessFixture } from "./fixtures";
 
@@ -127,6 +128,13 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   spec("merge_log", s.mergeLog, "member", (f) => ({ keptId: f.entityId, mergedId: crypto.randomUUID() })),
   // 0079 what a contact agreed to (a follower of the public page): written by the api's service connection only
   spec("contact_consents", s.contactConsents, "service", (f) => ({ entityId: f.entityId, purpose: "email", source: "page", sourceRef: uniq("page"), consentText: "I agree to get email from Alpha about this project. I can unsubscribe at any time." })),
+  // 0106 what a shared team post led to: written by the services only (members read; the triggers keep each row to its business)
+  spec("post_links", s.postLinks, "service", (f) => ({ assetId: take(f.postAssetIds, "post_links"), network: null, code: newPostCode() })),
+  spec("post_attributions", s.postAttributions, "service", (f) => {
+    const link = f.postLinks.pop();
+    if (!link) throw new Error("post_attributions sample: fixture pool exhausted");
+    return { linkId: link.id, assetId: link.assetId, network: link.network, outcomeKind: "follow", outcomeEventId: crypto.randomUUID(), originId: crypto.randomUUID(), outcomeAt: new Date() };
+  }),
   // 0009 finance
   spec("accounts", s.accounts, "admin", () => ({ provider: "mock_bank", externalId: uniq("acct"), name: "Ops" })),
   spec("transactions", s.transactions, "member", (f) => ({ accountId: f.accountId, externalId: uniq("tx"), bookedAt: new Date(), amountMinor: -1200 })),
@@ -203,6 +211,8 @@ export const NON_TENANT_TABLES = [
   "businesses",
   "founder_profiles",
   "account_preferences",
+  // 0100: "I am 18 or older", once per account (user-owned, no business_id); covered by rls/adult-confirmations.test.ts.
+  "adult_confirmations",
   // 0074: a person's phones (user-owned, no business_id); covered by rls/founder-devices.test.ts.
   "founder_devices",
   // 0080: handles a person left, kept for them for 90 days (user-owned, service role only); rls/person-profiles.test.ts.
@@ -242,21 +252,34 @@ export const NON_TENANT_TABLES = [
   "project_mail",
   // 0078: a platform table (no business_id: the project it belonged to is gone), service role only; covered by rls/project-mail.test.ts.
   "retired_mail_local_parts",
+  // 0101: business-scoped, one row per business, founders only; covered by rls/project-postal-address.test.ts.
+  "project_postal_addresses",
   // 0083: one person's rows in one business (presence, visit days, founder emails); covered by rls/founder-return.test.ts.
   "founder_presence",
   "founder_visit_days",
   "founder_notifications",
   // 0088: who or what brought a new person (user-owned, service role only); rls/attributions.test.ts.
   "attributions",
+  // 0105: the page quiz, one row per business (the generated suite inserts a second; clients never insert), and its
+  // anonymous counts, written by services only; covered by rls/page-quizzes.test.ts.
+  "page_quizzes",
+  "page_quiz_counts",
   // 0091: admissions (user-owned, service role only) and invitations (business-scoped, but its token hash and address
   // are not readable by a client, so the generic suite cannot select them); both in rls/invitations.test.ts.
   "account_admissions",
   "invitations",
+  // 0103: showcase requests (the house's, written by the service only) and consents (one founder's own row, read only
+  // by that founder); both in rls/showcase.test.ts.
+  "showcase_requests",
+  "showcase_consents",
   // 0097: a founder's standing ended (business-scoped, but read by the person once they are out, written by a trigger and
   // the service role only, its token hash not readable by a client); covered by rls/founder-departures.test.ts.
   "founder_departures",
   // 0097: one email's one-click cancel of a deletion request (business-scoped, service role only: a client role reads
   // nothing of it); covered by rls/founder-departures.test.ts.
   "founder_cancel_links",
+  // 0102: a post draft's media, one row per draft and kind, written by services only (the generated suite cannot make a
+  // draft per insert); covered by rls/post-media.test.ts.
+  "post_media",
 ] as const;
 

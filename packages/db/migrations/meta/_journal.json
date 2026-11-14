@@ -619,9 +619,58 @@
       "breakpoints": true
     },
     {
+      "idx": 88,
+      "version": "7",
+      "when": 1796134440000,
+      "tag": "0100_adult_confirmations",
+      "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1796135040000,
+      "tag": "0101_project_postal_address",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1796135640000,
+      "tag": "0102_post_media",
+      "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1796136240000,
+      "tag": "0103_showcase_videos",
+      "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1796136840000,
+      "tag": "0104_funding_source",
+      "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1796137440000,
+      "tag": "0105_page_quizzes",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1796138040000,
+      "tag": "0106_post_attributions",
+      "breakpoints": true
+    },
+    {
       "idx": 95,
       "version": "7",
-      "when": 1796138000000,
+      "when": 1796138640000,
       "tag": "0107_collaborator_finance_fields",
       "breakpoints": true
     }

@@ -19,6 +19,8 @@ import { countOf } from "./copy";
 import { CHANNEL_META, type ChannelKey } from "./constants";
 import { addDaysToKey } from "./founder-return";
 import { formatMoney } from "./money";
+import type { PostNetwork } from "./post-draft";
+import { viaPostWords } from "./post-outcomes";
 import { withoutLinks } from "./notify-email";
 import type { Section } from "./permissions";
 import { businessTimeZone, dayKeyIn } from "./time-zone";
@@ -54,12 +56,22 @@ export function isSimulatedEvent(e: Pick<BriefEventLike, "actor" | "payload">): 
   return "simulated" in e.payload && e.payload.simulated !== false;
 }
 
+/**
+ * The shared team post a real outcome came through (item 8; packages/db `postAttributions.viaPostFor`): the network
+ * (null for a copied or sent link) and the day its share was opened. Only a follow, a reply or a payment the platform
+ * credited to a post carries one; it says nothing about the person, and it is behind the outcome's own wall.
+ */
+export interface ViaPost {
+  network: PostNetwork | null;
+  sharedAt: Date;
+}
+
 export type RealOutcome =
   | { kind: "page_live"; at: Date; byUserId: string | null }
   | { kind: "email_sent"; at: Date; agentId: string | null; channelKey: string | null }
-  | { kind: "follower"; at: Date }
-  | { kind: "payment"; at: Date; amountMinor: number; currency: string; firstPayment: boolean; channelKey: string | null }
-  | { kind: "reply"; at: Date; channelKey: string | null; requestsMeeting: boolean };
+  | { kind: "follower"; at: Date; viaPost?: ViaPost }
+  | { kind: "payment"; at: Date; amountMinor: number; currency: string; firstPayment: boolean; channelKey: string | null; viaPost?: ViaPost }
+  | { kind: "reply"; at: Date; channelKey: string | null; requestsMeeting: boolean; viaPost?: ViaPost };
 export type RealOutcomeKind = RealOutcome["kind"];
 
 /** The section a reader must be able to read to see an outcome of this kind (the gateway applies it). */
@@ -67,8 +79,15 @@ export const OUTCOME_SECTION: Readonly<Record<RealOutcomeKind, Section>> = { pag
 
 const str = (v: unknown): string | null => (typeof v === "string" && v ? v : null);
 
-/** The real outcomes among `events` that happened in [since, now], oldest first; everything simulated left out. */
-export function realOutcomes(events: readonly BriefEventLike[], since: Date, now: Date): RealOutcome[] {
+/**
+ * The real outcomes among `events` that happened in [since, now], oldest first; everything simulated left out. A follow,
+ * a reply or a payment whose event `viaPosts` names (by event id) carries the post it came through.
+ */
+export function realOutcomes(events: readonly BriefEventLike[], since: Date, now: Date, viaPosts?: ReadonlyMap<string, ViaPost>): RealOutcome[] {
+  const via = (e: BriefEventLike): { viaPost?: ViaPost } => {
+    const v = viaPosts?.get(e.id);
+    return v ? { viaPost: v } : {};
+  };
   const inWindow = (e: BriefEventLike) => e.occurredAt.getTime() >= since.getTime() && e.occurredAt.getTime() <= now.getTime();
   const leadChannel = new Map<string, string>();
   for (const e of events) {
@@ -92,17 +111,17 @@ export function realOutcomes(events: readonly BriefEventLike[], since: Date, now
         break;
       case "page.followed":
         // Written once, when the person confirmed from their own inbox (double opt-in).
-        if (e.actor.kind === "system" && e.actor.id === "public-page") out.push({ kind: "follower", at: e.occurredAt });
+        if (e.actor.kind === "system" && e.actor.id === "public-page") out.push({ kind: "follower", at: e.occurredAt, ...via(e) });
         break;
       case "payment.received": {
         if (e.actor.kind !== "webhook") break;
         const amount = (p.amount ?? {}) as { amountMinor?: unknown; currency?: unknown };
         const conversionId = str(p.conversionId);
-        out.push({ kind: "payment", at: e.occurredAt, amountMinor: typeof amount.amountMinor === "number" ? amount.amountMinor : 0, currency: str(amount.currency) ?? "USD", firstPayment: p.firstPayment === true, channelKey: conversionId ? (leadChannel.get(conversionId) ?? null) : null });
+        out.push({ kind: "payment", at: e.occurredAt, amountMinor: typeof amount.amountMinor === "number" ? amount.amountMinor : 0, currency: str(amount.currency) ?? "USD", firstPayment: p.firstPayment === true, channelKey: conversionId ? (leadChannel.get(conversionId) ?? null) : null, ...via(e) });
         break;
       }
       case "lead.replied":
-        if (e.actor.kind === "webhook" && typeof p.sentiment === "string" && REPLIES_THAT_WORKED.has(p.sentiment)) out.push({ kind: "reply", at: e.occurredAt, channelKey: str(p.channelKey), requestsMeeting: p.requestsMeeting === true });
+        if (e.actor.kind === "webhook" && typeof p.sentiment === "string" && REPLIES_THAT_WORKED.has(p.sentiment)) out.push({ kind: "reply", at: e.occurredAt, channelKey: str(p.channelKey), requestsMeeting: p.requestsMeeting === true, ...via(e) });
         break;
     }
   }
@@ -235,6 +254,19 @@ function sinceWordsOf(input: Pick<MorningBriefInput, "weekly" | "now" | "since" 
   return `since ${shortDate(input.since, input.timeZone)}`;
 }
 
+/** "from your post on X, Nov 12": the cause a post-credited outcome carries, in the business's zone. */
+const postCause = (v: ViaPost, timeZone: string | null): string => viaPostWords({ network: v.network, sharedAt: v.sharedAt, timeZone: businessTimeZone(timeZone) });
+
+/** Outcomes grouped by the post words that caused them, in first-seen order; the ones no post caused under null. */
+function byPost<T extends { viaPost?: ViaPost }>(rows: readonly T[], timeZone: string | null): [string | null, T[]][] {
+  const groups = new Map<string | null, T[]>();
+  for (const r of rows) {
+    const key = r.viaPost ? postCause(r.viaPost, timeZone) : null;
+    groups.set(key, [...(groups.get(key) ?? []), r]);
+  }
+  return [...groups];
+}
+
 function workedLines(input: MorningBriefInput): BriefLine[] {
   const o = input.outcomes;
   const lines: BriefLine[] = [];
@@ -243,20 +275,22 @@ function workedLines(input: MorningBriefInput): BriefLine[] {
     const amount = input.hideAmounts || p.amountMinor <= 0 ? null : money(p.amountMinor, p.currency);
     const text = p.firstPayment ? `A new customer paid${amount ? ` ${amount}` : ""}` : `A payment came in${amount ? `: ${amount}` : ""}`;
     const channel = channelLabel(p.channelKey);
-    lines.push({ text, cause: channel ? `found you through ${channel}` : null });
+    lines.push({ text, cause: p.viaPost ? postCause(p.viaPost, input.timeZone) : channel ? `found you through ${channel}` : null });
   }
   const morePayments = o.filter((x) => x.kind === "payment").length - 3;
   if (morePayments > 0) lines.push({ text: `${countOf(morePayments, "more payment")} came in`, cause: null });
 
-  const replies = o.filter((x): x is Extract<RealOutcome, { kind: "reply" }> => x.kind === "reply");
-  if (replies.length > 0) {
+  // Replies and follows a shared post brought get a line per post, with the post as the cause (item 8).
+  for (const [post, replies] of byPost(o.filter((x): x is Extract<RealOutcome, { kind: "reply" }> => x.kind === "reply"), input.timeZone)) {
     const talk = replies.filter((r) => r.requestsMeeting).length;
     const channels = [...new Set(replies.map((r) => channelLabel(r.channelKey)).filter((c): c is string => !!c))];
-    lines.push({ text: `${replies.length === 1 ? "A person replied" : `${replies.length.toLocaleString("en-US")} people replied`} to the team's outreach${talk > 0 ? `${replies.length === 1 ? " and asked to talk" : `, ${talk.toLocaleString("en-US")} asking to talk`}` : ""}`, cause: channels.length ? `through ${channels.slice(0, 2).join(" and ")}` : null });
+    lines.push({ text: `${replies.length === 1 ? "A person replied" : `${replies.length.toLocaleString("en-US")} people replied`} to the team's outreach${talk > 0 ? `${replies.length === 1 ? " and asked to talk" : `, ${talk.toLocaleString("en-US")} asking to talk`}` : ""}`, cause: post ?? (channels.length ? `through ${channels.slice(0, 2).join(" and ")}` : null) });
   }
 
-  const followers = o.filter((x) => x.kind === "follower").length;
-  if (followers > 0) lines.push({ text: followers === 1 ? "A person chose to follow your project" : `${followers.toLocaleString("en-US")} people chose to follow your project`, cause: "they signed up on your public page and confirmed by email" });
+  for (const [post, group] of byPost(o.filter((x): x is Extract<RealOutcome, { kind: "follower" }> => x.kind === "follower"), input.timeZone)) {
+    const followers = group.length;
+    lines.push({ text: followers === 1 ? "A person chose to follow your project" : `${followers.toLocaleString("en-US")} people chose to follow your project`, cause: post ?? "they signed up on your public page and confirmed by email" });
+  }
 
   const pages = o.filter((x): x is Extract<RealOutcome, { kind: "page_live" }> => x.kind === "page_live");
   if (pages.length > 0) {

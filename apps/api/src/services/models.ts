@@ -12,7 +12,8 @@
  * with `credits_exhausted` (402) once the business's credits for the month are used up, whatever its model billing (a
  * business on its own key pays for these platform-key calls with its credits too), and, where calls are live, when only
  * credits from a simulated payment are left. A call that passes is noted on the request (services/model-calls.ts), so
- * its allowance is never given back.
+ * its allowance is never given back. While the credits are low, a call that passes runs with `lowCredits` (the credit
+ * saver): a routine route moves to its lower-cost model (packages/models routing.ts), a founder-facing one keeps its own.
  */
 import { assertPlatformCredits, bookUsage, type Db } from "@foundmill/db";
 import { createModelClient, gateModelClient, type ModelCallGate, type ModelClient, type UsageEvent, type UsageSink } from "@foundmill/models";
@@ -80,8 +81,10 @@ export function apiUsageSink(db: Db, log: ApiLogger): UsageSink {
  */
 export function apiCreditsGate(db: Db, live: boolean): ModelCallGate {
   return async ({ attribution }) => {
-    if (attribution?.businessId) await assertPlatformCredits(db, attribution.businessId, { live });
+    const check = attribution?.businessId ? await assertPlatformCredits(db, attribution.businessId, { live }) : null;
     noteModelCall();
+    // Low credits (the credit saver): routine routes run on their lower-cost model; founder-facing routes keep theirs.
+    return check?.low ? { lowCredits: true } : undefined;
   };
 }
 

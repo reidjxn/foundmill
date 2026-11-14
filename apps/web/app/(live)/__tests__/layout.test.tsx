@@ -4,12 +4,12 @@ import { render, screen } from "@testing-library/react";
 import type * as React from "react";
 import { describe, expect, it, vi } from "vitest";
 
-const state = vi.hoisted(() => ({ businesses: [] as { id: string }[], redirect: vi.fn((to: string) => { throw new Error(`redirect:${to}`); }) }));
+const state = vi.hoisted(() => ({ businesses: [] as { id: string }[], adultConfirmed: true, redirect: vi.fn((to: string) => { throw new Error(`redirect:${to}`); }) }));
 
 vi.mock("next/navigation", () => ({ redirect: state.redirect, usePathname: () => "/network" }));
 vi.mock("react", async (orig) => ({ ...(await orig<typeof React>()), Suspense: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("@/lib/trpc-server", () => ({
-  serverApi: async () => ({ auth: { email: "robin@example.com", userId: "u1" }, api: { founder: { profile: { get: { query: async () => ({ email: "robin@example.com", profile: { userId: "u1", displayName: "Robin" }, businesses: state.businesses }) } } } } }),
+  serverApi: async () => ({ auth: { email: "robin@example.com", userId: "u1" }, api: { founder: { profile: { get: { query: async () => ({ email: "robin@example.com", profile: { userId: "u1", displayName: "Robin" }, adultConfirmed: state.adultConfirmed, businesses: state.businesses }) } } } } }),
 }));
 vi.mock("@/lib/auth/server", () => ({ getLastBusinessId: async () => null }));
 vi.mock("@/lib/date-format.server", () => ({ getServerDateFormat: async () => ({ prefs: null, owner: null }) }));
@@ -36,5 +36,16 @@ describe("(live) layout", () => {
     expect(screen.queryByTestId("business-shell")).toBeNull();
     expect(screen.getByText("network")).toBeTruthy();
     expect(state.redirect).not.toHaveBeenCalled();
+  });
+
+  it("sends a person whose 18 or older is not on record to /onboarding, which asks once (0100)", async () => {
+    state.businesses = [];
+    state.adultConfirmed = false;
+    try {
+      const tree = (LiveLayout({ children: <p>network</p> }) as React.ReactElement<{ children: React.ReactElement }>).props.children;
+      await expect((tree.type as (p: unknown) => Promise<React.ReactElement>)(tree.props)).rejects.toThrow("redirect:/onboarding");
+    } finally {
+      state.adultConfirmed = true;
+    }
   });
 });

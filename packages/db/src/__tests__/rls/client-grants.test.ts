@@ -120,6 +120,32 @@ describe("no client TRUNCATE, TRIGGER or REFERENCES", () => {
   });
 });
 
+describe("what a shared post led to is the services' to write (0106)", () => {
+  for (const table of ["post_links", "post_attributions"]) {
+    for (const role of CLIENT_ROLES) {
+      it(`${role} holds no INSERT, UPDATE or DELETE on ${table}`, async () => {
+        const held: string[] = [];
+        for (const priv of ["insert", "update", "delete", "truncate", "trigger", "references"]) if (await tablePriv(role, table, priv)) held.push(priv);
+        expect(held).toEqual([]);
+      });
+    }
+    it(`service_role writes ${table}`, async () => {
+      for (const priv of ["select", "insert", "update", "delete"]) expect(await tablePriv("service_role", table, priv), priv).toBe(true);
+    });
+  }
+
+  it("no client role calls the trigger function that keeps each row to its business", async () => {
+    for (const role of CLIENT_ROLES) expect(await fnPriv(role, "fm_post_link_same_business()"), role).toBe(false);
+  });
+
+  it("a signed-in owner writes no post link into a follow (contact_consents has no client write)", async () => {
+    const rowsChanged = await h.asUser(A.ownerId).run((tx) => tx.update(s.contactConsents).set({ postLinkId: null }).where(eq(s.contactConsents.businessId, A.businessId)).returning());
+    expect(rowsChanged).toEqual([]);
+    await expect(h.asUser(A.ownerId).run((tx) => tx.insert(s.postLinks).values({ businessId: A.businessId, assetId: A.postAssetIds[0]!, network: "x", code: "abcdefgh22" }))).rejects.toThrow(/permission denied/);
+    await expect(h.anon().run((tx) => tx.insert(s.postAttributions).values({ businessId: A.businessId, linkId: A.postLinks[0]!.id, assetId: A.postLinks[0]!.assetId, network: A.postLinks[0]!.network as "x" | null, outcomeKind: "follow", outcomeEventId: crypto.randomUUID(), originId: crypto.randomUUID(), outcomeAt: now }))).rejects.toThrow(/permission denied/);
+  });
+});
+
 describe("the public views are read-only for the service role too (0080, 0081)", () => {
   for (const view of ["public_person_profiles", "public_project_pages"]) {
     it(`service_role holds SELECT and nothing else on ${view}`, async () => {

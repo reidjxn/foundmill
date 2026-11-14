@@ -66,6 +66,7 @@ import { audit, emit, type BusinessContext } from "../trpc";
 import type { Context } from "../context";
 import { answerNote } from "./answer-note";
 import type { DecideItemResult } from "./decide";
+import { queueShowcaseCheck } from "./showcase";
 import { queuePostDraft } from "./post-drafts";
 import { takeOrThrow } from "./rate-limit";
 
@@ -264,6 +265,8 @@ export async function unpublishPage(ctx: BusinessContext): Promise<PageView> {
     await audit(tx, ctx, { action: "page.unpublished", target: { kind: "project_page", id: row.id }, details: { slug: row.slug, url } });
     return viewOf(tx, ctx, row);
   });
+  // The page is private now: a showcase ask about the project is withdrawn (services/showcase.ts).
+  if (view) queueShowcaseCheck(ctx, ctx.businessId);
   return view ?? pageView(ctx);
 }
 
@@ -461,6 +464,8 @@ export interface FollowInput {
   website?: string | null;
   /** The page's Turnstile token (the widget's `page_follow` action); without a valid one nothing is recorded or sent. */
   turnstile?: string | null;
+  /** The last post code the visitor arrived with (the web's `fm_post` cookie): kept only for the project's own visited link. */
+  post?: string | null;
 }
 
 /** The token the web sends without a Turnstile site key (development stacks); the gateway's mock passes it. */
@@ -580,7 +585,10 @@ export async function followPage(ctx: FollowContext, input: FollowInput): Promis
     const nonce = randomBytes(32).toString("base64url");
     const tokenHash = createHash("sha256").update(nonce, "utf8").digest("hex");
     const reserved = await ctx.db.transaction(async (tx) => {
-      const recorded = await repos.followers.record(tx, target.businessId, { pageId: target.pageId, slug: target.slug, email, consentText });
+      // The post the visitor last arrived through, when it is this project's own, real and was visited (item 8). The
+      // follow is credited to it only once the person confirms from their inbox.
+      const postLinkId = await repos.postLinks.followable(tx, target.businessId, input.post);
+      const recorded = await repos.followers.record(tx, target.businessId, { pageId: target.pageId, slug: target.slug, email, consentText, postLinkId });
       if (recorded.status === "nothing") return null;
       if (recorded.status === "new") {
         await repos.audit.append(tx, target.businessId, {

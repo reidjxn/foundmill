@@ -7,11 +7,29 @@
  * staging only.
  */
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Activity, ExternalLink, FlaskConical, FolderGit2, KeyRound, Plug, RefreshCw, Unplug } from "lucide-react";
+import { Activity, ExternalLink, FlaskConical, FolderGit2, KeyRound, MapPin, Plug, RefreshCw, Unplug } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Button, Chip, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, IconButton, Input, SimpleSelect, StatusPill, Term, cn, useDateFormat, type StatusTone, type DateFormatPrefs } from "@foundmill/dugout";
-import { PLATFORM_MAIL_APPROVAL_LINE, PLATFORM_MAIL_OWN_SENDER_LINE, PLATFORM_MAIL_PAUSED_LINE, PLATFORM_MAIL_REPLIES_LINE, PLATFORM_MAIL_SIMULATED_LINE, PLATFORM_MAIL_TITLE, platformMailCountLine, type IntegrationStatus } from "@foundmill/shared";
+import {
+  normalizePostalAddress,
+  PLATFORM_MAIL_APPROVAL_LINE,
+  PLATFORM_MAIL_OWN_SENDER_LINE,
+  PLATFORM_MAIL_PAUSED_LINE,
+  PLATFORM_MAIL_REPLIES_LINE,
+  PLATFORM_MAIL_SIMULATED_LINE,
+  PLATFORM_MAIL_TITLE,
+  platformMailCountLine,
+  POSTAL_ADDRESS_FOUNDERS_ONLY,
+  POSTAL_ADDRESS_LABEL,
+  POSTAL_ADDRESS_MAX,
+  POSTAL_ADDRESS_MISSING,
+  POSTAL_ADDRESS_PLACEHOLDER,
+  POSTAL_ADDRESS_PRIVATE,
+  POSTAL_ADDRESS_WHY,
+  postalAddressProblem,
+  type IntegrationStatus,
+} from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { ShellLinkButton } from "@/components/live/ShellLinkButton";
 import { simulatePanelAvailable } from "@/lib/env";
@@ -222,13 +240,89 @@ export interface PlatformMailView {
   paused: boolean;
   live: boolean;
   ownSender: boolean;
+  /** The founders' postal address for marketing email (US CAN-SPAM); null when none is entered, or for a collaborator. */
+  postalAddress?: string | null;
+  /** The reader is a founder (owner or admin): they may enter and change the address. */
+  canEditPostalAddress?: boolean;
 }
 
 /**
- * "Email from your project" (package 1.5): the project's Foundmill sending address, today's count against its cap, and
- * the line about outside contact. Nothing to connect and nothing to change here: the cap is raised by Foundmill.
+ * The founders' postal address for the project's marketing email (US CAN-SPAM; founder, Nov 13, 2026): why the law asks
+ * for it, that a PO box is fine, and that it never reaches the public page. Until it is entered the team cannot send
+ * marketing email from the project's address. Only the founders change it.
  */
-export function PlatformMailSection({ data }: { data: PlatformMailView | null | undefined }) {
+export function PostalAddressField({ businessId, value, canEdit }: { businessId: string; value: string | null; canEdit: boolean }) {
+  const trpc = useTRPC();
+  const invalidate = useInvalidateRouters();
+  const t = useSettingsToast();
+  const [draft, setDraft] = useState(value ?? "");
+  const [touched, setTouched] = useState(false);
+  // A save elsewhere (another tab, another founder) brings the stored value back into an untouched field.
+  const [seen, setSeen] = useState(value);
+  if (value !== seen) {
+    setSeen(value);
+    if (!touched) setDraft(value ?? "");
+  }
+  const save = useMutation(
+    trpc.integrations.setPostalAddress.mutationOptions({
+      onSuccess: (r) => {
+        setTouched(false);
+        setDraft(r.address);
+        void invalidate(["integrations", "inbox", "today"]);
+        t.saved("Postal address saved", "Marketing emails from the project's address show it at the bottom.");
+      },
+      onError: (e) => t.failed(e),
+    }),
+  );
+  const problem = draft.trim() ? postalAddressProblem(draft) : null;
+  const unchanged = value !== null && normalizePostalAddress(draft) === value;
+  return (
+    <form
+      className="flex flex-col gap-2"
+      data-testid="postal-address"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (canEdit && draft.trim() && !problem && !unchanged) save.mutate({ businessId, address: draft });
+      }}
+    >
+      <Field htmlFor="postal-address-input" label={POSTAL_ADDRESS_LABEL} hint={POSTAL_ADDRESS_WHY} error={touched && problem ? problem : undefined}>
+        <Input
+          id="postal-address-input"
+          name="postalAddress"
+          autoComplete="street-address"
+          maxLength={POSTAL_ADDRESS_MAX * 2}
+          placeholder={POSTAL_ADDRESS_PLACEHOLDER}
+          value={draft}
+          disabled={!canEdit}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            setTouched(true);
+          }}
+        />
+      </Field>
+      <div className="flex flex-wrap items-center gap-3">
+        {canEdit ? (
+          <Button type="submit" variant="secondary" icon={MapPin} disabled={!draft.trim() || Boolean(problem) || unchanged} loading={save.isPending} data-testid="postal-address-save">
+            {value ? "Save address" : "Add address"}
+          </Button>
+        ) : null}
+        {value ? null : (
+          <span className="text-small text-secondary" data-testid="postal-address-missing">
+            {POSTAL_ADDRESS_MISSING}
+          </span>
+        )}
+      </div>
+      <Hint>{canEdit ? POSTAL_ADDRESS_PRIVATE : `${POSTAL_ADDRESS_PRIVATE} ${POSTAL_ADDRESS_FOUNDERS_ONLY}`}</Hint>
+    </form>
+  );
+}
+
+/**
+ * "Email from your project" (package 1.5): the project's Foundmill sending address, today's count against its cap, the
+ * line about outside contact, and the founders' postal address for marketing email. Nothing to connect: the cap is
+ * raised by Foundmill.
+ */
+export function PlatformMailSection({ data, businessId }: { data: PlatformMailView | null | undefined; businessId?: string }) {
   if (!data) return null;
   return (
     <SettingsSection title={PLATFORM_MAIL_TITLE} data-testid="platform-mail" actions={data.live ? null : <Chip tone="info">Test mode</Chip>}>
@@ -245,6 +339,7 @@ export function PlatformMailSection({ data }: { data: PlatformMailView | null | 
       {data.paused ? <Hint>{PLATFORM_MAIL_PAUSED_LINE}</Hint> : null}
       {data.ownSender ? <Hint>{PLATFORM_MAIL_OWN_SENDER_LINE}</Hint> : null}
       {data.live ? null : <Hint>{PLATFORM_MAIL_SIMULATED_LINE}</Hint>}
+      {businessId ? <PostalAddressField businessId={businessId} value={data.postalAddress ?? null} canEdit={data.canEditPostalAddress === true} /> : null}
     </SettingsSection>
   );
 }
@@ -330,7 +425,7 @@ export function IntegrationsTab() {
           </div>
         </SettingsSection>
       ) : null}
-      <PlatformMailSection data={platformMail.data} />
+      <PlatformMailSection data={platformMail.data} businessId={businessId} />
       <OAuthFinish businessId={businessId} connectors={rows} pending={connect.isPending} onFinish={(connectorKey, input, done) => connect.mutate({ businessId, connectorKey, input }, { onSettled: done })} />
       <SettingsSection wide title="Connectors" meta={list.data ? plural(rows.filter((r) => r.integration && r.integration.status !== "disconnected").length, "connected", "connected") : undefined} actions={list.data ? <Chip tone={list.data.mode === "mock" ? "info" : "good"}>{modeLabel(list.data.mode, rows)}</Chip> : undefined} loading={list.isLoading}>
         <Hint>Consents and API keys are yours to grant: a connector that needs one opens the vendor's page and waits for you. Secrets are stored encrypted and never shown again.</Hint>

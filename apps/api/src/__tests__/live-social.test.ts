@@ -473,10 +473,11 @@ describe("#28: the network is for adults", () => {
     expect(await owner.business.setGameMode({ businessId: ada.businessId, gameMode: "live" })).toMatchObject({ gameMode: "live" });
   });
 
-  it("taking charge of a LIVE business asks too; a Personal one never does", async () => {
+  it("taking charge of a LIVE business asks a person here before sign-up asked; the sign-up confirmation answers it", async () => {
     const userId = await hz.h.createUser("adult-commit@live-social.test");
     const caller = as(userId);
-    await caller.founder.profile.update({ displayName: "Noor", experience: "first-time", skills: { sales: 10 }, targetMarkets: ["EU"], riskAppetite: "medium" });
+    // A profile from before 0100: no confirmation on record.
+    await repos.founders.upsert(hz.db, userId, { displayName: "Noor", experience: "first-time", skills: { sales: 10 }, targetMarkets: ["EU"], riskAppetite: "medium" });
     const [first] = (await caller.idea.generate({ prompt: "invoicing for freelance designers" })).ideas;
     // Without the confirmation nothing is created: no business, and the idea stays uncommitted.
     const refused = await failure(caller.idea.commit({ ideaId: first!.id, name: "Noor Live", archetype: "b2b_saas", gameMode: "live" }));
@@ -484,13 +485,14 @@ describe("#28: the network is for adults", () => {
     expect((await caller.idea.get({ ideaId: first!.id })).idea.committedAt).toBeNull();
     expect(await repos.memberships.listForUser(hz.db, userId)).toEqual([]);
     expect(await repos.social.adultConfirmedAt(hz.db, userId)).toBeNull();
-    // A Personal business needs no confirmation (another person: the free plan holds one business each).
+    // A person who confirmed at sign-up is never asked again, for a Personal or a LIVE business (another person: the
+    // free plan holds one business each).
     const otherId = await hz.h.createUser("adult-commit-personal@live-social.test");
     const other = as(otherId);
-    await other.founder.profile.update({ displayName: "Mika", experience: "first-time", skills: { sales: 10 }, targetMarkets: ["EU"], riskAppetite: "medium" });
+    await other.founder.profile.update({ confirmAdult: true, displayName: "Mika", experience: "first-time", skills: { sales: 10 }, targetMarkets: ["EU"], riskAppetite: "medium" });
     const [second] = (await other.idea.generate({ prompt: "invoicing for freelance designers" })).ideas;
-    expect((await other.idea.commit({ ideaId: second!.id, name: "Mika Personal", archetype: "b2b_saas", gameMode: "personal" })).business.gameMode).toBe("personal");
-    expect(await repos.social.adultConfirmedAt(hz.db, otherId)).toBeNull();
+    expect((await other.idea.commit({ ideaId: second!.id, name: "Mika Live", archetype: "b2b_saas", gameMode: "live" })).business.gameMode).toBe("live");
+    expect(await repos.social.adultConfirmedAt(hz.db, otherId)).not.toBeNull();
     // A LIVE one goes through with the confirmation, and records it.
     const live = await caller.idea.commit({ ideaId: first!.id, name: "Noor Live", archetype: "b2b_saas", gameMode: "live", confirmAdult: true });
     expect(live.business.gameMode).toBe("live");

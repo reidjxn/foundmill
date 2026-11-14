@@ -411,6 +411,7 @@ describe("public profiles: search and profile pages, \"On Foundmill\" (audit GLS
     const owner = as(hz.A.ownerId);
     // The confirmation is kept per person once given; this one starts from none on record.
     await hz.db.execute(sql`delete from network_attestations where user_id = ${hz.A.ownerId}::uuid`);
+    await hz.db.execute(sql`delete from adult_confirmations where user_id = ${hz.A.ownerId}::uuid`);
     await expect(owner.business.setGameMode({ businessId, gameMode: "live" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(owner.business.setGameMode({ businessId, gameMode: "live", confirmAdult: false })).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect((await repos.businesses.get(hz.db, businessId)).gameMode).toBe("personal");

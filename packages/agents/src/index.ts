@@ -19,6 +19,8 @@ export * from "./project-page";
 export * from "./design-check";
 export * from "./second-read";
 export * from "./post-draft";
+export * from "./showcase-script";
+export * from "./post-media";
 export * from "./plan-import";
 export * from "./ideation";
 export * from "./registry";
@@ -105,3 +107,5 @@ export {
   type TeamCallFinalAction,
   type FinalisedTeamCallWrapUp,
 } from "./prompts";
+export * from "./page-quiz";
+export * from "./page-quiz-personal";

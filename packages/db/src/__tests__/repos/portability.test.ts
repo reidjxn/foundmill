@@ -1,6 +1,7 @@
 /** portability (Settings › Danger zone "Export everything", BUILD §11.15): table classification, paging, redaction, tenancy. */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { EXPORT_EXCLUDED_TABLES, EXPORT_TABLES, portableValue, repos } from "../../repos";
+import { postAttributions } from "../../schema";
 import { setupRepoHarness, type RepoHarness } from "./helpers";
 
 let r: RepoHarness;
@@ -67,5 +68,20 @@ describe("portability", () => {
     expect(asStranger).toEqual([]);
     const transactions = await r.as(r.B.ownerId, (tx) => readAll(tx, r.A.businessId, "conversions", 50));
     expect(transactions).toEqual([]);
+  });
+
+  it("files what a shared post led to under Finance, so a payment credit is never exported to someone without it (security review, Nov 14)", async () => {
+    // Payment credits live in post_attributions: the table's wall is Finance's, the strictest of what it holds.
+    expect(EXPORT_TABLES.post_attributions!.section).toBe("finance");
+    expect(EXPORT_TABLES.post_links!.section).toBe("distribution");
+    // Every table that can hold a payment credit is behind Finance.
+    const holdingPayments = Object.entries(EXPORT_TABLES).filter(([, spec]) => "outcomeKind" in spec.table);
+    expect(holdingPayments.map(([name, spec]) => [name, spec.section])).toEqual([["post_attributions", "finance"]]);
+    // A payment credit is in the archive for a Finance reader (the owner), ids and the kind only.
+    const link = r.A.postLinks[0]!;
+    await r.svc((tx) => tx.insert(postAttributions).values({ businessId: r.A.businessId, linkId: link.id, assetId: link.assetId, network: link.network as "x" | null, outcomeKind: "payment", outcomeEventId: crypto.randomUUID(), originId: crypto.randomUUID(), outcomeAt: new Date() }));
+    const rows = await r.as(r.A.ownerId, (tx) => readAll(tx, r.A.businessId, "post_attributions", 50));
+    expect(rows.some((row) => row.outcomeKind === "payment")).toBe(true);
+    for (const row of rows) expect(Object.keys(row).sort()).toEqual(["assetId", "businessId", "createdAt", "id", "linkId", "network", "originId", "outcomeAt", "outcomeEventId", "outcomeKind", "updatedAt"]);
   });
 });
