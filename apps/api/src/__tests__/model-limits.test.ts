@@ -97,7 +97,7 @@ describe("each model-backed procedure is limited", () => {
 
   it("the Studio, Compare and Ask spend the shared ceiling; Compare also spends a draft", async () => {
     const userId = await hz.h.createUser("studio-limits@test.local");
-    await as(userId).founder.profile.update({ displayName: "Ana", experience: "operator", skills: { sales: 12 }, targetMarkets: ["EU"], riskAppetite: "low" });
+    await as(userId).founder.profile.update({ confirmAdult: true, displayName: "Ana", experience: "operator", skills: { sales: 12 }, targetMarkets: ["EU"], riskAppetite: "low" });
     const ideas = (await as(userId).idea.generate({ prompt: "a newsletter" })).ideas;
     // Compare takes a draft from the drafting allowance (no business to book the Opus call to).
     hz.limits.reset();

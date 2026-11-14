@@ -41,6 +41,7 @@ import {
 } from "react";
 import { APP_NAME } from "@foundmill/config";
 import {
+  AdultCheck,
   Button,
   Chip,
   EXAMPLE_TAG,
@@ -106,6 +107,8 @@ import {
 } from "./profile-form";
 import { AccountId } from "@/components/settings/AccountId";
 import { forgetVia } from "@/app/onboarding/actions";
+import { isAdultUnconfirmed } from "@/lib/adult";
+import { AdultStep } from "./AdultStep";
 
 export interface OnboardingScreenProps {
   profile: ProfileLike | null;
@@ -117,7 +120,20 @@ export interface OnboardingScreenProps {
    * (lib/via.ts). Sent with the save that creates the profile, never with an edit. Null when there is none.
    */
   via?: string | null;
+  /**
+   * Whether the account's "I am 18 or older" is on record (`founder.profile.get` `adultConfirmed`; 0100). A new account
+   * without it ticks the box on the form, and the save that creates the profile carries it; a person with a profile and
+   * no record (here before sign-up asked) sees the one step instead of the form (`AdultStep`). Required: the page reads
+   * it from the api, and a screen that does not know never assumes it. A save the api refuses with `adult_unconfirmed`
+   * asks for it too, whatever this said.
+   */
+  adultConfirmed: boolean;
 }
+
+/** Under the box on the form that creates an account: asked once, never again. */
+export const ADULT_FORM_HINT = "You confirm this once.";
+/** When Continue is pressed with the box empty. */
+export const ADULT_FORM_NEEDED = "Confirm that you are 18 or older to continue.";
 
 /** How long the first save waits for the attribution cookie to be cleared before it moves on without that. */
 export const FORGET_VIA_WAIT_MS = 3_000;
@@ -140,7 +156,7 @@ export const SKILLS_HINT = "Be honest: the team hires to cover what you don't ha
 /** Under Continue while the example founder is in: the example is never saved as the founder's own profile. */
 export const EXAMPLE_PROFILE_LINE = "Replace the example with your own answers to continue.";
 
-export function OnboardingScreen({ profile, email, accountId = null, via = null }: OnboardingScreenProps) {
+export function OnboardingScreen({ profile, email, accountId = null, via = null, adultConfirmed }: OnboardingScreenProps) {
   const router = useRouter();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -148,6 +164,9 @@ export function OnboardingScreen({ profile, email, accountId = null, via = null 
   const editing = profile !== null;
   /** Only the save that creates the profile carries the reference. */
   const handOver = editing ? null : via;
+  /** The api refused a save for want of the confirmation: ask for it, whatever the page was told. */
+  const [serverAsked, setServerAsked] = useState(false);
+  const needsAdult = !adultConfirmed || serverAsked;
 
   const save = useMutation(
     trpc.founder.profile.update.mutationOptions({
@@ -167,16 +186,22 @@ export function OnboardingScreen({ profile, email, accountId = null, via = null 
         router.push("/new");
         router.refresh();
       },
-      onError: (err) =>
-        toast({ title: "Profile not saved", description: saveErrorMessage(err), tone: "bad" }),
+      onError: (err) => {
+        if (isAdultUnconfirmed(err)) setServerAsked(true);
+        toast({ title: "Profile not saved", description: saveErrorMessage(err), tone: "bad" });
+      },
     }),
   );
+
+  // A person from before (a profile, no "18 or older" on record) is asked once, in one step, instead of the form.
+  if (editing && needsAdult) return <AdultStep />;
 
   return (
     <OnboardingForm
       profile={profile}
       email={email}
       accountId={accountId}
+      askAdult={!editing && needsAdult}
       saving={save.isPending}
       error={save.error ? saveErrorMessage(save.error) : null}
       onSubmit={(patch) => save.mutate(handOver ? { ...patch, via: handOver } : patch)}
@@ -195,7 +220,9 @@ export interface OnboardingFormProps {
   accountId?: string | null;
   saving?: boolean;
   error?: string | null;
-  onSubmit: (patch: ProfilePatch) => void;
+  /** A new account with no "I am 18 or older" on record: the box is on the form, and the save carries `confirmAdult`. */
+  askAdult?: boolean;
+  onSubmit: (patch: ProfilePatch & { confirmAdult?: true }) => void;
 }
 
 export function OnboardingForm({
@@ -204,11 +231,13 @@ export function OnboardingForm({
   accountId = null,
   saving = false,
   error,
+  askAdult = false,
   onSubmit,
 }: OnboardingFormProps) {
   const editing = profile !== null;
   const [form, setForm] = useState<ProfileForm>(() => formFromProfile(profile, email));
   const [touched, setTouched] = useState(false);
+  const [adult, setAdult] = useState(false);
   const errors = useMemo(() => validateProfileForm(form), [form]);
   const status = useMemo(() => sectionStatus(form), [form]);
   const summary = useMemo(() => profileSummary(form), [form]);
@@ -247,7 +276,11 @@ export function OnboardingForm({
           ?.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
-    onSubmit(profilePatch(form));
+    if (askAdult && !adult) {
+      document.getElementById("profile-adult")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+    onSubmit(askAdult ? { ...profilePatch(form), confirmAdult: true } : profilePatch(form));
   }
 
   const show = (key: keyof ProfileForm) => (touched ? errors[key] : undefined);
@@ -712,6 +745,19 @@ export function OnboardingForm({
               </p>
             )}
           </Panel>
+
+          {askAdult ? (
+            <div id="profile-adult">
+              <AdultCheck
+                id="profile-adult-check"
+                checked={adult}
+                onCheckedChange={setAdult}
+                hint={ADULT_FORM_HINT}
+                error={touched && !adult ? ADULT_FORM_NEEDED : undefined}
+                data-testid="profile-adult"
+              />
+            </div>
+          ) : null}
 
           <div className="flex items-center justify-between gap-4 border-t border-subtle pt-4">
             <div className="text-small text-secondary">
