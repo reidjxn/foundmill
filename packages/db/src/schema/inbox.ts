@@ -29,6 +29,11 @@ export const inboxItems = pgTable(
     state: text("state", { enum: INBOX_STATES }).notNull().default("unread"),
     costMinor: minor("cost_minor").notNull().default(0),
     currency: pricingCurrency(),
+    /**
+     * 0105 — a note for one person only (a founder's own showcase ask). Null: a note for everyone who reads the Inbox, as
+     * every note before it. A restrictive policy keeps it out of every other client's reads and writes.
+     */
+    forUserId: uuid("for_user_id").references(() => authUsers.id, { onDelete: "cascade" }),
     ...timestampsWithArchive(),
   },
   (t) => [
@@ -38,6 +43,7 @@ export const inboxItems = pgTable(
     index("inbox_items_type_idx").on(t.businessId, t.type),
     index("inbox_items_from_agent_id_idx").on(t.fromAgentId),
     index("inbox_items_from_user_id_idx").on(t.fromUserId),
+    index("inbox_items_for_user_id_idx").on(t.forUserId).where(sql`${t.forUserId} is not null`),
   ],
 );
 export type InboxItem = typeof inboxItems.$inferSelect;

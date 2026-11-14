@@ -254,6 +254,11 @@ export const businesses = pgTable(
      * reads "Waiting for the product". Businesses committed before sign-offs existed carry their commit time.
      */
     distributionStartedAt: tstz("distribution_started_at"),
+    /**
+     * 0105 — "Foundmill may ask to feature this project" (showcase videos). Null until the founders choose; null reads as
+     * packages/config `SHOWCASE_MAY_ASK_DEFAULT` (`showcaseMayAsk`). Written by the api only.
+     */
+    showcaseMayAsk: boolean("showcase_may_ask"),
     ...timestampsWithArchive(),
   },
   (t) => [

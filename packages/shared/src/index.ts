@@ -13,6 +13,7 @@ export * from "./ids";
 export * from "./permissions";
 export * from "./allowlist";
 export * from "./people";
+export * from "./showcase";
 export * from "./people-email";
 export * from "./shortcuts";
 export * from "./areas";
