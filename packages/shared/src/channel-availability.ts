@@ -9,6 +9,7 @@
  */
 import { CHANNEL_META, type ChannelKey } from "./constants";
 import { postsByTap } from "./share-targets";
+import { AppError } from "./errors";
 
 /**
  * Whether a business may be shown simulated results while connectors are mock: a sample business anywhere, and any
@@ -17,6 +18,14 @@ import { postsByTap } from "./share-targets";
  */
 export function mockResultsAllowed(appEnv: string, isDemo: boolean): boolean {
   return isDemo || appEnv === "development" || appEnv === "test";
+}
+
+/**
+ * The guard on every generator of simulated results (WP-02 T4): throws `mock_result_refused` where simulated results
+ * are not allowed (a person's project on staging or production), so a second caller cannot skip its call site's check.
+ */
+export function assertMockResultsAllowed(appEnv: string, isDemo: boolean, what: string): void {
+  if (!mockResultsAllowed(appEnv, isDemo)) throw new AppError("mock_result_refused", `Refused to write ${what}: simulated results are not written to a real project.`, 409);
 }
 
 /**
