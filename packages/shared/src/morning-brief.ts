@@ -57,6 +57,33 @@ export function isSimulatedEvent(e: Pick<BriefEventLike, "actor" | "payload">): 
 }
 
 /**
+ * True when one event is a real outcome of the project: one of REAL_OUTCOME_EVENT_TYPES, not simulated, and written by
+ * the source that makes it real. `realOutcomes()` and the nightly numbers' SQL (packages/db `repos.metrics`) apply
+ * exactly this rule.
+ */
+export function isRealOutcome(e: Pick<BriefEventLike, "type" | "actor" | "payload">): boolean {
+  if (isSimulatedEvent(e)) return false;
+  const p = e.payload;
+  switch (e.type) {
+    case "page.published":
+      // The founder publishes the page themselves (the event's actor is the person).
+      return e.actor.kind === "user";
+    case "mail.sent":
+      // Only a message the vendor accepted for real: the gateway writes `simulated: false` then, and only then.
+      return p.simulated === false;
+    case "page.followed":
+      // Written once, when the person confirmed from their own inbox (double opt-in).
+      return e.actor.kind === "system" && e.actor.id === "public-page";
+    case "payment.received":
+      return e.actor.kind === "webhook";
+    case "lead.replied":
+      return e.actor.kind === "webhook" && typeof p.sentiment === "string" && REPLIES_THAT_WORKED.has(p.sentiment);
+    default:
+      return false;
+  }
+}
+
+/**
  * The shared team post a real outcome came through (item 8; packages/db `postAttributions.viaPostFor`): the network
  * (null for a copied or sent link) and the day its share was opened. Only a follow, a reply or a payment the platform
  * credited to a post carries one; it says nothing about the person, and it is behind the outcome's own wall.
@@ -98,30 +125,26 @@ export function realOutcomes(events: readonly BriefEventLike[], since: Date, now
   }
   const out: RealOutcome[] = [];
   for (const e of [...events].sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime())) {
-    if (!inWindow(e) || isSimulatedEvent(e)) continue;
+    if (!inWindow(e) || !isRealOutcome(e)) continue;
     const p = e.payload;
     switch (e.type) {
       case "page.published":
-        // The founder publishes the page themselves (the event's actor is the person).
-        if (e.actor.kind === "user") out.push({ kind: "page_live", at: e.occurredAt, byUserId: e.actor.id });
+        out.push({ kind: "page_live", at: e.occurredAt, byUserId: e.actor.id });
         break;
       case "mail.sent":
-        // Only a message the vendor accepted for real: the gateway writes `simulated: false` then, and only then.
-        if (p.simulated === false) out.push({ kind: "email_sent", at: e.occurredAt, agentId: str(p.agentId), channelKey: str(p.channelKey) });
+        out.push({ kind: "email_sent", at: e.occurredAt, agentId: str(p.agentId), channelKey: str(p.channelKey) });
         break;
       case "page.followed":
-        // Written once, when the person confirmed from their own inbox (double opt-in).
-        if (e.actor.kind === "system" && e.actor.id === "public-page") out.push({ kind: "follower", at: e.occurredAt, ...via(e) });
+        out.push({ kind: "follower", at: e.occurredAt, ...via(e) });
         break;
       case "payment.received": {
-        if (e.actor.kind !== "webhook") break;
         const amount = (p.amount ?? {}) as { amountMinor?: unknown; currency?: unknown };
         const conversionId = str(p.conversionId);
         out.push({ kind: "payment", at: e.occurredAt, amountMinor: typeof amount.amountMinor === "number" ? amount.amountMinor : 0, currency: str(amount.currency) ?? "USD", firstPayment: p.firstPayment === true, channelKey: conversionId ? (leadChannel.get(conversionId) ?? null) : null, ...via(e) });
         break;
       }
       case "lead.replied":
-        if (e.actor.kind === "webhook" && typeof p.sentiment === "string" && REPLIES_THAT_WORKED.has(p.sentiment)) out.push({ kind: "reply", at: e.occurredAt, channelKey: str(p.channelKey), requestsMeeting: p.requestsMeeting === true, ...via(e) });
+        out.push({ kind: "reply", at: e.occurredAt, channelKey: str(p.channelKey), requestsMeeting: p.requestsMeeting === true, ...via(e) });
         break;
     }
   }

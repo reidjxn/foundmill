@@ -15,6 +15,7 @@
     "migrate": "tsx src/migrate.ts",
     "seed": "tsx src/seed.ts",
     "report:retention": "tsx src/retention-report.ts",
+    "report:metrics": "tsx src/metrics-report.ts",
     "test:rls": "vitest run --dir src/__tests__/rls",
     "generate": "drizzle-kit generate"
   },

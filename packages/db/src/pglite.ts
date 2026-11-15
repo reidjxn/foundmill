@@ -86,6 +86,8 @@ create table if not exists auth.users (
   raw_user_meta_data jsonb not null default '{}',
   created_at timestamptz not null default now()
 );
+-- Supabase's own column; the nightly numbers read it (repos.metrics, signed in during the last 14 days).
+alter table auth.users add column if not exists last_sign_in_at timestamptz;
 -- Mirrors Supabase's auth.uid(): the sub claim of request.jwt.claims (set per transaction by withRls).
 create or replace function auth.uid() returns uuid language sql stable as $$
   select coalesce(
