@@ -57,7 +57,7 @@ import { checkRateLimit, type RateLimitStore } from "./rate-limit";
 import { candidatesFromArgs, candidatesFromContent, hashRecipient, type RecipientCandidate, type UntrustedRegister } from "./recipients";
 import { checkByokKey, SessionStateCache, stateDenial, type StateDenial } from "./state";
 import { sessionKey, toolAllowed, toolRef, type SessionToken } from "./tokens";
-import { ownSenderUnsubscribeUrl, preparePlatformMail, type PlatformMailConfig, type PreparedPlatformMail } from "./platform-mail";
+import { ownSenderUnsubscribeUrl, platformMailSwitchRefusal, preparePlatformMail, type PlatformMailConfig, type PreparedPlatformMail } from "./platform-mail";
 import { SIMULATED_NOTICE, type AllowResponse, type AskResponse, type CallRequestParsed, type CallResponse, type DenyResponse, type RateLimitedResponse } from "./types";
 
 export interface GatewayLogger extends ToolLogger {
@@ -358,6 +358,16 @@ export async function executeToolCall(deps: GatewayDeps, session: SessionToken, 
       log.info({ approvalId: granted.id }, "tool call runs under the founder's approval");
       return runUnderApproval(deps, session, req, loaded, decision, args, log, now, granted);
     }
+    const refused = connectionRefusal(deps, loaded, modeFor(deps, connector.key));
+    if (refused) throw refused;
+    // The project's Foundmill address switched off here: refused as `allow` would refuse it, before anyone is asked.
+    const mailOff = connector.key === PLATFORM_MAIL_KEY ? platformMailSwitchRefusal({ config: deps.platformMail, ...(deps.appEnv !== undefined ? { appEnv: deps.appEnv } : {}) }, { business: loaded.business, mode: modeFor(deps, connector.key) }) : null;
+    if (mailOff) {
+      const reasons = [mailOff.reason];
+      const audit = await appendAudit(deps, session, req, { outcome: "deny", reasons, policyIds: [mailOff.policyId] });
+      log.info({ policyId: mailOff.policyId }, "tool call refused before asking: Foundmill sending address");
+      return { status: 403, body: { outcome: "deny", reasons, policyIds: [mailOff.policyId], costMinor: 0, auditId: audit.id } };
+    }
     return ask(deps, session, req, loaded, decision, args, log, now);
   }
   return allow(deps, session, req, loaded, decision, args, log, now);
@@ -422,6 +432,24 @@ async function recordPlatformMailSent(deps: GatewayDeps, session: SessionToken, 
   } catch (e) {
     log.error({ err: safeError(e) }, "message sent from the project's address but mail.sent could not be written");
   }
+}
+
+/**
+ * The connection checks that need no credential and touch nothing (WP-02 T3): run before a call is allowed and before
+ * the founder is asked, so nobody approves a call that cannot run. Live: a connector that needs a sign-in and has no row
+ * here (a row without a usable credential is caught in `allow`, after the vault). Mock: a sample business, development
+ * and test get the mock's answer (marked simulated); a person's own business on staging or production, with no row or
+ * only a `mock` one, is told the truth before anything runs, so no agent plans around a send, a lookup or a post that
+ * cannot happen (docs/THESIS_REVIEW.md, package 0.3).
+ */
+export function connectionRefusal(deps: Pick<GatewayDeps, "appEnv">, loaded: Pick<Loaded, "connector" | "business" | "integrationRow">, mode: ConnectorMode): GatewayError | null {
+  const { connector, integrationRow } = loaded;
+  if (connector.auth.kind === "none") return null;
+  if (mode === "live" && !integrationRow) return new GatewayError("integration_not_connected", `${connector.displayName} is not connected for this business`, 409, { connector: connector.key });
+  if (mode === "mock" && (!integrationRow || integrationRow.status === "mock") && deps.appEnv !== undefined && !mockResultsAllowed(deps.appEnv, loaded.business.isDemo)) {
+    return new GatewayError("integration_not_connected", `${connector.displayName} is not connected for this business, so nothing was done`, 409, { connector: connector.key });
+  }
+  return null;
 }
 
 /** Gateway errors raised before the vendor is called: the call did nothing. */
@@ -736,6 +764,8 @@ async function ask(deps: GatewayDeps, session: SessionToken, req: CallRequestPar
 async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, decision: EvaluateResult, args: unknown, log: GatewayLogger, now: () => Date, approvalId?: string): Promise<ToolCallResult> {
   const { connector, tool } = loaded;
   const mode = modeFor(deps, connector.key);
+  const refused = connectionRefusal(deps, loaded, mode);
+  if (refused) throw refused;
   // Credential: decrypted in memory for this call only; never logged, never part of any response.
   let credential: LoadedCredential | null = null;
   // An App connector (GitHub) authenticates with the platform's App keys for the business's installation: it needs an
@@ -750,12 +780,6 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
   }
   if (mode === "live" && connector.auth.kind !== "none" && !credential && !appInstalled && !onPlatformKey) {
     throw new GatewayError("integration_not_connected", `${connector.displayName} is not connected for this business`, 409, { connector: connector.key });
-  }
-  // A mock connector the business never connected: a sample business, development and test get the mock's answer
-  // (marked simulated below); a person's own business on staging or production is told the truth, before anything
-  // runs, so no agent plans around a send, a lookup or a post that cannot happen (docs/THESIS_REVIEW.md, package 0.3).
-  if (mode === "mock" && connector.auth.kind !== "none" && !loaded.integrationRow && deps.appEnv !== undefined && !mockResultsAllowed(deps.appEnv, loaded.business.isDemo)) {
-    throw new GatewayError("integration_not_connected", `${connector.displayName} is not connected for this business, so nothing was done`, 409, { connector: connector.key });
   }
   const integration: IntegrationRecord = loaded.integrationRow ? toIntegrationRecord(loaded.integrationRow, credential) : mockIntegrationRecord(connector.key, session.businessId, mode === "mock" ? {} : { status: "connected" });
   // IndexNow connected for the project's Foundmill-hosted page speaks for the page at the address it was connected

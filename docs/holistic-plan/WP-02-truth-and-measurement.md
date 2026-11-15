@@ -76,7 +76,7 @@
 **Tests and evals:** as named. Playwright: the Campaigns spec asserts no "Live" chip on a real-project fixture.
 **Done when:** Done-when 1 of the header holds in the test database, and the reconciler starts no engine for an `acts` channel.
 
-### T3: Never ask the founder to approve a call that cannot run            [M] [ships alone]
+### [x] T3: Never ask the founder to approve a call that cannot run            [M] [ships alone]
 
 **Why:** GTM-09 (a), GTM-16 (P1, honesty: one SendGrid row with status `mock` on a real project). GTM-09 (b) is WP-05.
 

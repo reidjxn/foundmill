@@ -70,6 +70,18 @@ describe("platform_mail through the gateway (mock)", () => {
     expect(mock.sentFor(g.businessId)).toHaveLength(0);
   });
 
+  it("off → no approval row: a first message to someone new in assisted mode is refused, not asked (WP-02 T3)", async () => {
+    await repos.businesses.setBusinessMode(g.db, g.businessId, "assisted");
+    g.deps.platformMail = config({ domain: null });
+    const approvals = async () => (await g.h.pg.query<{ n: number }>("select count(*)::int as n from approvals where business_id = $1", [g.businessId])).rows[0]!.n;
+    const before = await approvals();
+    const r = asDeny(await g.client.call(token, message("off.person@example.com")));
+    expect(r.policyIds).toEqual([PLATFORM_MAIL_POLICY.off]);
+    expect(r.reasons).toEqual([PLATFORM_MAIL_REFUSALS.off]);
+    expect(await approvals()).toBe(before);
+    expect(g.rateLimits.peek(`pm:${g.businessId}:day`, Date.now())).toBe(0);
+  });
+
   it("a first message to someone new asks the founder in assisted mode, and nothing is sent or counted", async () => {
     await repos.businesses.setBusinessMode(g.db, g.businessId, "assisted");
     const r = (await g.client.call(token, message("new.person@example.com"))) as AskResponse;
