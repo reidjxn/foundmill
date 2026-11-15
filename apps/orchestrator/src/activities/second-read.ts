@@ -180,7 +180,8 @@ export function createSecondReadActivities(deps: OrchestratorDeps) {
         });
         // One round back to the author (founder D2, Nov 15, 2026): a task a review already sent back is not sent again.
         const changes = review.verdict === "request_changes";
-        const handedBackBefore = changes && (await repos.audit.list(db, input.businessId, { action: MERGE_AUDIT.handedBack, limit: HISTORY })).items.some((a) => (a.target as { id?: unknown } | null)?.id === input.taskId && (a.details as { why?: unknown } | null)?.why === "review");
+        // Asked of the task itself, not a window of the business's newest rows, so an old hand-back is never missed.
+        const handedBackBefore = changes && (await repos.audit.latestForTarget(db, input.businessId, MERGE_AUDIT.handedBack, input.taskId, { why: "review" })) !== null;
         return { status: "reviewed", cached: false, verdict: review.verdict, findings: review.findings.length, reviewerAgentId: reviewer.id, headSha, handedBackBefore, handBackDetail: changes ? codeReviewHandBack(review, input.branch) : null };
       } catch (err) {
         deps.log.warn({ businessId: input.businessId, taskId: input.taskId, err: (err as Error).message }, "second read: the change could not be reviewed");

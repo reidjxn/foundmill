@@ -147,6 +147,8 @@ describe("secondReadMerge", () => {
 
     // Once the task went back for a review, a later review of it never sends it back again.
     await repos.audit.append(t.db, t.businessId, { actorKind: "agent", actorId: t.workerId, action: "merge.handed_back", target: { kind: "task", id: task.id }, details: { prNumber: 21, why: "review" } });
+    // Even on a busy project, with more hand-backs of other tasks since than any window of newest rows (security review of #185).
+    await repos.audit.appendMany(t.db, t.businessId, Array.from({ length: 205 }, () => ({ actorKind: "agent" as const, actorId: t.workerId, action: "merge.handed_back", target: { kind: "task", id: t.codeTaskId }, details: { why: "review" } })));
     await github.callTool("commit_files", { ...REPO, branch, message: "rework", files: [{ path: "src/pay.ts", content: "export const pay = (key: string) => key.length;\n" }] }, ctx);
     expect(await acts.secondReadMerge({ ...input, prNumber: 21, prUrl: null })).toMatchObject({ status: "reviewed", cached: false, handedBackBefore: true });
   });

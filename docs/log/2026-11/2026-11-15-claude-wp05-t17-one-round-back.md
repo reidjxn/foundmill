@@ -35,6 +35,25 @@ founder, once per task. After that round the founder is asked as before and the 
   ban sentence, which the eval checks.
 - `cached` reviews (the cycle's sweep reading the same head again) never send work back.
 
+## Security review
+- The block could be cut open: lengths were measured before `untrustedBlock` escapes `<`, `>` and backticks six-fold,
+  and `handBackDetail` sliced at 2,000. `codeReviewHandBack` now measures the escaped block, drops findings first and
+  then clips the summary until it fits; `handBackDetail` never slices a review detail and falls back to our sentences
+  alone when one is over 2,000 characters or does not end with `</untrusted_content>`.
+- `withoutContacts` folds look-alikes (NFKC, so `＠` and `＜` become ASCII and are escaped) and drops `\p{Cf}`
+  (zero-width spaces), then also catches bare hosts, `host:port` and runs of seven or more digits. A finding's
+  `file` passes through it too. Judgment call: a bare host counts only under TLDs that are not also file extensions
+  or common property names (com, net, org, io, ai, xyz, biz, example, invalid, onion, some country codes), plus
+  `localhost` and IPv4; `merge.ts:145`, `README.md`, `log.info(`, `re.test(` and `this.app` stay. A host under any
+  other TLD is still caught with a scheme or a path. `host:port` with no path is caught only for those hosts, since
+  `file.ts:145` is a file and line. A plain number of seven or more digits ("1000000 ms") is removed as a phone.
+- The one-round check reads the task's own `merge.handed_back` row (`repos.audit.latestForTarget`: target id and
+  `details @> {"why":"review"}`, limit 1) instead of the business's newest 200 rows.
+- `handBack` blocks the task, writes `task.blocked` and the audit row in one transaction, keyed
+  `task.blocked:merge:<sessionId>:<prNumber>:<why>` instead of the clock: a session's change goes back at most once,
+  since its rework is a new session.
+
 ## Not done
 - No change to T16's founder path, `session.ts` or `cycle.ts`.
+- An activity retry after the hand-back committed still appends a second audit row (the event is deduplicated).
 - The live eval case runs only with `pnpm evals` and a key.
