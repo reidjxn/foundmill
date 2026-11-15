@@ -1,4 +1,4 @@
-import { ENTITY_MARKUP_RE } from "@foundmill/shared";
+import { ENTITY_MARKUP_RE, parkedTasksSentence } from "@foundmill/shared";
 import { describe, expect, it } from "vitest";
 import { ComposerOutput } from "../schemas";
 import { MockModelClient, numbersIn, wordCount } from "./index";
@@ -74,6 +74,22 @@ const VARIANTS: Array<Record<string, unknown>> = [
 ];
 
 describe("mock inbox composer (BUILD §11.3, §12.2)", () => {
+  it("ends with one sentence about the tasks the round parked, once, under the word limit, and never as an option (WP-05 T18)", async () => {
+    const client = new MockModelClient();
+    const parked = [{ title: "Import agent skills as business skills", what_the_agent_said: "No tool is available to create or list business skills." }];
+    for (const input of VARIANTS) {
+      const out = (await client.complete({ route: "inboxComposer", messages: promptWith({ ...(input as Record<string, unknown>), parked }), schema: ComposerOutput })).json;
+      const sentence = parkedTasksSentence([parked[0]!.title]);
+      expect(out.body_md.endsWith(sentence)).toBe(true);
+      expect(out.body_md.split(parked[0]!.title)).toHaveLength(2);
+      expect(out.subject).not.toContain(parked[0]!.title);
+      expect(JSON.stringify(out.decision ?? {})).not.toContain(parked[0]!.title);
+      expect(wordCount(out.body_md)).toBeLessThanOrEqual(COMPOSER_MAX_WORDS);
+    }
+    const none = (await client.complete({ route: "inboxComposer", messages: promptWith(COMPOSER_INPUT), schema: ComposerOutput })).json;
+    expect(none.body_md).not.toContain("cannot do yet");
+  });
+
   it("produces a schema-valid customer_won note from a payment event", async () => {
     const client = new MockModelClient();
     const r = await client.complete({ route: "inboxComposer", messages: promptWith(COMPOSER_INPUT), schema: ComposerOutput });

@@ -242,8 +242,8 @@ export async function commitThrowaway(page: Page, name: string): Promise<string>
 
 /** Opens the top bar's Switch business; the popover, once open. */
 export async function openSwitcher(page: Page): Promise<Locator> {
-  await page.getByRole("button", { name: /^Switch business/ }).click();
-  const switcher = page.getByRole("dialog", { name: "Switch business" });
+  await page.getByRole("button", { name: /^Switch project/ }).click();
+  const switcher = page.getByRole("dialog", { name: "Switch project" });
   await expect(switcher).toBeVisible({ timeout: LONG });
   return switcher;
 }

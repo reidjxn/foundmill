@@ -168,7 +168,7 @@ describe("LandingPage (signed-out /)", () => {
     expect(document.activeElement).toBe(within(deck).getByRole("button", { name: "Continue" }));
     // The callout under Continue is the app's own single-step Callout (Dugout Coachmark) with the app's words, anchored
     // to the deck's Continue (its ring, no backdrop), until the visitor presses it.
-    expect(CONTINUE_CALLOUT).toBe("This is how you move forward. Press it when you have answered what needs you.");
+    expect(CONTINUE_CALLOUT).toBe("This is how you move forward. One press and your team works until nothing is left to do. Anything that needs you shows in Needs you.");
     const callout = screen.getByRole("dialog", { name: DECK_CALLOUT.title });
     expect(callout.getAttribute("data-tour")).toBe(DECK_CALLOUT.tourId);
     expect(callout.textContent).toContain(DECK_CALLOUT.body);

@@ -7,9 +7,10 @@
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
-# Redeploy only when something this service runs changed (#222): its app, the shared packages, the image and the
-# lockfile. A docs-only push, or one that touches only apps/web or another service, leaves it running.
-watchPatterns = ["/apps/orchestrator/**", "/packages/**", "/patches/**", "/Dockerfile", "/railway/orchestrator.toml", "/package.json", "/pnpm-lock.yaml", "/pnpm-workspace.yaml", "/.npmrc"]
+# Redeploy only when its app or a package it imports changes, or the image does (scripts/railway-watch.mjs; #222).
+# The lists that count are in the service settings (Settings, Build, Watch Paths): Railway stops reading this file on
+# Dec 1, 2026, and this copy is kept equal to the script by scripts/railway-config.test.mjs.
+watchPatterns = ["/apps/orchestrator/**", "/infra/**", "/packages/agents/**", "/packages/config/**", "/packages/connectors/**", "/packages/db/**", "/packages/entity-linker/**", "/packages/events/**", "/packages/journey/**", "/packages/models/**", "/packages/policy/**", "/packages/sandbox/**", "/packages/shared/**", "/patches/**", "/Dockerfile", "/package.json", "/pnpm-lock.yaml", "/pnpm-workspace.yaml", "/.npmrc"]
 
 [deploy]
 healthcheckPath = "/ready"

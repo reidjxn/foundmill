@@ -11,7 +11,7 @@ import { createHash } from "node:crypto";
 import { CHANNEL_KEYS, CHANNEL_LINES, CHANNEL_META, HARD_SUPPRESSION_REASONS, type ChannelKey, type ChannelLine } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { businesses, CHANNEL_METRIC_SOURCES, channelMetrics, channels, SUPPRESSION_SCOPES, suppressionList, type Channel, type ChannelMetric, type SuppressionEntry } from "../schema";
+import { businesses, CHANNEL_METRIC_SOURCES, channelMetrics, channels, SUPPRESSION_SCOPES, suppressionList, type Approval, type Channel, type ChannelMetric, type SuppressionEntry } from "../schema";
 import { Currency, DayRange, dayRange, defined, Id, MinorAmount, numericText, one, parseInput, type Executor } from "./_shared";
 import { campaignsRepo } from "./campaigns";
 
@@ -261,13 +261,14 @@ export const channelsRepo = {
   /**
    * Puts a channel on or takes it off the board. Off the board is the full stop (DECISIONS 2026-10-07): in the same
    * transaction the channel's open campaigns end and their pending launch approvals expire (`campaigns.endForChannel`).
+   * Returns the channel and the approvals expired, which the caller records (`recordExpiredApprovals`, WP-02 T1).
    */
-  async setEnabled(db: Executor, businessId: string, channelId: string, enabled: boolean): Promise<Channel> {
-    if (enabled) return one(await db.update(channels).set({ enabled }).where(scoped(businessId, channelId)).returning(), "channel", channelId);
+  async setEnabled(db: Executor, businessId: string, channelId: string, enabled: boolean): Promise<Channel & { expiredApprovals: Approval[] }> {
+    if (enabled) return { ...one(await db.update(channels).set({ enabled }).where(scoped(businessId, channelId)).returning(), "channel", channelId), expiredApprovals: [] };
     return db.transaction(async (tx) => {
       const row = one(await tx.update(channels).set({ enabled }).where(scoped(businessId, channelId)).returning(), "channel", channelId);
-      await campaignsRepo.endForChannel(tx, businessId, channelId);
-      return row;
+      const { expiredApprovals } = await campaignsRepo.endForChannel(tx, businessId, channelId);
+      return { ...row, expiredApprovals };
     });
   },
 
@@ -310,11 +311,11 @@ export const channelsRepo = {
     return one(await db.update(channels).set({ ownerAgentId }).where(scoped(businessId, channelId)).returning(), "channel", channelId);
   },
 
-  async archive(db: Executor, businessId: string, channelId: string): Promise<Channel> {
+  async archive(db: Executor, businessId: string, channelId: string): Promise<Channel & { expiredApprovals: Approval[] }> {
     return db.transaction(async (tx) => {
       const row = one(await tx.update(channels).set({ archivedAt: new Date(), enabled: false }).where(scoped(businessId, channelId)).returning(), "channel", channelId);
-      await campaignsRepo.endForChannel(tx, businessId, channelId);
-      return row;
+      const { expiredApprovals } = await campaignsRepo.endForChannel(tx, businessId, channelId);
+      return { ...row, expiredApprovals };
     });
   },
 

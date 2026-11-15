@@ -35,6 +35,8 @@ export const CYCLE_BUDGET_RECONCILE_PATCH = "cycle-budget-reconcile";
 export const CYCLE_PLANS_ROADMAP_PATCH = "cycle-plans-roadmap";
 /** A cycle keeps going when a session finishes: tasks that became dispatchable start within the time box (decision 8; histories before it replay without). */
 export const CYCLE_FOLLOW_UPS_PATCH = "cycle-follow-ups";
+/** The tasks the plan parked for want of a tool reach the round's note, said once (WP-05 T18; histories before it replay without). */
+export const CYCLE_PARKED_SAID_ONCE_PATCH = "cycle-parked-said-once";
 
 /**
  * What a starting task reserves of the credits left (an Estimate): its own budget or the default, but never more than
@@ -354,7 +356,8 @@ export async function businessCycle(input: BusinessCycleInput): Promise<Business
         const note = await acts.noteIdleCycle({ businessId: input.businessId, cycleNumber: input.cycleNumber, summary: plan.summary });
         inboxItemIds = note.inboxItemId ? [note.inboxItemId] : [];
       } else {
-        const narrated = await acts.narrateCycle({ businessId: input.businessId, eventIds, summary, fallbackSubject: cycleOutcomeSubject(outcome) });
+        const parked = plan.parked?.length && patched(CYCLE_PARKED_SAID_ONCE_PATCH) ? { parked: plan.parked } : {};
+        const narrated = await acts.narrateCycle({ businessId: input.businessId, eventIds, summary, fallbackSubject: cycleOutcomeSubject(outcome), ...parked });
         inboxItemIds = narrated.inboxItemIds;
       }
     } catch {

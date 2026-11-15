@@ -93,4 +93,13 @@ describe("idea.edit", () => {
     expect(inputs.idea).toMatchObject({ title: "ShiftMate", pitch: WORDS, founderWords: WORDS, brief: WORDS });
     expect(userId).toBeTruthy();
   });
+
+  it("the first cards are one idea.drafted fact for the account; a second write adds none (WP-02 T9)", async () => {
+    const mock = new MockModelClient();
+    const { userId, caller } = await callerFor(mock, "write-facts@test.local");
+    await caller.idea.write({ title: "First", pitch: WORDS, archetype: "marketplace" });
+    await caller.idea.write({ title: "Second", pitch: WORDS, archetype: "marketplace" });
+    const facts = (await repos.accountEvents.list(hz.db, userId, { limit: 50 })).items.filter((e) => e.type === "idea.drafted");
+    expect(facts.map((e) => e.payload)).toEqual([{ source: "written", cards: 1 }]);
+  });
 });

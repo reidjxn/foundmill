@@ -53,11 +53,12 @@ describe("platform_mail through the gateway (mock)", () => {
   beforeAll(async () => {
     g = await setupGateway({ businessMode: "automated", connectors: [mock] });
     g.deps.appEnv = "test";
-    token = await g.token({ allowedTools: ["platform_mail:*"] });
     await repos.postalAddress.set(g.db, g.businessId, { address: POSTAL, userId: null });
   }, 120_000);
   afterAll(async () => g.close());
   beforeEach(async () => {
+    // A fresh session per test: an identical send already done in the same session is replayed, not sent again (WP-05 T14).
+    token = await g.token({ allowedTools: ["platform_mail:*"], sessionId: await g.newSession() });
     g.deps.platformMail = config();
     await repos.businesses.setBusinessMode(g.db, g.businessId, "automated");
   });
@@ -68,6 +69,18 @@ describe("platform_mail through the gateway (mock)", () => {
     expect(r.policyIds).toEqual([PLATFORM_MAIL_POLICY.off]);
     expect(r.reasons).toEqual([PLATFORM_MAIL_REFUSALS.off]);
     expect(mock.sentFor(g.businessId)).toHaveLength(0);
+  });
+
+  it("off → no approval row: a first message to someone new in assisted mode is refused, not asked (WP-02 T3)", async () => {
+    await repos.businesses.setBusinessMode(g.db, g.businessId, "assisted");
+    g.deps.platformMail = config({ domain: null });
+    const approvals = async () => (await g.h.pg.query<{ n: number }>("select count(*)::int as n from approvals where business_id = $1", [g.businessId])).rows[0]!.n;
+    const before = await approvals();
+    const r = asDeny(await g.client.call(token, message("off.person@example.com")));
+    expect(r.policyIds).toEqual([PLATFORM_MAIL_POLICY.off]);
+    expect(r.reasons).toEqual([PLATFORM_MAIL_REFUSALS.off]);
+    expect(await approvals()).toBe(before);
+    expect(g.rateLimits.peek(`pm:${g.businessId}:day`, Date.now())).toBe(0);
   });
 
   it("a first message to someone new asks the founder in assisted mode, and nothing is sent or counted", async () => {

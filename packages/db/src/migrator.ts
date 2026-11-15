@@ -117,6 +117,16 @@ export async function appliedMigrationCount(db: Db): Promise<number> {
   return firstN(count);
 }
 
+/**
+ * Whether every migration in `dir` is applied (WP-11 T2): the api's /health is not ready while one is missing, so a
+ * deployment whose migration failed at boot never takes traffic.
+ */
+export async function schemaReady(db: Db, dir: string = MIGRATIONS_DIR): Promise<{ applied: number; expected: number; ready: boolean }> {
+  const expected = readMigrations(dir).length;
+  const applied = await appliedMigrationCount(db);
+  return { applied, expected, ready: applied >= expected };
+}
+
 export async function migrateDb(db: Db, options: MigrateOptions = {}): Promise<MigrateResult> {
   const config: MigrationConfig = { ...MIGRATE_CONFIG, ...(options.migrationsFolder ? { migrationsFolder: options.migrationsFolder } : {}) };
   const tags = () => readMigrations(config.migrationsFolder).map((m) => m.tag);

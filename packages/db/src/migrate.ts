@@ -6,7 +6,7 @@
 import { closeDb, createDb, createServiceDb } from "./client";
 import { migrateDb } from "./migrator";
 
-export { appliedMigrationCount, DEFAULT_MIGRATION_LOCK_TIMEOUT_MS, isMigrationLockTimeout, migrateDb, MIGRATION_LOCK, MigrationLockTimeoutError, type MigrateOptions, type MigrateResult, type MigrationLockHolder } from "./migrator";
+export { appliedMigrationCount, DEFAULT_MIGRATION_LOCK_TIMEOUT_MS, isMigrationLockTimeout, migrateDb, MIGRATION_LOCK, MigrationLockTimeoutError, schemaReady, type MigrateOptions, type MigrateResult, type MigrationLockHolder } from "./migrator";
 /** @deprecated Use migrateDb. */
 export { migrateDb as runMigrations } from "./migrator";
 

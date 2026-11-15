@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { describe, expect, it, vi } from "vitest";
 import { CONCEPT_ATTRIBUTE_KEYS, GuidanceProvider, TooltipProvider } from "@foundmill/dugout";
 import { TRPCClientError } from "@trpc/client";
-import { domainCandidates } from "@foundmill/shared";
+import { FIRST_DAY_PROMISE, domainCandidates } from "@foundmill/shared";
 import { termsWithGlossary } from "@foundmill/shared/terms";
 import { CommitForm, HOW_IT_RUNS_REASSURANCE, WHAT_HAPPENS_NEXT, archetypeParam, commitSteps, departmentColour, importHref, includedCreditsLine, spendCapSummary, teamCountsLine, upgradeHrefOf, type CommitDomainApi, type CommitLogoApi } from "../commit/CommitScreen";
 import type { DomainCheck } from "../commit/naming";
@@ -212,7 +212,9 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
   it("says what happens next in the real order, with the included credits and no card (A4, A10)", () => {
     renderForm();
     const next = screen.getByTestId("what-happens-next");
-    expect(WHAT_HAPPENS_NEXT).toEqual(["Your team is hired", "The Product lead drafts vision, specification and roadmap (a minute or two)", "Two notes ask you to sign them off", "Then building starts. Nothing is spent until you approve it."]);
+    // The steps are the shared first-day promise itself, not a copy of it (WP-02 T6).
+    expect(WHAT_HAPPENS_NEXT).toBe(FIRST_DAY_PROMISE.steps);
+    expect(WHAT_HAPPENS_NEXT).toEqual(["Your team is hired", "Your public page is drafted first: check it and put it live", "Then your plan arrives as two notes to sign off", "Nothing is spent on finding customers until you say so"]);
     for (const step of WHAT_HAPPENS_NEXT) expect(next.textContent).toContain(step);
     expect(next.textContent).not.toMatch(/Board|three decisions|first cycle/);
     expect(includedCreditsLine()).toBe("Starts with $5.00 of included credits this month. No card.");
@@ -281,9 +283,9 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     expect(onCommit.mock.calls[1]![0]).not.toHaveProperty("overnight");
   });
 
-  it("offers Anthropomorphic agents, starting from the account preference, sends the choice with idea.commit and keeps the five chips", async () => {
+  it("offers Give agents names and faces, starting from the account preference, sends the choice with idea.commit and keeps the five chips", async () => {
     const onCommit = renderForm();
-    const toggle = screen.getByRole("switch", { name: "Anthropomorphic agents" });
+    const toggle = screen.getByRole("switch", { name: "Give agents names and faces" });
     expect(toggle.getAttribute("aria-checked")).toBe("false");
     expect(screen.getByTestId("anthropomorphic-choice").textContent).toContain("still AI agents");
     // The summary line stays the five choices the step is laid out around.
@@ -311,7 +313,7 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     });
     expect(onCommit.mock.calls[0]![0]).toMatchObject({ anthropomorphicAgents: true, agentStyle: "fantasy" });
     // Switching the faces off hides the choice.
-    fireEvent.click(screen.getByRole("switch", { name: "Anthropomorphic agents" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Give agents names and faces" }));
     expect(screen.queryByRole("radiogroup", { name: "Style" })).toBeNull();
   });
 
@@ -324,7 +326,7 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     expect(onCommit.mock.calls[0]![0]).toMatchObject({ anthropomorphicAgents: false, agentStyle: "humans" });
   });
 
-  it("starts the Anthropomorphic agents switch on when the account preference is on, and follows it until the founder chooses", () => {
+  it("starts the Give agents names and faces switch on when the account preference is on, and follows it until the founder chooses", () => {
     const view = render(
       <GuidanceProvider value={{ guidance: "on", terms: TERMS }}>
         <TooltipProvider>
@@ -333,7 +335,7 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
       </GuidanceProvider>,
     );
     openHowItRuns();
-    const toggle = screen.getByRole("switch", { name: "Anthropomorphic agents" });
+    const toggle = screen.getByRole("switch", { name: "Give agents names and faces" });
     expect(toggle.getAttribute("aria-checked")).toBe("true");
     // The preference arrives late: the switch follows it while untouched ...
     view.rerender(
@@ -343,9 +345,9 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
         </TooltipProvider>
       </GuidanceProvider>,
     );
-    expect(screen.getByRole("switch", { name: "Anthropomorphic agents" }).getAttribute("aria-checked")).toBe("false");
+    expect(screen.getByRole("switch", { name: "Give agents names and faces" }).getAttribute("aria-checked")).toBe("false");
     // ... and stops following once the founder has chosen here.
-    fireEvent.click(screen.getByRole("switch", { name: "Anthropomorphic agents" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Give agents names and faces" }));
     view.rerender(
       <GuidanceProvider value={{ guidance: "on", terms: TERMS }}>
         <TooltipProvider>
@@ -353,7 +355,7 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
         </TooltipProvider>
       </GuidanceProvider>,
     );
-    expect(screen.getByRole("switch", { name: "Anthropomorphic agents" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("switch", { name: "Give agents names and faces" }).getAttribute("aria-checked")).toBe("true");
   });
 
   it("submits the idea.commit input and blocks an empty name", async () => {

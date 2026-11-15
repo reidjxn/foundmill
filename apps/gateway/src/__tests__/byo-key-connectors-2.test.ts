@@ -143,20 +143,21 @@ describe("platform_mail steps aside for the founder's own Resend", () => {
     open = g;
     g.deps.appEnv = "test";
     g.deps.platformMail = config;
-    const token = await g.token({ allowedTools: ["platform_mail:*"] });
+    // Each send in a session of its own: an identical send already done in a session is replayed, not sent (WP-05 T14).
+    const token = async () => g.token({ allowedTools: ["platform_mail:*"], sessionId: await g.newSession() });
     // A marketing message from the project's address carries the founders' postal address (US CAN-SPAM).
     await repos.postalAddress.set(g.db, g.businessId, { address: "PO Box 1234, Springfield, IL 62701, USA", userId: null });
     await repos.integrations.upsert(g.db, g.businessId, { connectorKey: "resend", status: "connected", authKind: "api_key", accountLabel: "own" });
-    expect(asDeny(await g.client.call(token, message)).policyIds).toEqual([PLATFORM_MAIL_POLICY.own_sender]);
+    expect(asDeny(await g.client.call(await token(), message)).policyIds).toEqual([PLATFORM_MAIL_POLICY.own_sender]);
     // A degraded Resend (no verified domain) cannot send, so it must not leave the project with no sender at all.
     await repos.integrations.upsert(g.db, g.businessId, { connectorKey: "resend", status: "degraded", authKind: "api_key", accountLabel: "own" });
-    expect(asAllow(await g.client.call(token, message)).result.ok).toBe(true);
+    expect(asAllow(await g.client.call(await token(), message)).result.ok).toBe(true);
     const row = await repos.integrations.upsert(g.db, g.businessId, { connectorKey: "resend", status: "disconnected", authKind: "api_key", accountLabel: "own" });
-    expect(asAllow(await g.client.call(token, message)).result.ok).toBe(true);
+    expect(asAllow(await g.client.call(await token(), message)).result.ok).toBe(true);
     await repos.integrations.upsert(g.db, g.businessId, { connectorKey: "resend", status: "connected", authKind: "api_key", accountLabel: "own" });
-    expect(asDeny(await g.client.call(token, message)).policyIds).toEqual([PLATFORM_MAIL_POLICY.own_sender]);
+    expect(asDeny(await g.client.call(await token(), message)).policyIds).toEqual([PLATFORM_MAIL_POLICY.own_sender]);
     await repos.integrations.archive(g.db, g.businessId, row.id);
-    expect(asAllow(await g.client.call(token, message)).result.ok).toBe(true);
+    expect(asAllow(await g.client.call(await token(), message)).result.ok).toBe(true);
   });
 });
 

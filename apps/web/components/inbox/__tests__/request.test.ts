@@ -38,6 +38,12 @@ describe("describeRequest", () => {
     expect(describeRequest({ ...base, tool: null, action: "Something odd" })).toBe("Priya wants to run Something odd");
   });
 
+  it("a launch in offline tracking reads as materials to check, never as a launch (WP-02 T2)", () => {
+    const launch = { ...base, tool: "launch_campaign", action: "Ledgerly › launch campaign" };
+    expect(describeRequest({ ...launch, args: json({ campaignId: "c1", channelKey: "direct_mail", kitMode: true }) })).toBe("Priya has materials ready for you to check and submit yourself");
+    expect(describeRequest({ ...launch, args: json({ campaignId: "c1", channelKey: "direct_mail", kitMode: false }) })).toMatch(/^Priya wants to launch/);
+  });
+
   it("reads the arguments only when they are JSON, and names channels and services plainly", () => {
     expect(parseArgs('{"channel":"seo"}')).toEqual({ channel: "seo" });
     expect(parseArgs("Purchase order for batch 007")).toEqual({});

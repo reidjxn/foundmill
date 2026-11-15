@@ -51,4 +51,4 @@ The never-list in `CLAUDE.md` applies to every task, in full. Read it before you
 
 ## Definition of done for any task
 
-Typecheck, lint, unit tests, a Playwright spec for any screen touched, a Storybook story for any new component, an eval for any new agent behavior, and an update to `docs/PROGRESS.md`. A judgment call goes in `docs/DECISIONS.md`.
+Typecheck, lint, unit tests, a Playwright spec for any screen touched, a Storybook story for any new component, an eval for any new agent behavior. A judgment call goes in your final report.

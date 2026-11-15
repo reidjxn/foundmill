@@ -33,6 +33,7 @@ import { holidaysRepo } from "./holidays";
 import { ideasRepo } from "./ideas";
 import { inboxRepo } from "./inbox";
 import { integrationsRepo } from "./integrations";
+import { mockResultsRepo } from "./mock-results";
 import { journeysRepo } from "./journeys";
 import { legalRepo } from "./legal";
 import { logosRepo } from "./logos";
@@ -60,6 +61,7 @@ import { tableViewsRepo } from "./table-views";
 import { personaPortraitsRepo } from "./persona-portraits";
 import { teamCallsRepo } from "./team-calls";
 import { presenceRepo } from "./presence";
+import { costReportRepo } from "./cost-report";
 import { notificationsRepo } from "./notifications";
 import { notifyFactsRepo } from "./notify-facts";
 import { attributionsRepo } from "./attributions";
@@ -71,6 +73,7 @@ import { admissionsRepo, invitationsRepo } from "./people";
 import { showcaseRepo } from "./showcase";
 import { adultsRepo } from "./adults";
 import { founderCancelLinksRepo, founderDeparturesRepo } from "./founder-departures";
+import { metricsRepo } from "./metrics";
 
 export const repos = {
   businesses: businessesRepo,
@@ -103,6 +106,7 @@ export const repos = {
   plans: plansRepo,
   channels: channelsRepo,
   campaigns: campaignsRepo,
+  mockResults: mockResultsRepo,
   journeys: journeysRepo,
   entities: entitiesRepo,
   finance: financeRepo,
@@ -130,6 +134,7 @@ export const repos = {
   personaPortraits: personaPortraitsRepo,
   teamCalls: teamCallsRepo,
   presence: presenceRepo,
+  costReport: costReportRepo,
   notifications: notificationsRepo,
   emailPrefs: emailPrefsRepo,
   notifyFacts: notifyFactsRepo,
@@ -145,6 +150,7 @@ export const repos = {
   postAttributions: postAttributionsRepo,
   founderDepartures: founderDeparturesRepo,
   founderCancelLinks: founderCancelLinksRepo,
+  metrics: metricsRepo,
 } as const;
 export type Repos = typeof repos;
 export type RepoArea = keyof Repos;
@@ -196,6 +202,7 @@ export * from "./social";
 export * from "./adults";
 export * from "./tasks";
 export * from "./training";
+export { boundMetricSql, FUNNEL_METRICS, METRIC_QUERIES, metricsRepo, metricWindowEnd, REAL_OUTCOME_PREDICATE, type FunnelMetric, type MetricFacts, type MetricQuery, type NorthStarWeek } from "./metrics";
 export * from "./usage";
 export * from "./workspaces";
 export * from "./logos";
@@ -208,6 +215,7 @@ export * from "./portability";
 export * from "./persona-portraits";
 export * from "./team-calls";
 export * from "./presence";
+export * from "./cost-report";
 export * from "./notifications";
 export * from "./notify-facts";
 export * from "./account-events";

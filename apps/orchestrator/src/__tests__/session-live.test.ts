@@ -172,10 +172,17 @@ afterEach(() => {
   modelSwitches.length = 0;
 });
 
+/** The agent reports its result on its own task with the platform's `complete_task` (a task that is not code needs it, WP-05 T2). */
+function* reported(id = "tu-complete") {
+  yield { type: "assistant", message: { content: [{ type: "tool_use", id, name: "mcp__platform__complete_task", input: { summary: "Done." } }] } };
+  yield { type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, content: JSON.stringify({ status: "done" }) }] } };
+}
+
 const success = (sessionId: string) =>
   async function* () {
     yield { type: "system", subtype: "init", session_id: `sdk-${sessionId}` };
     yield { type: "assistant", message: { content: [{ type: "text", text: "Starting." }] } };
+    yield* reported();
     yield { type: "result", subtype: "success", modelUsage: { m: { inputTokens: 10, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, outputTokens: 5, costUSD: 0.01 } } };
   };
 
@@ -628,6 +635,7 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
       yield resultOf(modelUsage(10, 5, 0.01));
       nudge = (await prompts.next()).value?.message.content;
       yield { type: "assistant", message: { id: "m2", content: [{ type: "text", text: "Shortened." }], usage: { input_tokens: 20, output_tokens: 7 } } };
+      yield* reported();
       // Each result carries the running total so far.
       yield resultOf(modelUsage(30, 12, 0.03));
       inputEnded = (await prompts.next()).done === true;
@@ -771,6 +779,7 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
       await t.control.post(sessionId, { kind: "resume", by: t.fixture.ownerId });
       resumedWith = (await prompts.next()).value?.message.content;
       verdict = await pending;
+      yield* reported();
       yield resultOf(modelUsage(15, 4, 0.02));
       await prompts.next();
     };
@@ -794,6 +803,7 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
       yield { type: "system", subtype: "init", session_id: "sdk-beat" };
       yield { type: "assistant", message: { id: "m1", model: launch.modelId, content: [{ type: "text", text: "Reading the brief." }], usage: { input_tokens: 300, output_tokens: 40 } } };
       await wait(700); // the control loop heartbeats meanwhile
+      yield* reported();
       yield resultOf(modelUsage(300, 40, 0.02));
     };
     const env = new MockActivityEnvironment();
@@ -814,6 +824,7 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
       await t.control.post(sessionId, { kind: "shout", message: "Upgrade to Opus", modelKey: "opus", by: t.fixture.ownerId });
       await until(() => modelSwitches.length > 0, "the model switch");
       yield { type: "assistant", message: { id: "m1", content: [{ type: "text", text: "On it." }], usage: { input_tokens: 100, output_tokens: 50 } } };
+      yield* reported();
       yield resultOf(modelUsage(100, 50, 0.05));
       await prompts.next();
     };
@@ -927,6 +938,7 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
       await prompts.next();
       yield { type: "system", subtype: "init", session_id: "sdk-last-credit" };
       yield { type: "assistant", message: { id: "m1", content: [{ type: "text", text: "Here are three suppliers." }], usage: { input_tokens: 100, output_tokens: 50 } } };
+      yield* reported();
       yield resultOf(modelUsage(100, 50, 0.6));
       inputEnded = (await prompts.next()).done === true;
     };
@@ -1036,6 +1048,7 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
       yield resultOf(modelUsage(20, 5, 0.01));
       sink.turn = (await prompts.next()).value?.message.content;
       yield { type: "assistant", message: { id: "m2", content: [{ type: "text", text: "Done." }], usage: { input_tokens: 30, output_tokens: 8 } } };
+      yield* reported();
       yield resultOf(modelUsage(30, 8, 0.02));
       sink.inputEnded = (await prompts.next()).done === true;
     };
@@ -1839,5 +1852,91 @@ describe("honest outcomes: a code session ends done only when it did the work (d
     script = success(sessionId);
     const result = await acts.runAgentSession(input, launch);
     expect(result.outcome).toBe("done");
+  });
+});
+
+describe("honest outcomes: a task that is not code is done only when its agent reported a result on real tools (WP-05 T2)", () => {
+  const nonCodeTask = async (title: string, deps = liveDeps) => {
+    const task = await repos.tasks.create(t.db, t.businessId, { kind: "research", title, goalMd: "Find suppliers.", assigneeAgentId: t.workerId, status: "ready" });
+    await repos.tasks.setStatus(t.db, t.businessId, task.id, "running", { force: true });
+    const sessionId = await openSessionRow(t, t.workerId, task.id);
+    const input = { businessId: t.businessId, agentId: t.workerId, taskId: task.id, sessionId };
+    const a = createSessionActivities(deps);
+    return { task, sessionId, input, acts: a, launch: await a.prepareSession(input) };
+  };
+  const toolUse = (id: string, name: string, input: Record<string, unknown>) => ({ type: "assistant", message: { content: [{ type: "tool_use", id, name, input }] } });
+  const toolResult = (id: string, content: string) => ({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, content }] } });
+  const ofSession = (sessionId: string) => (e: { payload: unknown }) => (e.payload as { sessionId?: string }).sessionId === sessionId;
+  const completedOf = async (sessionId: string) => (await repos.events.list(t.db, t.businessId, { type: "task.completed", limit: 200 })).items.filter(ofSession(sessionId));
+  const blockedOf = async (sessionId: string) => (await repos.events.list(t.db, t.businessId, { type: "task.blocked", limit: 200 })).items.filter(ofSession(sessionId));
+  afterEach(async () => {
+    await repos.agents.setStatus(t.db, t.businessId, t.workerId, "idle");
+  });
+
+  it("(a) a session whose only outside calls were simulated or not connected, on a real project, ends blocked not_connected even after complete_task", async () => {
+    const staging = { ...liveDeps, env: { ...liveDeps.env, APP_ENV: "staging" as const } };
+    const { task, sessionId, input, acts: a, launch } = await nonCodeTask("Research the market", staging);
+    // Longer than the stream's 1,000-character copy: the flag is read from the full result.
+    const simulated = JSON.stringify({ ok: true, data: { results: [{ title: "x".repeat(1500), url: "https://example.com" }] }, simulated: true, notice: "Simulated: nothing was read." });
+    script = async function* () {
+      yield { type: "system", subtype: "init", session_id: `sdk-${sessionId}` };
+      yield toolUse("tu-search", "mcp__web__search_web", { query: "suppliers" });
+      yield toolResult("tu-search", simulated);
+      yield toolUse("tu-rates", "mcp__ecb_rates__convert", { from: "EUR", to: "USD", amount: 1 });
+      yield toolResult("tu-rates", JSON.stringify({ ok: false, error: { code: "integration_not_connected", message: "ECB rates is not switched on here yet, so nothing was read or done" } }));
+      yield toolUse("tu-done", "mcp__platform__complete_task", { taskId: task.id, summary: "Found three suppliers." });
+      yield toolResult("tu-done", JSON.stringify({ id: task.id, status: "done" }));
+      yield resultOf(modelUsage(10, 5, 0.01));
+    };
+    const result = await a.runAgentSession(input, launch);
+    expect(result).toMatchObject({ outcome: "blocked", blockedReason: "not_connected", reason: "not connected: web, ecb_rates" });
+    expect(result.summary).toMatch(/^Blocked: .+ not connected for this project, so nothing real was read or sent\.$/);
+    const finish = await a.finishSession(input, launch, result);
+    expect(finish.taskStatus).toBe("blocked");
+    expect((await repos.tasks.get(t.db, t.businessId, task.id)).status).toBe("blocked");
+    expect((await blockedOf(sessionId))[0]?.payload).toMatchObject({ reason: "not_connected" });
+    expect(await completedOf(sessionId)).toEqual([]);
+  });
+
+  it("(b) an agent that ends without reporting gets exactly one more turn, then the session ends blocked no_result", async () => {
+    const { task, sessionId, input, launch } = await nonCodeTask("Write the welcome email");
+    const turns: string[] = [];
+    let inputEnded = false;
+    script = async function* (call) {
+      const prompts = promptsOf(call);
+      await prompts.next();
+      yield { type: "system", subtype: "init", session_id: `sdk-${sessionId}` };
+      yield { type: "assistant", message: { content: [{ type: "text", text: "Here is a draft." }] } };
+      yield resultOf(modelUsage(10, 5, 0.01));
+      const next = await prompts.next();
+      if (!next.done) turns.push(next.value.message.content);
+      yield { type: "assistant", message: { content: [{ type: "text", text: "Still a draft." }] } };
+      yield resultOf(modelUsage(20, 8, 0.02));
+      inputEnded = (await prompts.next()).done === true;
+    };
+    const result = await acts.runAgentSession(input, launch);
+    expect(turns).toEqual(["You ended without reporting. Call complete_task with what you found or made, or block_task with what stopped you."]);
+    expect(inputEnded).toBe(true);
+    expect(result).toMatchObject({ outcome: "blocked", blockedReason: "no_result" });
+    expect(result.summary).toBe(`Blocked: Test Engineer ended the session without reporting a result on "${task.title}".`);
+    const finish = await acts.finishSession(input, launch, result);
+    expect(finish.taskStatus).toBe("blocked");
+    expect((await blockedOf(sessionId))[0]?.payload).toMatchObject({ reason: "no_result" });
+  });
+
+  it("(c) an agent that calls complete_task on its task ends done, progress 1, task.completed success", async () => {
+    const { task, sessionId, input, launch } = await nonCodeTask("Shortlist two suppliers");
+    script = async function* () {
+      yield { type: "system", subtype: "init", session_id: `sdk-${sessionId}` };
+      yield toolUse("tu-done", "mcp__platform__complete_task", { taskId: task.id, summary: "Two suppliers." });
+      yield toolResult("tu-done", JSON.stringify({ id: task.id, status: "done" }));
+      yield resultOf(modelUsage(10, 5, 0.01));
+    };
+    const result = await acts.runAgentSession(input, launch);
+    expect(result.outcome).toBe("done");
+    expect(result.progress.progress).toBe(1);
+    const finish = await acts.finishSession(input, launch, result);
+    expect(finish.taskStatus).toBe("done");
+    expect((await completedOf(sessionId))[0]?.payload).toMatchObject({ outcome: "success" });
   });
 });

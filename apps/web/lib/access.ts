@@ -64,13 +64,13 @@ export function canOpenDepartment(access: Access, department: { moduleKeys?: rea
 }
 
 /** The line every disabled control shows in the example business (the Example frame, docs/UX_AUDIT_AND_PLAN.md §12 item 5). */
-export const EXAMPLE_READ_ONLY_REASON = "This is an example business: look around, then start your own.";
+export const EXAMPLE_READ_ONLY_REASON = "This is an example project: look around, then start your own.";
 /**
  * The quiet "Sample business" marker beside a seeded demo business's name (first-time founder report, Phase 3 group K:
  * "the sample business says it is a sample"): its one line says the figures are made up. It shows on every demo
  * business (`businesses.is_demo`, which only the seed sets), whoever opens it, and never on a founder's own business.
  */
-export const SAMPLE_BUSINESS_LABEL = "Sample business";
+export const SAMPLE_BUSINESS_LABEL = "Sample project";
 export const SAMPLE_BUSINESS_LINE = "Its figures are made up for the example: nothing here is real money or real customers.";
 
 /** The tooltip of the sample marker for an example viewer, and the line under the example's row in Your businesses. */

@@ -32,7 +32,7 @@ vi.mock("@/components/shell/business-context", () => ({ useBusiness: () => ({ bu
 vi.mock("../shared", async (importOriginal) => ({ ...(await importOriginal<typeof SharedModule>()), useSettingsToast: () => ({ saved: vi.fn(), failed: vi.fn(), info: vi.fn() }) }));
 vi.mock("../SettingsScreen", () => ({ useInvalidateRouters: () => vi.fn(async () => undefined) }));
 
-import { IntegrationsTab, modeLabel, navigation } from "../IntegrationsTab";
+import { IntegrationsTab, modeLabel, navigation, showsModeChip } from "../IntegrationsTab";
 
 const renderTab = () =>
   render(
@@ -94,6 +94,24 @@ describe("Settings › Integrations: finishing the GitHub connection", () => {
     search = new URLSearchParams({ github_installation: "abc" });
     renderTab();
     expect(screen.queryByTestId("github-installation")).toBeNull();
+  });
+});
+
+describe("Settings › Integrations on a person's project where connectors are not live (WP-02 T3)", () => {
+  it("a connector that cannot be connected here shows Not available yet and no Connect button, and the section drops Test mode", async () => {
+    catalogue = [
+      { key: "sendgrid", displayName: "SendGrid", phase: 1, auth: { kind: "api_key" }, tools: [], simulations: [], live: false, available: false, integration: null },
+      { key: "github", displayName: "GitHub", phase: 1, auth: { kind: "app" }, tools: [], simulations: [], live: true, available: true, integration: null },
+    ];
+    renderTab();
+    const row = await screen.findByText("SendGrid");
+    const item = row.closest("li")!;
+    expect(item.textContent).toContain("Not available yet");
+    expect(item.querySelector("button")).toBeNull();
+    expect(screen.queryByText(/Test mode/)).toBeNull();
+    expect(showsModeChip("mock", [{ live: false, available: true }])).toBe(true);
+    expect(showsModeChip("mock", [{ live: false }])).toBe(true);
+    expect(showsModeChip("live", [{ live: false, available: false }])).toBe(true);
   });
 });
 

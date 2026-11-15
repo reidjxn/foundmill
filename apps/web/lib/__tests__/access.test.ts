@@ -54,7 +54,7 @@ describe("access (audit RUI-05: the app followed only isAdmin)", () => {
     expect(example.canRead("finance")).toBe(true);
     expect(example.canWrite("finance")).toBe(false);
     expect(readOnlyReason(example)).toBe(EXAMPLE_READ_ONLY_REASON);
-    expect(EXAMPLE_READ_ONLY_REASON).toBe("This is an example business: look around, then start your own.");
+    expect(EXAMPLE_READ_ONLY_REASON).toBe("This is an example project: look around, then start your own.");
     // The viewer role and the example source make an example; a business that is known not to be a demo never does.
     expect(isExampleViewer({ role: "viewer", sectionPermissions: {}, source: "example" }, demo)).toBe(true);
     expect(isExampleViewer({ role: "viewer", sectionPermissions: {}, source: "example" })).toBe(true);

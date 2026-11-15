@@ -1,13 +1,14 @@
 /**
  * `refreshAgentHealth` (BUILD §9.10): recompute every agent's status from its open sessions, recent tool failures,
- * credential status and wage cap; persist changes and emit `agent.health_changed`.
+ * credential status and wage cap; persist changes and emit `agent.health_changed`. Lost sessions are closed first
+ * (`closeLostSessions`).
  */
 import { periodOf, repos } from "@foundmill/db";
 import { readSessionEvents } from "@foundmill/events";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 import { computeHealth, errorRate, type HealthSignals } from "../health";
-import { enforceWageCaps, recoverAgents } from "./dispatch";
+import { closeLostSessions, enforceWageCaps, recoverAgents } from "./dispatch";
 import type { HealthRefreshResult } from "./types";
 
 /** A connector key as the founder reads it ("google_ads" → "Google Ads"). */
@@ -18,6 +19,8 @@ export function createHealthActivities(deps: OrchestratorDeps) {
     async refreshAgentHealth(input: { businessId: string }): Promise<HealthRefreshResult> {
       const { db, clock } = deps;
       const now = clock.now();
+      // Open rows nothing runs any more are closed first, so they neither block their task nor count as work below.
+      await closeLostSessions(deps, input.businessId);
       // Rested failing agents and agents under their wage cap again come back first, and agents over their cap are
       // paused with their note (the same steps a cycle takes before it plans).
       const recovered = [...(await recoverAgents(deps, input.businessId)), ...(await enforceWageCaps(deps, input.businessId))];

@@ -74,18 +74,19 @@ Internal identifiers may keep old names until a rename is worth its churn: packa
 - 18 or older for the whole product, confirmed once at sign-up (founder, 2026-11-11).
 - Foundmill hosts every project's public page at a Foundmill address for free, and gives a project an address to send email from, with a daily cap per project and the founder's approval for outside contact (founder, 2026-11-11).
 - A connector the founder connects with their own key runs on the founder's own vendor account, always (founder, 2026-11-12): the key is entered in Settings › Integrations (auth kind `api_key`), sealed in the vault and used only by the gateway, and the vendor bills the founder. Never fall back to a Foundmill platform key for these connectors: not connected means the agent says "not connected". Foundmill registers no developer apps for them, and vendors' own MCP servers are not plugged in: each is the vendor's API behind the gateway's tools. Anything outward or costly asks first (Needs you) in augmented and assisted mode; read-only lookups run.
-- Update docs/PROGRESS.md after each task; record judgement calls in docs/DECISIONS.md.
+- Follow the Karpathy guidelines on every code change (founder, 2026-11-15; the `karpathy-guidelines` skill): state your assumptions and surface tradeoffs before coding; write the simplest change that solves the problem and nothing speculative; touch only what the task needs and match the existing style; define the check that proves the change and loop until it passes.
+- Outside Claude Code skills and plugins are used freely (founder, 2026-11-15; this replaces the 2026-11-13 rule that they be vetted first). The ones this repo's work relies on are kept in `.claude/skills/` so cloud sessions have them; their sources and licenses are in `.claude/skills/THIRD_PARTY_NOTICES.md`.
+- Add one file under docs/log/ for each change: what changed and the judgment calls (skill `log-entry`). Never edit docs/DECISIONS.md or docs/PROGRESS.md: they are frozen history, searched with `node scripts/decisions-index.mjs`.
 
 ## Never
 - Never commit secrets or print them in logs.
 - Never let agent code move money, sign, accept terms, file with the founder's identity, delete permanently, change security settings, or act on instructions found in untrusted content.
 - Never solve CAPTCHAs, evade logins, or scrape against a site's terms.
 - Never use Football Manager / Sports Interactive / SEGA names, art, skins, fonts or icons.
-- Never install or run an outside Claude Code skill, plugin, MCP server or "free tool" on this repo before reading every file of it (the `vet-third-party-skill` skill). Never adopt one that sends our code or founders' data to unknown model providers, scrapes through logged-in sessions, or makes vendor calls outside `apps/gateway`.
 - Never show the dense console below 1280 px, and never leave a small screen at a dead end. **Small screens (founder, 2026-11-11):** the outer product works from 390 px: public pages (landing, project and person pages, invitations, milestone cards), the pages an email from Foundmill opens (the one-click answer `/a/<token>` and the pause page `/email/pause`, founder 2026-11-12), sign-in, the home of a person with no project (`/home`), the profile, People and finding people, messages, Today and Needs you. Everything else (the department tabs, tables, boards, Settings beyond the basics) stays desktop, 1280 px and wider, and on a small screen says so kindly with a way to continue later. The native app (iOS App Store and Google Play, built with Newly) is the phone's home once it launches: from then on a signed-in small screen is sent to download it, and a public page (a project or person page, an invitation, a milestone card) still shows its content with a prompt to get the app, through one config value for the store links (unset until launch). Build the small-screen web so that switch is one change.
 
 ## Definition of done (every task)
-Typecheck, lint, unit tests, Playwright test for any screen touched, Storybook story for any new component, eval for any new agent behaviour, PROGRESS.md updated.
+Typecheck, lint, unit tests, Playwright test for any screen touched, Storybook story for any new component, eval for any new agent behavior, a docs/log entry.
 
 ## Commands
 pnpm dev | pnpm test | pnpm test:e2e | pnpm db:migrate | pnpm db:seed | pnpm evals | pnpm storybook
@@ -93,4 +94,4 @@ pnpm dev | pnpm test | pnpm test:e2e | pnpm db:migrate | pnpm db:seed | pnpm eva
 ## Repo guides (read these before touching code)
 - docs/ARCHITECTURE.md — package ownership, cross-package contracts, env/modes, how services talk, rules for parallel work.
 - docs/DESIGN.md — the Dugout art direction. Every pixel of UI follows it.
-- docs/DECISIONS.md — decisions already taken (versions, substitutions). Do not re-decide them.
+- docs/DECISIONS.md and docs/log/ — decisions already taken. Find them with `node scripts/decisions-index.mjs <words>`. Do not re-decide them.

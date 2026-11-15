@@ -788,7 +788,7 @@ export function foundationsSignoffNotes(draft: FoundationsDraft, door: Foundatio
   const firstNow = [...draft.roadmap].filter((r) => r.horizon === "now").sort((a, b) => a.position - b.position)[0];
   const roadmapLines = [
     `The first roadmap has ${stats.roadmap.now} item${stats.roadmap.now === 1 ? "" : "s"} in Now, ${stats.roadmap.next} in Next and ${stats.roadmap.later} in Later${issues}.${firstNow ? ` First in Now: ${md(clipWords(firstNow.title, 16))}.` : ""}`,
-    `Approve it and building starts: the Planner turns the Now items into tasks and the engineers pick them up in the next cycle. Ask for changes if the order or the scope is wrong; nothing is spent on distribution until you start it.`,
+    `Approve it and building starts: the Planner turns the Now items into tasks and the team starts on them in its next round of work. Ask for changes if the order or the scope is wrong; nothing is spent on distribution until you start it.`,
     `**North star.** ${md(draft.vision.northStar.metric)}: ${md(clipWords(draft.vision.northStar.target, 24))}. Every roadmap item names the specification blocks it serves, so a change to one shows up on the other.`,
   ];
   return {

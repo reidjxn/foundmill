@@ -5,7 +5,7 @@
 import { LIMITS } from "@foundmill/config";
 import { repos, type Db, type InboxItem } from "@foundmill/db";
 import { stableHash, type ModelClient, type ModelLogger } from "@foundmill/models";
-import { NotFoundError, ValidationError } from "@foundmill/shared";
+import { NotFoundError, ValidationError, type ParkedTask } from "@foundmill/shared";
 import { composeChapterTitle, parseQuarter, quarterOf, type ChapterTitleResult } from "./chapter";
 import { composeCommentary, type CommentaryResult } from "./commentary";
 import { composeNote } from "./compose";
@@ -69,19 +69,19 @@ export class ComposerService {
    * (a timeout, a restart), so a call for events already narrated together returns that note, and a call while the
    * same narration is still being written waits for it. Neither writes a second note or pays for a second one.
    */
-  narrate(businessId: string, eventIds: readonly string[]): Promise<NarrateResult> {
+  narrate(businessId: string, eventIds: readonly string[], parked: readonly ParkedTask[] = []): Promise<NarrateResult> {
     const ids = [...new Set(eventIds)];
     if (ids.length === 0) return Promise.reject(new ValidationError("eventIds must name at least one event"));
     const key = narrationKey(ids);
     const flight = `${businessId}:${key}`;
     const running = this.narrating.get(flight);
     if (running) return running.then((r) => ({ ...r, replayed: true, costMinor: 0 }));
-    const p = this.narrateOnce(businessId, ids, key).finally(() => this.narrating.delete(flight));
+    const p = this.narrateOnce(businessId, ids, key, parked).finally(() => this.narrating.delete(flight));
     this.narrating.set(flight, p);
     return p;
   }
 
-  private async narrateOnce(businessId: string, ids: string[], key: string): Promise<NarrateResult> {
+  private async narrateOnce(businessId: string, ids: string[], key: string, parked: readonly ParkedTask[]): Promise<NarrateResult> {
     const started = Date.now();
     const done = await findPersisted(this.deps.db, businessId, key);
     if (done) return replay(done, started);
@@ -91,7 +91,7 @@ export class ComposerService {
       throw new NotFoundError("event", ids.filter((id) => !found.has(id)).join(", "));
     }
     const ctx = await loadContext(this.deps.db, businessId, { now: this.now(), entityIds: events.flatMap((e) => e.entityIds), skipUnnarrated: true });
-    const composed = await composeNote(this.deps, ctx, { mode: "events", events }, { onInvalidLinks: "reject", deadlineMs: this.deadlineMs });
+    const composed = await composeNote(this.deps, ctx, { mode: "events", events, parked }, { onInvalidLinks: "reject", deadlineMs: this.deadlineMs });
     const persisted = await persistNote(this.deps.db, this.deps.log, {
       businessId,
       item: composed.item,

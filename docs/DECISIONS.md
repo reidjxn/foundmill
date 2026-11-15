@@ -1,5 +1,7 @@
 # DECISIONS.md
 
+> Frozen on Nov 15, 2026. New entries are files under docs/log/ (skill `log-entry`). Search both with `node scripts/decisions-index.mjs <words>`.
+
 Decisions this build has taken where `docs/BUILD.md` left room. Each entry: the decision, the option chosen, why. Newest at the bottom.
 
 ## 2026-10-05 — Toolchain versions (BUILD §3.1 "record exact versions")
@@ -4609,19 +4611,22 @@ Drizzle's postgres-js driver makes the date and time serializers pass values thr
 - **Records.** zod has no cap for a record, and a `.refine` on its size runs after every key, so `boundedRecord(n, record)` counts the keys of a plain object first (as #139 did for the quiz answers) and refuses anything that is not a plain object. Enum-keyed maps (section permissions, notification and email kinds) take the enum's length: a larger object always held an unknown key and was refused before. Free-form JSON objects (a spec block's content, a quiz definition, campaign config, security terms, forecast drivers, simulation params, a connector's connect fields) take 100 top-level keys; their depth stays bounded by the body limit and the service that reads them. The seen marks keep their limit of 50 and their message, now counted before the keys are read.
 - **Guarding new inputs.** `input-limits.test.ts` walks every procedure's input and fails on an unbounded array, set or map, or a record outside `boundedRecord`.
 
-## 2026-11-15 — The landing page's direction: the calls made (landing session, pull request 1)
+## 2026-11-15 — Outside Claude Code skills are used freely; the vetting rule and its skill are removed (founder)
 
-- **Two lines from the brief's "works today" list are held back.** Pooled cofounder credits are not built (a9 §1.3; no code pools them), and Share exists only in the desktop console, so "share in one tap" is not true on a phone (a9 A9-P1-5). Each comes back when its code ships.
-- **Follow lines wait for platform mail.** A page's Follow form confirms by email, and platform mail is not confirmed on in production (e0), so the example week's "Four people follow the page" renders only with `PLATFORM_MAIL_DOMAIN` set.
-- **Switches are read at build time from the web's own environment.** The page is `force-static`; unset means off, which matches production today. The api's variables of the same names do not reach the web build by themselves.
-- **Superseded by the founder's brief (Nov 15), with the old form kept where it is a look:** the two-reader page (to `/tour`), the phone-only hero with a 1280 px note (one page for every width), the example business's colors on `/` (Foundmill's own look). The dark outlined Generate button stays the built default behind `IDEA_BUTTON`; the filled primary is proposed.
-- **No top-bar start button.** It competed with the idea box and led to the invite wall (s1, the critique); the top bar is the wordmark, Sign in and, with the people layer on, Find people.
+- **Decision.** The founder's instruction on Nov 15: the rule that an outside skill be vetted before use "shouldn't exist", and the Karpathy guidelines apply to every code change. CLAUDE.md's "Never install or run an outside Claude Code skill…" line is gone, `.claude/skills/vet-third-party-skill/` is deleted, and two "Always" lines replace them. This supersedes the 2026-11-13 entry on vetting.
+- **Why they are copied into the repo.** A cloud session loads the skills in the repository and not the founder's installed plugins. Thirty skill folders the plan's execution relies on were copied unchanged into `.claude/skills/` (evals folders left out). Sources, commits and licenses: `.claude/skills/THIRD_PARTY_NOTICES.md`. `karpathy-guidelines` has no license file upstream and is kept for internal use in this private repository.
+- **What still wins.** CLAUDE.md, docs/DESIGN.md and this file over any copied skill: branches and merges follow `ship-change`, UI follows DESIGN.md, and no skill permits a vendor call outside `apps/gateway`.
+- **Product agents are separate.** Skills for the product's own agents are rewritten drafts in `docs/holistic-plan/skills/` (adapted text credited in its own notices file), not these folders. `coding_discipline` there is in Foundmill's own words because the Karpathy text has no license.
 
-## 2026-11-15 — The founder's answers on the landing direction (#153)
+## 2026-11-15 — The holistic review and plan: thirteen work packages, ordered by distance from a first real outcome
 
-1. **`/` is for the first-timer alone; today's page moves to `/tour`.** Supersedes DESIGN §9a's two readers.
-2. **The idea box button is the flat filled primary** (`IDEA_BUTTON = "filled"`). Supersedes the 2026-11-13 "dark with a white 1 px outline" on the landing page; that look stays available as `"recorded"`.
-3. **The home page is indexed once sign-up opens.** Judgment call: indexing follows `SIGNUP_OPEN` rather than a separate constant, so opening sign-up is the one change.
-4. **Open the people layer, and build everything it needs to work end to end, reporting included.** Supersedes the main plan's "closed until reporting exists" (WP-12 D2) as a direction; the switch itself (`LIVE_MODE`) is turned on per deployment once that work lands. The landing page builds its find block for the layer as open.
-5. **Keep `/tour`.** A/B testing of landing pages, the tour and features at launch: strings and looks stay in one words file and constants so a variant is cheap.
-6. **impeccable's detector is allowed** (the founder, overriding the session brief). It ran from the session's scratch directory on a copy of the files, its engine checked against the skill's pinned checksum.
+- **What it is.** `docs/HOLISTIC_REVIEW.md` (findings, with production measured the same day), `docs/HOLISTIC_PLAN.md` (order, measures, starting prompt) and `docs/holistic-plan/` (one file per work package, the audits, the drafted agent skills). Written at `04a0a509`; nothing built, nothing in production changed.
+- **Planner's calls, open to the founder.** (1) The agent skill library's source of truth becomes one Markdown file per skill with a generated catalog. (2) Skills load on demand through a gateway tool `read_skill` and an index in the prompt; the SDK's own Skill tool stays off. (3) Every template gets default skills at hire. (4) Foundmill Sites is planned and waits for two go-aheads (a separate domain, and "after pages and email are proven", the Nov 11 answer). (5) Production switches are a Desktop session's job on a go-ahead, never a cloud session's.
+- **Not re-decided.** Every package cites the entries here that bind it. Where a package asks the founder for a decision, it is listed at the end of that package and collected in HOLISTIC_PLAN.md.
+
+## 2026-11-15 — CI lanes: a pull request runs only the lanes its files touch (WP-01 T1)
+
+- **Chosen.** The filter lives in a `changes` job inside `ci.yml`, never on `on:`, so every required check still reports (a job skipped by its `if:` counts as passed). A pull request is diffed against its base commit (`pull_request.base.sha`) to its merge commit; when the base has moved this can name a few files the branch did not change, which only runs more lanes, never fewer. Pushes to main and `workflow_dispatch` (agent branches through `run_checks`) always run every lane.
+- **Kept.** The required check names, the file name and the dispatch trigger; `--maxWorkers=2` on every unit entry (runner size unverified); the golden path in Playwright shard 1, because that shard is the one seeded without a founder profile.
+- **Small call.** The base branch name reaches the log guard's shell through an environment variable rather than an inline expression.
+- **Beyond the plan's letter.** The plan dealt Playwright files by their count of `test(` calls in six shards. The first run measured 71.6 minutes of tests with shards between 5.9 and 18.3 minutes: two files take six minutes each and many take seconds, so a count is a poor weight. Files are now dealt by the seconds each took (greedy, heaviest first, to the lightest shard; shard 1 starts loaded with onboarding and the golden path) in eight shards, the split the plan names when a job runs past 14 minutes. The weights file is refreshed from a green run when the shards drift apart; a new file counts as the median.

@@ -100,7 +100,8 @@ describe("channelAvailability", () => {
     const acting = channelAvailability("social", facts({ liveConnectors: ["github"], connectedConnectors: ["github"] }), table);
     expect(acting).toEqual({ available: true, reason: "acts" });
     expect(channelTeamRuns(acting)).toBe(true);
-    expect(channelEngineMayRun(acting, false)).toBe(true);
+    // The team acts through tasks; the weekly engine sends nothing for any channel yet (WP-02 T2).
+    expect(channelEngineMayRun(acting, false)).toBe(false);
     // The connector exists and is not connected: the founder still posts by tap, and is not told to connect anything.
     expect(channelAvailability("social", facts({ liveConnectors: ["github"] }), table)).toEqual({ available: true, reason: "by_tap", byTap: true });
     expect(channelAvailability("social", facts(), table)).toEqual({ available: true, reason: "by_tap", byTap: true });
@@ -115,7 +116,7 @@ describe("channelAvailability", () => {
       const acting = channelAvailability("social", facts({ liveConnectors: live, connectedConnectors: ["buffer"] }));
       expect(acting).toEqual({ available: true, reason: "acts" });
       expect(channelTeamRuns(acting)).toBe(true);
-      expect(channelEngineMayRun(acting, false)).toBe(true);
+      expect(channelEngineMayRun(acting, false)).toBe(false);
     }
     expect(channelAvailabilityRows(facts({ liveConnectors: ["buffer"], connectedConnectors: ["buffer"] })).social.sentence).toBeNull();
     // Another channel's connector does not open social.

@@ -43,9 +43,11 @@ describe("idea.generate", () => {
     const createMany = vi.spyOn(repos.ideas, "createMany");
     const create = vi.spyOn(repos.ideas, "create");
     try {
-      const { caller } = await callerFor(mock, "ideas@test.local");
+      const { caller, userId } = await callerFor(mock, "ideas@test.local");
       const r = await caller.idea.generate({ prompt: "AI agents that help EU companies expand to the US" });
       expect(r.ideas.length).toBeGreaterThanOrEqual(6);
+      // The account's first cards are one funnel fact (WP-02 T9), with how many were made.
+      expect((await repos.accountEvents.list(hz.db, userId, { limit: 50 })).items.filter((e) => e.type === "idea.drafted").map((e) => e.payload)).toEqual([{ source: "set", cards: r.ideas.length }]);
       expect(r.ideas.length).toBeLessThanOrEqual(12);
       expect(r.costLabel).toBe("Estimate");
       const [slate, ...cards] = mock.history;

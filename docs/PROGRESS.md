@@ -1,5 +1,7 @@
 # PROGRESS.md
 
+> Frozen on Nov 15, 2026. New entries are files under docs/log/ (skill `log-entry`). Search both with `node scripts/decisions-index.mjs <words>`.
+
 Status legend: ☐ not started · ◐ in progress · ☑ done · ✗ blocked
 
 ## Phase 0 — Foundations (BUILD §16.1)
@@ -2190,10 +2192,14 @@ zod 4.6.7 stops an array, set or map at a length check placed first in its chain
 - **Tests.** `apps/api/src/__tests__/input-limits.test.ts`: a walk over every procedure's input schema finds no array, set or map without a cap first and no record without its key guard (a new unbounded input fails it); for each of 64 bounded fields through the caller, one past the limit and 100,000 junk elements or keys are a BAD_REQUEST with at most 3 issues and a message under 2,000 characters, the limit itself passes the procedure's input parsers, a small valid input passes input validation; five representative calls succeed end to end; playbook flows. `packages/shared/src/bounded-record.test.ts` (limit, plain objects only, `__proto__`, a Map, 200,000 keys as one issue).
 - **Not changed.** `apps/ingest/src/simulate.ts` (behind a service token). Schemas that parse model output or stored rows and never a request (`OptionAction.params`, `PostDraft.variants`, the jurisdiction cards in `legal.ts`, the idea verdict in `idea.ts`).
 
-## 2026-11-15 — The landing page: critique and direction (landing session, pull request 1)
+## Holistic review and plan (Nov 15, 2026)
 
-- **Critique.** Today's `/` rendered at 390 and 1440 px (`docs/holistic-plan/landing/shots/today-*.png`); impeccable's critique run by hand (its detector's launcher downloads a binary, which the session rules out): Nielsen 21/32, axe one serious failure at 1440 (`aria-hidden-focus`) and none at 390.
-- **Direction.** `docs/holistic-plan/landing/DIRECTION.md`: one reader, one job, nine sections the same at every width, the copy, the people section, a claims table mapping every sentence to code, a switch table (`SIGNUP_OPEN`, `LIVE_MODE`, `PLATFORM_MAIL_DOMAIN`, `TOUR_ENABLED`, `IDEA_BUTTON`, `HOME_INDEXED`), the design in design-system terms, measures, three experiment hypotheses and six founder decisions.
-- **Mock.** Storybook `Landing/Direction` (`packages/dugout/src/stories/landing/LandingDirection.stories.tsx`): the hero and the next two sections, with the recorded and the filled button; screenshots at 390 and 1440 px in `shots/direction-*.png`. No horizontal scroll at either width; axe's one finding is the existing `IdeaCard`'s rating-name buttons under 24 px (target-size), outside this change.
-- **Docs.** DESIGN.md §9a rewritten for the new page; the earlier page's description kept under "/tour".
-- **Not done.** No product code: pull requests 2 to 5 build it.
+- ☑ **Review.** `docs/HOLISTIC_REVIEW.md`: the product as a first-time founder meets it, from eleven read-only code audits at `04a0a509`, four reviews made with the copied skills and production facts read through the Vercel, Railway and Supabase connectors. Evidence in `docs/holistic-plan/audits/`.
+- ☑ **Plan.** `docs/HOLISTIC_PLAN.md` and `docs/holistic-plan/WP-00` to `WP-12`: thirteen work packages with tasks, interfaces, tests and starting prompts for cloud sessions. Not started: no package has been executed.
+- ☑ **Skills for sessions.** Thirty outside skills copied into `.claude/skills/` with notices; CLAUDE.md's vetting rule replaced (see DECISIONS, same date).
+- ☑ **Skills for the product's agents, drafted.** `docs/holistic-plan/skills/`: the authoring spec and the drafts, by category. They are not in `packages/agents` yet; WP-06 moves them.
+- **Tests.** None run: documents only, and the laptop runs no builds. `node scripts/us-english.mjs`, `banned-terms.mjs` and `plain-language.mjs` results are in the change's description.
+
+## Holistic plan, WP-01 T1: CI in parallel lanes (Nov 15, 2026)
+
+- ◐ **CI split into lanes** (`.github/workflows/ci.yml`, branch `claude/wp01-t1-ci-lanes`). A `changes` job decides per pull request which lanes run (main and dispatched agent runs run all); `static` (typecheck and lint, the config self-tests) and a 14-entry `unit` matrix replace the one 90-minute job, and `Typecheck, lint, unit tests` is now a gate that ends success when its inputs passed or were not needed. Playwright runs in eight shards dealt by the seconds each file took in CI (`scripts/e2e-shard.mjs` over `apps/web/e2e/shard-weights.json`, measured on the first run of this change; shard 1 keeps onboarding first and the golden path), with the browser cached. Docker and Storybook run only when their inputs changed. Main's runs are no longer cancelled by the next push. The interim guard "the logs only grow" runs in `static` and in the banned-terms job. Test: `scripts/ci-matrix.test.mjs` (every workspace package with a test script is in a matrix entry; a missing one is named). Times are in the pull request.
