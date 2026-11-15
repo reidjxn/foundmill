@@ -1,5 +1,7 @@
 # DECISIONS.md
 
+> Frozen on Nov 15, 2026. New entries are files under docs/log/ (skill `log-entry`). Search both with `node scripts/decisions-index.mjs <words>`.
+
 Decisions this build has taken where `docs/BUILD.md` left room. Each entry: the decision, the option chosen, why. Newest at the bottom.
 
 ## 2026-10-05 — Toolchain versions (BUILD §3.1 "record exact versions")
@@ -4628,15 +4630,3 @@ Drizzle's postgres-js driver makes the date and time serializers pass values thr
 - **Kept.** The required check names, the file name and the dispatch trigger; `--maxWorkers=2` on every unit entry (runner size unverified); the golden path in Playwright shard 1, because that shard is the one seeded without a founder profile.
 - **Small call.** The base branch name reaches the log guard's shell through an environment variable rather than an inline expression.
 - **Beyond the plan's letter.** The plan dealt Playwright files by their count of `test(` calls in six shards. The first run measured 71.6 minutes of tests with shards between 5.9 and 18.3 minutes: two files take six minutes each and many take seconds, so a count is a poor weight. Files are now dealt by the seconds each took (greedy, heaviest first, to the lightest shard; shard 1 starts loaded with onboarding and the golden path) in eight shards, the split the plan names when a job runs past 14 minutes. The weights file is refreshed from a green run when the shards drift apart; a new file counts as the median.
-
-## 2026-11-15 — The founder's answers to the holistic plan's first questions
-
-- **Railway watch paths:** applied now (WP-00 S4). **Wait for CI on api and gateway:** after WP-01 T1 merges.
-- **The seven agent pull requests (WP-01 T8):** as recommended. Closed with a reason: #24, #30, #39, #45, #49. #52 and #38 get one run on the CI lanes once T1 is on main; merged if green (#38 closed if red).
-- **Branches:** delete the merged ones and those of the closed agent pull requests. The session's git proxy refuses deletions, so the list is handed to the founder.
-- **Railway project name:** rename `founder-manager` to `foundmill` (no connector can; a dashboard step).
-- **Foundmill Sites domain:** the founder proposes `foundmill.app` (available, $9.99 the first year, $15 a year after, Vercel's price on Nov 15). A registrable domain apart from foundmill.com, as WP-07 D2 recommends.
-- **Merging:** the cloud session may merge and turn on auto-merge for its own pull requests once their checks pass (founder, Nov 15, 2026; replaces "never merge" in the plan's prompt and the `ship-change` skill for this work).
-- **CI cost:** accepted (about 170 runner minutes a run, Estimate, until WP-01 T3). **No previews for `agent/**`:** accepted. **Required checks:** the five names in §1 of docs/DEPLOY.md, confirmed.
-- **Vercel plan:** Pro already (WP-00 S14 closed). **Stripe:** deliberately the last step before launch; WP-00 S8 and every task that waits on it stay behind their switches with the mock passing.
-- **Spend limits at Anthropic and E2B (S13) and the front-door test (S1):** the founder does them.
