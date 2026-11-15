@@ -176,7 +176,7 @@ describe("Anthropomorphic agents switch", () => {
     mount();
     const sw = await screen.findByTestId("anthropomorphic-switch");
     expect(sw.getAttribute("aria-checked")).toBe("false");
-    expect(screen.getByLabelText("Anthropomorphic agents")).toBe(sw);
+    expect(screen.getByLabelText("Give agents names and faces")).toBe(sw);
     expect(screen.getByTestId("anthropomorphic-panel").textContent).toContain(ANTHROPOMORPHIC_EXPLAINER);
     expect(ANTHROPOMORPHIC_EXPLAINER).toMatch(/still AI agents/);
     expect(ANTHROPOMORPHIC_EXPLAINER).toMatch(/AI-generated picture/);

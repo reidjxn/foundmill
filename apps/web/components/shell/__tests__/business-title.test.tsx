@@ -14,7 +14,7 @@ import { shellQueryInputs } from "@/lib/shell-queries";
 import { BusinessTitle } from "../BusinessTitle";
 
 let pathname = "/";
-vi.mock("next/navigation", () => ({ usePathname: () => pathname }));
+vi.mock("next/navigation", () => ({ usePathname: () => pathname, useSearchParams: () => new URLSearchParams() }));
 
 const BID = "b1e5e5e5-0000-4000-8000-000000000001";
 const ENTITY = "e1e5e5e5-0000-4000-8000-000000000001";
