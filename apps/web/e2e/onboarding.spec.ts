@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import { expect, test, type Page, type PlaywrightWorkerArgs } from "@playwright/test";
 import {
   DEMO_OWNER_DISPLAY_NAME,
@@ -7,6 +10,7 @@ import {
   devApi,
   readFounderProfile,
   restoreFounderProfile,
+  signInAs,
   type FounderProfileSnapshot,
 } from "./helpers";
 
@@ -37,6 +41,14 @@ async function openDetail(page: Page): Promise<void> {
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
 }
 
+/** Signs in as the dev founder (the seed owner), dropping any `signInAs` account first; lands where `/` sends them. */
+async function signInAsDevFounder(page: Page): Promise<void> {
+  await page.context().clearCookies();
+  await page.goto("/login");
+  await page.getByRole("button", { name: "Continue as developer" }).click();
+  await page.waitForURL(/\/b\/[0-9a-f-]+\/|\/onboarding|\/new/, { timeout: LONG });
+}
+
 test.describe("onboarding", () => {
   let before: FounderProfileSnapshot | null = null;
   test.beforeAll(async ({ playwright }) => {
@@ -54,17 +66,23 @@ test.describe("onboarding", () => {
     await api.dispose();
   });
 
-  test.beforeEach(async ({ page }) => {
-    await page.goto("/login");
-    await page.getByRole("button", { name: "Continue as developer" }).click();
-    await page.waitForURL(/\/b\/[0-9a-f-]+\/|\/onboarding|\/new/, { timeout: LONG });
-  });
+  test.beforeEach(async ({ page }) => signInAsDevFounder(page));
 
   test("AC-11.1.1: a founder without a profile is held at /onboarding from / and /b/* and /new until the profile is saved", async ({
     page,
   }) => {
     // `/` sends a founder without a profile to /onboarding and everyone else to a business Home or /new.
-    const gated = /\/onboarding/.test(page.url());
+    let gated = /\/onboarding/.test(page.url());
+    const expectGate = /^(1|true|yes)$/i.test(process.env.E2E_EXPECT_PROFILE_GATE ?? "");
+    // A retry finds the dev founder's profile saved by the attempt before it (the only save that creates it), so it
+    // meets the gate with a new account that has no profile instead, then comes back to the dev founder. Only when the
+    // marker says an earlier attempt of this run saw the dev founder held: a gate that never held still fails.
+    const gateMet = path.join(test.info().project.outputDir, ".onboarding-gate-met");
+    const freshAccount = expectGate && !gated && test.info().retry > 0 && existsSync(gateMet);
+    if (freshAccount) {
+      await signInAs(page, randomUUID(), "/");
+      gated = /\/onboarding/.test(page.url());
+    }
     test
       .info()
       .annotations.push({
@@ -73,11 +91,15 @@ test.describe("onboarding", () => {
           ? "missing: gate exercised, then the profile was saved"
           : "present: the gate stays closed and the pre-filled form saves",
       });
-    if (/^(1|true|yes)$/i.test(process.env.E2E_EXPECT_PROFILE_GATE ?? ""))
+    if (expectGate)
       expect(
         gated,
         "E2E_EXPECT_PROFILE_GATE is set: `/` must redirect the dev user to /onboarding",
       ).toBe(true);
+    if (gated && !freshAccount) {
+      mkdirSync(path.dirname(gateMet), { recursive: true });
+      writeFileSync(gateMet, "");
+    }
     await page.goto("/onboarding");
     await expect(page.getByTestId("onboarding-form")).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("profile-submit")).toHaveText(
@@ -93,6 +115,8 @@ test.describe("onboarding", () => {
       await expect(page).toHaveURL(/\/onboarding$/);
       await page.goto("/onboarding");
       await completeProfile(page);
+      // The new account belongs to no business: the rest is the dev founder's, whose profile is saved.
+      if (freshAccount) await signInAsDevFounder(page);
     } else {
       await page.getByTestId("profile-submit-bottom").click();
       await expect(page).toHaveURL(/\/new$/, { timeout: LONG });
@@ -101,6 +125,11 @@ test.describe("onboarding", () => {
     // With the profile saved, business routes and the studio open.
     await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/home`);
     await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
+    // The first open of a business by its owner claims its time zone (which rebuilds the Journey's daily rows) and
+    // checks its goal. On PGlite the api runs every query in its own process, one at a time, so leaving now queued
+    // /new/ideate's server read behind that work, and on a slow runner it passed its 8 s deadline ("Can't reach the
+    // server", CI Nov 15, 2026). Let the Home's first requests answer first, as openBusiness does.
+    await page.waitForLoadState("networkidle", { timeout: LONG });
     await page.goto("/new/ideate");
     await expect(page).toHaveURL(/\/new\/ideate$/);
     await expect(page.getByTestId("prompt-box")).toBeVisible({ timeout: LONG });
