@@ -21,6 +21,15 @@ export type FirstWeekStepId = "day1" | "days2to3" | "week1";
 export type FirstWeekStepState = "done" | "now" | "next";
 
 /** Facts, all as the business's day keys ("2026-11-07") or flags. */
+/**
+ * The one place the first day is told (WP-02 T6): the commit screen's steps and toast read it, so they cannot drift
+ * from the welcome note and Today. WP-04 changes it when the two sign-off notes become one.
+ */
+export const FIRST_DAY_PROMISE = {
+  steps: ["Your team is hired", "Your public page is drafted first: check it and put it live", "Then your plan arrives as two notes to sign off", "Nothing is spent on finding customers until you say so"],
+  sentence: "Your team is drafting your public page first, then your plan. You check the page and put it live; two notes then ask you to sign off the plan.",
+} as const;
+
 export interface FirstWeekFacts {
   /** The business's day today. */
   today: string;

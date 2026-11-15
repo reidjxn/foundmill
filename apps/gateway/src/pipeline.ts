@@ -25,6 +25,7 @@ import { bookUsage, codeRepositoryOf, openApprovalItem, repos, type Db, type Age
 import { agentAutonomy, businessApprovalThreshold, evaluate, getPolicyEngine, type AgentCtxInput, type EvaluateInputInput, type EvaluateResult, type PolicyEngine, type ToolCtxInput } from "@foundmill/policy";
 import {
   ALWAYS_LIVE_CONNECTORS,
+  SELF_REFUSING_MOCK_CONNECTORS,
   canonicalJson,
   isConfigError,
   isServiceMediaTool,
@@ -444,7 +445,13 @@ async function recordPlatformMailSent(deps: GatewayDeps, session: SessionToken, 
  */
 export function connectionRefusal(deps: Pick<GatewayDeps, "appEnv">, loaded: Pick<Loaded, "connector" | "business" | "integrationRow">, mode: ConnectorMode): GatewayError | null {
   const { connector, integrationRow } = loaded;
-  if (connector.auth.kind === "none") return null;
+  // An account-free connector in mock mode (web search, exchange rates, domains) answers with made-up results: a
+  // person's project on staging or production never receives them as if they were read (WP-05 T1, AR-01).
+  if (connector.auth.kind === "none") {
+    const realProject = mode === "mock" && deps.appEnv !== undefined && !mockResultsAllowed(deps.appEnv, loaded.business.isDemo);
+    if (realProject && !SELF_REFUSING_MOCK_CONNECTORS.has(connector.key)) return new GatewayError("integration_not_connected", `${connector.displayName} is not switched on here yet, so nothing was read or done`, 409, { connector: connector.key });
+    return null;
+  }
   if (mode === "live" && !integrationRow) return new GatewayError("integration_not_connected", `${connector.displayName} is not connected for this business`, 409, { connector: connector.key });
   if (mode === "mock" && (!integrationRow || integrationRow.status === "mock") && deps.appEnv !== undefined && !mockResultsAllowed(deps.appEnv, loaded.business.isDemo)) {
     return new GatewayError("integration_not_connected", `${connector.displayName} is not connected for this business, so nothing was done`, 409, { connector: connector.key });
