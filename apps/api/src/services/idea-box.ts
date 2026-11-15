@@ -13,7 +13,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { buildIdeaBoxCardRequest, IDEATION_CARD_MAX_TOKENS, IDEATION_CARD_ROUTE } from "@foundmill/agents";
 import { IDEA_DRAFT_SWEEP_BATCH, repos, type IdeaDraftRow } from "@foundmill/db";
 import { IdeaAttribute, isModelBillingError, meter, ModelOutputError, resolveModel, streamStructured, type ConceptCard, type ModelClient } from "@foundmill/models";
-import { IDEA_BOX_ERRORS, IdeaBoxDraftRequest, IdeaToken, limitAddress, type IdeaBoxCard, type IdeaBoxErrorCode, type IdeaBoxEvent, type IdeaBoxPartialCard } from "@foundmill/shared";
+import { IDEA_BOX_DEADLINE_MS, IDEA_BOX_ERRORS, IdeaBoxDraftRequest, IdeaToken, limitAddress, type IdeaBoxCard, type IdeaBoxErrorCode, type IdeaBoxEvent, type IdeaBoxPartialCard } from "@foundmill/shared";
 import type { Env } from "@foundmill/shared";
 import { ideaFromCard } from "./ideation";
 import { callerLimitKey } from "./pages";
@@ -205,6 +205,17 @@ async function* draftStream(deps: IdeaBoxDeps, input: { prompt: string; interest
   else signal?.addEventListener("abort", onAbort, { once: true });
 
   push({ type: "started" });
+  // The deadline (WP-03 T7): past it the call is stopped and the visitor reads the `failed` line, whether or not the
+  // model honors the abort. The reserved card is not given back.
+  let timedOut = false;
+  const deadline = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+    deps.log.warn({ deadlineMs: IDEA_BOX_DEADLINE_MS }, "idea box: draft passed its deadline");
+    push(errorEvent("failed"));
+    done = true;
+    wakeUp();
+  }, IDEA_BOX_DEADLINE_MS);
   let lastPartial = "";
   const request = buildIdeaBoxCardRequest({ words: input.prompt || null, interest: input.interest });
   const run = (async () => {
@@ -227,6 +238,8 @@ async function* draftStream(deps: IdeaBoxDeps, input: { prompt: string; interest
         },
         onElement: ({ index, value }) => push({ type: "rating", index, rating: value }),
       });
+      // An answer after the deadline is not stored: the visitor was already told it could not be finished.
+      if (timedOut) return;
       const card: ConceptCard = res.json;
       const claim = newIdeaToken();
       const row = await repos.ideaDrafts.create(deps.db, {
@@ -248,6 +261,7 @@ async function* draftStream(deps: IdeaBoxDeps, input: { prompt: string; interest
         push(errorEvent(refused ? "refused" : isModelBillingError(err) ? "unavailable" : "failed"));
       }
     } finally {
+      clearTimeout(deadline);
       done = true;
       wakeUp();
     }
@@ -261,9 +275,11 @@ async function* draftStream(deps: IdeaBoxDeps, input: { prompt: string; interest
       });
       wake = null;
     }
-    await run;
+    // Past the deadline the call may never settle; `run` catches its own errors, so it is left behind.
+    if (!timedOut) await run;
   } finally {
     // The visitor left: the model call stops; nothing is stored for a card that did not finish.
+    clearTimeout(deadline);
     controller.abort();
     signal?.removeEventListener("abort", onAbort);
   }
