@@ -44,7 +44,7 @@ test.describe("inbox", () => {
     await expect(page.getByTestId("reading-pane-empty")).toBeVisible();
     await expect(page.getByTestId("reading-pane-empty")).toContainText("Pick a note on the left.");
     // Refresh says what it is (one quick note, not a cycle; UX plan B17).
-    await expect(page.getByTestId("inbox-refresh")).toHaveAttribute("title", "Ask the team for one quick note (does not start a cycle)");
+    await expect(page.getByTestId("inbox-refresh")).toHaveAttribute("title", "Ask the team for one quick note (does not start a round of work)");
     for (const tab of ["Needs you", "Customers", "Updates", "Archive"]) await expect(page.getByRole("tab", { name: new RegExp(`^${tab}`) })).toBeVisible();
   });
 

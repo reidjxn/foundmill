@@ -245,7 +245,7 @@ export const ContinueAnswered: Story = {
   name: "Continue · the press answered",
   args: { ...baseArgs, continueButton: { state: { kind: "processing", run: true }, cycleNumber: 2 }, processing: { segments: NORTHWIND_SEGMENTS, active: false, notice: "Cycle 2 started: 6 tasks ready to build" } },
   render: (args) => <Shell {...args} tabs={{ tabs: DISTRIBUTION_TABS, activeId: "formation" }} />,
-  parameters: { docs: { description: { story: "One press of Continue, answered (first-time founder report, Nov 8, 2026): the strip's sentence and the tab bar's line read what the press did the moment the answer lands, guidance on or off, so “No cycle running” never stays unchanged after a press. The orchestrator's own `cycle.started` catches the strip up moments later." } } },
+  parameters: { docs: { description: { story: "One press of Continue, answered (first-time founder report, Nov 8, 2026): the strip's sentence and the tab bar's line read what the press did the moment the answer lands, guidance on or off, so “The team is idle” never stays unchanged after a press. The orchestrator's own `cycle.started` catches the strip up moments later." } } },
 };
 export const ContinueCannotRun: Story = {
   name: "Continue · the team cannot run",

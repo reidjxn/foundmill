@@ -72,7 +72,7 @@ test.describe("today", () => {
     const runwayToday = await tileText(page, "[data-testid=today-health]", /^Runway/);
 
     // See all in the Inbox.
-    await needs.getByRole("link", { name: "See all in the Inbox" }).click();
+    await needs.getByRole("link", { name: "See all" }).click();
     await expect(page).toHaveURL(new RegExp(`${B}/inbox\\?tab=respond`), { timeout: LONG });
 
     // Details: the dashboards, with the same runway figure; G H comes back to Today.

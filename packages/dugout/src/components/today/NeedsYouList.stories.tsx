@@ -22,7 +22,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "“Needs you” on Today: up to three notes from the Inbox's Needs you tab. One tap (the note's own option label) only where it answers without the plan compiler: an agent's request, a sign-off, the goal; Open for everything else. “See all in the Inbox” goes to the Needs you tab.",
+          "“Needs you” on Today: up to three notes from the Inbox's Needs you tab. One tap (the note's own option label) only where it answers without the plan compiler: an agent's request, a sign-off, the goal; Open for everything else. “See all” goes to the Needs you tab.",
       },
     },
   },

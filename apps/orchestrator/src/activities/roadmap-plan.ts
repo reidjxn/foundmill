@@ -8,7 +8,7 @@
  * tried again next cycle. Idempotent: an item that has tasks by the time it is reached (a retried activity, the
  * founder's own "Plan something sooner" meanwhile) is skipped, under the same per-business planning lock the api takes.
  */
-import { dropPlatformDuties, PLANNER_SYSTEM_PROMPT } from "@foundmill/agents";
+import { buildPlannerRequest, dropPlatformDuties, PLANNER_SYSTEM_PROMPT, plannerDestination, plannerSpecSections, plannerWorkerTypes } from "@foundmill/agents";
 import { LIMITS } from "@foundmill/config";
 import { repos, roadmapItemDepartmentId } from "@foundmill/db";
 import { TaskGraphOutput } from "@foundmill/models";
@@ -51,8 +51,10 @@ export function createRoadmapPlanActivities(deps: OrchestratorDeps) {
       const items = roadmapItemsToPlan(brief);
       if (hold || items.length === 0) return { planned: [], failed: [], skipped: hold ?? "no roadmap item in Now is without tasks", costMinor: 0 };
       const result: RoadmapPlanResult = { planned: [], failed: [], skipped: null, costMinor: 0 };
-      const blocks = await repos.product.listBlocks(deps.db, businessId);
-      const sections = blocks.map((b) => b.section);
+      // What the Planner reads (WP-05 T5): the specification's text, the team it plans for and whether code can land.
+      const sections = plannerSpecSections(await repos.product.listBlocks(deps.db, businessId));
+      const destination = plannerDestination(await repos.integrations.codeRepository(deps.db, businessId));
+      const workerTypes = plannerWorkerTypes((await repos.agents.list(deps.db, businessId, { limit: 500 })).items);
       for (const r of items) {
         try {
           const item = await repos.product.getRoadmapItem(deps.db, businessId, r.id);
@@ -63,7 +65,7 @@ export function createRoadmapPlanActivities(deps: OrchestratorDeps) {
             route: "planner",
             schema: TaskGraphOutput,
             system: PLANNER_SYSTEM_PROMPT,
-            messages: [{ role: "user", content: "```json\n" + JSON.stringify({ goal, roadmap_item: item, spec_sections: sections }) + "\n```" }],
+            messages: [{ role: "user", content: buildPlannerRequest({ goal, roadmapItem: item, sections, destination, workerTypes }) }],
             scope: `cycle:${businessId}`,
             attribution: { businessId, kind: "planner" },
           });

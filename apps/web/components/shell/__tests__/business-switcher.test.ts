@@ -3,7 +3,7 @@ import { EXAMPLE_ROLE_LABEL, switcherBusinesses, switcherRoleLabel } from "../bu
 
 const current = { id: "nw", name: "Northwind Skincare (renamed)", kitPrimary: "#2B6CB0", logoSrc: "data:image/png;base64,AAAA", isDemo: true, role: "owner" as const };
 
-describe("switcherBusinesses (Switch business)", () => {
+describe("switcherBusinesses (Switch project)", () => {
   it("puts the open business first from business.get, even before the list loads or when it is missing from it", () => {
     expect(switcherBusinesses(undefined, current, {})).toEqual([{ id: "nw", name: "Northwind Skincare (renamed)", current: true, logoSrc: "data:image/png;base64,AAAA", primary: "#2B6CB0", roleLabel: null, demo: true }]);
     const rows = [
