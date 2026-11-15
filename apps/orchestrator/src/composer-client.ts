@@ -7,11 +7,13 @@
  * 429) is an outage like a 5xx.
  */
 import { LIMITS } from "@foundmill/config";
-import { AppError } from "@foundmill/shared";
+import { AppError, type ParkedTask } from "@foundmill/shared";
 
 export interface NarrateRequest {
   businessId: string;
   eventIds: string[];
+  /** Tasks the round parked because no agent has a tool for them (WP-05 T18): the note ends with one sentence about them. */
+  parked?: ParkedTask[];
 }
 
 export interface NarrateResponse {

@@ -318,7 +318,7 @@ Produces: `MergeHoldReason` gains `"review"`. Behind `patched("merge-review-hand
 Steps: tests first (one hand-back, then the question; an old history replays); build. verify: named tests.
 Done when: a founder is not asked to weigh a code-review finding the author has not seen.
 
-### T18: A task the team cannot do is said once [S] [needs D1]
+### [x] T18: A task the team cannot do is said once [S] [needs D1]
 Why: AR-13.
 Files: modify `apps/orchestrator/src/activities/cycle.ts` (`stopToollessTasks`, `:287`; `narrateCycle`, `:658`), `packages/agents/src/prompts/inbox-composer.ts`; tests `dispatch.test.ts`, a case in `evals/src/composer.ts`.
 Interfaces, consumes: `stopToollessTasks` archives the task, frees its dependents, and writes audit `cycle.tool_missing_stopped` and a log line only; `narrateCycle({ businessId, eventIds, summary, fallbackSubject? })`.

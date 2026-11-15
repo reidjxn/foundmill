@@ -8,7 +8,7 @@ import { agentUsable, buildSystemPrompt, getPrompt, getTemplate, modelBillingFac
 import { APP_NAME } from "@foundmill/config";
 import { repos } from "@foundmill/db";
 import { CyclePlanOutput } from "@foundmill/models";
-import { PLANNABLE_TASK_STATUSES, uuid, type ModelBilling } from "@foundmill/shared";
+import { PARKED_DETAIL_MAX, PARKED_TASKS_MAX, PLANNABLE_TASK_STATUSES, parkedTasksSentence, uuid, type ModelBilling, type ParkedTask } from "@foundmill/shared";
 import { ComposerRequestError, ComposerUnavailableError } from "../composer-client";
 import { CYCLE_NOT_FINISHED_SUBJECT, CYCLE_NOT_STARTED_SUBJECT, CYCLE_PLAN_FAILURE, type PlanFailureDetails } from "../cycle-contract";
 import type { OrchestratorDeps } from "../deps";
@@ -281,13 +281,16 @@ export function createCycleActivities(deps: OrchestratorDeps) {
    * stopped and archived after that one attempt and its dependents freed (founder, Nov 3, 2026: "Yes, do both"). A
    * missing tool is the platform's gap, not the founder's chore (founder, Nov 7, 2026, phase 1 of the first-time
    * founder report): it goes on record for the platform (`cycle.tool_missing_stopped`, and a warning in the log), never
-   * into the founder's Inbox. Until Nov 7 it posted "Only you can do this: …", which handed the founder work such as
-   * "Audit current environment values on all services". Audited per task; a failure to stop one never fails the plan.
+   * as a to-do, a decision or a Needs you item. Until Nov 7 it posted "Only you can do this: …", which handed the founder
+   * work such as "Audit current environment values on all services". Since Nov 15 (founder, WP-05 D1) it is said once:
+   * the stopped tasks' founder titles and the agent's words come back as `parked`, and the round's note ends with one
+   * plain sentence about them. Audited per task; a failure to stop one never fails the plan.
    */
-  async function stopToollessTasks(businessId: string, cycleNumber: number, openTasks: readonly BriefTask[]): Promise<Set<string>> {
+  async function stopToollessTasks(businessId: string, cycleNumber: number, openTasks: readonly BriefTask[]): Promise<{ stopped: Set<string>; parked: ParkedTask[] }> {
     const stopped = new Set<string>();
+    const parked: ParkedTask[] = [];
     const blocked = openTasks.filter((t) => t.status === "blocked");
-    if (blocked.length === 0) return stopped;
+    if (blocked.length === 0) return { stopped, parked };
     const events = await repos.events.list(deps.db, businessId, { type: "task.blocked", limit: 300 });
     for (const task of blocked) {
       const latest = events.items.find((e) => (e.payload as { taskId?: unknown }).taskId === task.id);
@@ -308,12 +311,13 @@ export function createCycleActivities(deps: OrchestratorDeps) {
         // Reported to the platform, not the founder: the log line is what Foundmill's own monitoring reads.
         deps.log.warn({ businessId, cycleNumber, taskId: task.id, agent: agent?.name ?? null, title, platformGap: "tool_missing" }, "cycle: a task stopped because no agent has a tool for it (platform gap)");
         stopped.add(task.id);
+        if (parked.length < PARKED_TASKS_MAX) parked.push({ title, detail: detail.slice(0, PARKED_DETAIL_MAX) });
       } catch (err) {
         deps.log.warn({ businessId, cycleNumber, taskId: task.id, err: (err as Error).message }, "cycle: a task no agent has a tool for could not be stopped; it is tried again next cycle");
       }
     }
     if (stopped.size > 0) deps.log.info({ businessId, cycleNumber, stopped: stopped.size }, "cycle: tasks no agent has a tool for stopped");
-    return stopped;
+    return { stopped, parked };
   }
 
   async function draftPlan(input: { businessId: string; cycleNumber: number; trigger: CycleTrigger; brief: BusinessBrief }): Promise<CyclePlan> {
@@ -440,10 +444,13 @@ export function createCycleActivities(deps: OrchestratorDeps) {
       const duties = await stopPlatformDuties(input.businessId, input.cycleNumber, input.brief.openTasks);
       const toolless = await stopToollessTasks(input.businessId, input.cycleNumber, input.brief.openTasks.filter((t) => !duties.has(t.id)));
       await closeSettledNotes(input.businessId, input.cycleNumber);
-      const stopped = new Set([...duties, ...toolless]);
+      const stopped = new Set([...duties, ...toolless.stopped]);
       const brief = stopped.size > 0 ? { ...input.brief, openTasks: input.brief.openTasks.filter((t) => !stopped.has(t.id)) } : input.brief;
       const plan = await draftPlan({ ...input, brief });
-      return { ...plan, summary: withRoadmapNote(plan.summary, input.roadmapPlanned) };
+      const summary = withRoadmapNote(plan.summary, input.roadmapPlanned);
+      if (toolless.parked.length === 0) return { ...plan, summary };
+      // Said once (WP-05 T18): an idle plan's own note says it; any other plan hands it to the round's note.
+      return plan.idle ? { ...plan, summary: withParked(summary, toolless.parked) } : { ...plan, summary, parked: toolless.parked };
     },
 
     /**
@@ -657,26 +664,31 @@ export function createCycleActivities(deps: OrchestratorDeps) {
      */
     async narrateCycle(input: NarrateCycleInput): Promise<{ inboxItemIds: string[]; viaComposer: boolean }> {
       const ids = [...new Set(input.eventIds)];
-      if (ids.length === 0) return { inboxItemIds: await plainCycleUpdate(input, [], null), viaComposer: false };
+      // The tasks the round parked are said once (WP-05 T18): by the composer with the first batch, or in the plain note.
+      const parked = (input.parked ?? []).slice(0, PARKED_TASKS_MAX);
+      const plain = { ...input, summary: withParked(input.summary, parked) };
+      if (ids.length === 0) return { inboxItemIds: await plainCycleUpdate(plain, [], null), viaComposer: false };
       const inboxItemIds: string[] = [];
       let narrated = 0;
       try {
         for (; narrated < ids.length; narrated += LIMITS.narrateMaxEvents) {
-          const out = await deps.composer.narrate({ businessId: input.businessId, eventIds: ids.slice(narrated, narrated + LIMITS.narrateMaxEvents) });
+          const out = await deps.composer.narrate({ businessId: input.businessId, eventIds: ids.slice(narrated, narrated + LIMITS.narrateMaxEvents), ...(narrated === 0 && parked.length > 0 ? { parked } : {}) });
           if (out.inboxItemId && !inboxItemIds.includes(out.inboxItemId)) inboxItemIds.push(out.inboxItemId);
         }
         return { inboxItemIds, viaComposer: true };
       } catch (err) {
         if (!(err instanceof ComposerUnavailableError) && !(err instanceof ComposerRequestError)) throw err;
         const rest = ids.slice(narrated);
+        // A batch the composer already narrated carried the parked tasks; the plain note for the rest does not repeat them.
+        const fallback = narrated > 0 ? input : plain;
         if (err instanceof ComposerRequestError) {
           deps.log.error({ err: err.message, code: err.code, status: err.status, details: err.details, events: rest.length }, "composer refused the cycle narration; writing the plain cycle update");
-          return { inboxItemIds: [...inboxItemIds, ...(await plainCycleUpdate(input, rest, null))], viaComposer: inboxItemIds.length > 0 };
+          return { inboxItemIds: [...inboxItemIds, ...(await plainCycleUpdate(fallback, rest, null))], viaComposer: inboxItemIds.length > 0 };
         }
         if (deps.env.APP_ENV === "production" || deps.env.APP_ENV === "staging") throw err;
         deps.log.warn({ err: err.message }, "composer unavailable; writing a plain cycle update");
         const notice = "This update was written without the Inbox Composer (service unavailable); links and exhibits will appear once it is back.";
-        return { inboxItemIds: [...inboxItemIds, ...(await plainCycleUpdate(input, rest, notice))], viaComposer: inboxItemIds.length > 0 };
+        return { inboxItemIds: [...inboxItemIds, ...(await plainCycleUpdate(fallback, rest, notice))], viaComposer: inboxItemIds.length > 0 };
       }
     },
   };
@@ -687,6 +699,14 @@ interface NarrateCycleInput {
   eventIds: string[];
   summary: string;
   fallbackSubject?: string;
+  /** The plan's `parked` tasks (WP-05 T18), said once in this round's note. */
+  parked?: ParkedTask[];
+}
+
+/** A summary with the one sentence about the parked tasks after it (WP-05 T18); unchanged when nothing was parked. */
+function withParked(summary: string, parked: readonly ParkedTask[]): string {
+  const said = parkedTasksSentence(parked.map((p) => p.title));
+  return said ? `${summary.trim()}\n\n${said}` : summary;
 }
 
 export type CycleActivities = ReturnType<typeof createCycleActivities>;
