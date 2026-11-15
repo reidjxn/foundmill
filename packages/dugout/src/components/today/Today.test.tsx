@@ -137,7 +137,7 @@ describe("NeedsYouList", () => {
     expect(within(items[0]!).getByRole("button", { name: "Approve the specification" })).toBeTruthy();
     expect(within(items[1]!).queryByRole("button")).toBeNull();
     expect(within(items[1]!).getByRole("link", { name: "Open: Which channel first?" }).getAttribute("href")).toBe("/inbox/b");
-    expect(within(items[2]!).getByText("Holds Continue")).toBeTruthy();
+    expect(within(items[2]!).getByText("The team is waiting on this")).toBeTruthy();
     expect(screen.getByText("3 of 7 waiting")).toBeTruthy();
     await userEvent.click(within(items[0]!).getByRole("button", { name: "Approve the specification" }));
     expect(onQuickAnswer).toHaveBeenCalledWith(rows[0]);

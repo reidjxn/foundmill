@@ -43,7 +43,7 @@ type InboxPage = RouterOutputs["inbox"]["list"];
 
 /** The empty line per tab (UX plan §5.1: the loop, stated where it is needed). The R hint is added for operators only. */
 export const EMPTY_TEXT: Record<InboxTab, string> = {
-  all: "Your team works in cycles: rounds of work whose notes land here. Press Continue to start one.",
+  all: "Your team works in rounds, and their notes land here. Press Continue to start one.",
   respond: "Nothing waits for an answer. Continue is free to run.",
   customers: "Won customers appear here with their Customer Update.",
   updates: "Updates, milestones and reports from the team land here.",
@@ -52,7 +52,7 @@ export const EMPTY_TEXT: Record<InboxTab, string> = {
 };
 
 /** Refresh's tooltip: one quick note from the team, which is not a cycle (UX plan B17). */
-export const REFRESH_HINT = "Ask the team for one quick note (does not start a cycle)";
+export const REFRESH_HINT = "Ask the team for one quick note (does not start a round of work)";
 
 /** "One note at a time: wait 3 s.": the gate toast while Refresh settles (UX plan B17). */
 export const refreshWaitTitle = (waitMs: number): string => `One note at a time: wait ${Math.max(1, Math.ceil(waitMs / 1000))} s.`;
@@ -225,7 +225,7 @@ export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
       </>
     );
   }, [guided, tab, canRefresh]);
-  useShellChrome({ title: "Inbox", tabs: { tabs, activeId: tab, onChange: (id) => router.push(id === "all" ? routes.inbox(businessId) : `${routes.inbox(businessId)}?tab=${id}`), trailing, "aria-label": "Inbox tabs" } }, [tabs, tab, trailing, businessId]);
+  useShellChrome({ title: tab === "respond" ? "Needs you" : "Inbox", tabs: { tabs, activeId: tab, onChange: (id) => router.push(id === "all" ? routes.inbox(businessId) : `${routes.inbox(businessId)}?tab=${id}`), trailing, "aria-label": "Inbox tabs" } }, [tabs, tab, trailing, businessId]);
 
   // A failed refetch keeps the loaded list on screen (with a quiet notice); only a first load that failed shows the panel.
   if (loadFailed(listQ)) return <ErrorPanel title="Inbox" message={errorMessage(listQ.error)} onRetry={() => void listQ.refetch()} />;

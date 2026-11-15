@@ -152,7 +152,7 @@ Steps:
 Tests and evals: above; T6's golden cases assert the output names the customer from the About section.
 Done when: no session starts without knowing what the project is and who it is for.
 
-### T5: The Planner sees the specification's text, the team it plans for, and whether code can land [M] [ships alone; beside the chain]
+### [x] T5: The Planner sees the specification's text, the team it plans for, and whether code can land [M] [ships alone; beside the chain]
 Why: A4-05; AR-05 part 3; A4-01 step 3.
 Files: modify `packages/agents/src/prompts/planner.ts`, `apps/api/src/services/task-graph.ts`, `apps/orchestrator/src/activities/roadmap-plan.ts`, `packages/db/src/repos/tasks.ts` (`writePlannedGraph`); create `evals/src/planner.ts`; tests `packages/agents` planner test, `apps/orchestrator/src/__tests__/roadmap-plan.test.ts`.
 Interfaces, consumes: both callers send `{ goal, roadmap_item, spec_sections: blocks.map((b) => b.section) }` with `PLANNER_SYSTEM_PROMPT` (`task-graph.ts:55-63`, `roadmap-plan.ts:62-70`); `repos.product.listBlocks`; `repos.integrations.codeRepository(db, businessId): Promise<CodeRepository | null>` (`writeEnabled`); `PlannedTask` (`packages/models/src/schemas.ts:248`: `kind`, `acceptance_criteria`, `test_expectations`, `file_scope_hints`); `TaskGraphOutput.tasks` has `.min(1)`; `writePlannedGraph` drops `test_expectations` (`tasks.ts:258-268`).
@@ -267,7 +267,7 @@ Steps:
 2. The pure function, its use in the session, and the gateway calling the same function. verify: named tests; gateway tests unchanged.
 Done when: query 2 shows `not_connected` blocks at zero cost.
 
-### T13: Lost sessions are closed and their tasks planned again [M] [beside the chain]
+### [x] T13: Lost sessions are closed and their tasks planned again [M] [beside the chain]
 Why: AR-11.
 Files: modify `apps/orchestrator/src/deps.ts`, `src/index.ts` (`createWorker`), `src/activities/health.ts` (`refreshAgentHealth`), `src/activities/dispatch.ts`; tests `dispatch.test.ts`, `schedules.test.ts`.
 Interfaces, consumes: `describeQueues(connection.workflowService, …)` (`index.ts:204`) shows the worker's connection can describe; `repos.agents.listSessions(db, businessId, { openOnly: true })`; `repos.agents.endSession(db, businessId, sessionId, { outcome })` (`outcome` is free text; the api writes `"not_started"`); `openAgentSession` refuses `open_session` (`dispatch.ts:75`); the hourly `agentHealthSweep` calls `refreshAgentHealth` per business; open rows count against concurrency for 24 hours (`packages/db/src/tiers.ts:139`).
@@ -279,7 +279,7 @@ Steps:
 2. Build. verify: named tests.
 Done when: query 5 returns no row an hour after the deploy.
 
-### T14: The same outward call runs once per session [M] [beside the chain; gateway only]
+### [x] T14: The same outward call runs once per session [M] [beside the chain; gateway only]
 Why: AR-12.
 Files: modify `apps/gateway/src/pipeline.ts`, `apps/gateway/src/types.ts`; tests `apps/gateway/src/__tests__/gateway.test.ts`.
 Interfaces, consumes: `appendAudit` writes `details: { sessionId, outcome, resultOk, argsHash, … }` (`pipeline.ts:550-572`); `repos.audit.latestMatching(db, businessId, action, match: Record<string, string>, since)`; each tool's `policyHints`; `executeToolCall` (`:286`).

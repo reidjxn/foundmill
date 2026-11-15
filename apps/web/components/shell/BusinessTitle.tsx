@@ -11,7 +11,7 @@
  * removed once the title has mounted: the document keeps exactly one.
  */
 import { skipToken, useQuery } from "@tanstack/react-query";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useLayoutEffect, useRef } from "react";
 import { APP_NAME } from "@foundmill/config";
 import { businessDocumentTitle, businessScreenTitle, entityIdOfPath, withNeedsYouCount } from "@/lib/page-titles";
@@ -25,7 +25,8 @@ export function BusinessTitle() {
   const pathname = usePathname() ?? "";
   const entityId = entityIdOfPath(pathname, businessId);
   const entity = useQuery({ ...trpc.crm.entity.get.queryOptions(entityId ? { businessId, entityId } : skipToken), enabled: false });
-  const screen = businessScreenTitle(pathname, businessId, departments, entity.data?.entity.displayName ?? null);
+  const inboxTab = useSearchParams()?.get("tab") ?? null;
+  const screen = businessScreenTitle(pathname, businessId, departments, entity.data?.entity.displayName ?? null, inboxTab);
   const ref = useRef<HTMLTitleElement>(null);
   useLayoutEffect(() => {
     for (const copy of document.querySelectorAll("body > title")) if (copy !== ref.current) copy.remove();

@@ -102,7 +102,7 @@ describe("ChangesScreen", () => {
   });
 
   it("a viewer or example viewer reads proposals but cannot decide them: the buttons are disabled with the host's reason and the row menu has no verbs", async () => {
-    const reason = "This is an example business: look around, then start your own.";
+    const reason = "This is an example project: look around, then start your own.";
     const fake = createFakeSource({ businessId: BID, responses });
     renderScreen(fake, <ChangesScreen businessId={BID} departmentId="d1" />, { canWrite: () => false, readOnly: reason });
     for (const name of ["Accept all", "Reject proposal", "Accept change", "Reject change", "Save as edited"]) {

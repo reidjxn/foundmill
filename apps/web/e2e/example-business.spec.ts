@@ -125,7 +125,7 @@ test.describe("the example business, as an example viewer", () => {
     await expect(page.getByTestId("kitbar-business-name")).toHaveText("Northwind Skincare");
     const chip = page.getByTestId("sample-chip");
     await expect(chip).toBeVisible();
-    await expect(chip).toHaveText("Sample business");
+    await expect(chip).toHaveText("Sample project");
     await expect(chip).toHaveAttribute("data-example", "true");
     await chip.hover();
     await expect(page.getByRole("tooltip")).toContainText("Its figures are made up for the example: nothing here is real money or real customers. Nothing you do here is saved.", { timeout: LONG });
@@ -156,7 +156,7 @@ test.describe("the example business, as an example viewer", () => {
       openDecision = await readOnlyNote.waitFor({ state: "visible", timeout: 3_000 }).then(() => true, () => false);
     }
     expect(openDecision, "an open decision in Northwind shows the example's read-only reason").toBe(true);
-    await expect(readOnlyNote).toContainText("This is an example business: look around, then start your own.");
+    await expect(readOnlyNote).toContainText("This is an example project: look around, then start your own.");
 
     await start.click();
     await page.waitForURL(/\/new$/, { timeout: LONG });

@@ -405,7 +405,7 @@ describe("first-week checklist widget", () => {
     expect(container.querySelector("[data-first-week-item]")?.getAttribute("data-first-week-item")).toBe("publish_page");
     expect(screen.getByRole("link", { name: "Go: Publish your page" }).getAttribute("href")).toMatch(new RegExp(`^/b/${BID}/d/[a-z-]+/public-page$`));
     expect(screen.queryByText(/Connect a bank/)).toBeNull();
-    expect(screen.getByRole("button", { name: "Go: Run a cycle" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Go: Let the team work" })).toBeTruthy();
     // The query is scoped by the host (businessId merged in): the widget asks with no input of its own.
     expect(container.querySelector("[data-widget='first_week_checklist']")).toBeTruthy();
   });

@@ -43,6 +43,7 @@ export {
   channelEngineReconcile,
   crmDeletionSweep,
   mockResultsCleanup,
+  platformMetrics,
   businessDeletionSweep,
   founderNotifications,
 } from "./schedules";
