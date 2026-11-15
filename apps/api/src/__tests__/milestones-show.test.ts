@@ -290,7 +290,9 @@ describe("what the public reads", () => {
     expect(card.milestone).toEqual({ id: customer.id, key: "customer_1", label: "First customer", achievedAt: new Date("2026-11-19T10:00:00Z"), url: `http://localhost:3000/m/${customer.id}` });
     for (const out of [JSON.stringify(story), JSON.stringify(card)]) {
       expect(out).not.toContain("Acme");
-      expect(out).not.toContain("4900");
+      // The amount is looked for with the random ids blanked (a milestone's uuid can hold "4900"); the checks on the ids
+      // themselves read the output as it is.
+      expect(out.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "<id>")).not.toContain("4900");
       expect(out).not.toContain("c0de");
       expect(out).not.toContain("c0ff");
       expect(out).not.toContain(b.id);
