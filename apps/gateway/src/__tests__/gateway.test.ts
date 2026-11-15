@@ -482,6 +482,31 @@ describe("a mock connector the business never connected", () => {
   });
 });
 
+describe("never ask the founder to approve a call that cannot run (WP-02 T3)", () => {
+  it("assisted mode, a person's project: an ask on a connector with no row, or a mock row, is refused before any approval or Inbox item; a sample project still gets the simulated ask", async () => {
+    const f = await setupGateway({ extraConnectorKeys: ["other"] });
+    try {
+      await repos.businesses.setBusinessMode(f.db, f.businessId, "augmented");
+      const token = await f.token({ allowedTools: ["test:*", "other:*"] });
+      const send = () => f.client.call(token, { connector: "other", tool: "send_message", args: { to: SAFE_EMAIL, body: "hi" } });
+      const approvals = async () => (await f.h.pg.query<{ n: number }>("select count(*)::int as n from approvals where business_id = $1", [f.businessId])).rows[0]!.n;
+      const inbox = async () => (await f.h.pg.query<{ n: number }>("select count(*)::int as n from inbox_items where business_id = $1", [f.businessId])).rows[0]!.n;
+      f.deps.appEnv = "production";
+      const before = { approvals: await approvals(), inbox: await inbox() };
+      await expect(send()).rejects.toMatchObject({ status: 409, code: "integration_not_connected" });
+      await repos.integrations.upsert(f.db, f.businessId, { connectorKey: "other", status: "mock", authKind: "api_key", accountLabel: "mock" });
+      await expect(send()).rejects.toMatchObject({ status: 409, code: "integration_not_connected" });
+      expect({ approvals: await approvals(), inbox: await inbox() }).toEqual(before);
+      expect(f.seen).toHaveLength(0);
+      // A sample project keeps asking about its simulated call.
+      await f.h.pg.query("update businesses set is_demo = true where id = $1", [f.businessId]);
+      asAsk(await send());
+    } finally {
+      await f.close();
+    }
+  });
+});
+
 describe("LIVE_CONNECTORS", () => {
   it("runs the named connectors live while every other connector stays mock", async () => {
     const mixed = await setupGateway({ mode: "mock", liveConnectors: ["test"], connector: { authKind: "app" }, extraConnectorKeys: ["other"] });
