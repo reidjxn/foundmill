@@ -38,4 +38,4 @@ export function createPlatformConnector(options: LiveConnectorOptions = {}): Con
 }
 
 export { platformMock, createPlatformMock, createMemoryPlatformHost, platformHandlers } from "./mock";
-export { platformTools, PLATFORM_KEY, PlatformToolError, MESSAGE_TYPES, type PlatformHost, type PlatformCaller, type PlatformArgs, type PlatformResult, type TaskSummaryT, type TaskDetailT, type AgentMessageT } from "./tools";
+export { platformTools, PLATFORM_KEY, PlatformToolError, REPORT_EXCERPT_CHARS, MESSAGE_TYPES, type PlatformHost, type PlatformCaller, type PlatformArgs, type PlatformResult, type TaskSummaryT, type TaskDetailT, type AgentMessageT } from "./tools";

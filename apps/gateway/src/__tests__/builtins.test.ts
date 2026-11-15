@@ -242,3 +242,61 @@ describe("web reads and the quarantined reader", () => {
     expect(refused.result.error?.message).toMatch(/no repository is chosen/);
   });
 });
+
+describe("task reports (WP-05 T3): the result of a task is saved, read by the next agent and shown on the task", () => {
+  const researchTask = async (d: Desk, title: string) => (await repos.tasks.create(db, d.businessId, { kind: "research", title, status: "running", assigneeAgentId: d.agentId })).id;
+
+  it("an agent saves a report on its own task; on another agent's task it is refused not_yours", async () => {
+    const analyst = await desk(worker.businessId, "Ines", "researcher");
+    const taskId = await researchTask(analyst, "Compare three suppliers");
+    const token = await tokenFor(analyst, ["platform:save_report"]);
+    const saved = data<{ reportId: string; taskId: string; title: string }>(
+      await client.call(token, { connector: "platform", tool: "save_report", args: { taskId, title: "Three suppliers compared", bodyMd: "## Findings\n\nSupplier A is cheapest.\n\n## Recommendation\n\nStart with A.", sources: [{ url: "https://supplier-a.example/pricing", title: "Supplier A pricing" }] } }),
+    );
+    expect(saved).toMatchObject({ taskId, title: "Three suppliers compared" });
+    expect(await repos.taskReports.latestForTask(db, analyst.businessId, taskId)).toMatchObject({ id: saved.reportId, sessionId: analyst.sessionId, agentId: analyst.agentId, simulated: false, sources: [{ url: "https://supplier-a.example/pricing", title: "Supplier A pricing" }] });
+    const notMine = asAllow(await client.call(await tokenFor(lead, ["platform:save_report"]), { connector: "platform", tool: "save_report", args: { taskId, title: "Mine", bodyMd: "Not mine." } }));
+    expect(notMine.result).toMatchObject({ ok: false, error: { code: "not_yours", status: 403 } });
+  });
+
+  it("read_report gives the next agent the report as untrusted content; a token of another business cannot read it", async () => {
+    const analyst = await desk(worker.businessId, "Pia", "researcher");
+    const taskId = await researchTask(analyst, "Size the market");
+    data(await client.call(await tokenFor(analyst, ["platform:save_report"]), { connector: "platform", tool: "save_report", args: { taskId, title: "Market size", bodyMd: "About 40,000 shops (Estimate, bottom-up)." } }));
+    const read = asAllow(await client.call(await tokenFor(lead, ["platform:read_report"]), { connector: "platform", tool: "read_report", args: { taskId } }));
+    expect(read.result.untrusted).toBe(true);
+    expect((read.result.data as { content: unknown }).content).toMatchObject({ taskId, title: "Market size", bodyMd: "About 40,000 shops (Estimate, bottom-up).", sources: [], simulated: false });
+    const outside = asAllow(await client.call(await tokenFor(outsider, ["platform:read_report"]), { connector: "platform", tool: "read_report", args: { taskId } }));
+    expect(outside.result).toMatchObject({ ok: false, error: { code: "not_found" } });
+  });
+
+  it("a report saved in a session that read through a mock connector is marked simulated", async () => {
+    const analyst = await desk(worker.businessId, "Rui", "researcher");
+    const taskId = await researchTask(analyst, "Find competitor prices");
+    const token = await tokenFor(analyst, ["web:search_web", "platform:save_report"]);
+    asAllow(await client.call(token, { connector: "web", tool: "search_web", args: { query: "competitor prices" } }));
+    data(await client.call(token, { connector: "platform", tool: "save_report", args: { taskId, title: "Competitor prices", bodyMd: "Prices from the search." } }));
+    expect((await repos.taskReports.latestForTask(db, analyst.businessId, taskId))?.simulated).toBe(true);
+  });
+
+  it("complete_task with no saved report saves its summary as one; get_task shows the last report and the last block", async () => {
+    const analyst = await desk(worker.businessId, "Sol", "researcher");
+    const taskId = await researchTask(analyst, "List three wholesalers");
+    const token = await tokenFor(analyst, ["platform:*"]);
+    data(await client.call(token, { connector: "platform", tool: "block_task", args: { taskId, reason: "Waiting for the founder's region." } }));
+    await repos.tasks.setStatus(db, analyst.businessId, taskId, "running", { force: true });
+    data(await client.call(token, { connector: "platform", tool: "complete_task", args: { taskId, summary: "Three wholesalers listed with contact pages." } }));
+    expect(await repos.taskReports.latestForTask(db, analyst.businessId, taskId)).toMatchObject({ title: "List three wholesalers", bodyMd: "Three wholesalers listed with contact pages.", sessionId: analyst.sessionId });
+    const detail = data<{ lastReport: { id: string; title: string; excerpt: string } | null; lastBlock: { reason: string; detail: string } | null }>(await client.call(token, { connector: "platform", tool: "get_task", args: { taskId } }));
+    expect(detail.lastReport).toMatchObject({ title: "List three wholesalers", excerpt: "Three wholesalers listed with contact pages." });
+    expect(detail.lastBlock).toEqual({ reason: "dependency", detail: "Waiting for the founder's region." });
+    // A session that saved its own report keeps it: complete_task adds none.
+    const other = await desk(worker.businessId, "Tove", "researcher");
+    const second = await researchTask(other, "Draft the survey");
+    const otherToken = await tokenFor(other, ["platform:*"]);
+    data(await client.call(otherToken, { connector: "platform", tool: "save_report", args: { taskId: second, title: "Survey draft", bodyMd: "Ten questions." } }));
+    data(await client.call(otherToken, { connector: "platform", tool: "complete_task", args: { taskId: second, summary: "Done." } }));
+    const reports = await repos.taskReports.listForBusiness(db, other.businessId, { limit: 500 });
+    expect(reports.items.filter((r) => r.taskId === second).map((r) => r.title)).toEqual(["Survey draft"]);
+  });
+});

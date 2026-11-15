@@ -372,7 +372,10 @@ const taskCompleted = declareEvent(
     acceptanceTests: Count,
     prNumber: z.number().int().positive().nullable().default(null),
     branch: z.string().min(1).nullable().default(null),
+    /** For a task that is not code: the report's title and the start of its body (WP-05 T3). */
     summary: z.string().max(2000),
+    /** The report the session saved on the task (`task_reports`, WP-05 T3); null when it saved none. */
+    reportId: Id.nullable().default(null),
   }),
   {
     doc: "A task passed its acceptance tests and review (or ended partially complete). The Update inbox item links the PR, preview and session replay.",

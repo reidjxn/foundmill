@@ -74,6 +74,7 @@ import { showcaseRepo } from "./showcase";
 import { adultsRepo } from "./adults";
 import { founderCancelLinksRepo, founderDeparturesRepo } from "./founder-departures";
 import { metricsRepo } from "./metrics";
+import { taskReportsRepo } from "./task-reports";
 
 export const repos = {
   businesses: businessesRepo,
@@ -151,6 +152,7 @@ export const repos = {
   founderDepartures: founderDeparturesRepo,
   founderCancelLinks: founderCancelLinksRepo,
   metrics: metricsRepo,
+  taskReports: taskReportsRepo,
 } as const;
 export type Repos = typeof repos;
 export type RepoArea = keyof Repos;
@@ -225,3 +227,4 @@ export * from "./team-posts";
 export * from "./post-media";
 export * from "./people";
 export * from "./showcase";
+export { SaveTaskReportInput, TASK_REPORT_LIMITS } from "./task-reports";

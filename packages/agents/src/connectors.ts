@@ -87,6 +87,9 @@ export const PLATFORM_BASE_TOOLS: [string, ...string[]] = [
   "tasks.block",
   "tasks.handoff",
   "tasks.complete",
+  // WP-05 T3: save the result of a task, and read what an earlier task found.
+  "reports.write",
+  "reports.read",
   "messages.request",
   "messages.inform",
   "messages.review",

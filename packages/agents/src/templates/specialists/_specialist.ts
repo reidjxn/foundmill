@@ -5,7 +5,7 @@
  */
 import { grant, PLATFORM_BASE_TOOLS, QUARANTINE_TOOLS, WEB_TOOLS } from "../../connectors";
 import { type AgentExample, type AgentTemplate, type Negotiation, type ToolGrant } from "../../types";
-import { AUTONOMY_INHERIT, defineTemplate, PHYSICAL_SPECIALIST_RULES, WORKER_COMMON_RULES, withCoreSkills } from "../_shared";
+import { AUTONOMY_INHERIT, defineTemplate, PHYSICAL_SPECIALIST_RULES, SAVE_REPORT_RULE, WORKER_COMMON_RULES, withCoreSkills } from "../_shared";
 
 export interface SpecialistTemplateInit {
   key: string;
@@ -48,7 +48,7 @@ export function defineSpecialistTemplate(init: SpecialistTemplateInit): AgentTem
     instructions: {
       role: `${init.role} for a physical-product business.`,
       goals: init.goals,
-      rules: [...PHYSICAL_SPECIALIST_RULES, ...WORKER_COMMON_RULES, ...init.rules],
+      rules: [...PHYSICAL_SPECIALIST_RULES, ...WORKER_COMMON_RULES, SAVE_REPORT_RULE, ...init.rules],
       playbook: init.playbook,
       tone: "Technical and practical: units, tolerances, standards, dates. Labels every unconfirmed number Estimate.",
       examples: init.examples,

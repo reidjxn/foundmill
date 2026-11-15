@@ -81,6 +81,8 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   spec("task_edges", s.taskEdges, "member", (f) => ({ fromTask: f.taskId, toTask: take(f.taskIds, "task_edges") })),
   spec("agent_sessions", s.agentSessions, "service", (f) => ({ agentId: f.agentId, versionId: f.agentVersionId, taskId: f.taskId })),
   spec("agent_metrics", s.agentMetrics, "service", (f) => ({ agentId: f.agent2Id, day: day(), tasksDone: 1 })),
+  // 0110 task reports (written by the gateway's platform tools with the service role)
+  spec("task_reports", s.taskReports, "service", (f) => ({ taskId: f.taskId, agentId: f.agentId, title: uniq("Findings"), bodyMd: "Three suppliers compared.", sources: [{ url: "https://example.test/a", title: "A" }] })),
   // 0015 verified App installations (written by the gateway)
   spec("app_installations", s.appInstallations, "service", () => ({ connectorKey: uniq("connector"), installationId: String(counter()), verifiedBy: "founder-login", verifiedAt: new Date("2026-10-09T00:00:00Z") })),
   // 0017 the business logo (written by the api with the service role after its checks; one row per business)
