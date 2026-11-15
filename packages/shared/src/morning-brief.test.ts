@@ -1,6 +1,6 @@
 /** The morning brief's four sections (item 10, Nov 13, 2026): real outcomes only under What worked. */
 import { describe, expect, it } from "vitest";
-import { briefDayWords, briefWhenWords, isSimulatedEvent, morningBrief, realOutcomes, type BriefEventLike, type MorningBriefInput } from "./morning-brief";
+import { briefDayWords, briefWhenWords, isRealOutcome, isSimulatedEvent, morningBrief, realOutcomes, type BriefEventLike, type MorningBriefInput } from "./morning-brief";
 import { retentionEmail, type BriefStats, type RetentionEmailContext } from "./notify-words";
 
 // Fri, Nov 13, 2026, 8:05 AM in New York.
@@ -62,6 +62,15 @@ describe("real outcomes", () => {
   it("never lists a payment or a reply that did not come from a vendor's delivery", () => {
     const fake = [ev("payment.received", 1, { conversionId: "c9", amount: { amountMinor: 500, currency: "USD" }, firstPayment: true }, { kind: "system", id: "seed" }), ev("lead.replied", 1, { sentiment: "positive" }, { kind: "agent", id: "a1" })];
     expect(realOutcomes(fake, ago(24), NOW)).toEqual([]);
+  });
+
+  it("isRealOutcome is the per-event rule realOutcomes applies", () => {
+    const inWindow = FIXTURE.filter((e) => e.occurredAt.getTime() >= ago(24).getTime());
+    expect(inWindow.filter(isRealOutcome)).toHaveLength(realOutcomes(FIXTURE, ago(24), NOW).length);
+    expect(FIXTURE.map(isRealOutcome)).toEqual([true, false, false, true, true, false, false, true, false, false, true, true, true]);
+    // A page published by an agent, not the person, and a type that is not an outcome at all.
+    expect(isRealOutcome({ type: "page.published", actor: { kind: "agent", id: "a1" }, payload: {} })).toBe(false);
+    expect(isRealOutcome({ type: "task.completed", actor: { kind: "user", id: "u1" }, payload: {} })).toBe(false);
   });
 });
 

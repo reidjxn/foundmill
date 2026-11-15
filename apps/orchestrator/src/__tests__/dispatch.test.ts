@@ -8,13 +8,16 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { createBriefActivities } from "../activities/brief";
 import { createChannelActivities, emptyChannelState } from "../activities/channel";
 import { createCycleActivities, lacksTool, PLATFORM_DUTY_STOPPED_AUDIT_ACTION, TOOL_MISSING_STOPPED_AUDIT_ACTION } from "../activities/cycle";
-import { MODEL_BUDGET_ALERT_ACTION, WAGE_ALERT_ACTION, attemptSessionId, nextPeriodStart, openAgentSession, recoverAgents } from "../activities/dispatch";
+import { LOST_SESSION_AFTER_MS, MODEL_BUDGET_ALERT_ACTION, SESSION_RECONCILED_ACTION, WAGE_ALERT_ACTION, attemptSessionId, closeLostSessions, nextPeriodStart, openAgentSession, recoverAgents } from "../activities/dispatch";
 import { createHolidayActivities } from "../activities/holiday";
 import { createPlanActivities } from "../activities/plan";
 import { createSessionActivities } from "../activities/session";
 import type { SessionLaunch, SessionResult } from "../activities/types";
 import { AGENT_COOLDOWN_BASE_MS, TASK_RETRY_BASE_MS, TASK_RETRY_LIMIT } from "../retry";
 import { setupOrchestratorHarness, type OrchestratorTestHarness } from "./harness";
+import type { OrchestratorDeps } from "../deps";
+
+type OrchestratorDepsRunning = OrchestratorDeps["workflowRunning"];
 
 let t: OrchestratorTestHarness;
 let cycle: ReturnType<typeof createCycleActivities>;
@@ -486,5 +489,88 @@ describe("the monthly model budget at dispatch (audit #15)", () => {
     await t.clock.set(nextPeriodStart(nextPeriodStart(t.clock.now())));
     expect((await cycle.openSession({ businessId: B(), agentId: t.workerId, taskId: task.id })).sessionId).toBeTruthy();
     await endOpenSessions();
+  });
+});
+
+describe("lost sessions are closed and their tasks planned again (WP-05 T13, AR-11)", () => {
+  /** Answer `workflowRunning` from a table of workflow ids (missing ids answer `fallback`); restored after each test. */
+  const original = () => t.deps.workflowRunning;
+  let restore: OrchestratorDepsRunning;
+  beforeEach(() => {
+    restore = original();
+  });
+  afterEach(() => {
+    t.deps.workflowRunning = restore;
+  });
+  const answer = (fallback: boolean | null, table: Record<string, boolean | null> = {}) => {
+    const asked: string[] = [];
+    t.deps.workflowRunning = async (id) => {
+      asked.push(id);
+      return id in table ? table[id]! : fallback;
+    };
+    return asked;
+  };
+  const openOne = async (title: string) => {
+    const task = await readyTask(title, t.workerId);
+    const opened = await cycle.openSession({ businessId: B(), agentId: t.workerId, taskId: task.id });
+    expect(opened.sessionId).toBeTruthy();
+    return { task, sessionId: opened.sessionId!, workflowId: `session:${opened.sessionId!}` };
+  };
+
+  it("the default answer is unknown, so a worker that cannot ask Temporal changes nothing", async () => {
+    expect(await original()("session:anything")).toBeNull();
+  });
+
+  it("a lost session is closed and its task is planned again", async () => {
+    const { task, sessionId, workflowId } = await openOne("Lost on a dead worker");
+    await t.clock.advance(LOST_SESSION_AFTER_MS + 60_000);
+    const asked = answer(true, { [workflowId]: false });
+    expect(await closeLostSessions(t.deps, B())).toEqual([sessionId]);
+    expect(asked).toContain(workflowId);
+    expect(await repos.agents.getSession(t.db, B(), sessionId)).toMatchObject({ outcome: "lost", endedAt: t.clock.now() });
+    expect((await repos.tasks.get(t.db, B(), task.id)).status).toBe("ready");
+    const audit = (await repos.audit.list(t.db, B(), { action: SESSION_RECONCILED_ACTION, limit: 20 })).items.find((e) => (e.target as { id?: string }).id === sessionId);
+    expect(audit?.details).toMatchObject({ outcome: "lost", taskId: task.id, workflowId, taskStatus: "ready" });
+    // The task can start again: the dispatch guard no longer sees an open session on it.
+    expect((await cycle.openSession({ businessId: B(), agentId: t.workerId, taskId: task.id })).refused).toBeNull();
+    // Nothing left to close a second time.
+    expect(await closeLostSessions(t.deps, B())).toEqual([]);
+  });
+
+  it("an unknown answer changes nothing", async () => {
+    const { task, sessionId } = await openOne("Temporal cannot be asked");
+    await t.clock.advance(LOST_SESSION_AFTER_MS + 60_000);
+    answer(null);
+    expect(await closeLostSessions(t.deps, B())).toEqual([]);
+    expect((await repos.agents.getSession(t.db, B(), sessionId)).endedAt).toBeNull();
+    expect((await repos.tasks.get(t.db, B(), task.id)).status).toBe("running");
+  });
+
+  it("a running workflow is left alone", async () => {
+    const { task, sessionId } = await openOne("Still working");
+    await t.clock.advance(LOST_SESSION_AFTER_MS + 60_000);
+    answer(true);
+    expect(await closeLostSessions(t.deps, B())).toEqual([]);
+    expect((await repos.agents.getSession(t.db, B(), sessionId)).endedAt).toBeNull();
+    expect((await repos.tasks.get(t.db, B(), task.id)).status).toBe("running");
+  });
+
+  it("a row younger than 10 minutes is left alone, and Temporal is not asked about it", async () => {
+    const { task, sessionId } = await openOne("Just opened");
+    await t.clock.advance(LOST_SESSION_AFTER_MS - 60_000);
+    const asked = answer(false);
+    expect(await closeLostSessions(t.deps, B())).toEqual([]);
+    expect(asked).toEqual([]);
+    expect((await repos.agents.getSession(t.db, B(), sessionId)).endedAt).toBeNull();
+    expect((await repos.tasks.get(t.db, B(), task.id)).status).toBe("running");
+  });
+
+  it("a task that moved on is closed without being planned again", async () => {
+    const { task, sessionId } = await openOne("Moved to review");
+    await repos.tasks.setStatus(t.db, B(), task.id, "review");
+    await t.clock.advance(LOST_SESSION_AFTER_MS + 60_000);
+    answer(false);
+    expect(await closeLostSessions(t.deps, B())).toEqual([sessionId]);
+    expect((await repos.tasks.get(t.db, B(), task.id)).status).toBe("review");
   });
 });

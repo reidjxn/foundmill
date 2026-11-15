@@ -52,6 +52,9 @@ export interface TestConnectorOptions {
  */
 export const sendRefusals: (number | null)[] = [];
 
+/** While `until` is set, `send_message` waits on it before sending; `entered` counts the sends that reached it. */
+export const sendHold: { until: Promise<void> | null; entered: number } = { until: null, entered: 0 };
+
 /** `read_inbox` with this id returns a message whose addresses and URL each start a line (BUILD §9.8 step 4). */
 export const MULTILINE_MESSAGE_ID = "multiline";
 export const LINE_START_EMAIL = "ap@evil-payee.example";
@@ -118,6 +121,8 @@ export function createTestConnector(options: TestConnectorOptions = {}, seen: Se
           const status = sendRefusals.shift()!;
           throw status === null ? new Error("connection reset") : Object.assign(new Error("not mergeable"), { status });
         }
+        sendHold.entered++;
+        if (sendHold.until) await sendHold.until;
         record("send_message", args, ctx);
         return { sent: true as const, to: args.to };
       },

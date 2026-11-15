@@ -73,6 +73,7 @@ import { admissionsRepo, invitationsRepo } from "./people";
 import { showcaseRepo } from "./showcase";
 import { adultsRepo } from "./adults";
 import { founderCancelLinksRepo, founderDeparturesRepo } from "./founder-departures";
+import { metricsRepo } from "./metrics";
 
 export const repos = {
   businesses: businessesRepo,
@@ -149,6 +150,7 @@ export const repos = {
   postAttributions: postAttributionsRepo,
   founderDepartures: founderDeparturesRepo,
   founderCancelLinks: founderCancelLinksRepo,
+  metrics: metricsRepo,
 } as const;
 export type Repos = typeof repos;
 export type RepoArea = keyof Repos;
@@ -200,6 +202,7 @@ export * from "./social";
 export * from "./adults";
 export * from "./tasks";
 export * from "./training";
+export { boundMetricSql, FUNNEL_METRICS, METRIC_QUERIES, metricsRepo, metricWindowEnd, REAL_OUTCOME_PREDICATE, type FunnelMetric, type MetricFacts, type MetricQuery, type NorthStarWeek } from "./metrics";
 export * from "./usage";
 export * from "./workspaces";
 export * from "./logos";
