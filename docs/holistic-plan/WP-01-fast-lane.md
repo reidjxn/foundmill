@@ -358,7 +358,7 @@
 
 ---
 
-### T5: Fewer web builds  [S] [ships alone]
+### [x] T5: Fewer web builds  [S] [ships alone]
 
 **Why:** EH-12. `apps/web/vercel.json` is `{ "regions": ["fra1"] }`: every push to every branch builds a preview, including agent branches whose preview proxies `/api/trpc/*` to the production api. WP-00 §1 records the team on the Hobby plan.
 
