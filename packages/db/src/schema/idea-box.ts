@@ -55,9 +55,20 @@ export const waitlistEntries = pgTable(
     /** Lower case; one row per address. */
     email: text("email").notNull().unique("waitlist_entries_email_key"),
     ideaDraftId: uuid("idea_draft_id").references(() => ideaDrafts.id, { onDelete: "set null" }),
+    /** When the person was let in: by the orchestrator's sweep or the operator's SQL (0111). */
     admittedAt: tstz("admitted_at"),
+    /** When the one email that says their place is open was sent (0111); null until then. */
+    notifiedAt: tstz("notified_at"),
     ...timestamps(),
   },
-  (t) => [index("waitlist_entries_idea_draft_id_idx").on(t.ideaDraftId)],
+  (t) => [
+    index("waitlist_entries_idea_draft_id_idx").on(t.ideaDraftId),
+    index("waitlist_entries_waiting_idx")
+      .on(t.createdAt)
+      .where(sql`${t.admittedAt} is null and ${t.userId} is not null`),
+    index("waitlist_entries_to_notify_idx")
+      .on(t.admittedAt)
+      .where(sql`${t.notifiedAt} is null`),
+  ],
 );
 export type WaitlistEntryRow = typeof waitlistEntries.$inferSelect;

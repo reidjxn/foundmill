@@ -80,7 +80,7 @@ Order: T1, T4, T7 and T9 can start at once. T2, then T3 (T3 reuses T2's gateway 
 **Tests and evals:** as above; no agent behavior changes, so no eval.
 **Done when:** Done-when 1, with "Come back to check" on the page.
 
-### T2: A waitlist that admits and emails [M] [ships alone; switched on after WP-00 S1 and S2]
+### [x] T2: A waitlist that admits and emails [M] [ships alone; switched on after WP-00 S1 and S2]
 
 **Why:** FR-01 (fix 2), A9-P0-1 (steps 1 and 2, without the referral columns: T10), s2 §4.3 option B and §4.4.
 

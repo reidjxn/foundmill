@@ -147,6 +147,14 @@ export async function platformMetrics(_input: Record<string, never> = {}): Promi
   return purge.recordPlatformMetrics({});
 }
 
+/**
+ * Every 15 minutes: the waitlist admits today's number (WAITLIST_ADMIT_PER_DAY, oldest sign-up first), then emails
+ * everyone admitted and not yet told, the operator's admissions too (WP-03 T2; activities/waitlist.ts).
+ */
+export async function waitlistAdmissions(input: { at?: string } = {}): Promise<ScheduleResult> {
+  return quick.waitlistSweep({ at: input.at });
+}
+
 export async function crmDeletionSweep(input: { at?: string } = {}): Promise<ScheduleResult> {
   return acts.purgeDueEntities({ at: input.at });
 }

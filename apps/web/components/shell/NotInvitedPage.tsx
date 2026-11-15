@@ -21,7 +21,7 @@ export function NotInvitedPage({ message, email, unconfirmed = false }: { messag
         <EmptyState icon={MailX} title={title}>
           {message}
         </EmptyState>
-        {!unconfirmed ? <WaitlistJoin /> : null}
+        {!unconfirmed ? <WaitlistJoin email={email ?? null} /> : null}
         <div className="mt-3 flex justify-end">
           <SignOutButton variant="default" />
         </div>
@@ -30,22 +30,26 @@ export function NotInvitedPage({ message, email, unconfirmed = false }: { messag
   );
 }
 
-/** The words of the waitlist offer. */
+/**
+ * The words of the waitlist offer. The joined lines promise the email the waitlist sends when the place opens
+ * (WP-03 T2: the orchestrator's `waitlist-admissions` sweep and the gateway's `waitlist_admitted`), to the address that
+ * signed in.
+ */
 export const WAITLIST_WORDS = {
   offer: "Join the waitlist and we will let you in as soon as there is room. If you made a card on the home page, it is kept for you.",
   join: "Join the waitlist",
-  joinedWithCard: "You are on the waitlist, and your card is kept for 90 days.",
-  joined: "You are on the waitlist. We will email you when there is room.",
+  joinedWithCard: (email: string | null) => `Your place is saved, and your card is kept for 90 days. We email ${email ?? "you"} the day your place opens.`,
+  joined: (email: string | null) => `Your place is saved. We email ${email ?? "you"} the day it opens.`,
   error: "That did not go through. Try again in a minute.",
 } as const;
 
 /** "Join the waitlist" (docs/IDEA_BOX.md): a Server Action keeps the idea box's card with the entry. */
-function WaitlistJoin() {
+function WaitlistJoin({ email }: { email: string | null }) {
   const [state, action, pending] = useActionState<WaitlistJoinState, FormData>((prev) => joinWaitlist(prev), { status: "idle" });
   if (state.status === "joined") {
     return (
       <StatusPill tone="good" role="status" className="mt-3" data-testid="waitlist-joined">
-        {state.cardKept ? WAITLIST_WORDS.joinedWithCard : WAITLIST_WORDS.joined}
+        {state.cardKept ? WAITLIST_WORDS.joinedWithCard(email) : WAITLIST_WORDS.joined(email)}
       </StatusPill>
     );
   }

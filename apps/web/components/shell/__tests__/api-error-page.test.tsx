@@ -4,12 +4,15 @@
  * api's `on_waitlist` refusal is "You're on the list" in place (OnWaitlistPage), from 390 px, with Sign out and a link
  * onward; every not-invited answer stays the invite-only page; anything else the unreachable page.
  */
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { TRPCClientError } from "@trpc/client";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ON_WAITLIST_WORDS } from "@foundmill/shared/allowlist";
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/start", useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }) }));
+
+const joined = vi.hoisted(() => ({ cardKept: false }));
+vi.mock("../waitlist-actions", () => ({ joinWaitlist: async () => ({ status: "joined", cardKept: joined.cardKept }) }));
 
 const { ApiErrorPage } = await import("../ApiErrorPage");
 const { OnWaitlistPage } = await import("../OnWaitlistPage");
@@ -47,5 +50,22 @@ describe("OnWaitlistPage", () => {
     // From 390 px: the brand frame does not ask for a larger window.
     expect(screen.queryByTestId("needs-larger-window")).toBeNull();
     expect(document.querySelector("form")).toBeNull();
+  });
+});
+
+describe("NotInvitedPage's waitlist", () => {
+  // The invite-only page is desktop-wide until WP-03 T1 opens it to small screens.
+  beforeEach(() => Object.defineProperty(window, "innerWidth", { value: 1440, configurable: true }));
+  it("once joined, promises the email the waitlist sends, to the address that signed in (WP-03 T2)", async () => {
+    render(<NotInvitedPage message="x" email="maya@example.com" />);
+    fireEvent.click(screen.getByRole("button", { name: "Join the waitlist" }));
+    expect((await screen.findByTestId("waitlist-joined")).textContent).toBe("Your place is saved. We email maya@example.com the day it opens.");
+  });
+
+  it("with a kept card, says so too", async () => {
+    joined.cardKept = true;
+    render(<NotInvitedPage message="x" email="maya@example.com" />);
+    fireEvent.click(screen.getByRole("button", { name: "Join the waitlist" }));
+    expect((await screen.findByTestId("waitlist-joined")).textContent).toBe("Your place is saved, and your card is kept for 90 days. We email maya@example.com the day your place opens.");
   });
 });

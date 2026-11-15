@@ -2219,7 +2219,7 @@ const founderNoticeSent = declareAccountEvent("founder_notice.sent", FounderNoti
 // a page going live are already rows (`auth.users`, `idea.committed`, `page.published`); these four are not. Each is
 // written once per account (its idempotency key) and read by the nightly numbers (T10), never by a consumer.
 const accountAdmitted = declareAccountEvent("account.admitted", z.object({ how: z.enum(["list", "invitation", "open", "existing"]) }).strict(), {
-  doc: "For the new person: you were let in, and how (from the waitlist or allowlist, an invitation, open sign-up, or an account from before the gate). Written once per account when the profile is first created (apps/api person-created `admission_fact`), from `repos.admissions`; `list` when no admission row exists. No id, no address.",
+  doc: "For the new person: you were let in, and how (from the waitlist or allowlist, an invitation, open sign-up, or an account from before the gate). Written once per account (idempotency key `account.admitted`): by the orchestrator's waitlist sweep when it admits the person (`open`, WP-03 T2), else when the profile is first created (apps/api person-created `admission_fact`), from `repos.admissions`; `list` when no admission row exists. No id, no address.",
   consumers: ["metrics"],
 });
 const profileCreated = declareAccountEvent("profile.created", z.object({ client: z.enum(["web", "app"]) }).strict(), {

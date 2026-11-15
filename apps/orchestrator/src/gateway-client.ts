@@ -86,6 +86,12 @@ export interface NotifyEmailRequest {
   businessId: string;
   data: { inboxItemId?: string; milestoneId?: string; runId?: string; day?: string };
 }
+/** One email to an account about the account itself (WP-03 T2: the waitlist's place is open); ids only. */
+export interface AccountEmailRequest {
+  kind: "waitlist_admitted";
+  userId: string;
+  data: { waitlistEntryId: string };
+}
 /** Sent (on the mock: simulated), or not, with the gateway's reason and a plain sentence; never an error for "not sent". */
 export type NotifyEmailResponse = { sent: true; simulated: boolean; eventId: string | null } | { sent: false; reason: string; message: string };
 
@@ -102,6 +108,8 @@ export interface GatewayClient {
   call(sessionToken: string, request: GatewayCallRequest, options?: { timeoutMs?: number }): Promise<GatewayCallResponse>;
   /** Asks for one email to a person, authenticated as this service (the api or the orchestrator). "Not sent" is an answer, not an error. */
   notifyEmail(input: NotifyEmailRequest): Promise<NotifyEmailResponse>;
+  /** The same route for an email about the account itself (the orchestrator's only). */
+  accountEmail(input: AccountEmailRequest): Promise<NotifyEmailResponse>;
   health(): Promise<{ ok: boolean; mode?: "mock" | "live" }>;
   mcpUrl(connector: string): string;
   sessionHeaders(sessionToken: string): Record<string, string>;
@@ -296,6 +304,7 @@ export function createGatewayClient(options: GatewayClientOptions): GatewayClien
     mintSessionToken: (input) => request<MintSessionTokenResponse>("POST", "/v1/session-tokens", { body: input, token: signServiceToken(options.serviceSecret, serviceName, DEFAULT_SERVICE_TOKEN_TTL_SECONDS, options.now) }),
     call: (sessionToken, body, opts) => request<GatewayCallResponse>("POST", "/v1/call", { body, token: sessionToken, okStatuses: [200, 403, 429], ...(opts?.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}) }),
     notifyEmail: (input) => request<NotifyEmailResponse>("POST", "/v1/notify/email", { body: input, token: signServiceToken(options.serviceSecret, serviceName, DEFAULT_SERVICE_TOKEN_TTL_SECONDS, options.now) }),
+    accountEmail: (input) => request<NotifyEmailResponse>("POST", "/v1/notify/email", { body: input, token: signServiceToken(options.serviceSecret, serviceName, DEFAULT_SERVICE_TOKEN_TTL_SECONDS, options.now) }),
     async downloadArchive(sessionToken, body, opts) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), opts?.timeoutMs ?? timeoutMs);
@@ -320,11 +329,12 @@ export function createGatewayClient(options: GatewayClientOptions): GatewayClien
  * Gateway stand-in for tests and for mock runs without a gateway process: mints structurally valid, unsigned-looking
  * tokens and answers every call as a mock allow. Never used when `INTEGRATIONS_MODE=live`.
  */
-export function createOfflineGatewayClient(baseUrl = "http://gateway.offline"): GatewayClient & { minted: MintSessionTokenRequest[]; calls: GatewayCallRequest[]; archives: ArchiveRequest[]; notifyEmails: NotifyEmailRequest[] } {
+export function createOfflineGatewayClient(baseUrl = "http://gateway.offline"): GatewayClient & { minted: MintSessionTokenRequest[]; calls: GatewayCallRequest[]; archives: ArchiveRequest[]; notifyEmails: NotifyEmailRequest[]; accountEmails: AccountEmailRequest[] } {
   const minted: MintSessionTokenRequest[] = [];
   const calls: GatewayCallRequest[] = [];
   const archives: ArchiveRequest[] = [];
   const notifyEmails: NotifyEmailRequest[] = [];
+  const accountEmails: AccountEmailRequest[] = [];
   // Checkouts come from the GitHub connector's mock (a small deterministic repository per name), per client.
   const github = createGithubMock();
   return {
@@ -333,9 +343,14 @@ export function createOfflineGatewayClient(baseUrl = "http://gateway.offline"): 
     calls,
     archives,
     notifyEmails,
+    accountEmails,
     async notifyEmail(input) {
       // Like every offline answer, a mock one: recorded, never sent.
       notifyEmails.push(input);
+      return { sent: true, simulated: true, eventId: null };
+    },
+    async accountEmail(input) {
+      accountEmails.push(input);
       return { sent: true, simulated: true, eventId: null };
     },
     async health() {

@@ -28,6 +28,7 @@ import { createSecondReadActivities } from "./second-read";
 import { createSessionActivities } from "./session";
 import { createSourceWatcherActivities } from "./source-watcher";
 import { createTrainingActivities } from "./training";
+import { createWaitlistActivities } from "./waitlist";
 
 export function createActivities(deps: OrchestratorDeps) {
   return {
@@ -54,6 +55,7 @@ export function createActivities(deps: OrchestratorDeps) {
     ...createScheduleActivities(deps),
     ...createMockResultsCleanupActivities(deps),
     ...createPlatformMetricsActivities(deps),
+    ...createWaitlistActivities(deps),
     ...createAutopilotActivities(deps),
     ...createSourceWatcherActivities(deps),
     ...createNotifyActivities(deps),

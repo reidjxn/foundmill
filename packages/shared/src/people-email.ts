@@ -65,6 +65,24 @@ export function invitationEmail(f: { appName: string; inviterName: string | null
   });
 }
 
+/** The footer link of the waitlist's email: the platform-wide stop (the same link and page as "Don't send me invitations"). */
+export const ACCOUNT_EMAIL_OFF_LINK_LABEL = "Stop email from Foundmill to this address";
+
+/**
+ * To a person on the waitlist, once, when their place opens (WP-03 T2; `ACCOUNT_EMAIL_KINDS`). `cardName` is the card
+ * the waitlist keeps for them, read by the gateway while it is still kept; a person typed it, so it goes through
+ * `withoutLinks` onto one line. `link` is `APP_URL/start`.
+ */
+export function waitlistAdmittedEmail(f: { appName: string; cardName: string | null; link: string; offLink: string }): NotifyEmailText {
+  const cardName = f.cardName ? oneLine(f.cardName, 80) : "";
+  return render(`Your place on ${f.appName} is open`, {
+    paragraphs: [`Your place is open. Sign in with this address to pick up where you left off.`, ...(cardName ? [`Your card for ${cardName} is saved in your account.`] : []), "Your place does not expire."],
+    button: { label: `Open ${f.appName}`, href: f.link },
+    footer: `You get this because you saved your place on ${f.appName} with this address.`,
+    footerLinks: [{ label: ACCOUNT_EMAIL_OFF_LINK_LABEL, href: f.offLink }],
+  });
+}
+
 /** To the person who invited someone: they joined. One of the person's own kinds (`invitation_accepted`), with its off link. */
 export function invitationAcceptedEmail(f: { appName: string; recipientName: string | null; personName: string | null; projectName: string; role: InvitationRole; link: string; offLink: string; pauseLink: string }): NotifyEmailText {
   const project = oneLine(f.projectName, 120);

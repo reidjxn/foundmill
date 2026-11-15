@@ -31,8 +31,9 @@
  *   - `not_invited`, `details.reason` `not_listed` or `email_unconfirmed`: the web's invite-only page
  *     (components/shell/NotInvitedPage.tsx);
  *   - `on_waitlist`, `details.reason` `ceiling`: the web's "You're on the list" panel (components/shell/ApiErrorPage.tsx).
- * Nothing here stores a person who waits: the waitlist itself (joining it, the email when there is a place) is the
- * retention team's. apps/stream and apps/collab refuse the same accounts' sockets (`liveChannelAdmit`: the list, or an
+ * Nothing here stores a person who waits: joining the waitlist is `waitlist.join` (routers/idea-box.ts), and letting
+ * people in from it and the email when their place opens are the orchestrator's `waitlist-admissions` sweep (WP-03 T2),
+ * which records each admission as `open`, so step 3 lets them in on their next request. apps/stream and apps/collab refuse the same accounts' sockets (`liveChannelAdmit`: the list, or an
  * admission row).
  */
 import { APP_NAME } from "@foundmill/config";

@@ -694,6 +694,13 @@
       "when": 1796138820000,
       "tag": "0110_task_reports",
       "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1796138880000,
+      "tag": "0111_waitlist_notified",
+      "breakpoints": true
     }
   ]
 }

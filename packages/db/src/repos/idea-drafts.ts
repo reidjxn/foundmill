@@ -8,10 +8,11 @@
  * again gets the same idea back, anyone else gets nothing. The sweep deletes every draft past its time, claimed or not
  * (a claimed card lives on as the idea).
  */
-import { and, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, count, eq, gt, gte, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { ideaDrafts, waitlistEntries, type IdeaDraftRow, type WaitlistEntryRow } from "../schema";
 import { ideasRepo, type CreateIdeaInput } from "./ideas";
-import { maybeOne, type Executor } from "./_shared";
+import { admissionsRepo } from "./people";
+import { Id, maybeOne, parseInput, type Executor } from "./_shared";
 
 /** How long an unclaimed card is kept (founder, 2026-11-13). */
 export const IDEA_DRAFT_TTL_MS = 7 * 24 * 60 * 60_000;
@@ -238,4 +239,106 @@ export const waitlistRepo = {
       await db.select().from(waitlistEntries).where(eq(waitlistEntries.userId, userId)).limit(1),
     );
   },
+
+  /**
+   * Admits the next `limit` people who wait (WP-03 T2), in `WAITLIST_ORDER`: entries with an account and no
+   * `admitted_at`, each row locked (`for update skip locked`, so two sweeps never take the same person). For each, the
+   * admission is recorded as `open` (`repos.admissions.record`; an account that already has one keeps it, and
+   * `newAdmission` is false) and `admitted_at` is set. Run it inside the transaction that holds `lockOpenCount`.
+   */
+  async admitNext(tx: Executor, input: { limit: number; now?: Date }): Promise<WaitlistAdmitted[]> {
+    const limit = Math.max(0, Math.min(Math.floor(input.limit), 1_000));
+    if (limit === 0) return [];
+    const now = input.now ?? new Date();
+    const next = await tx
+      .select({ id: waitlistEntries.id, userId: waitlistEntries.userId })
+      .from(waitlistEntries)
+      .where(and(isNotNull(waitlistEntries.userId), isNull(waitlistEntries.admittedAt)))
+      .orderBy(WAITLIST_ORDER)
+      .limit(limit)
+      .for("update", { skipLocked: true });
+    const out: WaitlistAdmitted[] = [];
+    for (const entry of next) {
+      const recorded = await admissionsRepo.record(tx, { userId: entry.userId!, how: "open" });
+      const [row] = await tx
+        .update(waitlistEntries)
+        .set({ admittedAt: now, updatedAt: now })
+        .where(and(eq(waitlistEntries.id, entry.id), isNull(waitlistEntries.admittedAt)))
+        .returning();
+      if (row) out.push({ ...row, newAdmission: recorded !== null });
+    }
+    return out;
+  },
+
+  /** Entries admitted since `since` (the start of the UTC day): the sweep's and the operator's alike. */
+  async admittedSince(db: Executor, since: Date): Promise<number> {
+    const [row] = await db.select({ n: count() }).from(waitlistEntries).where(gte(waitlistEntries.admittedAt, since));
+    return Number(row?.n ?? 0);
+  },
+
+  /** Admitted since `since` and not yet emailed, oldest admission first. */
+  async toNotify(db: Executor, input: { since: Date; limit: number }): Promise<{ id: string; userId: string }[]> {
+    const rows = await db
+      .select({ id: waitlistEntries.id, userId: waitlistEntries.userId })
+      .from(waitlistEntries)
+      .where(and(gte(waitlistEntries.admittedAt, input.since), isNull(waitlistEntries.notifiedAt), isNotNull(waitlistEntries.userId)))
+      .orderBy(waitlistEntries.admittedAt, waitlistEntries.id)
+      .limit(Math.max(1, Math.min(input.limit, 500)));
+    return rows.map((r) => ({ id: r.id, userId: r.userId! }));
+  },
+
+  /**
+   * One entry as the gateway reads it before the email (never the address: that comes from `auth.users`), with the name
+   * of the card it keeps while that card is still kept (live, or claimed by the same person), else null.
+   */
+  async forEmail(db: Executor, id: string, now = new Date()): Promise<WaitlistEntryForEmail | null> {
+    const entryId = parseInput(Id, id, "waitlist entry id");
+    const row = maybeOne(
+      await db
+        .select({
+          id: waitlistEntries.id,
+          userId: waitlistEntries.userId,
+          admittedAt: waitlistEntries.admittedAt,
+          notifiedAt: waitlistEntries.notifiedAt,
+          cardName: sql<string | null>`${ideaDrafts.card}->>'name'`,
+        })
+        .from(waitlistEntries)
+        .leftJoin(
+          ideaDrafts,
+          and(eq(ideaDrafts.id, waitlistEntries.ideaDraftId), or(live(now), eq(ideaDrafts.claimedBy, waitlistEntries.userId))),
+        )
+        .where(eq(waitlistEntries.id, entryId))
+        .limit(1),
+    );
+    if (!row) return null;
+    const cardName = typeof row.cardName === "string" && row.cardName.trim() ? row.cardName : null;
+    return { ...row, cardName };
+  },
+
+  /** Records that the email went (or will never go); true the first time only. */
+  async markNotified(db: Executor, id: string, now = new Date()): Promise<boolean> {
+    const rows = await db
+      .update(waitlistEntries)
+      .set({ notifiedAt: now, updatedAt: now })
+      .where(and(eq(waitlistEntries.id, parseInput(Id, id, "waitlist entry id")), isNull(waitlistEntries.notifiedAt)))
+      .returning({ id: waitlistEntries.id });
+    return rows.length > 0;
+  },
 };
+
+/**
+ * The waitlist's order: sign-up time, oldest first (DECISIONS 2026-11-12: plain; referral order is WP-03 T10, which
+ * changes this one fragment).
+ */
+export const WAITLIST_ORDER = sql`${waitlistEntries.createdAt} asc, ${waitlistEntries.id} asc`;
+
+/** An entry `admitNext` admitted; `newAdmission` is false when the account already had an admission row. */
+export type WaitlistAdmitted = WaitlistEntryRow & { newAdmission: boolean };
+
+export interface WaitlistEntryForEmail {
+  id: string;
+  userId: string | null;
+  admittedAt: Date | null;
+  notifiedAt: Date | null;
+  cardName: string | null;
+}
