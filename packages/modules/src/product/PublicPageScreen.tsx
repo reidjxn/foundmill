@@ -83,6 +83,8 @@ export interface PageViewResponse {
   followers?: number;
   /** Whether visitors see the small "Built on" mark (the free plan; docs/NETWORK.md F2); absent from an older api. */
   mark?: boolean;
+  /** Whether Follow can send its confirmation here (WP-02 T7); absent from an older api reads as true. */
+  followAvailable?: boolean;
 }
 
 type PublishResponse = { outcome: "published"; page: PageViewResponse } | { outcome: "held"; reason: PageHoldReason; message: string; page: PageViewResponse };
@@ -110,6 +112,7 @@ export const PUBLIC_PAGE_WORDS = {
   showFoundersHint: "Adds “Built by …” with the names of the project's owners.",
   followForm: "Let people follow this project",
   followFormHint: "Adds a form where visitors leave their email and agree to hear from you. Each one shows up in Customers.",
+  followUnavailable: `Following opens when email is switched on for ${APP_NAME}. Your page works without it.`,
   save: "Save draft",
   saved: "Draft saved",
   unsaved: "Changes not saved yet",
@@ -288,6 +291,8 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
   const founderNames = content?.showFounders ? (data?.preview.founderNames ?? []) : [];
   // "3 people follow this project": a count only, and only once someone does (no nag at zero).
   const followers = followerCountLine(data?.followers ?? 0);
+  // Following needs a confirmation email that can really be sent (WP-02 T7); an older api without the field keeps it on.
+  const followOpen = data?.followAvailable !== false;
 
   return (
     <Screen name="product/public-page">
@@ -341,10 +346,10 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
               </span>
             </label>
             <label className="flex items-start gap-3" htmlFor={`${id}-follow`}>
-              <Switch id={`${id}-follow`} checked={content.followForm} disabled={!canEdit} onCheckedChange={(on) => set("followForm", on === true)} className="mt-0.5" />
+              <Switch id={`${id}-follow`} checked={followOpen && content.followForm} disabled={!canEdit || !followOpen} onCheckedChange={(on) => set("followForm", on === true)} className="mt-0.5" />
               <span className="flex flex-col gap-0.5">
                 <span className="t-body text-primary">{PUBLIC_PAGE_WORDS.followForm}</span>
-                <span className="t-small text-secondary">{PUBLIC_PAGE_WORDS.followFormHint}</span>
+                <span className="t-small text-secondary" data-testid={followOpen ? undefined : "follow-unavailable"}>{followOpen ? PUBLIC_PAGE_WORDS.followFormHint : PUBLIC_PAGE_WORDS.followUnavailable}</span>
               </span>
             </label>
             {followers ? (
@@ -455,7 +460,7 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
               brandSecondary={data.preview.brandSecondary}
               founderNames={founderNames}
               mark={data.mark ? "visitor" : "none"}
-              follow={content.followForm ? <ProjectFollowForm name={data.preview.name} preview /> : null}
+              follow={followOpen && content.followForm ? <ProjectFollowForm name={data.preview.name} preview /> : null}
             />
           </div>
         ) : null}

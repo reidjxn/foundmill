@@ -92,6 +92,14 @@ export function simulateRefusalMessage(result: SimulateResult): string {
   return `${result.status}: ${typeof result.body === "string" ? result.body : JSON.stringify(result.body)}`;
 }
 
+/**
+ * Whether the Connectors section names its mode: always when live; in test mode only where a mock can be connected (a
+ * sample project, development, test). A person's project on staging sees "Not available yet" per connector instead.
+ */
+export function showsModeChip(mode: string, rows: readonly { live?: boolean; available?: boolean }[]): boolean {
+  return mode !== "mock" || !rows.some((r) => !r.live && r.available === false);
+}
+
 /** The connectors' mode: "Live", "Mock mode", or "Mock mode · GitHub live" when named connectors run live anyway. */
 export function modeLabel(mode: string, rows: readonly { displayName: string; live?: boolean }[]): string {
   if (mode !== "mock") return "Live";
@@ -427,7 +435,7 @@ export function IntegrationsTab() {
       ) : null}
       <PlatformMailSection data={platformMail.data} businessId={businessId} />
       <OAuthFinish businessId={businessId} connectors={rows} pending={connect.isPending} onFinish={(connectorKey, input, done) => connect.mutate({ businessId, connectorKey, input }, { onSettled: done })} />
-      <SettingsSection wide title="Connectors" meta={list.data ? plural(rows.filter((r) => r.integration && r.integration.status !== "disconnected").length, "connected", "connected") : undefined} actions={list.data ? <Chip tone={list.data.mode === "mock" ? "info" : "good"}>{modeLabel(list.data.mode, rows)}</Chip> : undefined} loading={list.isLoading}>
+      <SettingsSection wide title="Connectors" meta={list.data ? plural(rows.filter((r) => r.integration && r.integration.status !== "disconnected").length, "connected", "connected") : undefined} actions={list.data && showsModeChip(list.data.mode, rows) ? <Chip tone={list.data.mode === "mock" ? "info" : "good"}>{modeLabel(list.data.mode, rows)}</Chip> : undefined} loading={list.isLoading}>
         <Hint>Consents and API keys are yours to grant: a connector that needs one opens the vendor's page and waits for you. Secrets are stored encrypted and never shown again.</Hint>
         <ul className="flex flex-col" data-testid="connector-list">
           {rows.map((c) => {
@@ -469,6 +477,10 @@ export function IntegrationsTab() {
                       <IconButton label={`Check ${c.displayName} health`} icon={Activity} size="sm" disabled={health.isPending} onClick={() => integ && health.mutate({ businessId, integrationId: integ.id })} />
                       <IconButton label={`Disconnect ${c.displayName}`} icon={Unplug} size="sm" disabled={disconnect.isPending} onClick={() => integ && disconnect.mutate({ businessId, integrationId: integ.id })} />
                     </>
+                  ) : c.available === false ? (
+                    <Chip tone="neutral" data-testid="connector-not-available">
+                      Not available yet
+                    </Chip>
                   ) : (
                     <Button size="sm" icon={needsConnectFields(c) ? KeyRound : c.auth.kind === "oauth" ? ExternalLink : Plug} loading={connect.isPending && connect.variables?.connectorKey === c.key} onClick={() => (needsConnectFields(c) ? setKeyFor(c) : connect.mutate({ businessId, connectorKey: c.key, input: {} }))}>
                       Connect

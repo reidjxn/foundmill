@@ -137,6 +137,16 @@ export async function channelEngineReconcile(): Promise<EngineReconcileResult> {
 }
 
 /** Nightly: CRM records whose deletion request came due are purged (suppression entries stay). */
+/** Nightly: generated results on real projects, counted ("report") or removed ("apply", MOCK_RESULTS_CLEANUP; WP-02 T4). */
+export async function mockResultsCleanup(_input: Record<string, never> = {}): Promise<Awaited<ReturnType<Activities["cleanMockResults"]>>> {
+  return purge.cleanMockResults({});
+}
+
+/** Nightly: yesterday's funnel, north star, retention and agent-work counts for real projects (WP-02 T10). */
+export async function platformMetrics(_input: Record<string, never> = {}): Promise<{ day: string }> {
+  return purge.recordPlatformMetrics({});
+}
+
 export async function crmDeletionSweep(input: { at?: string } = {}): Promise<ScheduleResult> {
   return acts.purgeDueEntities({ at: input.at });
 }

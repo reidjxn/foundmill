@@ -8,7 +8,7 @@
  * costs; every template sentence is digit-free). It is what mock-mode testers read, so it names no plumbing: no policy,
  * caps, named queries, exhibits, engines or hard gates, and no developer notes.
  */
-import { CHANNEL_KEYS, DEFAULT_BUSINESS_CURRENCY, EXHIBIT_KINDS, INBOX_ITEM_TYPES, type ChannelKey, type ExhibitKind, type InboxItemType } from "@foundmill/shared";
+import { CHANNEL_KEYS, DEFAULT_BUSINESS_CURRENCY, EXHIBIT_KINDS, INBOX_ITEM_TYPES, parkedTasksSentence, type ChannelKey, type ExhibitKind, type InboxItemType } from "@foundmill/shared";
 import type { ComposerOption, ComposerOutput } from "../schemas";
 import { type ManifestEntry, type MockContext, asUuid, channelLabel, ent, formatMoneyMinor, humaniseKey, isRecord, sentenceCase, truncate, wordCount } from "./inputs";
 
@@ -84,9 +84,11 @@ export function generateInboxComposer(ctx: MockContext): ComposerOutput {
   const ask = askSentence(type, rng);
   const brief = briefSentence(ctx);
 
+  // Tasks the round parked for want of a tool (WP-05 T18, founder D1): one closing sentence, said once, asking nothing.
+  const parked = parkedTasksSentence(readParkedTitles(ctx));
   const sentences = [fact, why, brief, ask].filter((s): s is string => Boolean(s));
-  const body = trimToWords(sentences.join(" "), COMPOSER_MAX_WORDS);
-  const bodyMd = splitParagraphs(body).join("\n\n");
+  const body = trimToWords(sentences.join(" "), COMPOSER_MAX_WORDS - wordCount(parked));
+  const bodyMd = [...splitParagraphs(body), ...(parked ? [parked] : [])].join("\n\n");
 
   // --- decision --------------------------------------------------------------------------------------------------
   const decision = DECISION_TYPES.has(type) || readOptions(ctx).length >= 2 ? buildDecision(ctx, type, channel, rng) : null;
@@ -129,6 +131,11 @@ function readEvents(ctx: MockContext): EventIn[] {
     out.push({ id, type, payload });
   });
   return out;
+}
+
+/** The titles of the tasks the round parked (apps/composer `composerInputs` sends `parked: [{ title, what_the_agent_said }]`). */
+function readParkedTitles(ctx: MockContext): string[] {
+  return ctx.getArray<unknown>("parked").flatMap((p) => (isRecord(p) && typeof p.title === "string" && p.title.trim() ? [p.title] : []));
 }
 
 function readMetrics(ctx: MockContext): MetricIn[] {
@@ -334,6 +341,8 @@ function factSentence(type: InboxItemType, e: EventIn | undefined, who: string |
         `Done: ${title ? `"${title}"` : "the task"} is complete${who ? ` thanks to ${who}` : ""}, reviewed and clean.`,
       ]);
     case /^campaign\.launched$/.test(e.type):
+      // Offline tracking: the team prepared the materials and the founder submits them; nothing went out (WP-02 T2).
+      if (e.payload.kitMode === true) return `The ${ch} materials${title ? ` for "${title}"` : ""} are ready for you to submit yourself; nothing has gone out from here yet.`;
       return `${ch} is live${title ? ` with "${title}"` : ""}, with tracking in place so every customer it brings can be traced back to it.`;
     case /^approval\.requested$/.test(e.type):
       return `${who ?? "An agent"} needs your go-ahead${title ? ` on "${title}"` : ""}${amount ? ` worth ${amount}` : ""} before going further.`;

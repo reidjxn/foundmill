@@ -190,17 +190,37 @@ export interface PlatformMailDeps {
 export type PlatformMailRefusal = { ok: false; policyId: string; reason: string };
 const refuse = (policyId: string, reason: string): PlatformMailRefusal => ({ ok: false, policyId, reason });
 
+function platformMailSecret(deps: Pick<PlatformMailDeps, "config" | "appEnv">, mode: ConnectorMode): string | null {
+  const signingSecret = deps.config?.signingSecret;
+  const devStack = deps.appEnv === undefined || deps.appEnv === "development" || deps.appEnv === "test";
+  return signingSecret && signingSecret.length >= PLATFORM_MAIL_SECRET_MIN_LENGTH ? signingSecret : mode === "live" || !devStack ? null : DEV_PLATFORM_MAIL_SECRET;
+}
+
+/**
+ * Guard 1 alone: whether the project's Foundmill address is switched on and configured where it runs. It reads only
+ * config and takes no ticket, so the pipeline also runs it before asking the founder (WP-02 T3): nobody is asked to
+ * approve a message that cannot be sent.
+ */
+export function platformMailSwitchRefusal(deps: Pick<PlatformMailDeps, "config" | "appEnv">, input: { business: Pick<Business, "isDemo">; mode: ConnectorMode }): PlatformMailRefusal | null {
+  const config = deps.config;
+  if (!config?.domain) return refuse(PLATFORM_MAIL_POLICY.off, PLATFORM_MAIL_REFUSALS.off);
+  const devStack = deps.appEnv === undefined || deps.appEnv === "development" || deps.appEnv === "test";
+  const strict = input.mode === "live" || !devStack;
+  if (!platformMailSecret(deps, input.mode) || (strict && !/^https:\/\//.test(config.unsubscribeBase))) return refuse(PLATFORM_MAIL_POLICY.unconfigured, PLATFORM_MAIL_REFUSALS.unconfigured);
+  // A simulated send is never reported to a person's project on staging or production as if it went out.
+  if (input.mode === "mock" && deps.appEnv !== undefined && !mockResultsAllowed(deps.appEnv, input.business.isDemo)) return refuse(PLATFORM_MAIL_POLICY.simulated, PLATFORM_MAIL_REFUSALS.off);
+  return null;
+}
+
 export async function preparePlatformMail(deps: PlatformMailDeps, input: { business: Pick<Business, "id" | "name" | "isDemo">; args: unknown; mode: ConnectorMode; now: number; agentId?: string; log?: { warn: (obj: Record<string, unknown>, msg: string) => void } }): Promise<PlatformMailDecision> {
   const config = deps.config;
   const businessId = input.business.id;
   // 1. Switched on, and configured for where it runs.
-  if (!config?.domain) return refuse(PLATFORM_MAIL_POLICY.off, PLATFORM_MAIL_REFUSALS.off);
+  const off = platformMailSwitchRefusal(deps, input);
+  if (off || !config?.domain) return off ?? refuse(PLATFORM_MAIL_POLICY.off, PLATFORM_MAIL_REFUSALS.off);
+  const domain = config.domain;
   const devStack = deps.appEnv === undefined || deps.appEnv === "development" || deps.appEnv === "test";
-  const strict = input.mode === "live" || !devStack;
-  const secret = config.signingSecret && config.signingSecret.length >= PLATFORM_MAIL_SECRET_MIN_LENGTH ? config.signingSecret : strict ? null : DEV_PLATFORM_MAIL_SECRET;
-  if (!secret || (strict && !/^https:\/\//.test(config.unsubscribeBase))) return refuse(PLATFORM_MAIL_POLICY.unconfigured, PLATFORM_MAIL_REFUSALS.unconfigured);
-  // A simulated send is never reported to a person's project on staging or production as if it went out.
-  if (input.mode === "mock" && deps.appEnv !== undefined && !mockResultsAllowed(deps.appEnv, input.business.isDemo)) return refuse(PLATFORM_MAIL_POLICY.simulated, PLATFORM_MAIL_REFUSALS.off);
+  const secret = platformMailSecret(deps, input.mode)!;
 
   // 2. The founder's own sender wins: their SendGrid or their Resend (founder-key connectors, 2026-11-12).
   for (const ownKey of OWN_SENDER_CONNECTORS) {
@@ -236,7 +256,7 @@ export async function preparePlatformMail(deps: PlatformMailDeps, input: { busin
   const release = counted.release;
 
   const messageRef = randomUUID();
-  const email = platformMailAddress(row.localPart, config.domain);
+  const email = platformMailAddress(row.localPart, domain);
   const { projectName, fromName } = platformMailSenderName(input.business.name, row.localPart);
   return {
     ok: true,

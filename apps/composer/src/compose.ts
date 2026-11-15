@@ -14,7 +14,7 @@ import { APP_NAME, LIMITS } from "@foundmill/config";
 import type { ComposerItem, Event } from "@foundmill/db";
 import { checkComposerText, linkComposerText, stripMarkup, type LinkedText, type ValidationResult } from "@foundmill/entity-linker";
 import { ComposerOutput, ModelAbortedError, type ChatMessage, type CompleteResultWithJson, type ComposerOption, type ModelClient, type ModelLogger, type TokenUsage } from "@foundmill/models";
-import { AppError, founderJargonHits, futureDeadline, type InboxItemType } from "@foundmill/shared";
+import { AppError, founderJargonHits, futureDeadline, PARKED_DETAIL_MAX, PARKED_TASKS_MAX, PARKED_TITLE_MAX, type InboxItemType, type ParkedTask } from "@foundmill/shared";
 import { businessBrief, type ComposeContext } from "./context";
 import type { NextBestDecision } from "./decisions";
 import { namedQueryCatalogue, sanitizeExhibit } from "./exhibits";
@@ -24,7 +24,7 @@ import type { Insight } from "./insights";
 export const ComposerSchema = ComposerOutput;
 export type ComposerSchema = ComposerOutput;
 
-export type ComposeBrief = { mode: "events"; events: Event[] } | { mode: "insight"; insight: Insight } | { mode: "decision"; decision: NextBestDecision };
+export type ComposeBrief = { mode: "events"; events: Event[]; parked?: readonly ParkedTask[] } | { mode: "insight"; insight: Insight } | { mode: "decision"; decision: NextBestDecision };
 
 export type ComposeSlot = ComposeBrief["mode"];
 
@@ -117,6 +117,10 @@ export function blocksContinueFor(_type: InboxItemType, _ctx: Pick<ComposeContex
   return false;
 }
 
+/** Read with a narrated `campaign.launched` in offline tracking (evals `channel_engine.reports_prepared_not_launched` sends the same). */
+export const OFFLINE_TRACKING_NOTE =
+  "Offline tracking: the team prepared these materials and the founder submits them. Nothing was launched, sent or published from here. Say the materials are ready for the founder to submit; never say the campaign launched, went live, was sent or was published.";
+
 /** Builds the JSON input block the model (and the mock) reads. */
 export function composerInputs(ctx: ComposeContext, brief: ComposeBrief): Record<string, unknown> {
   const base: Record<string, unknown> = {
@@ -135,9 +139,15 @@ export function composerInputs(ctx: ComposeContext, brief: ComposeBrief): Record
   switch (brief.mode) {
     case "events": {
       const events = brief.events.map((e) => ({ id: e.id, type: e.type, occurred_at: e.occurredAt.toISOString(), actor: e.actor, entity_ids: e.entityIds, payload: e.payload }));
+      // Tasks the round parked for want of a tool (WP-05 T18): the prompt ends the note with one sentence about them.
+      const parked = (brief.parked ?? []).slice(0, PARKED_TASKS_MAX).map((p) => ({ title: p.title.slice(0, PARKED_TITLE_MAX), what_the_agent_said: (p.detail ?? "").slice(0, PARKED_DETAIL_MAX) }));
+      if (parked.length > 0) base.parked = parked;
       // Wins the volume rule rolled up: one results note for the day, not a story per win.
       const rolled = brief.events.length > 0 && brief.events.every((e) => e.type === "customer.converted" && (e.payload as { fullMatchDay?: unknown } | null)?.fullMatchDay === false);
-      return rolled ? { ...base, events, note: "These wins were rolled up into the day's results table (volume rule): write one short results note that counts them by kind, names no more than three customers from the manifest, and does not narrate any journey." } : { ...base, events };
+      if (rolled) return { ...base, events, note: "These wins were rolled up into the day's results table (volume rule): write one short results note that counts them by kind, names no more than three customers from the manifest, and does not narrate any journey." };
+      // Offline tracking: the engine's "launch" prepared materials for the founder to submit; nothing went out (WP-02 T2).
+      const offline = brief.events.some((e) => e.type === "campaign.launched" && (e.payload as { kitMode?: unknown } | null)?.kitMode === true);
+      return offline ? { ...base, events, note: OFFLINE_TRACKING_NOTE } : { ...base, events };
     }
     case "insight":
       return {

@@ -277,6 +277,8 @@ export const businessRouter = router({
       productStage: signoffs.stage,
       signoffs: { spec: signoffs.spec, roadmap: signoffs.roadmap },
       distributionStartedAt: ctx.business.distributionStartedAt,
+      /** Where the team's code goes (WP-02 T5): "github" with a repository and pushing on, else "none". */
+      buildDestination: signoffs.destination,
       /**
        * Whether the orchestrator, the service that runs the team's work, can be reached from this api right now (null:
        * not known yet). The shell and Development › Plan say so before a press, instead of a Continue that writes one

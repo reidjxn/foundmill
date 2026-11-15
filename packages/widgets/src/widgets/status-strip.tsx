@@ -140,9 +140,10 @@ export function cashTile(finance: FinanceOverview | undefined, loading: boolean,
   return {
     label: "Cash",
     plain: PLAIN_LINES.cash,
-    value: finance ? { amountMinor: finance.cash.amountMinor, currency: c } : null,
+    // No bank connected: the balance is not known, never a zero (WP-02 T6).
+    value: finance ? (finance.cash.accounts ? { amountMinor: finance.cash.amountMinor, currency: c } : NOT_KNOWN_YET.value) : null,
     loading,
-    caption: finance ? (finance.cash.accounts ? `In the bank · ${finance.cash.accounts} account${finance.cash.accounts === 1 ? "" : "s"}` : "Connect a bank in Settings") : undefined,
+    caption: finance ? (finance.cash.accounts ? `In the bank · ${finance.cash.accounts} account${finance.cash.accounts === 1 ? "" : "s"}` : "No bank connected") : undefined,
     provenance: { source: "Bank balances", asOf: finance?.cash.asOf ?? undefined },
     onClick,
   };

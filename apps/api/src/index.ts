@@ -15,13 +15,13 @@
  * SHUTDOWN_TIMEOUT_MS (docs/DEPLOY.md §3 "Redeploys and shutdown").
  */
 import { serve } from "@hono/node-server";
-import { closeDb, isMigrationLockTimeout, keepPoolWarm, migrateDb, watchPoolOrExit, type PoolWarmer, type PoolWatchdog } from "@foundmill/db";
+import { closeDb, isMigrationLockTimeout, keepPoolWarm, migrateDb, schemaReady, watchPoolOrExit, type Db, type PoolWarmer, type PoolWatchdog } from "@foundmill/db";
 import { loadEnv, servicePort } from "@foundmill/shared";
 import { drainHttpServer, flushLog, onShutdown } from "@foundmill/shared/shutdown";
 import { installTelemetry } from "@foundmill/shared/telemetry";
 import { createApp } from "./app";
 import type { KeyRefresher } from "./auth";
-import { createApiDeps, type ApiDeps } from "./context";
+import { createApiDeps, type ApiDeps, type SchemaState } from "./context";
 import type { ApiRedis } from "./services/redis";
 import { createPushNotifier, type PushNotifier } from "./services/push/notifier";
 import { superviseOutboxRelay, type RelaySupervisor } from "./services/relay";
@@ -53,8 +53,8 @@ export interface MigrateOnBootOptions {
  *   the lock is not granted in time this logs who holds it and exits 1: Railway restarts the boot instead of the deploy
  *   hanging before "api listening".
  * - PGlite: no lock (one process per data directory).
- * Any other failure (database unreachable, a migration error) is logged and the api keeps serving; /health reports the
- * database.
+ * Any other failure (database unreachable, a migration error) is logged and the api keeps serving, but not ready: main()
+ * then gives /health a schema probe, so a deployment whose migration failed never takes traffic (WP-11 T2).
  */
 export async function migrateOnBoot(deps: ApiDeps, options: MigrateOnBootOptions = {}): Promise<boolean> {
   if (!deps.env.DATABASE_URL) return false;
@@ -74,9 +74,27 @@ export async function migrateOnBoot(deps: ApiDeps, options: MigrateOnBootOptions
       (options.exit ?? ((code: number) => process.exit(code)))(1);
       return false;
     }
-    deps.log.error({ err: (err as Error).message, driver }, "migrations failed; serving anyway (health reports db status)");
+    deps.log.error({ err: (err as Error).message, driver }, "migrations failed; serving, but /health answers 503 until every migration is applied, so this deployment will not pass its health check");
     return false;
   }
+}
+
+/**
+ * /health's schema probe after a failed migrateOnBoot (WP-11 T2): asks schemaReady on each call until it is ready, then
+ * remembers it. Never throws: an unreachable database is not ready, with nothing counted.
+ */
+export function schemaProbe(db: Db, check: (db: Db) => Promise<{ applied: number; expected: number; ready: boolean }> = schemaReady): () => Promise<SchemaState> {
+  let readySeen: SchemaState | null = null;
+  return async () => {
+    if (readySeen) return readySeen;
+    try {
+      const state = await check(db);
+      if (state.ready) readySeen = state;
+      return state;
+    } catch {
+      return { ready: false, applied: null, expected: null };
+    }
+  };
 }
 
 /**
@@ -190,6 +208,7 @@ export async function main(): Promise<void> {
 
   warnLocalhostUrls(deps);
   const migrated = await migrateOnBoot(deps);
+  if (!migrated && env.DATABASE_URL) deps.health.schema = schemaProbe(deps.db);
   if (lifecycle.stopping) return;
   warmer = keepPoolWarm(deps.db, { connections: WARM_CONNECTIONS, onError: (err) => deps.log.warn({ err: (err as Error)?.message }, "warming the database pool failed; the next request opens its own connection") });
   // A pool that stops answering while the database answers outside it exits the process, and Railway restarts it with a

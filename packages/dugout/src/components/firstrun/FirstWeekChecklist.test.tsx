@@ -12,7 +12,7 @@ describe("FirstWeekChecklist", () => {
       "Publish your page",
       "Sign off the specification",
       "Sign off the roadmap",
-      "Run a cycle",
+      "Let the team work",
       "Read a note from an agent",
       "Talk to an agent",
       "Start distribution",
@@ -30,17 +30,17 @@ describe("FirstWeekChecklist", () => {
     expect(within(rows[0] as HTMLElement).getByRole("img", { name: "Done" })).toBeTruthy();
     expect(within(rows[0] as HTMLElement).queryByRole("link")).toBeNull();
     expect(within(rows[2] as HTMLElement).getByRole("img", { name: "Not done" })).toBeTruthy();
-    expect(within(rows[3] as HTMLElement).getByRole("link", { name: "Go: Run a cycle" }).getAttribute("href")).toBe("/go/run_cycle");
+    expect(within(rows[3] as HTMLElement).getByRole("link", { name: "Go: Let the team work" }).getAttribute("href")).toBe("/go/run_cycle");
   });
 
   it("an item with an action instead of a route gets a Go button that calls it; one with neither has no Go", async () => {
     const onGo = vi.fn();
     const mixed: FirstWeekItem[] = [
-      { id: "run_cycle", label: "Run a cycle", onGo, done: false },
+      { id: "run_cycle", label: "Let the team work", onGo, done: false },
       { id: "wait", label: "Nothing to open", done: false },
     ];
     render(<FirstWeekChecklist items={mixed} onDismiss={() => {}} />);
-    await userEvent.click(screen.getByRole("button", { name: "Go: Run a cycle" }));
+    await userEvent.click(screen.getByRole("button", { name: "Go: Let the team work" }));
     expect(onGo).toHaveBeenCalledTimes(1);
     const rows = screen.getAllByRole("listitem");
     expect(within(rows[1] as HTMLElement).queryByRole("button")).toBeNull();

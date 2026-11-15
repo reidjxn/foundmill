@@ -6,6 +6,7 @@ Owns the event catalog (Zod, business-scoped and account-scoped types), the tran
 - **Every event is declared here with a Zod payload schema** and written **through the outbox** in the same transaction as the change it reports. Unknown types fail at write time.
 - A business event (a fact about a project): append the type to `EVENT_TYPES` (`packages/shared/src/constants.ts`), `declareEvent(type, schema)` in `src/catalogue.ts`, add its payload to `src/testing/fixtures.ts`, write it with `writeEvent(tx, { businessId, type, actor, entityIds, payload })`.
 - An account event (a fact about one person, never written to a business): the four steps in ARCHITECTURE §5 "Account events": `EVENT_TYPES` and `ACCOUNT_EVENT_TYPES`, a migration redefining `fm_account_event_types()`, `declareAccountEvent(type, schema, { doc, consumers, recordIds? })`, its fixture. Write with `writeAccountEvent`.
+- `consumers: ["metrics"]` names the nightly numbers' reader (WP-02 T10, which reads the tables), not a `consume()` group: nothing consumes it from a stream.
 - The two-person rule: an account payload names another person only by something already public (a handle), never by account id, email or a private field. Closed objects of plain fields; UUIDs only under `recordIds`.
 - Errors say which rule and how deep, never a key or a value of the payload.
 - Names follow `noun.verb_past` like their neighbors (`post.drafted`).

@@ -36,7 +36,7 @@ export const DEFAULT_FIRST_WEEK_ITEMS = [
   { id: "publish_page", label: "Publish your page" },
   { id: "sign_off_specification", label: "Sign off the specification" },
   { id: "sign_off_roadmap", label: "Sign off the roadmap" },
-  { id: "run_cycle", label: "Run a cycle" },
+  { id: "run_cycle", label: "Let the team work" },
   { id: "read_note", label: "Read a note from an agent" },
   { id: "talk_to_agent", label: "Talk to an agent" },
   { id: "start_distribution", label: "Start distribution" },

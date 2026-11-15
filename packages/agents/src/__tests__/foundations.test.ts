@@ -375,6 +375,9 @@ describe("foundationsSignoffNotes", () => {
     expect(notes.roadmap.bodyMd).toContain(draft.vision.northStar.metric);
     expect(notes.roadmap.bodyMd).toContain("4 items in Now, 5 in Next and 2 in Later, including 3 open issues from the import");
     expect(notes.roadmap.bodyMd).toContain("Approve it and building starts");
+    // A round of work, not "the engineers … next cycle" (WP-02 T5).
+    expect(notes.roadmap.bodyMd).toContain("the Planner turns the Now items into tasks and the team starts on them in its next round of work.");
+    expect(notes.roadmap.bodyMd).not.toMatch(/\bcycle\b/);
     // The same words the other stack uses (apps/api, apps/orchestrator read these constants).
     expect([SPEC_SIGNOFF_SUBJECT, ROADMAP_SIGNOFF_SUBJECT]).toEqual([notes.spec.subject, notes.roadmap.subject]);
   });

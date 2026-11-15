@@ -93,7 +93,8 @@ export default defineConfig({
   retries: isCI ? 1 : 0,
   timeout: 90_000,
   expect: { timeout: 15_000 },
-  reporter: isCI ? [["list"], ["html", { open: "never" }]] : "list",
+  // The JSON report feeds scripts/test-inventory.mjs --flaky in CI (tests that passed only on a retry; WP-01 T7).
+  reporter: isCI ? [["list"], ["html", { open: "never" }], ["json", { outputFile: "test-results/report.json" }]] : "list",
   use: { baseURL, viewport, trace: "retain-on-failure", screenshot: "only-on-failure" },
   projects: [
     {

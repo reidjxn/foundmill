@@ -85,6 +85,16 @@ describe("PublicPageScreen", () => {
     expect(within(preview).queryByRole("heading", { name: "Follow Northwood" })).toBeNull();
   });
 
+  it("where no confirmation can be sent, the switch is off and disabled with one line saying why (WP-02 T7)", () => {
+    render(view({ followAvailable: false }));
+    const toggle = screen.getByRole("switch", { name: new RegExp(PUBLIC_PAGE_WORDS.followForm) });
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    expect((toggle as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId("follow-unavailable").textContent).toBe(PUBLIC_PAGE_WORDS.followUnavailable);
+    expect(PUBLIC_PAGE_WORDS.followUnavailable).toBe("Following opens when email is switched on for Foundmill. Your page works without it.");
+    expect(within(screen.getByTestId("public-page-preview")).queryByRole("heading", { name: "Follow Northwood" })).toBeNull();
+  });
+
   it("says how many people follow, never who", () => {
     render(view({ saved: true, live: true, published: draft, publishedAt: new Date(2026, 9, 7, 12), followers: 3 }));
     expect(screen.getByTestId("page-followers").textContent).toBe("3 people follow this project");

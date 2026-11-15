@@ -8,7 +8,7 @@
     "dev": { "cache": false, "persistent": true },
     "typecheck": { "dependsOn": [], "outputs": [] },
     "lint": { "dependsOn": [], "outputs": [] },
-    "test": { "dependsOn": [], "outputs": ["coverage/**"] },
+    "test": { "dependsOn": [], "outputs": ["coverage/**"], "passThroughEnv": ["FM_PGLITE_SNAPSHOT_DIR", "FM_PGLITE_SNAPSHOT"] },
     "test:rls": { "cache": false },
     "storybook:build": { "outputs": ["storybook-static/**"] }
   }

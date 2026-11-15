@@ -424,3 +424,78 @@ export function summariseComposer(results: readonly ComposerCaseResult[]): Compo
     byKind,
   };
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
+// composer.parked_clause (WP-05 T18; founder D1, Nov 15, 2026)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/**
+ * A round that parked tasks no agent has a tool for hands them to the Composer as `parked` (apps/composer
+ * `composerInputs`). The note says so once, in one sentence that explains in plain words what is missing, and never
+ * turns it into the founder's chore: no request, no option, not in the subject.
+ */
+const PARKED = [
+  { title: "Import agent skills as business skills", detail: "No tool is available to create or list business skills. My tools cover GitHub, the task board, messages and founder actions only." },
+  { title: "Post the demo video", detail: "None of my tools can upload a video; I have no video hosting connector." },
+  { title: "Book a stand at the spring trade fair", detail: "I can't book or pay for event space with the tools I have." },
+] as const;
+
+function parkedCase(i: number, parked: readonly { title: string; detail: string }[]): ComposerEvalCase {
+  const base = composerCase(i);
+  return { ...base, id: `composer.parked_clause.${String(i).padStart(3, "0")}.${base.kind}.${parked.length}`, input: { ...base.input, parked: parked.map((p) => ({ title: p.title, what_the_agent_said: p.detail })) } };
+}
+
+export const COMPOSER_PARKED_CASES: readonly ComposerEvalCase[] = Object.freeze([parkedCase(2, [PARKED[0]]), parkedCase(6, [PARKED[1]]), parkedCase(15, [PARKED[2]]), parkedCase(12, [PARKED[0], PARKED[1]])]);
+
+/** The parked titles a case hands the Composer. */
+export function parkedTitlesOf(c: Pick<ComposerEvalCase, "input">): string[] {
+  const parked = c.input.parked;
+  return Array.isArray(parked) ? parked.flatMap((p) => (p && typeof (p as { title?: unknown }).title === "string" ? [(p as { title: string }).title] : [])) : [];
+}
+
+/** Words that say what is missing (the D1 "explains the problem", checked loosely: the grader is not used here). */
+const SAYS_WHAT_IS_MISSING = /\b(tools?|cannot|can't|can not|unable|no way|missing|lacks?|doesn't have|don't have|none of (?:the|our|my) (?:agents|tools))\b/i;
+/** A request to the founder inside the parked sentence. */
+const ASKS_THE_FOUNDER = /\b(please|could you|can you|would you|will you|you (?:need|have|should|must|could) to|you'll need|up to you|your (?:task|to-do)|let me know|tell me|decide)\b/i;
+
+const occurrences = (text: string, needle: string): number => text.split(needle).length - 1;
+
+/** What is wrong with a note about parked tasks; empty when it passes. */
+export function parkedClauseProblems(out: { subject: string; body_md: string; decision: { options: readonly { label: string; consequence: string }[] } | null }, titles: readonly string[]): string[] {
+  const problems: string[] = [];
+  const body = out.body_md.replace(/\[\[ent:[^|\]]+\|([^\]]+)\]\]/g, "$1");
+  const sentences = body.split(/(?<=[.!?])\s+/);
+  for (const title of titles) {
+    const n = occurrences(body, title);
+    if (n !== 1) problems.push(`"${title}" appears ${n} times in the note`);
+    if (out.subject.includes(title)) problems.push(`"${title}" is in the subject`);
+    if (out.decision?.options.some((o) => o.label.includes(title) || o.consequence.includes(title))) problems.push(`"${title}" is offered as an option`);
+    sentences.forEach((s, i) => {
+      if (!s.includes(title)) return;
+      if (!SAYS_WHAT_IS_MISSING.test(s)) problems.push(`the sentence naming "${title}" does not say what is missing`);
+      // The sentence and the one after it: a request that follows the clause ("Could you set it up?") is a chore too.
+      const ask = ASKS_THE_FOUNDER.exec(`${s} ${sentences[i + 1] ?? ""}`);
+      if (ask) problems.push(`asks the founder: "${ask[0]}"`);
+    });
+  }
+  for (const h of plainLanguageHits(out as unknown as Pick<ComposerOutput, "body_md" | "decision"> & { subject: string })) problems.push(`plain language: ${h.field} "${h.term}"`);
+  return problems;
+}
+
+export interface ParkedClauseResult {
+  caseId: string;
+  problems: string[];
+  passed: boolean;
+  costMinor: number;
+  error?: string;
+}
+
+export async function runParkedClauseCase(c: ComposerEvalCase, client: ModelClient): Promise<ParkedClauseResult> {
+  try {
+    const result = await client.complete({ route: "inboxComposer", schema: ComposerOutput, system: composerSystemPrompt(c), messages: composerMessages(c), scope: `eval:${c.id}`, cacheSystem: true });
+    const problems = parkedClauseProblems(result.json, parkedTitlesOf(c));
+    return { caseId: c.id, problems, passed: problems.length === 0, costMinor: result.cost.costMinorInt };
+  } catch (err) {
+    return { caseId: c.id, problems: [], passed: false, costMinor: 0, error: err instanceof Error ? err.message : String(err) };
+  }
+}

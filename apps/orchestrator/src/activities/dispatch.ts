@@ -210,6 +210,45 @@ export async function postNote(deps: OrchestratorDeps, businessId: string, fromA
   });
 }
 
+/** How old an open session row must be before it can count as lost: room for the workflow to start after the row. */
+export const LOST_SESSION_AFTER_MS = 10 * 60 * 1000;
+/** The audit row written when a lost session is closed. */
+export const SESSION_RECONCILED_ACTION = "session.reconciled";
+
+/**
+ * Close the open session rows that nothing is running any more (WP-05 T13, AR-11): a row older than
+ * `LOST_SESSION_AFTER_MS` whose `session:<id>` workflow Temporal says is not running (`deps.workflowRunning` false; an
+ * unknown answer leaves it) is ended with outcome `lost`, its task goes back to `ready` when it is still `running` (so
+ * the next cycle plans it again), and `session.reconciled` is audited. An open row blocks its task (the `open_session`
+ * refusal) and counts against concurrency, so a lost one otherwise stops the task for good. Returns the closed ids.
+ */
+export async function closeLostSessions(deps: OrchestratorDeps, businessId: string): Promise<string[]> {
+  const { db, clock } = deps;
+  const cutoff = clock.nowMs() - LOST_SESSION_AFTER_MS;
+  const open = await repos.agents.listSessions(db, businessId, { openOnly: true, limit: 200 });
+  const closed: string[] = [];
+  for (const session of open.items) {
+    if (new Date(session.startedAt).getTime() > cutoff) continue;
+    const workflowId = session.workflowId ?? sessionWorkflowId(session.id);
+    if ((await deps.workflowRunning(workflowId)) !== false) continue;
+    const done = await db.transaction(async (tx) => {
+      // The workflow may have ended its own row since the list: then there is nothing to close.
+      if ((await repos.agents.getSession(tx, businessId, session.id)).endedAt) return false;
+      await repos.agents.endSession(tx, businessId, session.id, { outcome: "lost", endedAt: clock.now() });
+      let taskStatus: string | null = null;
+      if (session.taskId) {
+        const task = await repos.tasks.get(tx, businessId, session.taskId);
+        taskStatus = task.status === "running" ? (await repos.tasks.setStatus(tx, businessId, task.id, "ready", { force: true })).status : task.status;
+      }
+      await repos.audit.append(tx, businessId, { actorKind: "system", action: SESSION_RECONCILED_ACTION, target: { kind: "session", id: session.id }, details: { outcome: "lost", workflowId, agentId: session.agentId, taskId: session.taskId, taskStatus } });
+      return true;
+    });
+    if (done) closed.push(session.id);
+  }
+  if (closed.length > 0) deps.log.warn({ businessId, sessions: closed }, "closed session rows whose workflow is not running");
+  return closed;
+}
+
 export interface RecoveredAgent {
   agentId: string;
   from: Agent["status"];

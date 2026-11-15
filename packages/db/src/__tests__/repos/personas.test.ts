@@ -135,13 +135,16 @@ describe("assignment at hire", () => {
     const second = await hire(bid, "Second", { personaKey: PERSONAS[20]!.key });
     expect(second.personaKey).not.toBe(PERSONAS[20]!.key);
     expect(personaByKey(second.personaKey)).not.toBeNull();
-    // Twice in one batch: the first keeps it, the second gets a fresh pick.
+    // Twice in one batch: the first keeps it, the second gets a fresh pick. The key is one no agent holds yet: Second's
+    // fresh pick is random and may be any other key.
+    const held = new Set(await keysOf(bid));
+    const free = PERSONAS.find((p) => !held.has(p.key))!.key;
     const batch = await repos.agents.createMany(r.db, bid, [
-      { id: crypto.randomUUID(), name: "Batch one", agentType: "engineer", personaKey: PERSONAS[21]!.key },
-      { id: crypto.randomUUID(), name: "Batch two", agentType: "engineer", personaKey: PERSONAS[21]!.key },
+      { id: crypto.randomUUID(), name: "Batch one", agentType: "engineer", personaKey: free },
+      { id: crypto.randomUUID(), name: "Batch two", agentType: "engineer", personaKey: free },
     ]);
-    expect(batch[0]!.personaKey).toBe(PERSONAS[21]!.key);
-    expect(batch[1]!.personaKey).not.toBe(PERSONAS[21]!.key);
+    expect(batch[0]!.personaKey).toBe(free);
+    expect(batch[1]!.personaKey).not.toBe(free);
     const keys = await keysOf(bid);
     expect(new Set(keys).size).toBe(keys.length);
     // Released: the key is no longer held by a live agent, so a caller that names it on purpose gets it.

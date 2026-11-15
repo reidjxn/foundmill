@@ -7,7 +7,7 @@
 import { APP_NAME, LIMITS } from "@foundmill/config";
 import { platformBillingRefusal } from "@foundmill/models";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
-import { AppError, DEFAULT_AGENT_STYLE, isAgentStyle } from "@foundmill/shared";
+import { AppError, DEFAULT_AGENT_STYLE, isAgentStyle, liveConnectorKeys, platformMailLive } from "@foundmill/shared";
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { compress } from "hono/compress";
@@ -140,6 +140,21 @@ export function withIdleTimeout(body: ReadableStream<Uint8Array>, idleMs = AUDIO
   });
 }
 
+/**
+ * The gateway's modes for the api's /health (WP-00 S3): the gateway has no public address, so the api relays what it
+ * runs live. Null when the gateway does not answer within 2 s; never throws.
+ */
+async function gatewayModes(url: string): Promise<{ integrations: string; liveConnectors: string[] } | null> {
+  try {
+    const res = await fetch(`${url.replace(/\/+$/, "")}/health`, { signal: AbortSignal.timeout(2_000) });
+    const body = (await res.json()) as { mode?: unknown; liveConnectors?: unknown };
+    if (typeof body.mode !== "string") return null;
+    return { integrations: body.mode, liveConnectors: Array.isArray(body.liveConnectors) ? body.liveConnectors.filter((k): k is string => typeof k === "string") : [] };
+  } catch {
+    return null;
+  }
+}
+
 export function createApp(deps: ApiDeps) {
   const app = new Hono<{ Variables: AppVariables }>();
   const origins = allowedOrigins(deps.env);
@@ -194,13 +209,19 @@ export function createApp(deps: ApiDeps) {
         return false;
       }
     };
-    const [db, redis, temporal, composer, worker] = await Promise.all([
+    const [db, redis, temporal, composer, worker, schema, gateway] = await Promise.all([
       probe(deps.health.db),
       probe(deps.health.redis),
       probe(deps.health.temporal),
       probe(() => deps.composer.reachable()),
       Promise.race([checkWorker(deps.temporal, deps.env.TEMPORAL_TASK_QUEUE).catch(() => null), new Promise<null>((resolve) => setTimeout(() => resolve(null), 2_000))]),
+      deps.health.schema ? deps.health.schema().catch(() => ({ ready: false, applied: null, expected: null })) : Promise.resolve({ ready: true, applied: null, expected: null }),
+      // The gateway's own modes (it has no public address): what it runs live, relayed so one public read shows both.
+      gatewayModes(deps.env.GATEWAY_URL),
     ]);
+    // A migration that failed at boot leaves the api serving the old schema; it is not ready, so the previous deployment
+    // keeps the traffic (WP-11 T2).
+    const ready = db && schema.ready;
     // Readiness: Railway's healthcheck (railway/api.toml) moves traffic to a new deployment only on a 2xx, so an api
     // without its database answers 503 and the previous deployment keeps serving. Redis, Temporal, the composer, the
     // relay and the orchestrator's worker are reported but never fail the check (the api degrades without them).
@@ -209,13 +230,17 @@ export function createApp(deps: ApiDeps) {
     const billingRefusal = platformBillingRefusal();
     return c.json(
       {
-        ok: db,
+        ok: ready,
         service: "api",
         env: deps.env.APP_ENV,
         // The mode the api actually runs in: MODEL_MODE=live without ANTHROPIC_API_KEY serves the mock client.
-        modes: { integrations: deps.env.INTEGRATIONS_MODE, models: deps.models.mode },
+        modes: { integrations: deps.env.INTEGRATIONS_MODE, models: deps.models.mode, liveConnectors: liveConnectorKeys(deps.env) },
+        // Whether a project's Foundmill address really sends (WP-02 T7, checked by T12's production script).
+        platformMail: platformMailLive(deps.env) ? ("live" as const) : ("off" as const),
+        gateway,
         modelKeyMissing: deps.env.MODEL_MODE === "live" && deps.models.mode !== "live",
         db,
+        schema: { applied: schema.applied, expected: schema.expected },
         redis,
         temporal,
         composer,
@@ -229,7 +254,7 @@ export function createApp(deps: ApiDeps) {
         modelBilling: billingRefusal ? { ok: false, ...billingRefusal } : { ok: true },
         time: new Date().toISOString(),
       },
-      db ? 200 : 503,
+      ready ? 200 : 503,
     );
   });
 

@@ -218,7 +218,7 @@ export const continuePressedNotice = (builder: boolean): string => (builder ? CO
 /** How long the answer to a press stays as the strip's sentence when no cycle event replaces it sooner. */
 export const CONTINUE_NOTICE_MS = 15_000;
 /** Under Continue's tooltip while the orchestrator cannot be reached: what a press does and does not do. */
-export const ORCHESTRATOR_DOWN_CAVEAT = "The orchestrator is not reachable right now: a press writes one note; no agent works.";
+export const ORCHESTRATOR_DOWN_CAVEAT = "The team cannot start right now. Pressing Continue will only write a short note.";
 
 /**
  * The toast one press of Continue earns (BUILD §9.4): the api's own sentence about what happened (`summary`, first-time
@@ -242,7 +242,7 @@ export function describeContinue(result: ContinueResult, builder = false): { tit
  */
 export function lastCycleCostLine(cost: { amountMinor: number; currency: string } | null): string | null {
   if (!cost) return null;
-  return `Last cycle cost ${formatCredits(cost)} · Estimate`;
+  return `The last round of work cost ${formatCredits(cost)} · Estimate`;
 }
 
 /**
@@ -258,8 +258,8 @@ type PauseResult = RouterOutputs["business"]["pauseCycle"];
 /** The toast a press of Pause earns: the round paused, the run ended (so no new cycle starts), or nothing to pause. */
 export function describePause(result: Pick<PauseResult, "paused" | "pausedTasks" | "reason"> & { runEnded?: boolean }): { title: string; description: string; tone: "info" | "warn" } {
   if (result.paused) return { title: "Paused", description: `${result.pausedTasks} running task${result.pausedTasks === 1 ? "" : "s"} paused. Press Continue to pick up where the team stopped.`, tone: "warn" };
-  if (result.runEnded) return { title: "Paused", description: "No new cycle starts. Press Continue to pick up where the team stopped.", tone: "warn" };
-  return { title: "Nothing to pause", description: result.reason ?? "No cycle is running.", tone: "info" };
+  if (result.runEnded) return { title: "Paused", description: "No new round of work starts. Press Continue to pick up where the team stopped.", tone: "warn" };
+  return { title: "Nothing to pause", description: result.reason ?? "The team is not working right now.", tone: "info" };
 }
 
 /**
@@ -285,7 +285,7 @@ export function wantsFirstContinueCallout(cycle: { completedCount: number }, can
   return canChange && cycle.completedCount <= 1;
 }
 
-export const FIRST_CONTINUE_CALLOUT = { tourId: "first-continue", targetId: "continue", title: "This is how you move forward", body: "Press it when you have answered what needs you." } as const;
+export const FIRST_CONTINUE_CALLOUT = { tourId: "first-continue", targetId: "continue", title: "This is how you move forward", body: "One press and your team works until nothing is left to do. Anything that needs you shows in Needs you." } as const;
 
 /**
  * The Example frame (docs/UX_AUDIT_AND_PLAN.md §12 item 5): what the shell changes for an example viewer (a read-only
@@ -571,7 +571,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
     trpc.business.resumeAgents.mutationOptions({
       onSuccess: (result) => {
         void invalidate(["business", "dev", "department", "team", "cycle"]);
-        toast({ title: "Agents resumed", description: `${result.resumedAgents} agent${result.resumedAgents === 1 ? " is" : "s are"} back. The next cycle picks up the paused tasks.`, tone: "good" });
+        toast({ title: "Agents resumed", description: `${result.resumedAgents} agent${result.resumedAgents === 1 ? " is" : "s are"} back. The next round of work picks up the paused tasks.`, tone: "good" });
       },
     }),
   );

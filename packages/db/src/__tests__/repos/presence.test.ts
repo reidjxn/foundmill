@@ -49,7 +49,7 @@ describe("presenceRepo.retentionReport", () => {
     for (const day of ["2026-11-03", "2026-11-05", "2026-11-09", "2026-11-12"]) await h.asUser(A.ownerId).run((tx) => presenceRepo.ping(tx, A.businessId, A.ownerId, { now: t(`${day}T09:00:00Z`), timeZone: "UTC" }));
     const report = await presenceRepo.retentionReport(h.db, { from: t("2026-11-01T00:00:00Z"), to: t("2026-11-08T00:00:00Z") });
     const row = report.rows.find((r) => r.businessId === A.businessId)!;
-    expect(row.activation).toEqual({ activated: true, activatedAt: t("2026-11-02T12:30:00Z"), missing: [] });
+    expect(row.activation).toEqual({ activated: true, activatedAt: t("2026-11-02T12:30:00Z"), missing: [], pagePublishedWithin24h: false, minutesToPage: null });
     expect(row.habit).toEqual({ habit: true, returnDays: ["2026-11-03", "2026-11-05", "2026-11-09"] });
     expect(row.returnsFromNotifications).toBe(1);
     expect(report).toMatchObject({ activated: 1, habit: 1 });

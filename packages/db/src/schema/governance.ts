@@ -1,7 +1,7 @@
 /** 0011 — integrations, credentials, webhooks, policies, approvals, audit log, events, outbox; 0085 — account events and their outbox. */
 import { ACTOR_KINDS, CONNECTOR_AUTH_KINDS, DECISION_TYPES, INTEGRATION_STATUSES } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
-import { bigint, boolean, char, foreignKey, index, integer, jsonb, pgTable, text, unique, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { bigint, boolean, char, date, foreignKey, index, integer, jsonb, pgTable, text, unique, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
 import { bytea, createdAt, emptyArray, emptyObject, id, timestamps, timestampsWithArchive, tstz } from "./_common";
 import { businessId } from "./_refs";
@@ -227,6 +227,8 @@ export const events = pgTable(
     index("events_type_idx").on(t.businessId, t.type, t.occurredAt),
     index("events_unnarrated_idx").on(t.businessId, t.occurredAt).where(sql`not ${t.narrated}`),
     index("events_entity_ids_idx").using("gin", t.entityIds),
+    // 0109 (A8-08): cross-business reads of one type over a window (the nightly numbers).
+    index("events_type_occurred_idx").on(t.type, t.occurredAt.desc()),
     uniqueIndex("events_idempotency_idx").on(t.businessId, t.idempotencyKey).where(sql`${t.idempotencyKey} is not null`),
   ],
 );
@@ -279,6 +281,18 @@ export const accountEvents = pgTable(
   ],
 );
 export type AccountEventRow = typeof accountEvents.$inferSelect;
+
+/**
+ * 0109 (WP-02 T10) — the nightly numbers: one row per UTC day of counts across real projects (`MetricFacts`, packages/db
+ * `repos.metrics`). No ids, no names, not business-scoped; RLS on with no policy and no client grant (service role only).
+ */
+export const platformMetricDays = pgTable("platform_metric_days", {
+  day: date("day", { mode: "string" }).primaryKey(),
+  id: uuid("id").notNull().defaultRandom().unique("platform_metric_days_id_key"),
+  facts: jsonb("facts").$type<Record<string, unknown>>().notNull(),
+  ...timestamps(),
+});
+export type PlatformMetricDayRow = typeof platformMetricDays.$inferSelect;
 
 /** The columns of `account_events` the `authenticated` role may select (0085): everything but these is the services'. */
 export const ACCOUNT_EVENT_CLIENT_COLUMNS = ["id", "user_id", "type", "occurred_at", "payload", "created_at"] as const;

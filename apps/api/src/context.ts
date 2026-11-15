@@ -36,6 +36,9 @@ import type { BusinessAccess } from "./trpc";
 /** The api's pool size unless API_DB_POOL_MAX says otherwise. */
 export const API_DB_POOL_DEFAULT = 10;
 
+/** What /health reports of the migrations (WP-11 T2): `applied` and `expected` are null when nothing was checked. */
+export type SchemaState = { ready: boolean; applied: number | null; expected: number | null };
+
 export interface ApiDeps {
   env: Env;
   /** Service-role Drizzle database. User-originated queries go through `withRls` (see trpc.ts `ctx.rls`). */
@@ -72,6 +75,8 @@ export interface ApiDeps {
     db(): Promise<boolean>;
     redis(): Promise<boolean>;
     temporal(): Promise<boolean>;
+    /** Whether every migration is applied (index.ts sets it after a failed migrateOnBoot); absent means ready. */
+    schema?(): Promise<SchemaState>;
   };
   /** The outbox relay's supervisor (index.ts); absent in tests and the in-process caller. /health reports its state. */
   relay?: RelaySupervisor | null;
@@ -104,6 +109,8 @@ export interface Context extends ApiDeps {
    * tests.
    */
   clientAddress?: string | null;
+  /** Which client sent the request (WP-02 T9): "app" when `x-foundmill-client` names the mobile app, else "web". */
+  clientKind?: "web" | "app";
   /**
    * The membership and business lookups `businessProcedure` made in this HTTP request (trpc.ts), keyed by user and
    * business, so a batch of procedures for one business checks membership once. A new, empty map for every request
@@ -240,7 +247,7 @@ export function createContextFactory(deps: ApiDeps) {
     // The request's own view of the database: its transactions wait for the gate's permits, and it starts none once the
     // client has closed the request.
     const db = deps.txGate ? deps.txGate.forRequest(deps.db, opts.req.signal) : deps.db;
-    return { ...deps, db, userId: user?.userId ?? null, email: user?.email ?? null, authenticatedAt: user?.authenticatedAt ?? null, emailConfirmed, requestId, clientAddress: clientAddressOf(opts.req.headers, c), accessMemo: new Map(), admissionMemo: new Map() };
+    return { ...deps, db, userId: user?.userId ?? null, email: user?.email ?? null, authenticatedAt: user?.authenticatedAt ?? null, emailConfirmed, requestId, clientAddress: clientAddressOf(opts.req.headers, c), clientKind: clientKindOf(opts.req.headers.get("x-foundmill-client")), accessMemo: new Map(), admissionMemo: new Map() };
   };
 }
 
@@ -250,6 +257,11 @@ export function createContextFactory(deps: ApiDeps) {
  * to its left and is ignored. Without the header (local stacks), the socket's peer. Calls that come through the web's
  * server (the public page's Follow form) all carry the web's egress address, so the limit keyed on it must be generous.
  */
+/** "app" for the mobile app's `x-foundmill-client: mobile/<version> <platform>`, else "web" (the web sends none). */
+export function clientKindOf(header: string | null | undefined): "web" | "app" {
+  return typeof header === "string" && /^mobile\//.test(header.trim()) ? "app" : "web";
+}
+
 export function clientAddressOf(headers: Headers, c?: HonoContext): string | null {
   const forwarded = headers.get("x-forwarded-for");
   const last = forwarded?.split(",").map((s) => s.trim()).filter(Boolean).at(-1);
