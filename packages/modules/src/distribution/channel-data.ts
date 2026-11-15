@@ -5,6 +5,7 @@
  */
 import { LIMITS } from "@foundmill/config";
 import { formatMoney, type ChannelTokenData, type FormCell } from "@foundmill/dugout";
+import { CHANNEL_BY_TAP_SENTENCE, type ChannelAvailabilityRow } from "@foundmill/shared/channel-availability";
 import { CHANNEL_KEYS, CHANNEL_META, CHANNEL_WINDOW_DAYS, type ApprovalState, type CampaignStatus, type ChannelKey, type ChannelLine } from "@foundmill/shared/constants";
 import { weekKey } from "@foundmill/widgets/shared/time";
 import type { AgentRow, AssetRow, BlendedSummary, CampaignRow, ChannelMetricRow, ChannelRow, ChannelSummaryRow, RecommendationRow } from "./types";
@@ -23,6 +24,25 @@ export interface ChannelView extends ChannelRow {
   paused: boolean;
   campaigns: CampaignRow[];
   form5: FormCell[];
+  /** Whether the channel can really act for this business (the API's answer; available when the API sent none). */
+  availability: ChannelAvailabilityRow;
+}
+
+/** An older response without availability reads as available, so nothing is hidden by a missing field. */
+const ASSUMED_AVAILABLE: ChannelAvailabilityRow = { available: true, reason: "acts", sentence: null };
+
+/**
+ * A channel the Board and the Channels table show: one that can really act, or one the founder put on the board in
+ * offline tracking (the agent prepares, the founder submits). The rest are listed as "Not available yet" in Builder
+ * view only (founder, 2026-11-11).
+ */
+export function channelShown(view: Pick<ChannelRow, "enabled" | "kitMode" | "availability">): boolean {
+  return view.availability?.available !== false || (view.enabled && !!view.kitMode);
+}
+
+/** The channels shown and the ones that are not available yet, in the order given. */
+export function splitByAvailability<V extends Pick<ChannelRow, "enabled" | "kitMode" | "availability">>(views: readonly V[]): { shown: V[]; unavailable: V[] } {
+  return { shown: views.filter(channelShown), unavailable: views.filter((v) => !channelShown(v)) };
 }
 
 export function potentialStars(potential: number | string | null | undefined): number {
@@ -63,10 +83,15 @@ export interface BuildChannelViewsInput {
   /** The business's own currency, for a channel not stored yet (a stored one carries its own). */
   currency: string;
   today?: string;
+  /** `distribution.channels.list`'s availability by key, for a channel with no stored row. */
+  availability?: Partial<Record<ChannelKey, ChannelAvailabilityRow>>;
 }
 
-/** All 15 channels in line order, each merged with its stored row, recommendation, campaigns and five-week form. */
-export function buildChannelViews({ channels, campaigns = [], metrics = [], recommendation, currency, today }: BuildChannelViewsInput): ChannelView[] {
+/**
+ * All 15 channels in line order, each merged with its stored row, recommendation, campaigns, five-week form and
+ * availability. Screens show `splitByAvailability(views).shown`; a channel that is not available is never recommended.
+ */
+export function buildChannelViews({ channels, campaigns = [], metrics = [], recommendation, currency, today, availability: byChannel }: BuildChannelViewsInput): ChannelView[] {
   const byKey = new Map((channels ?? []).map((c) => [c.channelKey, c]));
   const recByKey = new Map((recommendation ?? []).map((r) => [r.channel, r]));
   return CHANNEL_KEYS.map((key) => {
@@ -78,10 +103,12 @@ export function buildChannelViews({ channels, campaigns = [], metrics = [], reco
     const range = rec?.cpa_range_minor ?? null;
     const cpaRange = range && range.high > 0 ? { low: Math.min(range.low, range.high), high: Math.max(range.low, range.high) } : null;
     const cap = cpaRange?.high ?? row.form?.cpaMinor ?? null;
+    const availability = stored?.availability ?? byChannel?.[key] ?? ASSUMED_AVAILABLE;
     return {
       ...row,
+      availability,
       fit: clampFit(rec?.fit ?? row.fit),
-      recommended: rec ? rec.recommended : row.recommended,
+      recommended: (rec ? rec.recommended : row.recommended) && availability.available,
       persisted: !!stored,
       scored: !!rec || !!stored?.scoredAt,
       stars: rec ? potentialStars(rec.potential) : potentialStars(row.potential),
@@ -186,6 +213,8 @@ export function toChannelToken(view: ChannelView, opts: TokenOptions = {}): Chan
     paused: view.paused,
     // The channel's own setting, as the Channels table shows it (not the channel's default).
     kitMode: !!view.kitMode,
+    // Tap-to-post: on the board, and never counted as running.
+    founderPosts: postedByTap(view),
     results,
   };
 }
@@ -210,27 +239,38 @@ export function totalBudget(views: readonly Pick<ChannelView, "enabled" | "budge
 
 /* ---------- Status ---------- */
 
-export type ChannelStatusWord = "Running" | "Starting" | "Waiting for the product" | "Paused" | "Off the board" | "Not scored";
+export type ChannelStatusWord = "Running" | "You post it" | "Starting" | "Waiting for the product" | "Paused" | "Off the board" | "Not scored";
 
 /** Every status word, in the order the Channels table's filter offers them. */
-export const CHANNEL_STATUS_WORDS: readonly ChannelStatusWord[] = ["Running", "Starting", "Waiting for the product", "Paused", "Off the board", "Not scored"];
+export const CHANNEL_STATUS_WORDS: readonly ChannelStatusWord[] = ["Running", "You post it", "Starting", "Waiting for the product", "Paused", "Off the board", "Not scored"];
+
+/**
+ * A channel the founder posts by tap (founder, 2026-11-12; the API's `reason: "by_tap"`): available with no connector,
+ * and never run by the team. On the board it reads "You post it": it has no engine, so it is never "Running" or "Starting".
+ */
+export function postedByTap(view: { availability?: Pick<ChannelAvailabilityRow, "reason"> | null }): boolean {
+  return view.availability?.reason === "by_tap";
+}
 
 /** Why a channel on the board reads "Starting": its engine has not started (yet). */
 export const ENGINE_STARTING_HINT = "On the board, but its engine has not started yet. It starts within 15 minutes; until then nothing is drafted or launched.";
 /** Why a channel on the board reads "Waiting for the product" (founder, 2026-10-18): the founder has not started distribution. */
-export const ENGINE_WAITING_HINT = "On the board. Its engine starts when you start distribution (Distribution › Board › Start distribution).";
+export const ENGINE_WAITING_HINT = "On the board. Its engine starts when you start distribution (Customers › Board › Start distribution).";
 
 /** The hint behind a status word, for the pill's title. */
 export function statusHint(word: ChannelStatusWord): string | undefined {
-  return word === "Starting" ? ENGINE_STARTING_HINT : word === "Waiting for the product" ? ENGINE_WAITING_HINT : undefined;
+  return word === "Starting" ? ENGINE_STARTING_HINT : word === "Waiting for the product" ? ENGINE_WAITING_HINT : word === "You post it" ? CHANNEL_BY_TAP_SENTENCE : undefined;
 }
 
 /**
  * A channel on the board is "Running" only when its engine is recorded (`engineWorkflowId`); one without an engine reads
  * "Starting" (audit GTM-01), or "Waiting for the product" while the founder has not started distribution (founder,
  * 2026-10-18; `distributionStarted: false`). A row from before the field existed (undefined) is taken as running.
+ * A channel the founder posts by tap reads "You post it" whenever it is on the board: no engine runs for it, before or
+ * after distribution starts, and the founder can post from the first day.
  */
-export function channelStatus(view: Pick<ChannelView, "enabled" | "paused" | "scored"> & { persisted?: boolean; engineWorkflowId?: string | null }, options: { distributionStarted?: boolean | null } = {}): { tone: "good" | "warn" | "neutral"; word: ChannelStatusWord } {
+export function channelStatus(view: Pick<ChannelView, "enabled" | "paused" | "scored"> & { persisted?: boolean; engineWorkflowId?: string | null; availability?: Pick<ChannelAvailabilityRow, "reason"> | null }, options: { distributionStarted?: boolean | null } = {}): { tone: "good" | "warn" | "neutral"; word: ChannelStatusWord } {
+  if (view.enabled && postedByTap(view)) return { tone: "neutral", word: "You post it" };
   if (view.enabled && view.paused) return { tone: "warn", word: "Paused" };
   if (view.enabled && options.distributionStarted === false) return { tone: "neutral", word: "Waiting for the product" };
   if (view.enabled && view.persisted !== false && view.engineWorkflowId === null) return { tone: "warn", word: "Starting" };

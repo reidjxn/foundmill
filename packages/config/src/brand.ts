@@ -4,6 +4,13 @@ export const APP_TAGLINE = "Build a real business with a team of AI agents." as 
 /** Canonical public origin of the product (apex domain purchased 2026-10-06). */
 export const APP_DOMAIN = "foundmill.com" as const;
 export const APP_ORIGIN = `https://${APP_DOMAIN}` as const;
+/**
+ * The registered postal address of the company that runs the product, one line (founder, 2026-11-13). The one source:
+ * the Terms and the Privacy Policy state it (apps/web content/legal/facts.ts), and every email the product sends of its
+ * own carries it in the footer (US CAN-SPAM: a valid physical postal address in every commercial message). The address
+ * only: the company's name stays on the two legal pages (founder, 2026-11-13; apps/web legal-content.test.ts).
+ */
+export const APP_POSTAL_ADDRESS = "Valhallavägen 38, 11422 Stockholm, Sweden" as const;
 
 // --- names only the platform may use (audit GLS2F-06, LS2-04) ---------------------------------------------------------
 
@@ -43,6 +50,20 @@ export function isReservedName(text: string, kind: "display-name" | "subject" = 
 
 /** What a refused name says. */
 export const RESERVED_NAME_MESSAGE = `That name is reserved for ${APP_NAME} and its staff. Choose another.`;
+
+/**
+ * The bidi embedding, override and isolate controls (U+202A–U+202E, U+2066–U+2069). In a name they turn the text that
+ * follows around ("Ana" + U+202E + "moc.elpmaxe" reads as an address), so a name never holds one.
+ */
+export const BIDI_CONTROL_RE = /[\u202a-\u202e\u2066-\u2069]/;
+
+/** Whether a name holds a bidi embedding, override or isolate control. */
+export function hasBidiControl(text: string): boolean {
+  return BIDI_CONTROL_RE.test(text);
+}
+
+/** What a name with a bidi control says. */
+export const BIDI_NAME_MESSAGE = "That name has a hidden character that changes the direction of the text. Type it again without it.";
 
 /** A name derived from something else (an email's local part) when it is free to use, else `fallback`. */
 export function freeDisplayName(candidate: string | null | undefined, fallback = "Founder"): string {

@@ -1,6 +1,6 @@
 import { ENTITY_MARKUP_RE } from "@foundmill/shared";
 import { describe, expect, it } from "vitest";
-import { CategoriserOutput, CoachOutput, CodeReviewOutput, CommentaryOutput, CyclePlanOutput, IDEA_ATTRIBUTE_KEYS, IdeationOutput, LinkerOutput, ModerationOutput, SkillGradeOutput, TaskGraphOutput } from "../schemas";
+import { CategoriserOutput, CoachOutput, CodeReviewOutput, CommentaryOutput, DocumentReviewOutput, CyclePlanOutput, IDEA_ATTRIBUTE_KEYS, IdeationOutput, LinkerOutput, ModerationOutput, SkillGradeOutput, TaskGraphOutput } from "../schemas";
 import { CHANNEL_WAITS_REASON, MockModelClient, resolveMention } from "./index";
 import { AGENTS, AGENT_TOMAS, MANIFEST, ORG_ALDER, ORG_NORTHWIND, PERSON_MARA, promptWith } from "./fixtures.test-helpers";
 
@@ -76,7 +76,7 @@ describe("chief of staff cycle plan (BUILD §12.4)", () => {
     const idle = await client.complete({ route: "chiefOfStaff", messages: promptWith({ business_name: "Acme", max_agents: 3, open_tasks: [], roadmap_without_tasks: [{ id: "r1", title: "Pricing experiment", horizon: "now" }], agents: AGENTS }), schema: CyclePlanOutput });
     expect(idle.json.departments).toEqual([]);
     expect(idle.json.summary).toMatch(/1 roadmap item has no tasks yet/);
-    expect(idle.json.summary).toMatch(/the team plans it in the next cycles/);
+    expect(idle.json.summary).toMatch(/the team plans it in the next rounds of work/);
     expect(idle.json.summary).not.toMatch(/Plan tab|task graph/);
     expect(idle.json.summary).not.toMatch(/everything open is blocked/);
   });
@@ -134,6 +134,32 @@ describe("code review", () => {
     const r = await client.complete({ route: "codeReview", messages: promptWith({ diff }), schema: CodeReviewOutput });
     expect(r.json.verdict).toBe("approve");
     expect(r.json.findings).toEqual([]);
+  });
+});
+
+describe("document second read", () => {
+  const document = {
+    kind: "specification",
+    title: "Ledgerly",
+    sections: [
+      { id: "pricing", heading: "Pricing", text: "The team plan is $49 a month. The market is worth $4 billion." },
+      { id: "plan", heading: "Plan", text: "We will reach 300 customers by the end of year one. The team plan costs $59 a month." },
+    ],
+  };
+
+  it("flags a price stated two ways, an unlabeled forecast and a claim that needs a source, with short suggestions", async () => {
+    const r = await client.complete({ route: "documentReview", messages: promptWith({ document }), schema: DocumentReviewOutput });
+    const kinds = r.json.issues.map((i) => `${i.kind}:${i.location}`);
+    expect(kinds).toEqual(expect.arrayContaining(["inconsistency:plan", "unlabeled_figure:plan", "needs_source:pricing"]));
+    for (const i of r.json.issues) expect(i.suggestion.length).toBeLessThanOrEqual(120);
+  });
+
+  it("never calls a claim supported when its only source is simulated", async () => {
+    const claim = { id: "c1", location: "pricing", quote: "The market is worth $4 billion." };
+    const simulated = await client.complete({ route: "documentReview", messages: promptWith({ document, claims_to_check: [claim], sources: [{ id: "w1", claimId: "c1", simulated: true }] }), schema: DocumentReviewOutput });
+    expect(simulated.json.issues.find((i) => i.kind === "needs_source")).toMatchObject({ check: "unverifiable", sourceIds: ["w1"] });
+    const real = await client.complete({ route: "documentReview", messages: promptWith({ document, claims_to_check: [claim], sources: [{ id: "w1", claimId: "c1", simulated: false }] }), schema: DocumentReviewOutput });
+    expect(real.json.issues.find((i) => i.kind === "needs_source")).toMatchObject({ check: "supported", sourceIds: ["w1"] });
   });
 });
 

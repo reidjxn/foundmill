@@ -14,6 +14,7 @@
  * `ask` waits for the founder (once), a refused or failed tool call fails the action with the connector's reason.
  */
 import { LIMITS } from "@foundmill/config";
+import { channelRefusal } from "@foundmill/connectors";
 import { getTemplate, getTemplateByAgentType, initialVersionFromTemplate, type AgentTemplate } from "@foundmill/agents";
 import { changeAgentModels, repos, type Agent, type Business, type Entity, type PlanAction as PlanActionRow } from "@foundmill/db";
 import { PRICING_CURRENCY, resolveRoadmapItem, roadmapPatchFrom, SetAgentModelParams, UpdateRoadmapParams } from "@foundmill/models";
@@ -23,6 +24,7 @@ import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 import type { GatewayCallResponse } from "../gateway-client";
 import { grantApproval, openApprovalNote } from "./approvals";
+import { channelBlocked, channelEngineBlocked } from "./channel-availability";
 import { openAgentSession } from "./dispatch";
 import type { LoadedPlan, PlanActionResult, PlanActionView } from "./types";
 import { gmailSendArgs, messageFor, sendgridSendArgs } from "./connector-calls";
@@ -372,9 +374,19 @@ export function createPlanActivities(deps: OrchestratorDeps) {
         if (!isChannelKey(p.channel)) throw new Error("channel is required");
         const enabled = action.type === "enable_channel";
         const existing = await repos.channels.getByKey(db, businessId, p.channel);
+        // Only a channel that can really act is turned on (founder, 2026-11-11); one in offline tracking may be. The
+        // action fails with the sentence a founder can read, and the channel stays as it was.
+        if (enabled) {
+          const blocked = await channelBlocked(deps, ctx.business, p.channel, existing ? existing.kitMode : CHANNEL_META[p.channel].kitModeByDefault);
+          if (blocked) throw new Error(channelRefusal(p.channel, blocked));
+        }
         const channel = existing ? await repos.channels.setEnabled(db, businessId, existing.id, enabled) : await repos.channels.upsert(db, businessId, { channelKey: p.channel, line: CHANNEL_META[p.channel].line, enabled, kitMode: CHANNEL_META[p.channel].kitModeByDefault, ownerAgentId: action.agentId });
         // Before the founder has started distribution (0062) the channel keeps its place on the board; its engine starts
         // with Start distribution and nothing is recorded now.
+        // A channel the founder posts by tap goes on the board and gets no engine (founder, 2026-11-12): no agent can
+        // publish there, so nothing is recorded as running and the result says who posts.
+        const founderPosts = enabled && (await channelEngineBlocked(deps, ctx.business, p.channel, channel.kitMode)) !== null;
+        if (founderPosts) return { result: { channelId: channel.id, enabled, deferred: "the founder posts this channel with one press on each draft; no engine runs for it" }, spawn: [] };
         const waiting = enabled && !(await repos.businesses.distributionStarted(db, businessId));
         if (waiting) return { result: { channelId: channel.id, enabled, deferred: "distribution has not started; the engine starts with it" }, spawn: [] };
         // The engine's id is recorded with the channel so Stop all agents (and the Distribution toggle) can reach it;
@@ -390,7 +402,10 @@ export function createPlanActivities(deps: OrchestratorDeps) {
         const amount = num(p.amount_minor) ?? num(p.budget_minor);
         if (amount === null) throw new Error("amount_minor is required");
         if (isChannelKey(p.channel)) {
-          const existing = (await repos.channels.getByKey(db, businessId, p.channel)) ?? (await repos.channels.upsert(db, businessId, { channelKey: p.channel, line: CHANNEL_META[p.channel].line, enabled: true, ownerAgentId: action.agentId }));
+          // A budget on a channel with no row yet creates the row; it goes on the board only if the channel can run.
+          const existing =
+            (await repos.channels.getByKey(db, businessId, p.channel)) ??
+            (await repos.channels.upsert(db, businessId, { channelKey: p.channel, line: CHANNEL_META[p.channel].line, enabled: (await channelEngineBlocked(deps, ctx.business, p.channel, false)) === null, ownerAgentId: action.agentId }));
           const channel = await repos.channels.setBudget(db, businessId, existing.id, amount, currency);
           return { result: { channelId: channel.id, budgetMinor: amount, currency }, spawn: [] };
         }

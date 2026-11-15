@@ -7,12 +7,15 @@ import { HOUSE_STYLE } from "@foundmill/agents";
 import { AGENT_STYLES, ARCHETYPES, Archetype, BUSINESS_MODES, CurrencyCode, GAME_MODES, ValidationError } from "@foundmill/shared";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { channelAvailabilityFacts } from "@foundmill/connectors";
+import { channelAnswer } from "../services/channel-availability";
 import { commitIdea, squadPreview } from "../services/commit";
 import { conceptPersona, conceptStarters, replyAboutConcept, replyStream, type ReplyHooks, type ReplyStreamEvent } from "../services/conversation";
 import { checkDomainAvailability, DomainCheckInput } from "../services/domains";
 import { linkableImportJob } from "../services/foundations";
-import { draftEventStream, draftIdeas, isMeta, readMeta, takeIdeationAllowance, withMeta, type DraftEvent } from "../services/ideation";
+import { draftEventStream, draftIdeas, isMeta, readMeta, takeIdeationAllowance, withMeta, writeIdea, type DraftEvent } from "../services/ideation";
 import { importJobKey } from "../services/import";
+import { requireAdult } from "../services/adults";
 import { requireAdultToGoLive } from "../services/live";
 import { LogoChoice, takeLogoCheck } from "../services/logo";
 import { modelLimited } from "../services/model-limits";
@@ -183,6 +186,42 @@ export const ideaRouter = router({
   }),
 
   /**
+   * "Use my idea as written" (first-time founder report, Nov 8, 2026): one card from the founder's own words. The
+   * Ideation agent rates it (one card call, one draft of the allowance); the saved card keeps the founder's name and
+   * words exactly and is flagged as theirs, so Commit and the foundations build on them first.
+   */
+  write: protectedProcedure
+    .input(z.object({ title: z.string().trim().min(1).max(60), pitch: z.string().trim().min(1).max(4000), archetype: Archetype.nullable().default(null) }))
+    .use(modelLimited("ideation"))
+    .mutation(({ ctx, input, signal }) => writeIdea({ db: ctx.db, models: ctx.models, limits: ctx.limits, userId: ctx.userId, log: ctx.log }, input, { signal })),
+
+  /**
+   * Edit a card before commit (first-time founder report, Nov 8, 2026: cards could only be merged or discarded): the
+   * name, the pitch and the kind of business, as a new version with the ratings carried over. Words the founder changes
+   * become the card's `founder_words`, the ground truth the foundations build on. No model call.
+   */
+  edit: protectedProcedure
+    .input(
+      z
+        .object({ ideaId: Id, title: z.string().trim().min(1).max(120).optional(), pitch: z.string().trim().min(1).max(4000).optional(), archetype: Archetype.nullable().optional() })
+        .refine((v) => v.title !== undefined || v.pitch !== undefined || v.archetype !== undefined, { message: "Change the name, the pitch or the kind of business", path: ["pitch"] }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const version = await repos.ideas.addVersion(ctx.db, ctx.userId, input.ideaId, (latest) => {
+        const pitchChanged = input.pitch !== undefined && input.pitch !== (latest.current?.pitch ?? latest.pitch);
+        return {
+          action: "edited",
+          ...(input.title !== undefined ? { title: input.title } : {}),
+          ...(input.pitch !== undefined ? { pitch: input.pitch } : {}),
+          ...(input.archetype !== undefined ? { archetype: input.archetype } : {}),
+          research: pitchChanged ? withMeta(latest.current?.research, { founder_words: input.pitch }) : (latest.current?.research ?? { citations: [] }),
+          parentVersionId: latest.current?.id ?? null,
+        };
+      });
+      return { version, idea: await repos.ideas.get(ctx.db, ctx.userId, input.ideaId) };
+    }),
+
+  /**
    * Compare 2–4 cards: side-by-side attributes + agent verdict (AC-11.1.4). One Opus call with no business to book it
    * to, so it spends a draft from the founder's drafting allowance (SEC-13), after the cards are found to be theirs.
    */
@@ -282,7 +321,8 @@ export const ideaRouter = router({
   domainCheck: protectedProcedure.input(DomainCheckInput).use(modelLimited("domains")).mutation(({ ctx, input }) => checkDomainAvailability(ctx, ctx.userId, input)),
 
   /** What "Take charge" will seed for an archetype (Commit screen preview). */
-  preview: protectedProcedure.input(z.object({ archetype: Archetype })).query(({ input }) => squadPreview(input.archetype)),
+  // The channels named are the starters a brand-new project can really run here (no integration is connected yet).
+  preview: protectedProcedure.input(z.object({ archetype: Archetype })).query(({ ctx, input }) => squadPreview(input.archetype, new Set(channelAnswer(channelAvailabilityFacts(ctx.env, { isDemo: false }, [])).teamRuns))),
 
   /** Take charge (AC-11.1.6, AC-11.1.7: default business mode is Assisted). */
   commit: protectedProcedure
@@ -303,6 +343,11 @@ export const ideaRouter = router({
         confirmAdult: z.boolean().optional(),
         /** "Run on autopilot": the business starts its own cycles; off unless chosen. */
         autopilot: z.boolean().default(false),
+        /**
+         * The overnight shift (retention plan, 2026-11-11): with `autopilot`, the daily cadence at about 2 AM in this zone
+         * (the founder's browser), one round of work a night. Absent: Autopilot's own defaults.
+         */
+        overnight: z.object({ timeZone: z.string().trim().max(64) }).optional(),
         /** The Launch step's "Anthropomorphic agents" switch; when given it becomes the founder's account preference. */
         anthropomorphicAgents: z.boolean().optional(),
         /** The Launch step's character style for them (0069); when given it becomes the founder's account preference too. */
@@ -316,10 +361,13 @@ export const ideaRouter = router({
       if (input.gameMode === "live") assertLiveOpen(ctx.env);
       const profile = await repos.founders.get(ctx.db, ctx.userId);
       if (!profile) throw new ValidationError("Complete your founder profile before taking charge of a business");
-      // A LIVE business is on the network from its first minute, so taking charge of one asks what Go live asks.
+      // A LIVE business is on the network from its first minute, so taking charge of one asks what Go live asks. Any
+      // project is for people 18 or older (services/adults.ts): an account with no confirmation on record (here before
+      // sign-up asked) cannot start one; the confirmation it gave at sign-up answers both.
       if (input.gameMode === "live") await requireAdultToGoLive(ctx.db, ctx.userId, input.confirmAdult);
+      else await requireAdult(ctx.db, ctx.userId, input.confirmAdult);
       // A logo is an upload check like any other (the SVG check is CPU work).
       if (input.logo) await takeLogoCheck(ctx.limits, ctx.userId);
-      return commitIdea(ctx.db, ctx.temporal, ctx.userId, input, () => importJobKey(ctx.env), { log: ctx.log });
+      return commitIdea(ctx.db, ctx.temporal, ctx.userId, input, () => importJobKey(ctx.env), { log: ctx.log, env: ctx.env });
     }),
 });

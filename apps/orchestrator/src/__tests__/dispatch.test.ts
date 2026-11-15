@@ -7,7 +7,6 @@ import { concurrencyAllowance, modelBudgetState, periodOf, repos, resumeBusiness
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createBriefActivities } from "../activities/brief";
 import { createChannelActivities, emptyChannelState } from "../activities/channel";
-import { founderJargonHits } from "@foundmill/shared";
 import { createCycleActivities, lacksTool, PLATFORM_DUTY_STOPPED_AUDIT_ACTION, TOOL_MISSING_STOPPED_AUDIT_ACTION } from "../activities/cycle";
 import { MODEL_BUDGET_ALERT_ACTION, WAGE_ALERT_ACTION, attemptSessionId, nextPeriodStart, openAgentSession, recoverAgents } from "../activities/dispatch";
 import { createHolidayActivities } from "../activities/holiday";
@@ -204,6 +203,10 @@ describe("wage caps at dispatch (BUILD §10.4)", () => {
     expect(await repos.agents.get(t.db, B(), t.workerId)).toMatchObject({ status: "paused", pausedReason: "wage_cap" });
     const note = (await repos.inbox.list(t.db, B(), { limit: 20 })).items.find((i) => /reached its wage cap/.test(i.subject));
     expect(note?.bodyMd).toMatch(/until Nov 1, 2026/);
+    // The agent is named as markup with its stored name; the subject stays plain (One name everywhere, Nov 8, 2026).
+    const worker = await repos.agents.get(t.db, B(), t.workerId);
+    expect(note?.bodyMd.startsWith(`[[ent:${worker.id}|${worker.name}]] has spent`)).toBe(true);
+    expect(note?.subject).toBe(`${worker.name} reached its wage cap: paused`);
     // The brief shows it and the planner gives it nothing.
     const b = await brief.loadBrief({ businessId: B() });
     expect(b.agents.find((a) => a.id === t.workerId)).toMatchObject({ status: "paused", wageRemainingMinor: -50 });
@@ -313,12 +316,9 @@ describe("a task no agent has a tool for leaves the loop after one attempt", () 
     const audits = (await repos.audit.list(t.db, B(), { action: TOOL_MISSING_STOPPED_AUDIT_ACTION, limit: 20 })).items.filter((a) => (a.target as { id: string }).id === noTool.id);
     expect(audits).toHaveLength(1);
     expect(audits[0]!.details).toMatchObject({ cycleNumber: 12, dependentsFreed: 1 });
-    // One line to the founder, in their words, that does not hold Continue.
-    const notes = (await repos.inbox.list(t.db, B(), { limit: 50 })).items.filter((i) => i.subject === "Only you can do this: Import agent skills as business skills");
-    expect(notes).toHaveLength(1);
-    expect(notes[0]).toMatchObject({ type: "warning", blocksContinue: false });
-    expect(notes[0]!.bodyMd).toContain("the team has no way to do it on its own, so it is stopped. If you want it done, it is yours to do; otherwise nothing more happens.");
-    expect(founderJargonHits(notes[0]!.bodyMd)).toEqual([]);
+    // A missing tool is the platform's gap, never a founder chore: nothing reaches the Inbox (Nov 7, 2026).
+    const notes = (await repos.inbox.list(t.db, B(), { limit: 50 })).items.filter((i) => i.subject.includes("Import agent skills as business skills") || i.subject.startsWith("Only you can do this"));
+    expect(notes).toEqual([]);
     const after = await brief.loadBrief({ businessId: B() });
     expect(after.openTasks.find((x) => x.id === dependent.id)).toMatchObject({ blocked: false, dependsOn: [] });
   });

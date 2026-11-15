@@ -16,6 +16,13 @@ export interface PublicEnv {
   integrationsMode: "mock" | "live";
   /** NEXT_PUBLIC_APP_URL: the canonical web origin magic links return to; empty means APP_ORIGIN outside development (lib/auth/canonical-origin.ts). */
   appUrl: string;
+  /**
+   * NEXT_PUBLIC_AUTH_GOOGLE=on: the sign-in page offers "Continue with Google" (Supabase's Google provider, docs/DEPLOY.md
+   * §4 "Signing in with Google"). Off unless exactly "on", so the button never appears before the provider is set up.
+   */
+  authGoogle: boolean;
+  /** NEXT_PUBLIC_TURNSTILE_SITE_KEY: Cloudflare Turnstile's site key for the bot check of the idea box and the Follow form on public pages; empty uses the mock token (development stacks only). */
+  turnstileSiteKey: string;
 }
 
 const APP_ENVS: readonly PublicAppEnv[] = ["development", "test", "staging", "production"];
@@ -38,6 +45,8 @@ export function parsePublicEnv(raw: Record<string, string | undefined>): PublicE
     supabaseAnonKey: raw.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
     integrationsMode: raw.NEXT_PUBLIC_INTEGRATIONS_MODE === "live" ? "live" : "mock",
     appUrl: trimSlash(raw.NEXT_PUBLIC_APP_URL ?? ""),
+    authGoogle: raw.NEXT_PUBLIC_AUTH_GOOGLE?.trim().toLowerCase() === "on",
+    turnstileSiteKey: raw.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim() ?? "",
   };
 }
 
@@ -56,6 +65,8 @@ export function publicEnv(): PublicEnv {
     NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     NEXT_PUBLIC_INTEGRATIONS_MODE: process.env.NEXT_PUBLIC_INTEGRATIONS_MODE,
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
+    NEXT_PUBLIC_AUTH_GOOGLE: process.env.NEXT_PUBLIC_AUTH_GOOGLE,
+    NEXT_PUBLIC_TURNSTILE_SITE_KEY: process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
   });
   return cached;
 }
@@ -68,6 +79,11 @@ export function isDevLike(env: Pick<PublicEnv, "appEnv"> = publicEnv()): boolean
 /** Supabase Auth is configured; without it only the dev bypass can sign in. */
 export function hasSupabase(env: Pick<PublicEnv, "supabaseUrl" | "supabaseAnonKey"> = publicEnv()): boolean {
   return env.supabaseUrl.length > 0 && env.supabaseAnonKey.length > 0;
+}
+
+/** "Continue with Google" is offered on the sign-in page (NEXT_PUBLIC_AUTH_GOOGLE=on). */
+export function googleSignInEnabled(env: Pick<PublicEnv, "authGoogle"> = publicEnv()): boolean {
+  return env.authGoogle;
 }
 
 /** The Simulate panel (BUILD §13.3) exists in development and staging only; it calls `dev.simulate` on apps/api, never ingest directly (SEC-2). */

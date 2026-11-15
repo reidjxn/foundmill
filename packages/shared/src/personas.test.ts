@@ -5,9 +5,14 @@ import {
   DEFAULT_AGENT_STYLE,
   PERSONAS,
   STYLE_CATALOGS,
+  BACKGROUND_HELPER_AGENT_TYPES,
+  agentDisplay,
   agentDisplayName,
+  agentMention,
   agentLabel,
   characterFor,
+  isBackgroundHelper,
+  withAgentNames,
   characterPortraitPrompt,
   isAgentStyle,
   personaByKey,
@@ -82,6 +87,72 @@ describe("display", () => {
     expect(agentDisplayName({ name: "Planner", personaKey: "amara" }, true, "cartoon_2d")).toBe("Amara");
     expect(agentDisplayName(cos, false, "fantasy")).toBe("Chief of Staff");
     expect(agentLabel({ name: "Planner", personaKey: "nobody" }, true, "fantasy")).toBe("Planner");
+  });
+});
+
+describe("agentDisplay (one name everywhere)", () => {
+  const cos = { name: "Chief of Staff", role: "Chief of Staff", personaKey: "malik" };
+  const helper = { name: "Entity Linker", role: "Entity linking utility", personaKey: "mei", layer: "utility" };
+  it("is the one rule behind agentDisplayName and agentLabel", () => {
+    expect(agentDisplay(cos, true, "name")).toBe(agentDisplayName(cos, true));
+    expect(agentDisplay(cos, true)).toBe(agentLabel(cos, true));
+    expect(agentDisplay(cos, { anthropomorphic: true, style: "cartoon_2d" }, "label")).toBe(agentLabel(cos, true, "cartoon_2d"));
+    expect(agentDisplay(cos, { anthropomorphic: true, style: null }, "name")).toBe("Malik");
+    expect(agentDisplay(cos, { anthropomorphic: false, style: "fantasy" })).toBe("Chief of Staff");
+  });
+  it("keeps background helpers on their role name, even with the preference on", () => {
+    expect(agentDisplay(helper, true, "name")).toBe("Entity Linker");
+    expect(agentDisplay(helper, true, "label")).toBe("Entity Linker");
+    expect(agentLabel({ name: "Inbound sorter", personaKey: "mei", agentType: "triage" }, true)).toBe("Inbound sorter");
+    expect(isBackgroundHelper({ layer: "worker", agentType: "planner" })).toBe(false);
+    expect(isBackgroundHelper({ layer: "utility" })).toBe(true);
+    expect(BACKGROUND_HELPER_AGENT_TYPES).toHaveLength(5);
+  });
+});
+
+describe("withAgentNames", () => {
+  const lead = { name: "Engineering Lead", role: "Head of Engineering", personaKey: "malik" };
+  const cos = { name: "Chief of Staff", role: "Chief of Staff", personaKey: "amara" };
+  const shortName = { name: "Lead", role: "Lead", personaKey: "mei" };
+  const roster = [shortName, lead, cos];
+  const malik = agentLabel(lead, true);
+  it("returns the text unchanged with the preference off", () => {
+    expect(withAgentNames("Engineering Lead needs your OK", roster, false)).toBe("Engineering Lead needs your OK");
+  });
+  it("names each roster agent by its label, longest name first", () => {
+    expect(withAgentNames("Engineering Lead needs your OK to open a pull request", roster, true)).toBe(`${malik} needs your OK to open a pull request`);
+    expect(withAgentNames("Lead and Chief of Staff agree", roster, true)).toBe(`${agentLabel(shortName, true)} and ${agentLabel(cos, true)} agree`);
+    expect(withAgentNames("Engineering Lead needs your OK", roster, true, "name")).toBe("Malik needs your OK");
+  });
+  it("uses the first name alone in a possessive", () => {
+    expect(withAgentNames("Engineering Lead's change is ready to go live", roster, true)).toBe("Malik's change is ready to go live");
+    expect(withAgentNames("Engineering Lead’s change", roster, true)).toBe("Malik’s change");
+  });
+  it("matches whole words only", () => {
+    expect(withAgentNames("Leadership and Leads, misleading", roster, true)).toBe("Leadership and Leads, misleading");
+    expect(withAgentNames("(Engineering Lead):", roster, true)).toBe(`(${malik}):`);
+  });
+  it("is case-sensitive", () => {
+    expect(withAgentNames("engineering lead needs your OK", roster, true)).toBe("engineering lead needs your OK");
+  });
+  it("never rewrites inside entity markup", () => {
+    const text = "[[ent:00000000-0000-4000-8000-000000000001|Engineering Lead]] asked Engineering Lead";
+    expect(withAgentNames(text, roster, true)).toBe(`[[ent:00000000-0000-4000-8000-000000000001|Engineering Lead]] asked ${malik}`);
+  });
+  it("leaves background helpers and unknown names alone", () => {
+    const helper = { name: "Classifier", role: "Classification utility", personaKey: "kofi", layer: "utility" };
+    expect(withAgentNames("Classifier flagged it for Engineering Lead", [helper, lead], true)).toBe(`Classifier flagged it for ${malik}`);
+    expect(withAgentNames("Growth Lead needs you", [lead], true)).toBe("Growth Lead needs you");
+  });
+  it("agentMention writes markup with the stored name", () => {
+    const id = "00000000-0000-4000-8000-000000000001";
+    expect(agentMention({ id, name: "Engineering Lead" })).toBe(`[[ent:${id}|Engineering Lead]]`);
+    expect(agentMention({ id, name: "A|B]" })).toBe(`[[ent:${id}|A B]]`);
+    expect(agentMention({ id, name: "  " })).toBe("");
+  });
+  it("handles names with regex characters", () => {
+    const odd = { name: "Ops (EU) Lead", role: "Ops", personaKey: "malik" };
+    expect(withAgentNames("Ops (EU) Lead asks", [odd], true)).toBe(`${agentLabel(odd, true)} asks`);
   });
 });
 

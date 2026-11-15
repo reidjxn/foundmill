@@ -60,6 +60,36 @@ describe("stripInvalidMentions (final fallback)", () => {
     expect(validateMarkup(out, m).valid).toBe(true);
     expect(out).not.toContain("Hidden Investor");
   });
+
+  it("keeps a recovered display as text that cannot become an image or a link (a name a customer chose)", () => {
+    const text = `Thanks to [[ent:${ghost}|Ana ![](https://tracker.example/p.png) [offer](https://phish.example)]] for the order.`;
+    const out = stripInvalidMentions(text, m);
+    expect(out).toContain("Ana");
+    expect(out).not.toMatch(/\]\(/);
+    expect(out).not.toContain("![");
+    expect(validateMarkup(out, m).valid).toBe(true);
+    // A long name runs past the 120 characters the malformed opening is reported with: all of it stays inert.
+    const long = `Paid by [[ent:${ghost}|Ana Maria ${"de la Cruz ".repeat(8)}![](https://tracker.example/p.png)]] today.`;
+    const longOut = stripInvalidMentions(long, m);
+    expect(longOut).not.toMatch(/\]\(/);
+    expect(longOut).not.toContain("![");
+    expect(longOut).toMatch(/today\.$/);
+  });
+
+  it("removes only a broken opening that has no display, and never the note after it", () => {
+    const text = "See [[ent:abc for the detail. … Pay the VAT bill [[ent:zz|Ana]] by Friday.";
+    expect(stripInvalidMentions(text, m)).toBe("See for the detail. … Pay the VAT bill Ana by Friday.");
+    expect(stripInvalidMentions("Thanks [[ent:abc and see you Monday.", m)).toBe("Thanks and see you Monday.");
+    expect(stripInvalidMentions("[[ent:bad]] Done.", m)).toBe(" Done.");
+  });
+
+  it("reads a display only from a `|` right after the id: a later table or 'A | B' is the note's own text", () => {
+    const table = "Thanks [[ent:abc and see you Monday.\n\n| Item | Cost |\n| --- | --- |\n| Labels | $40 |";
+    expect(stripInvalidMentions(table, m)).toBe("Thanks and see you Monday.\n\n| Item | Cost |\n| --- | --- |\n| Labels | $40 |");
+    expect(stripInvalidMentions("See [[ent:abc for the detail, then pick A | B. Done.", m)).toBe("See for the detail, then pick A | B. Done.");
+    // A display that does follow the id is still recovered.
+    expect(stripInvalidMentions("Ask [[ent:abc|Ana about it", m)).toBe("Ask Ana about it");
+  });
 });
 
 describe("checkComposerText", () => {
@@ -76,5 +106,36 @@ describe("checkComposerText", () => {
     if (!second.ok) expect(second.reask).toBeNull();
     const good = checkComposerText(`[[ent:${FIXTURE_IDS.meridian}|Meridian]] replied.`, m);
     expect(good.ok).toBe(true);
+  });
+});
+
+describe("stripInvalidMentions: always valid, words kept (security re-check follow-ups)", () => {
+  it("never joins the words around a removed token into a mention of a hidden entity", () => {
+    const spliced = `Note [[[[ent:x]]ent:${FIXTURE_IDS.hiddenInvestor}|Secret]] end.`;
+    const out = stripInvalidMentions(spliced, m);
+    expect(validateMarkup(out, m).valid).toBe(true);
+    expect(validateMarkup(out, m).entityIds).not.toContain(FIXTURE_IDS.hiddenInvestor);
+    expect(out).not.toContain(`[[ent:${FIXTURE_IDS.hiddenInvestor}`);
+  });
+
+  it("keeps the space before a following mention", () => {
+    const text = `x [[ent:abc| [[ent:${FIXTURE_IDS.meridian}|Meridian]] replied.`;
+    const out = stripInvalidMentions(text, m);
+    expect(out).toBe(`x [[ent:${FIXTURE_IDS.meridian}|Meridian]] replied.`);
+    expect(validateMarkup(out, m).valid).toBe(true);
+  });
+
+  it("returns valid text for any of a set of hostile inputs", () => {
+    const hostile = [
+      `[[ent:[[ent:[[ent:${FIXTURE_IDS.hiddenInvestor}|S]]`,
+      `[[[[[[ent:a]]ent:b]]ent:${FIXTURE_IDS.hiddenInvestor}|S]]`,
+      `|[[ent:${FIXTURE_IDS.hiddenInvestor}|S\r\n]]`,
+      `[[ent:]] [[ent:|]] [[ent:${FIXTURE_IDS.meridian}|Meridian]]`,
+    ];
+    for (const text of hostile) {
+      const out = stripInvalidMentions(text, m);
+      expect(validateMarkup(out, m).valid, text).toBe(true);
+      expect(validateMarkup(out, m).entityIds, text).not.toContain(FIXTURE_IDS.hiddenInvestor);
+    }
   });
 });

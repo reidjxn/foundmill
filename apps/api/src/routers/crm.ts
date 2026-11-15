@@ -1,6 +1,7 @@
 /** crm.search/entity.list/get/update/merge/unmerge/create/requestDeletion/notes/roles (BUILD §11.12; AC-11.12.2 via RLS, AC-11.12.3 merge/unmerge). */
+import { INPUT_LIMITS } from "@foundmill/config";
 import { AddRoleInput, EntityListFilter, STRONG_IDENTIFIERS, SearchInput, UpdateEntityInput, repos } from "@foundmill/db";
-import { AppError } from "@foundmill/shared";
+import { AppError, boundedRecord, hasSectionAccess } from "@foundmill/shared";
 import { z } from "zod";
 import { Id, audit, router, sectionRead, sectionWrite } from "../trpc";
 
@@ -74,7 +75,7 @@ export const crmRouter = router({
     get: read.input(z.object({ entityId: Id })).query(({ ctx, input }) =>
       ctx.rls(async (tx) => {
         const entity = await repos.entities.resolve(tx, ctx.businessId, input.entityId);
-        const [profile, roles, relationships, interactions, mentions, journeys, mergeHistory] = await Promise.all([
+        const [profile, roles, relationships, interactions, mentions, journeys, mergeHistory, consents] = await Promise.all([
           repos.entities.profile(tx, ctx.businessId, entity.id),
           repos.entities.listRoles(tx, ctx.businessId, entity.id, { includeEnded: true }),
           repos.entities.listRelationships(tx, ctx.businessId, entity.id),
@@ -82,10 +83,19 @@ export const crmRouter = router({
           repos.entities.listMentions(tx, ctx.businessId, entity.id, 50),
           repos.journeys.listConversions(tx, ctx.businessId, { entityId: entity.id, limit: 50 }),
           repos.entities.mergeHistory(tx, ctx.businessId, entity.id),
+          repos.followers.consentStates(tx, ctx.businessId, [entity.id]),
         ]);
         // Each win carries its Customer Update id (null when it has none), so Re-watch and Activity link straight to it.
-        const conversions = (await repos.journeys.labelConversions(tx, ctx.businessId, journeys.items)).map(({ entityName: _name, ...c }) => c);
-        return { entity, profile, roles, relationships, interactions: interactions.items, mentions, conversions, mergeHistory, redirectedFrom: entity.id !== input.entityId ? input.entityId : null };
+        // A payment's amount is Finance's: a reader walled off Finance (a collaborator among them) gets it as null and
+        // `moneyHidden`, so the Commercial tab says the figures are hidden rather than show a total of nothing.
+        const moneyHidden = !hasSectionAccess(ctx.membership, "finance", "read");
+        const conversions = (await repos.journeys.labelConversions(tx, ctx.businessId, journeys.items)).map(({ entityName: _name, ...c }) => ({ ...c, amountMinor: moneyHidden ? null : c.amountMinor }));
+        // A follower of the public page (0079, double opt-in): when they confirmed ("Agreed to email on Oct 7, 2026"), or
+        // that they signed up and have not confirmed yet ("Not confirmed yet").
+        const consent = consents.get(entity.id);
+        const emailConsentAt = consent?.state === "confirmed" ? consent.confirmedAt : null;
+        const emailConsentPending = consent?.state === "pending";
+        return { entity, profile, roles, relationships, interactions: interactions.items, mentions, conversions, moneyHidden, mergeHistory, emailConsentAt, emailConsentPending, redirectedFrom: entity.id !== input.entityId ? input.entityId : null };
       }),
     ),
     update: write.input(z.object({ entityId: Id, patch: UpdateEntityInput })).mutation(({ ctx, input }) =>
@@ -117,7 +127,7 @@ export const crmRouter = router({
      * already holds is a duplicate (BUILD §11.12 "strong identifiers first"): the call is refused with a CONFLICT
      * (`duplicate_entity`, `details.existing` names the record) unless the founder confirms with `allowDuplicate`.
      */
-    create: write.input(z.object({ kind: z.enum(["person", "organisation", "venue"]), displayName: z.string().min(1).max(200), identifiers: z.record(z.string(), z.string()).default({}), aliases: z.array(z.string()).default([]), lawfulBasis: z.string().max(80).nullable().default(null), allowDuplicate: z.boolean().default(false) })).mutation(({ ctx, input: { allowDuplicate, ...input } }) =>
+    create: write.input(z.object({ kind: z.enum(["person", "organisation", "venue"]), displayName: z.string().min(1).max(200), identifiers: boundedRecord(INPUT_LIMITS.entityIdentifiers, z.record(z.string(), z.string())).default({}), aliases: z.array(z.string()).max(INPUT_LIMITS.entityAliases).default([]), lawfulBasis: z.string().max(80).nullable().default(null), allowDuplicate: z.boolean().default(false) })).mutation(({ ctx, input: { allowDuplicate, ...input } }) =>
       ctx.rls(async (tx) => {
         if (!allowDuplicate) {
           for (const key of STRONG_IDENTIFIERS) {
@@ -161,6 +171,13 @@ export const crmRouter = router({
         return role;
       }),
     ),
-    byRole: read.input(z.object({ role: z.string().min(1).max(80), stage: z.string().max(80).optional(), limit: z.number().int().min(1).max(500).default(100), cursor: z.string().nullish() })).query(({ ctx, input }) => ctx.rls((tx) => repos.entities.listByRole(tx, ctx.businessId, input.role, { stage: input.stage, limit: input.limit, cursor: input.cursor }))),
+    byRole: read.input(z.object({ role: z.string().min(1).max(80), stage: z.string().max(80).optional(), limit: z.number().int().min(1).max(500).default(100), cursor: z.string().nullish() })).query(({ ctx, input }) =>
+        ctx.rls(async (tx) => {
+          const page = await repos.entities.listByRole(tx, ctx.businessId, input.role, { stage: input.stage, limit: input.limit, cursor: input.cursor });
+          // A confirmed follower of the public page shows when they agreed to email (0079); a pending one, nothing yet.
+          const states = await repos.followers.consentStates(tx, ctx.businessId, page.items.map((e) => e.id));
+          return { ...page, items: page.items.map((e) => { const s = states.get(e.id); return { ...e, emailConsentAt: s?.state === "confirmed" ? s.confirmedAt : null, emailConsentPending: s?.state === "pending" }; }) };
+        }),
+      ),
   }),
 });

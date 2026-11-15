@@ -12,14 +12,14 @@ allowBuilds:
   unrs-resolver: true
 
 catalog:
-  next: 16.3.8
+  next: 16.4.3
   react: 19.3.0
   react-dom: 19.3.0
   "@types/react": 19.3.0
   "@types/react-dom": 19.3.0
   typescript: 5.9.3
   "@types/node": 26.6.4
-  zod: 4.6.5
+  zod: 4.6.7
   superjson: 2.2.6
   nanoid: 6.0.2
   date-fns: 4.4.0
@@ -140,7 +140,7 @@ catalog:
   "@eslint/js": 10.0.1
   typescript-eslint: 8.71.1
   eslint-plugin-react-hooks: 7.1.1
-  eslint-config-next: 16.3.8
+  eslint-config-next: 16.4.3
   globals: 17.13.0
   prettier: 3.9.9
   vitest: 5.0.3
@@ -219,6 +219,13 @@ minimumReleaseAgeExclude:
   - react-grid-layout@2.3.0
   - typescript-eslint@8.71.1
   - vite@8.3.3
+
+# Security fixes for packages pinned deep in the tree. dompurify: monaco-editor (the design system's code editor) pins
+# 3.4.15, inside GHSA advisories fixed in 3.4.17 (a critical SAFE_FOR_TEMPLATES bypass among them; pnpm audit, Nov 14).
+overrides:
+  dompurify: 3.4.17
+  # zod: every copy at 4.6.7 (GHSA-mrhx-c7xc-m3w5); eslint-plugin-react-hooks pulled in 4.6.5, which scanners keep flagging.
+  zod: 4.6.7
 
 patchedDependencies:
   postgres@3.4.9: patches/postgres@3.4.9.patch

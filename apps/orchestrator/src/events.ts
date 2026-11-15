@@ -7,7 +7,7 @@
  */
 import { repos, type Executor } from "@foundmill/db";
 import { buildEvent, type WriteEventInput } from "@foundmill/events";
-import type { EventType } from "@foundmill/shared";
+import type { BusinessEventType, EventType } from "@foundmill/shared";
 
 export interface EmittedEvent {
   id: string;
@@ -18,7 +18,7 @@ export interface EmittedEvent {
  * Write one event. With `idempotencyKey` (an activity that may be retried: `cycle.started:<cycleId>`, `holiday.ended:<id>`)
  * a repeat returns the event already written under that key instead of writing it twice.
  */
-export async function emitEvent<T extends EventType>(db: Executor, input: WriteEventInput<T>, options: { idempotencyKey?: string } = {}): Promise<EmittedEvent> {
+export async function emitEvent<T extends BusinessEventType>(db: Executor, input: WriteEventInput<T>, options: { idempotencyKey?: string } = {}): Promise<EmittedEvent> {
   const event = buildEvent(input);
   const row = await repos.events.write(db, event.businessId, {
     id: event.id,

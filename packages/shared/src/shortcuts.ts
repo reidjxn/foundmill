@@ -1,11 +1,23 @@
 /**
  * Department shortcuts for the G chord (BUILD §5.5, §11.13): pure, shared by the shell (which binds the keys) and the
  * API (which stores each department's letter so renaming one department never moves another's).
+ *
+ * Since the founder areas (2026-11-09) the shell's chords follow the areas (G P Plan, G C Customers, G M Money, G R
+ * Product, G T Team; `AREA_LETTERS` in ./areas) next to G H Today and G I Needs you (`SHELL_FIXED_LETTERS`). Only a
+ * department with no modules keeps a letter of its own in the shell, chosen around the area letters. The stored
+ * `departments.shortcut` column and its rules here are unchanged (no migration).
  */
+import { AREA_LETTERS } from "./areas";
 
-/** Letters the chord reserves for fixed surfaces. G is excluded so "G G" never restarts the chord. */
+/** Letters the stored department shortcut reserves for fixed surfaces. G is excluded so "G G" never restarts the chord. */
 export const RESERVED_SECTION_LETTERS: Readonly<Record<string, "home" | "inbox" | "crm">> = { H: "home", I: "inbox", C: "crm" };
 export const CHORD_LETTER = "G";
+
+/** The shell's fixed chords: G H Today, G I Needs you. Every area letter is taken as well (`SHELL_RESERVED_LETTERS`). */
+export const SHELL_FIXED_LETTERS: Readonly<Record<string, "home" | "inbox">> = { H: "home", I: "inbox" };
+
+/** Every letter the shell's chord gives to something other than a module-less department: Today, Needs you, the areas. */
+export const SHELL_RESERVED_LETTERS: readonly string[] = [...Object.keys(SHELL_FIXED_LETTERS), ...Object.values(AREA_LETTERS)];
 
 export interface DepartmentForKeys {
   id: string;
@@ -43,10 +55,11 @@ export function letterCandidates(name: string): string[] {
  * Assign one letter per department for the G chord, in the founder's order, de-duplicated. A department's stored
  * letter wins (so renaming or moving one department never changes another's); the rest take the first free letter of
  * their name. Reserved letters (H, I, C, G) are never used. A department whose name offers no free letter takes the
- * first free letter of the alphabet; when the alphabet is exhausted it gets none.
+ * first free letter of the alphabet; when the alphabet is exhausted it gets none. `reserved` keeps more letters out
+ * (the shell passes `SHELL_RESERVED_LETTERS`, so a module-less department never takes an area's letter).
  */
-export function departmentLetters(departments: readonly DepartmentForKeys[]): Map<string, string> {
-  const used = new Set<string>([...Object.keys(RESERVED_SECTION_LETTERS), CHORD_LETTER]);
+export function departmentLetters(departments: readonly DepartmentForKeys[], reserved: readonly string[] = []): Map<string, string> {
+  const used = new Set<string>([...Object.keys(RESERVED_SECTION_LETTERS), CHORD_LETTER, ...reserved]);
   const out = new Map<string, string>();
   for (const d of departments) {
     const stored = d.shortcut?.toUpperCase();

@@ -2,6 +2,9 @@
  * businessFoundations (BUILD §11.1 "Take charge" → first open, §11.5): draft a new business's vision, first
  * specification and first roadmap once, after apps/api claimed the attempt (`foundations:{businessId}:{attempt}`).
  *
+ * First the project's public page (package 1.2, behind `patched(FOUNDATIONS_PAGE_PATCH)`): the Product lead drafts it
+ * from the founder's own words and asks the founder to check and publish it; it never fails the foundations.
+ *
  * Staged (audit P3): the plan (the vision first, stored within seconds), then every section batch and the roadmap at
  * once, each its own activity with its own retries, so a failed batch is retried alone and only redrafts what it has
  * not stored. Each step stores what it wrote on the row as it lands (the screens fill in); `applyFoundations` then writes
@@ -12,12 +15,25 @@
  * code replays on this one, so the staged path sits behind `patched(FOUNDATIONS_STAGED_PATCH)`: a history recorded
  * without the marker keeps the old single-call path (`legacyBusinessFoundations`) to the end; every new run records the
  * marker and drafts in stages.
+ *
+ * Once written, the drafts get a second read by a different agent (`secondReadDocument`, behind
+ * `patched(FOUNDATIONS_SECOND_READ_PATCH)`); the row is already ready, so it never holds the founder up.
  */
 import { ActivityFailure, ApplicationFailure, patched, proxyActivities } from "@temporalio/workflow";
 import type { Activities, BusinessFoundationsInput, BusinessFoundationsResult, FoundationsStepUsage } from "../activities";
 
 /** The patch id of the staged drafting (Temporal `patched`). Never rename it: recorded histories carry it. */
 export const FOUNDATIONS_STAGED_PATCH = "foundations-staged";
+/**
+ * The patch id of the page step (package 1.2), before the plan. A staged run recorded before it replays without the
+ * step; every new run records the marker. Never rename it: recorded histories carry it.
+ */
+export const FOUNDATIONS_PAGE_PATCH = "foundations-project-page";
+/**
+ * The patch id of the second read after the drafts are written (activities/second-read.ts). A run recorded before it
+ * replays without the step; every new run records the marker. Never rename it: recorded histories carry it.
+ */
+export const FOUNDATIONS_SECOND_READ_PATCH = "foundations-second-read";
 
 /**
  * The plan: one short call (low effort). The activity heartbeats while it waits, so a lost worker is noticed within a
@@ -26,6 +42,16 @@ export const FOUNDATIONS_STAGED_PATCH = "foundations-staged";
 const planActs = proxyActivities<Activities>({ startToCloseTimeout: "3 minutes", heartbeatTimeout: "1 minute", retry: { maximumAttempts: 3, initialInterval: "10 seconds", backoffCoefficient: 2 } });
 /** A batch of two or three sections, or the roadmap: bounded output, retried on its own. */
 const writeStepActs = proxyActivities<Activities>({ startToCloseTimeout: "4 minutes", heartbeatTimeout: "1 minute", retry: { maximumAttempts: 3, initialInterval: "5 seconds", backoffCoefficient: 2 } });
+/**
+ * The page (package 1.2): one short Sonnet call and one write. The activity falls back to the starter draft by itself
+ * when the model fails, so a retry is only for a lost worker or a database error, and it is retried once.
+ */
+const pageActs = proxyActivities<Activities>({ startToCloseTimeout: "2 minutes", heartbeatTimeout: "1 minute", retry: { maximumAttempts: 2, initialInterval: "5 seconds", backoffCoefficient: 2 } });
+/**
+ * The second read: at most two model calls and a few web lookups, best effort, after the foundations are written, so it
+ * is tried once and never changes the outcome the founder sees.
+ */
+const secondReadActs = proxyActivities<Activities>({ startToCloseTimeout: "8 minutes", retry: { maximumAttempts: 1 } });
 /** Database writes: short and retried. */
 const writeActs = proxyActivities<Activities>({ startToCloseTimeout: "2 minutes", retry: { maximumAttempts: 5, initialInterval: "2 seconds", backoffCoefficient: 2 } });
 
@@ -61,6 +87,16 @@ export async function businessFoundations(input: BusinessFoundationsInput): Prom
     return { status: "failed", inboxItemId: null, error };
   };
 
+  // Step 0 (package 1.2): the project's public page, first, so the founder's first ask is a page they can send. It never
+  // fails or holds up the foundations: its own failure is logged by the activity and the vision follows.
+  if (patched(FOUNDATIONS_PAGE_PATCH)) {
+    try {
+      await pageActs.draftProjectPage(input);
+    } catch {
+      // The page tab still offers the starter draft (`page.get`) and Today its line to it.
+    }
+  }
+
   let plan: Awaited<ReturnType<Activities["draftFoundationsPlan"]>>;
   try {
     plan = await planActs.draftFoundationsPlan(input);
@@ -80,6 +116,15 @@ export async function businessFoundations(input: BusinessFoundationsInput): Prom
   const model = { route: "foundations", model: usage.model, mode: usage.mode, costMinor: usage.costMinor, costLabel: "Estimate", repaired: usage.repaired, runner: "temporal", staged: true, calls: usage.calls };
   try {
     const applied = await writeActs.applyFoundations({ ...input, model });
+    // A different agent from the author reads what was drafted; its issues reach the founder and the author. The
+    // foundations are already ready: nothing here can fail them.
+    if (applied.applied && patched(FOUNDATIONS_SECOND_READ_PATCH)) {
+      try {
+        await secondReadActs.secondReadDocument({ businessId: input.businessId, kind: "foundations", version: String(input.attempt) });
+      } catch {
+        // No second read this time.
+      }
+    }
     return { status: applied.applied ? "ready" : "skipped", inboxItemId: applied.inboxItemId, error: null };
   } catch {
     return fail(FOUNDATIONS_SAVE_FAILED);

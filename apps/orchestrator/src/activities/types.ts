@@ -180,6 +180,12 @@ export interface BusinessCycleInput {
   timeBoxAgentHours?: number;
   /** Max concurrent sessions for this cycle (defaults from the brief). */
   maxConcurrent?: number;
+  /**
+   * What this cycle may spend, USD cents (an Estimate): the rest of Autopilot's own spend ceiling for the day (0084), for
+   * a cycle Autopilot starts on its own. Starts stop once it is reserved, and each session is capped at its reserve.
+   * Absent: the credits left, as for any cycle.
+   */
+  budgetCapMinor?: number | null;
 }
 
 export interface BusinessCycleResult {
@@ -204,6 +210,8 @@ export interface AgentSessionInput {
   sessionId: string;
   /** Cycle that dispatched the session, when any. */
   cycleId?: string | null;
+  /** The most the session may spend, USD cents: its share of a capped cycle's budget (`budgetCapMinor`). Absent: no such cap. */
+  spendCapMinor?: number | null;
 }
 
 export interface SessionLaunch {
@@ -211,6 +219,11 @@ export interface SessionLaunch {
   fellBackFrom: string | null;
   modelKey: ModelKey;
   modelId: string;
+  /**
+   * The credit saver moved this launch to its route's lower-cost model (`prepareSession`). Only such a launch is moved
+   * back up by a later run (`keptModelForRun`); a launch prepared before the field existed has none.
+   */
+  lowCredits?: boolean;
   /** Recording key replayed in mock mode. */
   recordingKey: string | null;
   /** `connector:tool` refs granted to the session token. */
@@ -676,6 +689,19 @@ export interface FoundationsPlanned {
   door: "ideation" | "import";
   /** Outline sections still to write, in batches (one `draftFoundationsSections` activity each). */
   chunks: string[][];
+  usage: FoundationsStepUsage;
+}
+
+/**
+ * Step 0 (the project's public page, package 1.2) done. `written` is false when nothing was needed (a page row exists,
+ * a sample business) or the attempt is no longer current; `source` says whether the Product lead's draft or the
+ * deterministic starter was written.
+ */
+export interface ProjectPageStepDone {
+  current: boolean;
+  written: boolean;
+  source: "model" | "starter" | null;
+  inboxItemId: string | null;
   usage: FoundationsStepUsage;
 }
 

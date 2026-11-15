@@ -20,6 +20,8 @@ import {
 } from "../schema";
 import { addDays, atHour, bulkInsert, DAY_MS, dayKey, HOUR_MS, mention, money, monthKey, type SeedCtx } from "./context";
 import { agentsInDepartment, type SeededAgent, type SquadResult } from "./squad";
+import { awardRevenueMilestones } from "../milestones";
+import { repos } from "../repos";
 
 /** Channels whose engine counts leads (the orchestrator's `LEAD_CHANNELS`): a signup through one was its lead. */
 const SEED_LEAD_CHANNELS: ReadonlySet<ChannelKey> = new Set<ChannelKey>(["lead_generation", "content", "events"]);
@@ -427,20 +429,25 @@ export async function seedJourney(ctx: SeedCtx, opts: JourneySeedOptions): Promi
   log(`built ${journeyRows.length} journeys`);
 
   // --- milestones ----------------------------------------------------------------------------------------------------
+  // The generator's revenue trophies count its own series; the seed's revenue trophies are awarded once the bank is
+  // seeded, from Finance's monthly figure (`awardRevenueMilestones`, DECISIONS 2026-11-11), so the cabinet and Finance
+  // agree. The customer and enterprise trophies are the generator's, at the payment that reached them.
   const trophyMilestoneIds: string[] = [];
-  const milestoneRows: NewMilestone[] = data.milestones.map((m) => {
-    const id = m.id ?? rng.uuid();
-    if (m.trophyKey) trophyMilestoneIds.push(id);
-    return {
-      id,
-      businessId,
-      kind: m.kind,
-      label: m.label,
-      achievedAt: new Date(m.achievedAt),
-      ref: { ...(m.ref ?? {}), trophyKey: m.trophyKey ?? null, label: "Synthetic" },
-      visibility: opts.visibility,
-    };
-  });
+  const milestoneRows: NewMilestone[] = data.milestones
+    .map((m) => {
+      const id = m.id ?? rng.uuid();
+      return {
+        id,
+        businessId,
+        kind: m.kind,
+        label: m.label,
+        achievedAt: new Date(m.achievedAt),
+        ref: { ...(m.ref ?? {}), trophyKey: m.trophyKey ?? null, label: "Synthetic" },
+        visibility: opts.visibility,
+      };
+    })
+    .filter((row) => !String(row.ref.trophyKey ?? "").startsWith("mrr_"));
+  for (const row of milestoneRows) if (row.ref && (row.ref as { trophyKey?: string | null }).trophyKey) trophyMilestoneIds.push(row.id!);
   await bulkInsert(db, milestones, milestoneRows);
 
   // --- agent sessions from the per-department daily rows ------------------------------------------------------------
@@ -616,3 +623,18 @@ export async function seedJourney(ctx: SeedCtx, opts: JourneySeedOptions): Promi
 
 /** Day key helper re-exported for the business modules. */
 export { dayKey };
+
+/**
+ * The seed's revenue milestones, once its bank is seeded: awarded from Finance's monthly figure with the function the
+ * nightly sweep uses (`awardRevenueMilestones`, DECISIONS 2026-11-11), so each is reached on the day Finance's figure
+ * first passed it. Returns the business's latest milestone in the cabinet (the Inbox's milestone note names it).
+ */
+export async function seedRevenueMilestones(ctx: SeedCtx, businessId: string, visibility: Visibility): Promise<{ label: string; estimate: boolean } | null> {
+  await awardRevenueMilestones(ctx.db, businessId, { until: ctx.today, visibility, ref: { label: "Synthetic" } });
+  const all = await repos.journeys.listMilestones(ctx.db, businessId, {});
+  const latest = all
+    .filter((m) => typeof (m.ref as { trophyKey?: unknown } | null)?.trophyKey === "string")
+    .sort((a, b) => a.achievedAt.getTime() - b.achievedAt.getTime())
+    .at(-1);
+  return latest ? { label: latest.label, estimate: (latest.ref as { estimate?: unknown } | null)?.estimate === true } : null;
+}

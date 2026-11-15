@@ -1,7 +1,7 @@
 "use client";
 /** Helpers shared by the development screens: layout, mutations with pending/error state, agent and task lookups. */
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
-import { PageGrid, StatusPill, TASK_STATUS_META, cn, useGuided, type TileAgent } from "@foundmill/dugout";
+import { PageGrid, Panel, StatusPill, TASK_STATUS_META, cn, useGuided, type TileAgent } from "@foundmill/dugout";
 import type { DeptColourToken, TaskStatus } from "@foundmill/shared";
 import { departmentForModule, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -239,4 +239,62 @@ export function liveTasks(tasks: readonly TaskRow[] | undefined): TaskRow[] {
     .filter((t) => isLiveStatus(t.status))
     .slice()
     .sort((a, b) => (toDate(b.startedAt)?.getTime() ?? 0) - (toDate(a.startedAt)?.getTime() ?? 0) || a.title.localeCompare(b.title));
+}
+
+// --- what exists now (first-time founder report, Nov 8, 2026) ------------------------------------------------------
+
+/** `dev.repository`: where saved code is pushed, whether GitHub is connected, and whether it is the simulated GitHub. */
+export interface RepositoryResponse {
+  connected: boolean;
+  status: string | null;
+  repository: { owner?: string | null; name?: string | null; fullName?: string | null; url?: string | null } | null;
+  simulated: boolean;
+}
+
+const REPOSITORY_INPUT: Record<string, unknown> = {};
+
+export function useRepository(): QueryState<RepositoryResponse> {
+  return useWidgetQuery<RepositoryResponse>("dev.repository", REPOSITORY_INPUT);
+}
+
+/** "acme/shop" from the repository row, or null. */
+export function repositoryName(repo: RepositoryResponse["repository"]): string | null {
+  if (!repo) return null;
+  if (repo.fullName) return repo.fullName;
+  if (repo.owner && repo.name) return `${repo.owner}/${repo.name}`;
+  return repo.name ?? null;
+}
+
+const count = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/**
+ * The one paragraph that says what exists outside the Development screens: where the code is (or that it is nowhere),
+ * what can be opened. A founder who was told "the core workflow shipped" clicked every tab looking for it; this is the
+ * tab's own answer. Null while the repository is still being read.
+ */
+export function whatExistsNowWords(input: { repo: RepositoryResponse | undefined; finished: number; livePreviews: number }): { tone: "warn" | "info" | "good"; text: string } | null {
+  const { repo, finished, livePreviews } = input;
+  if (!repo) return null;
+  const previews = livePreviews > 0 ? `${count(livePreviews, "preview")} ${livePreviews === 1 ? "is" : "are"} live and can be opened from the rows below.` : "No preview is live yet.";
+  if (!repo.connected) {
+    const changes = finished > 0 ? `The ${count(finished, "finished change")} below ${finished === 1 ? "was" : "were"} never pushed anywhere: the code exists only in the agents' working copies.` : "Nothing has been pushed anywhere yet.";
+    return { tone: "warn", text: `Nothing exists outside these screens yet. No GitHub repository is connected, so ${changes[0]!.toLowerCase()}${changes.slice(1)} ${previews} Connect GitHub in Settings › Integrations to keep the code.` };
+  }
+  const name = repositoryName(repo.repository);
+  if (repo.simulated) return { tone: "info", text: `The code is kept in a simulated repository${name ? ` (${name})` : ""}; nothing reaches github.com on this server. ${count(finished, "finished change")} ${finished === 1 ? "is" : "are"} merged there. ${previews}` };
+  return { tone: "good", text: `The code is pushed to ${name ?? "your GitHub repository"}. ${count(finished, "finished change")} ${finished === 1 ? "is" : "are"} merged. ${previews}` };
+}
+
+/** The "What exists now" panel at the top of Pull requests and Environments. */
+export function WhatExistsNow({ repo, finished, livePreviews }: { repo: QueryState<RepositoryResponse>; finished: number; livePreviews: number }) {
+  const words = whatExistsNowWords({ repo: repo.data, finished, livePreviews });
+  if (!words) return null;
+  return (
+    <Panel span={12} title="What exists now" help="Where the team's code and previews live right now, so a finished change is never only a word on a screen." data-testid="what-exists-now" data-tone={words.tone}>
+      <p className="flex items-start gap-2 text-body text-primary">
+        <StatusPill tone={words.tone === "good" ? "good" : words.tone === "warn" ? "warn" : "info"}>{words.tone === "warn" ? "Nothing outside yet" : words.tone === "info" ? "Simulated" : "On GitHub"}</StatusPill>
+        <span>{words.text}</span>
+      </p>
+    </Panel>
+  );
 }

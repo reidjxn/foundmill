@@ -45,6 +45,7 @@ export const SCHEDULES: readonly ScheduleDefinition[] = [
   { id: "source-watch-sweep", workflowType: "sourceWatchSweep", spec: daily(10, 4), args: [{ staleAfterHours: 24, perBusiness: 10 }], description: "Daily: the Source Watcher re-reads sources older than a day" },
   { id: "channel-engine-reconcile", workflowType: "channelEngineReconcile", spec: every("15m"), args: [], description: "Every 15 minutes: every channel on the board has its engine running", triggerOnRegister: true },
   { id: "crm-deletion-sweep", workflowType: "crmDeletionSweep", spec: daily(15, 1), args: [{}], description: "Nightly: CRM records whose deletion request came due are purged" },
+  { id: "founder-notifications", workflowType: "founderNotifications", spec: every("5m"), args: [{}], description: "Every 5 minutes: founder emails (waiting decisions, wins, milestones, finished runs, used-up credits, the morning brief and the weekly review)" },
   { id: "business-deletion-sweep", workflowType: "businessDeletionSweep", spec: daily(45, 1), args: [{}], description: "Nightly: businesses whose scheduled deletion came due are deleted" },
 ];
 

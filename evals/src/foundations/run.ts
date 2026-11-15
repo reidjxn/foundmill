@@ -75,6 +75,8 @@ export function checkFoundations(c: FoundationsCase, draft: FoundationsDraft, ra
   if (live) problems.push(`stored text carries live markup: "${live.slice(0, 120)}"`);
   const storedText = stored.join("\n").toLowerCase();
   for (const bad of c.mustNotStore) if (storedText.includes(bad.toLowerCase())) problems.push(`stored text contains "${bad}"`);
+  // The founder's own words are ground truth: the stored draft carries them whole, not a paraphrase.
+  for (const words of c.mustStore ?? []) if (!storedText.includes(words.toLowerCase())) problems.push(`the founder's words were not kept verbatim: "${words.slice(0, 80)}"`);
   return problems;
 }
 

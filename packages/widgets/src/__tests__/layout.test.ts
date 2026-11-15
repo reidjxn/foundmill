@@ -103,12 +103,35 @@ describe("validateLayout", () => {
   const base = (): DashboardLayout => ({ version: LAYOUT_VERSION, widgets: [{ i: "a", key: "journey_ribbon", x: 0, y: 0, w: 12, h: 15, settings: {} }] });
   it("drops unknown widgets and LIVE-only widgets in Personal mode", () => {
     const l = base();
-    l.widgets.push({ i: "b", key: "not_a_widget", x: 0, y: 15, w: 4, h: 4, settings: {} }, { i: "c", key: "league_table", x: 4, y: 15, w: 4, h: 12, settings: {} });
+    l.widgets.push({ i: "b", key: "not_a_widget", x: 0, y: 15, w: 4, h: 4, settings: {} }, { i: "c", key: "community_feed", x: 4, y: 15, w: 4, h: 12, settings: {} });
     const r = validateLayout(l, { live: false });
     expect(r.ok).toBe(false);
     expect(r.layout.widgets.map((w) => w.i)).toEqual(["a"]);
     expect(r.issues.map((i) => i.code)).toEqual(["unknown_widget", "live_only"]);
     expect(validateLayout(l, { live: true }).layout.widgets.map((w) => w.i)).toEqual(["a", "c"]);
+  });
+  it("skips a widget that left the gallery (the leaderboard, removed 2026-11-11) and keeps the rest of a stored layout", () => {
+    // What a LIVE business's dashboard_layouts row can still hold: the removed widget's key, and the status strip's old setting.
+    const stored = {
+      version: LAYOUT_VERSION,
+      widgets: [
+        { i: "a", key: "journey_ribbon", x: 0, y: 0, w: 12, h: 15, settings: {} },
+        { i: "s", key: "status_strip", x: 0, y: 15, w: 12, h: 6, settings: { showLeague: true } },
+        { i: "c", key: "league_table", x: 0, y: 21, w: 4, h: 12, settings: { boardKind: "mrr_growth", rows: 10 } },
+        { i: "f", key: "community_feed", x: 4, y: 21, w: 4, h: 12, settings: {} },
+      ],
+    };
+    for (const live of [true, false]) {
+      const r = prepareLayout(stored, { live });
+      expect(r.layout.widgets.map((w) => w.key)).toEqual(live ? ["journey_ribbon", "status_strip", "community_feed"] : ["journey_ribbon", "status_strip"]);
+      expect(r.issues.find((i) => i.key === "league_table")).toMatchObject({ code: "unknown_widget", instanceId: "c" });
+      // The strip's stored setting is dropped without a "settings reset" notice.
+      expect(r.layout.widgets[1]!.settings).toEqual({});
+      expect(r.issues.some((i) => i.code === "settings_reset")).toBe(false);
+    }
+    // The version-less screen layout (screen_definitions) takes the same path.
+    const v0 = prepareLayout({ widgets: [{ key: "league_table", x: 0, y: 0, w: 4, h: 12 }, { key: "status_strip", x: 0, y: 12, w: 12, h: 6, settings: { showLeague: false } }] }, { live: true });
+    expect(v0.layout.widgets.map((w) => w.key)).toEqual(["status_strip"]);
   });
   it("clamps sizes to the widget's min/max and keeps widgets inside the grid", () => {
     const l = base();

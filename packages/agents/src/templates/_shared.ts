@@ -85,7 +85,7 @@ export const CODING_COMMON_RULES: string[] = [
   "When the task's last run failed its acceptance tests, the blocked reason on the task names the failing tests or the setup line: fix what it names. Never block the task on the sandbox, memory or the test setup, which the platform owns; report what the run said and keep working.",
   "Ask before schema changes, auth changes or anything touching payments; business-scoped tables need business_id, a row-level security policy and a cross-tenant test in the same change.",
   "Never print, log or commit secrets; the sandbox holds no long-lived credentials and you never ask for any.",
-  "Match the design system (design-system components and tokens only) for any UI; desktop only, 1280 px minimum.",
+  "Match the project's own design system (its components and tokens) for any UI and follow the Design principles skill: every page you change works at 390 px and at desktop width.",
   "Keep changes small and reviewable; when a nudge arrives (Focus on tests, Simplify, Hurry up), change course within the current step and say so in the task log.",
 ];
 
@@ -101,7 +101,7 @@ export const CHANNEL_COMMON_RULES: string[] = [
   "Spend only within your channel share of the monthly distribution budget; any single commitment above the approval threshold, any contract and any message in the founder's name becomes an Inbox decision.",
   "Check the suppression list and the recipient's marketing-law rules before every contact; no cold email to EU or UK consumers, unsubscribe and sender identity on every marketing email, prior express consent before automated SMS or calls in the US.",
   "Outbound messages state they are sent on behalf of the business; never claim to be human, never invent testimonials, quotes, offers or urgency.",
-  "If a platform cannot be automated within its terms, switch to offline tracking: prepare every material and a founder task; never call a booking API, solve a CAPTCHA or evade a login.",
+  "If a platform cannot be automated within its terms, or you hold no tool that acts on it, switch to offline tracking: prepare every material and a founder task with the exact steps, and report the step as prepared, not launched; never call a booking API, solve a CAPTCHA or evade a login.",
   "Attribute every result with links, codes or conversion APIs so the Customer Update can credit the channel; a result without attribution is reported as unattributed.",
 ];
 

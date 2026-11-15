@@ -30,7 +30,7 @@ export const inboxRouter = router({
       const firstPage = !input?.cursor;
       const [page, tally, waiting] = await Promise.all([
         repos.inbox.list(tx, ctx.businessId, input ?? {}, ctx.userId),
-        firstPage ? Promise.all([repos.inbox.countByTab(tx, ctx.businessId), repos.inbox.countBlocking(tx, ctx.businessId)]) : null,
+        firstPage ? Promise.all([repos.inbox.countByTab(tx, ctx.businessId, ctx.userId), repos.inbox.countBlocking(tx, ctx.businessId)]) : null,
         repos.plans.awaitingConfirmation(tx, ctx.businessId),
       ]);
       const walls = inboxWalls(ctx.membership);
@@ -101,6 +101,9 @@ export const inboxRouter = router({
       // also take the decision).
       const signoff = await repos.productSignoffs.forInboxItem(tx, ctx.businessId, input.itemId);
       if (signoff && signoff.kind !== "ready_to_sell" && signoff.status === "pending") throw new ValidationError("Approve this or ask for changes: building starts on your sign-off. You can also decide it on the Product tabs.", { itemId: input.itemId, signoffId: signoff.id });
+      // The Chief of Staff's goal waiting for the founder is answered, not filed away: nothing proposes another while it is open.
+      const goal = await repos.goals.forInboxItem(tx, ctx.businessId, input.itemId);
+      if (goal && goal.status === "proposed") throw new ValidationError("Approve this goal or tell your Chief of Staff what to change.", { itemId: input.itemId, goalId: goal.id });
       const item = await repos.inbox.archive(tx, ctx.businessId, input.itemId);
       // Other members' open Inbox refetches on it (audit RUI-09: they acted on an item that was already gone).
       await emit(tx, ctx, { type: "inbox.item_updated", payload: { inboxItemId: item.id, change: "archived" } });

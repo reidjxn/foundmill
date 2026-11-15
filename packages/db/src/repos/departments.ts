@@ -1,4 +1,5 @@
 /** departments + department_members (BUILD §11.13; routers department.*). Departments are labels over modules. */
+import { INPUT_LIMITS } from "@foundmill/config";
 import { ConflictError, departmentLetters, DEPT_COLOUR_TOKENS, isDepartmentShortcut, MODULE_KEYS, slugify, ValidationError } from "@foundmill/shared";
 import { and, asc, eq, inArray, isNull, like, or, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -13,10 +14,10 @@ export const CreateDepartmentInput = z.object({
   colourToken: z.enum(DEPT_COLOUR_TOKENS).default("dept-1"),
   position: z.number().int().min(0).optional(),
   leadAgentId: Id.nullable().optional(),
-  moduleKeys: z.array(z.enum(MODULE_KEYS)).default([]),
+  moduleKeys: z.array(z.enum(MODULE_KEYS)).max(MODULE_KEYS.length).default([]),
   budgetMinor: MinorAmount.nullable().optional(),
   currency: Currency.optional(),
-  approvers: JsonArray.default([]),
+  approvers: JsonArray.max(INPUT_LIMITS.departmentApprovers).default([]),
   hidden: z.boolean().default(false),
 });
 export type CreateDepartmentInput = z.input<typeof CreateDepartmentInput>;

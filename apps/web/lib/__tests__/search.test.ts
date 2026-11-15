@@ -14,10 +14,19 @@ describe("universal search", () => {
     expect(items.filter((i) => i.kind === "command").length).toBeGreaterThanOrEqual(9 + 4);
     expect(items.find((i) => i.id === "inbox:i1")?.href).toBe(`/b/${BID}/inbox/i1`);
     expect(items.find((i) => i.id === "inbox:i2")).toBeUndefined();
-    // Network is the founder's own in every mode; Communities and Leaderboards come with a LIVE business.
+    // Network is the founder's own in every mode; Communities comes with a LIVE business.
     expect(items.some((i) => i.id === "screen:network")).toBe(true);
     expect(items.some((i) => i.id === "screen:communities")).toBe(false);
     expect(localPaletteItems({ businessId: BID, departments, live: true }).some((i) => i.id === "screen:communities")).toBe(true);
+  });
+
+  it("offers Team call and Start a team call to whoever may use them", () => {
+    const items = localPaletteItems({ businessId: BID, departments, live: false });
+    expect(items.find((i) => i.id === "screen:calls")).toMatchObject({ label: "Team call", href: `/b/${BID}/calls` });
+    expect(items.find((i) => i.id === "command:start-team-call")).toMatchObject({ kind: "command", label: "Start a team call", href: `/b/${BID}/calls` });
+    const reader = accessFor({ role: "viewer", sectionPermissions: {} } as never);
+    const viewerItems = localPaletteItems({ businessId: BID, departments, live: false, access: reader });
+    expect(viewerItems.some((i) => i.id === "command:start-team-call")).toBe(false);
   });
 
   it("maps entity hits to palette rows with the CRM href", () => {
@@ -42,8 +51,8 @@ describe("universal search", () => {
   it("offers Preferences (the person's own date format, guidance and text size), found by what it changes", () => {
     const items = localPaletteItems({ businessId: BID, departments, live: false });
     const prefs = items.find((i) => i.id === "command:preferences");
-    expect(prefs).toMatchObject({ kind: "command", label: "Preferences", description: "Your date format, guidance and text size, in every business", href: `/b/${BID}/settings/preferences` });
-    for (const q of ["Preferences", "date format", "time format", "24-hour", "guidance", "explain", "text size", "comfortable", "checklist", "tour"]) expect(filterLocal(items, q)[0]?.id, q).toBe("command:preferences");
+    expect(prefs).toMatchObject({ kind: "command", label: "Preferences", description: "Your date format, guidance, text size and Builder view, in every business", href: `/b/${BID}/settings/preferences` });
+    for (const q of ["Preferences", "date format", "time format", "24-hour", "guidance", "explain", "text size", "comfortable", "checklist", "tour", "builder view"]) expect(filterLocal(items, q)[0]?.id, q).toBe("command:preferences");
     // One row for it, not a second "Settings · Preferences".
     expect(items.filter((i) => i.href === `/b/${BID}/settings/preferences`)).toHaveLength(1);
   });
@@ -57,6 +66,12 @@ describe("universal search", () => {
     expect(items.find((i) => i.id === "command:refresh-inbox")?.description).toBe("Ask the team for one quick note; no new work starts");
   });
 
+  it("calls the mode tab What the team can do; the slug, spending and approvals still find it (founder, 2026-11-07)", () => {
+    const items = localPaletteItems({ businessId: BID, departments, live: false });
+    expect(items.find((i) => i.id === "command:settings:mode")).toMatchObject({ label: "Settings · What the team can do", href: `/b/${BID}/settings/mode` });
+    for (const q of ["mode", "spending", "approvals", "ask first"]) expect(filterLocal(items, q).some((i) => i.id === "command:settings:mode"), q).toBe(true);
+  });
+
   it("offers Edit layout only where the screen has a layout to edit (audit OL-29)", () => {
     expect(localPaletteItems({ businessId: BID, departments, live: false }).some((i) => i.id === "command:edit-layout")).toBe(false);
     expect(localPaletteItems({ businessId: BID, departments, live: false, canEditLayout: true }).some((i) => i.id === "command:edit-layout")).toBe(true);
@@ -64,7 +79,7 @@ describe("universal search", () => {
 
   it("switches to the founder's other businesses, creates a new one and manages them all (audit IAE-08, WEB-13)", () => {
     const items = localPaletteItems({ businessId: BID, departments, live: false, businesses: [{ id: BID, name: "Northwind" }, { id: "b2", name: "Ledgerly" }] });
-    expect(items.find((i) => i.id === "business:b2")).toMatchObject({ label: "Switch to Ledgerly", description: "Switch business", href: "/b/b2/home" });
+    expect(items.find((i) => i.id === "business:b2")).toMatchObject({ label: "Switch to Ledgerly", description: "Switch business", href: "/b/b2/today" });
     expect(items.find((i) => i.id === "command:new-business")).toMatchObject({ label: "Create a new business", href: "/new" });
     expect(items.find((i) => i.id === "command:manage-businesses")).toMatchObject({ label: "Manage businesses", href: "/businesses" });
     expect(filterLocal(items, "manage")[0]?.id).toBe("command:manage-businesses");
@@ -102,7 +117,9 @@ describe("universal search", () => {
 
   it("calls the CRM Contacts on screen and still finds it by its old name; Stop all agents says what it does in plain words (B13, B6)", () => {
     const items = localPaletteItems({ businessId: BID, departments, live: false });
-    expect(items.find((i) => i.id === "screen:crm")).toMatchObject({ label: "Contacts", href: `/b/${BID}/crm`, shortcut: ["G", "C"] });
+    expect(items.find((i) => i.id === "screen:crm")).toMatchObject({ label: "Contacts", description: "Customers", href: `/b/${BID}/crm` });
+    // G C opens Customers now (founder, 2026-11-09): Contacts is one of its tabs.
+    expect(items.find((i) => i.id === "area:customers")).toMatchObject({ label: "Customers", shortcut: ["G", "C"] });
     expect(filterLocal(items, "crm")[0]?.id).toBe("screen:crm");
     expect(filterLocal(items, "contacts")[0]?.id).toBe("screen:crm");
     const stop = items.find((i) => i.id === "command:stop-all");

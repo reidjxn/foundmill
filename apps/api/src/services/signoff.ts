@@ -6,7 +6,7 @@
  *   round) or from the Product screens (`product.signoff.decide`). Approving the specification publishes it as a
  *   numbered version; approving the roadmap keeps a snapshot; Request changes needs the founder's words and gives the
  *   Product lead a revision task. The second approval starts the build (`startBuilding`): the Planner's task graph for
- *   the first Now items through the same service as Development › Plan, then the next cycle exactly as Continue does.
+ *   the first Now items through the same service as Product › Work list, then the next cycle exactly as Continue does.
  * - `startDistribution` is the explicit step before any channel engine runs: `businesses.distribution_started_at`,
  *   the channel-scoring task, the archetype's Board question, the engines, one note from the Distribution strategist.
  * - `reopenSpecSignoffAfterPublish`: a specification published while its round was sent back asks for sign-off again.
@@ -16,15 +16,18 @@
 import { CHANNEL_SCORING_TASK, getArchetypeSeed } from "@foundmill/agents";
 import { LIMITS } from "@foundmill/config";
 import { bothSignedOff, loadProductStage, repos, signoffDecisionBlock, type Decision, type DbTx, type InboxItem, type PlanWithActions, type ProductSignoff, type Task } from "@foundmill/db";
-import { AppError, CHANNEL_META, ConflictError, ForbiddenError, ValidationError, type ProductStage, type SignoffKind, type SignoffStatus } from "@foundmill/shared";
+import { AppError, CHANNEL_KEYS, CHANNEL_META, channelEngineMayRun, ConflictError, ForbiddenError, isAdminRole, ValidationError, type ChannelKey, type ProductStage, type SignoffKind, type SignoffStatus } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
+import { channelRowsFor, MIN_DECISION_OPTIONS, offerableOptions, OPTIONS_LEFT_OUT_LINE } from "./channel-availability";
+import { answerNote as answerDecisionNote, type AnsweredNote } from "./answer-note";
 import { importBoardDecisionFromReport } from "./commit";
 import { startCycle, type StartCycleResult } from "./cycle";
 import type { DecideItemResult } from "./decide";
 import { ensureChannelEngines } from "./engines";
 import { assertAgentsRunning } from "./stop-guard";
 import { planTaskGraph } from "./task-graph";
+import { startTaskByHand } from "./task-start";
 import type { TemporalResult } from "./temporal";
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -111,21 +114,9 @@ async function postUpdate(tx: DbTx, ctx: BusinessContext, from: string, subject:
   return item;
 }
 
-/**
- * Answer the note a round asked with: a one-action `reply_only` plan for the history (as an approval's answer is
- * recorded), the decision, and `decision.made`. Null when the note is gone or already answered.
- */
-async function answerNote(tx: DbTx, ctx: BusinessContext, itemId: string | null, chosenOption: string, freeText: string | null, agentId: string | null, summary: string): Promise<{ item: InboxItem; decision: Decision; plan: PlanWithActions; actionId: string } | null> {
-  if (!itemId) return null;
-  const item = await repos.inbox.get(tx, ctx.businessId, itemId).catch(() => null);
-  if (!item || item.state === "answered" || item.state === "archived") return null;
-  const plan = await repos.plans.create(tx, ctx.businessId, { origin: "option", summaryMd: summary, inboxItemId: item.id, status: "executing", actions: [{ type: "reply_only", params: { acknowledgement: summary, signoff_option: chosenOption }, agentId, policyOutcome: "allow" }] });
-  const decided = await repos.inbox.decide(tx, ctx.businessId, item.id, { chosenOption, freeText, decidedByKind: "user", decidedBy: ctx.userId, planId: plan.id });
-  const action = plan.actions[0]!;
-  await repos.plans.startAction(tx, ctx.businessId, action.id);
-  await repos.plans.finishAction(tx, ctx.businessId, action.id, { status: "done", result: { signoffOption: chosenOption } });
-  await emit(tx, ctx, { type: "decision.made", payload: { decisionId: decided.decision.id, inboxItemId: item.id, chosenOption, freeText, decidedBy: "user", planId: plan.id, planActionCount: 1, hardGateActions: 0 } });
-  return { item: decided.item, decision: decided.decision, plan: await repos.plans.get(tx, ctx.businessId, plan.id), actionId: action.id };
+/** Answer the note a round asked with (./answer-note), recording the sign-off option on the plan's action. */
+function answerNote(tx: DbTx, ctx: BusinessContext, itemId: string | null, chosenOption: string, freeText: string | null, agentId: string | null, summary: string): Promise<AnsweredNote | null> {
+  return answerDecisionNote(tx, ctx, itemId, chosenOption, freeText, agentId, summary, { params: { signoff_option: chosenOption }, result: { signoffOption: chosenOption } });
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -144,7 +135,7 @@ export interface BuildStart {
   plannedTaskIds: string[];
   /** The roadmap items (or the archetype's first build) that were planned. */
   planned: string[];
-  /** Items the Planner could not plan, with the reason (the founder plans them from Development › Plan). */
+  /** Items the Planner could not plan, with the reason (the founder plans them from Product › Work list). */
   failed: { title: string; reason: string }[];
   /** The next cycle: started on Temporal, run in-process, resumed, or not started (`reason`). */
   cycle: { started: boolean; mode: "temporal" | "local" | null; workflowId: string | null; reason: string | null };
@@ -164,9 +155,18 @@ export interface SignoffResult {
   specVersion: { id: string; version: number } | null;
   /** The revision task Request changes gave the Product lead. */
   task: Task | null;
+  /**
+   * Whether that revision started at once (the Product lead is on it now) or waits for the next cycle, with the reason
+   * in the founder's words when it waits (first-time founder report, Nov 8, 2026: a correction used to join the queue
+   * silently).
+   */
+  revision: { started: boolean; reason: string | null } | null;
   /** The first build, when this decision was the second approval. */
   build: BuildStart | null;
 }
+
+/** Priority of a revision task: ahead of every planned task, so the next cycle takes it first when it did not start now. */
+export const REVISION_TASK_PRIORITY = 10;
 
 /** The one implementation of Approve / Request changes for the specification and the roadmap. */
 export async function decideProductSignoff(ctx: BusinessContext, input: DecideSignoffInput): Promise<SignoffResult> {
@@ -204,18 +204,20 @@ export async function decideProductSignoff(ctx: BusinessContext, input: DecideSi
     const answered = await answerNote(tx, ctx, round.inboxItemId, input.decision === "approve" ? "approve" : "request_changes", notes, voice?.id ?? null, summary);
 
     // Request changes: the founder's own words become the Product lead's revision task (trusted: they are the founder's).
+    // The title stays the team's ("from your notes"), never the founder's sentence cut off mid-word; their words are the goal.
     let task: Task | null = null;
     if (input.decision === "request_changes") {
       const departments = await repos.departments.list(tx, ctx.businessId, { includeHidden: true });
       const product = departments.find((d) => (d.moduleKeys as string[]).includes("product")) ?? null;
       task = await repos.tasks.create(tx, ctx.businessId, {
         kind: "research",
-        title: `Revise ${words.the}: ${notes!.slice(0, 60)}`.slice(0, 200),
-        goalMd: `${notes}\n\nReflect these in ${input.kind === "spec" ? "the specification blocks through proposals" : "the roadmap items"}, then tell the founder it is ready to sign off again.`,
+        title: `Revise ${words.the} from your notes`,
+        goalMd: `The founder asked for these changes to ${words.the}, in their own words:\n\n${notes}\n\nReflect them in ${input.kind === "spec" ? "the specification blocks through proposals, keeping the founder's audience, problem and place names as written" : "the roadmap items"}, then tell the founder it is ready to sign off again. Nothing else is built until they approve the revised version.`,
         acceptance: ["The founder's requested changes are reflected", "The founder was asked to sign off again"],
         assigneeAgentId: voice?.id ?? null,
         departmentId: product?.id ?? null,
         status: "ready",
+        priority: REVISION_TASK_PRIORITY,
         currency: ctx.business.currency,
       });
     }
@@ -227,6 +229,21 @@ export async function decideProductSignoff(ctx: BusinessContext, input: DecideSi
   // The second approval starts the build: the Planner's graph for the first Now items, then the next cycle as Continue does.
   const build = written.bothApproved ? await startBuilding(ctx) : null;
 
+  // Request changes: the founder's correction is the next thing the team does, so the revision starts now, the way
+  // Plan's Start starts a task. When it cannot (no orchestrator, the team stopped, the budget used up), the follow-up
+  // says so and what to press; the task keeps its priority for the next cycle either way.
+  let revision: SignoffResult["revision"] = null;
+  if (written.task) {
+    try {
+      await startTaskByHand(ctx, written.task.id);
+      revision = { started: true, reason: null };
+    } catch (err) {
+      if (!(err instanceof AppError)) throw err;
+      ctx.log.info({ businessId: ctx.businessId, taskId: written.task.id, code: err.code, err: err.message }, "sign-off revision: the task did not start now; it waits for the next cycle");
+      revision = { started: false, reason: err.message };
+    }
+  }
+
   const followUp = await ctx.rls(async (tx) => {
     const { stage } = await loadProductStage(tx, ctx.businessId);
     const day = dayWords(new Date(), ctx.business.timeZone);
@@ -236,7 +253,7 @@ export async function decideProductSignoff(ctx: BusinessContext, input: DecideSi
       else if (input.decision === "approve") {
         const other = input.kind === "spec" ? "roadmap" : "specification";
         note = await postUpdate(tx, ctx, written.voice.id, `${words.tab} signed off`, `You approved ${words.the}${written.specVersion ? ` (version ${written.specVersion.version})` : ""} on ${day}. Sign off the ${other} and the build starts.`);
-      } else note = await postUpdate(tx, ctx, written.voice.id, `Changes requested: ${words.the}`, `Noted: “${clipWords(notes!, 40)}”. ${written.voice.name} revises it and asks for your sign-off again. You can also edit it yourself on the ${words.tab} tab and approve it there.`);
+      } else note = await postUpdate(tx, ctx, written.voice.id, `Changes requested: ${words.the}`, changesRequestedBody(written.voice.name, words, notes!, revision));
     }
     await emit(tx, ctx, {
       type: "product.signoff_decided",
@@ -256,14 +273,24 @@ export async function decideProductSignoff(ctx: BusinessContext, input: DecideSi
     return { note, stage };
   });
 
-  return { signoff: written.round, stage: followUp.stage, item: written.answered?.item ?? null, decision: written.answered?.decision ?? null, plan: written.answered?.plan ?? null, followUp: followUp.note, specVersion: written.specVersion, task: written.task, build };
+  return { signoff: written.round, stage: followUp.stage, item: written.answered?.item ?? null, decision: written.answered?.decision ?? null, plan: written.answered?.plan ?? null, followUp: followUp.note, specVersion: written.specVersion, task: written.task, revision, build };
+}
+
+/**
+ * The note after Request changes: the founder's words quoted back, who is on it and whether it has started, what
+ * happens next (a new round to sign off; nothing else is built until then), and the way to do it by hand.
+ */
+export function changesRequestedBody(voiceName: string, words: { the: string; tab: string }, notes: string, revision: SignoffResult["revision"]): string {
+  const quoted = `Noted: “${clipWords(notes, 40)}”.`;
+  const now = revision?.started ? `${voiceName} is revising ${words.the} now; you are asked to sign off the new version when it is ready, and nothing else is built until you approve it.` : `${voiceName} revises ${words.the} first thing next cycle${revision?.reason ? ` (it could not start right away: ${revision.reason.replace(/\.$/, "")})` : ""}; press Continue to start it now. You are asked to sign off the new version when it is ready, and nothing else is built until you approve it.`;
+  return `${quoted} ${now} You can also edit it yourself on the ${words.tab} tab and approve it there.`;
 }
 
 function buildingStartsBody(build: BuildStart): string {
-  const planned = build.planned.length ? `The Planner turned ${build.planned.map((t) => `“${t}”`).join(" and ")} into ${build.plannedTaskIds.length} task${build.plannedTaskIds.length === 1 ? "" : "s"} on Development › Plan.` : "Nothing was planned yet: open Development › Plan and build a task graph for the first roadmap item.";
-  const failed = build.failed.length ? ` ${build.failed.map((f) => `“${f.title}” could not be planned (${f.reason}); plan it from Development › Plan.`).join(" ")}` : "";
+  const planned = build.planned.length ? `The Planner turned ${build.planned.map((t) => `“${t}”`).join(" and ")} into ${build.plannedTaskIds.length} task${build.plannedTaskIds.length === 1 ? "" : "s"} on Product › Work list.` : "Nothing was planned yet: open Product › Work list and build a task graph for the first roadmap item.";
+  const failed = build.failed.length ? ` ${build.failed.map((f) => `“${f.title}” could not be planned (${f.reason}); plan it from Product › Work list.`).join(" ")}` : "";
   const cycle = build.cycle.started ? "The first build cycle is under way." : `Press Continue to start the first build cycle${build.cycle.reason ? `: ${build.cycle.reason}` : "."}`;
-  return `Signed off: the specification and the roadmap. ${planned}${failed} ${cycle} Distribution waits until you start it from Distribution › Board.`;
+  return `Signed off: the specification and the roadmap. ${planned}${failed} ${cycle} Distribution waits until you start it from Customers › Board.`;
 }
 
 /**
@@ -356,7 +383,7 @@ export async function decideSignoffItem(ctx: BusinessContext, item: InboxItem, s
       const row = await repos.productSignoffs.decide(tx, ctx.businessId, signoff.id, { status: "declined", notes: input.freeText, decidedBy: ctx.userId, decidedByKind: "user" });
       if (!row) throw new ConflictError("This note was answered a moment ago.", { itemId: item.id, code: "already_decided" });
       const answered = await answerNote(tx, ctx, item.id, "not_yet", input.freeText, item.fromAgentId, "Not yet: distribution waits.");
-      const followUp = item.fromAgentId ? await postUpdate(tx, ctx, item.fromAgentId, "Noted: distribution waits", "Noted. Start distribution any time from Distribution › Board.") : null;
+      const followUp = item.fromAgentId ? await postUpdate(tx, ctx, item.fromAgentId, "Noted: distribution waits", "Noted. Start distribution any time from Customers › Board.") : null;
       await emit(tx, ctx, { type: "product.signoff_decided", payload: { signoffId: row.id, kind: "ready_to_sell", round: row.round, decision: "declined", decidedBy: { kind: "user", id: ctx.userId }, notes: input.freeText, specVersionId: null, buildStarted: false, plannedTaskIds: [], cycle: null } });
       await audit(tx, ctx, { action: "product.signoff.decide", target: { kind: "product_signoff", id: row.id }, details: { kind: "ready_to_sell", round: row.round, decision: "declined" } });
       return { answered, followUp };
@@ -391,17 +418,27 @@ export interface StartDistributionResult {
   engines: TemporalResult[];
   followUp: InboxItem | null;
   /** The Ready to start selling? note, when this start answered it. */
-  answered: { item: InboxItem; decision: Decision; plan: PlanWithActions; actionId: string } | null;
+  answered: AnsweredNote | null;
 }
 
 /**
- * The explicit step that lets distribution spend effort (Distribution › Board › Start distribution, or the Chief of
+ * The explicit step that lets distribution spend effort (Customers › Board › Start distribution, or the Chief of
  * Staff's Ready to start selling? note): owners and admins only. One transaction sets `distribution_started_at` (a
  * second start changes nothing), approves a pending Ready to start selling round, creates the channel-scoring task and
  * posts the archetype's Board question; then the enabled channels' engines start and the Distribution strategist says so.
  */
+/** The channel-scoring task when only some channels can run: the starters may come only from those. */
+export function scoringTaskFor(available: readonly ChannelKey[]): { title: string; goal: string; acceptance: string[] } {
+  const names = available.map((k) => CHANNEL_META[k].label).join(", ");
+  return {
+    title: "Score the channels and pick which to start with",
+    goal: `Score every channel 1-20 on fit for this business. Propose starting channels only from those that can run now (${names}), with cost-per-customer ranges labeled Estimate.`,
+    acceptance: ["All 15 channels scored with a reason", `Starting channels chosen only from those that can run now (${names}), each with fit, potential, a cost-per-customer range and a three-sentence why`, "Budget split proposed within the monthly distribution budget"],
+  };
+}
+
 export async function startDistribution(ctx: BusinessContext, input: { via: "board" | "inbox"; itemId?: string | null }): Promise<StartDistributionResult> {
-  if (ctx.role !== "owner" && ctx.role !== "admin") throw new ForbiddenError("Owners and admins start distribution.");
+  if (!isAdminRole(ctx.role)) throw new ForbiddenError("Owners, cofounders and admins start distribution.");
   await assertAgentsRunning(ctx, "distribution");
   const seed = ctx.business.archetype ? getArchetypeSeed(ctx.business.archetype) : null;
 
@@ -409,7 +446,14 @@ export async function startDistribution(ctx: BusinessContext, input: { via: "boa
     const start = await repos.businesses.startDistribution(tx, ctx.businessId);
     if (!start.changed) return null;
     const [channels, agents, departments, chief, latest] = await Promise.all([repos.channels.list(tx, ctx.businessId, {}), repos.agents.list(tx, ctx.businessId, { limit: 500 }), repos.departments.list(tx, ctx.businessId, { includeHidden: true }), repos.agents.chiefOfStaff(tx, ctx.businessId), repos.productSignoffs.latest(tx, ctx.businessId)]);
-    const enabled = channels.filter((c) => c.enabled && !c.archivedAt);
+    // Only channels that can really act start (founder, 2026-11-11): one that is not available and not in offline
+    // tracking keeps its row, starts no engine and is not named as running. With none available nothing is scored and the
+    // Board asks nothing; the note says what opens first. A channel the founder posts by tap (founder, 2026-11-12) is on
+    // the board and starts no engine either: the team runs nothing there, so it is not a starter and no route relies on it.
+    const availability = await channelRowsFor(tx, ctx);
+    const kitModeOf = new Map(channels.map((c) => [c.channelKey, c.kitMode] as const));
+    const mayRun = (key: ChannelKey) => channelEngineMayRun(availability.rows[key], kitModeOf.get(key) ?? CHANNEL_META[key].kitModeByDefault);
+    const enabled = channels.filter((c) => c.enabled && !c.archivedAt && mayRun(c.channelKey));
 
     // The Ready to start selling? round, when it was offered: approved, its note answered.
     let answered: StartDistributionResult["answered"] = null;
@@ -421,17 +465,23 @@ export async function startDistribution(ctx: BusinessContext, input: { via: "boa
 
     // Scoring the channels is the first distribution work; a business whose channels were scored already keeps its scores.
     let scoringTaskId: string | null = null;
-    if (!channels.some((c) => c.scoredAt)) {
+    const allAvailable = availability.teamRuns.length === CHANNEL_KEYS.length;
+    if (!channels.some((c) => c.scoredAt) && availability.teamRuns.length > 0) {
       const strategist = agents.items.find((a) => a.agentType === CHANNEL_SCORING_TASK.assigneeTemplateKey) ?? null;
       const distribution = departments.find((d) => d.slug === CHANNEL_SCORING_TASK.departmentSlug) ?? departments.find((d) => (d.moduleKeys as string[]).includes("distribution")) ?? null;
-      const task = await repos.tasks.create(tx, ctx.businessId, { kind: CHANNEL_SCORING_TASK.kind, title: CHANNEL_SCORING_TASK.title, goalMd: CHANNEL_SCORING_TASK.goal, acceptance: CHANNEL_SCORING_TASK.acceptance, assigneeAgentId: strategist?.id ?? distribution?.leadAgentId ?? null, departmentId: distribution?.id ?? null, status: "ready", currency: ctx.business.currency });
+      // With only some channels able to run, the task says which the starters may come from.
+      const scoring = allAvailable ? { title: CHANNEL_SCORING_TASK.title, goal: CHANNEL_SCORING_TASK.goal, acceptance: CHANNEL_SCORING_TASK.acceptance } : scoringTaskFor(availability.teamRuns);
+      const task = await repos.tasks.create(tx, ctx.businessId, { kind: CHANNEL_SCORING_TASK.kind, title: scoring.title, goalMd: scoring.goal, acceptance: scoring.acceptance, assigneeAgentId: strategist?.id ?? distribution?.leadAgentId ?? null, departmentId: distribution?.id ?? null, status: "ready", currency: ctx.business.currency });
       scoringTaskId = task.id;
     }
 
     // The Board's question ("Where should the first customer come from?"), from the Chief of Staff, blocking Continue.
+    // Only the routes whose channels can run are offered; with fewer than two left there is nothing to choose between,
+    // so the question is not asked (a decision note needs at least two options).
     let boardItemId: string | null = null;
-    if (seed && chief) {
-      const board = seed.boardDecision;
+    const offered = seed ? offerableOptions(seed.boardDecision.options, mayRun) : { options: [], dropped: 0 };
+    if (seed && chief && offered.options.length >= MIN_DECISION_OPTIONS) {
+      const board = { ...seed.boardDecision, options: offered.options, bodyMd: offered.dropped > 0 ? `${seed.boardDecision.bodyMd}\n\n${OPTIONS_LEFT_OUT_LINE}` : seed.boardDecision.bodyMd };
       const item = await repos.inbox.createItem(tx, ctx.businessId, {
         type: "decision",
         from_agent_id: chief.id,
@@ -450,7 +500,7 @@ export async function startDistribution(ctx: BusinessContext, input: { via: "boa
     await emit(tx, ctx, { type: "distribution.started", payload: { startedBy: { kind: "user", id: ctx.userId }, via: input.via, channelIds: enabled.map((c) => c.id), boardItemId, engines: 0 } });
     await audit(tx, ctx, { action: "distribution.start", target: { kind: "business", id: ctx.businessId }, details: { via: input.via, itemId: input.itemId ?? null, channels: enabled.map((c) => c.channelKey), boardItemId, scoringTaskId } });
     const strategist = agents.items.find((a) => a.agentType === CHANNEL_SCORING_TASK.assigneeTemplateKey) ?? null;
-    return { enabled, answered, scoringTaskId, boardItemId, strategist, chief };
+    return { enabled, answered, scoringTaskId, boardItemId, strategist, chief, noneSentence: availability.noneSentence, allAvailable };
   });
   if (!written) return { started: false, boardItemId: null, scoringTaskId: null, engines: [], followUp: null, answered: null };
 
@@ -461,9 +511,15 @@ export async function startDistribution(ctx: BusinessContext, input: { via: "boa
     if (!from) return null;
     const labels = written.enabled.map((c) => CHANNEL_META[c.channelKey as keyof typeof CHANNEL_META]?.label ?? c.channelKey);
     const n = written.enabled.length;
+    // What happens next, said only as far as it is true: no scoring and no Board question where no channel can run.
+    const scoring = written.scoringTaskId ? `${from.name} scores the ${written.allAvailable ? "15 channels" : "channels"} first` : written.noneSentence ? null : "The channels keep the scores they have";
+    const board = written.boardItemId ? "the Board asks which route to the first customer comes first" : null;
+    const next = scoring && board ? `${scoring}; ${board}.` : scoring ? `${scoring}.` : board ? `${board.charAt(0).toUpperCase()}${board.slice(1)}.` : null;
     const body = [
-      n ? `${n} channel${n === 1 ? " is" : "s are"} on the board: ${labels.join(", ")}. ${n === 1 ? "Its engine starts" : "Their engines start"} now and ask${n === 1 ? "s" : ""} you before anything launches.` : "No channel is on the board yet: put one on and its engine starts.",
-      written.scoringTaskId ? `${from.name} scores the 15 channels first; the Board asks which route to the first customer comes first.` : "The channels keep the scores they have; the Board asks which route to the first customer comes first.",
+      n
+        ? `${n} channel${n === 1 ? " is" : "s are"} on the board: ${labels.join(", ")}. ${n === 1 ? "Its engine starts" : "Their engines start"} now and ask${n === 1 ? "s" : ""} you before anything launches.`
+        : (written.noneSentence ?? "No channel is on the board yet: put one on and its engine starts."),
+      ...(next ? [next] : []),
     ].join(" ");
     return postUpdate(tx, ctx, from.id, "Distribution has started", body);
   });

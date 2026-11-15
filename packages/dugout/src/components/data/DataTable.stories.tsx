@@ -3,8 +3,10 @@ import { useMemo, useState } from "react";
 import { Archive, Bot, ExternalLink, ListPlus, Mail } from "lucide-react";
 import { formatDate, formatMoney } from "../../lib/format";
 import { Chip } from "../foundation/Chip";
+import { Input } from "../foundation/Input";
 import { StatusPill, type StatusTone } from "../foundation/StatusPill";
 import { GuidanceProvider } from "../guidance/GuidanceProvider";
+import { BuilderViewProvider } from "../guidance/BuilderView";
 import { DataTable, type DataTableColumn } from "./DataTable";
 import { EntityLink } from "./EntityLink";
 import { RatingFigure } from "./RatingBar";
@@ -12,7 +14,9 @@ import {
   generateLeads,
   LEAD_STAGE_LABELS,
   LEAD_VIEWS,
+  TEAM_ROWS,
   type LeadRow,
+  type TeamRow,
   type LeadStage,
 } from "./fixtures";
 import type { SavedView } from "./types";
@@ -272,6 +276,28 @@ export const SmallWithoutViews: Story = {
 };
 
 /**
+ * Builder view (docs/DESIGN.md): a column with `meta.builderOnly` and a view with `builderOnly` are part of the table
+ * only while the switch is on. Off on the left, on on the right (the toolbar toggle does not change this one).
+ */
+export const BuilderOnlyColumns: Story = {
+  name: "Builder view columns",
+  args: { data: [], columns: [] },
+  render: () => {
+    const gated = columns.slice(0, 7).map((c, i) => (i === 5 ? { ...c, meta: { ...c.meta, builderOnly: true } } : c));
+    return (
+      <div className="grid grid-cols-2 gap-gutter">
+        <BuilderViewProvider on={false}>
+          <DataTable title="Builder view off" data={generateLeads(12, "builder-off")} columns={gated} height={380} />
+        </BuilderViewProvider>
+        <BuilderViewProvider on>
+          <DataTable title="Builder view on" data={generateLeads(12, "builder-on")} columns={gated} height={380} />
+        </BuilderViewProvider>
+      </div>
+    );
+  },
+};
+
+/**
  * A head that is a defined term (`meta.term`): the word opens its definition card, the arrow beside it sorts. With
  * guidance off the head is plain and sorts as a whole.
  */
@@ -386,4 +412,46 @@ export const GrowingColumns: Story = {
       <DataTable title="People" data={generateLeads(8, "grow")} columns={growColumns} height={260} filterLabel="Filter rows" />
     </div>
   ),
+};
+
+const teamColumns: DataTableColumn<TeamRow>[] = [
+  { accessorKey: "name", header: "Agent", size: 260, meta: { grow: 2 } },
+  { accessorKey: "role", header: "Role", size: 180, meta: { grow: 1 } },
+  { accessorKey: "department", header: "Department", size: 140, meta: { filter: "select", filterOptions: ["Team", "Product", "Development", "Distribution"].map((v) => ({ value: v, label: v })) } },
+  { accessorKey: "rating", header: "Rating", size: 90, meta: { numeric: true } },
+];
+
+/**
+ * Nested rows (a tree grid): leads first, each with a "+N specialists" expander, collapsed by default. ArrowRight opens
+ * the focused row (again: into its first child), ArrowLeft closes it (again: back to its parent). Sorting orders each
+ * level on its own and the pinned Chief of Staff stays first; the search keeps a lead whose specialist matches and opens
+ * it. The CSV is flat with a "Reports to" column.
+ */
+export const NestedRows: Story = {
+  name: "Nested rows",
+  args: { data: [], columns: [] },
+  render: () => {
+    function Demo() {
+      const [search, setSearch] = useState("");
+      const parentOf = useMemo(() => new Map(TEAM_ROWS.flatMap((r) => (r.reports ?? []).map((c) => [c.id, r.name] as const))), []);
+      return (
+        <div className="flex flex-col gap-2">
+          <DataTable<TeamRow>
+            title="Agents"
+            aria-label="Agents"
+            data={TEAM_ROWS}
+            columns={teamColumns}
+            getSubRows={(r) => r.reports}
+            subRowsLabel={(_r, n) => `+${n} ${n === 1 ? "specialist" : "specialists"}`}
+            isPinnedRow={(r) => r.pinned === true}
+            exportColumns={[{ header: "Reports to", value: (r) => parentOf.get(r.id) ?? (r.pinned ? "You" : "Chief of Staff") }]}
+            globalFilter={search}
+            toolbar={<Input aria-label="Search agents" placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)} className="w-48" />}
+            height={320}
+          />
+        </div>
+      );
+    }
+    return <Demo />;
+  },
 };

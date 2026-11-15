@@ -127,6 +127,10 @@ export interface AgentIdentity {
   name: string;
   role?: string | null;
   personaKey?: string | null;
+  /** The agent's layer, when the caller has it: a `utility` agent is a background helper and reads by its role name. */
+  layer?: string | null;
+  /** The template key, when the caller has it (the five utility templates are background helpers). */
+  agentType?: string | null;
 }
 
 /** The agent's position, as shown beside a persona name: the role, else the agent's own (title) name. */
@@ -768,14 +772,110 @@ export function characterPortraitPrompt(character: Character): string {
   }
 }
 
-/** The name to show: the character's first name (in the account's style) when anthropomorphic agents are on. */
-export function agentDisplayName(agent: AgentIdentity, anthropomorphic: boolean, style: AgentStyle = DEFAULT_AGENT_STYLE): string {
-  const character = anthropomorphic ? characterFor(agent.personaKey, style) : null;
-  return character ? character.name : agent.name;
+// ---------------------------------------------------------------------------------------------------------------
+// One name everywhere (docs/DECISIONS.md, "One name everywhere", 2026-11-08)
+// ---------------------------------------------------------------------------------------------------------------
+//
+// Every surface that names an agent goes through `agentDisplay`: the founder's account preference decides between the
+// stored name and the persona, never the surface. The server never writes a display choice into stored text (members
+// of one business may have different preferences): bodies name agents as `[[ent:<id>|<stored name>]]` markup, which
+// `EntityLink` renders under the reader's preference, and plain stored text such as a subject goes through
+// `withAgentNames` when it is shown.
+
+/**
+ * The background helpers' template keys (the five utilities: entity linker, classifier, categorizer, inbound sorter,
+ * moderation). They always read by their role name, even with anthropomorphic agents on (founder, 2026-11-08). Kept
+ * equal to `UTILITY_TEMPLATE_KEYS` in @foundmill/agents by a test there.
+ */
+export const BACKGROUND_HELPER_AGENT_TYPES: readonly string[] = Object.freeze(["entity_linker", "classifier", "categoriser", "triage", "moderation"]);
+
+/** True for a background helper: the utility layer, or one of the utility templates. */
+export function isBackgroundHelper(agent: Pick<AgentIdentity, "layer" | "agentType">): boolean {
+  return agent.layer === "utility" || (typeof agent.agentType === "string" && BACKGROUND_HELPER_AGENT_TYPES.includes(agent.agentType));
 }
 
-/** The sender label (Inbox and anywhere an agent is named alone): "Bramble (Chief of Staff)" when on, else the name. */
+/** The display preference: the account's `anthropomorphicAgents` and `agentStyle`. A bare boolean means the humans style. */
+export type AgentDisplayPrefs = boolean | { anthropomorphic: boolean; style?: AgentStyle | null };
+
+function prefsOf(prefs: AgentDisplayPrefs): { anthropomorphic: boolean; style: AgentStyle } {
+  if (typeof prefs === "boolean") return { anthropomorphic: prefs, style: DEFAULT_AGENT_STYLE };
+  return { anthropomorphic: prefs.anthropomorphic === true, style: prefs.style ?? DEFAULT_AGENT_STYLE };
+}
+
+/** The character an agent is shown as under `prefs`, or null (preference off, no catalog persona, or a background helper). */
+export function agentCharacter(agent: AgentIdentity, prefs: AgentDisplayPrefs): Character | null {
+  const { anthropomorphic, style } = prefsOf(prefs);
+  if (!anthropomorphic || isBackgroundHelper(agent)) return null;
+  return characterFor(agent.personaKey, style);
+}
+
+/**
+ * The one display function. `form: "name"` is the first name, for a place with the position beside it (a table cell,
+ * a card title); `form: "label"` is "Bob (Chief of Staff)", for a sender, a subject, or anywhere the agent is named
+ * alone. With the preference off, without a persona, or for a background helper, both are the stored name.
+ */
+export function agentDisplay(agent: AgentIdentity, prefs: AgentDisplayPrefs, form: "name" | "label" = "label"): string {
+  const character = agentCharacter(agent, prefs);
+  if (!character) return agent.name;
+  return form === "name" ? character.name : `${character.name} (${agentPosition(agent)})`;
+}
+
+/** The first name (in the account's style) when anthropomorphic agents are on. Alias of `agentDisplay(…, "name")`. */
+export function agentDisplayName(agent: AgentIdentity, anthropomorphic: boolean, style: AgentStyle = DEFAULT_AGENT_STYLE): string {
+  return agentDisplay(agent, { anthropomorphic, style }, "name");
+}
+
+/** "Bramble (Chief of Staff)" when on, else the stored name. Alias of `agentDisplay(…, "label")`. */
 export function agentLabel(agent: AgentIdentity, anthropomorphic: boolean, style: AgentStyle = DEFAULT_AGENT_STYLE): string {
-  const character = anthropomorphic ? characterFor(agent.personaKey, style) : null;
-  return character ? `${character.name} (${agentPosition(agent)})` : agent.name;
+  return agentDisplay(agent, { anthropomorphic, style }, "label");
+}
+
+/**
+ * How the server names an agent in stored text: `[[ent:<id>|<stored name>]]`, never a display choice. EntityLink renders
+ * it under each reader's own preference. The name loses the two characters markup cannot carry ("|" and "]").
+ */
+export function agentMention(agent: { id: string; name: string }): string {
+  const name = agent.name.replace(/[|\]]/g, " ").replace(/\s+/g, " ").trim();
+  return name ? `[[ent:${agent.id}|${name}]]` : "";
+}
+
+const ENTITY_MARKUP = /\[\[ent:[^\]]*\]\]/g;
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Plain stored text (an Inbox subject, a toast, a live-session note) with each roster agent's exact stored name
+ * replaced by its label under `prefs`: whole words only, case-sensitive, the longest name first (so "Engineering
+ * Lead" wins over "Lead"), and never inside `[[ent:…]]` markup (EntityLink names those itself). With the preference
+ * off the text comes back unchanged. Text written under an agent's old name after a rename is left as it is.
+ */
+export function withAgentNames(text: string, roster: readonly AgentIdentity[], prefs: AgentDisplayPrefs, form: "name" | "label" = "label"): string {
+  if (!text || roster.length === 0 || !prefsOf(prefs).anthropomorphic) return text;
+  const byName = new Map<string, { shown: string; first: string }>();
+  for (const agent of roster) {
+    const name = agent.name?.trim();
+    if (!name || byName.has(name)) continue;
+    const shown = agentDisplay(agent, prefs, form);
+    if (shown !== agent.name) byName.set(name, { shown, first: agentDisplay(agent, prefs, "name") });
+  }
+  if (byName.size === 0) return text;
+  const names = [...byName.keys()].sort((a, b) => b.length - a.length || (a < b ? -1 : 1));
+  // A whole word: no letter, digit or underscore touches either end of the name. A possessive ("Engineering Lead's
+  // change") takes the first name alone, so it never reads "Malik (Head of Engineering)'s change".
+  const pattern = new RegExp(`(?<![\\p{L}\\p{N}_])(${names.map(escapeRegExp).join("|")})(?![\\p{L}\\p{N}_])(['’]s(?![\\p{L}\\p{N}_]))?`, "gu");
+  const swap = (part: string) =>
+    part.replace(pattern, (hit: string, name: string, possessive: string | undefined) => {
+      const entry = byName.get(name);
+      if (!entry) return hit;
+      return possessive ? `${entry.first}${possessive}` : entry.shown;
+    });
+  let out = "";
+  let last = 0;
+  for (const m of text.matchAll(ENTITY_MARKUP)) {
+    out += swap(text.slice(last, m.index)) + m[0];
+    last = m.index + m[0].length;
+  }
+  return out + swap(text.slice(last));
 }

@@ -5,11 +5,13 @@
  * Temporal service: the connection opens lazily, an unreachable server is remembered for `retryAfterMs` and reported as
  * `started: false` (a delivery is never failed because Temporal is down), and a workflow id that is already running
  * counts as started, so a vendor's retry never runs the same work twice. Ids are deterministic: `journey:{conversionId}`,
- * `playbook:{playbookId}:{eventId}`, and apps/api's `engine:{channelId}` and `training:{runId}`.
+ * `playbook:{playbookId}:{eventId}`, and apps/api's `engine:{channelId}`, `training:{runId}` and
+ * `post-draft:{businessId}:{trigger}` (a post the social agent drafts for the founder to share by tap, after the
+ * project's first follower confirmed).
  */
 import type { IngestLogger } from "./types";
 
-export const INGEST_WORKFLOWS = { journeyBuild: "journeyBuild", playbook: "playbook", channelEngine: "channelEngine", trainingRun: "trainingRun" } as const;
+export const INGEST_WORKFLOWS = { journeyBuild: "journeyBuild", playbook: "playbook", channelEngine: "channelEngine", trainingRun: "trainingRun", postDraft: "postDraft" } as const;
 
 export const ingestWorkflowIds = {
   journey: (conversionId: string) => `journey:${conversionId}`,
@@ -17,6 +19,8 @@ export const ingestWorkflowIds = {
   /** Same ids as apps/api `workflowIds` (services/temporal.ts), so a start that is already running is not repeated. */
   engine: (channelId: string) => `engine:${channelId}`,
   training: (runId: string) => `training:${runId}`,
+  /** Same id as apps/api `workflowIds.postDraft`: one draft of a post per business and trigger. */
+  postDraft: (businessId: string, trigger: string) => `post-draft:${businessId}:${trigger}`,
 } as const;
 
 export interface WorkflowStartResult {

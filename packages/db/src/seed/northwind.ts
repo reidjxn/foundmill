@@ -9,11 +9,12 @@ import { APP_NAME, CREDITS_CURRENCY } from "@foundmill/config";
 import { eq } from "drizzle-orm";
 import { repos } from "../repos";
 import { entities as entitiesTable, type Entity } from "../schema";
-import { agentMention, seedAgentEntities, seedChannels, seedDashboards, seedHistoricalTasks, seedInbox, seedIntegrations, seedRoadmap, seedSignedOffAndSelling, seedSpec, seedTasks, seededRelevance, type InboxSpec, type RoadmapSpec, type TaskSpec } from "./content";
+import { agentMention, seedAgentEntities, seedChannels, seedDashboards, seedHistoricalTasks, seedInbox, seedIntegrations, seedRoadmap, seedActiveGoal, seedSignedOffAndSelling, seedSpec, seedTasks, seededRelevance, type InboxSpec, type RoadmapSpec, type TaskSpec } from "./content";
 import { DEMO_OWNER_DISPLAY_NAME, DEMO_SEED_AUDIT_ACTION, NORTHWIND_BUSINESS_ID, NORTHWIND_NAME, NORTHWIND_SLUG } from "./constants";
 import { addDays, atHour, mention, money, pct, proseDoc, type SeedCtx } from "./context";
+import { recordSampleRows } from "./roll-forward";
 import { seedFinance } from "./finance";
-import { seedJourney } from "./journey";
+import { seedJourney, seedRevenueMilestones } from "./journey";
 import { seedLegal } from "./legal";
 import { seedNorthwindResearch } from "./research";
 import { applyAgentStatuses, seedSquad } from "./squad";
@@ -207,6 +208,7 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
   const { ids: specIds, versionId: specVersionId } = await seedSpec(ctx, businessId, archetype.specOutline, SPEC_TEXT, productLead?.agent.id ?? null);
   // Signed off in the first days and selling since week three (founder, 2026-10-18): the channels keep running.
   await seedSignedOffAndSelling(ctx, businessId, specVersionId);
+  await seedActiveGoal(ctx, businessId, squad.chief.agent.id);
   const roadmapIds = await seedRoadmap(ctx, businessId, ROADMAP, specIds, squad);
   await repos.product.createSource(db, businessId, {
     kind: "doc",
@@ -368,9 +370,9 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
   const latest = journey.latestPayments[0];
   const won = latest ? mention(latest.customer.entityId, latest.customer.displayName) : "a new customer";
   const runwayText = finance.runwayMonths === null ? "no runway limit yet, as the business stays cash-flow positive" : `${finance.runwayMonths} months of runway (Estimate)`;
-  const trophy = journey.data.milestones.filter((m) => m.trophyKey).at(-1);
-  // A non-recurring business's "MRR" is its trailing 30-day revenue: the milestone says Estimate.
-  const trophyLabel = trophy ? `${trophy.label}${trophy.ref?.estimate === true ? " (Estimate)" : ""}` : "";
+  // Revenue milestones from Finance's monthly figure (the bank seeded above); a revenue milestone says Estimate.
+  const trophy = await seedRevenueMilestones(ctx, businessId, "private");
+  const trophyLabel = trophy ? `${trophy.label}${trophy.estimate ? " (Estimate)" : ""}` : "";
   const inboxDrafts: Array<InboxSpec | null> = [
     {
       type: "decision",
@@ -444,7 +446,7 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
           type: "milestone",
           fromAgentId: chief.agent.id,
           subject: `Milestone: ${trophyLabel}`,
-          bodyMd: `${trophyLabel} reached on ${new Date(trophy.achievedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}. ${journey.paidCustomers} paying customers so far (synthetic demo data). The whole team gets the credit; ${agentMention(agentEntities, squad.byTemplate.get("channel_influencer")!)} brought the most first touches this quarter.`,
+          bodyMd: `${trophyLabel} reached. ${journey.paidCustomers} paying customers so far (synthetic demo data). The whole team gets the credit; ${agentMention(agentEntities, squad.byTemplate.get("channel_influencer")!)} brought the most first touches this quarter.`,
           createdDaysAgo: 2,
           state: "read",
         }
@@ -486,13 +488,15 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
   // Mark the oldest sessions' agent entity as the customer-facing contact so search has an "agent" hit.
   await db.update(entitiesTable).set({ aliases: ["Chief of Staff", "CoS"] }).where(eq(entitiesTable.id, agentEntities.byAgentId.get(chief.agent.id)!.id));
 
+  // Every row written so far is the sample's own: the only rows the roll-forward ever moves (roll-forward.ts).
+  await recordSampleRows(db, businessId);
   // The build's last write: seed-on-boot reads it as "this business was built completely" (demoSeedState).
   await repos.audit.append(db, businessId, {
     actorKind: "system",
     actorId: null,
     action: DEMO_SEED_AUDIT_ACTION,
     target: { kind: "business", id: businessId },
-    details: { app: APP_NAME, seed: ctx.seed, slug: NORTHWIND_SLUG, inboxItems: inbox.length, journeys: journey.counts.journeys, legalEntityId: legal.legalEntityId },
+    details: { app: APP_NAME, seed: ctx.seed, anchor: ctx.today.toISOString(), slug: NORTHWIND_SLUG, inboxItems: inbox.length, journeys: journey.counts.journeys, legalEntityId: legal.legalEntityId },
   });
 
   return {

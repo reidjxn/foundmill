@@ -16,19 +16,22 @@ describe("runway words (one wording for every screen)", () => {
     expect(runwayFigure(undefined)).toBeNull();
   });
 
-  it("reads No limit when cash-flow positive, Not known yet without a bank or with too little history, with the reason and its short form", () => {
+  it("reads Not running out when cash-flow positive, Not known yet without a bank or with too little history, with the reason and its short form", () => {
     expect(runwayWords(finance({ months: null, netBurnMinor: -5_000 }))).toEqual(RUNWAY_WORDS.positive);
-    expect(runwayWords(finance({ months: null, accounts: 0, amountMinor: 0 }))).toMatchObject({ value: "Not known yet", caption: "Connect a bank to estimate it", brief: "connect a bank" });
-    expect(runwayWords(finance({ months: null, netBurnMinor: 9_000 }))).toMatchObject({ value: "Not known yet", caption: "Needs three months of bank history" });
+    // A month where nothing moved at all is not "you earn more than you spend": it is too little history (Nov 7, 2026).
+    expect(runwayState({ cash: { amountMinor: 50_000, accounts: 1 }, burn: { netBurnMinor: 0, grossBurnMinor: 0 }, runway: { months: null } })).toBe("short_history");
+    expect(runwayState({ cash: { amountMinor: 50_000, accounts: 1 }, burn: { netBurnMinor: 0, grossBurnMinor: 40_000 }, runway: { months: null } })).toBe("positive");
+    expect(runwayWords(finance({ months: null, accounts: 0, amountMinor: 0 }))).toMatchObject({ value: "Not known yet", caption: "Not enough data yet: connect your bank", brief: "connect a bank" });
+    expect(runwayWords(finance({ months: null, netBurnMinor: 9_000 }))).toMatchObject({ value: "Not known yet", caption: "Not enough data yet: needs three months of bank history" });
     expect(RUNWAY_WORDS.positive.estimate).toBeUndefined();
   });
 
-  it("never reads No limit for a bank balance below zero: Cash is below zero, with Estimate, whatever the months say (B8)", () => {
+  it("never reads Not running out for a bank balance below zero: Cash is below zero, with Estimate, whatever the months say (B8)", () => {
     // Negative cash and no burn: the API returns no months, which used to read as cash-flow positive.
     const overdrawn = finance({ amountMinor: -42_000, netBurnMinor: 0, months: null });
     expect(runwayState(overdrawn)).toBe("negative");
     expect(runwayWords(overdrawn)).toMatchObject({ value: "Cash is below zero", estimate: true });
-    expect(runwayWords(overdrawn)?.value).not.toBe("No limit");
+    expect(runwayWords(overdrawn)?.value).not.toBe("Not running out");
     // Negative cash and a burn: the API divides and gets a negative figure; the words stand in for it.
     const sinking = finance({ amountMinor: -42_000, netBurnMinor: 10_000, months: -4.2 });
     expect(runwayWords(sinking)?.value).toBe("Cash is below zero");

@@ -25,6 +25,43 @@ describe("proxy redirect rules", () => {
     expect(decideRedirect({ pathname: "/auth/callback", authenticated: true }).kind).toBe("next");
   });
 
+  it("serves a project's public page to anyone, signed in or out, and only under /p/", () => {
+    for (const p of ["/p/northwind-skincare", "/p/northwind-skincare/opengraph-image"]) {
+      expect(isPublicPath(p), p).toBe(true);
+      expect(decideRedirect({ pathname: p, authenticated: false }).kind).toBe("next");
+      expect(decideRedirect({ pathname: p, authenticated: true }).kind).toBe("next");
+    }
+    // Not a prefix match on the letter: the LIVE profiles stay signed-in only.
+    for (const p of ["/profiles", "/profiles/x", "/p", "/people"]) expect(isPublicPath(p), p).toBe(false);
+    expect(isFounderPath("/p/northwind-skincare")).toBe(false);
+  });
+
+  it("serves a project's story and a milestone's card to anyone, signed in or out, and only under /p/ and /m/", () => {
+    const id = "7a21e15f-87b0-4000-ac49-c98b9d627e98";
+    for (const p of ["/p/northwind-skincare/story", `/m/${id}`, `/m/${id}/opengraph-image`, `/m/${id}/story-image`]) {
+      expect(isPublicPath(p), p).toBe(true);
+      expect(decideRedirect({ pathname: p, authenticated: false }).kind).toBe("next");
+      expect(decideRedirect({ pathname: p, authenticated: true }).kind).toBe("next");
+      expect(isFounderPath(p), p).toBe(false);
+    }
+    // Not a prefix match on the letter: the console's Milestones screen and everything else stay signed-in only.
+    for (const p of ["/m", "/milestones", "/messages", "/b/x/milestones"]) expect(isPublicPath(p), p).toBe(false);
+    expect(decideRedirect({ pathname: "/b/x/milestones", authenticated: false }).kind).toBe("redirect");
+  });
+
+  it("serves a person's public profile to anyone, signed in or out, and only under /u/", () => {
+    for (const p of ["/u/maya-okafor", "/u/maya-okafor/opengraph-image"]) {
+      expect(isPublicPath(p), p).toBe(true);
+      expect(decideRedirect({ pathname: p, authenticated: false }).kind).toBe("next");
+      expect(decideRedirect({ pathname: p, authenticated: true }).kind).toBe("next");
+    }
+    for (const p of ["/u", "/users", "/public-profile"]) expect(isPublicPath(p), p).toBe(false);
+    expect(isFounderPath("/u/maya-okafor")).toBe(false);
+    // Where the person edits it is a signed-in account page, like Your businesses.
+    expect(isFounderPath("/public-profile")).toBe(true);
+    expect(decideRedirect({ pathname: "/public-profile", authenticated: false })).toEqual({ kind: "redirect", to: "/login?next=%2Fpublic-profile" });
+  });
+
   it("bounces a signed-in visitor off /login to next (clamped)", () => {
     expect(decideRedirect({ pathname: "/login", search: "?next=%2Fb%2Fabc%2Finbox", authenticated: true })).toEqual({ kind: "redirect", to: "/b/abc/inbox" });
     expect(decideRedirect({ pathname: "/login", search: "?next=https%3A%2F%2Fevil.example", authenticated: true })).toEqual({ kind: "redirect", to: "/" });
@@ -32,9 +69,9 @@ describe("proxy redirect rules", () => {
   });
 
   it("sends a signed-in `/` straight to the last business's Home when the cookie names one (audit topology F4, WEB-4)", () => {
-    expect(decideRedirect({ pathname: "/", authenticated: true, lastBusinessId: LAST })).toEqual({ kind: "redirect", to: `/b/${LAST}/home` });
+    expect(decideRedirect({ pathname: "/", authenticated: true, lastBusinessId: LAST })).toEqual({ kind: "redirect", to: `/b/${LAST}/today` });
     // The landing page's deep link means nothing to a signed-in founder (the index redirected them before too).
-    expect(decideRedirect({ pathname: "/", search: "?example=northwind", authenticated: true, lastBusinessId: LAST })).toEqual({ kind: "redirect", to: `/b/${LAST}/home` });
+    expect(decideRedirect({ pathname: "/", search: "?example=northwind", authenticated: true, lastBusinessId: LAST })).toEqual({ kind: "redirect", to: `/b/${LAST}/today` });
     // Without a usable cookie the signed-in index (/start) picks (profile gate, newest business, New business).
     for (const cookie of [undefined, null, "", "not-a-uuid", `${LAST}x`, "../../evil"]) {
       expect(decideRedirect({ pathname: "/", authenticated: true, lastBusinessId: cookie }), String(cookie)).toEqual({ kind: "rewrite", to: SIGNED_IN_INDEX });
@@ -49,10 +86,10 @@ describe("proxy redirect rules", () => {
   });
 
   it("bounces a signed-in visitor off /login to the last business when next names nothing else", () => {
-    expect(decideRedirect({ pathname: "/login", authenticated: true, lastBusinessId: LAST })).toEqual({ kind: "redirect", to: `/b/${LAST}/home` });
-    expect(decideRedirect({ pathname: "/login", search: "?next=https%3A%2F%2Fevil.example", authenticated: true, lastBusinessId: LAST })).toEqual({ kind: "redirect", to: `/b/${LAST}/home` });
+    expect(decideRedirect({ pathname: "/login", authenticated: true, lastBusinessId: LAST })).toEqual({ kind: "redirect", to: `/b/${LAST}/today` });
+    expect(decideRedirect({ pathname: "/login", search: "?next=https%3A%2F%2Fevil.example", authenticated: true, lastBusinessId: LAST })).toEqual({ kind: "redirect", to: `/b/${LAST}/today` });
     expect(decideRedirect({ pathname: "/login", search: "?next=%2Fb%2Fabc%2Finbox", authenticated: true, lastBusinessId: LAST })).toEqual({ kind: "redirect", to: "/b/abc/inbox" });
-    expect(signedInDestination("/", LAST)).toBe(`/b/${LAST}/home`);
+    expect(signedInDestination("/", LAST)).toBe(`/b/${LAST}/today`);
     expect(signedInDestination("/", "nope")).toBe("/");
     expect(signedInDestination("/new", LAST)).toBe("/new");
   });
@@ -75,7 +112,7 @@ describe("proxy redirect rules", () => {
     expect(parseLastBusinessId(LAST)).toBe(LAST);
     expect(parseLastBusinessId(LAST.toUpperCase())).toBe(LAST.toUpperCase());
     for (const bad of [null, undefined, "", "------------------------------------", `${LAST}/../x`]) expect(parseLastBusinessId(bad), String(bad)).toBeNull();
-    expect(lastBusinessHome(LAST)).toBe(`/b/${LAST}/home`);
+    expect(lastBusinessHome(LAST)).toBe(`/b/${LAST}/today`);
     expect(lastBusinessHome("x")).toBeNull();
   });
 
@@ -85,7 +122,7 @@ describe("proxy redirect rules", () => {
   });
 
   it("keeps the LIVE pages signed-in only: never public, sent to /login with next when signed out", () => {
-    for (const p of ["/network", "/communities", "/communities/3f1c0e9e-1111-4222-8333-944445555666", "/leaderboards", "/leaderboards/aae7068c-fd0f-4615-9534-8da4cd7e35e0", "/profiles/founder/3f1c0e9e-1111-4222-8333-944445555666", "/profiles/business/3f1c0e9e-1111-4222-8333-944445555666"]) {
+    for (const p of ["/network", "/communities", "/communities/3f1c0e9e-1111-4222-8333-944445555666", "/profiles/founder/3f1c0e9e-1111-4222-8333-944445555666", "/profiles/business/3f1c0e9e-1111-4222-8333-944445555666"]) {
       expect(isPublicPath(p), p).toBe(false);
       expect(isFounderPath(p), p).toBe(true);
       expect(decideRedirect({ pathname: p, authenticated: false }), p).toEqual({ kind: "redirect", to: `/login?next=${encodeURIComponent(p)}` });
@@ -139,6 +176,16 @@ describe("proxy redirect rules", () => {
   it("classifies paths", () => {
     expect(isPublicPath("/auth")).toBe(true);
     expect(isPublicPath("/b/x")).toBe(false);
+    // Founder email links open without a session (retention plan, 2026-11-11); nothing else under /email is public.
+    expect(isPublicPath(`/a/${"x".repeat(43)}`)).toBe(true);
+    expect(isPublicPath("/email/pause")).toBe(true);
+    expect(isPublicPath("/email/unsubscribe")).toBe(true);
+    expect(isPublicPath("/email/other")).toBe(false);
+    // The Terms and the Privacy Policy are read signed out (founder, 2026-11-13), and stay open to a signed-in founder.
+    expect(isPublicPath("/terms")).toBe(true);
+    expect(isPublicPath("/privacy")).toBe(true);
+    expect(decideRedirect({ pathname: "/privacy", authenticated: false })).toEqual({ kind: "next" });
+    expect(decideRedirect({ pathname: "/terms", authenticated: true, lastBusinessId: "b1" })).toEqual({ kind: "next" });
     expect(isFounderPath("/new/ideate")).toBe(true);
     expect(isFounderPath("/businesses")).toBe(true);
     expect(isFounderPath("/login")).toBe(false);

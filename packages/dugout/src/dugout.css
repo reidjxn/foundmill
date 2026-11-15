@@ -24,6 +24,10 @@
 /* Conversation and generation: the agent's desk, quick replies, streaming text, the live run, drafting cards
    (components/conversation). */
 @import "./conversation.css";
+/* Team call: tiles, level bars, stage, captions, controls, transcript turns (components/call). */
+@import "./call.css";
+/* The landing page's idea box (docs/IDEA_BOX.md). */
+@import "./idea-box.css";
 
 /* Components in this package and in the packages built on top of it. Paths are relative to this file. */
 @source "./components";
@@ -36,6 +40,8 @@
   --breakpoint-*: initial;
   --breakpoint-desktop: 1280px;
   --breakpoint-wide: 1440px;
+  /* Container widths (tokens.css "Small screens"): `@page-wide:` restyles a public page laid out wider than a phone. */
+  --container-page-wide: 640px;
 }
 
 /* Map tokens to utilities. `inline` so the utilities read the live variable (brand colours are swapped per business). */
@@ -180,6 +186,9 @@
   --spacing-field-lg: var(--field-lg);
   --spacing-badge: var(--badge-size);
   --spacing-target: var(--target-size);
+  --spacing-tap: var(--tap-target);
+  --spacing-phone: var(--phone-width);
+  --spacing-desktop: var(--min-viewport);
   --spacing-chip: var(--chip-height);
   --spacing-sidebar: var(--sidebar-width);
   --spacing-sidebar-collapsed: var(--sidebar-width-collapsed);
@@ -628,6 +637,28 @@
       transition-duration: 0.01ms !important;
       transition-delay: 0s !important;
       scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* The "Built on" mark at the foot of a project's public page, as a visitor meets it (DESIGN §9b): it comes up from
+   dim to full as the foot of the page scrolls into view, and rests there. Opacity only, never a glow on text. Without
+   scroll timelines, and with reduced motion, it simply rests at full. */
+@keyframes dugout-mark-arrive {
+  from {
+    opacity: 0.55;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@utility mark-arrive {
+  @supports (animation-timeline: view()) {
+    @media (prefers-reduced-motion: no-preference) {
+      animation: dugout-mark-arrive linear both;
+      animation-timeline: view();
+      /* Done the moment the whole mark is on screen: on a short page that never scrolls it rests at full. */
+      animation-range: entry 0% entry 100%;
     }
   }
 }

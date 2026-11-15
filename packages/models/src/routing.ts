@@ -39,6 +39,46 @@ export type ImageModelKey = keyof typeof IMAGE_MODELS;
 export type ImageModelId = (typeof IMAGE_MODELS)[ImageModelKey];
 
 /**
+ * Speech models for Team call (docs/TEAM_CALL.md §3). Verified against ElevenLabs' model docs on 2026-11-12: Flash v2.5
+ * is the lower-cost real-time text-to-speech model (~100 ms median latency, 40,000 characters a request), Scribe v3 the
+ * batch transcription model (successor to Scribe v2). Called only by the gateway's `elevenlabs` connector; never routed
+ * through the Claude client.
+ */
+export const SPEECH_MODELS = {
+  /** An agent's spoken turn on a call. */
+  call_speech: "eleven_flash_v2_5",
+  /** What the founder said on a call, transcribed. */
+  call_transcription: "scribe_v3",
+  /** A voiceover for a short post video, on the founder's own ElevenLabs key (the `elevenlabs_voice` connector). Multilingual v2: $0.08 per 1,000 characters on the API prices (Nov 13, 2026), 10,000 characters a request. */
+  post_voiceover: "eleven_multilingual_v2",
+} as const;
+export type SpeechModelKey = keyof typeof SPEECH_MODELS;
+
+/**
+ * Video models (Runway, the `runway` connector of PR #109, on the house business's own key). Verified against Runway's
+ * pricing guide on 2026-11-13: gen4_turbo makes a clip from a picture at 5 credits a second. Called only through the
+ * gateway's `runway` tools; never routed through the Claude client.
+ */
+export const VIDEO_MODELS = {
+  /** One clip per card of a showcase video (apps/api `services/showcase.ts`). */
+  showcase_clip: "gen4_turbo",
+} as const;
+export type VideoModelKey = keyof typeof VIDEO_MODELS;
+
+/**
+ * Panel models: the other assistants a project's AI visibility is checked against (the `openai`, `gemini` and
+ * `perplexity` connectors' `ask_panel`). Each runs on the founder's own key at that vendor, with the vendor's web search
+ * on, so the answer is close to what a person asking that assistant reads. Verified against each vendor's docs on
+ * 2026-11-12. Called only by the gateway's connectors; never routed through the Claude client.
+ */
+export const PANEL_MODELS = {
+  openai: "gpt-6-astra",
+  gemini: "gemini-3.8-flash",
+  perplexity: "perplexity/sonar",
+} as const;
+export type PanelModelKey = keyof typeof PANEL_MODELS;
+
+/**
  * Older models a real Anthropic account still lists. Nothing routes to them; the mock `list_models` tool reports them
  * as not routed, so an agent reading the list sees what a live account shows.
  */
@@ -72,8 +112,27 @@ export const THINKING_MAX_TOKENS = 16_000;
 export const LOW_EFFORT_MAX_TOKENS = 8_000;
 export const PLAIN_MAX_TOKENS = 4_096;
 
+/**
+ * What a route does when the business's credits are low (`creditsAreLow`, packages/config): `"keep"` keeps its model;
+ * a model key is the lower-cost model it moves to. Every route says which, so a new route is classified when it is added.
+ *
+ * Kept (founder-facing or high-stakes): the Inbox notes and the plan compiler (locked; a plan files real work), the Chief
+ * of Staff, replies at the desk, Team call, the goal in the founder's own words, the project's public page (outward),
+ * code review (what reaches main), the leads' Recommend answers (Legal's jurisdiction cards, Distribution's spend
+ * scores), Ideation (the founder's first look at a concept), and the Haiku utilities (already the lowest cost; two of
+ * them are the quarantine and moderation).
+ *
+ * Moved (routine work: research, drafts, internal prep, planning): the leads' own cycle work, the Planner, foundations,
+ * logo drafts, skill grading and coaching move from Opus to Sonnet; worker sessions, journey commentary and the
+ * nightly batch move from Sonnet to Haiku. An agent session whose tools reach outside the business or spend money, or
+ * whose template does money or legal work, keeps its route whatever this says (apps/orchestrator `prepareSession`).
+ */
+export type LowCreditsRoute = "keep" | ModelKey;
+
 export interface RouteDefinition {
   model: ModelKey;
+  /** Where routine work goes when credits are low; `"keep"` for founder-facing and high-stakes work (see `LowCreditsRoute`). */
+  lowCredits: LowCreditsRoute;
   locked?: boolean;
   warnOnDowngrade?: boolean;
   batch?: boolean;
@@ -81,48 +140,81 @@ export interface RouteDefinition {
   speed?: Extract<Speed, "fast">;
   /** `max_tokens` when the request sends none: the reply plus the thinking at the route's effort (header). */
   maxTokens: number;
+  /** The route may send images with a message (`ChatMessage.images`); the client refuses images on any other route. */
+  vision?: boolean;
 }
 
 export const ROUTES = {
   // Inbox always Opus. The Inbox notes, the plan compiler, the Planner and the leads' Recommend answers run at low effort
   // (founder, 2026-10-15: speed over the medium-effort default); the budgets stay at the thinking ceiling because
   // `max_tokens` is only a cap, and a 15-task graph must never be cut short.
-  inboxComposer: { model: "opus", locked: true, effort: "low", maxTokens: THINKING_MAX_TOKENS },
-  planCompiler: { model: "opus", locked: true, effort: "low", maxTokens: THINKING_MAX_TOKENS },
-  chiefOfStaff: { model: "opus", warnOnDowngrade: true, maxTokens: THINKING_MAX_TOKENS },
-  departmentLead: { model: "opus", maxTokens: THINKING_MAX_TOKENS },
+  inboxComposer: { model: "opus", lowCredits: "keep", locked: true, effort: "low", maxTokens: THINKING_MAX_TOKENS },
+  planCompiler: { model: "opus", lowCredits: "keep", locked: true, effort: "low", maxTokens: THINKING_MAX_TOKENS },
+  chiefOfStaff: { model: "opus", lowCredits: "keep", warnOnDowngrade: true, maxTokens: THINKING_MAX_TOKENS },
+  departmentLead: { model: "opus", lowCredits: "sonnet", maxTokens: THINKING_MAX_TOKENS },
   // Distribution's channel scores and Legal's jurisdiction cards: answers the founder waits on behind a Recommend button.
-  leadRecommendation: { model: "opus", effort: "low", maxTokens: THINKING_MAX_TOKENS },
-  planner: { model: "opus", effort: "low", maxTokens: THINKING_MAX_TOKENS },
-  codeReview: { model: "opus", maxTokens: THINKING_MAX_TOKENS },
+  leadRecommendation: { model: "opus", lowCredits: "keep", effort: "low", maxTokens: THINKING_MAX_TOKENS },
+  planner: { model: "opus", lowCredits: "sonnet", effort: "low", maxTokens: THINKING_MAX_TOKENS },
+  codeReview: { model: "opus", lowCredits: "keep", maxTokens: THINKING_MAX_TOKENS },
+  // The second read of a long document an agent drafted (the specification, the roadmap, policies, a pitch): a different
+  // agent checks it for inconsistencies, unsupported claims, unlabeled figures and claims that need a source. Nobody
+  // waits on it, so Opus at the default effort; the cost is bounded by the caller (packages/agents second-read.ts: two
+  // rounds at most, the document cut to a fixed size, a few claims fact-checked), never by this budget.
+  documentReview: { model: "opus", lowCredits: "keep", maxTokens: THINKING_MAX_TOKENS },
   // Concept cards, compare and the card Q&A (Ideation Studio): first drafts the founder waits on.
-  ideation: { model: "opus", effort: "low", speed: "fast", maxTokens: LOW_EFFORT_MAX_TOKENS },
+  ideation: { model: "opus", lowCredits: "keep", effort: "low", speed: "fast", maxTokens: LOW_EFFORT_MAX_TOKENS },
   // A short slate of names and angles drafted before the cards are written in parallel (audit P2).
-  ideationSlate: { model: "opus", effort: "low", speed: "fast", maxTokens: LOW_EFFORT_MAX_TOKENS },
-  logoDesigner: { model: "opus", effort: "low", speed: "fast", maxTokens: LOW_EFFORT_MAX_TOKENS }, // business logo marks as SVG (Commit screen, Settings › Business)
+  ideationSlate: { model: "opus", lowCredits: "keep", effort: "low", speed: "fast", maxTokens: LOW_EFFORT_MAX_TOKENS },
+  logoDesigner: { model: "opus", lowCredits: "sonnet", effort: "low", speed: "fast", maxTokens: LOW_EFFORT_MAX_TOKENS }, // business logo marks as SVG (Commit screen, Settings › Business)
   // Vision, first specification and first roadmap, drafted once when a new business is first opened (BUILD §11.1, §11.5).
-  foundations: { model: "opus", effort: "low", speed: "fast", maxTokens: LOW_EFFORT_MAX_TOKENS },
+  foundations: { model: "opus", lowCredits: "sonnet", effort: "low", speed: "fast", maxTokens: LOW_EFFORT_MAX_TOKENS },
   // The vision and a one-line thesis per section, drafted first so sections can be written in parallel (audit P3).
-  foundationsSkeleton: { model: "opus", effort: "low", speed: "fast", maxTokens: LOW_EFFORT_MAX_TOKENS },
-  skillGrader: { model: "opus", maxTokens: THINKING_MAX_TOKENS },
-  coach: { model: "opus", maxTokens: THINKING_MAX_TOKENS },
-  worker: { model: "sonnet", maxTokens: THINKING_MAX_TOKENS },
-  journeyCommentary: { model: "sonnet", maxTokens: THINKING_MAX_TOKENS },
-  nightlyBatch: { model: "sonnet", batch: true, maxTokens: THINKING_MAX_TOKENS },
-  linker: { model: "haiku", maxTokens: PLAIN_MAX_TOKENS },
-  classifier: { model: "haiku", maxTokens: PLAIN_MAX_TOKENS },
-  categoriser: { model: "haiku", maxTokens: PLAIN_MAX_TOKENS },
-  quarantinedReader: { model: "haiku", maxTokens: PLAIN_MAX_TOKENS },
-  moderation: { model: "haiku", maxTokens: PLAIN_MAX_TOKENS },
+  foundationsSkeleton: { model: "opus", lowCredits: "sonnet", effort: "low", speed: "fast", maxTokens: LOW_EFFORT_MAX_TOKENS },
+  skillGrader: { model: "opus", lowCredits: "sonnet", maxTokens: THINKING_MAX_TOKENS },
+  coach: { model: "opus", lowCredits: "sonnet", maxTokens: THINKING_MAX_TOKENS },
+  worker: { model: "sonnet", lowCredits: "haiku", maxTokens: THINKING_MAX_TOKENS },
+  journeyCommentary: { model: "sonnet", lowCredits: "haiku", maxTokens: THINKING_MAX_TOKENS },
+  nightlyBatch: { model: "sonnet", lowCredits: "haiku", batch: true, maxTokens: THINKING_MAX_TOKENS },
+  linker: { model: "haiku", lowCredits: "keep", maxTokens: PLAIN_MAX_TOKENS },
+  classifier: { model: "haiku", lowCredits: "keep", maxTokens: PLAIN_MAX_TOKENS },
+  categoriser: { model: "haiku", lowCredits: "keep", maxTokens: PLAIN_MAX_TOKENS },
+  quarantinedReader: { model: "haiku", lowCredits: "keep", maxTokens: PLAIN_MAX_TOKENS },
+  moderation: { model: "haiku", lowCredits: "keep", maxTokens: PLAIN_MAX_TOKENS },
   // A task's title in the founder's words (ten words, no engineering terms): a short rewrite of a short text, batched.
-  founderTitle: { model: "haiku", maxTokens: PLAIN_MAX_TOKENS },
+  founderTitle: { model: "haiku", lowCredits: "keep", maxTokens: PLAIN_MAX_TOKENS },
   // Talking to an agent at their desk (audit-conversation §4): 1–3 short bubbles and 2–4 quick replies the founder waits
   // on, so Sonnet at low effort (founder, 2026-10-15: replies in seconds over Opus's nuance); callers cache the system
   // prompt (house rules + instructions) and size max_tokens for the reply (~700 tokens) plus the thinking Sonnet 5.5
   // always does, which counts toward max_tokens.
-  conversation: { model: "sonnet", effort: "low", maxTokens: LOW_EFFORT_MAX_TOKENS },
+  conversation: { model: "sonnet", lowCredits: "keep", effort: "low", maxTokens: LOW_EFFORT_MAX_TOKENS },
+  // The founder's "Change it" words on the Chief of Staff's goal (founder, 2026-11-07): the model picks only the kind, the
+  // target and the date (packages/shared writes every word the founder reads), so Sonnet at low effort answers in seconds.
+  goalProposal: { model: "sonnet", lowCredits: "keep", effort: "low", maxTokens: LOW_EFFORT_MAX_TOKENS },
+  // A new project's public page, drafted first after commit from the founder's own words (package 1.2): one short page
+  // (a pitch, a few paragraphs, who it is for) that mostly keeps the founder's text, on the path before the vision.
+  // Sonnet at low effort writes it in seconds and holds to "keep their words, invent nothing"; Opus would add cost and
+  // wait for no gain on a page this short. Any failure falls back to the deterministic starter draft.
+  // Also the posts the social agent drafts for the founder to share by tap (docs/NETWORK.md F3, F7; packages/agents
+  // `post-draft.ts`): the same kind of work (one or two sentences of public copy from the page's own words, nothing
+  // invented), so it shares the route and its settings and is told apart in the usage ledger by its kind (`post_draft`).
+  projectPage: { model: "sonnet", lowCredits: "keep", effort: "low", maxTokens: LOW_EFFORT_MAX_TOKENS },
+  // Team call (docs/TEAM_CALL.md §4): the next one to four spoken turns of a call. The founder is listening and waiting,
+  // so Sonnet at low effort, like a reply at the desk; turns are short spoken sentences.
+  teamCallTurn: { model: "sonnet", lowCredits: "keep", effort: "low", maxTokens: LOW_EFFORT_MAX_TOKENS },
+  // The call's summary and its action items as typed plan actions, written once when the call ends: Opus, which the
+  // plan compiler also uses, because a wrong action files real work.
+  teamCallWrapUp: { model: "opus", lowCredits: "keep", effort: "low", maxTokens: LOW_EFFORT_MAX_TOKENS },
+  // The design check (item 13): a separate reviewer looks at the screenshots of the pages a code agent changed in a
+  // founder's project (desktop and 390 px) and returns a short ranked list of fixes. The only route that carries images;
+  // Opus for taste, at low effort because it runs inside the agent's session, before the acceptance tests.
+  designReview: { model: "opus", lowCredits: "keep", effort: "low", vision: true, maxTokens: LOW_EFFORT_MAX_TOKENS },
 } as const satisfies Record<string, RouteDefinition>;
 export type RouteKey = keyof typeof ROUTES;
+
+/** Whether a route may send images (`RouteDefinition.vision`). */
+export function routeAcceptsImages(route: RouteKey): boolean {
+  return (ROUTES[route] as RouteDefinition).vision === true;
+}
 
 export type RouteResolution = {
   route: RouteKey;
@@ -137,7 +229,14 @@ export type RouteResolution = {
   speed?: Extract<Speed, "fast">;
   /** `max_tokens` for a request that sends none: the route's budget, raised to the resolved model's thinking floor. */
   maxTokens: number;
+  /** True when low credits moved this call to the route's lower-cost model (`ResolveOptions.lowCredits`). */
+  lowCredits?: true;
 };
+
+export interface ResolveOptions {
+  /** The business's credits are low: routine routes move to their `lowCredits` model; kept routes are unchanged. */
+  lowCredits?: boolean;
+}
 
 const RANK: Record<ModelKey, number> = { haiku: 0, sonnet: 1, opus: 2 };
 
@@ -146,8 +245,18 @@ function modelWord(key: ModelKey): string {
   return key.charAt(0).toUpperCase() + key.slice(1);
 }
 
-/** Resolve the model for a route, honouring locks and downgrade warnings (BUILD §10.1, §11.10 "Model selection"). */
-export function resolveModel(route: RouteKey, override?: ModelKey): RouteResolution {
+/** The model a route's routine work moves to when credits are low, or null when the route keeps its model. */
+export function lowCreditsModel(route: RouteKey): ModelKey | null {
+  const def: RouteDefinition = ROUTES[route];
+  return def.locked === true || def.lowCredits === "keep" ? null : def.lowCredits;
+}
+
+/**
+ * Resolve the model for a route, honouring locks and downgrade warnings (BUILD §10.1, §11.10 "Model selection"). With
+ * `lowCredits`, a routine route runs on its lower-cost model, or on the agent's chosen model when that is cheaper still;
+ * a kept or locked route is unchanged.
+ */
+export function resolveModel(route: RouteKey, override?: ModelKey, options: ResolveOptions = {}): RouteResolution {
   const def: RouteDefinition = ROUTES[route];
   const locked = def.locked === true;
   let modelKey: ModelKey = def.model;
@@ -162,9 +271,13 @@ export function resolveModel(route: RouteKey, override?: ModelKey): RouteResolut
       }
     }
   }
+  const saver = options.lowCredits ? lowCreditsModel(route) : null;
+  const moved = saver !== null && RANK[saver] < RANK[modelKey];
+  if (moved) modelKey = saver;
   const caps = MODEL_CAPABILITIES[modelKey];
   const effort = def.effort && caps.effort ? def.effort : undefined;
   const resolution: RouteResolution = { route, modelKey, modelId: MODELS[modelKey], locked, warning, batch: def.batch === true, maxTokens: maxTokensFor(def.maxTokens, modelKey, effort) };
+  if (moved) resolution.lowCredits = true;
   if (effort) resolution.effort = effort;
   if (def.speed === "fast" && caps.fastMode) resolution.speed = "fast";
   return resolution;

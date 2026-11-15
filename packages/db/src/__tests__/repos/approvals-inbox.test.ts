@@ -49,14 +49,17 @@ describe("the decision item", () => {
     expect(opened.created).toBe(true);
     const item = opened.item;
     expect(item.type).toBe("decision");
-    expect(item.blocksContinue).toBe(true);
+    // A question waits in Needs you without holding Continue (0071, Nov 7, 2026).
+    expect(item.blocksContinue).toBe(false);
     expect(item.fromAgentId).toBe(r.A.agentId);
     expect(item.subject).toBe("Finance Lead needs your OK: Stripe › create coupon");
     expect(item.bodyMd).toContain("“Set up the first runway forecast”");
     expect(item.bodyMd).toContain("$45.00");
     // Two sentences in the founder's words (Nov 3, 2026: what happened, the question); what yes and no do sit on the
     // options, why the founder is asked is the reading pane's own row, and the arguments stay in its Details.
-    expect(item.bodyMd).toBe("Finance Lead wants to create coupon on Stripe for “Set up the first runway forecast”, spending **$45.00**. OK?");
+    // The body names the agent as markup with its stored name, never a display choice (One name everywhere, Nov 8, 2026);
+    // the subject stays plain and the web names it under the reader's preference.
+    expect(item.bodyMd).toBe(`[[ent:${r.A.agentId}|Finance Lead]] wants to create coupon on Stripe for “Set up the first runway forecast”, spending **$45.00**. OK?`);
     expect(item.bodyMd).not.toContain("ANNUAL20");
     const options = (item.decision as { options: { id: string; label: string }[] }).options;
     expect(options.map((o) => [o.id, o.label])).toEqual([
@@ -119,7 +122,7 @@ describe("the decision item", () => {
     // The arguments never reach the note (the reading pane's Details hold them).
     expect(plain.body_md).not.toContain("create index");
     // The tool's words in the founder's (the shared map): "run migration" reads "run a change to the data layout".
-    expect(plain.body_md).toBe("Legal Lead wants to run a change to the data layout on GitHub. OK?");
+    expect(plain.body_md).toBe(`[[ent:${r.A.agentId}|Legal Lead]] wants to run a change to the data layout on GitHub. OK?`);
     expect(plain.blocks_continue).toBe(true);
     // A release is worded as the moment it is for the founder, with the platform's test counts.
     const release = approvalItem({ connectorKey: "github", tool: "merge_pr", reasons: ["You chose to be asked before anything goes live"], amountMinor: null, currency: null, args: { owner: "acme", repo: "shop", prNumber: 38, mergeMethod: "squash" } }, { agentId: r.A.agentId, agentName: "Eva", taskTitle: "Assert no hydration errors in the example-business Playwright spec", tests: { passing: 144, total: 144 } });
@@ -129,14 +132,14 @@ describe("the decision item", () => {
     const released = `${release.subject}. ${release.body_md.replace(/“[^”]*”/g, "")}. ${(release.decision?.options ?? []).map((o) => `${o.label}. ${o.consequence}`).join(" ")}`;
     expect(founderJargonHits(released).map((h) => h.term), released).toEqual([]);
     expect(founderJargonHits(`${plain.subject}. ${plain.body_md}`).map((h) => h.term)).toEqual([]);
-    expect(release.body_md).toBe("Eva finished “Assert no hydration errors in the example-business Playwright spec”. All 144 tests passed. OK to put it live?");
+    expect(release.body_md).toBe(`[[ent:${r.A.agentId}|Eva]] finished “Assert no hydration errors in the example-business Playwright spec”. It passed every quality check. OK to put it live?`);
     expect(release.body_md).not.toMatch(/prNumber|squash|merge|#38|\{/);
     // A release never holds Continue: the merge waits for the answer in the background.
     expect(release.blocks_continue).toBe(false);
     expect((release.decision.options as { label: string; consequence: string }[]).map((o) => o.label)).toEqual(["Put it live", "Not now"]);
-    expect((release.decision.options as { consequence: string }[])[0]!.consequence).toBe("It goes live once the automatic tests pass; if they fail, Eva fixes it and asks again.");
-    expect(approvalItem({ connectorKey: "github", tool: "merge_pr", reasons: [], amountMinor: null, currency: null, args: {} }, { agentId: r.A.agentId, agentName: "Eva", tests: null }).body_md).toBe("Eva finished a change. There was nothing in it to test. OK to put it live?");
-    expect(approvalItem({ connectorKey: "github", tool: "merge_pr", reasons: [], amountMinor: null, currency: null, args: {} }, { agentId: r.A.agentId, agentName: "Eva", taskTitle: "Fix the sign-in page", tests: { passing: 19, total: 25 } }).body_md).toBe("Eva finished “Fix the sign-in page”. 19 of 25 tests passed. OK to put it live?");
+    expect((release.decision.options as { consequence: string }[])[0]!.consequence).toBe("It goes live once the final quality checks pass; if one fails, Eva fixes it and asks again.");
+    expect(approvalItem({ connectorKey: "github", tool: "merge_pr", reasons: [], amountMinor: null, currency: null, args: {} }, { agentId: r.A.agentId, agentName: "Eva", tests: null }).body_md).toBe(`[[ent:${r.A.agentId}|Eva]] finished a change. There was nothing in it to check. OK to put it live?`);
+    expect(approvalItem({ connectorKey: "github", tool: "merge_pr", reasons: [], amountMinor: null, currency: null, args: {} }, { agentId: r.A.agentId, agentName: "Eva", taskTitle: "Fix the sign-in page", tests: { passing: 19, total: 25 } }).body_md).toBe(`[[ent:${r.A.agentId}|Eva]] finished “Fix the sign-in page”. It passed most of its quality checks. OK to put it live?`);
     expect(founderReasons(["Assisted mode: irreversible actions need approval", "spend above the approval threshold", "something this table does not know"])).toEqual(["You chose to be asked before anything that can't be undone.", "This would spend more than you allowed without asking."]);
   });
 });
@@ -230,5 +233,75 @@ describe("tasks waiting on the founder", () => {
     expect(holds.has(t5.id)).toBe(false);
     expect((await repos.approvals.holds(r.db, r.B.businessId, [t1.id])).size).toBe(0);
     expect((await repos.approvals.holds(r.db, r.A.businessId, [])).size).toBe(0);
+  });
+});
+
+describe("approvals must be decidable (first-time founder report, Nov 8, 2026)", () => {
+  it("a GitHub call with no repository connected asks to connect first; with a connection it asks as before", async () => {
+    const noGithub = approvalItem({ connectorKey: "github", tool: "run_migration", reasons: [], amountMinor: null, currency: null, args: { file: "0019_idx.sql" } }, { agentId: r.A.agentId, agentName: "Legal Lead", businessName: "ShiftMate", githubConnected: false });
+    expect(noGithub.subject).toBe("Legal Lead needs GitHub connected: run a change to the data layout");
+    expect(noGithub.body_md).toMatch(/no GitHub repository is connected to ShiftMate yet, so it has nowhere to run\. Connect one first\.$/);
+    const options = noGithub.decision.options as { id: string; label: string; recommended: boolean; consequence: string }[];
+    expect(options.map((o) => [o.id, o.label, o.recommended])).toEqual([
+      [APPROVAL_OPTIONS.reject, "Connect GitHub first", true],
+      [APPROVAL_OPTIONS.approve, "Approve anyway", false],
+    ]);
+    expect(options[0]!.consequence).toMatch(/Settings › Integrations/);
+    // Opened through openApprovalItem the connection is read from the integrations: none in this harness.
+    const task = await newTask("Add the usage index");
+    const session = await newSession(task.id);
+    const a = await repos.approvals.create(r.db, r.A.businessId, { agentId: r.A.agentId, sessionId: session.id, ...call });
+    const opened = await openApprovalItem(r.db, r.A.businessId, a, { agentId: r.A.agentId, agentName: "Legal Lead" });
+    expect(opened.item.subject).toMatch(/^Legal Lead needs GitHub connected/);
+    // A mock installation counts as connected: it has somewhere to run.
+    await repos.integrations.upsert(r.db, r.A.businessId, { connectorKey: "github", status: "mock", accountLabel: "mock installation" });
+    const b = await repos.approvals.create(r.db, r.A.businessId, { agentId: r.A.agentId, sessionId: (await newSession((await newTask("Second index")).id)).id, ...call });
+    const openedB = await openApprovalItem(r.db, r.A.businessId, b, { agentId: r.A.agentId, agentName: "Legal Lead" });
+    expect(openedB.item.subject).toBe("Legal Lead needs your OK: GitHub › run a change to the data layout");
+    await repos.integrations.upsert(r.db, r.A.businessId, { connectorKey: "github", status: "disconnected" });
+  });
+
+  it("a request that says nothing about what it would run asks for the details instead of a yes", () => {
+    const vague = approvalItem({ connectorKey: "sendgrid", tool: "send_mail", reasons: ["contacts a third party"], amountMinor: null, currency: null, args: {} }, { agentId: r.A.agentId, agentName: "Priya", taskTitle: "Reach the first venues" });
+    expect(vague.subject).toBe("Priya asks without saying what: SendGrid › send mail");
+    expect(vague.body_md).toBe(`[[ent:${r.A.agentId}|Priya]] wants to send mail on SendGrid for “Reach the first venues”, but did not say exactly what it would run. Ask for the details before deciding.`);
+    const options = vague.decision.options as { id: string; label: string; recommended: boolean; consequence: string }[];
+    expect(options[0]).toMatchObject({ id: APPROVAL_OPTIONS.reject, label: "Ask for the details", recommended: true });
+    expect(options[0]!.consequence).toBe("Nothing runs; Priya is told to describe exactly what it would run and ask again.");
+    expect(options[1]).toMatchObject({ id: APPROVAL_OPTIONS.approve, label: "Approve anyway", recommended: false });
+    // The same call with its recipient and message is an ordinary question.
+    const told = approvalItem({ connectorKey: "sendgrid", tool: "send_mail", reasons: [], amountMinor: null, currency: null, args: { to: "maria@venue.example", subject: "Shifts", body: "Hi Maria" } }, { agentId: r.A.agentId, agentName: "Priya" });
+    expect(told.subject).toBe("Priya needs your OK: SendGrid › send mail");
+    expect(founderJargonHits(`${vague.subject}. ${vague.body_md}`).map((h) => h.term)).toEqual([]);
+  });
+
+  it("same-kind campaign launches share one decision: the second joins the first's note, which counts them both", async () => {
+    const launch = (channelKey: string, budgetMinor: number) => repos.approvals.create(r.db, r.A.businessId, { agentId: r.A.agentId, connectorKey: "platform", tool: "launch_campaign", args: { campaignId: crypto.randomUUID(), channelKey, assetIds: [] }, reasons: ["first campaign"], amountMinor: budgetMinor, currency: "GBP" });
+    const first = await launch("paid_ads", 60_000);
+    const one = await openApprovalItem(r.db, r.A.businessId, first, { agentId: r.A.agentId, agentName: "Priya", businessName: "ShiftMate" });
+    expect(one.created).toBe(true);
+    expect(one.item.subject).toBe("Priya needs your OK: ShiftMate › launch campaign");
+    const second = await launch("social", 20_000);
+    const two = await openApprovalItem(r.db, r.A.businessId, second, { agentId: r.A.agentId, agentName: "Priya", businessName: "ShiftMate" });
+    expect(two).toMatchObject({ created: false, joined: true });
+    expect(two.item.id).toBe(one.item.id);
+    expect(two.item.subject).toBe("2 channels want to launch a campaign");
+    expect(two.item.bodyMd).toContain("Paid advertising (£600.00), Social media (£200.00), **£800.00** in all");
+    expect((two.item.decision as { options: { label: string; recommended: boolean }[] }).options.map((o) => [o.label, o.recommended])).toEqual([["Approve all", true], ["Reject all", false]]);
+    // A decision waits in Needs you without holding Continue (Nov 7, 2026), batched or not.
+    expect(two.item.blocksContinue).toBe(one.item.blocksContinue);
+    const linked = await repos.approvals.listForInboxItem(r.db, r.A.businessId, one.item.id);
+    expect(linked.map((a) => a.id)).toEqual([first.id, second.id]);
+    expect((await repos.approvals.get(r.db, r.A.businessId, second.id)).inboxItemId).toBe(one.item.id);
+    // Once the note is answered, the next launch opens a note of its own.
+    await repos.inbox.decide(r.db, r.A.businessId, one.item.id, { chosenOption: APPROVAL_OPTIONS.approve, decidedByKind: "user", decidedBy: r.A.ownerId });
+    await repos.approvals.resolve(r.db, r.A.businessId, first.id, { outcome: "approved", byKind: "user", byId: r.A.ownerId });
+    await repos.approvals.resolve(r.db, r.A.businessId, second.id, { outcome: "approved", byKind: "user", byId: r.A.ownerId });
+    const third = await launch("seo", 0);
+    const three = await openApprovalItem(r.db, r.A.businessId, third, { agentId: r.A.agentId, agentName: "Priya", businessName: "ShiftMate" });
+    expect(three.created).toBe(true);
+    expect(three.item.id).not.toBe(one.item.id);
+    // Another business never joins this one's batch.
+    expect(await repos.approvals.listForInboxItem(r.db, r.B.businessId, one.item.id)).toEqual([]);
   });
 });

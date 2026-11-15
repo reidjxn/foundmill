@@ -51,12 +51,17 @@ import {
   type MetricTileProps,
 } from "@foundmill/dugout";
 import type { DeptColourToken, EntityKind } from "@foundmill/shared";
+import { PAGE_READY_NOTE, isPageReadyDecision } from "@foundmill/shared/project-page";
+import { isShowcaseConsentDecision } from "@foundmill/shared/showcase";
+import { POSTAL_ADDRESS_NOTE, isPostalAddressDecision } from "@foundmill/shared/platform-mail";
+import { moduleTabHref } from "@foundmill/widgets/shared/departments";
 import { humanSender, NETWORK_SENDER } from "@foundmill/widgets/shared/note-tags";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { readOnlyReason } from "@/lib/access";
 import { entityHref } from "@/lib/entity-links";
 import { isGuid } from "@/lib/ids";
-import { monthStart, pnlTotals } from "@foundmill/modules/finance/pnl";
+import { pnlTotals } from "@foundmill/modules/finance/pnl";
+import { monthlyRevenueWindow } from "@foundmill/shared/monthly-revenue";
 import { usePageShortcuts } from "@/lib/keys";
 import { useHydrated } from "@/lib/today";
 import { errorMessage, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
@@ -71,6 +76,7 @@ import { roleBesideName } from "@/components/conversation/logic";
 import { ApprovalPanel } from "./ApprovalPanel";
 import { ConfirmPlanDialog } from "./ConfirmPlanDialog";
 import { SIGNOFF_NOTES_ID, SignoffPanel } from "./SignoffPanel";
+import { ShowcaseConsentPanel } from "./ShowcaseConsentPanel";
 import { Exhibit } from "./Exhibit";
 import { readExhibit } from "./exhibits";
 import { NoteTagChip } from "./InboxList";
@@ -249,7 +255,11 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   const persona = fromAgent ? agents.get(fromAgent.id) : undefined;
   // Anthropomorphic agents: the sender reads "Bob (Chief of Staff)" (the position is in the label, so no role line beside it).
   const agentPersona = useAgentPersona();
-  const agentSender = fromAgent ? { name: fromAgent.name, role: fromAgent.role || persona?.role, personaKey: fromAgent.personaKey ?? persona?.personaKey } : null;
+  const agentSender = fromAgent ? { name: fromAgent.name, role: fromAgent.role || persona?.role, personaKey: fromAgent.personaKey ?? persona?.personaKey, layer: persona?.layer ?? null } : null;
+  // Plain stored text (the subject, an option's consequence, a toast) names agents by their stored name: shown under the
+  // reader's preference, so the subject says what the sender line says (One name everywhere, Nov 8, 2026).
+  const roster = useMemo(() => [...agents.values()], [agents]);
+  const withNames = useCallback((text: string) => agentPersona.withNames(text, roster), [agentPersona, roster]);
   const senderLabelled = agentSender !== null && agentPersona.hasPersona(agentSender);
   const department = persona ? departments.find((d) => d.id === persona.departmentId) : undefined;
   const dates = headerDates(item, decisions[0]?.decidedAt ?? null);
@@ -266,7 +276,10 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   const financeQ = useQuery(trpc.finance.overview.queryOptions({ businessId }, { enabled: needs.has("finance"), staleTime: 60_000, retry: false }));
   // MRR and Revenue are the P&L revenue of the trailing three full months, as on Finance (audit OL-17).
   const wantsRevenue = useMemo(() => (Array.isArray(item.statusStrip) ? item.statusStrip : []).some((m) => ["mrr", "revenue"].includes(metricKey(String((m as { metric?: unknown } | null)?.metric ?? "")) ?? "")), [item.statusStrip]);
-  const pnlRange = useMemo(() => ({ from: monthStart(new Date(), -TRAILING_MONTHS).toISOString(), to: monthStart(new Date(), 0).toISOString() }), []);
+  const pnlRange = useMemo(() => {
+    const w = monthlyRevenueWindow(new Date(), TRAILING_MONTHS);
+    return { from: w.from.toISOString(), to: w.to.toISOString() };
+  }, []);
   const pnlQ = useQuery(trpc.finance.pnl.queryOptions({ businessId, ...pnlRange }, { enabled: needs.has("finance") && wantsRevenue, staleTime: 60_000, retry: false }));
   const trailingRevenue = pnlQ.data ? pnlTotals(pnlQ.data.categories).revenueMinor : null;
   const ribbonQ = useQuery(trpc.journey.ribbon.queryOptions({ businessId, from: from30, to: today }, { enabled: needs.has("conversions"), staleTime: 60_000, retry: false }));
@@ -296,7 +309,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   }, [journeyId, router, businessId]);
 
   // --- decision ------------------------------------------------------------------------------------------------------
-  const options = useMemo(() => toDecisionOptions(item.decision, currency), [item.decision, currency]);
+  const options = useMemo(() => toDecisionOptions(item.decision, currency).map((o) => (o.consequence ? { ...o, consequence: withNames(o.consequence) } : o)), [item.decision, currency, withNames]);
   const pastDeadline = decisionPastDeadline(item.decision);
   // An agent's request: the founder's optional reason goes with Approve or Reject. A sign-off (founder, 2026-10-18): the
   // founder's notes go with Approve, and Request changes needs them.
@@ -333,14 +346,20 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
       void invalidate(["inbox", "plan", "dev", "distribution", "team", "business"]);
       if (res.approval) {
         const a = res.approval;
-        toast({ title: a.outcome === "approved" ? "Approved" : "Rejected", description: `${a.summary}${a.cycle?.started ? " A cycle started." : ""}`, tone: a.outcome === "approved" ? "good" : "info", action: res.followUp ? { label: "Open the note", onClick: () => router.push(routes.inbox(businessId, res.followUp!.id)) } : undefined });
+        toast({ title: a.outcome === "approved" ? "Approved" : "Rejected", description: `${withNames(a.summary)}${a.cycle?.started ? " A cycle started." : ""}`, tone: a.outcome === "approved" ? "good" : "info", action: res.followUp ? { label: "Open the note", onClick: () => router.push(routes.inbox(businessId, res.followUp!.id)) } : undefined });
       } else if (res.requiresConfirmation) setConfirmOpen(true);
-      else {
+      else if (isPageReadyDecision(item.decision) && res.decision.chosenOption === PAGE_READY_NOTE.options.check) {
+        // "Check it and publish" (package 1.3): straight to Product › Public page, where the founder publishes.
+        router.push(moduleTabHref(businessId, departments, "product", "public-page"));
+      } else if (isPostalAddressDecision(item.decision) && res.decision.chosenOption === POSTAL_ADDRESS_NOTE.options.add) {
+        // "Add it in Settings" (US CAN-SPAM): straight to Settings › Integrations, where the founder enters the address.
+        router.push(routes.settings(businessId, "integrations"));
+      } else {
         toast({ title: "Decided", description: res.executed.length ? `${res.executed.length} action${res.executed.length === 1 ? "" : "s"} done, ${res.deferred.length} handed to the team.` : res.plan.summaryMd.slice(0, 140), tone: "good", action: res.followUp ? { label: "Open the update", onClick: () => router.push(routes.inbox(businessId, res.followUp!.id)) } : undefined });
         if (won && journeyId) router.push(routes.journey(businessId, journeyId));
       }
     },
-    [invalidate, toast, router, businessId, won, journeyId],
+    [invalidate, toast, router, businessId, won, journeyId, withNames, item.decision, departments],
   );
   const decide = useMutation(
     trpc.inbox.decide.mutationOptions({
@@ -470,7 +489,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
     <article className="flex min-h-0 flex-1 flex-col" data-testid="inbox-item" data-item-id={item.id} data-type={item.type} data-state={isAnswered ? "answered" : item.state}>
       {/* header */}
       <header className="flex min-h-16 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-subtle bg-panel px-gutter py-2.5" data-testid="inbox-item-header">
-        {persona ? <Avatar size={40} name={persona.name} agent={{ seed: persona.seed, dept: persona.dept as DeptColourToken, personaKey: agentSender?.personaKey }} /> : <Avatar size={40} name={senderName} />}
+        {persona ? <Avatar size={40} name={persona.name} agent={{ seed: persona.seed, dept: persona.dept as DeptColourToken, personaKey: agentSender?.personaKey, layer: agentSender?.layer }} /> : <Avatar size={40} name={senderName} />}
         {/* The persona column keeps a 16rem basis, so the tags wrap under it instead of crushing it. */}
         <div className="flex min-w-0 flex-[1_1_16rem] flex-col gap-0.5">
           <p className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
@@ -502,7 +521,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
           {item.blocksContinue && !isAnswered ? (
             <HoldsContinueChip />
           ) : null}
-          {item.state !== "archived" && (isAnswered || !options.length) ? <Button size="sm" variant="ghost" icon={Archive} onClick={() => archive.mutate({ businessId, itemId: item.id })} loading={archive.isPending} data-testid="archive-item">Archive</Button> : null}
+          {item.state !== "archived" && (isAnswered || !options.length) ? <Button size="sm" variant="ghost" icon={Archive} className="in-data-[phone]:min-h-tap" onClick={() => archive.mutate({ businessId, itemId: item.id })} loading={archive.isPending} data-testid="archive-item">Archive</Button> : null}
         </div>
       </header>
 
@@ -510,7 +529,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
       <div className="flex min-h-0 flex-1 flex-col gap-gutter overflow-y-auto p-gutter [&>*]:shrink-0">
         <div className="flex flex-col gap-1.5" data-testid="inbox-title">
           {/* The subject has the full width of the pane: it wraps, it is never crushed by chips. */}
-          <h1 className="t-display-md max-w-reading text-balance break-words text-primary">{item.subject}</h1>
+          <h1 className="t-display-md max-w-reading text-balance break-words text-primary" data-testid="inbox-subject">{withNames(item.subject)}</h1>
           {hidden ? (
             <p className="flex items-center gap-1.5 text-small text-secondary" data-testid="redacted-notice">
               <EyeOff size={14} aria-hidden />
@@ -545,10 +564,13 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
 
         <InboxNote bodyMd={item.bodyMd} />
 
+        {/* A founder's own showcase ask (0103): watched and answered here, signed in. */}
+        {isShowcaseConsentDecision(item.decision) ? <ShowcaseConsentPanel businessId={businessId} inboxItemId={item.id} /> : null}
+
         {approval ? <ApprovalPanel approval={approval} businessId={businessId} departments={departments} reason={reason} onReasonChange={setReason} answered={isAnswered || decide.isPending} /> : null}
         {signoff ? <SignoffPanel signoff={signoff} notes={reason} onNotesChange={(v) => { setReason(v); if (v.trim()) setNeedsNotes(false); }} answered={isAnswered || decide.isPending} needsNotes={needsNotes} chosenOption={answered?.optionId ?? null} /> : null}
 
-        {tiles.length ? <StatusStrip tiles={tiles} data-testid="status-strip" /> : null}
+        {tiles.length ? <StatusStrip wrap tiles={tiles} data-testid="status-strip" /> : null}
 
         {hasExhibit ? (
           <Folded folded={guided} show="Show the numbers" hide="Hide the numbers" testId="exhibit-fold">
@@ -705,7 +727,7 @@ export function Folded({ folded, show, hide, testId, children }: FoldedProps) {
   if (!foldable) return <div data-testid={testId}>{children}</div>;
   return (
     <div data-testid={testId} data-folded={!open || undefined}>
-      <Button size="sm" variant="ghost" icon={open ? ChevronDown : ChevronRight} aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen((o) => !o)} data-testid={testId ? `${testId}-toggle` : undefined}>
+      <Button size="sm" variant="ghost" icon={open ? ChevronDown : ChevronRight} className="in-data-[phone]:min-h-tap" aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen((o) => !o)} data-testid={testId ? `${testId}-toggle` : undefined}>
         {open ? hide : show}
       </Button>
       {open ? (
@@ -720,12 +742,13 @@ export function Folded({ folded, show, hide, testId, children }: FoldedProps) {
 /**
  * The note body in the reading style, with the first mention of each defined term carrying its definition on hover
  * (Markdown `terms`; off while guidance is off). Dugout's Markdown keeps its own props, so the test id lives on this
- * wrapper.
+ * wrapper. Images never load: a note quotes names and text other people chose (a customer's name at checkout), and an
+ * image there would make the reader's browser fetch from a stranger's server; it shows its alt text instead.
  */
 export const InboxNote = memo(function InboxNote({ bodyMd }: { bodyMd: string }) {
   return (
     <div data-testid="inbox-note">
-      <Markdown variant="reading" className="t-reading" terms>
+      <Markdown variant="reading" className="t-reading" terms images={false}>
         {bodyMd}
       </Markdown>
     </div>

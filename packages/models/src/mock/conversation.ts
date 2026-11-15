@@ -223,6 +223,17 @@ function bestFact(question: string, facts: FactIn[]): FactIn | undefined {
   return best?.f;
 }
 
+/** The concept attribute whose label or evidence shares the most words with the question; undefined when none does. */
+function bestAttribute(question: string, attributes: AttributeIn[]): AttributeIn | undefined {
+  const q = words(question);
+  let best: { a: AttributeIn; score: number } | undefined;
+  for (const a of attributes) {
+    const score = [...words(`${a.label} ${a.evidence}`)].filter((w) => q.has(w) || q.has(w.replace(/s$/, ""))).length;
+    if (score > 0 && (!best || score > best.score)) best = { a, score };
+  }
+  return best?.a;
+}
+
 /** A short answer that only quotes figures present in the inputs (or says the figure is missing). */
 function answer(question: string, s: SubjectIn, task: TaskIn | null, next: TaskIn | null, status: string | null): { bubbles: string[]; reaction: AgentReplyOutput["reaction"]; missing: boolean } {
   const q = question.toLowerCase();
@@ -241,13 +252,31 @@ function answer(question: string, s: SubjectIn, task: TaskIn | null, next: TaskI
       return { bubbles: [`The weakest point is ${lowest.label.toLowerCase()}, rated ${lowest.value} on the card.`, lowest.evidence ? truncate(lowest.evidence, 300) : "The evidence for it is thin so far."], reaction: "concerned", missing: false };
     }
     const pays = attr(/speed_to_first_customer|market_pull/);
-    if (/\bpays?\b|first\s+(?:paying\s+)?customer|buyer|who\s+would\s+buy/.test(q) && pays) {
+    // "How much would they pay?" is about price (answered below from the card's silence on it); "who pays first" is about the buyer.
+    if (/\bpays?\b|first\s+(?:paying\s+)?customer|buyer|who\s+would\s+buy/.test(q) && !/how\s+much|price|pricing|charge|afford|budget\b/.test(q) && pays) {
       return { bubbles: [`${pays.label} is rated ${pays.value} on the card.`, pays.evidence ? truncate(pays.evidence, 300) : "I would start with the buyers the pitch names."], reaction: "thinking", missing: false };
     }
     const comp = attr(/competition/);
     if (/competit|rival|alternative/.test(q) && comp) {
       return { bubbles: [`Competition is rated ${comp.value} on the card.`, comp.evidence ? truncate(comp.evidence, 300) : "The card doesn't name competitors yet."], reaction: "thinking", missing: false };
     }
+    // The founder's own question ("Would cafes in Manchester actually pay for this, and how much?"): answered from the
+    // card's closest evidence, named as such, and never with a figure the card does not hold (first-time founder report,
+    // Nov 8, 2026: a typed question used to get "Market pull is rated 13 on the card", which reads as not listening).
+    const asked = truncate(question.trim().replace(/\s+/g, " ").replace(/[?.!]+$/, ""), 140);
+    const closest = bestAttribute(question, s.attributes);
+    if (/how\s+much|price|pricing|charge|afford|budget\b|\bpays?\b|paying/.test(q)) {
+      const pull = attr(/market_pull/);
+      return {
+        bubbles: [`On “${asked}”: the card has no price in it yet, so I can't say how much.`, pull ? `What it does say: ${pull.label.toLowerCase()} is ${pull.value} of 20. ${truncate(pull.evidence || "The evidence behind it is thin so far.", 220)}` : "Nothing on the card measures willingness to pay yet.", "Pricing is an open question the specification will carry; I can look for comparables."],
+        reaction: "thinking",
+        missing: true,
+      };
+    }
+    if (closest) {
+      return { bubbles: [`On “${asked}”: the closest thing the card holds is ${closest.label.toLowerCase()}, rated ${closest.value} of 20.`, truncate(closest.evidence || "There is no evidence behind that rating yet.", 300), "I have not checked it against a source; I can find out."], reaction: "thinking", missing: true };
+    }
+    return { bubbles: [`On “${asked}”: the card does not cover that yet.`, "I can find out and come back to you with what the sources say."], reaction: "thinking", missing: true };
   }
 
   if (rec && s.kind === "inbox_item") {

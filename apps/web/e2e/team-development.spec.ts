@@ -1,5 +1,14 @@
 import { expect, test, type Page, type PlaywrightWorkerArgs } from "@playwright/test";
-import { COACHMARK_CARD, LONG, chooseTableView, devApi, dismissCoachmarks, openBusiness } from "./helpers";
+import { COACHMARK_CARD, LONG, chooseTableView, departmentBase as departmentBaseFor, devApi, dismissCoachmarks, openBusiness, openExplainer, setBuilderView } from "./helpers";
+
+// Builder view on for this file (it reads the Code, Health and Hierarchy tabs, ratings out of 20 and the cycle number); global-setup.ts starts every run with it off. Restored afterwards.
+let builderViewBefore = false;
+test.beforeAll(async ({ playwright }) => {
+  builderViewBefore = await setBuilderView(playwright, true);
+});
+test.afterAll(async ({ playwright }) => {
+  await setBuilderView(playwright, builderViewBefore);
+});
 
 /**
  * Team and Development screens on the seeded Northwind business at the two desktop widths (1280, the minimum, and
@@ -52,7 +61,8 @@ async function closeTours(page: Page): Promise<void> {
 
 /** The right edge of every column header in a grid sits inside the grid's own box (no header cut at the edge). */
 async function headersInside(page: Page, grid: string): Promise<string[]> {
-  return page.getByRole("grid", { name: grid }).evaluate((el) => {
+  // The Agents table is a tree grid (leads with their specialists nested under them).
+  return page.locator(`[role=grid][aria-label="${grid}"], [role=treegrid][aria-label="${grid}"]`).first().evaluate((el) => {
     const box = el.getBoundingClientRect();
     return Array.from(el.querySelectorAll<HTMLElement>("[role=columnheader]"))
       .filter((h) => (h.textContent ?? "").trim())
@@ -73,7 +83,7 @@ for (const width of [1280, 1440]) {
       const team = await departmentBase(page, /^team$/i);
 
       await openTab(page, team, "squad", "team/squad");
-      const agents = page.getByRole("grid", { name: "Agents" });
+      const agents = page.getByRole("treegrid", { name: "Agents" });
       const explainer = page.locator("[data-explainer='team-agents']");
       await expect(page.getByRole("button", { name: /^View: / })).toBeVisible({ timeout: LONG });
       if (guided) {
@@ -86,7 +96,9 @@ for (const width of [1280, 1440]) {
         await expect(agents.getByRole("columnheader", { name: /AI cost/ })).toHaveCount(0);
         expect(await headersInside(page, "Agents"), "every Simple column fits the panel").toEqual([]);
         await expect(explainer).toBeVisible();
-        await expect(explainer).toContainText("Everyone who works here. Agents have skills 1–20");
+        await expect(explainer).toContainText("Explain this page");
+        await expect(await openExplainer(page, "team-agents")).toContainText("Everyone who works here. Agents have skills 1–20");
+        await page.keyboard.press("Escape");
         await expect(page.getByTestId("form-caption")).toContainText("Form: the last five tasks");
         await expect(page.getByTestId("form-caption").locator("[data-term='form']")).toHaveClass(/term-link/);
         await expect(page.getByTestId("column-terms").locator("[data-term='rating']")).toBeVisible();
@@ -103,7 +115,34 @@ for (const width of [1280, 1440]) {
       // Every rated agent shows the 1–20 mean with its band word (a compact ScaleLabel), never a bare /10 figure.
       await expect(agents.locator("[data-rating-cell]").first()).toHaveText(/^\d+\.\d(Poor|Average|Good|Excellent)$/, { timeout: LONG });
       await expect(agents.locator("[data-rating-cell] [data-scale-label]").first()).toBeVisible();
-      await expect(page.getByTestId("squad-summary")).toContainText(/\d+ agents?/);
+      // Leads first: the Chief of Staff named, then the leads and specialists counted (the background helpers are not).
+      await expect(page.getByTestId("squad-summary")).toHaveText(/^Chief of Staff · \d+ leads? · \d+ specialists?( · \d+ needs? you)?$/);
+      await expect(page.getByTestId("squad-summary")).not.toContainText(/\b1 (leads|specialists)\b/);
+      // The Chief of Staff's row is pinned first; the leads are collapsed, each with a "+N specialists" expander.
+      await expect(agents.getByRole("row").nth(1)).toHaveAttribute("aria-level", "1");
+      const expander = agents.getByRole("button", { name: /^Show \d+ specialists? under / }).first();
+      await expect(expander).toBeVisible();
+      await expect(expander).toHaveText(/^\+\d+ specialists?$/);
+      const levelTwo = agents.locator("[role=row][aria-level='2']");
+      const before = await levelTwo.count();
+      await expander.click();
+      await expect(agents.getByRole("button", { name: /^Hide \d+ specialists? under / }).first()).toBeVisible();
+      await expect.poll(() => levelTwo.count()).toBeGreaterThan(before);
+      // Opened specialists sit indented under their lead.
+      await expect(levelTwo.first().locator("[data-nest-level='1']")).toHaveCount(1);
+      await agents.getByRole("button", { name: /^Hide \d+ specialists? under / }).first().click();
+      await expect.poll(() => levelTwo.count()).toBe(before);
+      // The background helpers are one honest line, with a read-only list behind it, never rows of the table.
+      const helpers = page.getByTestId("background-helpers-line");
+      await expect(helpers).toContainText("5 background helpers also run, linking names, sorting what comes in and checking drafts. They never take tasks or write to you.");
+      await expect(agents.getByRole("link", { name: "Entity Linker", exact: true })).toHaveCount(0);
+      await helpers.getByRole("button", { name: "Show them" }).click();
+      const helperList = page.getByTestId("background-helpers-dialog");
+      await expect(helperList).toBeVisible();
+      await expect(helperList.locator("li[data-agent-id]")).toHaveCount(5);
+      await expect(helperList).toContainText("Entity Linker");
+      await page.keyboard.press("Escape");
+      await expect(helperList).toBeHidden();
       const overflow = await agents.locator("a[href*='/agents/']").first().evaluate((a) => getComputedStyle(a).textOverflow);
       expect(overflow, "a long agent name ends in an ellipsis instead of being cut").toBe("ellipsis");
       // Letting an agent go says what happens and that there is no way back (ConsequenceLine), and opens on Keep.
@@ -144,7 +183,11 @@ for (const width of [1280, 1440]) {
 
       await openTab(page, team, "hierarchy", "team/hierarchy");
       await expect(page.getByRole("tree", { name: "Team hierarchy" })).toBeVisible({ timeout: LONG });
-      await expect(page.getByTestId("hierarchy-summary")).not.toContainText(/\b1 (agents|leads|workers)\b/);
+      await expect(page.getByTestId("hierarchy-summary")).toHaveText(/^Chief of Staff · \d+ leads? · \d+ specialists?$/);
+      await expect(page.getByTestId("hierarchy-summary")).not.toContainText(/\b1 (leads|specialists)\b/);
+      // Leads first: no background helper is a node; one line says they run.
+      await expect(page.getByRole("tree", { name: "Team hierarchy" }).getByRole("treeitem", { name: /^Entity Linker,/ })).toHaveCount(0);
+      await expect(page.getByTestId("background-helpers-line")).toContainText("5 background helpers also run");
       if (guided) await expect(page.getByTestId("module-screen").locator("[data-term='hierarchy']").first()).toHaveClass(/term-link/);
       // The whole chart fits the panel's width at both widths: no sideways scroll, and no node text under 11 px.
       const chart = await page.locator("[data-scroll-region=diagram]").first().evaluate((el) => ({
@@ -155,12 +198,12 @@ for (const width of [1280, 1440]) {
       expect(chart.smallest, "node text never drops below 11 px").toBeGreaterThanOrEqual(11);
 
       await openTab(page, team, "staff", "team/staff");
-      await expect(page.getByRole("grid", { name: "Staff" })).toBeVisible({ timeout: LONG });
+      await expect(page.getByRole("grid", { name: "People" })).toBeVisible({ timeout: LONG });
       // A member walled off a section says so ("Finance · no access"), never "Role default" (RUI-04).
-      const walled = page.getByRole("grid", { name: "Staff" }).getByText(/· no access/);
+      const walled = page.getByRole("grid", { name: "People" }).getByText(/· no access/);
       if (await walled.count()) await expect(walled.first()).toBeVisible();
       // Nobody edits their own role or permissions (team.humans.role refuses it): the founder's own row offers neither.
-      await page.getByRole("grid", { name: "Staff" }).getByRole("row").filter({ hasText: "You" }).first().click({ button: "right" });
+      await page.getByRole("grid", { name: "People" }).getByRole("row").filter({ hasText: "You" }).first().click({ button: "right" });
       await expect(page.getByRole("menuitem", { name: "Role and permissions…" })).toHaveAttribute("aria-disabled", "true");
       await page.keyboard.press("Escape");
     });
@@ -171,6 +214,10 @@ for (const width of [1280, 1440]) {
       const team = await departmentBase(page, /^team$/i);
 
       await openTab(page, team, "responsibilities", "team/responsibilities");
+      // The everyday answers live in Settings › What the team can do; this table hands one decision to one person.
+      const pointer = page.getByTestId("responsibilities-pointer");
+      await expect(pointer).toContainText("Everyday choices live in Settings › What the team can do.", { timeout: LONG });
+      await expect(pointer.getByRole("link", { name: "Settings › What the team can do" })).toHaveAttribute("href", /\/settings\/mode$/);
       const matrix = page.getByRole("grid", { name: "Responsibilities" });
       await expect(matrix.getByText("Sign contracts")).toBeVisible({ timeout: LONG });
       const signRow = matrix.getByRole("row").filter({ hasText: "Sign contracts" });
@@ -218,7 +265,8 @@ for (const width of [1280, 1440]) {
       const recruitExplainer = page.locator("[data-explainer='team-recruitment']");
       if (guided) {
         await expect(recruitExplainer).toBeVisible();
-        await expect(recruitExplainer).toContainText("Hire new agents");
+        await expect(await openExplainer(page, "team-recruitment")).toContainText("Hire new agents");
+        await page.keyboard.press("Escape");
         await expect(draft.locator("kbd")).toHaveCount(0);
       } else {
         await expect(recruitExplainer).toHaveCount(0);
@@ -276,7 +324,8 @@ for (const width of [1280, 1440]) {
 
     test("Development: plan, pull requests, environments and specialists read as words and fit", async ({ page }) => {
       await openBusiness(page);
-      const dev = await departmentBase(page, /development/i);
+      // The sidebar lists areas, not departments: the seeded Development keeps the module's slug.
+      const dev = departmentBaseFor("development");
 
       await openTab(page, dev, "plan", "development/plan");
       const tasks = page.getByRole("grid", { name: "Tasks" });
@@ -327,11 +376,12 @@ for (const width of [1280, 1440]) {
       // The Formulation Lab (Operations) shows the Specialists and Plan tabs only, not a copy of Development (DB-11). The
       // name is a label over the operations module: Settings › Departments › Reset to defaults (settings-departments.spec)
       // gives it back its default name, so either label finds it.
-      const lab = await departmentBase(page, /^(formulation lab|operations)$/i);
+      const lab = departmentBaseFor("operations");
       await page.goto(`${lab}/specialists`);
       await expect(page.getByTestId("module-screen")).toHaveAttribute("data-module", "development/specialists", { timeout: LONG });
-      const labTabs = page.getByRole("tablist").first().getByRole("tab");
-      await expect(labTabs).toHaveText([/Specialists/, /Plan/]);
+      // Its tabs sit in the Product area's bar (by module, docs/DESIGN.md §9), each naming the lab beside Development's.
+      const labTabs = page.getByRole("tablist", { name: "Product tabs" }).locator(`[role=tab][id^="tab-${lab.split("/").pop()}/"]`);
+      await expect(labTabs).toHaveText([/^Specialists · (Formulation Lab|Operations)/, /^Plan · (Formulation Lab|Operations)/]);
 
       await openTab(page, dev, "environments", "development/environments");
       const envs = page.getByRole("grid", { name: "Environments" });
@@ -385,7 +435,7 @@ test.describe("saved table views on module screens", () => {
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(page.getByRole("button", { name: `View: ${name}` })).toBeVisible();
     await page.reload();
-    await expect(page.getByRole("grid", { name: "Agents" })).toBeVisible({ timeout: LONG });
+    await expect(page.getByRole("treegrid", { name: "Agents" })).toBeVisible({ timeout: LONG });
     await expect(page.getByRole("button", { name: `View: ${name}` })).toBeVisible({ timeout: LONG });
     await page.getByRole("button", { name: `View: ${name}` }).click();
     await page.getByRole("menuitem", { name: "Delete view" }).click();

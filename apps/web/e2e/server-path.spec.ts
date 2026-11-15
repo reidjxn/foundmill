@@ -26,13 +26,13 @@ function plainProfileReads(req: Request): number {
 }
 
 test.describe("opening the app", () => {
-  test("a signed-in `/` with a last business answers with a redirect to its Home, before any page renders", async ({ page, baseURL }) => {
+  test("a signed-in `/` with a last business answers with a redirect to its Today, before any page renders", async ({ page, baseURL }) => {
     await openBusiness(page);
     const res = await page.request.get("/", { maxRedirects: 0 });
     expect(res.status()).toBe(307);
-    expect(new URL(res.headers()["location"] ?? "", baseURL).pathname).toBe(`${B}/home`);
+    expect(new URL(res.headers()["location"] ?? "", baseURL).pathname).toBe(`${B}/today`);
     await page.goto("/");
-    await expect(page).toHaveURL(new RegExp(`${B}/home$`), { timeout: LONG });
+    await expect(page).toHaveURL(new RegExp(`${B}/today$`), { timeout: LONG });
     await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
   });
 
@@ -40,7 +40,7 @@ test.describe("opening the app", () => {
     await signIn(page);
     await context.addCookies([{ name: "fm_last_business", value: GONE, url: baseURL! }]);
     await page.goto("/");
-    await expect(page).toHaveURL(/\/b\/[0-9a-f-]{36}\/home$|\/new$/, { timeout: LONG });
+    await expect(page).toHaveURL(/\/b\/[0-9a-f-]{36}\/today$|\/new$/, { timeout: LONG });
     expect(page.url()).not.toContain(GONE);
     await expect(page.getByText("Nothing at this address")).toHaveCount(0);
     const cookie = (await context.cookies()).find((c) => c.name === "fm_last_business");
@@ -72,15 +72,15 @@ test.describe("the business frame", () => {
     /** The page's own titles: an icon's SVG `<title>` is not one. */
     const pageTitles = () => page.evaluate(() => [...document.querySelectorAll("title")].filter((t) => !t.closest("svg")).map((t) => t.textContent));
     await openBusiness(page);
-    await expect(page).toHaveTitle(/^Home · Northwind Skincare · /);
+    await expect(page).toHaveTitle(/^(?:\(\d+\) )?Details · Northwind Skincare · /);
     await page.getByRole("navigation", { name: "Primary" }).locator("[data-sidebar-item='inbox']").first().click();
     await expect(page).toHaveURL(new RegExp(`${B}/inbox`), { timeout: LONG });
-    await expect(page).toHaveTitle(/^Inbox · Northwind Skincare · /);
+    await expect(page).toHaveTitle(/^(?:\(\d+\) )?Inbox · Northwind Skincare · /);
     expect(await pageTitles()).toHaveLength(1);
     // A screen with charts (SVG titles above the streamed page title) loaded in full.
     await page.goto(`${B}/d/finance/overview`);
     await settled(page);
-    await expect(page).toHaveTitle(/^Overview · Finance · Northwind Skincare · /);
+    await expect(page).toHaveTitle(/^(?:\(\d+\) )?Overview · Finance · Northwind Skincare · /);
     expect(await pageTitles()).toEqual([await page.title()]);
   });
 

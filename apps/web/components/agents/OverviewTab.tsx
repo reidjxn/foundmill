@@ -5,12 +5,14 @@
  * catalogue), trait chips, the Coach report in reading style, the development chart (skill history with training
  * sessions as diamonds) and the contract panel. The version and type live on the History tab.
  */
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BookOpenText, CalendarClock, ShieldOff } from "lucide-react";
 import { useMemo } from "react";
 import { effectiveApprovalThresholdMinor } from "@foundmill/config";
-import { Chip, DevelopmentChart, Icon, KeyValueList, Markdown, POSITION_MAP_BASIS, POSITION_MAP_TITLE, Panel, PositionMap, ProvenanceChip, RATING_MAX, SKILL_GRID_WHY, SkillGrid, Term, TraitChips, formatMoney, formatRelative, useFormatters, useGuided } from "@foundmill/dugout";
+import { Chip, DevelopmentChart, Icon, KeyValueList, Markdown, POSITION_MAP_BASIS, POSITION_MAP_TITLE, Panel, PositionMap, ProvenanceChip, RATING_MAX, SKILL_GRID_WHY, SkillGrid, SpeechAccentPicker, Term, TraitChips, formatMoney, formatRelative, useFormatters, useGuided, useToast } from "@foundmill/dugout";
+import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
+import { playSpeechOnce } from "@/components/calls/play-once";
 import { useBusiness, useBusinessCurrency } from "@/components/shell/business-context";
 import type { TabProps } from "./AgentProfileScreen";
 import { autonomyFromAgent, currentVersion, departmentColour, developmentSeries, latestPromotedRun, parseInstructions, positionFits, toSkillRows, traitsFor, trainingSessionMarks, wageLabel, whatIDo } from "./logic";
@@ -28,6 +30,37 @@ export function SkillsFooter({ guided }: { guided: boolean }) {
       Scores 1–{RATING_MAX}. <Term id="tested">Tested</Term> is the result on practice tests, <Term id="proven">Proven</Term> the result on real work; more real work makes Proven count for more. Hover a skill for its tested and proven scores.
       {guided ? <span data-testid="skills-why"> {SKILL_GRID_WHY}</span> : null}
     </span>
+  );
+}
+
+/** The agent's Accent (how it sounds on team calls, docs/TEAM_CALL.md §6): owners and admins choose it; everyone else reads it. */
+export function AccentPanel({ businessId, agentId, released }: { businessId: string; agentId: string; released: boolean }) {
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { access } = useBusiness();
+  const accentsQ = useQuery(trpc.agent.speechAccent.list.queryOptions({ businessId }, { staleTime: 60_000, enabled: access.canRead("team") }));
+  const row = accentsQ.data?.find((r) => r.agentId === agentId);
+  const setM = useMutation(
+    trpc.agent.speechAccent.set.mutationOptions({
+      onSuccess: () => void queryClient.invalidateQueries({ queryKey: trpcPathPrefix("agent.speechAccent") as unknown[] }),
+      onError: (err) => toast({ title: "Accent not saved", description: errorMessage(err), tone: "bad" }),
+    }),
+  );
+  const previewM = useMutation(trpc.agent.speechAccent.preview.mutationOptions({ onError: (err) => toast({ title: "Could not play the sample", description: errorMessage(err), tone: "bad" }) }));
+  if (!row) return null;
+  const canChoose = access.isAdmin && access.canWrite("team") && !released;
+  return (
+    <Panel title="Team call" span={4} className="self-start" footer="Each agent keeps its accent for as long as it is on your team." data-testid="accent-panel">
+      <SpeechAccentPicker
+        value={row.speechAccent}
+        defaultKey={row.defaultSpeechAccent}
+        onChange={(key) => setM.mutate({ businessId, agentId, speechAccent: key === row.defaultSpeechAccent ? null : key })}
+        onPreview={access.canWrite("team") ? (key) => previewM.mutate({ businessId, agentId, speechAccent: key }, { onSuccess: (view) => playSpeechOnce(view) }) : undefined}
+        disabled={!canChoose}
+        disabledReason={released ? "This agent has left the team." : "Only owners and admins change how an agent sounds."}
+      />
+    </Panel>
   );
 }
 
@@ -51,7 +84,7 @@ export function OverviewTab({ businessId, profile, currency }: TabProps) {
   const autonomy = autonomyFromAgent(agent.autonomy);
   const schedule = (agent.schedule ?? {}) as { cron?: string; triggers?: string[] };
   const money = (minor: number | null) => (minor === null ? "No cap" : formatMoney({ amountMinor: minor, currency }));
-  // The founder's "Spend cap per action" (Settings › Mode) lowers every agent's ask line, as the gateway applies it.
+  // The founder's "Spend cap per action" (Settings › What the team can do) lowers every agent's ask line, as the gateway applies it.
   const businessCapMinor = business.data.business.spendCapMinor;
   const capBinds = businessCapMinor !== null && effectiveApprovalThresholdMinor(autonomy.approvalThresholdMinor, businessCapMinor) === businessCapMinor && businessCapMinor !== autonomy.approvalThresholdMinor;
   const asksAbove = capBinds ? (
@@ -155,6 +188,8 @@ export function OverviewTab({ businessId, profile, currency }: TabProps) {
           ]}
         />
       </Panel>
+
+      <AccentPanel businessId={businessId} agentId={agent.id} released={Boolean(agent.archivedAt)} />
     </div>
   );
 }

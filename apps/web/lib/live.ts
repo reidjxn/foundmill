@@ -1,13 +1,10 @@
 /**
- * Pure helpers behind the LIVE pages (BUILD §11.14): /network, /communities, /leaderboards. No React, no Next.js, so
- * the rules are unit-tested on their own: who is on the other end of a connection, how a thread is titled, who may
- * speak as a business, and how a board and its metric read and how the form string becomes cells.
+ * Pure helpers behind the LIVE pages (BUILD §11.14): /network, /communities. No React, no Next.js, so the rules are
+ * unit-tested on their own: who is on the other end of a connection, how a thread is titled, and who may speak as a
+ * business.
  */
 import { APP_NAME } from "@foundmill/config";
-import { WRITE_ROLES, type Visibility } from "@foundmill/shared/constants";
-import type { FormResult } from "@foundmill/dugout";
-import type { MetricFormat } from "@foundmill/widgets/shared/leaderboards";
-import { formatNumber } from "@/lib/format";
+import { isOwnerRole, WRITE_ROLES, type Visibility } from "@foundmill/shared/constants";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Profile visibility
@@ -153,7 +150,7 @@ export function connectStateOf(rows: readonly ConnectionLike[], viewerId: string
 /**
  * What a sent request came to (`live.connections.request` returns the pair's one row): the viewer's own request, new or
  * already waiting ("sent"); a connection that already stood ("connected"); or the other person's request, already
- * waiting for the viewer's answer ("incoming"). A leaderboard row cannot know the owner beforehand, so this tells.
+ * waiting for the viewer's answer ("incoming"). A request to a business cannot know its owner beforehand, so this tells.
  */
 export function requestOutcome(row: Pick<ConnectionLike, "fromUser" | "status">, viewerId: string): "sent" | "connected" | "incoming" {
   if (row.status === "accepted") return "connected";
@@ -184,7 +181,7 @@ export function canSpeakAsBusiness(input: {
   const { business, membership } = input;
   if (business.gameMode !== "live" || !business.committedAt || business.archivedAt) return false;
   if (!(WRITE_ROLES as readonly string[]).includes(membership.role)) return false;
-  if (membership.role === "owner") return true;
+  if (isOwnerRole(membership.role)) return true;
   const explicit = membership.sectionPermissions?.live;
   return explicit ? explicit === "write" : true;
 }
@@ -194,7 +191,7 @@ export function canSpeakAsBusiness(input: {
  * business the founder may speak for (the API's `live.connections.request` rule).
  */
 export function askToConnectBlocker(input: Parameters<typeof canSpeakAsBusiness>[0]): string | null {
-  if (input.business.gameMode !== "live") return "Connection requests are sent from a LIVE business. Open one, or make this business LIVE in Settings › Mode.";
+  if (input.business.gameMode !== "live") return "Connection requests are sent from a LIVE business. Open one, or make this business LIVE in Settings › Business.";
   if (!canSpeakAsBusiness(input)) return "Your role in this business cannot send connection requests for it.";
   return null;
 }
@@ -242,34 +239,4 @@ export function postStatusLabel(status: string): string | null {
   if (status === "hidden") return "Hidden by a moderator";
   if (status === "removed") return "Removed";
   return null;
-}
-
-// ---------------------------------------------------------------------------------------------------------------------
-// Leaderboards
-// ---------------------------------------------------------------------------------------------------------------------
-
-// The words a board reads in live in @foundmill/widgets so the Leaderboard widget on Home says the same as these pages.
-export { boardKindLabel, boardScope, boardTitle, describeMetric, humanise, periodLabel, type BoardLike, type MetricFormat } from "@foundmill/widgets/shared/leaderboards";
-
-export function formatMetricValue(value: string | number, format: MetricFormat): string {
-  const n = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(n)) return "—";
-  if (format === "percent") return `${formatNumber(n, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
-  return formatNumber(n, { maximumFractionDigits: format === "integer" ? 0 : 2 });
-}
-
-/** The form string of an entry ("WWDLW": win, draw, loss) as cells for FormCells. Other characters are ignored. */
-export function formResults(form: string): FormResult[] {
-  const out: FormResult[] = [];
-  for (const ch of form.toUpperCase()) {
-    if (ch === "W") out.push("success");
-    else if (ch === "D") out.push("partial");
-    else if (ch === "L") out.push("failure");
-  }
-  return out;
-}
-
-/** "#3". */
-export function positionLabel(position: number): string {
-  return `#${position}`;
 }

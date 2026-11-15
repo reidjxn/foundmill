@@ -142,7 +142,7 @@ describe("SpecificationScreen", () => {
     renderScreen(fake, <SpecificationScreen businessId={BID} departmentId="d1" />);
     expect(screen.getByText("No spec yet")).toBeTruthy();
     expect(screen.getByText(/Pick a paragraph in the outline/)).toBeTruthy();
-    expect(screen.getByText(/Versions appear when a change proposal is accepted/)).toBeTruthy();
+    expect(screen.getByText(/Nothing published yet/)).toBeTruthy();
     const failing = createFakeSource({ businessId: BID, responses: { ...emptyResponses, "product.spec.get": new Error("boom") } });
     renderScreen(failing, <SpecificationScreen businessId={BID} departmentId="d1" />);
     expect(screen.getAllByText("boom").length).toBeGreaterThan(0);

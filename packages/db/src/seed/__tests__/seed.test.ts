@@ -3,7 +3,7 @@
  * two years of journey_daily rows, inbox items of every type with valid entity links, LIVE extras for Ledgerly,
  * RLS (the demo owner sees both businesses, a stranger none) and idempotent, deterministic re-runs.
  */
-import { CHANNEL_KEYS, INBOX_ITEM_TYPES, VestingSchedule, pickPersonaKeys, readVesting } from "@foundmill/shared";
+import { CHANNEL_KEYS, INBOX_ITEM_TYPES, VestingSchedule, pickPersonaKeys, readVesting, teamTree } from "@foundmill/shared";
 import { projectForecast, type ForecastDrivers } from "@foundmill/shared/forecast";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -102,6 +102,26 @@ describe("seedDemo on PGlite", () => {
     expect(statuses.injured).toBe(1);
   });
 
+  it("reads Leads first from what is stored: the Chief of Staff, the leads, their specialists and the five background helpers", async () => {
+    const expected: Record<string, Record<"chief" | "lead" | "specialist" | "background", number>> = {
+      [NORTHWIND_BUSINESS_ID]: { chief: 1, lead: 6, specialist: 23, background: 5 },
+      [LEDGERLY_BUSINESS_ID]: { chief: 1, lead: 5, specialist: 18, background: 5 },
+    };
+    for (const businessId of [NORTHWIND_BUSINESS_ID, LEDGERLY_BUSINESS_ID]) {
+      const [agents, departments] = await Promise.all([repos.agents.list(db, businessId, { limit: 500 }), repos.departments.list(db, businessId)]);
+      const tree = teamTree(agents.items, departments);
+      expect(tree.counts, businessId).toEqual(expected[businessId]);
+      // The Planner takes tasks: a specialist under the Engineering Lead, never a background helper.
+      const planner = agents.items.find((a) => a.agentType === "planner")!;
+      expect(tree.tierOf.get(planner.id)).toBe("specialist");
+      expect(tree.background.map((a) => a.agentType).sort()).toEqual(["categoriser", "classifier", "entity_linker", "moderation", "triage"]);
+      // The Chief of Staff first, then one group per lead; every specialist sits under one of them.
+      expect(tree.groups[0]!.tier).toBe("chief");
+      expect(tree.groups.filter((g) => g.tier === "lead")).toHaveLength(expected[businessId]!.lead);
+      expect(tree.groups.reduce((n, g) => n + g.specialists.length, 0)).toBe(expected[businessId]!.specialist);
+    }
+  });
+
   it("writes two years of journey data: >= 700 journey_daily rows per business, journeys with weights, xC and commentary, milestones", async () => {
     for (const businessId of [NORTHWIND_BUSINESS_ID, LEDGERLY_BUSINESS_ID]) {
       const daily = await repos.journeys.dailyRange(db, businessId, {});
@@ -137,13 +157,17 @@ describe("seedDemo on PGlite", () => {
       const types = new Set(items.map((i) => i.type));
       for (const t of INBOX_ITEM_TYPES) expect(types.has(t), `${businessId} has a ${t} item`).toBe(true);
       const entities = await db.select({ id: s.entities.id, kind: s.entities.kind, displayName: s.entities.displayName, aliases: s.entities.aliases }).from(s.entities).where(eq(s.entities.businessId, businessId));
-      const manifest = buildManifest(entities.map((e): ManifestEntityInput => ({ id: e.id, kind: e.kind, name: e.displayName, aliases: e.aliases })));
+      // Agents are in the manifest by their own id too, as the Composer lists them: a server-written note (an approval)
+      // names its agent as [[ent:<agent id>|<stored name>]] (One name everywhere, Nov 8, 2026).
+      const agentRows = await db.select({ id: s.agents.id, name: s.agents.name }).from(s.agents).where(eq(s.agents.businessId, businessId));
+      const agentIds = new Set(agentRows.map((a) => a.id));
+      const manifest = buildManifest([...entities.map((e): ManifestEntityInput => ({ id: e.id, kind: e.kind, name: e.displayName, aliases: e.aliases })), ...agentRows.map((a): ManifestEntityInput => ({ id: a.id, kind: "agent", name: a.name, aliases: [] }))], { strictKinds: false });
       let mentions = 0;
       for (const item of items) {
         const v = validateMarkup(item.bodyMd, manifest);
         expect(v.valid, `${item.subject}: ${JSON.stringify(v.problems)}`).toBe(true);
         mentions += v.mentionCount;
-        for (const id of v.entityIds) expect(item.entityIds).toContain(id);
+        for (const id of v.entityIds) if (!agentIds.has(id)) expect(item.entityIds).toContain(id);
       }
       expect(mentions).toBeGreaterThan(5);
       const decision = items.find((i) => i.type === "decision" && i.state === "unread")!;
@@ -151,13 +175,13 @@ describe("seedDemo on PGlite", () => {
       const won = items.find((i) => i.type === "customer_won")!;
       expect(won.sourceEventIds.length).toBeGreaterThan(0);
     }
-    // The composer's type rule (DECISIONS): an open decision and an open win block Continue, in the demo as in a real
-    // business (audit OL-32). Northwind has one of each.
-    expect(await repos.inbox.countBlocking(db, NORTHWIND_BUSINESS_ID)).toBe(2);
+    // Since Nov 7, 2026 (0071) only a hard stop holds Continue, in the demo as in a real business (audit OL-32): the
+    // open decision and the open win wait in the Inbox while the team works.
+    expect(await repos.inbox.countBlocking(db, NORTHWIND_BUSINESS_ID)).toBe(0);
     for (const id of [NORTHWIND_BUSINESS_ID, LEDGERLY_BUSINESS_ID]) {
       const open = (await repos.inbox.list(db, id, { limit: 100 })).items.filter((i) => (i.type === "decision" || i.type === "customer_won") && (i.state === "unread" || i.state === "read"));
       expect(open.length).toBeGreaterThan(0);
-      for (const i of open) expect(i.blocksContinue, `${i.type}: ${i.subject}`).toBe(true);
+      for (const i of open) expect(i.blocksContinue, `${i.type}: ${i.subject}`).toBe(false);
     }
   });
 
@@ -275,7 +299,7 @@ describe("seedDemo on PGlite", () => {
     expect(customerPage.items.every((e) => e.roles.some((r) => r.role === "customer"))).toBe(true);
   }, 600_000); // the role-filtered CRM page scans every seeded customer on PGlite (slow, not wrong)
 
-  it("gives Ledgerly its LIVE extras: holiday, GitHub repo, Stripe payments, cap table with two SAFEs, community, leaderboard, training", async () => {
+  it("gives Ledgerly its LIVE extras: holiday, GitHub repo, Stripe payments, cap table with two SAFEs, community, training", async () => {
     // The vacation runs eleven days past the seed's own today, so "current" is read as of that day, not the real clock.
     const holiday = await repos.holidays.current(db, LEDGERLY_BUSINESS_ID, TODAY);
     expect(holiday).not.toBeNull();
@@ -299,9 +323,6 @@ describe("seedDemo on PGlite", () => {
     expect(feed.items).toHaveLength(2);
     expect((await repos.social.replyCounts(db, feed.items.map((p) => p.id))).size).toBe(1);
     expect(await repos.social.getCommunityBySlug(db, BOOTSTRAPPED_COMMUNITY_SLUG)).toMatchObject({ visibility: "public", memberCount: 0, ownerBusinessId: null });
-    // Verified metrics only: Ledgerly is first on both of its boards.
-    const positions = await repos.social.positionsForBusiness(db, LEDGERLY_BUSINESS_ID);
-    expect(positions.map((p) => [p.board.boardKind, p.position]).sort()).toEqual([["customers_won", 1], ["growth", 1]]);
     expect(await repos.approvals.countPending(db, LEDGERLY_BUSINESS_ID)).toBe(1);
     const backend = (await repos.agents.list(db, LEDGERLY_BUSINESS_ID, { agentType: "backend_engineer" })).items[0]!;
     expect((await repos.agents.listVersions(db, LEDGERLY_BUSINESS_ID, backend.id)).length).toBe(2);
@@ -348,7 +369,7 @@ describe("seedDemo on PGlite", () => {
     // The subscription business's renewals are payments that are not new customers: its revenue is the records' revenue.
     const renewals = await scalar(`select count(*)::int as n from conversions where business_id = '${LEDGERLY_BUSINESS_ID}' and kind = 'payment' and not first_payment`);
     expect(renewals).toBeGreaterThan(0);
-    // Northwind has no subscriptions: its "MRR" milestones are trailing 30-day revenue and say Estimate.
+    // Revenue milestones are Finance's monthly figure, an Estimate (Northwind has no subscriptions: "monthly revenue").
     const mrr = await db.select().from(s.milestones).where(eq(s.milestones.businessId, NORTHWIND_BUSINESS_ID));
     for (const m of mrr.filter((x) => String((x.ref as Record<string, unknown>)?.trophyKey ?? "").startsWith("mrr_"))) expect(m.ref).toMatchObject({ estimate: true });
   }, 120_000);

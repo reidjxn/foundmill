@@ -7,6 +7,7 @@
 import { TRPCError } from "@trpc/server";
 import { eq } from "drizzle-orm";
 import { accountPreferences } from "@foundmill/db";
+import { DEFAULT_EMAIL_NOTIFICATION_PREFS } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApiHarness, type ApiHarness } from "./harness";
 
@@ -26,7 +27,15 @@ const code = async (p: Promise<unknown>) => {
 };
 
 /** The guided layer's defaults, until the person chooses. */
-const GUIDED = { guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: "humans" };
+const GUIDED = { guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: "humans", builderView: false };
+/** The mobile app's notification defaults (0075): every kind on, amounts shown. */
+const NOTIFICATIONS_ON = { decision: true, approval: true, customer: true, agent_down: true, runway: true, run_finished: true, goal: true };
+/** With the email channel beside push (packages 1.5 and 5.1): every kind of email on, too. */
+/** Every kind of email on until turned off (one preference, founder 2026-11-12). */
+const EMAIL_ON = { ...DEFAULT_EMAIL_NOTIFICATION_PREFS };
+const NOTIFIED = { notifications: NOTIFICATIONS_ON, hideAmountsOnLockScreen: false, email: EMAIL_ON };
+/** Everything `update` answers: the formats, the guided layer and the notification preferences. */
+const ALL = { ...GUIDED, ...NOTIFIED };
 
 describe("founder.preferences", () => {
   it("reads US dates and 12-hour times until the person chooses, without writing a row", async () => {
@@ -38,8 +47,8 @@ describe("founder.preferences", () => {
 
   it("saves one choice at a time and keeps the other", async () => {
     const owner = hz.caller({ userId: hz.A.ownerId });
-    expect(await owner.founder.preferences.update({ date: "day_first" })).toEqual({ date: "day_first", time: "12h", ...GUIDED });
-    expect(await owner.founder.preferences.update({ time: "24h" })).toEqual({ date: "day_first", time: "24h", ...GUIDED });
+    expect(await owner.founder.preferences.update({ date: "day_first" })).toEqual({ date: "day_first", time: "12h", ...ALL });
+    expect(await owner.founder.preferences.update({ time: "24h" })).toEqual({ date: "day_first", time: "24h", ...ALL });
     expect(await owner.founder.preferences.get()).toEqual({ date: "day_first", time: "24h" });
     expect(await owner.founder.preferences.update({ date: "iso", time: "12h" })).toMatchObject({ date: "iso", time: "12h" });
     expect(await owner.founder.preferences.update({ date: "day_first", time: "24h" })).toMatchObject({ date: "day_first", time: "24h" });
@@ -59,8 +68,33 @@ describe("founder.preferences", () => {
     });
     expect(await owner.founder.preferences.update({ checklistDismissed: false })).toMatchObject({ checklistDismissedAt: null, explainersSeen: { home: true, inbox: true } });
     // "Show the first-week checklist again" / "Replay the tour": everything seen is forgotten; the choices stay.
-    expect(await owner.founder.preferences.update({ reset: true })).toEqual({ date: "day_first", time: "24h", ...GUIDED, guidance: "off", textSize: "comfortable" });
-    expect(await owner.founder.preferences.update({ guidance: "on", textSize: "standard" })).toEqual({ date: "day_first", time: "24h", ...GUIDED });
+    expect(await owner.founder.preferences.update({ reset: true })).toEqual({ date: "day_first", time: "24h", ...ALL, guidance: "off", textSize: "comfortable" });
+    expect(await owner.founder.preferences.update({ guidance: "on", textSize: "standard" })).toEqual({ date: "day_first", time: "24h", ...ALL });
+  });
+
+  it("notifications (0073): every kind on until turned off, kinds merge, the lock-screen switch saves alone, the account's own", async () => {
+    const fresh = await hz.h.createUser("notifications-preferences@test.local");
+    const me = hz.caller({ userId: fresh });
+    expect(await me.founder.preferences.notifications()).toEqual(NOTIFIED);
+    expect(await me.founder.preferences.update({ notifications: { customer: false } })).toMatchObject({ notifications: { ...NOTIFICATIONS_ON, customer: false }, hideAmountsOnLockScreen: false });
+    expect(await me.founder.preferences.update({ hideAmountsOnLockScreen: true, notifications: { run_finished: false } })).toMatchObject({ notifications: { ...NOTIFICATIONS_ON, customer: false, run_finished: false }, hideAmountsOnLockScreen: true });
+    expect(await me.founder.preferences.notifications()).toEqual({ notifications: { ...NOTIFICATIONS_ON, customer: false, run_finished: false }, hideAmountsOnLockScreen: true, email: EMAIL_ON });
+    // The email channel sits beside push: turning it off leaves the push kinds as they were, and the other way round.
+    expect(await me.founder.preferences.update({ email: { decision_waiting: false } })).toMatchObject({ notifications: { ...NOTIFICATIONS_ON, customer: false, run_finished: false }, email: { decision_waiting: false } });
+    expect((await me.founder.preferences.update({ notifications: { goal: false } })).email).toEqual({ ...EMAIL_ON, decision_waiting: false });
+    expect((await me.founder.preferences.update({ email: { decision_waiting: true }, notifications: { goal: true } })).email).toEqual(EMAIL_ON);
+    expect(await code(me.founder.preferences.update({ email: { weekly_summary: false } } as never))).toBe("BAD_REQUEST");
+    // The guided layer's read is untouched, and a reset of the tours keeps the notification choices.
+    expect(await me.founder.preferences.guidance()).toEqual(GUIDED);
+    expect(await me.founder.preferences.update({ reset: true })).toMatchObject({ notifications: { ...NOTIFICATIONS_ON, customer: false, run_finished: false }, hideAmountsOnLockScreen: true });
+    expect(await me.founder.preferences.update({ notifications: { customer: true } })).toMatchObject({ notifications: { ...NOTIFICATIONS_ON, run_finished: false } });
+    // Someone else's phones are their own.
+    expect(await hz.caller({ userId: hz.B.memberId }).founder.preferences.notifications()).toEqual(NOTIFIED);
+    expect(await code(me.founder.preferences.update({ notifications: {} }))).toBe("BAD_REQUEST");
+    expect(await code(me.founder.preferences.update({ notifications: { marketing: true } } as never))).toBe("BAD_REQUEST");
+    expect(await code(me.founder.preferences.update({ notifications: { customer: "off" } } as never))).toBe("BAD_REQUEST");
+    expect(await code(me.founder.preferences.update({ hideAmountsOnLockScreen: "yes" } as never))).toBe("BAD_REQUEST");
+    expect(await code(hz.caller(null).founder.preferences.notifications())).toBe("UNAUTHORIZED");
   });
 
   it("a second account cannot see or change the first one's choice", async () => {
@@ -102,6 +136,26 @@ describe("founder.preferences", () => {
     expect((await hz.caller({ userId: hz.B.memberId }).founder.preferences.guidance()).anthropomorphicAgents).toBe(false);
     expect(await me.founder.preferences.update({ anthropomorphicAgents: false })).toMatchObject({ anthropomorphicAgents: false });
     expect(await code(me.founder.preferences.update({ anthropomorphicAgents: "on" } as never))).toBe("BAD_REQUEST");
+  });
+
+  it("Builder view (0073): off until chosen, round-trips through update and guidance, kept by a reset, the account's own", async () => {
+    const fresh = await hz.h.createUser("builder-view-preferences@test.local");
+    const me = hz.caller({ userId: fresh });
+    expect((await me.founder.preferences.guidance()).builderView).toBe(false);
+    expect(await me.founder.preferences.update({ builderView: true })).toMatchObject({ date: "us", time: "12h", guidance: "on", builderView: true });
+    expect(await me.founder.preferences.guidance()).toEqual({ ...GUIDED, builderView: true });
+    // Another preference, and a reset of the tours, keep it.
+    expect(await me.founder.preferences.update({ guidance: "off" })).toMatchObject({ builderView: true, guidance: "off" });
+    expect(await me.founder.preferences.update({ reset: true })).toMatchObject({ builderView: true });
+    // A second account neither sees it nor changes it: its own switch is its own, and no user id can be named.
+    const other = hz.caller({ userId: hz.B.memberId });
+    expect((await other.founder.preferences.guidance()).builderView).toBe(false);
+    expect(await code(other.founder.preferences.update({ builderView: false, userId: fresh } as never))).toBe("BAD_REQUEST");
+    expect((await me.founder.preferences.guidance()).builderView).toBe(true);
+    const rows = await hz.db.select().from(accountPreferences).where(eq(accountPreferences.userId, fresh));
+    expect(rows.map((r) => r.builderView)).toEqual([true]);
+    expect(await me.founder.preferences.update({ builderView: false })).toMatchObject({ builderView: false });
+    expect(await code(me.founder.preferences.update({ builderView: "on" } as never))).toBe("BAD_REQUEST");
   });
 
   it("agent style (0069): humans until chosen, each style round-trips with or without the switch, is kept by a reset, and an unknown one is refused", async () => {

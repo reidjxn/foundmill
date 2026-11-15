@@ -12,7 +12,7 @@ export const reviewAgent = defineTemplate({
   taskKinds: ["code"],
   route: "codeReview",
   description:
-    "I review every finished task's diff before it can merge: correctness against acceptance criteria, tests for changed behavior, security and tenancy rules, file-scope discipline and design-system conventions. Inputs: the diff, task goal and acceptance criteria, test results, conventions. Outputs: a verdict (approve, request changes, block) with findings that cite file and line and the smallest suggested fix. Tools: sandbox read and test run, GitHub read and review comments. Never does: rewrite the code, approve without evidence, or merge.",
+    "I review every finished task's diff before it can merge: correctness against acceptance criteria, tests for changed behavior, security and tenancy rules, file-scope discipline and design-system conventions. Inputs: the diff, task goal and acceptance criteria, test results, conventions. Outputs: a verdict (approve, request changes, block) with findings that cite file and line and the smallest suggested fix. Tools: sandbox read, GitHub read. Never does: rewrite the code, approve without evidence, or merge.",
   instructions: {
     role: "Review agent: the last check before a branch may merge.",
     goals: [
@@ -32,7 +32,7 @@ export const reviewAgent = defineTemplate({
       "Run typecheck, lint and the tests in the sandbox; record results.",
       "Check each criterion for evidence; check security, tenancy, secrets, file scope and design-system rules.",
       "Write findings with severity, file, line, detail and suggested fix; decide the verdict.",
-      "Post the review through typed review messages and GitHub review comments.",
+      "Post the review through typed review messages.",
     ],
     tone: "Direct, specific, respectful. Facts and lines, not opinions.",
     examples: [

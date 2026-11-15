@@ -9,7 +9,7 @@
  */
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { StatusStrip, useToast, type MetricTileProps } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { counterpartId, findDirectThread, groupConnections, otherParticipants } from "@/lib/live";
@@ -22,6 +22,7 @@ import { MessagesPanel, type Selection } from "./MessagesPanel";
 import { AdultNotice, PersonalNotice, usePeople } from "./shared";
 import { userChannel } from "./signals";
 import { PeopleSearchPanel } from "./PeopleSearchPanel";
+import { useNarrow } from "./useNarrow";
 import { useLiveViewer } from "./viewer";
 import { VisibilityPanel } from "./VisibilityPanel";
 
@@ -67,6 +68,8 @@ export function NetworkScreen() {
   // --- the open conversation ------------------------------------------------------------------------------------------
   // Nothing opens by itself: opening a thread marks it read, so the unread counts stay visible until the founder chooses one.
   const [selection, setChosen] = useState<Selection>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const narrow = useNarrow(rootRef);
 
   const messageConnection = (row: ConnectionRow) => {
     const other = counterpartId(row, viewer.userId);
@@ -118,19 +121,13 @@ export function NetworkScreen() {
   const loading = connectionsQ.isLoading;
 
   return (
-    <div className="grid grid-cols-12 gap-gutter p-gutter" data-testid="network-screen">
-      <PersonalNotice className="col-span-12" />
-      <AdultNotice className="col-span-12" />
-      <StatusStrip className="col-span-12" tiles={tiles} aria-label="Network at a glance" data-testid="network-strip" />
-      {/* One way on from an empty network, not three: only Connections offers "Browse communities". */}
-      <div className="col-span-4 flex min-w-0 flex-col gap-gutter">
-        <PeopleSearchPanel />
-        <RequestsPanel rows={groups.incoming} viewerId={viewer.userId} people={people} loading={loading} error={connectionsError} onRetry={() => void connectionsQ.refetch()} busyId={busyId} onAccept={handlers.onAccept} onRemove={handlers.onRemove} onBlock={handlers.onBlock} />
-        <SentRequestsPanel rows={groups.outgoing} viewerId={viewer.userId} people={people} loading={loading} error={connectionsError} onRetry={() => void connectionsQ.refetch()} busyId={busyId} onRemove={handlers.onRemove} />
-        <InvitationsPanel rows={invitations} people={people} loading={invitationsQ.isLoading} error={invitationsQ.error ? errorMessage(invitationsQ.error) : undefined} onRetry={() => void invitationsQ.refetch()} busyId={invitationBusy} onJoin={onJoin} onDecline={onDecline} />
-        <VisibilityPanel />
-      </div>
-      <div className="col-span-8 flex min-w-0 flex-col gap-gutter">
+    <div className="@container" ref={rootRef}>
+    <div className="grid grid-cols-1 gap-gutter p-gutter @page-wide:grid-cols-12" data-testid="network-screen" data-narrow={narrow || undefined}>
+      <PersonalNotice className="@page-wide:col-span-12" />
+      <AdultNotice className="@page-wide:col-span-12" />
+      <StatusStrip className="@page-wide:col-span-12" tiles={tiles} aria-label="Network at a glance" data-testid="network-strip" />
+      {/* Reading order: the main column (messages, connections) first, then the side panels; from page-wide the side column sits on the left. */}
+      <div className="flex min-w-0 flex-col gap-gutter @page-wide:order-2 @page-wide:col-span-8">
         <MessagesPanel
           viewerId={viewer.userId}
           threads={threads}
@@ -144,9 +141,19 @@ export function NetworkScreen() {
           hasMoreThreads={threadsQ.hasNextPage}
           onLoadMoreThreads={() => void threadsQ.fetchNextPage()}
           loadingMoreThreads={threadsQ.isFetchingNextPage}
+          narrow={narrow}
         />
-        <ConnectionsPanel rows={[...groups.accepted, ...groups.blocked]} viewerId={viewer.userId} people={people} loading={loading} error={connectionsError} onRetry={() => void connectionsQ.refetch()} onBlock={handlers.onBlock} onRemove={handlers.onRemove} onMessage={handlers.onMessage} onFind={findFounders} />
+        <ConnectionsPanel rows={[...groups.accepted, ...groups.blocked]} viewerId={viewer.userId} people={people} loading={loading} error={connectionsError} onRetry={() => void connectionsQ.refetch()} onBlock={handlers.onBlock} onRemove={handlers.onRemove} onMessage={handlers.onMessage} onFind={findFounders} narrow={narrow} />
       </div>
+      {/* One way on from an empty network, not three: only Connections offers "Browse communities". */}
+      <div className="flex min-w-0 flex-col gap-gutter @page-wide:order-1 @page-wide:col-span-4">
+        <PeopleSearchPanel />
+        <RequestsPanel rows={groups.incoming} viewerId={viewer.userId} people={people} loading={loading} error={connectionsError} onRetry={() => void connectionsQ.refetch()} busyId={busyId} onAccept={handlers.onAccept} onRemove={handlers.onRemove} onBlock={handlers.onBlock} />
+        <SentRequestsPanel rows={groups.outgoing} viewerId={viewer.userId} people={people} loading={loading} error={connectionsError} onRetry={() => void connectionsQ.refetch()} busyId={busyId} onRemove={handlers.onRemove} />
+        <InvitationsPanel rows={invitations} people={people} loading={invitationsQ.isLoading} error={invitationsQ.error ? errorMessage(invitationsQ.error) : undefined} onRetry={() => void invitationsQ.refetch()} busyId={invitationBusy} onJoin={onJoin} onDecline={onDecline} />
+        <VisibilityPanel />
+      </div>
+    </div>
     </div>
   );
 }

@@ -24,14 +24,18 @@ test.describe("landing page", () => {
     // The hero's assurances: what a founder starts with (the free plan's included credits, no card); the key assurance
     // lives in "You decide" beside "Your key, sealed" (UX plan §7.1, A13).
     const hero = page.locator("section", { has: page.locator("#hero-title") });
-    await expect(hero.getByText("Starts with $5.00 of included credits · no card")).toBeVisible();
+    // The hero's assurances sit under the idea box (founder, 2026-11-13; docs/IDEA_BOX.md); the included credits are said
+    // once a card lands, beside the ways to keep it.
+    await expect(hero.getByText("Your first card is free · no sign-up")).toBeVisible();
+    await expect(hero.getByText("Your idea stays private until you choose to share it")).toBeVisible();
     await expect(hero.getByText(/Anthropic key/)).toHaveCount(0);
     await expect(page.getByText(/Bring your own Anthropic key/)).toHaveCount(1);
     await expect(page.locator("#control").getByText(/^Bring your own Anthropic key, or stay on the included credits\./)).toBeVisible();
 
-    // Section nav scrolls to each section.
-    for (const [label, id] of [["Why now", "why"], ["How it works", "how"], ["Your team", "team"], ["Live sessions", "live"], ["Journey", "journey"], ["You decide", "control"]] as const) {
-      await page.getByRole("navigation", { name: "Sections" }).getByRole("link", { name: label }).click();
+    // No section nav in the top bar (founder, 2026-11-13); each Why now pillar scrolls to the section that proves it.
+    await expect(page.getByRole("navigation", { name: "Sections" })).toHaveCount(0);
+    for (const [label, id] of [["Meet the team", "team"], ["Watch the work", "live"], ["See it grow", "journey"], ["Your decisions", "control"]] as const) {
+      await page.locator("#why").getByRole("link", { name: label }).click();
       await expect(page.locator(`#${id}`)).toBeInViewport();
     }
 
@@ -46,7 +50,7 @@ test.describe("landing page", () => {
     await expect(firstDay).toContainText("Iris, Product lead, writes it from your idea and your profile. Orla, Chief of Staff, plans the first cycle from the roadmap.");
     const signoffs = how.getByRole("list", { name: "Inbox" }).getByRole("listitem");
     await expect(signoffs).toHaveText([/Sign off the product specification/, /Sign off the product roadmap/]);
-    await expect(how.getByRole("list", { name: "Inbox" }).getByText("Respond", { exact: true })).toHaveCount(2);
+    await expect(how.getByRole("list", { name: "Inbox" }).getByText("Needs you", { exact: true })).toHaveCount(2);
     await expect(how.getByText("Building starts: 11 tasks planned")).toBeVisible();
     await expect(how.getByText("The team drafts; you sign off; then they build. Nothing is spent until you approve it.")).toBeVisible();
 
@@ -98,7 +102,7 @@ test.describe("landing page", () => {
     const deck = page.getByTestId("cycle-deck");
     // The first cycle runs on its own and comes back with a decision; Continue waits for the founder.
     await expect(deck).toHaveAttribute("data-phase", "decision", { timeout: 15_000 });
-    await expect(deck.getByRole("button", { name: /Respond to 1 item/ })).toBeVisible();
+    await expect(deck.getByRole("button", { name: /1 thing needs you/ })).toBeVisible();
     await page.getByTestId("deck-decision").getByRole("button", { name: "Merge" }).click();
     await expect(deck.getByText("Photo grading merged", { exact: true })).toBeVisible();
     // The callout under Continue teaches the loop in the app's own words, until the visitor presses it. It is the

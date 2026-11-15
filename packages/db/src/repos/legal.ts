@@ -10,7 +10,8 @@
  * Importing a registry record is idempotent: the same company (jurisdiction + registration number) is updated in
  * place, its officers and deadlines are matched to the ones already recorded, never added twice.
  */
-import { INCORPORATION_ROUTES, ValidationError } from "@foundmill/shared";
+import { INPUT_LIMITS } from "@foundmill/config";
+import { FILINGS_DUE_SOON_DAYS, INCORPORATION_ROUTES, ValidationError } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -78,7 +79,7 @@ export const CreateContractInput = z.object({
   endsAt: z.string().date().nullable().optional(),
   valueMinor: MinorAmount.nullable().optional(),
   currency: Currency.optional(),
-  obligations: JsonArray.default([]),
+  obligations: JsonArray.max(INPUT_LIMITS.contractObligations).default([]),
 });
 export type CreateContractInput = z.input<typeof CreateContractInput>;
 export const UpdateContractInput = patchSchema(CreateContractInput.omit({ status: true }));
@@ -139,6 +140,10 @@ async function assertCounterparty(db: Executor, businessId: string, counterparty
   const rows = await db.select({ id: entities.id }).from(entities).where(and(eq(entities.businessId, businessId), eq(entities.id, counterpartyEntityId))).limit(1);
   if (rows.length === 0) throw new ValidationError("counterpartyEntityId is not an entity of this business", { counterpartyEntityId });
 }
+
+/** A vendor's e-signature request id as a contract's document reference may name it (Dropbox Sign ids are 40 hex characters). */
+const DOC_REF_ID_MIN = 12;
+const DOC_REF_ID = new RegExp(`^[A-Za-z0-9_-]{${DOC_REF_ID_MIN},200}$`);
 
 export const legalRepo = {
   // legal entities ----------------------------------------------------------------------------------------------------
@@ -362,8 +367,11 @@ export const legalRepo = {
     );
   },
 
-  /** Flips upcoming filings to due/overdue relative to `now` (the nightly schedule); returns how many changed. */
-  async rollFilingStatuses(db: Executor, businessId: string, now = new Date(), dueWindowDays = 30): Promise<number> {
+  /**
+   * Flips upcoming filings to due/overdue relative to `now` (the nightly schedule); returns how many changed. "Due" is the
+   * shared due-soon window (`FILINGS_DUE_SOON_DAYS`), the one Compliance and the Company line count.
+   */
+  async rollFilingStatuses(db: Executor, businessId: string, now = new Date(), dueWindowDays = FILINGS_DUE_SOON_DAYS): Promise<number> {
     const windowEnd = new Date(now.getTime() + dueWindowDays * 86_400_000);
     const overdue = await db
       .update(filings)
@@ -411,14 +419,21 @@ export const legalRepo = {
     );
   },
 
-  /** The contract whose document reference names this e-signature request (a Dropbox Sign request id or its URL). */
+  /**
+   * The contract whose document reference names this e-signature request: the reference is the request id itself, or a
+   * URL in which the id is a whole path segment or query value. Never a substring: the id in a vendor's callback is not
+   * covered by its signature (Dropbox Sign's `event_hash`), so a one-character id must not match the newest contract.
+   * An id shorter than `DOC_REF_ID_MIN` characters or with anything but letters, digits, `_` and `-` matches nothing.
+   */
   async findContractByDocRef(db: Executor, businessId: string, ref: string): Promise<Contract | null> {
     const needle = ref.trim();
-    if (!needle) return null;
+    if (!DOC_REF_ID.test(needle)) return null;
+    // `needle` holds only [A-Za-z0-9_-] (checked above), so it is safe inside the pattern; it is still a bound parameter.
+    const asSegment = `(^|[/=])${needle}($|[/?&#])`;
     const rows = await db
       .select()
       .from(contracts)
-      .where(and(eq(contracts.businessId, businessId), isNull(contracts.archivedAt), sql`${contracts.docRef} is not null`, sql`strpos(${contracts.docRef}, ${needle}) > 0`))
+      .where(and(eq(contracts.businessId, businessId), isNull(contracts.archivedAt), sql`${contracts.docRef} is not null`, sql`(${contracts.docRef} = ${needle} or ${contracts.docRef} ~ ${asSegment})`))
       .orderBy(desc(contracts.createdAt))
       .limit(1);
     return rows[0] ?? null;
@@ -561,8 +576,8 @@ export const legalRepo = {
     );
   },
 
-  /** Deadlines (filings + compliance) due within `days` — the "Legal deadline" wake event and the Inbox reminders. */
-  async upcomingDeadlines(db: Executor, businessId: string, days = 30, now = new Date()): Promise<{ filings: Filing[]; compliance: ComplianceEvent[] }> {
+  /** Deadlines (filings + compliance) due within `days` (default the shared due-soon window) — the "Legal deadline" wake event and the Inbox reminders. */
+  async upcomingDeadlines(db: Executor, businessId: string, days = FILINGS_DUE_SOON_DAYS, now = new Date()): Promise<{ filings: Filing[]; compliance: ComplianceEvent[] }> {
     const until = new Date(now.getTime() + days * 86_400_000);
     const [f, c] = await Promise.all([
       legalRepo.listFilings(db, businessId, { status: ["upcoming", "due", "overdue"], dueBefore: until, limit: 200 }),

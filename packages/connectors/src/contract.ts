@@ -146,6 +146,40 @@ export interface ToolContext {
    * in place of the old one, so the next call reuses it instead of refreshing again. Connectors call it best effort.
    */
   onCredentialRefreshed?: (credential: DecryptedCredential) => Promise<void>;
+  /**
+   * Set by the gateway for `platform_mail` only, after its guards ran (package 1.5): the project's Foundmill address and
+   * what every message carries. Never an argument of the call, so an agent can neither choose the sender nor the
+   * custom args that bind delivery events back to the project.
+   */
+  platformMail?: PlatformMailEnvelope;
+  /**
+   * Set by the gateway for a founder's own sender (`resend.send_mail`): Foundmill's signed one-click unsubscribe link for
+   * this recipient and project, the one ingest turns into a suppression entry. Never an argument of the call, so an agent
+   * cannot point an opt-out somewhere it is never recorded (security review, Nov 12, 2026). Absent: nothing is sent.
+   */
+  unsubscribeUrl?: string;
+}
+
+/** What the gateway hands `platform_mail.send_mail` (see `ToolContext.platformMail`). */
+export interface PlatformMailEnvelope {
+  /** `<local part>@<PLATFORM_MAIL_DOMAIN>` and `<project name> via <APP_NAME>`. Also the Reply-To: replies come back into Foundmill. */
+  from: { email: string; name: string };
+  /** The project's name as the footer says it ("Sent by <it> with <APP_NAME>"); never one containing APP_NAME. */
+  projectName: string;
+  /** The gateway's id for this message (uuid), signed into `customArgs`. */
+  messageRef: string;
+  /** One-click unsubscribe for this recipient (RFC 8058), signed for the project. */
+  unsubscribeUrl: string;
+  /** `fm_b` (business id), `fm_m` (message ref), `fm_s` (their signature): SendGrid echoes them in every delivery event. */
+  customArgs: Record<string, string>;
+  /**
+   * The message is commercial (US CAN-SPAM; packages/shared `projectMailClass`): it must carry `postalAddress`, and the
+   * connector sends nothing without it. False only for what the gateway proved transactional (a reply to a person who
+   * wrote first, a receipt, the follow confirmation).
+   */
+  commercial: boolean;
+  /** The founders' postal address for the footer (`project_postal_addresses`); set on every commercial message. */
+  postalAddress?: string;
 }
 
 /** Hand a refreshed credential to the host (`ctx.onCredentialRefreshed`); a failure to store it never fails the call. */
@@ -200,6 +234,13 @@ export interface ConnectorWebhook {
   verify(req: Request): Promise<boolean>;
   /** Vendor payload → zero or more validated platform events. Assumes `verify` passed. */
   normalise(req: Request): Promise<PlatformEvent[]>;
+  /**
+   * The vendor account a delivery says it comes from (Stripe `event.account`, the Shopify shop domain, the GitHub
+   * installation id), or null when it names none. `apps/ingest` compares it with the account the business in the URL
+   * connected, so a validly signed delivery for one business is never accepted at another business's URL
+   * (SECURITY_REVIEW SEC-10). Reads a clone, like `verify`. Absent: the vendor's scheme names no account.
+   */
+  accountOf?(req: Request): Promise<string | null>;
 }
 
 /**
@@ -228,7 +269,11 @@ export interface Connector<Cfg = unknown> {
   /** What the founder enters to connect it live (see ConnectField); absent when connecting needs no input or is an OAuth/App flow. */
   connectFields?: ConnectField[];
   connect(businessId: string, input: unknown): Promise<IntegrationRecord>;
-  healthcheck(integration: IntegrationRecord): Promise<HealthResult>;
+  /**
+   * Checks the connection. `credential` is the business's own decrypted credential when the host has one (the gateway
+   * passes it for a live check); an API-key connector checks with it and never with a platform key.
+   */
+  healthcheck(integration: IntegrationRecord, credential?: DecryptedCredential): Promise<HealthResult>;
   tools: McpToolDefinition[]; // JSON-schema inputs/outputs
   callTool(name: string, args: unknown, ctx: ToolContext): Promise<ToolResult>;
   webhooks?: ConnectorWebhook[];

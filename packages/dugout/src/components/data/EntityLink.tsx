@@ -115,10 +115,10 @@ export function useEntityLinkContext(): EntityLinkContextValue {
 // ---------------------------------------------------------------------------------------------------------------------
 
 /** The agent identity a card or mention carries, when it is an agent the persona layer can rename. */
-function agentIdentityOf(details: Pick<EntityDetails, "kind" | "name" | "subtitle" | "role" | "personaKey" | "portrait"> | undefined) {
+function agentIdentityOf(details: Pick<EntityDetails, "kind" | "name" | "subtitle" | "role" | "personaKey" | "layer" | "portrait"> | undefined) {
   if (!details || details.kind !== "agent") return null;
   const personaKey = details.personaKey ?? (details.portrait?.type === "agent" ? details.portrait.personaKey : null);
-  return personaKey ? { name: details.name, role: details.role ?? details.subtitle ?? null, personaKey } : null;
+  return personaKey ? { name: details.name, role: details.role ?? details.subtitle ?? null, personaKey, layer: details.layer ?? null } : null;
 }
 
 function Portrait({ details, name }: { details: EntityDetails; name: string }) {
@@ -129,7 +129,7 @@ function Portrait({ details, name }: { details: EntityDetails; name: string }) {
       <Avatar
         size={48}
         name={name}
-        agent={{ seed: p.seed, dept: p.dept, personaKey: p.personaKey ?? details.personaKey }}
+        agent={{ seed: p.seed, dept: p.dept, personaKey: p.personaKey ?? details.personaKey, layer: details.layer }}
         status={p.status}
       />
     );
@@ -312,7 +312,7 @@ export const EntityLink = forwardRef<HTMLAnchorElement, EntityLinkProps>(functio
         }
       }}
       title={unverified ? `${personaLabel ?? name} (unverified)` : undefined}
-      className={cn("entity-link", unverified && "decoration-dotted text-secondary", className)}
+      className={cn("entity-link in-data-[phone]:tap-reach", unverified && "decoration-dotted text-secondary", className)}
       {...rest}
     >
       {personaLabel ?? display ?? name}

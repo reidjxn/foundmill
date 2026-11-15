@@ -14,7 +14,7 @@
  *
  * Import's single card (`single`) is one card call on the same prefix.
  */
-import { buildIdeationCardRequest, buildIdeationSlateRequest, buildSingleConceptRequest, IDEATION_AGENT_NAME, IDEATION_MAX_CONCEPTS, IDEATION_MIN_CONCEPTS, type IdeationBrief } from "@foundmill/agents";
+import { buildFounderCardRequest, buildIdeationCardRequest, buildIdeationSlateRequest, buildSingleConceptRequest, IDEATION_AGENT_NAME, IDEATION_MAX_CONCEPTS, IDEATION_MIN_CONCEPTS, type IdeationBrief } from "@foundmill/agents";
 import { repos, type CreateIdeaInput, type IdeaWithVersion } from "@foundmill/db";
 import { isModelBillingError, ModelAbortedError, ModelOutputError, streamStructured, type ConceptCard, type IdeationSlateItem, type ModelClient, type ModelMode } from "@foundmill/models";
 import { AppError, type Archetype } from "@foundmill/shared";
@@ -77,7 +77,7 @@ export function withMeta(research: unknown, meta: Record<string, unknown>): Rese
 }
 
 /** A drafted card as the idea row and first version the Studio stores (clipped to the row's limits, so one long card never fails a batch). */
-export function ideaFromCard(card: ConceptCard, meta: Record<string, unknown> = {}): CreateIdeaInput {
+export function ideaFromCard(card: ConceptCard, meta: Record<string, unknown> = {}, action: CreateIdeaInput["action"] = "generated"): CreateIdeaInput {
   return {
     title: card.name.slice(0, 120),
     pitch: card.pitch.slice(0, 4000),
@@ -86,8 +86,19 @@ export function ideaFromCard(card: ConceptCard, meta: Record<string, unknown> = 
     starsCurrent: card.stars_current,
     starsPotential: card.stars_potential,
     research: withMeta({ citations: card.citations }, { crest_seed: card.crest_seed, ...meta }),
-    action: "generated",
+    action,
   };
+}
+
+/**
+ * What every card the studio saves remembers about where it came from (first-time founder report, Nov 8, 2026):
+ * `brief`, the founder's own words when the card was drafted (the foundations build on them first), and `sample` when
+ * the mock model wrote the card, so every screen that shows it can say so instead of passing sample prose off as the
+ * team's judgment.
+ */
+export function cardProvenance(models: Pick<ModelClient, "mode">, brief: string | null | undefined): Record<string, unknown> {
+  const words = brief?.trim();
+  return { ...(words && words !== SURPRISE_PROMPT ? { brief: words.slice(0, 4000) } : {}), ...(models.mode === "mock" ? { sample: true } : {}) };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -228,7 +239,8 @@ export async function draftIdeas(deps: DraftDeps, input: DraftInput, opts: Draft
   // Before anything else: a refused draft calls no model and writes nothing.
   await takeIdeationAllowance(deps.limits, deps.userId);
   const brief: IdeationBrief = { prompt: input.prompt.trim() || SURPRISE_PROMPT, archetypeHint: input.archetypeHint ?? null, founder: await founderBrief(deps.db, deps.userId) };
-  const meta = input.importJobId ? { import_job_id: input.importJobId } : {};
+  // Import's card describes the report, not a brief the founder typed: it keeps the job id and no brief.
+  const meta = input.importJobId ? { import_job_id: input.importJobId, ...cardProvenance(models, null) } : cardProvenance(models, input.prompt);
   const writer = new IdeaBatchWriter(deps.db, deps.userId);
   const scope = `ideation:${deps.userId}`;
   let costMicro = 0;
@@ -347,6 +359,43 @@ export async function draftIdeas(deps: DraftDeps, input: DraftInput, opts: Draft
   } finally {
     signal?.removeEventListener("abort", onAbort);
   }
+}
+
+export interface WriteIdeaInput {
+  /** The working name (renamed at Commit). */
+  title: string;
+  /** The founder's own description of the business, verbatim: it becomes the card's pitch, whatever the model answers. */
+  pitch: string;
+  /** The kind of business when the founder chose one; null lets the Ideation agent choose. */
+  archetype: Archetype | null;
+}
+
+export interface WriteIdeaResult {
+  idea: IdeaWithVersion;
+  costMinor: number;
+  costLabel: "Estimate";
+  mode: ModelMode;
+}
+
+/**
+ * "Use my idea as written" (first-time founder report, Nov 8, 2026: a founder with a clear idea had to pick the
+ * nearest of ten drafted cards, and the team then built that card). One card from the founder's own words: the Ideation
+ * agent rates it and finds its citations (one card call, one draft of the allowance); the saved card keeps the
+ * founder's name and words exactly, flagged `founder_words` so the foundations build on them first.
+ */
+export async function writeIdea(deps: DraftDeps, input: WriteIdeaInput, opts: { signal?: AbortSignal } = {}): Promise<WriteIdeaResult> {
+  const { models } = deps;
+  await takeIdeationAllowance(deps.limits, deps.userId);
+  const words = input.pitch.trim().slice(0, 4000);
+  const title = input.title.trim().slice(0, 60);
+  const brief: IdeationBrief = { prompt: words, archetypeHint: input.archetype, founder: await founderBrief(deps.db, deps.userId) };
+  const id = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "my-idea";
+  const res = await models.complete({ ...buildFounderCardRequest(brief, { id, name: title, archetype: input.archetype, words }), signal: opts.signal, scope: `ideation:${deps.userId}`, attribution: { kind: "ideation" } }).catch((err: unknown) => {
+    throw tooLong(err) ?? err;
+  });
+  const card: ConceptCard = { ...res.json, name: title, pitch: words, archetype: input.archetype ?? res.json.archetype };
+  const idea = await repos.ideas.create(deps.db, deps.userId, ideaFromCard(card, { founder_words: words, ...cardProvenance(models, words) }, "edited"));
+  return { idea, costMinor: Math.round(res.cost.costMicroMinor / 1_000_000), costLabel: "Estimate", mode: models.mode };
 }
 
 /** The Ideation agent ran out of output room before any usable result: say so plainly (502), not as a model error. */

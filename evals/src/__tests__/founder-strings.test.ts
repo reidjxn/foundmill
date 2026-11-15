@@ -49,9 +49,12 @@ describe("founder-language eval", () => {
   });
 
   it("founderJargonHits reads prose the way the title rules read titles, without the length and case rules", () => {
-    expect(founderJargonHits("Sam's change is ready to go live. The repository's automatic tests run next.")).toEqual([]);
+    expect(founderJargonHits("Sam's change is ready to go live. The quality checks run next.")).toEqual([]);
     expect(founderJargonHits("Approved → went live at 3:02 PM")).toEqual([]);
-    expect(founderJargonHits("Merge the PR once CI is green on the branch").map((h) => h.term)).toEqual(["Merge", "PR", "CI", "branch"]);
+    expect(founderJargonHits("Merge the pull request once CI is green on the branch").map((h) => h.term)).toEqual(["Merge", "pull request", "CI", "branch"]);
     expect(founderJargonHits("The orchestrator held the merge because of the Cedar policy").map((h) => h.term)).toEqual(["orchestrator", "merge", "Cedar"]);
+    // The engine's numbers (Builder view, Nov 8, 2026): the Composer re-asks a note that carries them.
+    expect(founderJargonHits("Cycle 4: 105 tests passed on PR #41, ETA 3:45 PM, 12,400 tokens").map((h) => h.term)).toEqual(["Cycle 4", "105 tests passed", "PR #41", "ETA", "12,400 tokens"]);
+    expect(founderJargonHits("The team finished a round of work; the quality checks passed.")).toEqual([]);
   });
 });

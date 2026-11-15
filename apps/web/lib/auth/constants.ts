@@ -17,6 +17,11 @@ export const LAST_BUSINESS_COOKIE = "fm_last_business";
 export const SIDEBAR_COLLAPSED_PREFIX = "fm_sidebar_collapsed:";
 /** Where the login page sends the founder back after a magic link. */
 export const NEXT_PARAM = "next";
+/**
+ * On /auth/callback: how the sign-in started (`google` for Continue with Google; absent for the email link), so a
+ * failure is explained in the words of the method the founder used.
+ */
+export const SIGN_IN_VIA_PARAM = "via";
 
 const ONE_YEAR = 60 * 60 * 24 * 365;
 

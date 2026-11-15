@@ -54,14 +54,14 @@ test.describe("home", () => {
     await expect(strip).toBeVisible({ timeout: LONG });
     await expect(strip.getByText("Runway", { exact: true })).toBeVisible({ timeout: LONG });
     const bar = page.getByTestId("kit-bar");
-    // No runway figure: the bar and the tile say the same words, never a bare dash: "No limit" when cash-flow
+    // No runway figure: the bar and the tile say the same words, never a bare dash: "Not running out" when cash-flow
     // positive, "Not known yet" without a bank or enough history, "Cash is below zero" when the balance is negative
     // (the shared runway wording, UX plan B8), the reason under the tile and in the bar's tooltip.
     await expect(bar).not.toContainText("No runway yet");
     const barWords = bar.locator("[data-runway-words]");
     if (await barWords.count()) {
       const words = (await barWords.innerText()).trim();
-      expect(words).toMatch(/^(No limit|Not known yet|Cash is below zero)$/);
+      expect(words).toMatch(/^(Not running out|Not known yet|Cash is below zero)$/);
       await expect(strip.getByText(words, { exact: true })).toBeVisible({ timeout: LONG });
     }
     // Inbox preview rows: the subject wraps to two lines; nothing in a row is cut sideways.
@@ -79,7 +79,7 @@ test.describe("home", () => {
     await expect(strip.getByText("Team health", { exact: true })).toBeVisible({ timeout: LONG });
     await expect(strip).not.toContainText("Business health");
     await expect(strip).toContainText(/\d+ of \d+ \w+ healthy|No \w+ hired yet/, { timeout: LONG });
-    await expect(strip).toContainText(/Months of cash left|Under \d+ months of cash left|No limit|Not known yet|Cash is below zero/, { timeout: LONG });
+    await expect(strip).toContainText(/Months of cash left|Under \d+ months of cash left|Not running out|Not known yet|Cash is below zero/, { timeout: LONG });
     await expect(strip).toContainText("Money in this month");
     await expect(strip).toContainText(/Paying \w+, last 7 days/);
     // The formula is the provenance tooltip's, not a caption: nothing on the strip reads "Cash ÷ net burn" or "Cash basis".
@@ -211,9 +211,9 @@ test.describe("home", () => {
   });
 });
 
-/** Home's Autopilot chip: always there, in words (Off, On, Needs your answer, Paused: reason); it opens Settings > Mode. */
+/** Home's Autopilot chip: always there, in words (Off, On, Needs your answer, Paused: reason); it opens Settings > What the team can do. */
 test.describe("home > Autopilot chip", () => {
-  test("shows the state and opens Settings > Mode", async ({ page }) => {
+  test("shows the state and opens Settings > What the team can do", async ({ page }) => {
     await openBusiness(page);
     const chip = page.getByTestId("home-autopilot").getByTestId("autopilot-chip");
     await expect(chip).toBeVisible({ timeout: LONG });
@@ -221,6 +221,7 @@ test.describe("home > Autopilot chip", () => {
     await expect(chip).toHaveAttribute("data-autopilot-state", /^(off|on|waiting|paused)$/);
     await chip.click();
     await expect(page).toHaveURL(/\/settings\/mode$/);
+    await expect(settingsScreen(page).getByRole("navigation", { name: "Settings sections" }).getByRole("link", { name: "What the team can do" })).toHaveAttribute("aria-current", "page");
     await expect(settingsScreen(page).getByTestId("autopilot-section")).toBeVisible({ timeout: LONG });
   });
 });
@@ -261,3 +262,31 @@ test.describe("home > blocker banner", () => {
     await expect(page.getByTestId("home-blocker")).toHaveCount(0);
   });
 });
+
+/**
+ * Continue runs until done (Nov 7, 2026): between two cycles of a run no cycle runs, yet the button keeps the processing
+ * state and its Pause. The seed has no run, so `cycle.status` is rewritten on the way to the page.
+ */
+test.describe("home > Continue during a run", () => {
+  test("between cycles of a run Continue reads Pause, and its tooltip says new cycles start on their own", async ({ page }) => {
+    await page.route(/\/trpc\/[^?]*cycle\.status/, async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as unknown;
+      const between = { running: false, paused: false, cycleId: null, run: { id: "33333333-3333-4333-8333-333333333333", startedAt: new Date().toISOString(), rounds: 1 } };
+      const rewrite = (entry: unknown) => {
+        const data = (entry as { result?: { data?: { json?: Record<string, unknown> } } }).result?.data?.json;
+        if (data && "completedCount" in data) Object.assign(data, between);
+      };
+      if (Array.isArray(body)) body.forEach(rewrite);
+      else rewrite(body);
+      await route.fulfill({ response, body: JSON.stringify(body), headers: { ...response.headers(), "content-type": "application/json" } });
+    });
+    await openBusiness(page);
+    const button = page.locator('button[data-coachmark="continue"]').first();
+    await expect(button).toHaveAttribute("data-continue-state", "processing", { timeout: LONG });
+    await expect(button).toHaveText("Pause");
+    await button.hover();
+    await expect(page.getByText("New cycles start on their own until nothing is left to do.", { exact: false }).first()).toBeVisible({ timeout: LONG });
+  });
+});
+

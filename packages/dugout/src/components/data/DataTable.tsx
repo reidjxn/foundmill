@@ -16,6 +16,7 @@ import {
 import {
   flexRender,
   getCoreRowModel,
+  getExpandedRowModel,
   getFilteredRowModel,
   getSortedRowModel,
   useReactTable,
@@ -23,6 +24,7 @@ import {
   type ColumnFiltersState,
   type ColumnOrderState,
   type ColumnSizingState,
+  type ExpandedState,
   type FilterFn,
   type Row,
   type RowData,
@@ -35,6 +37,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   ArrowDown,
   ArrowUp,
+  ChevronRight,
   ChevronsUpDown,
   Columns3,
   Download,
@@ -48,6 +51,7 @@ import { cn } from "../../lib/cn";
 import { formatNumber } from "../../lib/format";
 import { uniqueId } from "../../lib/seed";
 import { Checkbox } from "../foundation/Checkbox";
+import { useBuilderView } from "../guidance/BuilderView";
 import { useGuidanceMode } from "../guidance/GuidanceProvider";
 import { Term } from "../guidance/Term";
 import {
@@ -134,6 +138,12 @@ declare module "@tanstack/react-table" {
      * head, the whole label sorting as before.
      */
     term?: string;
+    /**
+     * Builder view only (docs/DESIGN.md "Builder view"): while the switch is off the column is not part of the table at
+     * all (no head, no chooser entry, no filter, no CSV column); saved views skip it, and a view saved while off keeps
+     * it for when the switch is on again.
+     */
+    builderOnly?: boolean;
   }
 }
 
@@ -141,11 +151,15 @@ export type DataTableColumn<T> = ColumnDef<T, unknown>;
 
 export interface DataTableProps<T> {
   data: readonly T[];
+  /** Columns; one with `meta.builderOnly` is dropped while Builder view is off. */
   columns: DataTableColumn<T>[];
   /** Stable row id; default `row.id` when present, else the index. */
   getRowId?: (row: T, index: number) => string;
 
-  /** Saved views `{id, name, columns, sort, filters}`. Omit for a table without a view switcher. */
+  /**
+   * Saved views `{id, name, columns, sort, filters}`. Omit for a table without a view switcher. A view with
+   * `builderOnly` is not offered while Builder view is off (the first other view opens instead).
+   */
   views?: SavedView[];
   activeViewId?: string | null;
   defaultViewId?: string;
@@ -209,6 +223,28 @@ export interface DataTableProps<T> {
   hideEmptyColumns?: boolean;
   /** Status line under the body; default "N rows · M selected". Pass null to hide. */
   footer?: ReactNode | null;
+
+  /**
+   * Nested rows (a tree grid): a row's children, shown indented under it. A row with children carries an expander after
+   * its first cell's content ("+3", or `subRowsLabel`), collapsed by default; ArrowRight opens the focused row (or moves
+   * to its first child), ArrowLeft closes it (or moves to its parent). Sorting orders each level on its own; a filter or
+   * search keeps a parent whose child matches and opens it. Expansion is never part of a saved view.
+   */
+  getSubRows?: (row: T, index: number) => readonly T[] | undefined;
+  /** The expander's words for a row with `count` children ("+3 specialists"). Default "+3". */
+  subRowsLabel?: (row: T, count: number) => string;
+  /** Rows open at first render (uncontrolled). */
+  defaultExpandedIds?: readonly string[];
+  /** Open rows (controlled). */
+  expandedIds?: readonly string[];
+  onExpandedChange?: (ids: string[]) => void;
+  /** Top-level rows that stay first whatever the sort (with their children), in their own order. */
+  isPinnedRow?: (row: T) => boolean;
+  /**
+   * Columns the CSV adds after the visible ones (a nested table's "Reports to"). A nested table's CSV is flat: every
+   * matching row, open or not, each parent before its children.
+   */
+  exportColumns?: readonly { header: string; value: (row: T) => unknown }[];
   "aria-label"?: string;
   className?: string;
 }
@@ -223,6 +259,9 @@ const OWN_COLUMNS = new Set([SELECT_COLUMN_ID, ACTIONS_COLUMN_ID]);
 const MIN_COLUMN_WIDTH = 48;
 const DEFAULT_COLUMN_WIDTH = 160;
 const NO_SIZES: Record<string, number> = {};
+/** How far each level of nested rows is indented, in px. */
+const NEST_INDENT = 20;
+const NO_IDS: ReadonlySet<string> = new Set();
 /** Elements a cell never cuts: chips, status pills and the Estimate / Forecast tags. */
 const ATOMIC = "[data-chip], [data-status-pill], [data-provenance]";
 
@@ -329,15 +368,51 @@ export function cellTitle(value: unknown): string | undefined {
  */
 const MACHINE_DATE_RE = /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/;
 
+/** A column definition's id (its `id`, else its `accessorKey`). */
+function defId<T>(def: ColumnDef<T, unknown>): string {
+  return def.id ?? (def as { accessorKey?: string }).accessorKey ?? "";
+}
+
+/**
+ * Builder view's part of a table: while it is off, the `builderOnly` columns and views drop out. `hiddenColumnIds`
+ * are the dropped columns (a view's sort and filters skip them); `restoreViews` puts the dropped views back into a
+ * changed list, in their places, so saving a view while off never deletes one the founder cannot see.
+ */
+export function builderViewTable<T>(columns: readonly DataTableColumn<T>[], views: readonly SavedView[] | undefined, builder: boolean) {
+  if (builder) return { columns: columns as DataTableColumn<T>[], views: views as SavedView[] | undefined, hiddenColumnIds: new Set<string>(), hiddenViewIds: new Set<string>(), restoreViews: (next: SavedView[]) => next };
+  const hiddenColumnIds = new Set(columns.filter((c) => c.meta?.builderOnly).map((c) => defId(c)).filter(Boolean));
+  const hiddenViews = (views ?? []).filter((v) => v.builderOnly);
+  const hiddenViewIds = new Set(hiddenViews.map((v) => v.id));
+  const restoreViews = (next: SavedView[]): SavedView[] => {
+    if (hiddenViews.length === 0) return next;
+    const byId = new Map(next.map((v) => [v.id, v]));
+    const out: SavedView[] = [];
+    for (const v of views ?? []) {
+      if (hiddenViewIds.has(v.id)) out.push(v);
+      else if (byId.has(v.id)) out.push(byId.get(v.id)!);
+    }
+    const known = new Set((views ?? []).map((v) => v.id));
+    for (const v of next) if (!known.has(v.id)) out.push(v);
+    return out;
+  };
+  return {
+    columns: hiddenColumnIds.size ? columns.filter((c) => !hiddenColumnIds.has(defId(c))) : (columns as DataTableColumn<T>[]),
+    views: views && hiddenViewIds.size ? views.filter((v) => !hiddenViewIds.has(v.id)) : (views as SavedView[] | undefined),
+    hiddenColumnIds,
+    hiddenViewIds,
+    restoreViews,
+  };
+}
+
 export function DataTable<T>(props: DataTableProps<T>) {
   const {
     data,
-    columns,
+    columns: columnsProp,
     getRowId = defaultRowId,
-    views,
+    views: viewsProp,
     activeViewId: activeViewIdProp,
     defaultViewId,
-    onViewsChange,
+    onViewsChange: onViewsChangeProp,
     onActiveViewChange,
     density: densityProp,
     defaultDensity = "compact",
@@ -367,7 +442,21 @@ export function DataTable<T>(props: DataTableProps<T>) {
     overscan = 12,
     footer,
     className,
+    getSubRows,
+    subRowsLabel,
+    defaultExpandedIds,
+    expandedIds: expandedIdsProp,
+    onExpandedChange,
+    isPinnedRow,
+    exportColumns,
   } = props;
+  const nested = !!getSubRows;
+
+  // ---- Builder view: its columns and views are not part of the table while it is off ---------------------------------
+  const builder = useBuilderView();
+  const gated = useMemo(() => builderViewTable(columnsProp, viewsProp, builder), [columnsProp, viewsProp, builder]);
+  const { columns, views, hiddenColumnIds } = gated;
+  const onViewsChange = onViewsChangeProp ? (next: SavedView[]) => onViewsChangeProp(gated.restoreViews(next)) : undefined;
 
   const tableId = useId();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -376,7 +465,9 @@ export function DataTable<T>(props: DataTableProps<T>) {
   const [activeViewIdState, setActiveViewIdState] = useState<string | null>(
     () => activeViewIdProp ?? defaultViewId ?? views?.[0]?.id ?? null,
   );
-  const activeViewId = activeViewIdProp !== undefined ? activeViewIdProp : activeViewIdState;
+  const chosenViewId = activeViewIdProp !== undefined ? activeViewIdProp : activeViewIdState;
+  // A Builder view view chosen while the switch was on opens as the first other view while it is off.
+  const activeViewId = chosenViewId && gated.hiddenViewIds.has(chosenViewId) ? (views?.[0]?.id ?? null) : chosenViewId;
   const activeView = useMemo(
     () => views?.find((v) => v.id === activeViewId) ?? null,
     [views, activeViewId],
@@ -391,11 +482,11 @@ export function DataTable<T>(props: DataTableProps<T>) {
   const viewToState = useCallback(
     (v: SavedView | null): ViewState => ({
       columns: v ? v.columns.filter((id) => allColumnIds.includes(id)) : allColumnIds,
-      sort: v ? v.sort.map((s) => ({ id: s.id, desc: s.desc })) : [],
-      filters: v ? v.filters.map((f) => ({ ...f })) : [],
+      sort: v ? v.sort.filter((s) => !hiddenColumnIds.has(s.id)).map((s) => ({ id: s.id, desc: s.desc })) : [],
+      filters: v ? v.filters.filter((f) => !hiddenColumnIds.has(f.field)).map((f) => ({ ...f })) : [],
       density: v?.density ?? densityProp ?? defaultDensity,
     }),
-    [allColumnIds, densityProp, defaultDensity],
+    [allColumnIds, hiddenColumnIds, densityProp, defaultDensity],
   );
 
   const [sorting, setSorting] = useState<SortingState>(() => viewToState(activeView).sort);
@@ -450,7 +541,8 @@ export function DataTable<T>(props: DataTableProps<T>) {
         v.id === activeView.id
           ? {
               ...v,
-              columns: visibleIds,
+              // Saved while Builder view is off: the view keeps the Builder view columns it had, for when it is on.
+              columns: [...visibleIds, ...v.columns.filter((id) => hiddenColumnIds.has(id))],
               sort: sorting.map((s) => ({ id: s.id, desc: s.desc })),
               filters: chips,
               density,
@@ -556,6 +648,38 @@ export function DataTable<T>(props: DataTableProps<T>) {
     });
   }, [chips, columns]);
 
+  // ---- Nested rows: which are open ------------------------------------------------------------------------------------
+  // Outside a filter: the founder's own choice (collapsed by default). While a filter or search is on, every parent
+  // that kept a matching child opens, and a row closed during that filter stays closed until the filter changes.
+  const [expandedState, setExpandedState] = useState<ReadonlySet<string>>(() => new Set(defaultExpandedIds ?? []));
+  const expandedSet = useMemo<ReadonlySet<string>>(() => (expandedIdsProp ? new Set(expandedIdsProp) : expandedState), [expandedIdsProp, expandedState]);
+  const filtering = chips.length > 0 || !!globalFilter?.trim();
+  const filterKey = filtering ? JSON.stringify([chips.map((c) => [c.field, c.op, c.value]), globalFilter ?? ""]) : "";
+  const [filterCollapsed, setFilterCollapsed] = useState<{ key: string; ids: ReadonlySet<string> }>({ key: "", ids: NO_IDS });
+  const collapsedNow = filterCollapsed.key === filterKey ? filterCollapsed.ids : NO_IDS;
+  const isRowOpen = useCallback((id: string) => (filtering ? !collapsedNow.has(id) : expandedSet.has(id)), [filtering, collapsedNow, expandedSet]);
+  const setRowOpen = (id: string, open: boolean) => {
+    if (filtering) {
+      setFilterCollapsed((prev) => {
+        const ids = new Set(prev.key === filterKey ? prev.ids : []);
+        if (open) ids.delete(id);
+        else ids.add(id);
+        return { key: filterKey, ids };
+      });
+      return;
+    }
+    const next = new Set(expandedSet);
+    if (open) next.add(id);
+    else next.delete(id);
+    if (!expandedIdsProp) setExpandedState(next);
+    onExpandedChange?.([...next]);
+  };
+  // TanStack recomputes the expanded rows when this object changes; `getIsRowExpanded` says which rows are open.
+  const expandedToken = useMemo<ExpandedState>(
+    () => (filtering ? { __filtering: true, ...Object.fromEntries([...collapsedNow].map((id) => [id, false])) } : Object.fromEntries([...expandedSet].map((id) => [id, true]))),
+    [filtering, collapsedNow, expandedSet],
+  );
+
   // The "…" cell reaches the current row model and handlers through a ref, so the column definitions stay stable.
   const rowMenu = useRef<{ open: (row: Row<T>, from: HTMLElement) => void; label: (row: Row<T>) => string }>({ open: () => {}, label: () => "" });
 
@@ -644,6 +768,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
       rowSelection,
       columnFilters,
       globalFilter: globalFilter ?? "",
+      ...(nested ? { expanded: expandedToken } : {}),
     },
     onSortingChange: setSorting,
     // TanStack hands back the whole sizing map (content-fit widths included): keep only what the founder changed.
@@ -676,6 +801,17 @@ export function DataTable<T>(props: DataTableProps<T>) {
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
+    ...(nested
+      ? {
+          getSubRows: getSubRows as (row: T, index: number) => T[] | undefined,
+          getExpandedRowModel: getExpandedRowModel(),
+          getIsRowExpanded: (row: Row<T>) => isRowOpen(row.id),
+          onExpandedChange: () => {},
+          autoResetExpanded: false,
+          filterFromLeafRows: true,
+          enableSubRowSelection: false,
+        }
+      : {}),
   });
 
   const filterFields = useMemo<FilterField[]>(
@@ -692,7 +828,19 @@ export function DataTable<T>(props: DataTableProps<T>) {
     [columns],
   );
 
-  const rows = table.getRowModel().rows;
+  const modelRows = table.getRowModel().rows;
+  // Pinned top-level rows (with their children) stay first whatever the sort.
+  const rows = useMemo(() => {
+    if (!isPinnedRow) return modelRows;
+    const blocks: Row<T>[][] = [];
+    for (const r of modelRows) {
+      if (r.depth === 0 || blocks.length === 0) blocks.push([r]);
+      else blocks[blocks.length - 1]!.push(r);
+    }
+    const pinned = blocks.filter((b) => isPinnedRow(b[0]!.original));
+    if (pinned.length === 0) return modelRows;
+    return [...pinned, ...blocks.filter((b) => !isPinnedRow(b[0]!.original))].flat();
+  }, [modelRows, isPinnedRow]);
   const rowHeight = ROW_HEIGHT[density];
   const isVirtual = virtualized ?? rows.length > 100;
   const virtualizer = useVirtualizer({
@@ -765,8 +913,9 @@ export function DataTable<T>(props: DataTableProps<T>) {
       (target.tagName === "INPUT" ||
         target.tagName === "TEXTAREA" ||
         target.getAttribute("role") === "separator" ||
-        // The row's "…" button: Enter and Space open its menu, nothing else.
-        target.hasAttribute("data-row-actions"))
+        // The row's "…" button: Enter and Space open its menu, nothing else. The expander toggles its row.
+        target.hasAttribute("data-row-actions") ||
+        target.hasAttribute("data-row-expander"))
     )
       return;
     const pageSize = Math.max(1, Math.floor(height / rowHeight) - 1);
@@ -780,6 +929,31 @@ export function DataTable<T>(props: DataTableProps<T>) {
         e.preventDefault();
         moveFocus(focusIndex < 0 ? 0 : focusIndex - 1, e);
         break;
+      case "ArrowRight": {
+        // A tree grid: open the focused row, or step to its first child when it is open.
+        const r = rows[focusIndex];
+        if (!nested || !r || !r.getCanExpand()) break;
+        e.preventDefault();
+        if (!r.getIsExpanded()) setRowOpen(r.id, true);
+        else moveFocus(focusIndex + 1, e);
+        break;
+      }
+      case "ArrowLeft": {
+        // Close the focused row, or step to its parent.
+        const r = rows[focusIndex];
+        if (!nested || !r) break;
+        if (r.getCanExpand() && r.getIsExpanded()) {
+          e.preventDefault();
+          setRowOpen(r.id, false);
+        } else if (r.parentId) {
+          const parent = rows.findIndex((x) => x.id === r.parentId);
+          if (parent >= 0) {
+            e.preventDefault();
+            moveFocus(parent, e);
+          }
+        }
+        break;
+      }
       case "Home":
         e.preventDefault();
         moveFocus(0, e);
@@ -931,6 +1105,19 @@ export function DataTable<T>(props: DataTableProps<T>) {
   };
 
   // ---- CSV -----------------------------------------------------------------------------------------------------------
+  /** Every matching row of a nested table, open or not, in display order (pinned first, each parent before its children). */
+  const flatExportRows = (): Row<T>[] => {
+    const out: Row<T>[] = [];
+    const walk = (list: readonly Row<T>[]) => {
+      for (const r of list) {
+        out.push(r);
+        if (r.subRows?.length) walk(r.subRows);
+      }
+    };
+    const top = table.getPreExpandedRowModel().rows;
+    walk(isPinnedRow ? [...top.filter((r) => isPinnedRow(r.original)), ...top.filter((r) => !isPinnedRow(r.original))] : top);
+    return out;
+  };
   const exportCsvNow = () => {
     const cols: CsvColumn<Row<T>>[] = table
       .getVisibleLeafColumns()
@@ -939,11 +1126,13 @@ export function DataTable<T>(props: DataTableProps<T>) {
         header: columnLabel(table, c.id),
         value: (r) => (c.columnDef.meta?.csv ? c.columnDef.meta.csv(r.original) : r.getValue(c.id)),
       }));
-    const csv = toCsv(cols, rows);
+    for (const extra of exportColumns ?? []) cols.push({ header: extra.header, value: (r) => extra.value(r.original) });
+    const out = nested ? flatExportRows() : rows;
+    const csv = toCsv(cols, out);
     if (onExportCsv)
       onExportCsv(
         csv,
-        rows.map((r) => r.original),
+        out.map((r) => r.original),
       );
     else downloadCsv(exportFileName, csv);
   };
@@ -1019,6 +1208,9 @@ export function DataTable<T>(props: DataTableProps<T>) {
     });
   });
 
+  // A nested table counts every matching row, open or not, out of every row at every level.
+  const shownCount = nested ? table.getFilteredRowModel().flatRows.length : rows.length;
+  const totalCount = nested ? table.getCoreRowModel().flatRows.length : data.length;
   const selectedCount = Object.keys(rowSelection).filter((k) => rowSelection[k]).length;
   const state: "loading" | "error" | "empty" | "ready" = loading
     ? "loading"
@@ -1048,6 +1240,33 @@ export function DataTable<T>(props: DataTableProps<T>) {
   const hasViews = !!views && views.length > 0;
   const showToolbar = !hideToolbar;
 
+  // A nested table's indent and expander sit in its first data column.
+  const firstDataColumnId = nested ? (visibleLeaf.find((c) => !OWN_COLUMNS.has(c.id))?.id ?? null) : null;
+  const renderExpander = (row: Row<T>) => {
+    const count = row.subRows.length;
+    const open = row.getIsExpanded();
+    const words = subRowsLabel ? subRowsLabel(row.original, count) : `+${formatNumber(count, { maxDigits: 0 })}`;
+    return (
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-label={`${open ? "Hide" : "Show"} ${words.replace(/^[+]/, "")} under ${rowLabelOf(row)}`}
+        title={open ? "Hide" : "Show"}
+        data-row-expander=""
+        className="chip-plate ml-1 inline-flex min-h-chip shrink-0 cursor-pointer items-center gap-1 rounded-sm border px-chip-x py-px font-body text-label font-medium text-secondary pressable hover:brightness-125 focus-visible:shadow-ring"
+        onMouseDown={(e) => e.stopPropagation()}
+        onDoubleClick={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          setRowOpen(row.id, !open);
+        }}
+      >
+        <Icon icon={ChevronRight} size={12} className={cn("transition-transform duration-hover", open && "rotate-90")} />
+        <span className="whitespace-nowrap tabular-nums">{words}</span>
+      </button>
+    );
+  };
+
   const renderRow = (row: Row<T>, index: number, style?: CSSProperties) => {
     const selected = row.getIsSelected();
     const focused = index === focusIndex;
@@ -1056,6 +1275,9 @@ export function DataTable<T>(props: DataTableProps<T>) {
         key={row.id}
         id={rowIdAttr(row)}
         role="row"
+        aria-level={nested ? row.depth + 1 : undefined}
+        aria-expanded={nested && row.getCanExpand() ? row.getIsExpanded() : undefined}
+        data-depth={nested ? row.depth : undefined}
         aria-selected={selected}
         aria-rowindex={index + 2}
         data-row-index={index}
@@ -1101,14 +1323,24 @@ export function DataTable<T>(props: DataTableProps<T>) {
               {/* Text cells: a row's long free text may end in an ellipsis (a list convention), with the whole value in a
                   tooltip; numbers never do. A chip or pill keeps its natural width: alone in a cell, its column fits
                   it; after text that runs out of room, the whole chip gives way to the ellipsis, never cut mid-word. */}
-              <span
-                className={numeric ? "whitespace-nowrap" : "truncate [&_a]:min-w-0 [&_a]:truncate [&_[data-chip]]:max-w-none [&_[data-status-pill]]:max-w-none"}
-                data-cell-content=""
-                data-allow-truncate={numeric ? undefined : ""}
-                title={!numeric ? cellTitle(cell.getValue()) : undefined}
-              >
-                {flexRender(cell.column.columnDef.cell, cell.getContext())}
-              </span>
+              {cell.column.id === firstDataColumnId ? (
+                // Nested rows: each level indented, the expander after the content (it never truncates).
+                <span className="flex min-w-0 items-center" style={{ paddingLeft: row.depth * NEST_INDENT }} data-nest-level={row.depth}>
+                  <span className="min-w-0 truncate [&_a]:min-w-0 [&_a]:truncate [&_[data-chip]]:max-w-none [&_[data-status-pill]]:max-w-none" data-cell-content="" data-allow-truncate="" title={cellTitle(cell.getValue())}>
+                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                  </span>
+                  {row.getCanExpand() ? renderExpander(row) : null}
+                </span>
+              ) : (
+                <span
+                  className={numeric ? "whitespace-nowrap" : "truncate [&_a]:min-w-0 [&_a]:truncate [&_[data-chip]]:max-w-none [&_[data-status-pill]]:max-w-none"}
+                  data-cell-content=""
+                  data-allow-truncate={numeric ? undefined : ""}
+                  title={!numeric ? cellTitle(cell.getValue()) : undefined}
+                >
+                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                </span>
+              )}
             </td>
           );
         })}
@@ -1127,7 +1359,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
       onScroll={updateCues}
     >
       <table
-        role="grid"
+        role={nested ? "treegrid" : "grid"}
         tabIndex={0}
         aria-label={props["aria-label"]}
         aria-rowcount={rows.length + 1}
@@ -1455,7 +1687,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
                   <Icon icon={Download} size="inline" className="text-secondary" />
                   Export CSV
                   <span className="ml-auto pl-4 text-small text-secondary tabular-nums">
-                    {formatNumber(rows.length, { maxDigits: 0 })} rows
+                    {formatNumber(shownCount, { maxDigits: 0 })} rows
                   </span>
                 </DropdownMenuItem>
                 <DropdownMenuItem
@@ -1507,7 +1739,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
                 e.preventDefault();
                 const origin = dropdownOrigin.current;
                 dropdownOrigin.current = null;
-                const back = origin?.isConnected ? origin : scrollRef.current?.querySelector<HTMLElement>('[role="grid"]');
+                const back = origin?.isConnected ? origin : scrollRef.current?.querySelector<HTMLElement>('[role="grid"], [role="treegrid"]');
                 back?.focus({ preventScroll: true });
               }}
             >
@@ -1527,9 +1759,9 @@ export function DataTable<T>(props: DataTableProps<T>) {
           {footer ?? (
             <>
               <span>
-                {formatNumber(rows.length, { maxDigits: 0 })} {rows.length === 1 ? "row" : "rows"}
-                {rows.length !== data.length
-                  ? ` of ${formatNumber(data.length, { maxDigits: 0 })}`
+                {formatNumber(shownCount, { maxDigits: 0 })} {shownCount === 1 ? "row" : "rows"}
+                {shownCount !== totalCount
+                  ? ` of ${formatNumber(totalCount, { maxDigits: 0 })}`
                   : ""}
               </span>
               {selectedCount > 0 ? (

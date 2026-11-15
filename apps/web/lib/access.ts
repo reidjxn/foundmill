@@ -7,7 +7,7 @@
  * An example membership (0065, "Explore an example": a viewer of a seeded demo business) is a viewer with its own
  * reason line, so every disabled control says "look around, then start your own" instead of naming staff roles.
  */
-import { WRITE_ROLES, type MembershipRole } from "@foundmill/shared/constants";
+import { isAdminRole, WRITE_ROLES, type MembershipRole } from "@foundmill/shared/constants";
 import { effectivePermission, SECTIONS, type Section, type SectionMembership } from "@foundmill/shared/permissions";
 
 export interface Access {
@@ -48,7 +48,7 @@ export function accessFor(membership: AccessMembership | null | undefined, busin
   const canChange = WRITE_ROLES.includes(membership.role);
   return {
     role: membership.role,
-    isAdmin: membership.role === "owner" || membership.role === "admin",
+    isAdmin: isAdminRole(membership.role),
     canChange,
     isExample: isExampleViewer(membership, business),
     canRead: (section) => effectivePermission(membership, section) !== "none",
@@ -65,14 +65,39 @@ export function canOpenDepartment(access: Access, department: { moduleKeys?: rea
 
 /** The line every disabled control shows in the example business (the Example frame, docs/UX_AUDIT_AND_PLAN.md §12 item 5). */
 export const EXAMPLE_READ_ONLY_REASON = "This is an example business: look around, then start your own.";
-/** The tooltip of the neutral "Example" chip beside the business name, and the line under the example's row in Your businesses. */
-export const EXAMPLE_CHIP_TOOLTIP = "A seeded example business. Nothing you do here is saved.";
+/**
+ * The quiet "Sample business" marker beside a seeded demo business's name (first-time founder report, Phase 3 group K:
+ * "the sample business says it is a sample"): its one line says the figures are made up. It shows on every demo
+ * business (`businesses.is_demo`, which only the seed sets), whoever opens it, and never on a founder's own business.
+ */
+export const SAMPLE_BUSINESS_LABEL = "Sample business";
+export const SAMPLE_BUSINESS_LINE = "Its figures are made up for the example: nothing here is real money or real customers.";
+
+/** The tooltip of the sample marker for an example viewer, and the line under the example's row in Your businesses. */
+export const EXAMPLE_CHIP_TOOLTIP = `${SAMPLE_BUSINESS_LINE} Nothing you do here is saved.`;
+
+export interface SampleMarker {
+  label: typeof SAMPLE_BUSINESS_LABEL;
+  /** The tooltip: the made-up figures, and for an example viewer that nothing is saved. */
+  tooltip: string;
+}
+
+/**
+ * The marker for the open business: only for a visitor exploring the example (an example-source membership) on a demo
+ * business (`isDemo === true`, which only the seed sets), with the line that the figures are made up and nothing is
+ * saved. The demo's own owner and invited members don't see it (founder, Nov 12, 2026). Never on any other business,
+ * whatever the membership says (an example-source row on a founder's business, or a business not loaded yet).
+ */
+export function sampleMarker(business: { isDemo?: boolean | null } | null | undefined, access: Pick<Access, "isExample">): SampleMarker | null {
+  if (business?.isDemo !== true || !access.isExample) return null;
+  return { label: SAMPLE_BUSINESS_LABEL, tooltip: EXAMPLE_CHIP_TOOLTIP };
+}
 
 /** The line a disabled control shows when the role only reads. */
 export function readOnlyReason(access: Pick<Access, "role" | "isExample">): string {
   if (access.isExample) return EXAMPLE_READ_ONLY_REASON;
-  return `As ${access.role === "advisor" ? "an advisor" : "a viewer"} you can follow the business; an owner, admin or member makes changes.`;
+  return `As ${access.role === "advisor" ? "an advisor" : "a viewer"} you can follow the business; the founders and the people who work on it make changes.`;
 }
 
 /** The line a control only owners and admins use shows to everyone else. */
-export const ADMIN_ONLY_REASON = "Only an owner or admin can do this.";
+export const ADMIN_ONLY_REASON = "Only an owner, a cofounder or an admin can do this.";

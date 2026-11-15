@@ -26,6 +26,10 @@ let acts: ReturnType<typeof createSessionActivities>;
 beforeAll(async () => {
   t = await setupOrchestratorHarness({ prefix: "appr" });
   clock = new FakeClock("2026-10-05T08:00:00.000Z");
+  // A GitHub call has somewhere to run: with no installation the note reads "connect GitHub first" instead of "OK?"
+  // (first-time founder report, Nov 8, 2026; covered by packages/db approvals-inbox.test.ts). The round trip here is the
+  // ordinary one, so the business carries the mock installation the local stack has.
+  await repos.integrations.upsert(t.db, t.businessId, { connectorKey: "github", status: "mock", accountLabel: "mock installation" });
   // Holds as recorded: the usage-index recording waits on `run_migration` until someone answers.
   const provider = new MockSandboxProvider({ speed: Infinity, autoplay: false, holds: "as_recorded", recordings: RECORDINGS });
   acts = createSessionActivities({ ...t.deps, clock, sandbox: async () => ({ provider, mode: "mock" as const, fellBackFrom: null }) });
@@ -69,7 +73,7 @@ describe("a gated call waits for the founder's answer in the Inbox", () => {
     expect(approval).toMatchObject({ taskId: task.id, connectorKey: "github", tool: "run_migration", outcome: null });
     expect(approval.inboxItemId).not.toBeNull();
     const item = await repos.inbox.get(t.db, t.businessId, approval.inboxItemId!);
-    expect(item).toMatchObject({ type: "decision", blocksContinue: true, fromAgentId: t.workerId, subject: "Test Engineer needs your OK: GitHub › run a change to the data layout" });
+    expect(item).toMatchObject({ type: "decision", blocksContinue: false, fromAgentId: t.workerId, subject: "Test Engineer needs your OK: GitHub › run a change to the data layout" });
     expect(item.bodyMd).toContain("“Customer usage report endpoint”");
     // The call's arguments are a developer detail (the reading pane's Details), never in the founder's note.
     expect(item.bodyMd).not.toContain("create index concurrently");

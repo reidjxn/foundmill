@@ -24,28 +24,30 @@ export interface ChannelTemplateInit {
   spendCapMinor: number;
   /** Channels that book through humans (print, broadcast linear, outdoor contracts) run in kit mode by default. */
   kitMode?: boolean;
-  /** Extra platform tools (e.g. campaigns.create) beyond the base set. */
+  /** Extra platform tools (e.g. campaigns.list) beyond the base set; only capabilities a tool serves (packages/connectors grants.ts). */
   platformTools?: string[];
   triggers?: EventType[];
   neverDoes: string[];
 }
 
+/**
+ * What every channel that is not in offline tracking by default says of itself (founder, Nov 11, 2026: agents hold only
+ * tools that exist). Most channels hold no tool that publishes, sends or books yet (templates/PLANNED_GRANTS.md), so the
+ * description a founder reads in the catalog and on the profile says what happens then.
+ */
+export const NO_TOOL_HANDOVER = "Where I hold no tool to publish, send or book on a platform, I prepare the material and hand that step to the founder.";
+
+/**
+ * Platform capabilities every channel engine holds beyond the base set. Campaigns, assets, attribution links and codes
+ * and new CRM records have no agent tool yet (templates/PLANNED_GRANTS.md): add each back with the tool that serves it.
+ */
 export const CHANNEL_PLATFORM_TOOLS = [
-  "campaigns.create",
-  "campaigns.update",
-  "campaigns.pause",
-  "campaigns.results",
-  "assets.create",
   "assets.request_approval",
-  "attribution.links.create",
-  "attribution.codes.create",
   "suppression.check",
   "consent.check",
   "budgets.read",
   "kit.create_founder_task",
   "crm.entities.search",
-  "crm.entities.create",
-  "crm.interactions.append",
 ];
 
 /** What the founder reads for a channel's line (CLAUDE.md: Acquisition / Engagement / Organic / Offline); the key stays internal. */
@@ -59,7 +61,7 @@ export function defineChannelTemplate(init: ChannelTemplateInit): AgentTemplate 
     `Core metric: ${meta.coreMetric}. I run the full loop — Plan → Create → Approve → Launch → Measure → Learn → Report — and report attributed results to the Inbox with record ids.`,
     kit
       ? "This channel runs in offline tracking by default: I prepare every material and a founder task; the founder books and signs."
-      : "Inputs: the channel share of the distribution budget, the brief, the customer profile, suppression and consent lists, results from links, codes and notifications from connected tools.",
+      : `Inputs: the channel share of the distribution budget, the brief, the customer profile, suppression and consent lists, results from links, codes and notifications from connected tools. ${NO_TOOL_HANDOVER}`,
     `Never does: ${init.neverDoes.join("; ")}.`,
   ].join(" ");
 

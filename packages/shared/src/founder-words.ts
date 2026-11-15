@@ -43,13 +43,19 @@ export const FOUNDER_WORDS: ReadonlyArray<readonly [technical: string, founder: 
   ["rebased", "brought up to date with the newest version"],
   ["rebasing", "bringing up to date with the newest version"],
   ["rebase", "bring up to date with the newest version"],
-  ["CI pipeline", "the automatic tests"],
-  ["CI checks", "the automatic tests"],
-  ["CI run", "the automatic tests"],
-  ["CI", "the automatic tests"],
-  ["checks", "the automatic tests"],
-  ["sandboxes", "test copies"],
-  ["sandbox", "a test copy"],
+  ["CI pipeline", "the quality checks"],
+  ["CI checks", "the quality checks"],
+  ["CI run", "the quality checks"],
+  ["CI", "the quality checks"],
+  // Tests are "quality checks" to the founder (Nov 7, 2026): one plain phrase, used by every approval and status line.
+  ["acceptance tests", "quality checks"],
+  ["automatic tests", "quality checks"],
+  ["test suite", "quality checks"],
+  ["test memory", "the checking setup"],
+  ["sandboxes", "practice copies"],
+  ["sandbox", "a practice copy"],
+  ["test copies", "practice copies"],
+  ["test copy", "a practice copy"],
   ["orchestrator", "the system that runs the team"],
   ["branches", "the agents' working copies"],
   ["branch", "the agent's working copy"],
@@ -59,8 +65,7 @@ export const FOUNDER_WORDS: ReadonlyArray<readonly [technical: string, founder: 
   ["into main", "into the live product"],
   ["to main", "to the live product"],
   ["on main", "in the live product"],
-  ["PRs", "finished changes"],
-  ["PR", "a finished change"],
+  ["repository", "the code"],
   ["repo", "the code"],
   ["refactor", "tidy up"],
   ["endpoint", "connection point"],
@@ -71,9 +76,25 @@ export const FOUNDER_WORDS: ReadonlyArray<readonly [technical: string, founder: 
   ["migration", "a change to the data layout"],
   ["lint", "the style check"],
   ["linter", "the style check"],
-  ["typecheck", "the automatic tests"],
-  ["unit tests", "the automatic tests"],
-  ["e2e", "the automatic tests"],
+  ["typecheck", "the quality checks"],
+  ["unit tests", "the quality checks"],
+  ["e2e", "the quality checks"],
+  // The words of the Nov 6, 2026 Inbox ("Audit current environment values on all services", "enforce founder-only
+  // handler for merges", "Real Railway deploy provider") that the map did not catch.
+  ["environment values", "settings"],
+  ["environment variables", "settings"],
+  ["env vars", "settings"],
+  ["connectors", "connections"],
+  ["connector", "connection"],
+  ["handler", "rule"],
+  ["deployments", "releases"],
+  ["deployment", "release"],
+  ["deploys", "releases"],
+  ["deploy", "release"],
+  ["pipeline", "process"],
+  ["infrastructure", "the servers"],
+  ["boot logs", "start-up records"],
+  ["latency", "speed"],
   ["flaky", "unreliable"],
   ["regression", "something that stopped working"],
   ["hotfix", "quick fix"],
@@ -85,6 +106,37 @@ const TECHNICAL_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = FOUNDER_WOR
   const escaped = technical.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
   return [new RegExp(`(?<![A-Za-z0-9_])${escaped}(?![A-Za-z0-9_])`, "gi"), founder] as const;
 });
+
+/**
+ * The engine's own numbers (Builder view, founder, Nov 8, 2026): a cycle or round number, a test tally, a token count,
+ * a pull request number and an ETA say how the platform runs the team, which a founder does not read. They are caught in
+ * prose and titles like the map's words, and `founderPhrase` rewrites them: "Cycle 3" is "a round of work", "105 tests
+ * passed" is "the quality checks passed", "12,400 tokens" is "some AI usage", "PR #41" is "a finished change".
+ */
+type EngineRewrite = string | ((match: string, ...groups: string[]) => string);
+const ENGINE_PATTERNS: ReadonlyArray<readonly [RegExp, EngineRewrite]> = [
+  [/(?<![A-Za-z0-9_])(?:cycle|round)\s+#?\d+(?![A-Za-z0-9_])/gi, "a round of work"],
+  [/(?<![A-Za-z0-9_])PRs?\s*#\d+(?![A-Za-z0-9_])/gi, "a finished change"],
+  [
+    /(?<![A-Za-z0-9_.,])\d[\d,]*\s+(?:of\s+\d[\d,]*\s+)?(?:acceptance\s+|automatic\s+|unit\s+)?tests?\s+(passed|passing|failing|failed)(?![A-Za-z0-9_])/gi,
+    (_m: string, verb: string) => {
+      const v = verb.toLowerCase();
+      return v === "passed" ? "the quality checks passed" : v === "passing" ? "the quality checks are passing" : v === "failing" ? "some quality checks are failing" : "some quality checks failed";
+    },
+  ],
+  [/(?<![A-Za-z0-9_.,])\d[\d,.]*\s*[KkMm]?\s+tokens(?![A-Za-z0-9_])/g, "some AI usage"],
+  [/(?<![A-Za-z0-9_])ETA(?![A-Za-z0-9_])/g, "expected finish"],
+];
+
+/** The engine patterns as one-shot matchers for the checks (no `g`, so `exec` never carries a lastIndex). */
+const ENGINE_MATCHERS: ReadonlyArray<RegExp> = ENGINE_PATTERNS.map(([re]) => new RegExp(re.source, re.flags.replace("g", "")));
+
+/** The engine's numbers in founder words, nothing else touched (the first step of `founderPhrase`). */
+export function withoutEngineNumbers(text: string): string {
+  let out = text;
+  for (const [re, founder] of ENGINE_PATTERNS) out = typeof founder === "string" ? out.replace(re, founder) : out.replace(re, founder);
+  return out;
+}
 
 /** Identifiers nobody reads: uuids, short hashes, branch paths, `#123`, code in backticks, file paths and dotted names. */
 const IDENTIFIER_PATTERNS: ReadonlyArray<RegExp> = [
@@ -124,7 +176,8 @@ export function founderWords(text: string): string {
  * which is honest and clumsy; the model route writes the good one, and this is what stands when it cannot.
  */
 export function founderPhrase(text: string): string {
-  let out = text;
+  // The engine's numbers first, so "PR #41" reads "a finished change" before "#41" is dropped as an identifier.
+  let out = withoutEngineNumbers(text);
   // Identifiers first, so a branch path never turns into "the agent's working copy/0863…": a task branch is the agent's
   // working copy, a page path ("/pricing") is that page, any other path or hash is dropped.
   out = out.replace(/\b(agent|feature|fix|chore|release|hotfix)\/[A-Za-z0-9_./-]+/g, "the agent's working copy");
@@ -161,8 +214,8 @@ export function founderTitleProblems(title: string): FounderTitleProblem[] {
   if (!trimmed) return [{ rule: "empty" }];
   const words = trimmed.split(/\s+/);
   if (words.length > FOUNDER_TITLE_MAX_WORDS) problems.push({ rule: "too_long", text: `${words.length} words` });
-  for (const [re] of TECHNICAL_PATTERNS) {
-    const m = new RegExp(re.source, re.flags.replace("g", "")).exec(trimmed);
+  for (const re of [...TECHNICAL_PATTERNS.map(([p]) => new RegExp(p.source, p.flags.replace("g", ""))), ...ENGINE_MATCHERS]) {
+    const m = re.exec(trimmed);
     if (m) problems.push({ rule: "technical_word", text: m[0] });
   }
   for (const term of [...PLAIN_LANGUAGE_TIERS.replace, ...TITLE_BANNED_TERM_IDS.map((id) => TERMS[id].word)]) {
@@ -197,13 +250,14 @@ export function isFounderTitle(title: string): boolean {
 
 /**
  * The engineering words in a piece of prose a founder reads (an Inbox note, a Decided panel line, a hand-back reason):
- * the map's technical side, the replace tier and the code-hosting define-tier words, by whole word. Length, case and
+ * the map's technical side, the engine's numbers (a cycle or round number, a test tally, tokens, "PR #41", an ETA), the
+ * replace tier and the code-hosting define-tier words, by whole word. Length, case and
  * identifiers are a title's rules, not prose's; this is the check the runtime founder-facing strings are tested with.
  */
 export function founderJargonHits(text: string): { term: string; index: number }[] {
   const hits: { term: string; index: number }[] = [];
   const seen = new Set<string>();
-  const patterns: RegExp[] = [...TECHNICAL_PATTERNS.map(([re]) => new RegExp(re.source, re.flags.replace("g", "")))];
+  const patterns: RegExp[] = [...TECHNICAL_PATTERNS.map(([re]) => new RegExp(re.source, re.flags.replace("g", ""))), ...ENGINE_MATCHERS];
   for (const term of [...PLAIN_LANGUAGE_TIERS.replace, ...TITLE_BANNED_TERM_IDS.map((id) => TERMS[id].word)]) {
     const caseSensitive = /[A-Z]/.test(term.slice(1));
     const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");

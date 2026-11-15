@@ -58,6 +58,15 @@ export interface FoundationsOutlineEntry {
 export interface FoundationsIdea {
   title: string;
   pitch: string;
+  /**
+   * The founder's own description of the business, verbatim: a card they wrote or edited in the studio ("Use my idea
+   * as written", Edit). Trusted, like the profile: the drafting builds the vision and the first sections from it and
+   * keeps its audience, problem and place names as written (first-time founder report, Nov 8, 2026). Null for a card
+   * the Ideation agent drafted that the founder never touched.
+   */
+  founderWords: string | null;
+  /** The brief the founder typed in the Ideation Studio when the card was drafted, verbatim; null for an empty brief or an imported card. */
+  brief: string | null;
   archetype: Archetype | null;
   starsCurrent: number;
   starsPotential: number;
@@ -184,6 +193,9 @@ export function foundationsTrustedBlock(inputs: FoundationsInputs): string {
           archetype: idea.archetype,
           stars: { current: idea.starsCurrent, potential: idea.starsPotential },
           attributes: idea.attributes.map((a) => ({ key: a.key, label: labelOf(a), value: a.value })),
+          // The founder's own words are theirs, so they travel with the trusted inputs (never inside an untrusted block).
+          founder_words: idea.founderWords,
+          brief: idea.brief,
         }
       : null,
     founder: founder
@@ -543,7 +555,7 @@ export const normKey = (s: string) =>
  * text.
  */
 export function knownNumbers(inputs: FoundationsInputs): Set<string> {
-  const idea = inputs.idea ? { title: inputs.idea.title, pitch: inputs.idea.pitch, attributes: inputs.idea.attributes } : null;
+  const idea = inputs.idea ? { title: inputs.idea.title, pitch: inputs.idea.pitch, founderWords: inputs.idea.founderWords, brief: inputs.idea.brief, attributes: inputs.idea.attributes } : null;
   return numbersIn(JSON.stringify({ idea, founder: inputs.founder, pinned: inputs.outline.filter((o) => o.pinned).map((o) => o.currentText) }));
 }
 

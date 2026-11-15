@@ -1,14 +1,13 @@
 /**
- * live.* behind the Network, Communities and Leaderboards screens. The router runs on the service connection, so the
+ * live.* behind the Network and Communities screens. The router runs on the service connection, so the
  * rules the row-level-security policies state (and a few they cannot) are applied here and pinned by these tests:
- * - boards serve only listed businesses (LIVE, committed, active), and a business leaves them when it goes Personal;
  * - a block belongs to whoever set it, and blocks stop messages and new requests;
  * - a Send reaches at most 20 people who exist, are connected to the sender and have not blocked them;
  * - only a writer with write access to the `live` section speaks as a LIVE, committed business;
  * - communities: visibility, members-only feeds, muted members, replies under real top-level posts, archived rooms;
  * - errors never echo SQL; a bad reference reads as "not found".
  */
-import { communities, communityMembers, leaderboardEntries, repos } from "@foundmill/db";
+import { communities, communityMembers, repos } from "@foundmill/db";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { liveLimiter } from "../services/live";
@@ -412,6 +411,7 @@ describe("public profiles: search and profile pages, \"On Foundmill\" (audit GLS
     const owner = as(hz.A.ownerId);
     // The confirmation is kept per person once given; this one starts from none on record.
     await hz.db.execute(sql`delete from network_attestations where user_id = ${hz.A.ownerId}::uuid`);
+    await hz.db.execute(sql`delete from adult_confirmations where user_id = ${hz.A.ownerId}::uuid`);
     await expect(owner.business.setGameMode({ businessId, gameMode: "live" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(owner.business.setGameMode({ businessId, gameMode: "live", confirmAdult: false })).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect((await repos.businesses.get(hz.db, businessId)).gameMode).toBe("personal");
@@ -423,44 +423,7 @@ describe("public profiles: search and profile pages, \"On Foundmill\" (audit GLS
   });
 });
 
-describe("leaderboards and profile visibility", () => {
-  it("H1: entries are served only for listed businesses; a business that goes Personal leaves every board (PoC 1)", async () => {
-    // A is a Personal business: its number takes no position and a stranger sees nothing of it.
-    await repos.businesses.setGameMode(hz.db, hz.A.businessId, "personal");
-    const board = await repos.social.upsertLeaderboard(hz.db, { boardKind: "growth", period: "2026-Q4", metric: "mrr_growth_pct", archetype: "b2b_saas" });
-    expect(await repos.social.setLeaderboardEntries(hz.db, board.id, [{ businessId: hz.A.businessId, metricValue: 42.5, form: "WWW" }])).toEqual([]);
-    const owner = as(hz.A.ownerId);
-    const stranger = as(hz.B.ownerId);
-    expect(await stranger.live.leaderboards.entries({ leaderboardId: board.id })).toEqual([]);
-    expect(await owner.live.leaderboards.positions({ businessId: hz.A.businessId })).toEqual([]);
-
-    // Listed: it ranks, with its card, and everyone sees it.
-    await goLive(hz.A.businessId);
-    await repos.social.setLeaderboardEntries(hz.db, board.id, [{ businessId: hz.A.businessId, metricValue: 12.5, form: "WWDLW" }]);
-    expect((await owner.live.leaderboards.get({ leaderboardId: board.id })).metric).toBe("mrr_growth_pct");
-    const entries = await stranger.live.leaderboards.entries({ leaderboardId: board.id });
-    expect(entries).toMatchObject([{ businessId: hz.A.businessId, position: 1, movement: 0, form: "WWDLW", businessName: "LIVE-A" }]);
-    expect(entries[0]!.business).toMatchObject({ businessId: hz.A.businessId, kitPrimary: expect.any(String), slug: expect.any(String) });
-    const positions = await owner.live.leaderboards.positions({ businessId: hz.A.businessId });
-    expect(positions.map((p) => [p.position, p.board.id])).toEqual([[1, board.id]]);
-    await expect(stranger.live.leaderboards.positions({ businessId: hz.A.businessId })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await expect(owner.live.leaderboards.get({ leaderboardId: "00000000-0000-0000-0000-0000000000aa" })).rejects.toMatchObject({ code: "NOT_FOUND" });
-
-    // LIVE → Personal through the API removes the rows (AC-11.14.2) and the board is empty for strangers at once.
-    await owner.business.setGameMode({ businessId: hz.A.businessId, gameMode: "personal", reason: "test" });
-    expect(await repos.social.leaderboardEntries(hz.db, board.id)).toEqual([]);
-    expect(await stranger.live.leaderboards.entries({ leaderboardId: board.id })).toEqual([]);
-    expect(await hz.db.select().from(leaderboardEntries).where(eq(leaderboardEntries.businessId, hz.A.businessId))).toEqual([]);
-
-    // Even if a row were left behind, a Personal business is not served (the read filters as the policy does).
-    await goLive(hz.A.businessId);
-    await repos.social.setLeaderboardEntries(hz.db, board.id, [{ businessId: hz.A.businessId, metricValue: 12.5 }]);
-    await repos.businesses.setGameMode(hz.db, hz.A.businessId, "personal");
-    expect(await stranger.live.leaderboards.entries({ leaderboardId: board.id })).toEqual([]);
-    expect(await owner.live.leaderboards.positions({ businessId: hz.A.businessId })).toEqual([]);
-    await goLive(hz.A.businessId);
-  });
-
+describe("profile visibility", () => {
   it("reads and sets the founder's profile visibility", async () => {
     const owner = as(hz.A.ownerId);
     await repos.founders.upsert(hz.db, hz.A.ownerId, { displayName: "Olive Owner" });

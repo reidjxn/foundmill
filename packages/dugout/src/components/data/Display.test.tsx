@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render as rtlRender, screen, within } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { BuilderViewProvider } from "../guidance/BuilderView";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { GuidanceProvider } from "../guidance/GuidanceProvider";
@@ -18,6 +20,9 @@ import {
   SPEC_PROPOSED,
 } from "./fixtures";
 import type { HunkDecisions } from "./diff";
+
+/** Builder view on for every render here (the engine these tests read); BuilderView.test.tsx covers it off. */
+const render = (ui: ReactElement, opts?: Parameters<typeof rtlRender>[1]) => rtlRender(ui, { wrapper: ({ children }) => <BuilderViewProvider on>{children}</BuilderViewProvider>, ...opts });
 
 describe("RatingBar", () => {
   it("draws 20 cells, fills the value in the ramp tone and names the band", () => {
@@ -245,6 +250,24 @@ describe("MetricTile and StatusStrip", () => {
     const tiles = Array.from({ length: 8 }, (_, i) => ({ label: `Tile ${i}`, value: i }));
     render(<StatusStrip tiles={tiles} />);
     expect(screen.getAllByRole("listitem")).toHaveLength(6);
+  });
+  it("StatusStrip keeps its single row, and wraps two to a row below `page-wide` only when asked (phone mode)", () => {
+    const tiles = Array.from({ length: 3 }, (_, i) => ({ label: `Tile ${i}`, value: i }));
+    const { container, rerender } = render(<StatusStrip tiles={tiles} />);
+    const strip = () => container.querySelector("[data-status-strip]") as HTMLElement;
+    expect(strip().style.gridTemplateColumns).toBe("repeat(3, minmax(0, 1fr))");
+    expect(strip().className).not.toContain("grid-cols-2");
+    expect(strip().hasAttribute("data-wrap")).toBe(false);
+    rerender(<StatusStrip tiles={tiles} wrap />);
+    expect(strip().className).toContain("grid-cols-2");
+    expect(strip().className).toContain("@page-wide:");
+    expect(strip().style.getPropertyValue("--strip-columns")).toBe("repeat(3, minmax(0, 1fr))");
+    expect(strip().hasAttribute("data-wrap")).toBe(true);
+    // The odd last tile takes the whole row; the third starts a new row under a hairline.
+    const items = screen.getAllByRole("listitem");
+    expect(items[2]!.className).toContain("@max-page-wide:col-span-2");
+    expect(items[2]!.className).toContain("@max-page-wide:border-t");
+    expect(items[1]!.className).not.toContain("col-span-2");
   });
   it("a clickable tile is a list item holding one button beside its provenance button, never around it", () => {
     const opened: string[] = [];

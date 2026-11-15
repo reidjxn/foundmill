@@ -20,7 +20,7 @@ import { Coins, CreditCard, X } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { APP_NAME, CREDITS_CURRENCY, includedCreditsMinor, PRICE_TBA_LABEL, tierIncludedCreditPlaces, TIERS, type TierKey } from "@foundmill/config";
-import { Button, Chip, IconButton, KeyValueList, MiniTable, ProvenanceChip, SimpleSelect, StatusPill, Term, formatCompact, useDateFormat, type DateFormatPrefs, type StatusTone } from "@foundmill/dugout";
+import { Button, Chip, IconButton, KeyValueList, MiniTable, ProvenanceChip, SimpleSelect, StatusPill, Term, formatCompact, useBuilderView, useDateFormat, type DateFormatPrefs, type StatusTone } from "@foundmill/dugout";
 import { PLAN_TIERS } from "@foundmill/shared/constants";
 import { formatMoney, formatMonthYear, formatNumber, plainWords, plural } from "@/lib/format";
 import { errorMessage, type RouterOutputs } from "@/lib/trpc";
@@ -68,12 +68,12 @@ export function includedCreditsFact(tier: TierKey): string {
   return (typeof TIERS[tier].includedCreditsMinor === "number" ? `${amount} of model credits a month` : `Monthly credits to be announced (at least ${amount})`) + forWhom;
 }
 
-/** What a tier includes, in plain words with correct plurals ("1 business", "3 seats", "Unlimited businesses"). */
+/** What a tier includes, in plain words with correct plurals ("1 business", "Unlimited businesses"). People are free on every plan. */
 export function tierFacts(tier: TierKey): string[] {
   const spec = TIERS[tier];
   const businesses = typeof spec.businesses === "number" ? plural(spec.businesses, "business", "businesses") : "Unlimited businesses";
   const billing: string = spec.modelBilling;
-  return [businesses, `${plural(spec.maxConcurrentAgents, "agent")} at once`, plural(spec.seats, "seat"), includedCreditsFact(tier), billing === "byok_required" ? "Your Anthropic key" : "Then credits or your key"];
+  return [businesses, `${plural(spec.maxConcurrentAgents, "agent")} at once`, typeof spec.seats === "number" ? plural(spec.seats, "person", "people") : "As many people as you like", includedCreditsFact(tier), billing === "byok_required" ? "Your Anthropic key" : "Then credits or your key"];
 }
 
 type CheckoutView = RouterOutputs["billing"]["checkout"]["status"]["checkout"];
@@ -159,6 +159,7 @@ function CheckoutPanel({ checkoutId, canceled, onDone }: { checkoutId: string; c
 
 export function BillingTab() {
   const datePrefs = useDateFormat();
+  const builder = useBuilderView();
   const { businessId, isOwner } = useBusiness();
   const trpc = useTRPC();
   const invalidate = useInvalidateRouters();
@@ -276,9 +277,9 @@ export function BillingTab() {
         {p?.topUp.available === false ? (
           <Hint>{p.topUp.reason}</Hint>
         ) : p?.topUp.mode === "mock" ? (
-          <Hint>Credits are in US dollars and pay for model calls on {APP_NAME}&apos;s key. Your plan includes {p ? money(p.includedCreditsMinor) : "some"} a month; when they run out the team pauses until you top up or add your own Anthropic key in Settings › Keys. This server simulates payments: Top up opens a mock checkout here, no money moves, and the credits are labeled as a mock top-up.</Hint>
+          <Hint>Credits are in US dollars and pay for model calls on {APP_NAME}&apos;s key. Your plan includes {p ? money(p.includedCreditsMinor) : "some"} a month, used first; credits you buy last 12 months. When they run out the team pauses until you top up or add your own Anthropic key in Settings › Keys. This server simulates payments: Top up opens a mock checkout here, no money moves, and the credits are labeled as a mock top-up.</Hint>
         ) : (
-          <Hint>Credits are in US dollars, the currency model prices are listed in, and pay for model calls on {APP_NAME}&apos;s key. Your plan includes {p ? money(p.includedCreditsMinor) : "some"} a month; when they run out the team pauses until you top up or add your own Anthropic key in Settings › Keys. You pay on Stripe&apos;s secure page; the credits arrive once Stripe confirms the payment.</Hint>
+          <Hint>Credits are in US dollars, the currency model prices are listed in, and pay for model calls on {APP_NAME}&apos;s key. Your plan includes {p ? money(p.includedCreditsMinor) : "some"} a month, used first; credits you buy last 12 months. When they run out the team pauses until you top up or add your own Anthropic key in Settings › Keys. You pay on Stripe&apos;s secure page; the credits arrive once Stripe confirms the payment.</Hint>
         )}
       </SettingsSection>
 
@@ -291,7 +292,8 @@ export function BillingTab() {
               caption={`By agent · ${periodLabel(usage.data.period, datePrefs)} · Estimate`}
               columns={[
                 { id: "agent", header: "Agent", cell: (r) => <span title={r.name ?? "Platform"}>{r.name ?? "Platform"}</span> },
-                { id: "tokens", header: <Term id="tokens">Tokens</Term>, numeric: true, cell: (r) => formatCompact(r.tokens) },
+                // AI usage in tokens is Builder view's (docs/DESIGN.md); the cost Estimate always shows.
+                ...(builder ? [{ id: "tokens", header: <Term id="tokens">Tokens</Term>, numeric: true, cell: (r: (typeof usage.data.byAgent)[number]) => formatCompact(r.tokens) }] : []),
                 { id: "calls", header: "Tool calls", numeric: true, cell: (r) => formatNumber(r.toolCalls) },
                 { id: "cost", header: "Cost", numeric: true, cell: (r) => formatMoney({ amountMinor: r.costMinor, currency }) },
               ]}

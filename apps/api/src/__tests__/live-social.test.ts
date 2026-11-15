@@ -7,7 +7,7 @@
  *   and mute;
  * - posts pass a moderation screen (held ones wait for a moderator), members report, authors edit and delete,
  *   moderators hide, restore and remove; communities are created here and private ones are joined by invitation;
- * - "Ask to connect" reaches a leaderboard business's owner.
+ * - "Ask to connect" with a listed business reaches its owner.
  */
 import { events, inboxItems, messageThreads, messages, outbox, repos } from "@foundmill/db";
 import { businessStreamKey, MemoryRedis, userStreamKey } from "@foundmill/events";
@@ -473,10 +473,11 @@ describe("#28: the network is for adults", () => {
     expect(await owner.business.setGameMode({ businessId: ada.businessId, gameMode: "live" })).toMatchObject({ gameMode: "live" });
   });
 
-  it("taking charge of a LIVE business asks too; a Personal one never does", async () => {
+  it("taking charge of a LIVE business asks a person here before sign-up asked; the sign-up confirmation answers it", async () => {
     const userId = await hz.h.createUser("adult-commit@live-social.test");
     const caller = as(userId);
-    await caller.founder.profile.update({ displayName: "Noor", experience: "first-time", skills: { sales: 10 }, targetMarkets: ["EU"], riskAppetite: "medium" });
+    // A profile from before 0100: no confirmation on record.
+    await repos.founders.upsert(hz.db, userId, { displayName: "Noor", experience: "first-time", skills: { sales: 10 }, targetMarkets: ["EU"], riskAppetite: "medium" });
     const [first] = (await caller.idea.generate({ prompt: "invoicing for freelance designers" })).ideas;
     // Without the confirmation nothing is created: no business, and the idea stays uncommitted.
     const refused = await failure(caller.idea.commit({ ideaId: first!.id, name: "Noor Live", archetype: "b2b_saas", gameMode: "live" }));
@@ -484,13 +485,14 @@ describe("#28: the network is for adults", () => {
     expect((await caller.idea.get({ ideaId: first!.id })).idea.committedAt).toBeNull();
     expect(await repos.memberships.listForUser(hz.db, userId)).toEqual([]);
     expect(await repos.social.adultConfirmedAt(hz.db, userId)).toBeNull();
-    // A Personal business needs no confirmation (another person: the free plan holds one business each).
+    // A person who confirmed at sign-up is never asked again, for a Personal or a LIVE business (another person: the
+    // free plan holds one business each).
     const otherId = await hz.h.createUser("adult-commit-personal@live-social.test");
     const other = as(otherId);
-    await other.founder.profile.update({ displayName: "Mika", experience: "first-time", skills: { sales: 10 }, targetMarkets: ["EU"], riskAppetite: "medium" });
+    await other.founder.profile.update({ confirmAdult: true, displayName: "Mika", experience: "first-time", skills: { sales: 10 }, targetMarkets: ["EU"], riskAppetite: "medium" });
     const [second] = (await other.idea.generate({ prompt: "invoicing for freelance designers" })).ideas;
-    expect((await other.idea.commit({ ideaId: second!.id, name: "Mika Personal", archetype: "b2b_saas", gameMode: "personal" })).business.gameMode).toBe("personal");
-    expect(await repos.social.adultConfirmedAt(hz.db, otherId)).toBeNull();
+    expect((await other.idea.commit({ ideaId: second!.id, name: "Mika Live", archetype: "b2b_saas", gameMode: "live" })).business.gameMode).toBe("live");
+    expect(await repos.social.adultConfirmedAt(hz.db, otherId)).not.toBeNull();
     // A LIVE one goes through with the confirmation, and records it.
     const live = await caller.idea.commit({ ideaId: first!.id, name: "Noor Live", archetype: "b2b_saas", gameMode: "live", confirmAdult: true });
     expect(live.business.gameMode).toBe("live");
@@ -498,22 +500,17 @@ describe("#28: the network is for adults", () => {
   });
 });
 
-describe("#66: asking to connect from a leaderboard row reaches the business's owner", () => {
+describe("#66: asking a listed business to connect reaches its owner", () => {
   it("resolves a listed business to its owner, refuses one's own business and an unlisted one", async () => {
     const me = await founder("lb-me");
     const them = await founder("lb-them");
     const hidden = await founder("lb-hidden", false);
-    const c = await as(me.userId).live.connections.request({ businessId: me.businessId, toBusinessId: them.businessId, message: "Congrats on the board" });
+    const c = await as(me.userId).live.connections.request({ businessId: me.businessId, toBusinessId: them.businessId, message: "Congrats on the launch" });
     expect(c).toMatchObject({ fromUser: me.userId, toUser: them.userId, status: "requested" });
     expect(await signals(them.userId)).toEqual([expect.objectContaining({ kind: "connection_requested" })]);
     expect(await eventsOf(them.businessId, "connection.requested")).toEqual([]);
     expect((await failure(as(me.userId).live.connections.request({ businessId: me.businessId, toBusinessId: me.businessId }))).code).toBe("BAD_REQUEST");
     expect((await failure(as(me.userId).live.connections.request({ businessId: me.businessId, toBusinessId: hidden.businessId }))).code).toBe("NOT_FOUND");
     expect((await failure(as(me.userId).live.connections.request({ businessId: me.businessId }))).code).toBe("BAD_REQUEST");
-
-    const board = await repos.social.upsertLeaderboard(hz.db, { boardKind: "growth", period: "2026-Q4", metric: "mrr_growth_pct", region: "eu" });
-    await repos.social.setLeaderboardEntries(hz.db, board.id, [{ businessId: me.businessId, metricValue: 3 }, { businessId: them.businessId, metricValue: 5 }]);
-    const entries = await as(me.userId).live.leaderboards.entries({ leaderboardId: board.id });
-    expect(entries.map((e) => [e.businessId, e.own])).toEqual([[them.businessId, false], [me.businessId, true]]);
   });
 });

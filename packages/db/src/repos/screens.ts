@@ -1,5 +1,7 @@
 /** screen_definitions — department tabs and their widget layouts (routers screen.get/update; ARCHITECTURE §18). */
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { INPUT_LIMITS } from "@foundmill/config";
+import { boundedRecord } from "@foundmill/shared";
 import { z } from "zod";
 import { screenDefinitions, type ScreenDefinition } from "../schema";
 import { Id, maybeOne, one, parseInput, type Executor } from "./_shared";
@@ -11,9 +13,9 @@ export const WidgetPlacement = z.object({
   y: z.number().int().min(0),
   w: z.number().int().min(1),
   h: z.number().int().min(1),
-  settings: z.record(z.string(), z.unknown()).default({}),
+  settings: boundedRecord(INPUT_LIMITS.widgetSettings, z.record(z.string(), z.unknown())).default({}),
 });
-export const ScreenLayout = z.object({ widgets: z.array(WidgetPlacement) });
+export const ScreenLayout = z.object({ widgets: z.array(WidgetPlacement).max(INPUT_LIMITS.screenWidgets) });
 export type ScreenLayout = z.infer<typeof ScreenLayout>;
 
 export const UpsertScreenInput = z.object({

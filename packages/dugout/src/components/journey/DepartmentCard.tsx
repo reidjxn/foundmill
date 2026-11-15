@@ -1,7 +1,7 @@
 "use client";
 import type { ReactNode } from "react";
 import { ArrowRight, CircleCheck, CircleX, Clock, Inbox, MessageSquareReply, Moon, RefreshCw, TriangleAlert } from "lucide-react";
-import type { EntityKind } from "@foundmill/shared";
+import { isBackgroundAgent, type EntityKind } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { useAgentPersona } from "../foundation/AgentPersona";
 import { Avatar } from "../foundation/Avatar";
@@ -86,11 +86,15 @@ export function teamStripWords(squad: readonly { status: SquadMember["status"]; 
 export function DepartmentCard({ department: d, onOpen, onOpenAgent, onOpenEntity, onOpenQuiet, entityKinds, maxSquad = 8, metricId, metricPlain, className }: DepartmentCardProps) {
   const health = HEALTH[d.health];
   const persona = useAgentPersona();
-  const leadMember = d.squad.find((m) => m.name === d.lead.name);
-  const lead = { name: d.lead.name, role: d.lead.role ?? leadMember?.role, personaKey: d.lead.personaKey ?? leadMember?.personaKey };
-  const squad = d.squad.slice(0, maxSquad);
-  const extra = d.squad.length - squad.length;
-  const stripWords = teamStripWords(d.squad);
+  // The lead is found in the team strip by its id (two agents can share a stored name); by name only when the data has no id.
+  // Background helpers (the utility templates) never join the team strip or its count (Leads first, 2026-11-08).
+  const members = d.squad.filter((m) => !isBackgroundAgent(m));
+  const leadMember = d.lead.id ? members.find((m) => m.id === d.lead.id) : members.find((m) => m.name === d.lead.name);
+  const lead = { name: d.lead.name, role: d.lead.role ?? leadMember?.role, personaKey: d.lead.personaKey ?? leadMember?.personaKey, layer: d.lead.layer ?? leadMember?.layer };
+  const leadId = d.lead.id ?? leadMember?.id ?? d.lead.name;
+  const squad = members.slice(0, maxSquad);
+  const extra = members.length - squad.length;
+  const stripWords = teamStripWords(members);
   // The leading count stands out ("3 of 4 working", "4 agents, all healthy"); the rest of the words stay secondary.
   const stripParts = /^(\d+)(.*)$/.exec(stripWords);
   const quiet = d.now.length === 0 && !d.nowLoading;
@@ -104,8 +108,8 @@ export function DepartmentCard({ department: d, onOpen, onOpenAgent, onOpenEntit
           <FitText minPx={11}>{d.name}</FitText>
         </h3>
         <Tooltip content={`${persona.labelFor(lead)} · lead`}>
-          <button type="button" className="ml-1 inline-flex min-w-0 shrink-2 items-center gap-1.5 rounded-pill pr-1 text-small text-secondary outline-none transition-colors duration-hover hover:text-primary focus-visible:shadow-ring" onClick={() => onOpenAgent?.(d.squad.find((m) => m.name === d.lead.name)?.id ?? d.lead.name)} aria-label={`${persona.labelFor(lead)}, department lead`}>
-            <Avatar size={22} name={persona.nameFor(lead)} agent={{ seed: d.lead.seed, dept: d.dept, personaKey: lead.personaKey }} status={d.lead.status} />
+          <button type="button" className="ml-1 inline-flex min-w-0 shrink-2 items-center gap-1.5 rounded-pill pr-1 text-small text-secondary outline-none transition-colors duration-hover hover:text-primary focus-visible:shadow-ring" onClick={() => onOpenAgent?.(leadId)} aria-label={`${persona.labelFor(lead)}, department lead`}>
+            <Avatar size={22} name={persona.nameFor(lead)} agent={{ seed: d.lead.seed, dept: d.dept, personaKey: lead.personaKey, layer: lead.layer }} status={d.lead.status} />
             {/* The lead's name only where the header has room for it beside the department's own name. */}
             <span className="hidden min-w-0 truncate @md:inline" aria-hidden>
               {persona.nameFor(lead)}
@@ -138,7 +142,7 @@ export function DepartmentCard({ department: d, onOpen, onOpenAgent, onOpenEntit
                     }
                   >
                     <button type="button" className="inline-flex rounded-full outline-none transition-transform duration-hover ease-out hover:-translate-y-0.5 focus-visible:shadow-ring" onClick={() => onOpenAgent?.(m.id)} aria-label={`${persona.nameFor(m)}, ${m.role}, ${word}${m.task ? `: ${m.task}` : ""}`} data-squad-member={m.id}>
-                      <Avatar size={26} name={persona.nameFor(m)} agent={{ seed: m.seed, dept: d.dept, personaKey: m.personaKey }} status={m.status} stacked surface="surface-1" />
+                      <Avatar size={26} name={persona.nameFor(m)} agent={{ seed: m.seed, dept: d.dept, personaKey: m.personaKey, layer: m.layer }} status={m.status} stacked surface="surface-1" />
                     </button>
                   </Tooltip>
                 </li>

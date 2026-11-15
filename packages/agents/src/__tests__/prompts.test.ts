@@ -93,6 +93,10 @@ describe("prompt templates (BUILD §12)", () => {
     expect(composer).toContain("never count attempts or tries");
     expect(composer).not.toContain("Under 180 words");
     expect(composer).toContain("mark exactly one recommended");
+    // Nov 8, 2026 (v6, One name everywhere): agents only by their manifest name, never a first name the model picked.
+    expect(getPrompt("inbox_composer").version).toBe(6);
+    expect(composer).toContain("Name an agent only as [[ent:<id>|Name]] markup with its id and its exact name from the manifest");
+    expect(composer).toContain("The subject is plain text: there, use the agent's exact manifest name.");
   });
 
   it("the Inbox Composer learns who the founder is and carries the voice rules (UX plan §7.19, E2, E3)", () => {

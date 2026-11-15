@@ -29,8 +29,8 @@ const STATEMENT = `AI agents can now write the code, run the channels and keep t
 
 export function Thesis() {
   return (
-    <section id="why" aria-labelledby="why-title" className="relative scroll-mt-16 pb-12 pt-28">
-      <Container className="flex flex-col gap-20">
+    <section id="why" aria-labelledby="why-title" className="relative scroll-mt-16 pb-16 pt-40">
+      <Container className="flex flex-col gap-28">
         <div className="flex max-w-5xl flex-col gap-8">
           <Reveal>
             <Eyebrow>Why now</Eyebrow>
@@ -45,7 +45,7 @@ export function Thesis() {
         <Reveal>
         <ol className="grid grid-cols-4 gap-px overflow-hidden rounded-panel border border-subtle bg-subtle">
           {PILLARS.map((p, i) => (
-            <li key={p.title} className="group relative flex flex-col gap-4 bg-base p-6">
+            <li key={p.title} className="group relative flex flex-col gap-5 bg-base p-8">
               <span aria-hidden className="absolute inset-x-0 top-0 h-px opacity-0 transition-opacity duration-panel group-hover:opacity-100" style={{ background: `linear-gradient(90deg, transparent, ${p.tone}, transparent)` }} />
               <span className="flex items-center justify-between">
                 <span className="grid size-10 place-items-center rounded-panel border" style={{ borderColor: `color-mix(in oklab, ${p.tone} 45%, transparent)`, backgroundColor: `color-mix(in oklab, ${p.tone} 12%, var(--bg-ink))`, color: `color-mix(in oklab, ${p.tone} 80%, var(--white))` }}>

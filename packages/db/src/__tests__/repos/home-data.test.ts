@@ -227,19 +227,6 @@ describe("demo businesses stay off the network for everyone outside them", () =>
     expect(await isPublic(real)).toBe(true);
   });
 
-  it("a leaderboard shows a demo's entry to its own members only, and real businesses rank ahead of it", async () => {
-    const board = await repos.social.upsertLeaderboard(r.db, { boardKind: "demo_kind", period: "2026-Q4", metric: "customers_won", archetype: "b2b_saas" });
-    const ranked = await repos.social.setLeaderboardEntries(r.db, board.id, [
-      { businessId: demo, metricValue: 500 },
-      { businessId: real, metricValue: 3 },
-    ]);
-    expect(ranked.map((e) => [e.businessId, e.position])).toEqual([[real, 1], [demo, 2]]);
-    const seenBy = async (viewerId: string) => (await repos.social.leaderboardEntries(r.db, board.id, 100, { viewerId })).map((e) => e.businessId);
-    expect(await seenBy(outsider)).toEqual([real]);
-    expect(await seenBy(r.B.ownerId)).toEqual([real]);
-    expect(await seenBy(r.A.ownerId)).toEqual([real, demo]);
-  });
-
   it("a demo's public community is listed for its own members and its community's members only", async () => {
     const community = await repos.social.createCommunity(r.db, { name: "Demo room", slug: "demo-room", ownerBusinessId: demo, createdBy: r.A.memberId });
     const listed = async (viewerId: string) => (await repos.social.listCommunities(r.db, { viewerId })).map((c) => c.id);

@@ -20,7 +20,17 @@ describe("security headers (audit SECX-7, PAS-3)", () => {
     expect(headers["X-Content-Type-Options"]).toBe("nosniff");
     expect(headers["Referrer-Policy"]).toBe("strict-origin-when-cross-origin");
     expect(headers["Permissions-Policy"]).toContain("camera=()");
+    // Team call: the microphone for the app's own pages (the browser still asks), never for a frame of another site.
+    expect(headers["Permissions-Policy"]).toContain("microphone=(self)");
+    expect(headers["Permissions-Policy"]).not.toContain("microphone=()");
     expect(headers["Strict-Transport-Security"]).toMatch(/^max-age=\d+/);
+  });
+
+  it("lets Team call play its spoken turns (data: and blob: audio) and nothing from other hosts", () => {
+    const media = directive(contentSecurityPolicy(PROD), "media-src");
+    expect(media.slice(0, 3)).toEqual(["'self'", "data:", "blob:"]);
+    // The streamed turns come from the API's own origin, and from nowhere else.
+    expect(media.slice(3)).toEqual([new URL(PROD.NEXT_PUBLIC_API_URL!).origin]);
   });
 
   it("forbids framing, plugins and a changed base, and keeps forms on the site", () => {
@@ -39,17 +49,18 @@ describe("security headers (audit SECX-7, PAS-3)", () => {
     expect(directive(contentSecurityPolicy({ ...PROD, NEXT_PUBLIC_API_URL: "" }), "img-src")).toEqual(["'self'", "data:", "blob:", "https:"]);
   });
 
-  it("allows scripts from the app only, and eval only on the dev server", () => {
-    expect(directive(contentSecurityPolicy(PROD), "script-src")).toEqual(["'self'", "'unsafe-inline'"]);
+  it("allows scripts from the app and Cloudflare Turnstile only (the idea box's bot check), and eval only on the dev server", () => {
+    expect(directive(contentSecurityPolicy(PROD), "script-src")).toEqual(["'self'", "'unsafe-inline'", "https://challenges.cloudflare.com"]);
     expect(directive(contentSecurityPolicy(PROD, { dev: true }), "script-src")).toContain("'unsafe-eval'");
-    expect(contentSecurityPolicy(PROD)).not.toMatch(/script-src[^;]*https?:/);
+    expect(contentSecurityPolicy(PROD)).not.toMatch(/script-src[^;]*https?:(?!\/\/challenges\.cloudflare\.com)/);
   });
 
-  it("connects to the app's own services over both schemes, and nowhere else", () => {
+  it("connects to the app's own services over both schemes and to Turnstile, and nowhere else", () => {
     const connect = directive(contentSecurityPolicy(PROD), "connect-src");
     expect(connect.sort()).toEqual(
       [
         "'self'",
+        "https://challenges.cloudflare.com",
         "https://api.foundmill.com", "wss://api.foundmill.com",
         "wss://stream.foundmill.com", "https://stream.foundmill.com",
         "wss://collab.foundmill.com", "https://collab.foundmill.com",

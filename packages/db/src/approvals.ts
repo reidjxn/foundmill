@@ -7,7 +7,8 @@
  *
  * Callers write `inbox.item_created` through the outbox themselves (the event schemas live in @foundmill/events).
  */
-import { formatMoney, founderWords, type Section } from "@foundmill/shared";
+import { agentMention, formatMoney, founderWords, type Section } from "@foundmill/shared";
+import { approvalWhatExactly, channelWords, type ApprovalWhat } from "./approval-content";
 import { repos } from "./repos";
 import type { Executor } from "./repos/_shared";
 import type { Approval, InboxItem } from "./schema";
@@ -140,9 +141,36 @@ export interface ApprovalItemDetails {
   sourceEventIds?: readonly string[];
   /** A release: what the platform's own tests found on the change (null: nothing to test), read from the task when omitted. */
   tests?: { passing: number; total: number } | null;
+  /**
+   * A GitHub call: whether a repository is connected to the business (first-time founder report, Nov 8, 2026: never ask
+   * for a GitHub action with nothing to run it on; ask to connect first). Read from the integrations when omitted.
+   */
+  githubConnected?: boolean | null;
+  /** What exactly the call would run, when the caller already built it (`approvalWhatExactly` from the arguments otherwise). */
+  what?: ApprovalWhat;
 }
 
+/** The connectors a call needs connected before it can run anywhere; the others run on the platform or need no account. */
+const NEEDS_CONNECTION = new Set(["github"]);
+
+/** A connected integration row: present, not archived, and not disconnected (a mock installation counts: it runs somewhere). */
+export const integrationConnected = (row: { archivedAt: Date | null; status: string } | null): boolean => row !== null && row.archivedAt === null && row.status !== "disconnected";
+
+/** Calls batched into one decision when several open at once (one answer covers all; each keeps its own row). */
+export const BATCHED_TOOLS: Readonly<Record<string, { connectorKey: string }>> = { launch_campaign: { connectorKey: PLATFORM_CONNECTOR } };
+export const isBatchedApproval = (approval: Pick<Approval, "connectorKey" | "tool">): boolean => approval.tool !== null && BATCHED_TOOLS[approval.tool]?.connectorKey === approval.connectorKey;
+
 const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 3)}...` : text);
+
+/** One of an approval note's two options (the decision's own shape, typed here so the variants share it). */
+interface ApprovalOption {
+  id: ApprovalOptionId;
+  label: string;
+  recommended: boolean;
+  consequence: string;
+  cost_minor: number;
+  reversible: boolean;
+}
 
 /** Longest text of a call's arguments that travels with the note and the reading pane. */
 const ARGS_TEXT_MAX = 1_000;
@@ -182,11 +210,47 @@ export function approvalItem(approval: Pick<Approval, "connectorKey" | "tool" | 
   const action = approvalAction(approval, details.connectorName, details.businessName);
   const amount = approvalAmount(approval);
   const task = details.taskTitle?.trim() || null;
+  // The subject and the option lines are plain text with the stored name (the web names the agent under each reader's
+  // preference with `withAgentNames`); the body names it as markup, which EntityLink renders the same way. Stored text
+  // never carries a display choice (docs/DECISIONS.md, One name everywhere).
   const who = details.agentName.trim() || "The team";
+  const whoMd = agentMention({ id: details.agentId, name: details.agentName }) || who;
+  const what = details.what ?? approvalWhatExactly(approval);
+  const base = { type: "decision" as const, from_agent_id: details.agentId, status_strip: [], exhibit: { kind: "none" as const, spec_ref: null }, source_event_ids: [...(details.sourceEventIds ?? [])], entity_ids: [] };
+  const decide = (options: ApprovalOption[]) => ({ options, free_text: false as const, expires_at: null });
+  // No GitHub connected (first-time founder report, Nov 8, 2026): there is nowhere for the call to run, so the question is
+  // not "OK?" but "connect GitHub first"; Approve stays possible and says the call waits for the connection.
+  if (approval.connectorKey && NEEDS_CONNECTION.has(approval.connectorKey) && details.githubConnected === false) {
+    const service = connectorLabel(approval.connectorKey);
+    const business = details.businessName?.trim() || "the business";
+    return {
+      ...base,
+      subject: clip(`${who} needs ${service} connected: ${toolWords(approval.tool)}`, 80),
+      body_md: `${whoMd} wants to ${toolWords(approval.tool)} on ${service}${task ? ` for “${task}”` : ""}, but no ${service} repository is connected to ${business} yet, so it has nowhere to run. Connect one first.`,
+      decision: decide([
+        { id: APPROVAL_OPTIONS.reject, label: `Connect ${service} first`, recommended: true, consequence: `Nothing runs. Connect ${service} in Settings › Integrations; ${who} asks again when it next works on the task.`, cost_minor: 0, reversible: true },
+        { id: APPROVAL_OPTIONS.approve, label: "Approve anyway", recommended: false, consequence: `Nothing can run until ${service} is connected; the approval waits for that.`, cost_minor: 0, reversible: false },
+      ]),
+      blocks_continue: true,
+    };
+  }
+  // Nothing says what would run: the founder cannot decide it, so the note asks them to send it back for the details.
+  if (what.empty && !isReleaseApproval(approval)) {
+    return {
+      ...base,
+      subject: clip(`${who} asks without saying what: ${action}`, 80),
+      body_md: `${whoMd} wants to ${toolWords(approval.tool)}${approval.connectorKey && approval.connectorKey !== PLATFORM_CONNECTOR ? ` on ${connectorLabel(approval.connectorKey)}` : ""}${task ? ` for “${task}”` : ""}${amount ? `, spending **${amount}**` : ""}, but did not say exactly what it would run. Ask for the details before deciding.`,
+      decision: decide([
+        { id: APPROVAL_OPTIONS.reject, label: "Ask for the details", recommended: true, consequence: `Nothing runs; ${who} is told to describe exactly what it would run and ask again.`, cost_minor: 0, reversible: true },
+        { id: APPROVAL_OPTIONS.approve, label: "Approve anyway", recommended: false, consequence: `${who} runs ${action} once${amount ? ` (${amount})` : ""}, unseen, and carries on.`, cost_minor: 0, reversible: false },
+      ]),
+      blocks_continue: true,
+    };
+  }
   if (isReleaseApproval(approval)) {
     const tests = details.tests === undefined ? null : details.tests;
-    const tested = tests && tests.total > 0 ? (tests.passing === tests.total ? `All ${tests.total} test${tests.total === 1 ? "" : "s"} passed.` : `${tests.passing} of ${tests.total} tests passed.`) : tests === null && details.tests !== undefined ? "There was nothing in it to test." : "";
-    const body = `${who} finished${task ? ` “${task}”` : " a change"}. ${tested} OK to put it live?`.replace(/\s+/g, " ");
+    const tested = tests && tests.total > 0 ? (tests.passing === tests.total ? "It passed every quality check." : "It passed most of its quality checks.") : tests === null && details.tests !== undefined ? "There was nothing in it to check." : "";
+    const body = `${whoMd} finished${task ? ` “${task}”` : " a change"}. ${tested} OK to put it live?`.replace(/\s+/g, " ");
     return {
       type: "decision" as const,
       from_agent_id: details.agentId,
@@ -196,7 +260,7 @@ export function approvalItem(approval: Pick<Approval, "connectorKey" | "tool" | 
       exhibit: { kind: "none" as const, spec_ref: null },
       decision: {
         options: [
-          { id: APPROVAL_OPTIONS.approve, label: "Put it live", recommended: true, consequence: `It goes live once the automatic tests pass; if they fail, ${who} fixes it and asks again.`, cost_minor: 0, reversible: false },
+          { id: APPROVAL_OPTIONS.approve, label: "Put it live", recommended: true, consequence: `It goes live once the final quality checks pass; if one fails, ${who} fixes it and asks again.`, cost_minor: 0, reversible: false },
           { id: APPROVAL_OPTIONS.reject, label: "Not now", recommended: false, consequence: "Nothing changes; the work waits for you.", cost_minor: 0, reversible: true },
         ],
         free_text: false,
@@ -207,7 +271,7 @@ export function approvalItem(approval: Pick<Approval, "connectorKey" | "tool" | 
       entity_ids: [],
     };
   }
-  const body = `${who} wants to ${toolWords(approval.tool)}${approval.connectorKey && approval.connectorKey !== PLATFORM_CONNECTOR ? ` on ${connectorLabel(approval.connectorKey)}` : ""}${task ? ` for “${task}”` : ""}${amount ? `, spending **${amount}**` : ""}. OK?`;
+  const body = `${whoMd} wants to ${toolWords(approval.tool)}${approval.connectorKey && approval.connectorKey !== PLATFORM_CONNECTOR ? ` on ${connectorLabel(approval.connectorKey)}` : ""}${task ? ` for “${task}”` : ""}${amount ? `, spending **${amount}**` : ""}. OK?`;
   return {
     type: "decision" as const,
     from_agent_id: details.agentId,
@@ -227,6 +291,62 @@ export function approvalItem(approval: Pick<Approval, "connectorKey" | "tool" | 
     source_event_ids: [...(details.sourceEventIds ?? [])],
     entity_ids: [],
   };
+}
+
+/** One line per batched request: "Paid advertising (£600.00)". */
+export function batchLine(approval: Pick<Approval, "args" | "amountMinor" | "currency">): string {
+  const args = (approval.args ?? {}) as Record<string, unknown>;
+  const key = typeof args.channelKey === "string" ? args.channelKey : typeof args.channel_key === "string" ? args.channel_key : "";
+  const amount = approvalAmount(approval);
+  return `${key ? channelWords(key) : "A channel"}${amount ? ` (${amount})` : ""}`;
+}
+
+/**
+ * The one decision several same-kind requests share (first-time founder report, Nov 8, 2026: five "wants to launch
+ * campaign. OK?" notes in a row became one "5 channels want to launch their first campaign"): the subject counts them,
+ * the body lists each with its budget, the reading pane shows each campaign's copy, and one answer covers all of them.
+ */
+export function batchApprovalItem(batch: readonly Pick<Approval, "connectorKey" | "tool" | "args" | "amountMinor" | "currency">[], details: Pick<ApprovalItemDetails, "agentId" | "agentName" | "sourceEventIds">) {
+  const n = batch.length;
+  const who = details.agentName.trim() || "The team";
+  const whoMd = agentMention({ id: details.agentId, name: details.agentName }) || who;
+  const lines = batch.map(batchLine);
+  const total = batch.reduce((s, a) => s + (a.amountMinor ?? 0), 0);
+  const currency = batch.find((a) => a.currency)?.currency ?? null;
+  const spend = total > 0 && currency ? formatMoney({ amountMinor: total, currency }) : null;
+  return {
+    type: "decision" as const,
+    from_agent_id: details.agentId,
+    subject: clip(`${n} channels want to launch a campaign`, 80),
+    body_md: `${n} channels are ready to launch their campaign: ${lines.join(", ")}${spend ? `, **${spend}** in all` : ""}. ${whoMd} asks for one yes for all of them; each campaign's copy and budget is below. OK?`,
+    status_strip: [],
+    exhibit: { kind: "none" as const, spec_ref: null },
+    decision: {
+      options: [
+        { id: APPROVAL_OPTIONS.approve, label: "Approve all", recommended: true, consequence: `Each of the ${n} channels launches its campaign once${spend ? ` (${spend} in all)` : ""} and carries on.`, cost_minor: 0, reversible: false },
+        { id: APPROVAL_OPTIONS.reject, label: "Reject all", recommended: false, consequence: "Nothing launches; the channels wait for you.", cost_minor: 0, reversible: true },
+      ],
+      free_text: false,
+      expires_at: null,
+    },
+    blocks_continue: true,
+    source_event_ids: [...(details.sourceEventIds ?? [])],
+    entity_ids: [],
+  };
+}
+
+/**
+ * The open batch item a same-kind request joins, if there is one: another approval of the same call, still unanswered,
+ * whose Inbox note is still open. Null when the request opens a note of its own.
+ */
+export async function openBatchFor(db: Executor, businessId: string, approval: Pick<Approval, "id" | "connectorKey" | "tool">): Promise<{ item: InboxItem; approvals: Approval[] } | null> {
+  if (!isBatchedApproval(approval)) return null;
+  const pending = await repos.approvals.pending(db, businessId, 200);
+  const sibling = pending.find((a) => a.id !== approval.id && a.tool === approval.tool && a.connectorKey === approval.connectorKey && a.inboxItemId !== null);
+  if (!sibling?.inboxItemId) return null;
+  const item = await repos.inbox.get(db, businessId, sibling.inboxItemId);
+  if (item.state !== "unread" && item.state !== "read") return null;
+  return { item, approvals: await repos.approvals.listForInboxItem(db, businessId, item.id) };
 }
 
 /** What the platform's own tests found on a task's latest finished session (its `task.completed`), or null when nothing was there to test. */
@@ -251,13 +371,24 @@ export async function approvalTaskTitle(db: Executor, businessId: string, approv
  * Opens the decision item for `approval` and links it, once: an approval that already has its item returns that item
  * (`created: false`). The narrated `approval.requested` events are marked so the composer leaves them alone.
  */
-export async function openApprovalItem(db: Executor, businessId: string, approval: Approval, details: ApprovalItemDetails): Promise<{ item: InboxItem; created: boolean }> {
+export async function openApprovalItem(db: Executor, businessId: string, approval: Approval, details: ApprovalItemDetails): Promise<{ item: InboxItem; created: boolean; joined?: boolean }> {
   if (approval.inboxItemId) return { item: await repos.inbox.get(db, businessId, approval.inboxItemId), created: false };
   return db.transaction(async (tx) => {
+    // A same-kind request already waiting: this one joins its note (first-time founder report, Nov 8, 2026), which is
+    // rewritten to count them all; one answer covers every approval linked to it.
+    const batch = await openBatchFor(tx, businessId, approval);
+    if (batch) {
+      await repos.approvals.linkInboxItem(tx, businessId, approval.id, batch.item.id);
+      const all = [...batch.approvals, approval];
+      const item = await repos.inbox.revise(tx, businessId, batch.item.id, batchApprovalItem(all, { agentId: batch.item.fromAgentId ?? details.agentId, agentName: details.agentName, sourceEventIds: details.sourceEventIds }));
+      if (details.sourceEventIds?.length) await repos.events.markNarrated(tx, businessId, details.sourceEventIds);
+      return { item, created: false, joined: true };
+    }
     const taskTitle = details.taskTitle !== undefined ? details.taskTitle : await approvalTaskTitle(tx, businessId, approval);
-    const businessName = details.businessName ?? (approval.connectorKey === PLATFORM_CONNECTOR ? (await repos.businesses.get(tx, businessId)).name : null);
+    const businessName = details.businessName ?? (approval.connectorKey === PLATFORM_CONNECTOR || (approval.connectorKey && NEEDS_CONNECTION.has(approval.connectorKey)) ? (await repos.businesses.get(tx, businessId)).name : null);
     const tests = details.tests !== undefined ? details.tests : isReleaseApproval(approval) ? await approvalTaskTests(tx, businessId, approval) : undefined;
-    const item = await repos.inbox.createItem(tx, businessId, approvalItem(approval, { ...details, taskTitle, businessName, ...(tests !== undefined ? { tests } : {}) }));
+    const githubConnected = details.githubConnected !== undefined ? details.githubConnected : approval.connectorKey && NEEDS_CONNECTION.has(approval.connectorKey) ? integrationConnected(await repos.integrations.getByKey(tx, businessId, approval.connectorKey)) : null;
+    const item = await repos.inbox.createItem(tx, businessId, approvalItem(approval, { ...details, taskTitle, businessName, githubConnected, ...(tests !== undefined ? { tests } : {}) }));
     await repos.approvals.linkInboxItem(tx, businessId, approval.id, item.id);
     if (details.sourceEventIds?.length) await repos.events.markNarrated(tx, businessId, details.sourceEventIds);
     return { item, created: true };

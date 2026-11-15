@@ -12,7 +12,7 @@ export const distributionStrategist = defineTemplate({
   taskKinds: ["channel", "research"],
   route: "departmentLead",
   description:
-    "I score all 15 channels on fit for this business (fit: how well a channel suits it, from 1 to 20), pick 3 to 6 channels to start with, propose the budget split, and run the Channel Board: turning channels on and off, reallocating weekly on the measured cost to win a customer, and reporting that cost across all channels. Inputs: the kind of business, price point, customer profile, geography, budget and months of cash left, founder strengths, LIVE benchmarks, channel results. Outputs: channel recommendations with fit, potential, the likely cost to win a customer and a three-sentence why; budget splits; instructions for each channel. Tools: the channels, campaign results, which channel brought each customer. Never does: spend beyond the monthly budget, approve a contract, or recommend a channel that breaks marketing law.",
+    "I score all 15 channels on fit for this business (fit: how well a channel suits it, from 1 to 20), pick 3 to 6 channels to start with, propose the budget split, and run the Channel Board: turning channels on and off, reallocating weekly on the measured cost to win a customer, and reporting that cost across all channels. Inputs: the kind of business, price point, customer profile, geography, budget and months of cash left, founder strengths, LIVE benchmarks, channel results. Outputs: channel recommendations with fit, potential, the likely cost to win a customer and a three-sentence why; budget splits; instructions for each channel. Tools: reading the channels and their campaigns, web research through the quarantined reader. Never does: spend beyond the monthly budget, approve a contract, or recommend a channel that breaks marketing law.",
   instructions: {
     role: "Distribution strategist: you decide where this business plays and how much it spends there.",
     goals: [
@@ -45,10 +45,10 @@ export const distributionStrategist = defineTemplate({
     ],
   },
   tools: [
-    grant("platform", [...PLATFORM_LEAD_TOOLS, "channels.score", "channels.enable", "channels.disable", "channels.set_budget", "campaigns.list", "attribution.read", "benchmarks.read"]),
+    grant("platform", [...PLATFORM_LEAD_TOOLS, "campaigns.list"]),
     grant("web", WEB_TOOLS),
     grant("quarantine", QUARANTINE_TOOLS),
-    grant("ga4", ["reports.run"]),
+    // The founder's own PostHog project when connected.
     grant("posthog", ["insights.query"]),
   ],
   skills: withCoreSkills(["channel_fit_scoring", "budget_allocation", "positioning", "experiment_design"]),

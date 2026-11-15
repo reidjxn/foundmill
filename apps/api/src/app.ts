@@ -7,16 +7,20 @@
 import { APP_NAME, LIMITS } from "@foundmill/config";
 import { platformBillingRefusal } from "@foundmill/models";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
-import { DEFAULT_AGENT_STYLE, isAgentStyle } from "@foundmill/shared";
+import { AppError, DEFAULT_AGENT_STYLE, isAgentStyle } from "@foundmill/shared";
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { compress } from "hono/compress";
 import { cors } from "hono/cors";
 import type { ApiDeps } from "./context";
 import { createContextFactory } from "./context";
+import { registerIdeaBoxRoutes } from "./idea-box-routes";
 import { requestIdFrom } from "./request-id";
 import { appRouter } from "./router";
 import { etagMatches, storedPortrait } from "./services/personas";
+import { speechTickets } from "./services/speech-tickets";
+import { servePostMedia } from "./services/post-media";
+import { assertPlatformCredits } from "@foundmill/db";
 import { checkWorker } from "./services/worker-health";
 import { getTracer } from "@foundmill/shared/telemetry";
 
@@ -92,6 +96,50 @@ export function trpcBodyLimitFor(pathname: string): number {
   return trpcPaths(pathname).some((p) => LOGO_UPLOAD_PROCEDURES.has(p)) ? LIMITS.trpcMaxLogoBodyBytes : LIMITS.trpcMaxBodyBytes;
 }
 
+/**
+ * The `x-foundmill-client` header as the request log records it: a short, printable token such as `mobile/1.0.0 ios`,
+ * or null when the request carries none (the web) or something that is not one (never log an arbitrary header).
+ */
+export function clientOf(header: string | undefined): string | null {
+  if (!header) return null;
+  const value = header.trim();
+  return /^[A-Za-z0-9._/+-]+(?: [A-Za-z0-9._/+-]+){0,2}$/.test(value) && value.length <= 64 ? value : null;
+}
+
+/** A path as it may be logged or traced: a Team call audio ticket and a post media link (each the key to one file) masked. */
+export function loggedPath(path: string): string {
+  if (path.startsWith("/post-media/")) return "/post-media/:token";
+  return path.startsWith("/team-call-audio/") ? "/team-call-audio/:ticket" : path;
+}
+
+/** No byte for this long, and a streamed turn is cut (a stalled vendor never holds the api's and the gateway's connections). */
+export const AUDIO_IDLE_MS = 15_000;
+
+/** The gateway's audio, ended after `AUDIO_IDLE_MS` with no bytes (the upstream is cancelled with it). */
+export function withIdleTimeout(body: ReadableStream<Uint8Array>, idleMs = AUDIO_IDLE_MS): ReadableStream<Uint8Array> {
+  const reader = body.getReader();
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const next = reader.read();
+      const stalled = new Promise<"stalled">((resolve) => (timer = setTimeout(() => resolve("stalled"), idleMs)));
+      const got = await Promise.race([next, stalled]);
+      if (timer) clearTimeout(timer);
+      if (got === "stalled") {
+        void reader.cancel().catch(() => undefined);
+        controller.close();
+        return;
+      }
+      if (got.done) controller.close();
+      else controller.enqueue(got.value);
+    },
+    cancel(reason) {
+      if (timer) clearTimeout(timer);
+      return reader.cancel(reason);
+    },
+  });
+}
+
 export function createApp(deps: ApiDeps) {
   const app = new Hono<{ Variables: AppVariables }>();
   const origins = allowedOrigins(deps.env);
@@ -102,7 +150,8 @@ export function createApp(deps: ApiDeps) {
     c.set("requestId", requestId);
     c.header("x-request-id", requestId);
     const started = Date.now();
-    const path = c.req.path;
+    // A Team call audio ticket is the key to its turn's speech: never in a log line or a trace (the route's shape stays).
+    const path = loggedPath(c.req.path);
     // One trace span per request (a tRPC batch names its procedures), the parent of every model call it makes (BUILD §15).
     const tracer = getTracer();
     if (!tracer.enabled || path === "/health") await next();
@@ -112,14 +161,16 @@ export function createApp(deps: ApiDeps) {
         span.setAttributes({ "http.status_code": c.res.status });
       }, { kind: 2, parent: c.req.header("traceparent") ?? undefined });
     }
-    if (path !== "/health") deps.log.info({ requestId, method: c.req.method, path, status: c.res.status, ms: Date.now() - started }, "request");
+    // `client`: which client sent it when it says so (the mobile app sends `x-foundmill-client: mobile/<version> <platform>`,
+    // docs/mobile); the web sends nothing. Lets mobile traffic be told apart in the logs and the rate-limit reports.
+    if (path !== "/health") deps.log.info({ requestId, method: c.req.method, path, status: c.res.status, ms: Date.now() - started, client: clientOf(c.req.header("x-foundmill-client")) }, "request");
   });
 
   app.use(
     "*",
     cors({
       origin: (origin) => (origin && origins.includes(origin) ? origin : null),
-      allowHeaders: ["authorization", "content-type", "x-request-id", "trpc-accept", "x-trpc-source"],
+      allowHeaders: ["authorization", "content-type", "x-request-id", "trpc-accept", "x-trpc-source", "x-foundmill-client"],
       allowMethods: ["GET", "POST", "OPTIONS"],
       exposeHeaders: ["x-request-id"],
       credentials: true,
@@ -131,6 +182,9 @@ export function createApp(deps: ApiDeps) {
   );
 
   app.get("/", (c) => c.json({ name: APP_NAME, service: "api", ok: true }));
+
+  // The landing page's idea box (docs/IDEA_BOX.md): a signed-out visitor's card, streamed; its cookie keeps it.
+  registerIdeaBoxRoutes(app, deps, origins);
 
   app.get("/health", async (c) => {
     const probe = async (fn: () => Promise<boolean>) => {
@@ -169,6 +223,7 @@ export function createApp(deps: ApiDeps) {
         // `wedged`: the pool stopped answering while the database answers outside it (the process is about to exit and
         // be restarted); `down`: the database answers nowhere (packages/db pool-watchdog.ts).
         pool: deps.poolWatchdog?.status() ?? null,
+        transactions: deps.txGate?.stats() ?? null,
         worker,
         vault: deps.vault !== null,
         modelBilling: billingRefusal ? { ok: false, ...billingRefusal } : { ok: true },
@@ -208,6 +263,45 @@ export function createApp(deps: ApiDeps) {
   app.get("/personas/:key", (c) => servePortrait(c, c.req.param("key"), DEFAULT_AGENT_STYLE));
   app.get("/personas/:style/:key", (c) => servePortrait(c, c.req.param("key"), c.req.param("style")));
 
+  // Team call's streamed speech (services/speech-tickets.ts): the ticket `teamCall.speech({ stream: true })` issued after
+  // checking the person, the call and the credits; the gateway's audio piped as it arrives. No sign-in here (an <audio>
+  // element sends no bearer), so the ticket is the only key: random, short-lived and good for a few requests. Never cached.
+  app.get("/team-call-audio/:ticket", async (c) => {
+    const plain = { "cache-control": "no-store", "x-content-type-options": "nosniff" };
+    const ticket = await speechTickets(deps.redis).take(c.req.param("ticket")).catch(() => null);
+    if (!ticket || !deps.gateway.streamSpeech) return c.body(null, 404, plain);
+    try {
+      // Every request is a new vendor call: the credits gate holds for each, not only when the ticket was issued.
+      await assertPlatformCredits(deps.db, ticket.businessId, { live: true });
+      const res = await deps.gateway.streamSpeech({ businessId: ticket.businessId, callId: ticket.callId, turnId: ticket.turnId, speechAccent: ticket.speechAccent, text: ticket.text }, c.req.raw.signal);
+      return new Response(withIdleTimeout(res.body!), { status: 200, headers: { ...plain, "content-type": "audio/mpeg", "cross-origin-resource-policy": "same-site", "content-security-policy": "default-src 'none'; sandbox" } });
+    } catch (err) {
+      const status = err instanceof AppError && err.status >= 400 && err.status < 600 ? err.status : 502;
+      deps.log.warn({ code: err instanceof AppError ? err.code : "unknown", status }, "team call audio stream refused");
+      return c.body(null, status as 404, plain);
+    }
+  });
+
+  // A post draft's media (services/post-media.ts): the file of a ready, real item at the signed address the Creative tab
+  // and the share panel were given (the web serves it from its own origin, `/api/post-media/<token>`). No sign-in here
+  // (a <video> element and a "Save" link send no bearer), so the token is the key: it names one item of one business
+  // and expires within the hour. Private to the browser, never kept by a shared cache, and never run as a page.
+  app.get("/post-media/:token", async (c) => {
+    const plain = { "cache-control": "private, max-age=600", "x-content-type-options": "nosniff" };
+    const gone = { ...plain, "cache-control": "no-store" };
+    try {
+      const file = await servePostMedia(deps.db, deps.env, c.req.param("token"));
+      if (!file) return c.body(null, 404, gone);
+      return new Response(file.content as unknown as BodyInit, {
+        status: 200,
+        headers: { ...plain, "content-type": file.mime, "content-length": String(file.content.byteLength), "cross-origin-resource-policy": "same-site", "content-security-policy": "default-src 'none'; sandbox" },
+      });
+    } catch (err) {
+      deps.log.warn({ code: err instanceof AppError ? err.code : "unknown" }, "post media not served");
+      return c.body(null, 404, gone);
+    }
+  });
+
   // tRPC answers are JSON and shrink 5–10× with gzip (or deflate, whichever the client accepts). Hono's compress also
   // skips any answer that already sets Transfer-Encoding (tRPC's streamed batches) or is text/event-stream; streamed
   // requests are skipped up front as well, so a stream is never buffered.
@@ -237,9 +331,9 @@ export function createApp(deps: ApiDeps) {
     }),
   );
 
-  app.notFound((c) => c.json({ error: "not_found", path: c.req.path }, 404));
+  app.notFound((c) => c.json({ error: "not_found", path: loggedPath(c.req.path) }, 404));
   app.onError((err, c) => {
-    deps.log.error({ err, path: c.req.path }, "unhandled error");
+    deps.log.error({ err, path: loggedPath(c.req.path) }, "unhandled error");
     return c.json({ error: "internal", requestId: c.get("requestId") }, 500);
   });
 

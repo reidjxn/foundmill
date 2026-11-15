@@ -22,6 +22,21 @@ export const UUID = "[0-9a-f-]{36}";
 /** Long waits: the api answers tRPC against PGlite and next dev compiles each route on first visit. */
 export const LONG = 60_000;
 
+/** The small-screen tap target (CLAUDE.md "Small screens"): every control and link is at least 44 px tall. */
+export const TAP_TARGET_PX = 44;
+/**
+ * Layout rounding slack for `boundingBox()`: a 44 px box can measure 43.99997 px (CI run 43385400232). A hundredth
+ * of a pixel absorbs that and still fails any real shortfall.
+ */
+const SUBPIXEL_PX = 0.01;
+
+/** Asserts a box (or the element behind a locator) is a 44 px tap target, tolerating sub-pixel rounding only. */
+export async function expectTapTarget(target: Locator | { height: number }, message?: string): Promise<void> {
+  const box = "boundingBox" in target ? await target.boundingBox() : target;
+  expect(box, message ?? "tap target is rendered").not.toBeNull();
+  expect(box!.height, message ?? `${TAP_TARGET_PX} px tap target`).toBeGreaterThanOrEqual(TAP_TARGET_PX - SUBPIXEL_PX);
+}
+
 /** Signs in through the dev bypass; makes sure the founder profile exists; lands on /new or a business Home. */
 export async function signIn(page: Page): Promise<void> {
   await page.goto("/login");
@@ -29,7 +44,7 @@ export async function signIn(page: Page): Promise<void> {
   const dev = page.getByRole("button", { name: "Continue as developer" });
   await Promise.race([dev.waitFor({ state: "visible", timeout: LONG }), page.waitForURL((u) => !u.pathname.startsWith("/login"), { timeout: LONG })]).catch(() => undefined);
   if (await dev.isVisible().catch(() => false)) await dev.click();
-  await page.waitForURL(/\/b\/[0-9a-f-]+\/|\/onboarding|\/new/, { timeout: LONG });
+  await page.waitForURL(/\/b\/[0-9a-f-]+\/|\/onboarding|\/new|\/home/, { timeout: LONG });
   if (/\/onboarding/.test(page.url())) await completeProfile(page);
 }
 
@@ -58,6 +73,34 @@ export async function openBusiness(page: Page, path = "home"): Promise<string> {
   await page.waitForLoadState("networkidle", { timeout: LONG });
   await settled(page);
   return NORTHWIND_BUSINESS_ID;
+}
+
+/** The founder areas of the sidebar (docs/DESIGN.md §8): Plan, Customers, Money, Product, Team. */
+export type AreaKey = "plan" | "customers" | "money" | "product" | "team";
+
+/** An area's sidebar item (founder areas, 2026-11-09): departments are no longer sidebar items. */
+export function areaLink(page: Page, area: AreaKey): Locator {
+  return page.locator(`[data-testid=app-shell] nav [data-sidebar-item='area-${area}']`);
+}
+
+/**
+ * The base of a department's tabs ("/b/<id>/d/<slug>"). The sidebar lists areas, not departments, so a spec names the
+ * department by its slug; the seeded businesses keep the module keys as slugs (renames change only the names), and a
+ * module key whose department moved is forwarded by the department screen.
+ */
+export function departmentBase(slug: string, businessId = NORTHWIND_BUSINESS_ID): string {
+  return `/b/${businessId}/d/${slug}`;
+}
+
+/** The current area's tab bar ("Product tabs") and its "More detail" menu trigger. */
+export function areaTabBar(page: Page, areaLabel: string): Locator {
+  return page.getByRole("tablist", { name: `${areaLabel} tabs` });
+}
+
+/** Opens a tab that sits behind the tab bar's "More detail" menu (docs/DESIGN.md §9). */
+export async function openMoreDetail(page: Page, label: string | RegExp): Promise<void> {
+  await page.getByRole("button", { name: /^More detail/ }).click();
+  await page.getByTestId("more-detail-menu").getByRole("menuitem", { name: label }).click();
 }
 
 /**
@@ -153,9 +196,19 @@ export async function completeProfile(page: Page): Promise<void> {
   await markets.press("Enter");
   await page.getByRole("button", { name: "Remote only" }).click();
   await page.getByLabel("Medium").check();
+  await confirmAdultOnForm(page);
   await page.getByTestId("profile-submit-bottom").click();
   await expect(page).toHaveURL(/\/new$/, { timeout: LONG });
   await expect(page.getByTestId("doors")).toBeVisible();
+}
+
+/**
+ * Ticks "I am 18 or older" on the founder profile form when the form asks for it (a new account with no confirmation
+ * on record, 0100); the seeded founder has confirmed, so the form does not ask them.
+ */
+export async function confirmAdultOnForm(page: Page): Promise<void> {
+  const adult = page.getByTestId("profile-adult");
+  if (await adult.count()) await adult.getByRole("checkbox", { name: "I am 18 or older" }).check();
 }
 
 /** Opens the Ideation Studio and waits until idea.list has answered (the grid only renders then). */
@@ -238,23 +291,47 @@ export async function restoreFounderProfile(api: APIRequestContext, before: Foun
   expect(res.ok(), `founder.profile.update answered ${res.status()}: ${await res.text()}`).toBe(true);
 }
 
+/**
+ * Turns the dev founder's Builder view on or off (docs/DESIGN.md "Builder view"; global-setup.ts starts every run with
+ * it off) and answers what it was, so a spec that needs the engine on can restore it in afterAll:
+ *   test.beforeAll(async ({ playwright }) => (before = await setBuilderView(playwright, true)));
+ *   test.afterAll(async ({ playwright }) => void (await setBuilderView(playwright, before)));
+ */
+export async function setBuilderView(playwright: PlaywrightWorkerArgs["playwright"], on: boolean): Promise<boolean> {
+  const api = await devApi(playwright);
+  try {
+    const read = await api.get("/trpc/founder.preferences.guidance");
+    expect(read.ok(), `founder.preferences.guidance answered ${read.status()}`).toBe(true);
+    const was = ((await read.json()) as { result: { data: { json: { builderView?: boolean } } } }).result.data.json.builderView === true;
+    const res = await api.post("/trpc/founder.preferences.update", { data: { json: { builderView: on } } });
+    expect(res.ok(), `founder.preferences.update answered ${res.status()}: ${await res.text()}`).toBe(true);
+    return was;
+  } finally {
+    await api.dispose();
+  }
+}
+
 export { DEMO_OWNER_DISPLAY_NAME, test, expect };
 
 /* ---------- The first days (founder, 2026-10-18) ---------- */
 
 /**
- * Take charge from the Commit screen the caller is on: lands on the new business's Home (the Chief of Staff's welcome
- * note is in the Inbox; the foundations draft in the background and two sign-off notes follow).
+ * Take charge from the Commit screen the caller is on: lands on the new business's Today, its front door (founder,
+ * 2026-11-07; the Chief of Staff's welcome note is in the Inbox; the foundations draft in the background and two
+ * sign-off notes follow).
  */
-export async function takeChargeToHome(page: Page, name: string): Promise<{ bid: string }> {
+export async function takeChargeToToday(page: Page, name: string): Promise<{ bid: string }> {
   await expect(page.getByTestId("commit-form")).toBeVisible({ timeout: LONG });
   await page.getByLabel(/Business name/).fill(name);
   await page.getByTestId("take-charge").click();
-  await page.waitForURL(new RegExp(`/b/${UUID}/home`), { timeout: LONG });
-  const bid = page.url().match(new RegExp(`/b/(${UUID})/home`))![1]!;
+  await page.waitForURL(new RegExp(`/b/${UUID}/today`), { timeout: LONG });
+  const bid = page.url().match(new RegExp(`/b/(${UUID})/today`))![1]!;
   await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
   return { bid };
 }
+
+/** The name the specs used while Home was the front door; it lands on Today now. */
+export const takeChargeToHome = takeChargeToToday;
 
 export const SPEC_SIGNOFF = "Sign off the product specification";
 export const ROADMAP_SIGNOFF = "Sign off the product roadmap";
@@ -347,4 +424,17 @@ export async function openBoardQuestion(page: Page, bid: string, boardItemId: st
   await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open", { timeout: LONG });
   expect(await page.getByTestId("decision-bar").getByRole("group", { name: "Options" }).getByRole("button").count()).toBeGreaterThanOrEqual(2);
   await expect(page.locator(`[data-inbox-row="${boardItemId}"]`)).toHaveAttribute("data-needs-answer", "true", { timeout: LONG });
+}
+
+/**
+ * Opens the page's "Explain this page" panel and returns it. The button carries the screen's id (`data-explainer`) and
+ * sits once in the shell's tab row (or inline on a full-screen page without a shell); the panel is a popover.
+ */
+export async function openExplainer(page: Page, screenId: string): Promise<Locator> {
+  const button = page.locator(`button[data-explainer='${screenId}']`);
+  await expect(button).toBeVisible({ timeout: LONG });
+  await button.click();
+  const panel = page.getByTestId("explain-page-panel");
+  await expect(panel).toBeVisible();
+  return panel;
 }

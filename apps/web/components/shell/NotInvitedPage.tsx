@@ -5,9 +5,11 @@
  * so the founder can use an address that is on the list. A listed address the sign-in did not show as confirmed
  * (`unconfirmed`) is asked to confirm it first.
  */
-import { MailX } from "lucide-react";
+import { useActionState } from "react";
+import { ListPlus, MailX } from "lucide-react";
 import { APP_NAME } from "@foundmill/config";
-import { EmptyState } from "@foundmill/dugout";
+import { Button, EmptyState, StatusPill } from "@foundmill/dugout";
+import { joinWaitlist, type WaitlistJoinState } from "./waitlist-actions";
 import { BrandFrame } from "./BrandFrame";
 import { SignOutButton } from "./SignOutButton";
 
@@ -19,10 +21,45 @@ export function NotInvitedPage({ message, email, unconfirmed = false }: { messag
         <EmptyState icon={MailX} title={title}>
           {message}
         </EmptyState>
+        {!unconfirmed ? <WaitlistJoin /> : null}
         <div className="mt-3 flex justify-end">
           <SignOutButton variant="default" />
         </div>
       </div>
     </BrandFrame>
+  );
+}
+
+/** The words of the waitlist offer. */
+export const WAITLIST_WORDS = {
+  offer: "Join the waitlist and we will let you in as soon as there is room. If you made a card on the home page, it is kept for you.",
+  join: "Join the waitlist",
+  joinedWithCard: "You are on the waitlist, and your card is kept for 90 days.",
+  joined: "You are on the waitlist. We will email you when there is room.",
+  error: "That did not go through. Try again in a minute.",
+} as const;
+
+/** "Join the waitlist" (docs/IDEA_BOX.md): a Server Action keeps the idea box's card with the entry. */
+function WaitlistJoin() {
+  const [state, action, pending] = useActionState<WaitlistJoinState, FormData>((prev) => joinWaitlist(prev), { status: "idle" });
+  if (state.status === "joined") {
+    return (
+      <StatusPill tone="good" role="status" className="mt-3" data-testid="waitlist-joined">
+        {state.cardKept ? WAITLIST_WORDS.joinedWithCard : WAITLIST_WORDS.joined}
+      </StatusPill>
+    );
+  }
+  return (
+    <form action={action} className="mt-3 flex flex-col gap-2" data-testid="waitlist-join">
+      <p className="text-body text-secondary">{WAITLIST_WORDS.offer}</p>
+      <Button type="submit" variant="glass" icon={ListPlus} loading={pending} className="min-h-tap self-start">
+        {WAITLIST_WORDS.join}
+      </Button>
+      {state.status === "error" ? (
+        <StatusPill tone="bad" role="alert">
+          {WAITLIST_WORDS.error}
+        </StatusPill>
+      ) : null}
+    </form>
   );
 }

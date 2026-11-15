@@ -25,7 +25,26 @@ export interface ServerApi {
  * client and never hold up what a layout awaits.
  */
 export function createServerClient(auth: ServerAuth): ApiClient {
-  return createApiClient({ getToken: () => auth.token, fetch: (input, init) => fetch(input, { ...init, cache: "no-store" }), limits: SERVER_LIMITS });
+  return createApiClient({ getToken: () => auth.token, fetch: retryDroppedRead((input, init) => fetch(input, { ...init, cache: "no-store" })), limits: SERVER_LIMITS });
+}
+
+/**
+ * A read (GET) whose connection dropped before any answer (`fetch` rejects with a TypeError, e.g. "fetch failed" on a
+ * kept-alive socket the API closed while it was busy) is asked once more on a fresh connection, inside the same
+ * `SERVER_LIMITS` deadline (the caller's signal is reused). Writes are never repeated; an HTTP error answer, a timeout
+ * or an abort is returned as it came. Without this, one stale socket showed a founder "Can't reach the server" on
+ * /new/ideate right after Today's first load (CI, 2026-11-09).
+ */
+export function retryDroppedRead(base: typeof fetch): typeof fetch {
+  return async (input, init) => {
+    const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
+    try {
+      return await base(input, init);
+    } catch (err) {
+      if (method !== "GET" || !(err instanceof TypeError) || init?.signal?.aborted) throw err;
+      return base(input, init);
+    }
+  };
 }
 
 /** The API client for the current request, or null when nobody is signed in. */

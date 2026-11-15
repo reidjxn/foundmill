@@ -54,7 +54,7 @@ describe("schedule registration", () => {
   it("defines a schedule for every periodic job, each naming a workflow the worker bundles", () => {
     const ids = SCHEDULES.map((s) => s.id);
     expect(new Set(ids).size).toBe(ids.length);
-    for (const job of ["journeyDailyRefresh", "journeyMatviewRefresh", "benchmarksRebuild", "credentialExpiryScan", "consentRenewalScan", "agentMetricsRollup", "agentHealthSweep", "legalCalendarRoll", "sourceWatchSweep", "channelEngineReconcile", "crmDeletionSweep", "businessDeletionSweep"]) {
+    for (const job of ["journeyDailyRefresh", "journeyMatviewRefresh", "benchmarksRebuild", "credentialExpiryScan", "consentRenewalScan", "agentMetricsRollup", "agentHealthSweep", "legalCalendarRoll", "sourceWatchSweep", "channelEngineReconcile", "crmDeletionSweep", "businessDeletionSweep", "founderNotifications"]) {
       expect(SCHEDULES.map((s) => s.workflowType)).toContain(job);
       expect(typeof (workflows as Record<string, unknown>)[job]).toBe("function");
     }
@@ -196,6 +196,24 @@ describe("schedule activities on PGlite", () => {
     expect(await acts.recordEngineWorkflows({ entries: [{ businessId: t.businessId, channelId: t.fixture.channelId, workflowId: `engine:${t.fixture.channelId}` }] })).toEqual({ updated: 1 });
     expect((await repos.channels.get(t.db, t.businessId, t.fixture.channelId)).engineWorkflowId).toBe(`engine:${t.fixture.channelId}`);
     expect(await acts.recordEngineWorkflows({ entries: [{ businessId: t.businessId, channelId: t.fixture.channelId, workflowId: `engine:${t.fixture.channelId}` }] })).toEqual({ updated: 0 });
+  });
+
+  it("on staging the reconciler leaves out a channel that cannot really act, keeps one in offline tracking and one that acts (founder, 2026-11-11)", async () => {
+    const staging = createScheduleActivities({ ...t.deps, env: { ...t.deps.env, APP_ENV: "staging", LIVE_CONNECTORS: "github" } });
+    const print = await repos.channels.upsert(t.db, t.businessId, { channelKey: "print", line: "wings", enabled: true, kitMode: true });
+    const seo = await repos.channels.upsert(t.db, t.businessId, { channelKey: "seo", line: "defence", enabled: true, kitMode: false });
+    const mine = async () => (await staging.listEnginesToEnsure()).channels.filter((c) => c.businessId === t.businessId).map((c) => c.channelKey).sort();
+    // Events has no publisher, SEO's connector is live here but not connected: only print (offline tracking) keeps its engine.
+    expect(await mine()).toEqual(["print"]);
+    await repos.integrations.upsert(t.db, t.businessId, { connectorKey: "github", status: "connected", authKind: "app" });
+    expect(await mine()).toEqual(["print", "seo"]);
+    // Tap-to-post (founder, 2026-11-12): social is available and on the board, and the founder posts it. No engine is
+    // ever ensured for it, so the reconciler does not start one every 15 minutes for the engine to stop at once.
+    const social = await repos.channels.upsert(t.db, t.businessId, { channelKey: "social", line: "midfield", enabled: true, kitMode: false });
+    expect(await mine()).toEqual(["print", "seo"]);
+    // In test (and development) nothing is left out.
+    const all = (await acts.listEnginesToEnsure()).channels.filter((c) => c.businessId === t.businessId).map((c) => c.channelId);
+    expect(all).toEqual(expect.arrayContaining([t.fixture.channelId, print.id, seo.id, social.id]));
   });
 
   it("purges CRM records whose deletion came due and records it on the audit chain", async () => {

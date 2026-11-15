@@ -11,7 +11,7 @@ import { routes } from "@foundmill/widgets/shared/routes";
 import { UNNAMED_PERSON } from "@/lib/live";
 import { useTRPC } from "@/lib/trpc-react";
 import { errorMessage, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
-import { useBusiness } from "@/components/shell/business-context";
+import { useOptionalBusiness } from "@/components/shell/business-context";
 import { ShellLinkButton } from "./ShellLinkButton";
 
 export type PeopleLookup = RouterOutputs["live"]["people"]["lookup"];
@@ -51,10 +51,13 @@ export function BusinessLogo({ card, name, size = 20 }: { card?: BusinessCard; n
 
 /**
  * Shown above a LIVE screen while the current business is Personal: the screen still works for the founder
- * (connections, messages and communities belong to the person), but the business itself is off the network and boards.
+ * (connections, messages and communities belong to the person), but the business itself is off the network.
  */
 export function PersonalNotice({ className }: { className?: string }) {
-  const { businessId, data } = useBusiness();
+  const ctx = useOptionalBusiness();
+  // No project: nothing business-related to say.
+  if (!ctx) return null;
+  const { businessId, data } = ctx;
   if (data.business.gameMode === "live") return null;
   return (
     <div className={cn("surface-panel flex items-center gap-3 px-panel-pad py-2", className)} data-testid="personal-notice">
@@ -63,12 +66,12 @@ export function PersonalNotice({ className }: { className?: string }) {
       </StatusPill>
       <p className="min-w-0 flex-1 text-body text-secondary">
         {data.liveOpen
-          ? `${data.business.name} is a Personal business, so it is not listed on the network or on leaderboards. Your own connections, messages and communities stay available.`
-          : `Live is not open yet, so ${data.business.name} stays Personal and is not listed on the network or on leaderboards.`}
+          ? `${data.business.name} is a Personal business, so it is not listed on the network. Your own connections, messages and communities stay available.`
+          : `Live is not open yet, so ${data.business.name} stays Personal and is not listed on the network.`}
       </p>
       {data.liveOpen ? (
-        <ShellLinkButton href={routes.settings(businessId, "mode")} size="sm">
-          Open Settings › Mode
+        <ShellLinkButton href={routes.settings(businessId, "business")} size="sm">
+          Open Settings › Business
         </ShellLinkButton>
       ) : null}
     </div>
@@ -97,18 +100,18 @@ export function AdultNotice({ className }: { className?: string }) {
   );
   if (summary.data?.adultConfirmed !== false) return null;
   return (
-    <div className={cn("surface-panel flex items-center gap-3 px-panel-pad py-2", className)} data-testid="adult-notice">
+    <div className={cn("surface-panel flex flex-wrap items-center gap-3 px-panel-pad py-2", className)} data-testid="adult-notice">
       <StatusPill tone="warn" icon={ShieldCheck}>
         18+
       </StatusPill>
-      <p className="min-w-0 flex-1 text-body text-secondary">The network is for adults. Confirm that you are 18 or older before you connect, write, join or post.</p>
-      <span className="flex shrink-0 items-center gap-2">
+      <p className="min-w-0 flex-1 basis-48 text-body text-secondary">The network is for adults. Confirm that you are 18 or older before you connect, write, join or post.</p>
+      <span className="flex min-h-tap shrink-0 items-center gap-2 @page-wide:min-h-0">
         <Checkbox id="adult-confirm" checked={checked} onCheckedChange={(v) => setChecked(v === true)} />
         <Label htmlFor="adult-confirm" className="normal-case tracking-normal text-body text-primary">
           I am 18 or older
         </Label>
       </span>
-      <Button size="sm" variant="primary" disabled={!checked} loading={confirm.isPending} onClick={() => confirm.mutate({ confirm: true })} data-testid="adult-confirm">
+      <Button size="sm" className="min-h-tap @page-wide:min-h-0" variant="primary" disabled={!checked} loading={confirm.isPending} onClick={() => confirm.mutate({ confirm: true })} data-testid="adult-confirm">
         Confirm
       </Button>
     </div>

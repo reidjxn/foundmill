@@ -54,7 +54,7 @@ describe("AutopilotChip", () => {
     // The sentence sits outside the chip, so the chip's name stays its state.
     expect(screen.getByTestId("autopilot-chip").textContent).not.toContain("presses Continue");
     unmount();
-    // Without `guide` (Settings › Mode) and with guidance off (an experienced founder) there is no sentence.
+    // Without `guide` (Settings › What the team can do) and with guidance off (an experienced founder) there is no sentence.
     const { container: plain, unmount: unmountPlain } = render(<AutopilotChip state="on" label="On" />);
     expect(plain.querySelector("[data-autopilot-guide]")).toBeNull();
     unmountPlain();

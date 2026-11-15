@@ -41,6 +41,7 @@ import {
 } from "react";
 import { APP_NAME } from "@foundmill/config";
 import {
+  AdultCheck,
   Button,
   Chip,
   EXAMPLE_TAG,
@@ -105,13 +106,37 @@ import {
   type ProfileSectionId,
 } from "./profile-form";
 import { AccountId } from "@/components/settings/AccountId";
+import { forgetVia } from "@/app/onboarding/actions";
+import { isAdultUnconfirmed } from "@/lib/adult";
+import { AdultStep } from "./AdultStep";
 
 export interface OnboardingScreenProps {
   profile: ProfileLike | null;
   email: string | null;
-  /** The signed-in person's account ID, shown so a co-founder can add them to a business. */
+  /** The signed-in person's account ID, for support (people join a project by invitation, not by it). */
   accountId?: string | null;
+  /**
+   * Who or what brought a new founder: the reference in the httpOnly `fm_via` cookie, read by the page on the server
+   * (lib/via.ts). Sent with the save that creates the profile, never with an edit. Null when there is none.
+   */
+  via?: string | null;
+  /**
+   * Whether the account's "I am 18 or older" is on record (`founder.profile.get` `adultConfirmed`; 0100). A new account
+   * without it ticks the box on the form, and the save that creates the profile carries it; a person with a profile and
+   * no record (here before sign-up asked) sees the one step instead of the form (`AdultStep`). Required: the page reads
+   * it from the api, and a screen that does not know never assumes it. A save the api refuses with `adult_unconfirmed`
+   * asks for it too, whatever this said.
+   */
+  adultConfirmed: boolean;
 }
+
+/** Under the box on the form that creates an account: asked once, never again. */
+export const ADULT_FORM_HINT = "You confirm this once.";
+/** When Continue is pressed with the box empty. */
+export const ADULT_FORM_NEEDED = "Confirm that you are 18 or older to continue.";
+
+/** How long the first save waits for the attribution cookie to be cleared before it moves on without that. */
+export const FORGET_VIA_WAIT_MS = 3_000;
 
 /**
  * Said once, after the save that created the profile with an Exited or Operator experience (UX plan §6.3, decided
@@ -131,16 +156,23 @@ export const SKILLS_HINT = "Be honest: the team hires to cover what you don't ha
 /** Under Continue while the example founder is in: the example is never saved as the founder's own profile. */
 export const EXAMPLE_PROFILE_LINE = "Replace the example with your own answers to continue.";
 
-export function OnboardingScreen({ profile, email, accountId = null }: OnboardingScreenProps) {
+export function OnboardingScreen({ profile, email, accountId = null, via = null, adultConfirmed }: OnboardingScreenProps) {
   const router = useRouter();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const editing = profile !== null;
+  /** Only the save that creates the profile carries the reference. */
+  const handOver = editing ? null : via;
+  /** The api refused a save for want of the confirmation: ask for it, whatever the page was told. */
+  const [serverAsked, setServerAsked] = useState(false);
+  const needsAdult = !adultConfirmed || serverAsked;
 
   const save = useMutation(
     trpc.founder.profile.update.mutationOptions({
       onSuccess: async (data) => {
+        // The api has read the reference (it reads it once): clear the cookie, and never hold the founder up for it.
+        if (handOver) await Promise.race([forgetVia().catch(() => undefined), new Promise((done) => setTimeout(done, FORGET_VIA_WAIT_MS))]);
         // The founder's own queries, the guidance switch among them (`founder.preferences.guidance`), read again.
         await queryClient.invalidateQueries({ queryKey: trpcPathPrefix("founder") as unknown[] });
         toast({
@@ -154,19 +186,25 @@ export function OnboardingScreen({ profile, email, accountId = null }: Onboardin
         router.push("/new");
         router.refresh();
       },
-      onError: (err) =>
-        toast({ title: "Profile not saved", description: saveErrorMessage(err), tone: "bad" }),
+      onError: (err) => {
+        if (isAdultUnconfirmed(err)) setServerAsked(true);
+        toast({ title: "Profile not saved", description: saveErrorMessage(err), tone: "bad" });
+      },
     }),
   );
+
+  // A person from before (a profile, no "18 or older" on record) is asked once, in one step, instead of the form.
+  if (editing && needsAdult) return <AdultStep />;
 
   return (
     <OnboardingForm
       profile={profile}
       email={email}
       accountId={accountId}
+      askAdult={!editing && needsAdult}
       saving={save.isPending}
       error={save.error ? saveErrorMessage(save.error) : null}
-      onSubmit={(patch) => save.mutate(patch)}
+      onSubmit={(patch) => save.mutate(handOver ? { ...patch, via: handOver } : patch)}
     />
   );
 }
@@ -182,7 +220,9 @@ export interface OnboardingFormProps {
   accountId?: string | null;
   saving?: boolean;
   error?: string | null;
-  onSubmit: (patch: ProfilePatch) => void;
+  /** A new account with no "I am 18 or older" on record: the box is on the form, and the save carries `confirmAdult`. */
+  askAdult?: boolean;
+  onSubmit: (patch: ProfilePatch & { confirmAdult?: true }) => void;
 }
 
 export function OnboardingForm({
@@ -191,11 +231,13 @@ export function OnboardingForm({
   accountId = null,
   saving = false,
   error,
+  askAdult = false,
   onSubmit,
 }: OnboardingFormProps) {
   const editing = profile !== null;
   const [form, setForm] = useState<ProfileForm>(() => formFromProfile(profile, email));
   const [touched, setTouched] = useState(false);
+  const [adult, setAdult] = useState(false);
   const errors = useMemo(() => validateProfileForm(form), [form]);
   const status = useMemo(() => sectionStatus(form), [form]);
   const summary = useMemo(() => profileSummary(form), [form]);
@@ -234,7 +276,11 @@ export function OnboardingForm({
           ?.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
-    onSubmit(profilePatch(form));
+    if (askAdult && !adult) {
+      document.getElementById("profile-adult")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+    onSubmit(askAdult ? { ...profilePatch(form), confirmAdult: true } : profilePatch(form));
   }
 
   const show = (key: keyof ProfileForm) => (touched ? errors[key] : undefined);
@@ -340,7 +386,7 @@ export function OnboardingForm({
               Your profile is private. Agents read it as context; it is never shown on the network,
               even when a business goes live.
             </p>
-            {/* The account ID matters to a co-founder joining someone else's business, not to a first screen: behind a disclosure (A17). */}
+            {/* The account ID is for support, not for a first screen: behind a disclosure (A17). People join a project by invitation. */}
             {accountId ? (
               <details className="group/account px-1" data-testid="profile-account-id">
                 <summary className="flex w-fit cursor-pointer list-none items-center gap-1 rounded-sm text-small text-secondary transition-colors duration-hover ease-out hover:text-primary focus-visible:shadow-ring [&::-webkit-details-marker]:hidden">
@@ -349,7 +395,7 @@ export function OnboardingForm({
                     size="inline"
                     className="transition-transform duration-overlay ease-out group-open/account:rotate-90"
                   />
-                  For a co-founder joining you
+                  Your account ID
                 </summary>
                 <div className="mt-2">
                   <p className="t-data mb-1.5">Your account ID</p>
@@ -657,7 +703,7 @@ export function OnboardingForm({
                   <ChipField
                     id="profile-constraints"
                     label="Constraints"
-                    hint="Rules the ideas must respect, like 'no stock to buy' or 'keep my day job'. Write your own or pick one below; every one is a hard limit."
+                    hint="Rules the ideas must respect, like 'no stock to buy' or 'fits around what I already do'. Write your own or pick one below; every one is a hard limit."
                     values={form.constraints}
                     suggestions={CONSTRAINT_SUGGESTIONS}
                     maxLength={PROFILE_LIMITS.constraint}
@@ -699,6 +745,19 @@ export function OnboardingForm({
               </p>
             )}
           </Panel>
+
+          {askAdult ? (
+            <div id="profile-adult">
+              <AdultCheck
+                id="profile-adult-check"
+                checked={adult}
+                onCheckedChange={setAdult}
+                hint={ADULT_FORM_HINT}
+                error={touched && !adult ? ADULT_FORM_NEEDED : undefined}
+                data-testid="profile-adult"
+              />
+            </div>
+          ) : null}
 
           <div className="flex items-center justify-between gap-4 border-t border-subtle pt-4">
             <div className="text-small text-secondary">
@@ -933,6 +992,8 @@ export interface ChipFieldProps {
   placeholder?: string;
   /** The longest a chip can be (the typed text stops here; a suggestion longer than this is not offered). */
   maxLength?: number;
+  /** The most chips it takes (default `MAX_CHIPS`; the public profile's tags take 8). */
+  max?: number;
 }
 
 /** Chips you can type (Enter adds) plus suggestion chips you can toggle. */
@@ -947,10 +1008,11 @@ export function ChipField({
   onChange,
   placeholder,
   maxLength = PROFILE_LIMITS.constraint,
+  max = MAX_CHIPS,
 }: ChipFieldProps) {
   const [draft, setDraft] = useState("");
   const commit = () => {
-    const next = addChip(values, draft, MAX_CHIPS, maxLength);
+    const next = addChip(values, draft, max, maxLength);
     if (next.length !== values.length) onChange(next);
     setDraft("");
   };
@@ -1014,7 +1076,7 @@ export function ChipField({
             {remaining.map((s) => (
               <Chip
                 key={s}
-                onClick={() => onChange(toggleChip(values, s, MAX_CHIPS, maxLength))}
+                onClick={() => onChange(toggleChip(values, s, max, maxLength))}
                 icon={Plus}
               >
                 {s}

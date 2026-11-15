@@ -8,10 +8,11 @@ import { agentUsable, buildSystemPrompt, getPrompt, getTemplate, modelBillingFac
 import { APP_NAME } from "@foundmill/config";
 import { repos } from "@foundmill/db";
 import { CyclePlanOutput } from "@foundmill/models";
-import { PLANNABLE_TASK_STATUSES, uuid } from "@foundmill/shared";
+import { PLANNABLE_TASK_STATUSES, uuid, type ModelBilling } from "@foundmill/shared";
 import { ComposerRequestError, ComposerUnavailableError } from "../composer-client";
-import { CYCLE_PLAN_FAILURE, type PlanFailureDetails } from "../cycle-contract";
+import { CYCLE_NOT_FINISHED_SUBJECT, CYCLE_NOT_STARTED_SUBJECT, CYCLE_PLAN_FAILURE, type PlanFailureDetails } from "../cycle-contract";
 import type { OrchestratorDeps } from "../deps";
+import type { BusinessModelClient } from "../models";
 import { requestJourneyDailyRefresh } from "../journey-refresh";
 import { agentActor, emitEvent, systemActor } from "../events";
 import { foldDuplicates, loadDispatchFacts } from "./brief";
@@ -25,6 +26,9 @@ const DISPATCHABLE = new Set<string>(PLANNABLE_TASK_STATUSES);
 /** Audit action written per task the cycle stops as the platform's own work (`stopPlatformDuties`). */
 export const PLATFORM_DUTY_STOPPED_AUDIT_ACTION = "cycle.platform_duty_stopped";
 /** Audit action written per task the cycle stops because no agent has a tool for it (`stopToollessTasks`). */
+/** Days a note that only informs stays open untouched before a Continue moves it to Archive. */
+export const SETTLED_NOTE_DAYS = 7;
+export const SETTLED_NOTES_ARCHIVED_AUDIT_ACTION = "cycle.settled_notes_archived";
 export const TOOL_MISSING_STOPPED_AUDIT_ACTION = "cycle.tool_missing_stopped";
 
 /**
@@ -60,14 +64,32 @@ export const PLAN_PAYLOAD_TASKS = 60;
  * refused request are final at once (non-retryable `CYCLE_PLAN_FAILURE`, readable message); anything else (a rate limit,
  * an outage, an unreadable answer) is returned unchanged so Temporal retries it as before.
  */
-export function planFailure(err: unknown): unknown {
+export function planFailure(err: unknown, billedTo: ModelBilling = "byok"): unknown {
   const billing = modelBillingFacts(err);
-  if (billing) return ApplicationFailure.create({ type: CYCLE_PLAN_FAILURE, message: modelBillingMessage(billing, "This cycle's plan"), nonRetryable: true, details: [{ kind: "billing", billedTo: billing.billedTo, reason: billing.reason } satisfies PlanFailureDetails] });
+  if (billing) return ApplicationFailure.create({ type: CYCLE_PLAN_FAILURE, message: modelBillingMessage(billing, "This round's plan"), nonRetryable: true, details: [{ kind: "billing", billedTo: billing.billedTo, reason: billing.reason } satisfies PlanFailureDetails] });
   const e = err as { name?: unknown; code?: unknown; apiErrorType?: unknown } | null;
   if (e?.name !== "ModelRequestError") return err;
-  if (e.apiErrorType === "missing_api_key") return ApplicationFailure.create({ type: CYCLE_PLAN_FAILURE, message: "This cycle's plan could not run: this business works on its own Anthropic key and none is stored. Add one in Settings › Keys, then press Continue.", nonRetryable: true, details: [{ kind: "credential" } satisfies PlanFailureDetails] });
-  if (e.code === "auth") return ApplicationFailure.create({ type: CYCLE_PLAN_FAILURE, message: "This cycle's plan could not run: Anthropic refused the key. Check the key in Settings › Keys, then press Continue.", nonRetryable: true, details: [{ kind: "credential" } satisfies PlanFailureDetails] });
-  return ApplicationFailure.create({ type: CYCLE_PLAN_FAILURE, message: "This cycle's plan could not run: the model service refused the request. Press Continue to try again; if it happens again, the team has the details.", nonRetryable: true, details: [{ kind: "request" } satisfies PlanFailureDetails] });
+  // A missing key is only ever the business's own: the platform client cannot be built without one.
+  if (e.apiErrorType === "missing_api_key") return ApplicationFailure.create({ type: CYCLE_PLAN_FAILURE, message: "This round's plan could not run: this business works on its own Anthropic key and none is stored. Add one in Settings › Keys, then press Continue.", nonRetryable: true, details: [{ kind: "credential", billedTo: "byok" } satisfies PlanFailureDetails] });
+  if (e.code === "auth") {
+    // Whose key was refused decides who can mend it (Nov 9, 2026): a business on credits has no key to check, so it is
+    // told the platform's account refused, as the billing sentence does, and the operator is alerted (notePlanFailure).
+    const message = billedTo === "byok" ? "This round's plan could not run: Anthropic refused the key. Check the key in Settings › Keys, then press Continue." : `This round's plan could not run: the model account that runs ${APP_NAME} refused its key. Our team has been alerted, and nothing was charged to your credits. Try again later.`;
+    return ApplicationFailure.create({ type: CYCLE_PLAN_FAILURE, message, nonRetryable: true, details: [{ kind: "credential", billedTo } satisfies PlanFailureDetails] });
+  }
+  return ApplicationFailure.create({ type: CYCLE_PLAN_FAILURE, message: "This round's plan could not run: the model service refused the request. Press Continue to try again; if it happens again, the team has the details.", nonRetryable: true, details: [{ kind: "request" } satisfies PlanFailureDetails] });
+}
+
+/** Whose key a business's planning call runs on: the routed client says; a plain client is the platform's. */
+async function billedToOf(models: OrchestratorDeps["models"], businessId: string): Promise<ModelBilling> {
+  const routed = models as Partial<BusinessModelClient>;
+  if (typeof routed.routeFor !== "function") return "credits";
+  try {
+    return (await routed.routeFor(businessId)).billedTo;
+  } catch {
+    // The route cannot be read only when the business's own key is missing.
+    return "byok";
+  }
 }
 
 /**
@@ -90,7 +112,7 @@ export function retryDeferral(task: BriefTask, trigger: CycleTrigger | null = nu
 /**
  * The Chief of Staff's answer when nothing can start (audit OL-10): no model is called, so no empty cycle is paid for, and
  * the note says what is actually in the way instead of "everything is blocked". Roadmap items without tasks are planned
- * by the team itself in the next cycles (lead, 2026-10-24); the founder never builds a task graph.
+ * by the team itself in the next rounds of work (lead, 2026-10-24); the founder never builds a task graph.
  */
 export function idleSummary(brief: BusinessBrief, waiting: readonly BriefTask[]): string {
   const byDeps = brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && t.blocked).length;
@@ -105,17 +127,17 @@ export function idleSummary(brief: BusinessBrief, waiting: readonly BriefTask[])
   if (approvals > 0) parts.push(`${approvals} task${approvals === 1 ? " waits" : "s wait"} for your approval in the Inbox`);
   if (retrying > 0) parts.push(`${retrying} task${retrying === 1 ? " is" : "s are"} waiting to be retried or need${retrying === 1 ? "s" : ""} you to start ${retrying === 1 ? "it" : "them"} from the Plan`);
   if (byDeps > 0) parts.push(`${byDeps} task${byDeps === 1 ? " waits" : "s wait"} on earlier tasks`);
-  if (held > 0) parts.push(`${held} channel task${held === 1 ? " waits" : "s wait"} until you start distribution from Distribution › Board`);
+  if (held > 0) parts.push(`${held} channel task${held === 1 ? " waits" : "s wait"} until you start distribution from Customers › Board`);
   const reason = parts.length > 0 ? `${parts.join("; ")}.` : "The board is clear.";
   return `Nothing is ready to start for ${brief.businessName}, so no cycle was planned. ${reason}`;
 }
 
-/** "N roadmap items have no tasks yet (…); the team plans them in the next cycles", or null before the sign-off or with none. */
+/** "N roadmap items have no tasks yet (…); the team plans them in the next rounds of work", or null before the sign-off or with none. */
 export function untaskedRoadmapLine(brief: Pick<BusinessBrief, "untaskedRoadmap" | "productStage">): string | null {
   const roadmap = brief.untaskedRoadmap ?? [];
   if (roadmap.length === 0 || brief.productStage === "awaiting_signoff") return null;
   const names = roadmap.slice(0, 3).map((r) => r.title);
-  return `${roadmap.length} roadmap item${roadmap.length === 1 ? " has" : "s have"} no tasks yet (${names.join(", ")}${roadmap.length > names.length ? ", …" : ""}); the team plans ${roadmap.length === 1 ? "it" : "them"} in the next cycles`;
+  return `${roadmap.length} roadmap item${roadmap.length === 1 ? " has" : "s have"} no tasks yet (${names.join(", ")}${roadmap.length > names.length ? ", …" : ""}); the team plans ${roadmap.length === 1 ? "it" : "them"} in the next rounds of work`;
 }
 
 /** The plan's summary with what this cycle planned from the roadmap in front of it (nothing added when nothing was tried). */
@@ -143,7 +165,7 @@ export function factualSummary(brief: BusinessBrief, planned: string, starts: re
   }
   const roadmap = untaskedRoadmapLine(brief);
   if (roadmap) parts.push(roadmap);
-  return `Nothing started this cycle.${parts.length ? ` ${parts.join(". ")}.` : ""}`;
+  return `Nothing started in this round of work.${parts.length ? ` ${parts.join(". ")}.` : ""}`;
 }
 
 /**
@@ -158,7 +180,7 @@ export function approvalDeferral(task: BriefTask): string | null {
 }
 
 /** Why a channel task waits before the founder has started distribution (the mock planner uses the same words). */
-export const CHANNEL_WAITS_REASON = "distribution starts when you start it from Distribution › Board";
+export const CHANNEL_WAITS_REASON = "distribution starts when you start it from Customers › Board";
 
 /**
  * Channel work is held back in code, not left to the model (founder, 2026-10-18): until the business sells, every
@@ -238,17 +260,35 @@ export function createCycleActivities(deps: OrchestratorDeps) {
   }
 
   /**
+   * Every Continue closes the notes that only informed and are no longer current (founder, Nov 7, 2026): an update,
+   * report or question-less warning about work that has since finished, stopped or failed, or one nobody touched for
+   * `SETTLED_NOTE_DAYS`. They move to the Inbox's Archive, still readable; decisions and hard stops are never closed
+   * here. On record per cycle; a failure never fails the plan.
+   */
+  async function closeSettledNotes(businessId: string, cycleNumber: number): Promise<void> {
+    try {
+      const closed = await repos.inbox.archiveSettled(deps.db, businessId, { olderThan: new Date(Date.now() - SETTLED_NOTE_DAYS * 24 * 60 * 60 * 1000) });
+      if (closed.length === 0) return;
+      await repos.audit.append(deps.db, businessId, { actorKind: "system", action: SETTLED_NOTES_ARCHIVED_AUDIT_ACTION, target: { kind: "cycle", id: String(cycleNumber) }, details: { cycleNumber, archived: closed.length, itemIds: closed.slice(0, 100) } });
+      deps.log.info({ businessId, cycleNumber, archived: closed.length }, "cycle: settled Inbox notes archived");
+    } catch (err) {
+      deps.log.warn({ businessId, cycleNumber, err: (err as Error).message }, "cycle: settled Inbox notes could not be archived; tried again next cycle");
+    }
+  }
+
+  /**
    * A blocked task whose agent said the team has no tool for it (`lacksTool` on its latest `task.blocked` detail) is
-   * stopped and archived after that one attempt, its dependents freed, and the founder told once, in one line, that it
-   * is theirs to do or to drop (founder, Nov 3, 2026: "Yes, do both"). Retrying it costs a few cents a cycle and tells
-   * the founder nothing new. Audited per task; a failure to stop one never fails the plan.
+   * stopped and archived after that one attempt and its dependents freed (founder, Nov 3, 2026: "Yes, do both"). A
+   * missing tool is the platform's gap, not the founder's chore (founder, Nov 7, 2026, phase 1 of the first-time
+   * founder report): it goes on record for the platform (`cycle.tool_missing_stopped`, and a warning in the log), never
+   * into the founder's Inbox. Until Nov 7 it posted "Only you can do this: …", which handed the founder work such as
+   * "Audit current environment values on all services". Audited per task; a failure to stop one never fails the plan.
    */
   async function stopToollessTasks(businessId: string, cycleNumber: number, openTasks: readonly BriefTask[]): Promise<Set<string>> {
     const stopped = new Set<string>();
     const blocked = openTasks.filter((t) => t.status === "blocked");
     if (blocked.length === 0) return stopped;
     const events = await repos.events.list(deps.db, businessId, { type: "task.blocked", limit: 300 });
-    const chief = await repos.agents.chiefOfStaff(deps.db, businessId);
     for (const task of blocked) {
       const latest = events.items.find((e) => (e.payload as { taskId?: unknown }).taskId === task.id);
       const p = (latest?.payload ?? {}) as { reason?: unknown; detail?: unknown };
@@ -265,8 +305,8 @@ export function createCycleActivities(deps: OrchestratorDeps) {
           await repos.tasks.archive(tx, businessId, task.id);
           await repos.audit.append(tx, businessId, { actorKind: "system", action: TOOL_MISSING_STOPPED_AUDIT_ACTION, target: { kind: "task", id: task.id }, details: { cycleNumber, title: row.title.slice(0, 200), detail: detail.slice(0, 500), dependentsFreed: edges.filter((e) => e.fromTask === task.id).length } });
         });
-        const from = chief?.id ?? agent?.id ?? row.assigneeAgentId;
-        if (from) await postNote(deps, businessId, from, { type: "warning", subject: `Only you can do this: ${title}`.slice(0, 80), body: `${agent?.name ?? "The team"} could not do “${title}”: the team has no way to do it on its own, so it is stopped. If you want it done, it is yours to do; otherwise nothing more happens.`, blocksContinue: false });
+        // Reported to the platform, not the founder: the log line is what Foundmill's own monitoring reads.
+        deps.log.warn({ businessId, cycleNumber, taskId: task.id, agent: agent?.name ?? null, title, platformGap: "tool_missing" }, "cycle: a task stopped because no agent has a tool for it (platform gap)");
         stopped.add(task.id);
       } catch (err) {
         deps.log.warn({ businessId, cycleNumber, taskId: task.id, err: (err as Error).message }, "cycle: a task no agent has a tool for could not be stopped; it is tried again next cycle");
@@ -283,12 +323,12 @@ export function createCycleActivities(deps: OrchestratorDeps) {
     if (brief.agentsStopped) return { summary: "The team is stopped, so nothing was planned. An owner or admin resumes the agents with Resume agents in the top bar.", timeBoxHours: 0.25, starts: [], deferred: [], approvalsNeeded: [], modelKey: chiefAgent?.modelKey ?? "opus", warning: null, costMinor: 0 };
     // Every concurrent-agent slot of the plan tier is in use (`brief.maxAgents` is the room left): nothing new can start,
     // so no plan is drafted (and nothing spent on one); the open work is listed as deferred.
-    if (brief.maxAgents <= 0) return { summary: "Every agent the plan runs at once is already at work; nothing new starts this cycle.", timeBoxHours: LIMITS.cycleTimeBoxAgentHours, starts: [], deferred: brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked).map((t) => ({ taskId: t.id, reason: "plan limit: every concurrent agent slot is in use" })), approvalsNeeded: [], modelKey: chiefAgent?.modelKey ?? "opus", warning: null, costMinor: 0 };
+    if (brief.maxAgents <= 0) return { summary: "Every agent the plan runs at once is already at work; nothing new starts in this round of work.", timeBoxHours: LIMITS.cycleTimeBoxAgentHours, starts: [], deferred: brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked).map((t) => ({ taskId: t.id, reason: "plan limit: every concurrent agent slot is in use" })), approvalsNeeded: [], modelKey: chiefAgent?.modelKey ?? "opus", warning: null, costMinor: 0 };
     // This month's credits are used up (a business on credits): no plan is drafted on the platform's key either.
-    if (brief.budgetRemainingMinor !== null && brief.budgetRemainingMinor <= 0) return { summary: "This month's credits are used up, so nothing new starts this cycle. Top up or add your own Anthropic key to keep the team working.", timeBoxHours: LIMITS.cycleTimeBoxAgentHours, starts: [], deferred: brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked).map((t) => ({ taskId: t.id, reason: "credits used up for this month" })), approvalsNeeded: [], modelKey: chiefAgent?.modelKey ?? "opus", warning: null, costMinor: 0 };
+    if (brief.budgetRemainingMinor !== null && brief.budgetRemainingMinor <= 0) return { summary: "This month's credits are used up, so nothing new starts in this round of work. Top up or add your own Anthropic key to keep the team working.", timeBoxHours: LIMITS.cycleTimeBoxAgentHours, starts: [], deferred: brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked).map((t) => ({ taskId: t.id, reason: "credits used up for this month" })), approvalsNeeded: [], modelKey: chiefAgent?.modelKey ?? "opus", warning: null, costMinor: 0 };
     // The business's monthly model budget is used up (0059, whoever pays the model): dispatch would refuse every start, and a
     // plan costs money too.
-    if (brief.modelBudgetRemainingMinor != null && brief.modelBudgetRemainingMinor <= 0) return { summary: "The monthly model budget is used up, so nothing new starts this cycle. An owner or admin can raise or remove the budget; otherwise the team starts again next month.", timeBoxHours: LIMITS.cycleTimeBoxAgentHours, starts: [], deferred: brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked).map((t) => ({ taskId: t.id, reason: "monthly model budget used up" })), approvalsNeeded: [], modelKey: chiefAgent?.modelKey ?? "opus", warning: null, costMinor: 0 };
+    if (brief.modelBudgetRemainingMinor != null && brief.modelBudgetRemainingMinor <= 0) return { summary: "The monthly model budget is used up, so nothing new starts in this round of work. An owner or admin can raise or remove the budget; otherwise the team starts again next month.", timeBoxHours: LIMITS.cycleTimeBoxAgentHours, starts: [], deferred: brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked).map((t) => ({ taskId: t.id, reason: "monthly model budget used up" })), approvalsNeeded: [], modelKey: chiefAgent?.modelKey ?? "opus", warning: null, costMinor: 0 };
     const chief = getTemplate("chief_of_staff");
     const system = buildSystemPrompt({ businessName: brief.businessName, appName: APP_NAME, template: chief, brief: brief.text, glossary: brief.glossary });
     const budgetText = brief.budgetRemainingMinor === null ? "the founder's own key (no credits)" : `${(brief.budgetRemainingMinor / 100).toFixed(2)} ${brief.creditsCurrency} of credits (Estimate)`;
@@ -331,8 +371,8 @@ export function createCycleActivities(deps: OrchestratorDeps) {
         scope: `cycle:${input.businessId}`,
         attribution: { businessId: input.businessId, agentId: chiefAgent?.id, kind: "cycle_plan" },
       })
-      .catch((err: unknown) => {
-        throw planFailure(err);
+      .catch(async (err: unknown) => {
+        throw planFailure(err, await billedToOf(deps.models, input.businessId));
       });
     const plan = result.json;
     const byId = new Map(shown.map((t) => [t.id, t]));
@@ -396,9 +436,10 @@ export function createCycleActivities(deps: OrchestratorDeps) {
      */
     async planCycle(input: { businessId: string; cycleNumber: number; trigger: CycleTrigger; brief: BusinessBrief; roadmapPlanned?: RoadmapPlanResult | null }): Promise<CyclePlan> {
       // Tasks planned before the rule for the platform's own steps (Nov 2, 2026) leave the loop here, never the plan,
-      // and so does a task no agent has a tool for (Nov 3, 2026), with one line to the founder.
+      // and so does a task no agent has a tool for (Nov 3, 2026; on record for the platform, not the founder's Inbox).
       const duties = await stopPlatformDuties(input.businessId, input.cycleNumber, input.brief.openTasks);
       const toolless = await stopToollessTasks(input.businessId, input.cycleNumber, input.brief.openTasks.filter((t) => !duties.has(t.id)));
+      await closeSettledNotes(input.businessId, input.cycleNumber);
       const stopped = new Set([...duties, ...toolless]);
       const brief = stopped.size > 0 ? { ...input.brief, openTasks: input.brief.openTasks.filter((t) => !stopped.has(t.id)) } : input.brief;
       const plan = await draftPlan({ ...input, brief });
@@ -481,6 +522,7 @@ export function createCycleActivities(deps: OrchestratorDeps) {
     async notePlanFailure(input: { businessId: string; cycleNumber: number; message: string; details: PlanFailureDetails | null }): Promise<{ inboxItemIds: string[] }> {
       const kind = input.details?.kind ?? "error";
       if (kind === "billing" && input.details?.billedTo !== "byok") deps.log.error({ alert: "model_billing", businessId: input.businessId, cycleNumber: input.cycleNumber, reason: input.details?.reason }, "cycle not planned: Anthropic refused to bill the platform key");
+      else if (kind === "credential" && input.details?.billedTo === "credits") deps.log.error({ alert: "model_credential", businessId: input.businessId, cycleNumber: input.cycleNumber }, "cycle not planned: Anthropic refused the platform key");
       else deps.log.warn({ businessId: input.businessId, cycleNumber: input.cycleNumber, kind }, "cycle not planned");
       const chief = await repos.agents.chiefOfStaff(deps.db, input.businessId);
       const inboxItemIds: string[] = [];
@@ -488,8 +530,8 @@ export function createCycleActivities(deps: OrchestratorDeps) {
         const item = await repos.inbox.createItem(deps.db, input.businessId, {
           type: "warning",
           from_agent_id: chief.id,
-          subject: `Cycle ${input.cycleNumber} did not start`.slice(0, 80),
-          body_md: `${input.message.trim()}\n\nNo new work started this cycle; work already under way carries on.`,
+          subject: CYCLE_NOT_STARTED_SUBJECT,
+          body_md: `${input.message.trim()}\n\nNo new work started in this round; work already under way carries on.`,
           status_strip: [],
           exhibit: { kind: "none", spec_ref: null },
           decision: null,
@@ -562,8 +604,8 @@ export function createCycleActivities(deps: OrchestratorDeps) {
           ? await repos.inbox.createItem(tx, input.businessId, {
               type: "warning",
               from_agent_id: chief.id,
-              subject: `Cycle ${input.cycleNumber} did not finish`,
-              body_md: `The cycle stopped because of an error: ${reason}. Nothing was lost; open work is still on the board. Press Continue to try again, and check Settings › Integrations or credits if it keeps happening.`,
+              subject: CYCLE_NOT_FINISHED_SUBJECT,
+              body_md: `The round of work stopped because of an error: ${reason}. Nothing was lost; open work is still on the board. Press Continue to try again, and check Settings › Integrations or credits if it keeps happening.`,
               status_strip: [],
               exhibit: { kind: "none", spec_ref: null },
               decision: null,

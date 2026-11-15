@@ -76,6 +76,18 @@ export async function resolveBearer(getToken: TokenGetter, timeoutMs = TOKEN_TIM
  */
 export const STREAMING_PROCEDURES: ReadonlySet<string> = new Set(["idea.draft", "idea.logo.stream", "business.logo.stream", "agent.conversation.sendStream", "agent.conversation.inboxReplyStream", "idea.askStream"]);
 
+/**
+ * Procedures sent one per request, never batched with others: Team call's spoken turns (each is seconds of a vendor
+ * call, and a batch answers only when its slowest call is done, so the first agent waited for the second's audio) and
+ * the transcription of what the founder said.
+ */
+export const UNBATCHED_PROCEDURES: ReadonlySet<string> = new Set(["teamCall.speech", "teamCall.transcribe", "agent.speechAccent.preview"]);
+
+/** True for an operation that goes on a request of its own. */
+export function isUnbatchedOperation(op: { path: string }): boolean {
+  return UNBATCHED_PROCEDURES.has(op.path);
+}
+
 /** True for an operation that must use the streaming link. */
 export function isStreamingOperation(op: { path: string }): boolean {
   return STREAMING_PROCEDURES.has(op.path);
@@ -161,7 +173,9 @@ export function createApiLinks(opts: ApiClientOptions): TRPCLink<AppRouter>[] {
     httpBatchLink<AppRouter>({ url: to, transformer: superjson, headers, fetch: fetchWithTimeout(fetch, opts.limits), maxItems: LIMITS.trpcMaxBatchSize, maxURLLength: MAX_URL_LENGTH });
   // Reads to the page's own origin carry its cookies, as any same-origin request does: they ride the connection the page
   // already has open, and a preview deployment behind Vercel's protection lets them through. The API reads only the bearer.
-  const plain = queryUrl === url ? batch(url, opts.fetch) : splitLink<AppRouter>({ condition: (op) => op.type === "query", true: batch(queryUrl, opts.fetch), false: batch(url, opts.fetch) });
+  const batched = queryUrl === url ? batch(url, opts.fetch) : splitLink<AppRouter>({ condition: (op) => op.type === "query", true: batch(queryUrl, opts.fetch), false: batch(url, opts.fetch) });
+  const single = httpBatchLink<AppRouter>({ url, transformer: superjson, headers, fetch: fetchWithTimeout(opts.fetch, opts.limits), maxItems: 1, maxURLLength: MAX_URL_LENGTH });
+  const plain = splitLink<AppRouter>({ condition: isUnbatchedOperation, true: single, false: batched });
   // One stream per request (`maxItems: 1`): a batched request is only aborted once every operation in it is, so Stop on
   // a draft that shared a request with another stream would leave the API drafting.
   return [splitLink({ condition: isStreamingOperation, true: httpBatchStreamLink({ url, transformer: superjson, headers, fetch: opts.fetch, maxItems: 1 }), false: plain })];
@@ -224,6 +238,14 @@ export function notInvitedReason(err: unknown): "not_listed" | "email_unconfirme
   return details?.reason === "email_unconfirmed" ? "email_unconfirmed" : "not_listed";
 }
 
+/**
+ * Signed in, and the admission did not let the person in today (the API's `on_waitlist`, services/access.ts: open
+ * sign-up's daily ceiling). A refusal of its own, never `not_invited`.
+ */
+export function isOnWaitlist(err: unknown): boolean {
+  return appErrorCode(err) === "on_waitlist";
+}
+
 /** What a refused TOO_MANY_REQUESTS says when the API sent no sentence of its own. */
 export const RATE_LIMITED_MESSAGE = "That's a lot of requests in a short time. Wait a minute, then try again.";
 
@@ -249,8 +271,8 @@ export function forbiddenMessage(message: string): string {
   if (write && !/, and this plan would/.test(message)) return `You can read ${sectionWord(write[1]!)} but not change it. Ask an owner or admin for write access.`;
   const role = /^Your role \((\w+)\) cannot perform (.+)$/.exec(message);
   if (role) {
-    if (role[2] === "administration") return "Only an owner or admin can do this.";
-    if (role[2] === "owner actions") return "Only the owner can do this.";
+    if (role[2] === "administration") return "Only an owner, a cofounder or an admin can do this.";
+    if (role[2] === "owner actions") return "Only an owner or a cofounder can do this.";
     if (role[1] === "viewer" || role[1] === "advisor") return `As ${role[1] === "advisor" ? "an advisor" : "a viewer"} you can follow this business, but not change it.`;
   }
   return message;

@@ -8,6 +8,7 @@ import { CATALOGUE_VIEWS, MOVES_VIEWS, RecruitmentScreen, toCatalogueRows } from
 import { suggestTemplates, tokenize } from "../shared";
 import { AGENT_COS, AGENT_JUNO, BID, DEPT_DEV, DEPT_DIST, DEPT_TEAM, agents, catalogue, dataResponses, emptyResponses } from "./fixtures";
 import { createFakeSource, renderScreen } from "./fake-source";
+import { openExplainer } from "../../explainer.testing";
 
 const props = { businessId: BID, departmentId: DEPT_TEAM };
 
@@ -21,9 +22,10 @@ describe("recruitment data", () => {
       ["newsletter_writer", "Worker", 0],
       ["channel_email", "Channel engine", 1],
       ["sourcing_specialist", "Specialist", 0],
-      ["entity_linker", "Utility", 1],
     ]);
-    expect(CATALOGUE_VIEWS.map((v) => v.name)).toEqual(["Simple", "All templates", "Leads", "Workers", "Channel engines", "Specialists", "Utilities"]);
+    // Leads first: the utility templates are background helpers every business already runs, never offered for hire.
+    expect(rows.some((r) => r.family === "utility")).toBe(false);
+    expect(CATALOGUE_VIEWS.map((v) => v.name)).toEqual(["Simple", "All templates", "Leads", "Workers", "Channel engines", "Specialists"]);
     expect(MOVES_VIEWS.map((v) => v.id)).toEqual(["simple", "all", "idle"]);
     // Simple (DESIGN §8 Guidance): four columns, built in, for both tables.
     for (const views of [CATALOGUE_VIEWS, MOVES_VIEWS]) expect(views[0]).toMatchObject({ id: "simple", builtIn: true, columns: expect.any(Array) });
@@ -55,24 +57,26 @@ describe("RecruitmentScreen", () => {
       </GuidanceProvider>,
     );
     const table = await screen.findByRole("grid", { name: "Catalog" });
-    expect(within(table).getAllByRole("row")).toHaveLength(catalogue.length + 1);
-    expect(within(table).getAllByText("Estimate").length).toBe(catalogue.length);
+    // Every template but the utility one (a background helper).
+    expect(within(table).getAllByRole("row")).toHaveLength(catalogue.length);
+    expect(within(table).getAllByText("Estimate").length).toBe(catalogue.length - 1);
     expect(within(table).getByText("Newsletter writer")).toBeTruthy();
     // The template's kind reads "Kind" (never "Family"), and the cap says it is US dollars.
     expect(within(table).getByRole("columnheader", { name: /^Kind/ })).toBeTruthy();
     expect(within(table).queryByRole("columnheader", { name: /^Family/ })).toBeNull();
     expect(within(table).getByRole("columnheader", { name: /Wage cap \(USD\)/ })).toBeTruthy();
     expect(screen.getByTestId("catalogue-intro").textContent).toBe("Ready-made agents. Hire one into a department and it starts next cycle.");
-    expect(screen.getByTestId("catalogue-summary").textContent).toBe("7 templates · 5 in the team");
+    expect(screen.getByTestId("catalogue-summary").textContent).toBe("6 templates · 4 in the team");
     // Guidance is on outside a provider: the tab's intro sits in the builder panel, the wage cap is a defined word, and
     // the generate button shows no key cap (an operator's affordance).
-    const explainer = document.querySelector("[data-explainer='team-recruitment']") as HTMLElement;
-    expect(explainer.getAttribute("data-state")).toBe("open");
+    const explainer = openExplainer("team-recruitment");
     expect(explainer.textContent).toContain("Hire new agents");
     expect(explainer.querySelector("[data-term='wage_cap']")).not.toBeNull();
     expect(screen.getByTestId("draft-agent").querySelector("kbd")).toBeNull();
     const moves = screen.getByRole("grid", { name: "Team moves" });
-    expect(within(moves).getAllByRole("row")).toHaveLength(agents.length + 1);
+    // The founder's team: the background helper is not moved, lent or let go from here.
+    expect(within(moves).getAllByRole("row")).toHaveLength(agents.length);
+    expect(within(moves).queryByText("Entity linker")).toBeNull();
     expect(within(moves).getByRole("link", { name: "Juno" })).toBeTruthy();
     expect(within(moves).getByText("Down")).toBeTruthy();
     expect(fake.queried.get("team.agents.catalogue")).toEqual({});
@@ -198,7 +202,6 @@ describe("RecruitmentScreen", () => {
     expect(within(table).queryByText(/_/)).toBeNull();
     expect(within(table).getByText("Planning, Prioritization")).toBeTruthy();
     expect(within(table).getAllByText("Development").length).toBe(3);
-    expect(within(table).getByText("Any")).toBeTruthy();
     expect(within(table).queryByText("development")).toBeNull();
   });
 
@@ -232,11 +235,11 @@ describe("RecruitmentScreen", () => {
     await waitFor(() => expect(fake.mutations[1]).toEqual({ path: "team.agents.loan", input: { agentId: expect.any(String), departmentId: DEPT_TEAM, move: false } }));
     await waitFor(() => expect(screen.getByTestId("recruitment-notice").textContent).toBe("Pike lent to Team."));
 
-    fireEvent.contextMenu(within(moves).getByText("Entity linker"));
+    fireEvent.contextMenu(within(moves).getByText("Email engine"));
     await user.click(await screen.findByRole("menuitem", { name: "Let go" }));
     await user.click(within(await screen.findByTestId("release-dialog")).getByTestId("release-confirm"));
     await waitFor(() => expect(fake.mutations[2]!.path).toBe("team.agents.release"));
-    await waitFor(() => expect(screen.getByTestId("recruitment-notice").textContent).toBe("Linker has left the team."));
+    await waitFor(() => expect(screen.getByTestId("recruitment-notice").textContent).toBe("Mara has left the team."));
     expect(fake.mutations.some((m) => m.input.agentId === AGENT_COS)).toBe(false);
   });
 
@@ -244,7 +247,7 @@ describe("RecruitmentScreen", () => {
     const empty = createFakeSource({ businessId: BID, responses: emptyResponses });
     const { unmount } = renderScreen(empty, <RecruitmentScreen {...props} />);
     expect(await screen.findByText(/The catalog lists every agent template/)).toBeTruthy();
-    expect(screen.getByText(/Hired agents appear here/)).toBeTruthy();
+    expect(screen.getByText(/Nothing hired yet/)).toBeTruthy();
     unmount();
 
     const loading = createFakeSource({ businessId: BID, responses: { "department.list": [] } });

@@ -615,8 +615,8 @@ export const DEMO_WIDGET_REGISTRY: WidgetRegistryEntry[] = [
     render: () => null,
   },
   {
-    key: "league_table",
-    title: "Leaderboard",
+    key: "community_feed",
+    title: "Community feed",
     description: "LIVE only.",
     icon: Building2,
     defaultSize: { w: 4, h: 24 },
@@ -712,4 +712,24 @@ export const ENTITY_KIND_SAMPLE: EntityKind[] = [
   "platform_member",
   "community",
   "venue",
+];
+
+/** A small team for nested-row tables (DataTable / Nested rows): leads with the specialists who report to them. */
+export interface TeamRow {
+  id: string;
+  name: string;
+  role: string;
+  department: string;
+  rating: number;
+  pinned?: boolean;
+  reports?: TeamRow[];
+}
+
+const member = (id: string, name: string, role: string, department: string, rating: number): TeamRow => ({ id, name, role, department, rating });
+
+export const TEAM_ROWS: TeamRow[] = [
+  { ...member("cos", "Chief of Staff", "Chief of Staff", "Team", 15), pinned: true },
+  { ...member("prod", "Product Lead", "Head of Product", "Product", 13), reports: [member("research", "Researcher", "User researcher", "Product", 11), member("design", "Designer", "Product designer", "Product", 12)] },
+  { ...member("eng", "Engineering Lead", "Head of Engineering", "Development", 16), reports: [member("backend", "Backend Engineer", "Backend engineer", "Development", 13), member("planner", "Planner", "Planner", "Development", 12), member("qa", "QA Engineer", "Quality engineer", "Development", 14)] },
+  member("dist", "Distribution Lead", "Head of Distribution", "Distribution", 11),
 ];

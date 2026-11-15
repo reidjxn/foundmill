@@ -1,7 +1,7 @@
 /** 0007 — customer journey: visitors, touches, conversions, journeys, journey_daily, milestones. */
 import { CHANNEL_KEYS, CONVERSION_KINDS, MATCHDAY_LEVELS, MILESTONE_KINDS, VISIBILITY } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
-import { bigint, boolean, date, index, integer, jsonb, numeric, pgMaterializedView, pgTable, pgView, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { bigint, boolean, char, date, index, integer, jsonb, numeric, pgMaterializedView, pgTable, pgView, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { businessCurrency, emptyArray, emptyList, emptyObject, id, minor, timestamps, timestampsWithArchive, tstz } from "./_common";
 import { businessId } from "./_refs";
 import { entities } from "./crm";
@@ -79,6 +79,26 @@ export const conversions = pgTable(
   ],
 );
 export type Conversion = typeof conversions.$inferSelect;
+
+/**
+ * 0107 — the conversions a client role reads: a security-barrier view over the same columns, with `amount_minor` null
+ * for a collaborator (the table itself is closed to a collaborator). `repos.journeys` reads it for every client role's
+ * connection and the table for the service's.
+ */
+export const memberConversions = pgView("member_conversions", {
+  id: uuid("id").notNull(),
+  businessId: uuid("business_id").notNull(),
+  entityId: uuid("entity_id"),
+  kind: text("kind", { enum: CONVERSION_KINDS }).notNull(),
+  /** Null for a collaborator (0107). */
+  amountMinor: minor("amount_minor"),
+  currency: char("currency", { length: 3 }).notNull(),
+  occurredAt: tstz("occurred_at").notNull(),
+  sourceEventId: uuid("source_event_id"),
+  firstPayment: boolean("first_payment").notNull(),
+  createdAt: tstz("created_at").notNull(),
+  updatedAt: tstz("updated_at").notNull(),
+}).existing();
 export type NewConversion = typeof conversions.$inferInsert;
 
 export const journeys = pgTable(
@@ -161,6 +181,9 @@ const journeyDailyColumns = {
 
 /** The materialised aggregate (service_role only; refreshed by refresh_journey_daily()). */
 export const journeyDailyMv = pgMaterializedView("journey_daily_mv", journeyDailyColumns).existing();
-/** The RLS-filtered view app roles read (security_barrier over the matview). */
+/**
+ * The RLS-filtered view app roles read (security_barrier over the matview). 0107: `spend_minor` and `revenue_minor` are
+ * null for a collaborator; `repos.journeys.dailyRange` reads them as 0.
+ */
 export const journeyDaily = pgView("journey_daily", journeyDailyColumns).existing();
 export type JourneyDailyRow = typeof journeyDaily.$inferSelect;

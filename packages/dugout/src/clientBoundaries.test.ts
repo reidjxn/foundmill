@@ -47,9 +47,13 @@ export const BARRELS = [
   "components/journey.ts",
   "components/agents.ts",
   "components/conversation.ts",
+  "components/call.ts",
   // The guided layer (UX plan §6): the definitions primitives and the first-run pieces.
   "components/guidance.ts",
   "components/firstrun.ts",
+  "components/today.ts",
+  "components/public.ts",
+  "components/share.ts",
   "brand.ts",
 ];
 
@@ -72,6 +76,7 @@ export const SERVER_SAFE_FILES = [
   "components/foundation/StatusPill.tsx",
   "components/foundation/Chip.tsx",
   "components/foundation/ProgressRing.tsx",
+  "components/foundation/ProgressBar.tsx",
   "components/foundation/Sparkline.tsx",
   "components/foundation/StarRating.tsx",
   "components/foundation/Skeleton.tsx",
@@ -114,6 +119,17 @@ export const SERVER_SAFE_FILES = [
   "components/guidance/fixtures.ts",
   "components/guidance/keyboardFocus.ts",
   "components/firstrun/nextSteps.ts",
+  // Today (founder, 2026-11-07): the week in words is plain markup inside a Panel.
+  "components/today/WeekPlan.tsx",
+  // Public pages: the project page is rendered by the signed-out route as a Server Component.
+  "components/public/ProjectPage.tsx",
+  "components/public/ProjectStory.tsx",
+  "components/public/MilestoneCard.tsx",
+  "components/public/PersonPage.tsx",
+  // The Terms and the Privacy Policy (founder, 2026-11-13): rendered by their static routes as Server Components.
+  "components/public/LegalPage.tsx",
+  // The streak (retention plan, 2026-11-11): plain markup inside a Panel.
+  "components/today/StreakStrip.tsx",
 ];
 
 export function listSourceFiles(root = SRC): string[] {

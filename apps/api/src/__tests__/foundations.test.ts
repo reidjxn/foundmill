@@ -4,13 +4,15 @@
  * every outline section and the roadmap, and a failure can be retried. Door A drafts from the idea and the founder
  * profile; Door B from the Import report and the imported sources linked at commit.
  */
-import { getArchetypeSeed } from "@foundmill/agents";
+import { PROJECT_PAGE_USAGE_KIND, getArchetypeSeed } from "@foundmill/agents";
+import { runProjectPageStep } from "@foundmill/agents/foundations-steps";
+import { PAGE_READY_NOTE, firstSentence, isPageReadyDecision, normalizePageText, starterPageDraft } from "@foundmill/shared";
 import { businessFoundations, repos } from "@foundmill/db";
 import { MockModelClient, ModelUnavailableError, PRICING_CURRENCY, type ModelClient, type StreamStructuredRequest } from "@foundmill/models";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, onTestFinished, vi } from "vitest";
 import { encodeJobId, importJobKey } from "../services/import";
-import { FOUNDATIONS_LOCAL_CONCURRENCY, FOUNDATIONS_LOCAL_TIMEOUT_MS, FOUNDATIONS_STALE_MS, acquireFoundationsSlot, foundationsSlots, importJobIdOf, runFoundationsLocally, settleFoundationRuns } from "../services/foundations";
+import { FOUNDATIONS_LOCAL_CONCURRENCY, FOUNDATIONS_LOCAL_TIMEOUT_MS, FOUNDATIONS_STALE_MS, acquireFoundationsSlot, foundationsSlots, importJobIdOf, projectPageStore, runFoundationsLocally, settleFoundationRuns } from "../services/foundations";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -25,7 +27,7 @@ afterAll(() => hz?.close());
 async function founder(email: string) {
   const userId = await hz.h.createUser(email);
   const caller = hz.caller({ userId, email });
-  await caller.founder.profile.update({ displayName: "Reid", experience: "first-time", skills: { engineering: 14, sales: 8 }, targetMarkets: ["Nordics"], constraints: ["bootstrapped"], riskAppetite: "medium", budgetMinor: 2_500_000 });
+  await caller.founder.profile.update({ confirmAdult: true, displayName: "Reid", experience: "first-time", skills: { engineering: 14, sales: 8 }, targetMarkets: ["Nordics"], constraints: ["bootstrapped"], riskAppetite: "medium", budgetMinor: 2_500_000 });
   return { userId, caller };
 }
 
@@ -115,7 +117,7 @@ describe("product.foundations — Door A (Ideation Studio)", () => {
     expect(spec).toHaveLength(1);
     expect(roadmap).toHaveLength(1);
     for (const note of [spec[0]!, roadmap[0]!]) {
-      expect(note).toMatchObject({ type: "decision", blocksContinue: true });
+      expect(note).toMatchObject({ type: "decision", blocksContinue: false });
       const words = note.bodyMd.split(/\s+/).filter(Boolean).length;
       expect(words).toBeGreaterThanOrEqual(60);
       expect(words).toBeLessThanOrEqual(180);
@@ -124,8 +126,8 @@ describe("product.foundations — Door A (Ideation Studio)", () => {
       // Each note is tied to its round; nothing else is asked for.
       expect(await repos.productSignoffs.forInboxItem(hz.db, a.businessId, note.id)).toMatchObject({ status: "pending", round: 1 });
     }
-    expect(inbox.continueState).toEqual({ kind: "blocked", count: 2 });
-    // The welcome note from Take charge blocks nothing; the business waits for the founder's sign-off.
+    // The sign-offs wait in Needs you without holding Continue (0071, Nov 7, 2026); the welcome note blocks nothing either.
+    expect(inbox.continueState).toEqual({ kind: "idle" });
     expect(inbox.items.some((i) => i.id === a.result.firstItem.id && !i.blocksContinue)).toBe(true);
     expect((await a.caller.business.get({ businessId: a.businessId })).productStage).toBe("awaiting_signoff");
   });
@@ -212,7 +214,7 @@ describe("product.foundations — on Temporal", () => {
     try {
       const userId = await tz.h.createUser("temporal@test.local");
       const caller = tz.caller({ userId });
-      await caller.founder.profile.update({ displayName: "Reid", targetMarkets: ["EU"] });
+      await caller.founder.profile.update({ confirmAdult: true, displayName: "Reid", targetMarkets: ["EU"] });
       const idea = (await caller.idea.generate({ prompt: "a newsletter for climate operators" })).ideas[0]!;
       const { business } = await caller.idea.commit({ ideaId: idea.id, name: "Climate Weekly", archetype: "content_media", gameMode: "personal" });
       const [one, two] = await Promise.all([caller.product.foundations.ensure({ businessId: business.id }), caller.product.foundations.ensure({ businessId: business.id })]);
@@ -292,7 +294,7 @@ describe("product.foundations — Door B (Import)", () => {
     expect(second.build?.cycle.started).toBe(true);
     expect(second.build?.cycle.reason ?? "").not.toMatch(/Respond to/);
     const board = await f.caller.inbox.get({ businessId: bid, itemId: second.build!.importItemId! });
-    expect(board.item).toMatchObject({ type: "decision", subject: "Where should the team start with what you imported?", blocksContinue: true });
+    expect(board.item).toMatchObject({ type: "decision", subject: "Where should the team start with what you imported?", blocksContinue: false });
     const decision = board.item.decision as { options: { id: string; recommended: boolean }[] } | null;
     expect(decision?.options.map((o) => o.id)).toEqual(report.firstDecisions.map((d) => d.id));
     expect(decision?.options.filter((o) => o.recommended)).toHaveLength(1);
@@ -526,6 +528,122 @@ describe("product.foundations — staged drafting (audit P3)", () => {
     expect(working.calls.filter((c) => c.sections).flatMap((c) => c.sections!)).toEqual(["Pricing"]);
     expect(await a.caller.product.foundations.get({ businessId: a.businessId })).toMatchObject({ status: "ready", attempt: 2, progress: null });
     expect(docText((await repos.product.listBlocks(hz.db, a.businessId)).find((b) => b.section === "Pricing")!.content).length).toBeGreaterThan(20);
+  });
+});
+
+describe("product.foundations — the team drafts the project page first (packages 1.2 and 1.3)", () => {
+  const pageNotes = async (businessId: string) => (await repos.inbox.list(hz.db, businessId, { limit: 100 })).items.filter((i) => isPageReadyDecision(i.decision));
+
+  it("the Product lead drafts the page from the founder's own words, never publishes it, audits it and asks the founder to check it", async () => {
+    const a = await commitDoorA("page-draft@test.local");
+    await a.caller.product.foundations.ensure({ businessId: a.businessId });
+    await settleFoundationRuns();
+    expect(await a.caller.product.foundations.get({ businessId: a.businessId })).toMatchObject({ status: "ready" });
+    const productLead = (await repos.departments.list(hz.db, a.businessId)).find((d) => d.moduleKeys.includes("product"))!.leadAgentId;
+
+    const row = (await repos.pages.get(hz.db, a.businessId))!;
+    const words = (await repos.pages.starterInputs(hz.db, a.businessId)).founderWords!;
+    expect(words).toBeTruthy();
+    // The mock reads the founder's words: their first sentence is the pitch, the idea as written is "about".
+    expect(row.draft).toMatchObject({ pitch: firstSentence(words), about: normalizePageText(words), stage: "idea", showFounders: false });
+    expect(row).toMatchObject({ published: null, publishedAt: null, updatedBy: null });
+    expect(row.slug).toMatch(/^ledgerly-found/);
+    const view = await a.caller.page.get({ businessId: a.businessId });
+    expect(view).toMatchObject({ saved: true, live: false, draft: row.draft });
+
+    const audit = (await repos.audit.list(hz.db, a.businessId, { limit: 100 })).items.filter((e) => e.action === "page.draft_written");
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toMatchObject({ actorKind: "agent", actorId: productLead, target: { kind: "project_page", id: row.id }, details: { source: "model", published: false } });
+
+    const notes = await pageNotes(a.businessId);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatchObject({ type: "decision", subject: PAGE_READY_NOTE.subject, fromAgentId: productLead, blocksContinue: false });
+    expect((notes[0]!.decision as { options: { id: string; label: string; recommended: boolean }[] }).options.map((o) => [o.id, o.label, o.recommended])).toEqual([
+      [PAGE_READY_NOTE.options.check, "Check it and publish", true],
+      [PAGE_READY_NOTE.options.later, "Later", false],
+    ]);
+    // Not a sign-off and never in the way of Continue.
+    expect(await repos.productSignoffs.forInboxItem(hz.db, a.businessId, notes[0]!.id)).toBeNull();
+    expect((await a.caller.inbox.list({ businessId: a.businessId, limit: 50 })).continueState).toEqual({ kind: "idle" });
+    const events = await repos.events.list(hz.db, a.businessId, { type: "inbox.item_created" });
+    expect(events.items.some((e) => (e.payload as { inboxItemId?: string }).inboxItemId === notes[0]!.id)).toBe(true);
+
+    // One call on the projectPage route, booked to the business as the Product lead's, apart from the foundations calls.
+    const usage = (await repos.usage.list(hz.db, a.businessId, { kind: "tokens", limit: 200 })).items.filter((u) => (u.details as { kind?: string }).kind === PROJECT_PAGE_USAGE_KIND);
+    expect(usage).toHaveLength(1);
+    expect(usage[0]).toMatchObject({ agentId: productLead, details: { route: "projectPage" } });
+
+    // Today: the note waits in Needs you with its one tap; the quiet line stays away while it is open (one or the other).
+    const today = await a.caller.today.get({ businessId: a.businessId });
+    expect(today.pageReady).toBe(false);
+    expect(today.needsYou!.items.find((i) => i.id === notes[0]!.id)).toMatchObject({ kind: "decision", quickOption: { id: PAGE_READY_NOTE.options.check, label: "Check it and publish" } });
+    expect(today.firstWeek!.steps[0]!.asks).toBe("You are asked to publish your page and sign off the specification and the roadmap.");
+
+    // Check it and publish answers the note (the web opens the tab); nothing is published. Today's line takes over.
+    const decided = await a.caller.inbox.decide({ businessId: a.businessId, itemId: notes[0]!.id, chosenOption: PAGE_READY_NOTE.options.check });
+    expect(decided).toMatchObject({ requiresConfirmation: false, decision: { chosenOption: PAGE_READY_NOTE.options.check } });
+    expect((await repos.pages.get(hz.db, a.businessId))!.published).toBeNull();
+    expect((await a.caller.today.get({ businessId: a.businessId })).pageReady).toBe(true);
+    await expect(a.caller.inbox.decide({ businessId: a.businessId, itemId: notes[0]!.id, chosenOption: PAGE_READY_NOTE.options.later })).rejects.toThrow();
+  });
+
+  it("Later puts the note aside; publishing answers an open note; a retry or a saved page never drafts twice", async () => {
+    const a = await commitDoorA("page-later@test.local");
+    await a.caller.product.foundations.ensure({ businessId: a.businessId });
+    await settleFoundationRuns();
+    const [note] = await pageNotes(a.businessId);
+    await a.caller.inbox.decide({ businessId: a.businessId, itemId: note!.id, chosenOption: PAGE_READY_NOTE.options.later });
+    expect((await repos.inbox.get(hz.db, a.businessId, note!.id)).state).toBe("answered");
+    expect((await a.caller.today.get({ businessId: a.businessId })).pageReady).toBe(true);
+
+    // The step again (a retried attempt): a row exists, so nothing is asked of the model and no second note is posted.
+    const counting = new MockModelClient();
+    const inputs = await repos.foundations.inputs(hz.db, a.businessId);
+    const again = await runProjectPageStep({ models: counting, inputs }, projectPageStore(hz.db, a.businessId, inputs.authorAgentId));
+    expect(again).toMatchObject({ written: false, source: null });
+    expect(counting.history.filter((r) => r.route === "projectPage")).toHaveLength(0);
+    expect(await pageNotes(a.businessId)).toHaveLength(1);
+
+    // A founder who saved their own draft before the first open keeps it, and gets no note.
+    const b = await commitDoorA("page-saved@test.local");
+    const mine = { pitch: "My own words, first", about: "I wrote this myself.", forWhom: "", stage: "idea" as const, showFounders: false, followForm: true };
+    await b.caller.page.saveDraft({ businessId: b.businessId, draft: mine });
+    await b.caller.product.foundations.ensure({ businessId: b.businessId });
+    await settleFoundationRuns();
+    expect((await repos.pages.get(hz.db, b.businessId))!.draft).toEqual(mine);
+    expect(await pageNotes(b.businessId)).toHaveLength(0);
+
+    // Publishing answers the note that asked for it.
+    const c = await commitDoorA("page-publish@test.local");
+    await c.caller.product.foundations.ensure({ businessId: c.businessId });
+    await settleFoundationRuns();
+    const [open] = await pageNotes(c.businessId);
+    expect(open!.state).toBe("unread");
+    const view = await c.caller.page.get({ businessId: c.businessId });
+    expect(await c.caller.page.publish({ businessId: c.businessId, content: view.draft })).toMatchObject({ outcome: "published" });
+    expect((await repos.inbox.get(hz.db, c.businessId, open!.id)).state).toBe("answered");
+    const today = await c.caller.today.get({ businessId: c.businessId });
+    expect(today.pageReady).toBe(false);
+    expect(today.firstWeek!.steps[0]!.asks).toBe("You are asked to sign off the specification and the roadmap.");
+  });
+
+  it("when the model call fails the starter draft from the founder's words is written, the note still asks, and the foundations still finish", async () => {
+    const a = await commitDoorA("page-fallback@test.local");
+    const working = hz.deps.models;
+    hz.deps.models = new MockModelClient({ failWith: { projectPage: new ModelUnavailableError("upstream 529 overloaded") } });
+    try {
+      // A caller made after the swap reads the failing client.
+      await hz.caller({ userId: a.userId }).product.foundations.ensure({ businessId: a.businessId });
+      await settleFoundationRuns();
+    } finally {
+      hz.deps.models = working;
+    }
+    expect(await a.caller.product.foundations.get({ businessId: a.businessId })).toMatchObject({ status: "ready" });
+    const inputs = await repos.pages.starterInputs(hz.db, a.businessId);
+    const row = (await repos.pages.get(hz.db, a.businessId))!;
+    expect(row.draft).toEqual(starterPageDraft({ businessName: "Ledgerly Found", founderWords: inputs.founderWords }));
+    expect((await repos.audit.list(hz.db, a.businessId, { limit: 100 })).items.find((e) => e.action === "page.draft_written")).toMatchObject({ details: { source: "starter" } });
+    expect(await pageNotes(a.businessId)).toHaveLength(1);
   });
 });
 

@@ -237,11 +237,29 @@ describe("assessMerge and handBack", () => {
       expect(founderJargonHits(text.replace("(agent/x)", "")).map((h) => h.term), text).toEqual([]);
       expect(text).toContain("Bring your working copy (agent/x) up to date");
     }
-    expect(handBackDetail("checks_failed", "agent/x", null)).toContain("fix what the repository's tests found");
+    expect(handBackDetail("checks_failed", "agent/x", null)).toContain("fix what the quality checks found");
   });
 });
 
 describe("askMerge, awaitChecks and completeMerge", () => {
+  it("names the commit the second read reviewed in the merge's arguments, on the ask and on the approved merge (M4)", async () => {
+    expect(mergeArgs(REPO, 7, "Fix")).not.toHaveProperty("headSha");
+    expect(mergeArgs(REPO, 7, "Fix", "b".repeat(40))).toMatchObject({ prNumber: 7, headSha: "b".repeat(40) });
+    await connectRepo();
+    const { github, offline, ctx, acts } = githubGateway(undefined, asksForMerge);
+    const { task, input } = await reviewTask("Reviewed head");
+    await commitOn(github, ctx, input.branch, "src/reviewed.ts");
+    const prepared = await acts.prepareMerge(input);
+    if (prepared.status !== "ready") throw new Error("expected a pull request");
+    const pr = { prNumber: prepared.prNumber, prUrl: prepared.prUrl };
+    await acts.askMerge({ ...input, ...pr, reviewedSha: "c".repeat(40) });
+    expect(offline.calls.at(-1)).toMatchObject({ tool: "merge_pr", args: { ...mergeArgs(REPO, pr.prNumber, task.title), headSha: "c".repeat(40) } });
+    // GitHub's merge takes no commit to pin (the connector drops the field): the merge still runs under the approval.
+    const approved = githubGateway(github);
+    expect(await approved.acts.completeMerge({ ...input, ...pr, approvalId: APPROVAL, decidedBy: t.fixture.ownerId, reviewedSha: "c".repeat(40) })).toMatchObject({ status: "merged" });
+    expect(approved.offline.calls.at(-1)).toMatchObject({ tool: "merge_pr", args: { headSha: "c".repeat(40) } });
+  });
+
   it("asks the founder, records the wait for the checks, and merges under the approval in the founder's name", async () => {
     await connectRepo();
     const { github, offline, ctx, acts } = githubGateway(undefined, asksForMerge);
@@ -320,13 +338,14 @@ describe("askMerge, awaitChecks and completeMerge", () => {
     expect((await repos.tasks.get(t.db, t.businessId, input.taskId)).status).toBe("review");
 
     const timeout = await acts.holdMerge({ ...input, ...pr, approvalId: APPROVAL, why: "checks_timeout", detail: null });
-    expect(timeout).toMatchObject({ status: "held", reason: "The repository's automatic tests did not finish in time, so this change did not go live yet." });
+    expect(timeout).toMatchObject({ status: "held", reason: "The final quality checks did not finish in time, so this change did not go live yet." });
     expect((await auditOf(MERGE_AUDIT.notMerged))[0]).toMatchObject({ details: { step: "checks_timeout", approvalId: APPROVAL } });
     // A held merge reaches the founder: one warning, in their words, that does not hold up Continue.
     const agent = await repos.agents.get(t.db, t.businessId, t.workerId);
     const notes = (await repos.inbox.list(t.db, t.businessId, { limit: 50 })).items.filter((i) => i.subject === `${agent.name}'s change is not live yet`);
     expect(notes.length).toBeGreaterThanOrEqual(1);
-    expect(notes[0]).toMatchObject({ type: "warning", blocksContinue: false });
+    // An update, not a warning (Nov 7, 2026): nothing is asked of the founder, and it closes once the change is live.
+    expect(notes[0]).toMatchObject({ type: "update", blocksContinue: false });
     expect(notes[0]!.bodyMd).toContain("did not finish in time");
     expect(notes[0]!.bodyMd).toContain("You had already said yes to putting it live.");
     expect(notes[0]!.bodyMd).toContain("the team tries again on the next cycle; nothing is needed from you");

@@ -3,7 +3,7 @@
  * Declared here (not imported from apps/api) so the package depends only on wave-1 packages; every field a widget
  * reads is optional-tolerant where the API may omit it. Dates arrive as ISO strings on the wire.
  */
-import type { AgentStatus, ChannelKey, ChannelLine, ConversionKind, DeptColourToken, InboxItemType, InboxState, MilestoneKind, ModelKey, TaskStatus } from "@foundmill/shared";
+import type { AgentStatus, AgentTier, ChannelKey, ChannelLine, ConversionKind, DeptColourToken, InboxItemType, InboxState, MilestoneKind, ModelKey, TaskStatus } from "@foundmill/shared";
 import type { Chapter, Conversion, JourneyDailyRow, Milestone } from "@foundmill/dugout";
 
 export type Iso = string;
@@ -20,6 +20,10 @@ export interface SquadAgentRow {
   avatarSeed: string;
   /** `agents.persona_key`: the first name and face shown when anthropomorphic agents are on. */
   personaKey?: string | null;
+  /** The agent's layer: a `utility` agent is a background helper and keeps its role name. */
+  layer?: string | null;
+  /** Its tier (packages/shared team-tiers): `background` helpers stay out of the founder's lists and counts. */
+  tier?: AgentTier | null;
 }
 export interface DepartmentRow {
   id: string;
@@ -31,7 +35,7 @@ export interface DepartmentRow {
   leadAgentId?: string | null;
   moduleKeys: string[];
   hidden?: boolean;
-  lead: { id: string; name: string; status: AgentStatus; avatarSeed: string; role?: string; personaKey?: string | null } | null;
+  lead: { id: string; name: string; status: AgentStatus; avatarSeed: string; role?: string; personaKey?: string | null; layer?: string | null; tier?: AgentTier | null } | null;
   squad: SquadAgentRow[];
   tabs: { id: string; slug: string; title: string; position: number }[];
 }
@@ -45,6 +49,12 @@ export interface RibbonResponse {
   conversionCount?: number;
   milestones: (Milestone & { achievedAt: Iso; kind: MilestoneKind })[];
   chapters: Chapter[];
+  /**
+   * Customers (first payments) as the server counts them, one figure each whatever range was asked (DECISIONS
+   * 2026-11-10, one number per fact): `thisWeek` is the business's last 7 days with `today`, `previousWeek` the 7 before,
+   * `total` every first payment (the count the customer milestones are reached at). Older responses leave it out.
+   */
+  customers?: { today: DayKey; thisWeek: number; previousWeek: number; total: number };
   /** First day of the business (the API also returns it as `firstDay`). */
   kickoff: DayKey;
   firstDay?: DayKey;
@@ -103,7 +113,7 @@ export interface FinanceOverview {
   burn: { netBurnMinor: number; grossBurnMinor: number; months: number; label: "Estimate"; definition?: string };
   runway: { months: number | null; label: "Estimate"; warnings: number[]; blocksContinue: boolean };
   /** Monthly totals; the operating fields leave financing and transfers out (net and gross burn read them). */
-  revenue: { monthly: { month: string; inflowMinor: number; outflowMinor: number; netMinor: number; count: number; operatingInflowMinor?: number; operatingOutflowMinor?: number }[]; basis: "cash" | string; label: string };
+  revenue: { monthly: { month: string; inflowMinor: number; outflowMinor: number; netMinor: number; count: number; operatingInflowMinor?: number; operatingOutflowMinor?: number }[]; basis: "cash" | string; label: string; recurring?: boolean | null };
   customers30d: number;
   /** The paying customer base of the trailing full months revenue covers: paid by its end, not churned before (the payback denominator). */
   payingCustomers?: { count: number; months: number; from?: Iso; to?: Iso };
@@ -112,13 +122,13 @@ export interface FinanceOverview {
 
 /* business.firstWeek.get: one done flag per first-week item (UX plan §6.2 FirstWeekChecklist), read-only. */
 export interface FirstWeekResponse {
+  pagePublished: boolean;
   specificationSignedOff: boolean;
   roadmapSignedOff: boolean;
   cycleCompleted: boolean;
   noteRead: boolean;
   conversationReplySent: boolean;
   distributionStarted: boolean;
-  bankOrStripeConnected: boolean;
 }
 
 /* inbox.list */
@@ -169,11 +179,17 @@ export interface ChannelRow {
   currency: string;
   meta?: { label: string; line: ChannelLine; coreMetric: string };
   form: ChannelFormSummary | null;
+  /** Offline tracking: the team prepares the materials, the founder submits them. */
+  kitMode?: boolean;
+  /** Whether the channel can really act for this business (founder, 2026-11-11); absent reads as available. */
+  availability?: { available: boolean };
 }
 export interface ChannelsListResponse {
   channels: ChannelRow[];
   lines: Record<ChannelLine, string[]>;
   blended: Omit<ChannelFormSummary, "channelId" | "channelKey" | "line">;
+  /** The sentence for a business with no channel that can run yet; null or absent otherwise. */
+  noChannel?: string | null;
 }
 
 /* distribution.channels.metrics */
@@ -236,6 +252,9 @@ export interface TeamAgentRow {
   name: string;
   role: string;
   agentType?: string;
+  layer?: string | null;
+  /** Leads first: a `background` helper is never the agent of the week. */
+  tier?: AgentTier | null;
   status: AgentStatus;
   modelKey: ModelKey | string;
   avatarSeed: string;
@@ -256,30 +275,6 @@ export interface ComplianceResponse {
   deadlines?: { id: string; title?: string; kind?: string; dueAt: Iso | null; status?: string }[];
   filings?: { id: string; kind: string; title: string; dueAt: Iso | null; filedAt: Iso | null; status: string }[];
 }
-
-/* live.leaderboards.* */
-export interface LeaderboardRow {
-  id: string;
-  period: string;
-  boardKind: string;
-  division?: string | null;
-  /** The ranked metric's key ("customers_won", "mrr_growth_pct"); the widget names it (shared/leaderboards.ts). */
-  metric?: string;
-  archetype?: string | null;
-  region?: string | null;
-  title?: string;
-  metricLabel?: string;
-}
-export interface LeaderboardEntryRow {
-  leaderboardId: string;
-  businessId: string;
-  position: number;
-  movement: number;
-  metricValue: number | string;
-  businessName?: string | null;
-  verified?: boolean;
-}
-export type LeaderboardPositionRow = LeaderboardEntryRow & { board: LeaderboardRow };
 
 /* live.communities.* */
 export interface CommunityRow {

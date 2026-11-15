@@ -64,3 +64,20 @@ describe("development-only settings", () => {
     expect(loadEnv({ MODEL_FAST_MODE: "yes" }).MODEL_FAST_MODE).toBe(false);
   });
 });
+
+describe("a production process never runs on the development defaults (SEC-9)", () => {
+  it("refuses to load when NODE_ENV is production and APP_ENV is unset, empty or development", () => {
+    for (const APP_ENV of [undefined, "", "  ", "development"]) {
+      expect(() => loadEnv({ NODE_ENV: "production", APP_ENV }), String(APP_ENV)).toThrow(/APP_ENV must be set to staging or production/);
+    }
+  });
+
+  it("loads with staging or production, and with test when it is named (the image boot check)", () => {
+    for (const APP_ENV of ["staging", "production", "test"]) expect(loadEnv({ NODE_ENV: "production", APP_ENV }).APP_ENV).toBe(APP_ENV);
+  });
+
+  it("keeps the development default outside a production process", () => {
+    expect(loadEnv({ NODE_ENV: "development", APP_ENV: undefined }).APP_ENV).toBe("development");
+    expect(loadEnv({ NODE_ENV: undefined, APP_ENV: undefined }).APP_ENV).toBe("development");
+  });
+});

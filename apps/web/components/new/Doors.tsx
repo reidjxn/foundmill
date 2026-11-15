@@ -24,6 +24,7 @@ import { useTRPC } from "@/lib/trpc-react";
 import { ArchivedBusinesses } from "./ArchivedBusinesses";
 import { StudioFrame } from "./StudioFrame";
 import { commitHref, num, toConcept } from "./ideate/concepts";
+import { FormerProjects } from "@/components/home/FormerProjects";
 
 /** What the example door needs from `business.example.get` (null: no example on this deployment, no door). */
 export interface ExampleDoor {
@@ -78,8 +79,8 @@ export const DOORS: LinkDoor[] = [
     icon: Lightbulb,
     kicker: "Door A",
     title: "I have an idea, or none yet",
-    lede: "Describe a problem, a market or nothing at all, and the Ideation agent drafts six to twelve concept cards for you to compare.",
-    steps: ["Describe a problem, or let the agent draft within your profile alone", "Six to twelve concept cards, each rated on ten attributes with its reasoning", "Shortlist, merge, ask the Research agent about any card, compare", "Commit to one and take charge"],
+    lede: "Write your idea in your own words and use it as written, or describe a problem, a market or nothing at all and the Ideation agent drafts six to twelve concept cards for you to compare.",
+    steps: ["Write your idea as it is, or describe a problem, or let the agent draft within your profile alone", "Your own card, rated, or six to twelve concept cards, each rated on ten attributes with its reasoning", "Edit any card in your words, shortlist, merge, ask the Research agent, compare", "Commit to one and take charge: the team builds from your words"],
     cta: "Open the Ideation Studio",
   },
   {
@@ -100,8 +101,10 @@ export const EXAMPLE_DOOR: Door = {
   icon: Compass,
   kicker: "Example",
   title: "Explore an example",
-  lede: "Walk around a running business before you start yours. Nothing you do there is saved.",
-  steps: ["Open a running example business as a viewer: Home, the Inbox, every department and its agents", "Read what the team drafted and how it reports back", "Nothing you do there is saved: the team does no work and no decision is taken", "Leave it from Your businesses, or start your own from its top bar"],
+  // What the founder is about to see, before they see it (first-time founder report, Nov 8, 2026): a business two years
+  // in, with paying customers and spend to match; their own first weeks look like Day one on Home, much smaller.
+  lede: "Walk around a business two years in, with paying customers and a team at full stretch. Your first weeks will look like its Day one, much smaller. Nothing you do there is saved.",
+  steps: ["Open a running example business as a viewer: Home, the Inbox, every department and its agents", "Read what the team drafted and how it reports back; its spend and customer figures are the example's, not a forecast of yours", "Nothing you do there is saved: the team does no work and no decision is taken", "Leave it from Your businesses, or start your own from its top bar"],
   cta: "Open the example",
 };
 
@@ -201,7 +204,7 @@ export function Doors({ viewer, profileLine, experience, businessCount, backTo, 
     trpc.business.example.open.mutationOptions({
       onSuccess: (result) => {
         rememberLastBusiness(result.businessId);
-        router.push(routes.home(result.businessId));
+        router.push(routes.today(result.businessId));
       },
       onError: (err) => toast({ title: "Could not open the example", description: errorMessage(err), tone: "bad" }),
     }),
@@ -214,12 +217,13 @@ export function Doors({ viewer, profileLine, experience, businessCount, backTo, 
       viewer={viewer}
       actions={
         backTo ? (
-          <LinkButton variant="ghost" icon={ArrowLeft} href={routes.home(backTo.id)} data-testid="new-back-to-business">
+          <LinkButton variant="ghost" icon={ArrowLeft} href={routes.today(backTo.id)} data-testid="new-back-to-business">
             Back to {backTo.name}
           </LinkButton>
         ) : null
       }
     >
+      <FormerProjects className="mb-gutter flex flex-col gap-gutter" />
       <div className={exampleDoor ? "grid grid-cols-3 gap-gutter" : "grid grid-cols-2 gap-gutter"} data-testid="doors" data-doors={exampleDoor ? 3 : 2}>
         {DOORS.map((d) => (
           <DoorCard

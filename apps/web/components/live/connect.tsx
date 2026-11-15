@@ -1,9 +1,9 @@
 "use client";
 /**
  * "Ask to connect" (BUILD §11.14 request/accept/block; audit #66): the one way a founder starts a connection, offered on
- * community members, post authors and leaderboard rows. A dialog takes an optional note and calls
- * `live.connections.request` from the current business (a LIVE business the founder speaks for); a leaderboard row asks
- * the business, which reaches its owner. The person's state (connected, requested, waiting for you) comes from the
+ * community members and post authors. A dialog takes an optional note and calls
+ * `live.connections.request` from the current business (a LIVE business the founder speaks for); a request to a
+ * business reaches its owner. The person's state (connected, requested, waiting for you) comes from the
  * founder's own connection rows, so a button never offers to ask twice.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -13,13 +13,16 @@ import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, Dia
 import { askToConnectBlocker, connectStateOf, requestOutcome, type ConnectState } from "@/lib/live";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
-import { useBusiness } from "@/components/shell/business-context";
+import { useBusiness, useOptionalBusiness } from "@/components/shell/business-context";
 import { useLiveViewer } from "./viewer";
 
 /** Who a request goes to: a person, or a listed business (its owner). `name` is what the founder sees. */
 export type ConnectTarget = { userId: string; businessId?: undefined; name: string } | { businessId: string; userId?: undefined; name: string };
 
 const NOTE_MAX = 1000;
+
+/** Why a person with no project cannot ask to connect; the control is hidden for them, never shown disabled. */
+export const NO_PROJECT_BLOCKER = "Connection requests are sent from a project.";
 
 /** The viewer's state with each person, from their own connection rows (one cached query for the whole page). */
 export function useConnectStates(): { stateOf: (userId: string) => ConnectState; loading: boolean } {
@@ -31,15 +34,19 @@ export function useConnectStates(): { stateOf: (userId: string) => ConnectState;
 
 /** Whether the current business can send a request, and why not. */
 export function useAskToConnectBlocker(): string | null {
-  const { data } = useBusiness();
-  return askToConnectBlocker({ business: data.business, membership: data.membership });
+  const ctx = useOptionalBusiness();
+  // No project: requests cannot be sent at all; callers hide the control (ConnectControl) rather than show a refusal.
+  if (!ctx) return NO_PROJECT_BLOCKER;
+  return askToConnectBlocker({ business: ctx.data.business, membership: ctx.data.membership });
 }
 
 /** A request dialog for one target at a time: `ask(target)` opens it, `dialog` renders it. */
 export function useAskToConnect(): { ask: (target: ConnectTarget) => void; blocker: string | null; dialog: ReactNode } {
   const [target, setTarget] = useState<ConnectTarget | null>(null);
   const blocker = useAskToConnectBlocker();
-  return { ask: setTarget, blocker, dialog: <AskToConnectDialog target={target} onOpenChange={(open) => !open && setTarget(null)} /> };
+  const hasBusiness = useOptionalBusiness() !== null;
+  // The dialog speaks for a business; with no project there is nothing to send, so none is mounted.
+  return { ask: setTarget, blocker, dialog: hasBusiness ? <AskToConnectDialog target={target} onOpenChange={(open) => !open && setTarget(null)} /> : null };
 }
 
 export function AskToConnectDialog({ target, onOpenChange }: { target: ConnectTarget | null; onOpenChange: (open: boolean) => void }) {
@@ -106,10 +113,12 @@ export function AskToConnectDialog({ target, onOpenChange }: { target: ConnectTa
  * connect" button (disabled, with the reason, when the current business cannot send one).
  */
 export function ConnectControl({ state, name, blocker, onAsk }: { state: ConnectState; name: string; blocker: string | null; onAsk: () => void }) {
+  const hasBusiness = useOptionalBusiness() !== null;
   if (state === "self" || state === "blocked") return null;
   if (state === "connected") return <Chip tone="good" icon={Check}>Connected</Chip>;
   if (state === "requested") return <Chip tone="neutral" icon={Clock}>Requested</Chip>;
   if (state === "incoming") return <Chip tone="info" icon={Clock}>Asked you</Chip>;
+  if (!hasBusiness) return null;
   return (
     <Button size="sm" variant="ghost" icon={UserPlus} disabled={!!blocker} title={blocker ?? undefined} aria-label={`Ask ${name} to connect`} onClick={onAsk} data-testid="ask-to-connect">
       Connect

@@ -75,9 +75,9 @@ test.describe("navigation", () => {
     expect(navigations.filter((p) => p.endsWith("/inbox"))).toHaveLength(1);
     expect(await page.evaluate(() => history.length)).toBeGreaterThanOrEqual(2);
 
-    // Back to Home and to Inbox again within the client cache window: no second request for Inbox.
+    // Back to Today and to Inbox again within the client cache window: no second request for Inbox.
     await sidebar.locator("[data-sidebar-item='home']").first().click();
-    await expect(page).toHaveURL(new RegExp(`/b/${NORTHWIND_BUSINESS_ID}/home`), { timeout: LONG });
+    await expect(page).toHaveURL(new RegExp(`/b/${NORTHWIND_BUSINESS_ID}/today`), { timeout: LONG });
     await sidebar.locator("[data-sidebar-item='inbox']").first().click();
     await expect(page).toHaveURL(new RegExp(`/b/${NORTHWIND_BUSINESS_ID}/inbox`), { timeout: LONG });
     await page.waitForLoadState("networkidle", { timeout: LONG });

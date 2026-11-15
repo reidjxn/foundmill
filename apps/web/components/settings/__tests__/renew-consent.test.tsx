@@ -20,6 +20,7 @@ vi.mock("next/navigation", () => ({ useSearchParams: () => search, useRouter: ()
 vi.mock("@/lib/trpc-react", () => ({
   useTRPC: () => ({
     integrations: {
+      platformMail: { queryOptions: () => ({ queryKey: [["integrations", "platformMail"]], queryFn: async () => null }) },
       list: { queryOptions: () => ({ queryKey: [["integrations", "list"]], queryFn: async () => ({ mode: "mock", integrations: [], catalogue }) }) },
       connect: { mutationOptions: (opts: Record<string, unknown>) => ({ mutationKey: [["integrations", "connect"]], mutationFn: (vars: unknown) => connect(vars), ...opts }) },
       disconnect: { mutationOptions: (opts: Record<string, unknown>) => ({ mutationKey: [["integrations", "disconnect"]], mutationFn: (vars: unknown) => disconnect(vars), ...opts }) },
@@ -33,7 +34,8 @@ vi.mock("../SettingsScreen", () => ({ useInvalidateRouters: () => vi.fn(async ()
 
 import { CONSENT_RENEW_DAYS, IntegrationsTab, consentExpiry, needsRenewal } from "../IntegrationsTab";
 
-const NOW = new Date("2026-10-07T12:00:00.000Z");
+// Relative to the real clock: the screen reads `new Date()`, so a fixed date made the 40-day consent lapse "soon" once the calendar caught up (Nov 9, 2026).
+const NOW = new Date();
 const inDays = (n: number) => new Date(NOW.getTime() + n * 86_400_000).toISOString();
 const integration = (over: Record<string, unknown> = {}) => ({ id: "i1", status: "connected", accountLabel: "Test bank", scopes: ["accounts:read", "transactions:read"], lastHealthAt: NOW.toISOString(), lastError: null, settings: { expiresAt: inDays(40) }, ...over });
 const connector = (key: string, displayName: string, kind: string, integ: unknown) => ({ key, displayName, phase: 1, auth: { kind }, tools: [{}, {}], simulations: [], live: false, integration: integ });

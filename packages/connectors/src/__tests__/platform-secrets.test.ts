@@ -15,6 +15,10 @@ const EVERY_SECRET: Record<keyof Required<PlatformSecrets>, true> = {
   anthropicApiKey: true,
   voyageApiKey: true,
   openaiApiKey: true,
+  elevenlabsApiKey: true,
+  elevenlabsSpeechAccentIds: true,
+  onesignalAppId: true,
+  onesignalApiKey: true,
   e2bApiKey: true,
   stripeSecretKey: true,
   stripeWebhookSecret: true,
@@ -60,14 +64,14 @@ function sourceFiles(dir: string): string[] {
 describe("platform secrets from the environment", () => {
   it("maps every platform secret from a declared variable", () => {
     // Every string variable set: PLAID_ENV takes one of its values.
-    const overrides = Object.fromEntries(ENV_KEYS.filter((k) => /(KEY|SECRET|TOKEN|_ID|_SLUG)$/.test(k) || k === "PLAID_ENV").map((k) => [k, k === "PLAID_ENV" ? "sandbox" : `value-of-${k}`]));
+    const overrides = Object.fromEntries(ENV_KEYS.filter((k) => /(KEY|SECRET|TOKEN|_ID|_SLUG)$/.test(k) || k === "PLAID_ENV" || k === "ELEVENLABS_SPEECH_ACCENT_IDS").map((k) => [k, k === "PLAID_ENV" ? "sandbox" : `value-of-${k}`]));
     const secrets = platformSecretsFromEnv(loadEnv(overrides));
     expect(Object.keys(secrets).sort()).toEqual(Object.keys(EVERY_SECRET).sort());
     expect(secrets).toMatchObject({ tinkClientId: "value-of-TINK_CLIENT_ID", companiesHouseApiKey: "value-of-COMPANIES_HOUSE_API_KEY", googleClientSecret: "value-of-GOOGLE_CLIENT_SECRET", plaidEnv: "sandbox" });
   });
 
   it("leaves unset secrets out", () => {
-    const empty = Object.fromEntries(ENV_KEYS.filter((k) => /(KEY|SECRET|TOKEN|_ID|_SLUG)$/.test(k) || k === "PLAID_ENV").map((k) => [k, undefined]));
+    const empty = Object.fromEntries(ENV_KEYS.filter((k) => /(KEY|SECRET|TOKEN|_ID|_SLUG)$/.test(k) || k === "PLAID_ENV" || k === "ELEVENLABS_SPEECH_ACCENT_IDS").map((k) => [k, undefined]));
     expect(platformSecretsFromEnv(loadEnv({ ...empty, TINK_CLIENT_ID: "tink-id" }))).toEqual({ tinkClientId: "tink-id" });
   });
 

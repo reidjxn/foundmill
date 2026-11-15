@@ -1,21 +1,32 @@
 /**
- * Trophy cabinet (BUILD §11.4): 1st / 10th / 100th / 1,000th customer; first €1K / €10K / €100K MRR;
- * first enterprise contract. Each trophy fires exactly once, when its counter crosses the threshold.
+ * Trophy cabinet (BUILD §11.4): 1st / 10th / 100th / 1,000th customer; first €1K / €10K / €100K MRR (or "monthly
+ * revenue" for a business whose revenue does not recur, as Finance names it); first enterprise contract. Each trophy
+ * fires exactly once, when its counter crosses the threshold.
+ *
+ * Before those come the two early milestones (docs/NETWORK.md F3; docs/THESIS_REVIEW.md package 5.3): "Page live" and
+ * "First follower". They are not counters: each is one real event the platform recorded itself (the page was published;
+ * a person confirmed from their own inbox that they follow the project), so `detectTrophies` never fires them. The
+ * writers that see those events award them (packages/db `awardPageLiveMilestone`, `awardFirstFollowerMilestone`).
  */
-import { minorToMajor, minorUnitDigits, type MilestoneKind } from "@foundmill/shared";
+import { minorToMajor, minorUnitDigits, monthlyRevenueWords, type MilestoneKind } from "@foundmill/shared";
 import { toIso } from "./time";
 import { Milestone, TROPHY_KEYS, type TrophyKey } from "./types";
 
 export interface TrophyCounters {
   /** Paying customers (first payments) so far. */
   customers: number;
-  /** Monthly recurring revenue in minor units (trailing-30-day revenue for non-recurring businesses, labelled Estimate). */
+  /**
+   * Monthly revenue in minor units. Live businesses (packages/db milestones.ts) count Finance's monthly figure, the last
+   * 3 full months of P&L revenue ÷ 3 (@foundmill/shared/monthly-revenue, an Estimate); the synthetic generator counts
+   * its own series (a subscription ledger, or trailing-30-day revenue for a one-off seller).
+   */
   mrrMinor: number;
   /** Signed enterprise contracts so far. */
   enterpriseContracts: number;
 }
 
-export type TrophyMetric = keyof TrophyCounters;
+/** What a trophy is reached on: a counter crossing its threshold, or `event`, one real event the platform recorded. */
+export type TrophyMetric = keyof TrophyCounters | "event";
 
 export interface TrophyDefinition {
   key: TrophyKey;
@@ -25,7 +36,10 @@ export interface TrophyDefinition {
   threshold: number;
   /** For `mrrMinor`: the threshold in major units of the business's currency ("1K" is 1,000 of it, whatever its decimals). */
   thresholdMajor?: number;
-  label: (currency: string) => string;
+  /** The trophy's name in `currency`; a revenue trophy says "MRR" unless the business's revenue does not recur (`recurring === false`). */
+  label: (currency: string, recurring?: boolean | null) => string;
+  /** For `event`: the line under the name, said to the founders ("Your project's public page went live."). */
+  description?: string;
 }
 
 /** The threshold in `currency`'s minor units: revenue trophies scale from major units, the rest are counts. */
@@ -52,18 +66,33 @@ export function formatThreshold(amountMinor: number, currency: string): string {
     .replace(/(\d)k\b/g, "$1K");
 }
 
+/** "First £10K MRR", or "First £10K monthly revenue" for a business whose revenue does not recur (Finance's name). */
+function revenueLabel(major: number, currency: string, recurring?: boolean | null): string {
+  return `First ${formatThreshold(major * 10 ** minorUnitDigits(currency), currency)} ${monthlyRevenueWords(recurring).name}`;
+}
+
 export const TROPHIES: readonly TrophyDefinition[] = [
+  { key: "page_live", kind: "trophy", metric: "event", threshold: 1, label: () => "Page live", description: "Your project's public page went live." },
+  { key: "first_follower", kind: "trophy", metric: "event", threshold: 1, label: () => "First follower", description: "The first person confirmed that they follow your project." },
   { key: "customer_1", kind: "customer", metric: "customers", threshold: 1, label: () => "First customer" },
   { key: "customer_10", kind: "customer", metric: "customers", threshold: 10, label: () => `${ordinal(10)} customer` },
   { key: "customer_100", kind: "customer", metric: "customers", threshold: 100, label: () => `${ordinal(100)} customer` },
   { key: "customer_1000", kind: "customer", metric: "customers", threshold: 1000, label: () => `${ordinal(1000)} customer` },
-  { key: "mrr_1k", kind: "revenue", metric: "mrrMinor", threshold: 100_000, thresholdMajor: 1_000, label: (c) => `First ${formatThreshold(1_000 * 10 ** minorUnitDigits(c), c)} MRR` },
-  { key: "mrr_10k", kind: "revenue", metric: "mrrMinor", threshold: 1_000_000, thresholdMajor: 10_000, label: (c) => `First ${formatThreshold(10_000 * 10 ** minorUnitDigits(c), c)} MRR` },
-  { key: "mrr_100k", kind: "revenue", metric: "mrrMinor", threshold: 10_000_000, thresholdMajor: 100_000, label: (c) => `First ${formatThreshold(100_000 * 10 ** minorUnitDigits(c), c)} MRR` },
+  { key: "mrr_1k", kind: "revenue", metric: "mrrMinor", threshold: 100_000, thresholdMajor: 1_000, label: (c, r) => revenueLabel(1_000, c, r) },
+  { key: "mrr_10k", kind: "revenue", metric: "mrrMinor", threshold: 1_000_000, thresholdMajor: 10_000, label: (c, r) => revenueLabel(10_000, c, r) },
+  { key: "mrr_100k", kind: "revenue", metric: "mrrMinor", threshold: 10_000_000, thresholdMajor: 100_000, label: (c, r) => revenueLabel(100_000, c, r) },
   { key: "first_enterprise_contract", kind: "trophy", metric: "enterpriseContracts", threshold: 1, label: () => "First enterprise contract" },
 ];
 
 export const TROPHY_BY_KEY: Record<TrophyKey, TrophyDefinition> = Object.fromEntries(TROPHIES.map((t) => [t.key, t])) as Record<TrophyKey, TrophyDefinition>;
+
+/** The trophies reached on one recorded event, never on a counter: "Page live", "First follower". */
+export const EVENT_TROPHIES: readonly TrophyDefinition[] = TROPHIES.filter((t) => t.metric === "event");
+
+/** An event trophy's own line under its name; null for a counter trophy, which each caller words itself. */
+export function eventTrophyDescription(t: Pick<TrophyDefinition, "metric" | "description">): string | null {
+  return t.metric === "event" ? (t.description ?? null) : null;
+}
 
 export interface DetectTrophiesInput {
   before: TrophyCounters;
@@ -71,6 +100,8 @@ export interface DetectTrophiesInput {
   at: string | Date;
   /** The business's own currency (0025): revenue milestone labels read in it ("First $1K MRR"). */
   currency: string;
+  /** Whether the business's revenue recurs (`revenueIsRecurring`): a revenue milestone says "MRR" unless it is false. */
+  recurring?: boolean | null;
   /** Trophies already in the cabinet; never awarded twice. */
   awarded?: Iterable<TrophyKey>;
   /** Attached to every milestone's `ref` (conversionId, entityId, contractId ...). */
@@ -85,7 +116,8 @@ export function detectTrophies(input: DetectTrophiesInput): Milestone[] {
   const at = toIso(input.at);
   const out: Milestone[] = [];
   for (const t of TROPHIES) {
-    if (awarded.has(t.key)) continue;
+    // An event trophy is awarded by the writer that saw its event, never from a counter.
+    if (t.metric === "event" || awarded.has(t.key)) continue;
     const before = input.before[t.metric];
     const after = input.after[t.metric];
     const threshold = thresholdFor(t, currency);
@@ -94,7 +126,7 @@ export function detectTrophies(input: DetectTrophiesInput): Milestone[] {
         Milestone.parse({
           businessId: input.businessId,
           kind: t.kind,
-          label: t.label(currency),
+          label: t.label(currency, input.recurring),
           achievedAt: at,
           ref: { trophyKey: t.key, metric: t.metric, threshold, value: after, ...(input.ref ?? {}) },
           trophyKey: t.key,
@@ -111,3 +143,11 @@ export function customerTrophyFor(nthCustomer: number): TrophyDefinition | null 
 }
 
 export const isTrophyKey = (s: string): s is TrophyKey => (TROPHY_KEYS as readonly string[]).includes(s);
+
+/**
+ * Whether a milestone may be shown in public as "Verified by Foundmill" (0089): only one recorded from a single real
+ * outside event (`metric: "event"`: the page went live, the first follower confirmed). A customer or revenue milestone
+ * is worked out from counters and, for revenue, is an Estimate; until each is tied to a real payment it stays the
+ * founders' own to see. The table's guard trigger holds the same list for a write made around the api.
+ */
+export const isShowableTrophyKey = (s: string): boolean => TROPHIES.some((t) => t.key === s && t.metric === "event");

@@ -49,3 +49,57 @@ export function admittedBy(list: SignupAllowlist | null, user: { userId: string;
   if (devUserId && user.userId.toLowerCase() === devUserId.toLowerCase()) return true;
   return allowlisted(list, user.email);
 }
+
+/**
+ * How this deployment admits people (THESIS_REVIEW package 2.2; founder 2026-11-12: invite-only until the per-account
+ * spend ceilings and the reporting of people ship, then open with a daily ceiling), from configuration alone:
+ *   - `open`: SIGNUP_OPEN is on (off by default). Anyone with a confirmed address is admitted until the UTC day's new
+ *     accounts reach SIGNUP_DAILY_CEILING (default 200); listed addresses are admitted without counting; past the
+ *     ceiling a new person is refused with `on_waitlist`.
+ *   - `invite_only`: SIGNUP_ALLOWLIST is set and SIGNUP_OPEN is off. The listed addresses and the accounts a valid
+ *     invitation admitted get in; everyone else is refused with `not_invited`.
+ *   - `unrestricted`: neither. Every account that can sign in is admitted (local stacks and tests, as before).
+ * apps/api decides who is admitted (`admitOrWait`, services/access.ts) and records each admission it makes; apps/stream
+ * and apps/collab admit an account the list names or one with a recorded admission, in the two modes that restrict.
+ */
+export type SignupMode = "unrestricted" | "invite_only" | "open";
+
+export const signupOpen = (raw: string | null | undefined): boolean => /^(1|true|yes|on)$/i.test((raw ?? "").trim());
+
+export function signupMode(env: { SIGNUP_ALLOWLIST?: string | null | undefined; SIGNUP_OPEN?: string | null | undefined }): SignupMode {
+  if (signupOpen(env.SIGNUP_OPEN)) return "open";
+  return parseSignupAllowlist(env.SIGNUP_ALLOWLIST) ? "invite_only" : "unrestricted";
+}
+
+/**
+ * The live channels' check (apps/stream's upgrade, apps/collab's connection), the same rule apps/api applies on every
+ * request: in `unrestricted` mode everyone, otherwise a listed address, the development bypass user, or an account the
+ * api has admitted (`isAdmitted`, a lookup of `account_admissions`, asked only when the list does not already answer;
+ * a lookup that fails refuses).
+ */
+export function liveChannelAdmit(
+  env: { SIGNUP_ALLOWLIST?: string | null | undefined; SIGNUP_OPEN?: string | null | undefined },
+  devUserId: string | null | undefined,
+  isAdmitted: (userId: string) => Promise<boolean>,
+): (user: { userId: string; email: string | null }) => boolean | Promise<boolean> {
+  if (signupMode(env) === "unrestricted") return () => true;
+  const list = parseSignupAllowlist(env.SIGNUP_ALLOWLIST);
+  return (user) => {
+    if (devUserId && user.userId.toLowerCase() === devUserId.toLowerCase()) return true;
+    if (list && allowlisted(list, user.email)) return true;
+    return isAdmitted(user.userId).catch(() => false);
+  };
+}
+
+/**
+ * The refusal of a signed-in person the admission did not let in today (services/access.ts): its `appCode`, and the
+ * words of the panel the web shows for it (components/shell/ApiErrorPage.tsx) and the api's message.
+ */
+export const ON_WAITLIST_CODE = "on_waitlist";
+export const ON_WAITLIST_WORDS = { title: "You're on the list.", body: "We'll let you in as soon as there is room. Come back tomorrow to check." } as const;
+/**
+ * The line that promises an email, for when the waitlist records who is waiting and sends it (the retention team's
+ * waitlist). Not shown until then: nothing stores a person who waits today, so no email would come. Switch
+ * `ON_WAITLIST_WORDS.body` to it in the same change that ships the waitlist.
+ */
+export const ON_WAITLIST_EMAIL_PROMISE = "We'll email you when you're in.";

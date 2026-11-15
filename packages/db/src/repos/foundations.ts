@@ -218,6 +218,10 @@ export const foundationsRepo = {
       ? {
           title: version?.title ?? committed.idea.title,
           pitch: version?.pitch ?? committed.idea.pitch,
+          // The founder's own words, kept on the version's meta entry by the studio ("Use my idea as written", Edit) and
+          // the brief they typed when the card was drafted: trusted inputs the drafting builds on first.
+          founderWords: str(meta.founder_words) ?? null,
+          brief: str(meta.brief) ?? null,
           archetype: (committed.idea.archetype ?? null) as Archetype | null,
           starsCurrent: Number(version?.starsCurrent ?? 0),
           starsPotential: Number(version?.starsPotential ?? 0),

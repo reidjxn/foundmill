@@ -48,12 +48,14 @@ export function createSendgridTransport(fetchImpl: FetchLike, apiKey: string): S
 export function createSendgridConnector(options: LiveConnectorOptions = {}): Connector {
   const { secrets, fetch, now, getBusinessSecret, resolveBusinessId, isSuppressed } = resolveLiveOptions(options);
 
-  const keyFor = (ctx?: ToolContext): string => {
-    const key = ctx?.credential?.secret ?? secrets.sendgridApiKey;
-    if (!key) throw new ConfigError(SENDGRID_KEY, "SENDGRID_API_KEY or a per-business key", "create a restricted API key (Mail Send, Suppressions, Marketing, Stats) in SendGrid");
+  // Only ever the founder's own key, connected in Settings › Integrations. The platform's SENDGRID_API_KEY belongs to
+  // `platform_mail` alone: on it these account-wide tools would read and change every project's mail at once.
+  const keyFor = (ctx?: Pick<ToolContext, "credential">): string => {
+    const key = ctx?.credential?.secret;
+    if (!key) throw new ConfigError(SENDGRID_KEY, "the business's own SendGrid API key", "connect SendGrid in Settings › Integrations with a restricted API key (Mail Send, Suppressions, Marketing, Stats)");
     return key;
   };
-  const http = (ctx?: ToolContext): HttpClient => createHttp({ connectorKey: SENDGRID_KEY, baseUrl: SENDGRID_BASE_URL, fetch, headers: { authorization: bearer(keyFor(ctx)) } });
+  const http = (ctx?: Pick<ToolContext, "credential">): HttpClient => createHttp({ connectorKey: SENDGRID_KEY, baseUrl: SENDGRID_BASE_URL, fetch, headers: { authorization: bearer(keyFor(ctx)) } });
   const mailer = (ctx: ToolContext): MailService => {
     const m = new MailService();
     m.setClient(createSendgridTransport(fetch, keyFor(ctx)));
@@ -152,10 +154,10 @@ export function createSendgridConnector(options: LiveConnectorOptions = {}): Con
           credentialToStore: { kind: "api_key" as const, secret: apiKey },
         };
       },
-      healthcheck: async () => {
+      healthcheck: async (_integration, credential) => {
         const startedAt = now().getTime();
         try {
-          const senders = await verifiedSenders(http());
+          const senders = await verifiedSenders(http(credential ? { credential } : undefined));
           return healthResult(senders.some((s) => s.verified) ? "connected" : "degraded", startedAt, { now, details: { verifiedSenders: senders.filter((s) => s.verified).length }, ...(senders.some((s) => s.verified) ? {} : { message: "no verified sender identity" }) });
         } catch (e) {
           return healthResult(e instanceof ConfigError ? "disconnected" : "degraded", startedAt, { now, message: e instanceof Error ? e.message : String(e) });
@@ -168,4 +170,4 @@ export function createSendgridConnector(options: LiveConnectorOptions = {}): Con
 
 export { sendgridMock, createSendgridMock, signedEventRequest, inboundParseRequest, sgEvent, signSendgridBody } from "./mock";
 export { sendgridTools, SENDGRID_KEY, assertUnsubscribe, assertVerifiedSender, assertNoneSuppressed, buildMailData } from "./tools";
-export { createSendgridEventWebhook, createSendgridInboundWebhook, normaliseSendgridEvents, normaliseInboundMail, verifySendgridSignature } from "./webhooks";
+export { createSendgridEventWebhook, createSendgridInboundWebhook, emailEntityId, normaliseSendgridEvents, normaliseInboundMail, verifySendgridSignature } from "./webhooks";

@@ -5,7 +5,7 @@
  * the founder's notes, required for Request changes (they become the Product lead's revision task) and optional with
  * an approval, and reads back how the round was answered. The same decision can be taken on the Product tabs.
  */
-import { Field, Panel, StatusPill, Textarea, fieldDescribedBy, useFormatters, type StatusTone } from "@foundmill/dugout";
+import { Field, Panel, StatusPill, Textarea, fieldDescribedBy, useBuilderView, useFormatters, type StatusTone } from "@foundmill/dugout";
 import type { RouterOutputs } from "@/lib/trpc";
 
 type SignoffRound = NonNullable<RouterOutputs["inbox"]["get"]["signoff"]>;
@@ -27,18 +27,22 @@ export const SIGNOFF_NOTES_ID = "signoff-notes";
 
 const KIND_WORDS: Record<SignoffRound["kind"], string> = { spec: "the specification", roadmap: "the roadmap", ready_to_sell: "distribution" };
 
-/** The pill for a round's state (an answered round reads from its status, a pending one from the note's own state). */
-export function signoffPanelStatus(signoff: Pick<SignoffRound, "status" | "kind">, chosenOption: string | null | undefined, formatDate: (d: Date | string) => string, decidedAt: Date | string | null): { tone: StatusTone; word: string } {
+/**
+ * The pill for a round's state (an answered round reads from its status, a pending one from the note's own state). The
+ * round number is Builder view's: off, a pending round reads "Waiting for you".
+ */
+export function signoffPanelStatus(signoff: Pick<SignoffRound, "status" | "kind">, chosenOption: string | null | undefined, formatDate: (d: Date | string) => string, decidedAt: Date | string | null, builder = false): { tone: StatusTone; word: string } {
   const by = (word: string) => `${word} by you${decidedAt ? ` · ${formatDate(decidedAt)}` : ""}`;
   if (signoff.status === "approved" || chosenOption === "approve" || chosenOption === "start") return { tone: "good", word: by(signoff.kind === "ready_to_sell" ? "Started" : "Approved") };
   if (signoff.status === "changes_requested" || chosenOption === "request_changes") return { tone: "warn", word: by("Changes requested") };
   if (signoff.status === "declined" || chosenOption === "not_yet") return { tone: "neutral", word: by("Not yet") };
+  if (!builder) return { tone: "info", word: "Waiting for you" };
   return { tone: "info", word: `Round ${"round" in signoff ? (signoff as { round: number }).round : 1} · waiting for you` };
 }
 
 export function SignoffPanel({ signoff, notes, onNotesChange, answered, needsNotes, chosenOption }: SignoffPanelProps) {
   const { formatDate } = useFormatters();
-  const status = signoffPanelStatus(signoff, chosenOption, formatDate, signoff.decidedAt);
+  const status = signoffPanelStatus(signoff, chosenOption, formatDate, signoff.decidedAt, useBuilderView());
   const open = !answered && (signoff.status === "pending" || signoff.status === "changes_requested");
   const ready = signoff.kind === "ready_to_sell";
   return (
@@ -46,7 +50,7 @@ export function SignoffPanel({ signoff, notes, onNotesChange, answered, needsNot
       <div className="flex flex-col gap-3">
         <p className="text-body text-secondary">
           {ready
-            ? "Start distribution now and the channel engines start; Not yet keeps building, and you can start it any time from Distribution › Board."
+            ? "Start distribution now and the channel engines start; Not yet keeps building, and you can start it any time from Customers › Board."
             : `Approve ${KIND_WORDS[signoff.kind]} and the team builds from it, or ask for changes in your own words: they become the Product lead's revision task and you are asked to sign off again. You can also decide on the Product tabs.`}
         </p>
         {open ? (

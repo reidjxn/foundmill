@@ -8,7 +8,7 @@
  * blended CPA the screen labels "Estimate".
  */
 import { createHash } from "node:crypto";
-import { CHANNEL_KEYS, CHANNEL_LINES, CHANNEL_META, type ChannelKey, type ChannelLine } from "@foundmill/shared";
+import { CHANNEL_KEYS, CHANNEL_LINES, CHANNEL_META, HARD_SUPPRESSION_REASONS, type ChannelKey, type ChannelLine } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { businesses, CHANNEL_METRIC_SOURCES, channelMetrics, channels, SUPPRESSION_SCOPES, suppressionList, type Channel, type ChannelMetric, type SuppressionEntry } from "../schema";
@@ -488,6 +488,32 @@ export const channelsRepo = {
       .where(and(or(eq(suppressionList.businessId, businessId), eq(suppressionList.scope, "platform")), or(...checks)))
       .limit(1);
     return rows.length > 0;
+  },
+
+  /**
+   * Whether an address hash carries a hard suppression (a bounce or a spam report, `HARD_SUPPRESSION_REASONS`), platform
+   * wide or for this business. The founder notices (security review P2-3) stop only for this: an unsubscribe from a
+   * project's mail or "Don't send me invitations" does not hold them.
+   */
+  async isHardSuppressed(db: Executor, businessId: string, emailHash: string): Promise<boolean> {
+    const rows = await db
+      .select({ id: suppressionList.id })
+      .from(suppressionList)
+      .where(and(or(eq(suppressionList.businessId, businessId), eq(suppressionList.scope, "platform")), eq(suppressionList.emailHash, emailHash), inArray(suppressionList.reason, [...HARD_SUPPRESSION_REASONS])))
+      .limit(1);
+    return rows.length > 0;
+  },
+
+  /**
+   * Service only: suppresses an address hash platform-wide once (every project's mail and every invitation honor it,
+   * `isSuppressed`). True when it was written now, false when the hash was already suppressed platform-wide.
+   */
+  async suppressEverywhere(db: Executor, input: { emailHash: string; reason: string; source: string }): Promise<boolean> {
+    const v = parseInput(AddSuppressionInput, { ...input, scope: "platform" }, "suppression entry");
+    const existing = await db.select({ id: suppressionList.id }).from(suppressionList).where(and(eq(suppressionList.scope, "platform"), eq(suppressionList.emailHash, v.emailHash!))).limit(1);
+    if (existing.length > 0) return false;
+    await db.insert(suppressionList).values({ businessId: null, emailHash: v.emailHash!, reason: v.reason, scope: "platform", source: v.source ?? null });
+    return true;
   },
 
   async removeSuppression(db: Executor, businessId: string, entryId: string): Promise<void> {

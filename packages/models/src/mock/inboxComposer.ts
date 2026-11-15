@@ -96,9 +96,8 @@ export function generateInboxComposer(ctx: MockContext): ComposerOutput {
 
   const subject = truncate(grounded ? grounded.title : subjectLine(type, who ? plainName(subjectEntity, who) : undefined, channel, taskTitle, voice, rng), 80);
 
-  const runway = metrics.find((m) => /runway/i.test(m.metric));
-  const runwayMonths = runway?.value !== undefined ? Number.parseFloat(runway.value) : primary ? numberField(primary.payload, ["months", "runway_months"]) : undefined;
-  const blocksContinue = type === "decision" || type === "customer_won" || (type === "warning" && runwayMonths !== undefined && Number.isFinite(runwayMonths) && runwayMonths < 3);
+  // A Composer note never holds Continue (Nov 7, 2026): only the platform's hard stops (credits, a revoked key) do.
+  const blocksContinue = false;
 
   return {
     type,

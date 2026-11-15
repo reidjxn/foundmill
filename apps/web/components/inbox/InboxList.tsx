@@ -125,6 +125,7 @@ export function InboxList({ rows, selectedId, onSelect, onPrefetch, loading, has
               type="button"
               role="option"
               aria-selected={selected}
+              data-item-id={row.id}
               aria-posinset={index + 1}
               aria-setsize={setSize}
               onClick={() => onSelect(row.id)}
@@ -139,7 +140,7 @@ export function InboxList({ rows, selectedId, onSelect, onPrefetch, loading, has
                 row.won ? "row-edge-gold" : "",
                 selected ? (row.won ? "bg-panel-alt" : "row-selected") : "",
               ].join(" ")}
-              aria-label={`${row.subject}. ${row.tag.word}${row.needsAnswer && row.tag.word !== "Respond" ? ", needs your answer" : ""}${row.won ? ", customer won" : ""}`}
+              aria-label={`${row.subject}. ${row.tag.word}${row.needsAnswer && row.tag.word !== "Needs you" ? ", needs your answer" : ""}${row.won ? ", customer won" : ""}`}
             >
               <span className="shrink-0 pt-0.5">
                 {row.agent ? <Avatar size={32} name={row.agent.name} agent={{ seed: row.agent.seed, dept: row.agent.dept, personaKey: row.agent.personaKey }} /> : <Avatar size={32} name={row.fromUser ? (founderName ?? "You") : row.fromPerson ? NETWORK_SENDER : APP_NAME} />}

@@ -5,7 +5,7 @@
 import { PLAN_ACTION_TYPES } from "@foundmill/shared";
 import { describe, expect, it } from "vitest";
 import { compilePlanRuleBased } from "./mock/planCompiler";
-import { matchRoadmapItem, PLAN_ACTION_PARAMS, quarterBounds, resolveRoadmapItem, roadmapPatchFrom, SetAgentModelParams, UpdateRoadmapParams } from "./planParams";
+import { matchRoadmapItem, PLAN_ACTION_PARAM_SCHEMAS, PLAN_ACTION_PARAMS, parsePlanActionParams, quarterBounds, resolveRoadmapItem, roadmapPatchFrom, SetAgentModelParams, UpdateRoadmapParams } from "./planParams";
 
 const today = new Date("2026-10-12T15:00:00.000Z");
 const items = [
@@ -58,5 +58,28 @@ describe("roadmap changes", () => {
     expect(patch("Bring the partner portal forward", "later")).toEqual({ horizon: "next" });
     expect(patch("Update the roadmap milestone")).toEqual({});
     expect(roadmapPatchFrom(UpdateRoadmapParams.parse({ horizon: "later", target_start: "2027-04-01", change: "next quarter" }), { horizon: "now" }, today)).toEqual({ horizon: "later", targetStart: "2027-04-01" });
+  });
+});
+
+describe("PLAN_ACTION_PARAM_SCHEMAS (what the api can carry out)", () => {
+  it("has a schema for every action type", () => {
+    expect(Object.keys(PLAN_ACTION_PARAM_SCHEMAS).sort()).toEqual([...PLAN_ACTION_TYPES].sort());
+  });
+
+  it("accepts the params the plan compiler writes and refuses ones that would do nothing", () => {
+    expect(parsePlanActionParams("create_task", { kind: "code", title: "Build the waitlist page", goal: "A page that takes emails" })).toMatchObject({ kind: "code", title: "Build the waitlist page" });
+    expect(parsePlanActionParams("create_task", { kind: "coding", title: "Build it" })).toBeNull();
+    expect(parsePlanActionParams("create_task", { kind: "code", title: " " })).toBeNull();
+    expect(parsePlanActionParams("enable_channel", { channel: "paid_ads" })).not.toBeNull();
+    expect(parsePlanActionParams("enable_channel", { channel: "linkedin" })).toBeNull();
+    expect(parsePlanActionParams("set_budget", { amount_minor: 20000, currency: "GBP", channel: "paid_ads", period: "monthly" })).not.toBeNull();
+    expect(parsePlanActionParams("set_budget", { amount_minor: 20000, scope: "department", department: "Marketing" })).not.toBeNull();
+    expect(parsePlanActionParams("set_budget", { amount_minor: 20000 })).toBeNull();
+    expect(parsePlanActionParams("set_budget", { amount_minor: -5, channel: "paid_ads" })).toBeNull();
+    expect(parsePlanActionParams("set_budget", { amount_minor: 12.5, channel: "paid_ads" })).toBeNull();
+    expect(parsePlanActionParams("request_human_action", { request: "Pay the designer invoice", instructions: "From your own account" })).not.toBeNull();
+    expect(parsePlanActionParams("request_human_action", { instructions: "x" })).toBeNull();
+    expect(parsePlanActionParams("set_agent_model", { model_key: "sonnet", agent_id: "a1" })).toEqual({ model_key: "sonnet", agent_id: "a1", apply_scope: "agent" });
+    expect(parsePlanActionParams("send_message", { recipient: "the supplier" })).toBeNull();
   });
 });

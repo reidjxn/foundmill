@@ -4,10 +4,11 @@
  * Merge and the version History.
  * Each is a controlled Dialog; the studio owns the mutations and passes `busy` / `error` in.
  */
-import { ArrowLeft, ArrowRight, GitFork, GitMerge, History, MessageCircleQuestionMark } from "lucide-react";
+import { ArrowLeft, ArrowRight, GitFork, GitMerge, History, MessageCircleQuestionMark, PenLine, Pencil } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { RETRY_REPLY_ID, deskFailureOf, failureQuickReplies, failureReply } from "@/components/conversation/logic";
-import { AgentDesk, Button, Checkbox, Chip, BusinessLogo, ConceptCard, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Markdown, SkeletonText, StatusPill, Term, Textarea, cn, currentQuickReplies, stripEntityMarkup, useFormatters, type DeskMessage, type DeskPersona, type QuickReplyItem } from "@foundmill/dugout";
+import { ARCHETYPES, ARCHETYPE_LABELS, type Archetype } from "@foundmill/shared";
+import { AgentDesk, Button, Checkbox, Chip, BusinessLogo, ConceptCard, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Markdown, SimpleSelect, SkeletonText, StatusPill, Term, Textarea, cn, currentQuickReplies, stripEntityMarkup, useFormatters, type DeskMessage, type DeskPersona, type QuickReplyItem } from "@foundmill/dugout";
 import { attributeTerm, attributeTermId, qaBubbles, qaOf, toConcept, versionActionLabel, versionToConcept, type IdeaLike, type IdeaVersionLike } from "./concepts";
 
 /* ---------- Ask ---------- */
@@ -390,7 +391,7 @@ export function HistoryDialog({ idea, versions, loading, open, onOpenChange, onO
                     <li key={v.id}>
                       <button type="button" onClick={() => setIndex(i)} aria-current={i === index ? "true" : undefined} className={cn("flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-white/4", i === index && "bg-panel-alt")} data-version={v.version}>
                         <Chip>Version {v.version}</Chip>
-                        <span className="text-body-strong">{versionActionLabel(v.action)}</span>
+                        <span className="text-body-strong">{versionActionLabel(v.action, v)}</span>
                         <span className="ml-auto text-small text-secondary tabular-nums">{formatDateTime(v.createdAt)}</span>
                       </button>
                     </li>
@@ -465,3 +466,170 @@ function LineageLink({ id, label, onOpen }: { id: string; label: string; onOpen?
 }
 
 export const ASK_ICON = MessageCircleQuestionMark;
+
+/* ---------- Write (Use my idea as written) and Edit ---------- */
+
+/** The kind-of-business options for a card the founder writes or edits: "Let the agent pick" first. */
+export const CARD_ARCHETYPE_OPTIONS: { value: string; label: string }[] = [{ value: "any", label: "Let the agent pick" }, ...ARCHETYPES.map((a) => ({ value: a, label: ARCHETYPE_LABELS[a] }))];
+
+/** The working name a brief suggests: its first three meaningful words, title-cased ("Students Same-day Shifts"); empty when it has none. */
+export function nameFromBrief(brief: string): string {
+  const stop = new Set("a an the and or but if of for to in on at by with from as is are be it its this that these those i we you they my our your their want wants need needs help helps build make create start new business company idea app simple around near".split(" "));
+  const words = brief
+    .replace(/[^A-Za-z0-9' -]+/g, " ")
+    .split(/\s+/)
+    .map((w) => w.trim())
+    .filter((w) => w.length > 2 && !stop.has(w.toLowerCase()));
+  return words
+    .slice(0, 3)
+    .map((w) => (w === w.toUpperCase() ? w : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()))
+    .join(" ")
+    .slice(0, 60);
+}
+
+export interface WriteDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** The brief as typed in the studio: the words the card starts from. */
+  brief: string;
+  /** The studio's kind-of-business pick, when one was made. */
+  archetypeHint: string | null;
+  onWrite: (input: { title: string; pitch: string; archetype: Archetype | null }) => void;
+  busy?: boolean;
+  error?: string | null;
+}
+
+/**
+ * "Use my idea as written" (first-time founder report, Nov 8, 2026): one card from the founder's own words, rated by
+ * the Ideation agent, never rewritten by it. The words become the pitch exactly as typed; the name is a working name
+ * (Commit renames it); the kind of business can be left to the agent.
+ */
+export function WriteDialog({ open, onOpenChange, brief, archetypeHint, onWrite, busy, error }: WriteDialogProps) {
+  const [title, setTitle] = useState("");
+  const [pitch, setPitch] = useState("");
+  const [archetype, setArchetype] = useState<string>("any");
+  useEffect(() => {
+    if (open) {
+      setTitle(nameFromBrief(brief));
+      setPitch(brief.trim());
+      setArchetype(archetypeHint ?? "any");
+    }
+  }, [open, brief, archetypeHint]);
+  const valid = title.trim().length > 0 && title.trim().length <= 60 && pitch.trim().length > 0 && pitch.length <= 4000;
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (!valid || busy) return;
+    onWrite({ title: title.trim(), pitch: pitch.trim(), archetype: archetype === "any" ? null : (archetype as Archetype) });
+  };
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent size="lg" aria-describedby="write-description" data-testid="write-dialog">
+        <DialogHeader>
+          <DialogTitle>Use my idea as written</DialogTitle>
+          <DialogDescription id="write-description">Your words become the card's pitch exactly as you wrote them. The Ideation agent rates the idea and lists what to check; it never rewrites it. The team builds from these words.</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={submit}>
+          <DialogBody className="flex flex-col gap-3">
+            <Field htmlFor="write-title" label="Working name" hint="You rename the business at Commit." required>
+              <Input id="write-title" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={60} autoFocus data-testid="write-title" />
+            </Field>
+            <Field htmlFor="write-pitch" label="Your idea, in your words" hint="Who it is for, the problem, and what you would build. Place names and audiences stay as you write them." required>
+              <Textarea id="write-pitch" value={pitch} onChange={(e) => setPitch(e.target.value)} rows={6} maxLength={4000} data-testid="write-pitch" />
+            </Field>
+            <Field htmlFor="write-archetype" label="Kind of business">
+              <SimpleSelect id="write-archetype" aria-label="Kind of business" value={archetype} onValueChange={setArchetype} options={CARD_ARCHETYPE_OPTIONS} controlSize="sm" className="w-60" />
+            </Field>
+            {error ? (
+              <StatusPill tone="bad" role="alert">
+                {error}
+              </StatusPill>
+            ) : null}
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="ghost" type="button" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" type="submit" icon={PenLine} loading={busy} disabled={!valid} data-testid="write-submit">
+              Rate it and go to Commit
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export interface EditDialogProps {
+  idea: IdeaLike | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onEdit: (input: { title?: string; pitch?: string; archetype?: Archetype | null }) => void;
+  busy?: boolean;
+  error?: string | null;
+}
+
+/**
+ * Edit a card before Commit (first-time founder report, Nov 8, 2026: the only ways to change a card were Merge and
+ * Discard): the name, the pitch and the kind of business, as a new version. Words the founder changes are theirs from
+ * then on ("Your words"), and the team builds from them.
+ */
+export function EditDialog({ idea, open, onOpenChange, onEdit, busy, error }: EditDialogProps) {
+  const [title, setTitle] = useState("");
+  const [pitch, setPitch] = useState("");
+  const [archetype, setArchetype] = useState<string>("any");
+  useEffect(() => {
+    if (open && idea) {
+      setTitle(idea.current?.title ?? idea.title);
+      setPitch(idea.current?.pitch ?? idea.pitch);
+      setArchetype(idea.archetype ?? "any");
+    }
+  }, [open, idea]);
+  const original = { title: idea?.current?.title ?? idea?.title ?? "", pitch: idea?.current?.pitch ?? idea?.pitch ?? "", archetype: idea?.archetype ?? "any" };
+  const changed = title.trim() !== original.title || pitch.trim() !== original.pitch || archetype !== original.archetype;
+  const valid = changed && title.trim().length > 0 && title.trim().length <= 120 && pitch.trim().length > 0 && pitch.length <= 4000;
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (!valid || busy) return;
+    onEdit({
+      ...(title.trim() !== original.title ? { title: title.trim() } : {}),
+      ...(pitch.trim() !== original.pitch ? { pitch: pitch.trim() } : {}),
+      ...(archetype !== original.archetype ? { archetype: archetype === "any" ? null : (archetype as Archetype) } : {}),
+    });
+  };
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent size="lg" aria-describedby="edit-description" data-testid="edit-dialog">
+        <DialogHeader>
+          <DialogTitle>Edit {idea?.current?.title ?? idea?.title ?? "this concept"}</DialogTitle>
+          <DialogDescription id="edit-description">Change the name, the pitch or the kind of business. The ratings carry over; words you change are yours from here on, and the team builds from them.</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={submit}>
+          <DialogBody className="flex flex-col gap-3">
+            <Field htmlFor="edit-title" label="Name" required>
+              <Input id="edit-title" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} autoFocus data-testid="edit-title" />
+            </Field>
+            <Field htmlFor="edit-pitch" label="Pitch" hint="Who it is for, the problem, and what you would build." required>
+              <Textarea id="edit-pitch" value={pitch} onChange={(e) => setPitch(e.target.value)} rows={5} maxLength={4000} data-testid="edit-pitch" />
+            </Field>
+            <Field htmlFor="edit-archetype" label="Kind of business">
+              <SimpleSelect id="edit-archetype" aria-label="Kind of business" value={archetype} onValueChange={setArchetype} options={CARD_ARCHETYPE_OPTIONS} controlSize="sm" className="w-60" />
+            </Field>
+            {error ? (
+              <StatusPill tone="bad" role="alert">
+                {error}
+              </StatusPill>
+            ) : null}
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="ghost" type="button" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" type="submit" icon={Pencil} loading={busy} disabled={!valid} data-testid="edit-submit">
+              Save as a new version
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}

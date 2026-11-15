@@ -1,8 +1,8 @@
 /**
- * The LIVE pages (BUILD §6.2, §11.14): /network, /communities[/id], /leaderboards[/boardId]. They are about the founder,
+ * The LIVE pages (BUILD §6.2, §11.14): /network, /communities[/id]. They are about the founder,
  * not about one business, so they live outside /b/[bid]; the app shell still needs a business (brand colours, departments,
  * Continue, search), so this layout picks the current one: the business the founder last opened (the cookie the business
- * layout sets), else their newest. A founder without a business is sent to /new. Signed-out visitors never get here:
+ * layout sets), else their newest. A person without a business gets the same pages in the person frame (components/live/PersonLiveFrame.tsx). Signed-out visitors never get here:
  * proxy.ts sends them to /login (these paths are not public).
  *
  * The business the cookie names is loaded while the profile loads (lib/shell-data.server.ts) and used only if the
@@ -20,6 +20,7 @@ import { startBusinessShell } from "@/lib/shell-data.server";
 import { errorMessage } from "@/lib/trpc";
 import { handOverProfile } from "@/lib/profile-handover";
 import { serverApi } from "@/lib/trpc-server";
+import { PersonLiveFrame } from "@/components/live/PersonLiveFrame";
 import { LiveViewerProvider } from "@/components/live/viewer";
 import { DateFormatHost } from "@/components/providers/DateFormatHost";
 import { GuidanceHost } from "@/components/providers/GuidanceHost";
@@ -56,12 +57,24 @@ async function LiveShell({ children }: { children: ReactNode }) {
   } catch (err) {
     return <ApiErrorPage error={err} email={server.auth.email} />;
   }
-  // AC-11.1.1: no app screen before the founder profile exists.
+  // AC-11.1.1: no app screen before the founder profile exists, and the person's "I am 18 or older" is on record (0100).
   const founder = profile.profile;
-  if (!founder) redirect("/onboarding");
+  if (!founder || !profile.adultConfirmed) redirect("/onboarding");
 
   const current = pickCurrentBusiness(lastBusinessId, profile.businesses);
-  if (!current) redirect("/new");
+  if (!current) {
+    // A person with no project uses the people pages in the person frame (THESIS_REVIEW 2.4): no business shell.
+    const [date, guided] = await Promise.all([dateFormat, guidance]);
+    return (
+      <GuidanceHost initial={guided.prefs} signedIn textSizeOwner={date.owner}>
+        <DateFormatHost initial={date.prefs} owner={date.owner}>
+          <PersonLiveFrame viewer={{ email: profile.email ?? server.auth.email }}>
+            <LiveViewerProvider value={{ userId: founder.userId, displayName: founder.displayName }}>{children}</LiveViewerProvider>
+          </PersonLiveFrame>
+        </DateFormatHost>
+      </GuidanceHost>
+    );
+  }
   const shell = likely && likely.businessId === current.id ? likely : startBusinessShell(server, current.id);
 
   try {

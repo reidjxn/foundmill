@@ -4,7 +4,7 @@
  * apps/api, so the package depends only on wave-1 packages. Every field the API may omit is optional-tolerant; dates
  * arrive as ISO strings on the wire (a `Date` is tolerated).
  */
-import type { AgentLayer, AgentStatus, DecisionType, DeptColourToken, MembershipRole, ModelKey, SkillGroup } from "@foundmill/shared";
+import type { AgentLayer, AgentStatus, AgentTier, DecisionType, DeptColourToken, MembershipRole, ModelKey, SkillGroup } from "@foundmill/shared";
 
 export type Iso = string | Date;
 
@@ -83,6 +83,8 @@ export interface AgentRow {
   expectedReturnAt?: Iso | null;
   /** The business's Chief of Staff (one per business): never released or cloned. Absent on older payloads. */
   chiefOfStaff?: boolean;
+  /** Leads first (packages/shared team-tiers): chief, lead, specialist or background. Absent on older payloads. */
+  tier?: AgentTier;
   archivedAt?: Iso | null;
   createdAt?: Iso;
   updatedAt?: Iso;
@@ -156,6 +158,8 @@ export interface ResponsibilitiesResponse {
   matrix: ResponsibilityRow[];
   perDepartment?: { departmentId: string; rows: { decisionType: DecisionType; handler: ResponsibilityHandler }[] }[];
   decisionTypes?: readonly DecisionType[];
+  /** The business's Chief of Staff, or null before one is hired (Settings › What the team can do delegates to it). */
+  chiefOfStaffId?: string | null;
 }
 
 /* agent.model.compare */

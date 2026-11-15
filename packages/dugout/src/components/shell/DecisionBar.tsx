@@ -283,7 +283,7 @@ export const DecisionBar = forwardRef<HTMLDivElement, DecisionBarProps>(function
             </div>
             {leftLine ? <span className="text-small text-tertiary tabular-nums">{leftLine}</span> : null}
             {onAsk ? (
-              <Button size="sm" variant="default" icon={MessageCircle} disabled={!!disabled || !!executing} onClick={onAsk} className="decision-ask" data-decision-ask data-coachmark="decision-ask">
+              <Button size="sm" variant="default" icon={MessageCircle} disabled={!!disabled || !!executing} onClick={onAsk} className="decision-ask in-data-[phone]:min-h-tap" data-decision-ask data-coachmark="decision-ask">
                 <span>{askLabel}</span>
                 <span className="font-normal opacity-70">{askDescription}</span>
               </Button>

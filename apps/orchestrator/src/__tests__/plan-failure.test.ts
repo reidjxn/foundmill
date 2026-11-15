@@ -38,7 +38,7 @@ describe("planCycle failures", () => {
     const failure = err as ApplicationFailure;
     expect(failure.type).toBe(CYCLE_PLAN_FAILURE);
     expect(failure.nonRetryable).toBe(true);
-    expect(failure.message).toMatch(/^This cycle's plan could not run: the model account that runs .+ is out of credit\. Our team has been alerted/);
+    expect(failure.message).toMatch(/^This round's plan could not run: the model account that runs .+ is out of credit\. Our team has been alerted/);
     expect(failure.details?.[0]).toEqual({ kind: "billing", billedTo: "credits", reason: "credit_balance" });
   });
 
@@ -52,9 +52,20 @@ describe("planCycle failures", () => {
     const missing = (await planWith(new ModelRequestError("no key", undefined, "missing_api_key"))) as ApplicationFailure;
     expect(missing).toMatchObject({ type: CYCLE_PLAN_FAILURE, nonRetryable: true });
     expect(missing.message).toMatch(/none is stored\. Add one in Settings › Keys/);
-    expect(missing.details?.[0]).toEqual({ kind: "credential" });
-    const refused = planFailure(new ModelRequestError("bad key", 401, "authentication_error")) as ApplicationFailure;
-    expect(refused.details?.[0]).toEqual({ kind: "credential" });
+    expect(missing.details?.[0]).toEqual({ kind: "credential", billedTo: "byok" });
+    const refused = planFailure(new ModelRequestError("bad key", 401, "authentication_error"), "byok") as ApplicationFailure;
+    expect(refused.details?.[0]).toEqual({ kind: "credential", billedTo: "byok" });
+    expect(refused.message).toMatch(/Anthropic refused the key\. Check the key in Settings › Keys/);
+    // A business on credits has no key to check (Nov 9, 2026: Commutair read "check the key in Settings › Keys" when the
+    // platform key was the one Anthropic refused): it hears the platform's account refused, as the billing sentence says.
+    const platformRefused = planFailure(new ModelRequestError("bad key", 401, "authentication_error"), "credits") as ApplicationFailure;
+    expect(platformRefused.details?.[0]).toEqual({ kind: "credential", billedTo: "credits" });
+    expect(platformRefused.message).toMatch(/^This round's plan could not run: the model account that runs .+ refused its key\. Our team has been alerted, and nothing was charged to your credits\./);
+    expect(platformRefused.message).not.toMatch(/Settings › Keys/);
+    // Through planCycle the routed client says whose key it was: the harness business runs on credits.
+    const viaPlan = (await planWith(new ModelRequestError("bad key", 401, "authentication_error"))) as ApplicationFailure;
+    expect(viaPlan.details?.[0]).toEqual({ kind: "credential", billedTo: "credits" });
+    expect(viaPlan.message).not.toMatch(/Settings › Keys/);
     const outage = new ModelUnavailableError("Anthropic unavailable");
     expect(planFailure(outage)).toBe(outage);
     expect(await planWith(outage)).toBe(outage);
@@ -64,12 +75,14 @@ describe("planCycle failures", () => {
 describe("notePlanFailure", () => {
   it("posts one warning from the Chief of Staff through the outbox and audits it", async () => {
     const cycle = createCycleActivities(t.deps);
-    const message = "This cycle's plan could not run: the model account that runs Foundmill is out of credit.";
+    const message = "This round's plan could not run: the model account that runs Foundmill is out of credit.";
     const out = await cycle.notePlanFailure({ businessId: t.businessId, cycleNumber: 4, message, details: { kind: "billing", billedTo: "credits", reason: "credit_balance" } });
     expect(out.inboxItemIds).toHaveLength(1);
     const item = await repos.inbox.get(t.db, t.businessId, out.inboxItemIds[0]!);
-    expect(item).toMatchObject({ type: "warning", fromAgentId: t.chiefId, subject: "Cycle 4 did not start", blocksContinue: false });
+    expect(item).toMatchObject({ type: "warning", fromAgentId: t.chiefId, subject: "The team could not start work", blocksContinue: false });
     expect(item.bodyMd).toContain(message);
+    // Founder words (Nov 8, 2026): no cycle number in what everyone reads.
+    expect(`${item.subject} ${item.bodyMd}`).not.toMatch(/cycle \d/i);
     const created = (await repos.events.list(t.db, t.businessId, { type: "inbox.item_created", limit: 50 })).items.find((e) => (e.payload as { inboxItemId: string }).inboxItemId === item.id);
     expect(created).toBeDefined();
     const audit = await repos.audit.list(t.db, t.businessId, { action: "cycle.plan_failed", limit: 5 });

@@ -8,6 +8,7 @@ import type { AgentStatus, DeptColourToken, ModelKey, SkillGroup } from "@foundm
 import type { AgentInstructions, DateFormatPrefs, InstructionVersion, InstructionViolation, ModelOption, PositionRole, SkillRow, Trait, TrainingSkillResult, TrainingSessionMark, SkillHistorySeries, InstructionSection } from "@foundmill/dugout";
 import { MODEL_LABELS, positionLevelFor } from "@foundmill/dugout";
 import { usSpelling } from "@foundmill/shared/us-spelling";
+import { isBackgroundAgent } from "@foundmill/shared/team-tiers";
 import type { RouterOutputs } from "@/lib/trpc";
 import { formatMonthYear, MODEL_COST_CURRENCY } from "@/lib/format";
 
@@ -899,6 +900,9 @@ export interface LineManagerCandidate {
   role?: string | null;
   lineManagerId?: string | null;
   archivedAt?: string | Date | null;
+  layer?: string | null;
+  agentType?: string | null;
+  tier?: "chief" | "lead" | "specialist" | "background" | null;
 }
 
 /**
@@ -916,7 +920,8 @@ export function lineManagerOptions(agentId: string, agents: readonly LineManager
     return false;
   };
   return agents
-    .filter((a) => a.id !== agentId && !a.archivedAt && !reportsTo(a))
+    // A background helper manages nobody (Leads first): it is never offered as a line manager.
+    .filter((a) => a.id !== agentId && !a.archivedAt && !isBackgroundAgent(a) && !reportsTo(a))
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((a) => ({ value: a.id, label: a.role ? `${a.name} · ${a.role}` : a.name }));
 }

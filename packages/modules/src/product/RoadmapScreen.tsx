@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarRange, Columns3, Map as MapIcon, Plus } from "lucide-react";
 import { Button, Panel, StatusPill, Term, cn } from "@foundmill/dugout";
 import type { RoadmapHorizon } from "@foundmill/shared";
+import { emptyWhy } from "@foundmill/shared/empty-why";
 import { moduleHref, routes, useBusinessEvents, useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
 import { usePinToHomeMenu } from "@foundmill/widgets/shared/pin";
 import type { ModuleScreenProps } from "../registry";
@@ -114,12 +115,8 @@ export function RoadmapScreen({ businessId, subView }: ModuleScreenProps) {
           empty
             ? {
                 icon: MapIcon,
-                title: "Nothing on the roadmap yet",
-                children: (
-                  <>
-                    Items appear when the <Term id="product_lead">Product lead</Term> turns the spec into Now, Next and Later, or when you add one.
-                  </>
-                ),
+                title: emptyWhy("roadmap").title,
+                children: emptyWhy("roadmap").text,
                 action: { label: "New item", icon: Plus, onClick: () => setDialog({ open: true, item: null, horizon: "now" }) },
               }
             : undefined

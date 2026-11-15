@@ -196,7 +196,7 @@ describe("business modes", () => {
     }
   });
 
-  it("the founder's Spend cap per action (Commit, Settings › Mode) makes every agent ask above it, whatever the mode", async () => {
+  it("the founder's Spend cap per action (Commit, Settings › What the team can do) makes every agent ask above it, whatever the mode", async () => {
     expect(businessApprovalThreshold(undefined, null)).toBeUndefined();
     expect(businessApprovalThreshold(300, null)).toBe(300);
     expect(businessApprovalThreshold(undefined, 5_000)).toBe(5_000);
@@ -330,6 +330,9 @@ describe("allow path", () => {
     const token = await g.token();
     const r = asAllow(await g.client.call(token, { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL, body: "hello" } }));
     expect(r).toMatchObject({ costMinor: 7, result: { ok: true, data: { sent: true, to: SAFE_EMAIL }, untrusted: false, costMinor: 7 } });
+    // A mock connector reached no vendor: the result says so, in words the model reads (THESIS_REVIEW 0.3).
+    expect(r.result.simulated).toBe(true);
+    expect(r.result.notice).toMatch(/^Simulated: .*Nothing was sent/);
     expect(g.seen.at(-1)).toMatchObject({ tool: "send_message", args: { to: SAFE_EMAIL, body: "hello" }, mode: "mock", integrationStatus: "connected" });
     const note = asAllow(await g.client.call(token, { connector: "test", tool: "note", args: { text: "x" } }));
     expect(note.costMinor).toBe(3); // connector.costModel
@@ -440,8 +443,41 @@ describe("live mode", () => {
       const r = asAllow(await live.client.call(token, { connector: "test", tool: "note", args: {} }));
       expect(r.result.ok).toBe(true);
       expect(live.seen.at(-1)).toMatchObject({ mode: "live", credentialSecret: "live-key-123456" });
+      expect(r.result).not.toHaveProperty("simulated");
+      expect(r.result).not.toHaveProperty("notice");
     } finally {
       await live.close();
+    }
+  });
+});
+
+describe("a mock connector the business never connected", () => {
+  it("answers in development and test, and for a sample business; a person's own business on staging or production is told it is not connected", async () => {
+    const f = await setupGateway({ extraConnectorKeys: ["other"] });
+    try {
+      const token = await f.token({ allowedTools: ["test:*", "other:*"] });
+      const callOther = () => f.client.call(token, { connector: "other", tool: "note", args: { text: "x" } });
+      // No APP_ENV on the deps, and test: the mock answers, marked simulated.
+      expect(asAllow(await callOther()).result.simulated).toBe(true);
+      f.deps.appEnv = "test";
+      expect(asAllow(await callOther()).result.simulated).toBe(true);
+
+      for (const appEnv of ["staging", "production"]) {
+        f.deps.appEnv = appEnv;
+        const before = f.seen.length;
+        await expect(callOther(), appEnv).rejects.toMatchObject({ status: 409, code: "integration_not_connected" });
+        expect(f.seen.length, "the connector was never called").toBe(before);
+        // The connector this business did connect still runs its mock, and says it is simulated.
+        const connected = asAllow(await f.client.call(token, { connector: "test", tool: "note", args: { text: "x" } }));
+        expect(connected.result).toMatchObject({ ok: true, simulated: true });
+      }
+
+      // A sample business keeps the mock everywhere.
+      await f.h.pg.query("update businesses set is_demo = true where id = $1", [f.businessId]);
+      f.deps.appEnv = "production";
+      expect(asAllow(await callOther()).result.simulated).toBe(true);
+    } finally {
+      await f.close();
     }
   });
 });
@@ -465,7 +501,9 @@ describe("LIVE_CONNECTORS", () => {
   });
 });
 
-describe("live mode: App connectors (GitHub)", () => {
+// Each test boots its own gateway (a fresh database and every migration), which takes 12 to 17 s on CI while the
+// Playwright jobs share the runner; 30 s left no room for the second test's extra work.
+describe("live mode: App connectors (GitHub)", { timeout: 90_000 }, () => {
   it("run only for the installation the gateway verified, without a stored secret, and stop once disconnected", async () => {
     const live = await setupGateway({ mode: "live", connector: { authKind: "app" } });
     try {
@@ -501,7 +539,7 @@ describe("live mode: App connectors (GitHub)", () => {
     }
   });
 
-  it("connect and health run in the gateway for a service caller, and only for App connectors", async () => {
+  it("connect and health run in the gateway for a service caller: App installations are verified", async () => {
     const inputs: unknown[] = [];
     const live = await setupGateway({
       mode: "live",
@@ -548,11 +586,12 @@ describe("live mode: App connectors (GitHub)", () => {
     } finally {
       await live.close();
     }
+    // Since SEC-14 every other connector connects here too (service-routes.test.ts): one without a secret writes nothing.
     const apiKeyed = await setupGateway({ mode: "live" });
     try {
       const res = await fetch(`${apiKeyed.server.url}/v1/integrations/connect`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${await signServiceToken(TEST_SECRET, "api")}` }, body: JSON.stringify({ businessId: apiKeyed.businessId, connector: TEST_CONNECTOR, input: {} }) });
-      expect(res.status).toBe(400);
-      expect(await res.json()).toMatchObject({ error: { code: "not_app_connector" } });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ mode: "live", integrationId: null, credential: null });
     } finally {
       await apiKeyed.close();
     }

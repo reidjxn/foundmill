@@ -4,7 +4,7 @@
  * validation (the four first-pass answers: name, experience and time are required, where you live derives the
  * currency and the first market), the two-pass sections and chips. The screen (OnboardingScreen.tsx) only renders this.
  */
-import { formatNumber } from "@/lib/format";
+import { DISPLAY_LOCALE, formatNumber } from "@/lib/format";
 
 export const SKILL_KEYS = ["engineering", "sales", "design", "finance", "domain"] as const;
 export type SkillKey = (typeof SKILL_KEYS)[number];
@@ -48,7 +48,7 @@ export { CURRENCIES } from "@foundmill/shared/constants";
 
 export const MARKET_SUGGESTIONS = ["EU", "UK", "US", "Nordics", "DACH", "France", "Benelux", "Canada", "Australia", "Global"] as const;
 
-export const CONSTRAINT_SUGGESTIONS = ["Bootstrapped, no outside funding", "Remote only", "No physical inventory", "B2B only", "Must be profitable within a year", "Keep my day job for now", "No regulated industries", "English-speaking markets only"] as const;
+export const CONSTRAINT_SUGGESTIONS = ["Bootstrapped, no outside funding", "Remote only", "No physical inventory", "B2B only", "Must be profitable within a year", "Fits around what I already do", "No regulated industries", "English-speaking markets only"] as const;
 
 /** A compact country list for citizenship and residence (free text is also accepted). */
 export const COUNTRIES: readonly string[] = [
@@ -239,6 +239,34 @@ export function defaultMarket(residence: string | null | undefined): string | nu
   return REGION_MARKET[region] ?? REGION_COUNTRY_NAME[region] ?? null;
 }
 
+/** Country names that read with "the" in a sentence ("based in the United Kingdom"). */
+const NAMES_WITH_THE = new Set(["united kingdom", "uk", "united states", "united states of america", "us", "usa", "netherlands", "czech republic", "united arab emirates"]);
+
+/**
+ * Where the founder lives, as a place ("the United Kingdom", "Sweden"): the list's spelling of a known country, else
+ * the residence as typed; null when empty. Never a market group: a founder in Sweden lives in Sweden, not "Nordics".
+ */
+export function homeWords(residence: string | null | undefined): string | null {
+  const typed = (residence ?? "").trim();
+  if (!typed) return null;
+  const region = regionOfCountry(typed);
+  const name = (region ? REGION_COUNTRY_NAME[region] : undefined) ?? typed;
+  return NAMES_WITH_THE.has(name.toLowerCase()) && !/^the /i.test(name) ? `the ${name}` : name;
+}
+
+/**
+ * The place and the markets of a profile summary, each said as what it is: "based in the United Kingdom" and
+ * "markets: Nordics" (first-time founder report, Nov 2026: the summary listed the markets bare, so a UK founder whose
+ * target market was the Nordics read as "Nordics"). At most three markets.
+ */
+export function placeAndMarketsWords(residence: string | null | undefined, markets: readonly string[]): string[] {
+  const parts: string[] = [];
+  const home = homeWords(residence);
+  if (home) parts.push(`based in ${home}`);
+  if (markets.length) parts.push(`markets: ${markets.slice(0, 3).join(", ")}${markets.length > 3 ? ", …" : ""}`);
+  return parts;
+}
+
 /** The markets the profile saves: the founder's own, or the one derived from where they live, or none. */
 export function effectiveTargetMarkets(form: Pick<ProfileForm, "targetMarkets" | "residence">): string[] {
   if (form.targetMarkets.length > 0) return form.targetMarkets;
@@ -337,6 +365,10 @@ export function validateProfileForm(form: ProfileForm): ProfileErrors {
   else if (budget !== null && budget / 100 > PROFILE_LIMITS.budgetMajor) errors.budget = `Use a budget below ${formatNumber(PROFILE_LIMITS.budgetMajor, { maximumFractionDigits: 0 })}.`;
   if (form.citizenship.trim().length > PROFILE_LIMITS.place) errors.citizenship = `Keep it under ${PROFILE_LIMITS.place} characters.`;
   if (form.residence.trim().length > PROFILE_LIMITS.place) errors.residence = `Keep it under ${PROFILE_LIMITS.place} characters.`;
+  const partialResidence = partialCountry(form.residence);
+  if (!errors.residence && partialResidence.length) errors.residence = partialCountryMessage(partialResidence);
+  const partialCitizenship = partialCountry(form.citizenship);
+  if (!errors.citizenship && partialCitizenship.length) errors.citizenship = partialCountryMessage(partialCitizenship);
   if (!/^[A-Z]{3}$/.test(form.currency)) errors.currency = "Pick a currency.";
   // Markets are optional on the first pass: an empty list starts from where the founder lives (`effectiveTargetMarkets`).
   if (form.targetMarkets.some((m) => m.length > PROFILE_LIMITS.place)) errors.targetMarkets = `Keep each market under ${PROFILE_LIMITS.place} characters.`;
@@ -502,7 +534,7 @@ export type ExampleProfileKey = (typeof EXAMPLE_PROFILE_KEYS)[number];
 
 /**
  * A labeled example founder: first time, evenings and weekends, £5,000 of their own money, living in the United
- * Kingdom and aiming at the UK and Ireland, keeping their day job and holding no stock, with a low appetite for risk.
+ * Kingdom and aiming at the UK and Ireland, fitting it around what they already do and holding no stock, with a low appetite for risk.
  * The skills show one of each band word, so the legend has something to point at.
  */
 export const EXAMPLE_PROFILE: Readonly<Pick<ProfileForm, ExampleProfileKey>> = {
@@ -515,7 +547,7 @@ export const EXAMPLE_PROFILE: Readonly<Pick<ProfileForm, ExampleProfileKey>> = {
   noBudget: false,
   currency: "GBP",
   targetMarkets: ["UK", "Ireland"],
-  constraints: ["Keep my day job for now", "No physical inventory"],
+  constraints: ["Fits around what I already do", "No physical inventory"],
   riskAppetite: "low",
 };
 
@@ -549,7 +581,7 @@ export function clearExampleProfile(form: ProfileForm, before: ProfileForm): Pro
   return next;
 }
 
-/** One line the Ideation Studio shows back: "First-time founder · full time · EUR 25,000 · EU, UK". */
+/** The line the form shows back: "First-time founder · full time · €25,000 · based in Germany · markets: EU, UK". */
 export function profileSummary(form: ProfileForm): string {
   const parts: string[] = [];
   const exp = EXPERIENCE_OPTIONS.find((o) => o.value === form.experience)?.label;
@@ -557,8 +589,40 @@ export function profileSummary(form: ProfileForm): string {
   const time = TIME_OPTIONS.find((o) => o.value === form.timeCommitment)?.label;
   if (time) parts.push(time.toLowerCase());
   const budget = form.noBudget ? null : parseBudgetMinor(form.budget);
-  if (budget !== null && !Number.isNaN(budget)) parts.push(`${form.currency} ${formatNumber(budget / 100, { maximumFractionDigits: 0 })}`);
-  const markets = effectiveTargetMarkets(form);
-  if (markets.length) parts.push(markets.join(", "));
+  if (budget !== null && !Number.isNaN(budget)) parts.push(budgetWords(budget, form.currency));
+  parts.push(...placeAndMarketsWords(form.residence, effectiveTargetMarkets(form)));
   return parts.join(" · ");
+}
+
+/**
+ * A budget as money reads everywhere else (CLAUDE.md: the business's currency with its narrow symbol, "£1,500"), never
+ * "GBP 1,500" (first-time founder report, Nov 8, 2026). A code Intl does not know falls back to "1,500 XYZ".
+ */
+export function budgetWords(amountMinor: number, currency: string): string {
+  const major = amountMinor / 100;
+  try {
+    return new Intl.NumberFormat(DISPLAY_LOCALE, { style: "currency", currency, currencyDisplay: "narrowSymbol", maximumFractionDigits: 0 }).format(major);
+  } catch {
+    return `${formatNumber(major, { maximumFractionDigits: 0 })} ${currency}`;
+  }
+}
+
+/**
+ * A country typed only part of the way ("United", "Ger"): the start of one or more countries on the list and not a
+ * country itself. Saving it would count money in the wrong currency and aim the ideas nowhere, so the form asks the
+ * founder to finish picking (first-time founder report, Nov 8, 2026: "United" was accepted and read as US dollars).
+ * A name the list does not hold at all is not a partial pick: it may be a real country the list leaves out.
+ */
+export function partialCountry(value: string): string[] {
+  const typed = value.trim().toLowerCase();
+  if (typed.length < 2) return [];
+  if (COUNTRIES.some((c) => c.toLowerCase() === typed) || COUNTRY_REGION[typed]) return [];
+  return COUNTRIES.filter((c) => c.toLowerCase().startsWith(typed));
+}
+
+/** "Finish picking the country: United Kingdom or United States." */
+export function partialCountryMessage(matches: readonly string[]): string {
+  const named = matches.slice(0, 3);
+  const list = named.length === 1 ? named[0]! : `${named.slice(0, -1).join(", ")} or ${named[named.length - 1]}`;
+  return `Finish picking the country: ${list}${matches.length > 3 ? ", …" : ""}.`;
 }

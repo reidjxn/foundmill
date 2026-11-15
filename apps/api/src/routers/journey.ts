@@ -1,16 +1,24 @@
-/** journey.get/list/markViewed + daily rows and milestones for the Ribbon (BUILD §11.2, §11.4). */
+/**
+ * journey.get/list/markViewed + daily rows and milestones for the Ribbon (BUILD §11.2, §11.4), and
+ * journey.showMilestone / journey.hideMilestone: an owner or an admin shows a reached milestone on the project's page
+ * or takes it off (services/milestones.ts; migration 0089), audited, with `milestone.shown` / `milestone.hidden`
+ * through the outbox in the same transaction.
+ */
 import { JourneyListFilter, NO_DEPARTMENT_ID, repos } from "@foundmill/db";
 import { buildChapters, compareByTimeThenId, shouldPlayFullMatchDay } from "@foundmill/journey";
-import { dayKeyIn, dayRangeIn } from "@foundmill/shared";
+import { addDaysToDay, dayKeyIn, dayRangeIn } from "@foundmill/shared";
 import { loadRedactionSource, redactValue } from "../services/inbox-redaction";
 import { attributionSummary, buildJourneyRecord } from "../services/journey";
 import { journeyWalls, wallConversion, wallJourneyDetail, wallRibbon } from "../services/journey-walls";
+import { hideMilestone, showMilestone } from "../services/milestones";
 import { z } from "zod";
-import { Id, businessProcedure, router, sectionRead } from "../trpc";
+import { Id, businessProcedure, router, sectionAdmin, sectionRead } from "../trpc";
 
 const DayKey = z.string().date();
 /** Customer Updates and their conversions are the Distribution section's; money and names follow the Finance and CRM walls. */
 const read = sectionRead("distribution");
+/** Showing a milestone puts it on the project's public page: the right that publishes that page (`page.publish`). */
+const showOnPage = sectionAdmin("product");
 
 const DAY_MS = 86_400_000;
 /** How far the Ribbon reaches: ten years back for `from`, two years ahead for `to` (the forecast horizon is shorter). */
@@ -109,7 +117,11 @@ export const journeyRouter = router({
       const { from, to } = ribbonRange(input, Date.now(), zone);
       const range = dayRangeIn(from, to, zone);
       const firstDay = dayKeyIn(ctx.business.committedAt ?? ctx.business.createdAt, zone);
-      const [rows, conversions, milestones, counts, quarters, titles] = await Promise.all([
+      // Customers (first payments) as one server figure each, whatever range is on screen (one number per fact,
+      // DECISIONS 2026-11-10): this week is the business's last 7 days with today, the week before the 7 before, and
+      // the total is every first payment, the count the customer milestones are reached at.
+      const today = dayKeyIn(Date.now(), zone);
+      const [rows, conversions, milestones, counts, quarters, titles, weekCounts, previousCounts, allCounts] = await Promise.all([
         repos.journeys.dailyRange(tx, ctx.businessId, { from, to, departmentId: input.departmentId }),
         // Customers won (and signups, activations): a renewal or a repeat order is revenue in the daily rows, not a marker.
         input.slim ? Promise.resolve({ items: [] }) : repos.journeys.listConversions(tx, ctx.businessId, { ...range, firstPayment: true, limit: 500 }),
@@ -118,13 +130,21 @@ export const journeyRouter = router({
         // Chapters cover the business's whole life whatever range is on screen: its totals per quarter, from kick-off.
         repos.journeys.quarterTotals(tx, ctx.businessId, { from: firstDay < to ? firstDay : to, to }),
         repos.journeys.chapterTitles(tx, ctx.businessId),
+        repos.journeys.countConversions(tx, ctx.businessId, dayRangeIn(addDaysToDay(today, -6), today, zone)),
+        repos.journeys.countConversions(tx, ctx.businessId, dayRangeIn(addDaysToDay(today, -13), addDaysToDay(today, -7), zone)),
+        repos.journeys.countConversions(tx, ctx.businessId, {}),
       ]);
+      const customers = { today, thisWeek: weekCounts.payment ?? 0, previousWeek: previousCounts.payment ?? 0, total: allCounts.payment ?? 0 };
       const conversionCount = Object.values(counts).reduce((n, c) => n + c, 0);
+      const walls = journeyWalls(ctx.membership);
+      // Behind a Finance wall a chapter is built without money, so neither its totals nor its provisional title
+      // ("Growth", "A tough quarter": revenue against the quarter before) say what the revenue did.
+      const quarterRows = walls.finance ? quarters.map((q) => ({ ...q, spendMinor: 0, revenueMinor: 0 })) : quarters;
       const chapters = buildChapters({
         startDay: firstDay,
         today: to,
         horizonQuarters: 2,
-        daily: quarters.map((q) => ({ ...q, departmentId: null, agentHours: Number(q.agentHours) })),
+        daily: quarterRows.map((q) => ({ ...q, departmentId: null, agentHours: Number(q.agentHours) })),
         milestones: milestones.map((m) => ({ kind: m.kind, label: m.label, achievedAt: m.achievedAt.toISOString(), ref: m.ref ?? null, visibility: m.visibility, trophyKey: null })),
         titles,
       });
@@ -136,9 +156,14 @@ export const journeyRouter = router({
       // Ribbon and the revenue widgets read `departmentId: null` and numbers.
       const dailyRows = rows.map((r) => ({ ...r, departmentId: r.departmentId === NO_DEPARTMENT_ID ? null : r.departmentId, agentHours: Number(r.agentHours), spendMinor: Number(r.spendMinor), revenueMinor: Number(r.revenueMinor) }));
       const labelled = conversions.items.length ? await repos.journeys.labelConversions(tx, ctx.businessId, conversions.items) : [];
-      return wallRibbon({ rows: dailyRows, conversions: labelled.map((c) => ({ ...c, occurredAt: c.occurredAt.toISOString() })), conversionCount, milestones: milestones.map((m) => ({ ...m, achievedAt: m.achievedAt.toISOString() })), chapters, kickoff: firstDay, firstDay, today: to, forecastLabel: "Forecast" as const }, journeyWalls(ctx.membership));
+      return wallRibbon({ rows: dailyRows, conversions: labelled.map((c) => ({ ...c, occurredAt: c.occurredAt.toISOString() })), conversionCount, milestones: milestones.map((m) => ({ ...m, achievedAt: m.achievedAt.toISOString() })), chapters, customers, kickoff: firstDay, firstDay, today: to, forecastLabel: "Forecast" as const }, walls);
     }),
   ),
+
+  /** Shows a reached milestone on the project's page: a line of its story (`/p/<slug>/story`) and a card (`/m/<id>`). */
+  showMilestone: showOnPage.input(z.object({ milestoneId: Id })).mutation(({ ctx, input }) => showMilestone(ctx, input)),
+  /** Takes a shown milestone off the page; its card answers not found. */
+  hideMilestone: showOnPage.input(z.object({ milestoneId: Id })).mutation(({ ctx, input }) => hideMilestone(ctx, input)),
 
   roundup: read.input(z.object({ day: DayKey })).query(({ ctx, input }) =>
     ctx.rls(async (tx) => {

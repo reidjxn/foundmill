@@ -1,6 +1,8 @@
 "use client";
 /**
- * A department tab (BUILD §6.1, §11.13): loads `screen.get`, shows the department's tabs in the TabBar and renders
+ * A department tab (BUILD §6.1, §11.13): loads `screen.get`, shows its founder area's tabs in the TabBar (every
+ * department's tabs of that area, defaults inline and the rest behind "More detail"; docs/DESIGN.md §9; a department
+ * with no modules shows its own), breadcrumbs "<Area> › <department>", and renders
  * either a module full-screen widget (`module:<key>/<tab>` through @foundmill/modules `getModuleScreen`) or a
  * WidgetGrid of gallery widgets (@foundmill/widgets) with Edit mode on `E`, persisted through `screen.update`.
  * Module packs load on demand (`useModulePacks`): only the current tab's module gates the screen, and the department's
@@ -16,7 +18,11 @@ import { Button, EmptyState, Kbd, Panel, useGuided, useToast, type TabItem } fro
 import { useModulePacks } from "@foundmill/modules/lazy";
 import { getModuleScreen, type ModuleScreen } from "@foundmill/modules/registry";
 import type { ModuleKey } from "@foundmill/shared";
-import { MODULE_KEYS } from "@foundmill/shared/constants";
+import { MODULE_KEYS, isBuilderOnlyTab, visibleTabs } from "@foundmill/shared/constants";
+import { AREA_LABELS } from "@foundmill/shared/areas";
+import { AreaOpening } from "@foundmill/modules/areas";
+import { areaBreadcrumbs, areaOfRoute, areaOpeningOf, areaTabId, areaTabItems } from "@/lib/areas";
+import { useAreaNav } from "@/components/shell/useAreaNav";
 import { moduleHref } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { usePageShortcuts } from "@/lib/keys";
@@ -28,6 +34,8 @@ import { useShellChrome } from "@/components/shell/chrome";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { RefreshFailedNotice, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
+import { useBuilderViewPreference } from "@/components/providers/guidance-context";
+import { BuilderGate } from "./BuilderGate";
 import { DepartmentTour } from "./DepartmentTour";
 
 const WidgetScreen = dynamic(() => import("./WidgetScreen").then((m) => m.WidgetScreen), { loading: () => <ScreenSkeleton /> });
@@ -94,6 +102,7 @@ export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScree
   }, [relocated, router]);
   const { toast } = useToast();
   const live = data.business.gameMode === "live";
+  const builder = useBuilderViewPreference().on;
 
   const screenQ = useQuery(trpc.screen.get.queryOptions({ businessId, departmentId: department?.id ?? businessId, tabSlug }, { enabled: Boolean(department), staleTime: 30_000 }));
   const screenRow = screenQ.data?.screen ?? null;
@@ -107,17 +116,32 @@ export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScree
   const modulePending = Boolean(tabModule) && !packs.ready;
   const moduleScreen = useMemo(() => (packs.ready ? moduleScreenFor(layoutForModule) : null), [layoutForModule, packs.ready]);
 
+  // The founder area this tab belongs to (by its module, docs/DESIGN.md §9): its tab bar spans every department in the
+  // area. A department with no modules keeps its own tab bar, and so does one the area does not list (hidden, opened by
+  // its URL).
+  const area = areaOfRoute(department, tabSlug);
+  const nav = useAreaNav();
+  const areaTabs = area ? nav.get(area) : undefined;
+  const inArea = Boolean(department && areaTabs?.some((t) => t.department?.id === department.id));
+  const activeTabId = inArea ? areaTabId(deptSlug, tabSlug) : tabSlug;
+
   // Tabs for the shell's TabBar, with the module screen's sub-views in the caret menu.
   const tabs = useMemo<TabItem[]>(() => {
     if (!department) return [];
-    const rows = (screenQ.data?.tabs ?? department.tabs).slice().sort((a, b) => a.position - b.position);
-    return rows.map((t) => {
-      const slug = "slug" in t ? t.slug : (t as { tabSlug: string }).tabSlug;
-      const href = routes.department(businessId, department.slug, slug);
-      const screen = slug === tabSlug ? moduleScreen : null;
-      return { id: slug, label: t.title, href, subViews: screen?.subViews?.map((v) => ({ id: v.slug, label: v.title, href: `${href}?view=${v.slug}` })) };
-    });
-  }, [department, screenQ.data?.tabs, businessId, tabSlug, moduleScreen]);
+    const withViews = (t: TabItem): TabItem => (t.id === activeTabId && moduleScreen?.subViews && t.href ? { ...t, subViews: moduleScreen.subViews.map((v) => ({ id: v.slug, label: v.title, href: `${t.href}?view=${v.slug}` })) } : t);
+    if (inArea) return areaTabItems(businessId, areaTabs ?? []).map(withViews);
+    const rows = (screenQ.data?.tabs ?? department.tabs).map((t) => ({ slug: "slug" in t ? t.slug : (t as { tabSlug: string }).tabSlug, title: t.title, position: t.position }));
+    // Builder view's tabs are not offered while it is off, and engine tabs carry the founder's names (shared registry).
+    return visibleTabs({ moduleKeys: department.moduleKeys, tabs: rows }, builder).map((t) => withViews({ id: t.slug, label: t.title, href: routes.department(businessId, department.slug, t.slug) }));
+  }, [department, inArea, areaTabs, activeTabId, screenQ.data?.tabs, businessId, moduleScreen, builder]);
+  // Where "Open …" sends someone from a gate or a missing tab: this department's first inline tab.
+  const ownTabs = tabs.filter((t) => !inArea || t.id.startsWith(`${deptSlug}/`));
+  const firstTab = ownTabs.find((t) => t.tier !== "detail") ?? ownTabs[0] ?? tabs[0];
+  const breadcrumbs = area && department ? areaBreadcrumbs(businessId, area, areaTabs ?? [], department.name) : undefined;
+  // The area's opening line, first on every tab of the area (docs/DESIGN.md §9 "Opening line"); a department with no
+  // modules (no area) has none. The kind line names the department when its name is not the area's.
+  const openingOf = areaOpeningOf(department, tabSlug, area, inArea);
+  const opening = openingOf ? <AreaOpening {...openingOf} className="px-gutter pt-gutter" /> : null;
 
   // --- Edit mode (E) for widget layouts ---------------------------------------------------------------------------
   const [editing, setEditing] = useState(false);
@@ -127,9 +151,22 @@ export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScree
   useShellChrome(
     {
       title: department?.name ?? "Department",
-      tabs: tabs.length ? { tabs, activeId: tabSlug, activeSubViewId: subView, onChange: (id, sub) => router.push(sub ? `${routes.department(businessId, deptSlug, id)}?view=${sub}` : routes.department(businessId, deptSlug, id)), trailing: editable ? <EditToggle editing={editing} onToggle={() => setEditing((e) => !e)} /> : undefined } : undefined,
+      breadcrumbs,
+      tabs: tabs.length
+        ? {
+            tabs,
+            activeId: activeTabId,
+            activeSubViewId: subView,
+            "aria-label": inArea && area ? `${AREA_LABELS[area]} tabs` : undefined,
+            onChange: (id, sub) => {
+              const href = tabs.find((t) => t.id === id)?.href;
+              if (href) router.push(sub ? `${href}?view=${sub}` : href);
+            },
+            trailing: editable ? <EditToggle editing={editing} onToggle={() => setEditing((e) => !e)} /> : undefined,
+          }
+        : undefined,
     },
-    [department?.name, tabs, tabSlug, subView, editable, editing],
+    [department?.name, area, breadcrumbs?.[0]?.href, tabs, activeTabId, subView, editable, editing],
   );
 
   if (!department) {
@@ -137,7 +174,7 @@ export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScree
     return (
       <div className="p-gutter">
         <Panel title="Department" span={12}>
-          <EmptyState icon={LayoutGrid} title="No such department" action={{ label: "Go to Home", icon: House, onClick: () => router.push(routes.home(businessId)) }}>
+          <EmptyState icon={LayoutGrid} title="No such department" action={{ label: "Go to Today", icon: House, onClick: () => router.push(routes.today(businessId)) }}>
             Nothing is called “{deptSlug}” in this business.
           </EmptyState>
         </Panel>
@@ -149,6 +186,12 @@ export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScree
   if (!canOpenDepartment(access, department)) {
     return <ErrorPanel title={department.name} message={`${NO_ACCESS_PREFIX}${department.name}. Ask an owner or admin if you need it.`} />;
   }
+  // A Builder view tab opened by URL (a bookmark, a shared link) while the switch is off: say what it is and offer both
+  // ways on. Until the account's answer arrives, a skeleton, so the gate never flashes for someone who has it on.
+  if (!builder && isBuilderOnlyTab(department.moduleKeys, tabSlug)) {
+    const first = firstTab;
+    return <BuilderGate title={department.name} open={first?.href ? { label: String(first.label), href: first.href } : null} />;
+  }
   // A failed refetch keeps the loaded screen (with a quiet notice); only a first load that failed shows the panel.
   if (loadFailed(screenQ)) return <ErrorPanel title={department.name} message={errorMessage(screenQ.error)} onRetry={() => void screenQ.refetch()} />;
   if (!screenQ.data) return <ScreenSkeleton />;
@@ -157,7 +200,7 @@ export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScree
     return (
       <div className="p-gutter">
         <Panel title={department.name} span={12}>
-          <EmptyState icon={LayoutGrid} title="No such tab" action={tabs[0] ? { label: `Open ${tabs[0].label}`, icon: ArrowRight, onClick: () => router.push(tabs[0]!.href!) } : undefined}>
+          <EmptyState icon={LayoutGrid} title="No such tab" action={firstTab ? { label: `Open ${firstTab.label}`, icon: ArrowRight, onClick: () => router.push(firstTab.href!) } : undefined}>
             “{tabSlug}” is not a tab of {department.name}.
           </EmptyState>
         </Panel>
@@ -174,6 +217,7 @@ export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScree
     return (
       // Each module screen pads itself (its own Screen wrapper, p-gutter), so the content gutter is 16 px as on Home.
       <div className="min-h-full" data-testid="module-screen" data-module={`${moduleScreen.moduleKey}/${moduleScreen.tabSlug}`}>
+        {opening}
         {stale}
         <Component businessId={businessId} departmentId={department.id} subView={subView} />
         {/* The first-visit tour (once per account, guidance on), on whichever department tab is opened first. */}
@@ -184,6 +228,7 @@ export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScree
 
   return (
     <>
+      {opening}
       {stale}
       <DepartmentTour />
       <WidgetScreen

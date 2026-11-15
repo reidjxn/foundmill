@@ -56,7 +56,7 @@ function ArchivedBusinessRow({ row }: { row: ArchivedRow }) {
       onSuccess: () => {
         toast({ title: `${business.name} restored`, description: "Everything is where you left it. Its agents stay stopped until you resume them.", tone: "good" });
         void refresh();
-        router.push(routes.home(businessId));
+        router.push(routes.today(businessId));
       },
       onError: (err) => toast({ title: "Could not restore the business", description: errorMessage(err), tone: "bad" }),
     }),

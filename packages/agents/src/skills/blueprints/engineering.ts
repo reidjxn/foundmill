@@ -312,6 +312,39 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
       ],
     ),
   ],
+  design_principles: [
+    bp(
+      "Fix a generic landing page for {business}",
+      "{business}'s landing page (fixture) has a 16 px headline the same size as the body, light gray body text (#bbbbbb on white), placeholder Latin filler in the feature list, three equal buttons and a purple-to-pink gradient headline. List the fixes in order of importance, each with the element and the exact change, then apply them in the project's own styles.",
+      [
+        "Ranks unreadable text and placeholder content above polish.",
+        "Each fix names the element and a concrete value (size, color pair, spacing, wording).",
+        "Keeps one primary action and removes the gradient text.",
+        "Uses the project's own components and colors, not another product's look.",
+      ],
+      { fixtures: { dom: "fixtures/design/generic_landing.html" }, mockTools: TOOLS.sandbox },
+    ),
+    bp(
+      "Make {business}'s pricing page work on a phone",
+      "At 390 px {business}'s pricing table scrolls sideways, its buttons are 28 px tall and the plan names drop to 11 px (fixture). Make the page work at 390 px without changing the desktop layout, and say what you checked at each width.",
+      [
+        "Nothing scrolls sideways at 390 px; the plans stack into one column.",
+        "Tap targets reach 44 px and text stays at 12 px or more.",
+        "The desktop layout is unchanged and both widths are checked.",
+      ],
+      { fixtures: { dom: "fixtures/design/pricing_overflow.html" }, mockTools: TOOLS.sandbox },
+    ),
+    bp(
+      "Add the missing states to {business}'s order list",
+      "The order list for {business} shows a blank panel while loading, an empty white area when there are no orders and a raw stack trace on error. Design and build the three states with the project's components.",
+      [
+        "The loading state shows the layout's shape instead of a blank panel.",
+        "The empty state says what will appear and gives the one action that fills it.",
+        "The error state says what went wrong in plain words and how to try again, with no stack trace.",
+      ],
+      { mockTools: TOOLS.sandbox },
+    ),
+  ],
   layout_precision: [
     bp(
       "Lay out the shell for {business}",

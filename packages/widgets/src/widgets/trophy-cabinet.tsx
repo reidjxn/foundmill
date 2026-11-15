@@ -1,15 +1,17 @@
 "use client";
 /**
- * Milestones widget (BUILD §11.4; registry key `trophy_cabinet`): the eight milestone definitions from
- * `@foundmill/journey`, reached ones in gold with the date (and the customer when permission is recorded), the rest
+ * Milestones widget (BUILD §11.4; registry key `trophy_cabinet`): the milestone definitions from
+ * `@foundmill/journey` (the two early ones, "Page live" and "First follower", then the eight of customers and
+ * revenue), reached ones in gold with the date (and the customer when permission is recorded), the rest
  * ghosted. LIVE adds Share.
  */
 import { useMemo } from "react";
 import { z } from "zod";
 import { Trophy } from "lucide-react";
-import { thresholdFor, TROPHIES, type TrophyDefinition } from "@foundmill/journey";
-import { TrophyCabinet, formatMoney, formatNumber, type TrophyCard } from "@foundmill/dugout";
-import { useBusinessEvents, useGlossary, useWidgetData } from "../data";
+import { eventTrophyDescription, formatThreshold, thresholdFor, TROPHIES, type TrophyDefinition } from "@foundmill/journey";
+import { TrophyCabinet, formatNumber, type TrophyCard } from "@foundmill/dugout";
+import { monthlyRevenueWords, revenueIsRecurring } from "@foundmill/shared";
+import { useBusinessEvents, useGlossary, useWidgetData, useWidgetQuery } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
 import { WidgetFrame } from "../shared/frame";
 import { useRecentRibbon } from "../shared/ribbon";
@@ -23,13 +25,16 @@ export const TrophyCabinetSettings = z.object({
 });
 export type TrophyCabinetSettings = z.infer<typeof TrophyCabinetSettings>;
 
-function describe(t: TrophyDefinition, currency: string): string {
+/** A revenue milestone is Finance's monthly figure, named as Finance names it (MRR only when revenue recurs). */
+function describe(t: TrophyDefinition, currency: string, recurring?: boolean | null): string {
+  if (t.metric === "event") return eventTrophyDescription(t) ?? "";
   if (t.metric === "customers") return t.threshold === 1 ? "The first paying customer." : `${formatNumber(t.threshold, { maxDigits: 0 })} paying customers.`;
-  if (t.metric === "mrrMinor") return `Monthly recurring revenue reaches ${formatMoney({ amountMinor: thresholdFor(t, currency), currency })}.`;
+  if (t.metric === "mrrMinor") return `${monthlyRevenueWords(recurring).label} reaches ${formatThreshold(thresholdFor(t, currency), currency)}: the last 3 full months' revenue ÷ 3, as on Finance (Estimate).`;
   return "A signed contract above the enterprise threshold.";
 }
 
 type MilestoneRow = RibbonResponse["milestones"][number];
+const BUSINESS_INPUT: Record<string, unknown> = {};
 
 /**
  * The milestone definition key a stored row carries. `milestones` has no trophy_key column: the seed and the
@@ -42,17 +47,17 @@ export function milestoneKey(m: Pick<MilestoneRow, "trophyKey" | "ref">): string
 }
 
 /** Match stored milestones to milestone definitions by key (row or ref.trophyKey), or kind + label as a fallback. */
-export function trophyCards(milestones: RibbonResponse["milestones"] | undefined, currency: string, live: boolean): TrophyCard[] {
+export function trophyCards(milestones: RibbonResponse["milestones"] | undefined, currency: string, live: boolean, recurring?: boolean | null): TrophyCard[] {
   return TROPHIES.map((t) => {
-    const label = t.label(currency);
+    const label = t.label(currency, recurring);
     const rows = milestones ?? [];
-    const won = rows.find((m) => milestoneKey(m) === t.key) ?? rows.find((m) => milestoneKey(m) === null && m.kind === t.kind && m.label === label);
+    const won = rows.find((m) => milestoneKey(m) === t.key) ?? rows.find((m) => milestoneKey(m) === null && m.kind === t.kind && (m.label === label || m.label === t.label(currency)));
     const ref = (won?.ref ?? {}) as Record<string, unknown>;
     const permission = ref.permission === true || ref.shareCustomer === true;
     return {
       key: t.key,
       label,
-      description: describe(t, currency),
+      description: describe(t, currency, recurring),
       achievedAt: won?.achievedAt ?? null,
       customerName: won && permission && typeof ref.customerName === "string" ? ref.customerName : null,
       amountMinor: typeof ref.amountMinor === "number" ? ref.amountMinor : null,
@@ -66,13 +71,16 @@ function TrophyCabinetWidget({ settings }: WidgetProps<TrophyCabinetSettings>) {
   const { businessId, navigate, gameMode = "personal", currency } = useWidgetData();
   // Milestones are not limited to the day range, so the recent ribbon Home already shares carries all of them.
   const ribbon = useRecentRibbon();
+  // The shell's cached `business.get`: a revenue milestone says MRR only when the business's revenue recurs.
+  const business = useWidgetQuery<{ business?: { archetype?: string | null } }>("business.get", BUSINESS_INPUT);
+  const recurring = revenueIsRecurring(business.data?.business?.archetype);
   const g = useGlossary();
   useBusinessEvents(() => ribbon.refetch(), ["customer.converted", "payment.received", "contract.signed"]);
   const cards = useMemo(() => {
     // Milestone names in the business's words ("First customer" → "First client").
-    const all = trophyCards(ribbon.data?.milestones, currency, gameMode === "live").map((c) => ({ ...c, label: g(c.label), description: g(c.description) }));
+    const all = trophyCards(ribbon.data?.milestones, currency, gameMode === "live", recurring).map((c) => ({ ...c, label: g(c.label), description: g(c.description) }));
     return settings.wonOnly ? all.filter((c) => c.achievedAt) : all;
-  }, [ribbon.data, currency, gameMode, settings.wonOnly, g]);
+  }, [ribbon.data, currency, gameMode, settings.wonOnly, g, recurring]);
   return (
     <WidgetFrame
       title="Milestones"
@@ -92,7 +100,7 @@ export const trophyCabinetWidget = registerWidget<TrophyCabinetSettings>({
   description: "Customer and revenue milestones, reached and still to reach.",
   icon: "trophy",
   surfaces: ["home", "department"],
-  // Two rows of four milestones (dates and amounts on the reached ones) above the footer; the body scrolls when smaller.
+  // Two rows of four milestones (dates and amounts on the reached ones) above the footer; the body scrolls for the rest.
   defaultSize: { w: 6, h: 16, minW: 4, minH: 8 },
   settingsSchema: TrophyCabinetSettings,
   defaultSettings: TrophyCabinetSettings.parse({}),

@@ -116,23 +116,24 @@ test.describe("ideation studio", () => {
   test("the deck explains itself: the 'How to read a card' Explainer collapses on Got it and stays so per account; 'Pick 2–4 cards to compare them'", async ({ page, playwright }) => {
     await needCards(page, 1);
     const guided = await guidanceOn(playwright);
-    const explainer = page.locator('[data-explainer="ideate-cards"]');
+    const explainer = page.locator('[data-testid="how-to-read-card"]');
     const kbdTip = page.getByTestId("compare-kbd-tip");
     if (guided) {
-      // The Explainer (UX plan §6.2): three labels and Got it while open; one line with a chevron once seen, and the
-      // account remembers it (explainers_seen), so a reload keeps it collapsed.
-      await expect(explainer).toBeVisible();
-      await expect(explainer).toHaveAttribute("data-testid", "how-to-read-card");
-      if ((await explainer.getAttribute("data-state")) === "open") {
-        await expect(explainer).toContainText("What this screen is for");
-        await expect(explainer).toContainText("Every bar runs 1–20 and higher is always the better side");
-        await explainer.getByRole("button", { name: "Got it" }).click();
-      }
-      await expect(explainer).toHaveAttribute("data-state", "collapsed");
-      await expect(explainer.getByRole("button", { name: "Show more about this screen" })).toBeVisible();
+      // The Explainer (UX plan §6.2) on this full-screen page has no shell header, so it draws the "Explain this page"
+      // button in place: no banner, nothing open by itself; opening it shows the lines and marks the page read
+      // (explainers_seen), so the unread dot stays gone after a reload.
+      const button = explainer.getByRole("button", { name: /^Explain this page/ });
+      await expect(button).toBeVisible();
+      await expect(page.getByText("What this screen is for")).toHaveCount(0);
+      await button.click();
+      const panel = page.getByTestId("explain-page-panel");
+      await expect(panel).toContainText("What this screen is for");
+      await expect(panel).toContainText("Every bar runs 1–20 and higher is always the better side");
+      await page.keyboard.press("Escape");
+      await expect(button).not.toHaveAttribute("data-unread", /.*/);
       await page.reload();
       await openStudio(page);
-      await expect(explainer).toHaveAttribute("data-state", "collapsed", { timeout: LONG });
+      await expect(explainer.getByRole("button", { name: "Explain this page", exact: true })).toBeVisible({ timeout: LONG });
       // Key caps are for operators: the shortcuts tip is not there while guidance is on.
       await expect(kbdTip).toHaveCount(0);
     } else {
@@ -334,12 +335,14 @@ test.describe("ideation studio", () => {
     await expect(page.getByTestId("discard-tray")).toContainText(targetName);
     await page.getByTestId("restore-button").first().click();
     await expect(cards).toHaveCount(before + 1);
-    // Restore is real (idea.restore, audit FR-12): after a reload the card is still in the deck, and Commit opens its form
-    // instead of an error panel that names a raw id.
+    // Restore is real (idea.restore, audit FR-12): after a reload the card is still in the deck, and "Choose this idea"
+    // (never "Commit": the button says what it does) opens its form instead of an error panel that names a raw id.
     await page.reload();
     const restored = cards.filter({ hasText: targetName }).first();
     await expect(restored).toBeVisible({ timeout: LONG });
-    await restored.locator("xpath=..").getByTestId("commit-link").click();
+    const choose = restored.locator("xpath=..").getByTestId("commit-link");
+    await expect(choose).toHaveText("Choose this idea");
+    await choose.click();
     await expect(page).toHaveURL(/\/new\/commit\//);
     await expect(page.getByLabel(/Business name/)).toBeVisible({ timeout: LONG });
     await expect(page.getByText(/not found/i)).toHaveCount(0);
@@ -367,5 +370,58 @@ test.describe("ideation studio", () => {
     for (let i = 0; i < 5; i++) await cards.nth(i).getByRole("button", { name: /^Compare / }).click();
     await expect(page.getByTestId("compare-bar")).toContainText("4 of 4 selected");
     await expect(cards.nth(4).getByRole("button", { name: /^Compare / })).toHaveAttribute("aria-pressed", "false");
+  });
+});
+
+test.describe("the founder's own words (first-time founder report, Nov 8, 2026)", () => {
+  const WORDS = "Students at my university struggle to find short-notice part-time shifts, and local cafes and bars near campus struggle to fill last-minute gaps. A simple app that matches verified students to same-day shifts at independent venues around Manchester.";
+
+  test("Use my idea as written: one card in the founder's words, rated, straight to Commit, where the card says whose words they are", async ({ page }) => {
+    await signIn(page);
+    await openStudio(page);
+    const brief = page.getByRole("textbox", { name: "Brief" });
+    // Nothing to use while the brief is empty; the button appears with the founder's words.
+    await expect(page.getByTestId("use-my-idea")).toHaveCount(0);
+    await brief.fill(WORDS);
+    await page.getByTestId("use-my-idea").click();
+    const dialog = page.getByTestId("write-dialog");
+    await expect(dialog).toBeVisible();
+    // The words are the pitch, untouched; the working name is suggested from them and can be changed.
+    await expect(dialog.getByTestId("write-pitch")).toHaveValue(WORDS);
+    await expect(dialog.getByTestId("write-title")).not.toHaveValue("");
+    await dialog.getByTestId("write-title").fill("ShiftMate");
+    await dialog.getByTestId("write-submit").click();
+    await page.waitForURL(/\/new\/commit\/[0-9a-f-]+/, { timeout: LONG });
+    await expect(page.getByTestId("commit-form")).toBeVisible({ timeout: LONG });
+    // The card on Commit carries the founder's words and says so; the note under it says the team builds from them.
+    const card = page.locator("[data-concept]").first();
+    await expect(card).toContainText(WORDS);
+    await expect(card.locator("[data-concept-your-words]")).toBeVisible();
+    await expect(page.getByTestId("commit-words-note")).toContainText("The pitch is in your words");
+    // The business name follows the working name.
+    await expect(page.getByLabel(/Business name/)).toHaveValue("ShiftMate");
+  });
+
+  test("Edit on any card: the pitch changed in the founder's words becomes a new version that reads 'Your words'", async ({ page }) => {
+    await signIn(page);
+    await openStudio(page);
+    await needCards(page, 1);
+    const card = cardsOf(page).first();
+    const name = (await card.getAttribute("aria-label"))!.replace(/: concept card$/, "");
+    await card.getByRole("button", { name: `More actions for ${name}` }).click();
+    await page.getByRole("menuitem", { name: "Edit" }).click();
+    const dialog = page.getByTestId("edit-dialog");
+    await expect(dialog).toBeVisible();
+    // Nothing changed yet: nothing to save.
+    await expect(dialog.getByTestId("edit-submit")).toBeDisabled();
+    const words = `Cafes near campus fill last-minute shifts with verified students (${Date.now().toString(36)}).`;
+    await dialog.getByTestId("edit-pitch").fill(words);
+    await dialog.getByTestId("edit-submit").click();
+    await expect(dialog).toHaveCount(0, { timeout: LONG });
+    await expect(page.getByTestId("studio-notice")).toContainText(/Your words lead the card now/, { timeout: LONG });
+    const edited = gridOf(page).locator("[data-concept]").filter({ hasText: words }).first();
+    await expect(edited).toBeVisible({ timeout: LONG });
+    await expect(edited.locator("[data-concept-your-words]")).toBeVisible();
+    await expect(edited.getByText(/^Version \d+$/)).toBeVisible();
   });
 });

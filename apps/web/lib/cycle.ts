@@ -2,7 +2,7 @@
  * Business-cycle status for the shell (processing strip segments + the Continue "processing" state): a snapshot from
  * the API's `cycle.status` (running cycle, paused flag, active departments/agents, completed count) kept current
  * by reducing the `ev:<businessId>` stream (`cycle.started`, `task.started`, `task.completed`, `task.failed`,
- * `cycle.completed`) on top of it.
+ * `cycle.completed`, and the run one press of Continue starts: `cycle.run_started` / `cycle.run_ended`) on top of it.
  */
 export interface CycleStatus {
   running: boolean;
@@ -18,9 +18,16 @@ export interface CycleStatus {
   completedCount: number;
   lastCompletedAt: string | null;
   lastOutcome: string | null;
+  /**
+   * A run is open (Nov 7, 2026): one press of Continue keeps the team working, so new cycles start on their own until
+   * it ends. Continue stays on processing (Pause) for as long, the gap between cycles included.
+   */
+  run: boolean;
+  /** The open run's id (a `cycle.run_ended` for another run leaves it open). */
+  runId: string | null;
 }
 
-export const EMPTY_CYCLE: CycleStatus = { running: false, paused: false, cycleId: null, cycleNumber: null, activeDepartmentIds: [], activeAgentIds: [], completedCount: 0, lastCompletedAt: null, lastOutcome: null };
+export const EMPTY_CYCLE: CycleStatus = { running: false, paused: false, cycleId: null, cycleNumber: null, activeDepartmentIds: [], activeAgentIds: [], completedCount: 0, lastCompletedAt: null, lastOutcome: null, run: false, runId: null };
 
 export interface CycleEvent {
   type: string;
@@ -39,6 +46,8 @@ export interface CycleSnapshotInput {
   completedCount?: number;
   lastCompletedAt?: string | null;
   lastOutcome?: string | null;
+  /** The open run (null or absent: none). */
+  run?: { id: string } | null;
 }
 
 /** `cycle.status` → the shell's status. */
@@ -53,6 +62,8 @@ export function cycleFromSnapshot(input: CycleSnapshotInput): CycleStatus {
     completedCount: input.completedCount ?? 0,
     lastCompletedAt: input.lastCompletedAt ?? null,
     lastOutcome: input.lastOutcome ?? null,
+    run: Boolean(input.run),
+    runId: input.run?.id ?? null,
   };
 }
 
@@ -95,16 +106,20 @@ export function reduceCycleEvent(status: CycleStatus, event: CycleEvent, agentDe
         lastCompletedAt: event.occurredAt ?? new Date().toISOString(),
         lastOutcome: str(p.outcome),
       };
+    case "cycle.run_started":
+      return { ...status, run: true, runId: str(p.runId) };
+    case "cycle.run_ended":
+      return status.runId !== null && str(p.runId) !== status.runId ? status : { ...status, run: false, runId: null };
     case "holiday.ended":
     case "agents.stopped":
-      return { ...status, running: false, paused: false, activeAgentIds: [], activeDepartmentIds: [] };
+      return { ...status, running: false, paused: false, activeAgentIds: [], activeDepartmentIds: [], run: false, runId: null };
     default:
       return status;
   }
 }
 
 /** The events the shell subscribes to for the strip and the Continue pulse. */
-export const CYCLE_EVENT_TYPES = ["cycle.started", "cycle.completed", "task.started", "task.completed", "task.failed", "task.stopped", "task.paused", "holiday.ended"] as const;
+export const CYCLE_EVENT_TYPES = ["cycle.started", "cycle.completed", "cycle.run_started", "cycle.run_ended", "task.started", "task.completed", "task.failed", "task.stopped", "task.paused", "holiday.ended"] as const;
 
 /** Pause/resume are mutations, not platform events: the shell applies them to its own status. */
 export function setPaused(status: CycleStatus, paused: boolean): CycleStatus {

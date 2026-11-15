@@ -7,7 +7,7 @@
 import { useEffect, useId, useState } from "react";
 import { ArrowLeftRight, Copy, UserRoundMinus, UserRoundPlus } from "lucide-react";
 import { CREDITS_CURRENCY } from "@foundmill/config";
-import { Button, Checkbox, Chip, ConsequenceLine, MODEL_LABELS, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, KeyValueList, ProvenanceChip, ReassuranceLine, SimpleSelect, Term, formatMoney } from "@foundmill/dugout";
+import { Button, Checkbox, Chip, useAgentPersona, ConsequenceLine, MODEL_LABELS, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, KeyValueList, ProvenanceChip, ReassuranceLine, SimpleSelect, Term, formatMoney } from "@foundmill/dugout";
 import type { DepartmentRow } from "@foundmill/widgets/shared/types";
 import { humanise } from "../fit";
 import { FAMILY_LABELS, InlineError, isChiefOfStaff, useAction } from "./shared";
@@ -172,6 +172,8 @@ export interface ReleaseDialogProps {
 /** Let an agent go from the team (team.agents.release). The Chief of Staff cannot be let go. */
 export function ReleaseDialog({ agent, onOpenChange, onReleased }: ReleaseDialogProps) {
   const id = useId();
+  // The agent as every other surface names it, under the reader's preference (One name everywhere).
+  const shown = useAgentPersona().labelFor(agent ?? { name: "" });
   const action = useAction();
   const cos = agent ? isChiefOfStaff(agent) : false;
   const confirm = async () => {
@@ -195,14 +197,14 @@ export function ReleaseDialog({ agent, onOpenChange, onReleased }: ReleaseDialog
         }}
       >
         <DialogHeader>
-          <DialogTitle>Let {agent?.name} go</DialogTitle>
+          <DialogTitle>Let {shown} go</DialogTitle>
           <DialogDescription id={`${id}-desc`}>
             {cos ? (
               <>
                 The <Term id="chief_of_staff">Chief of Staff</Term> plans every <Term id="cycle">cycle</Term> and cannot be let go.
               </>
             ) : (
-              `${agent?.name} leaves the team.`
+              `${shown} leaves the team.`
             )}
           </DialogDescription>
         </DialogHeader>
@@ -237,6 +239,8 @@ export interface CloneDialogProps {
 /** Duplicate an agent with its instructions, tools, model and skills (team.agents.clone). */
 export function CloneDialog({ agent, onOpenChange, departments, onCloned }: CloneDialogProps) {
   const id = useId();
+  // The agent as every other surface names it, under the reader's preference (One name everywhere).
+  const shown = useAgentPersona().labelFor(agent ?? { name: "" });
   const action = useAction();
   const options = departmentOptions(departments);
   const [name, setName] = useState("");
@@ -262,7 +266,7 @@ export function CloneDialog({ agent, onOpenChange, departments, onCloned }: Clon
     <Dialog open={!!agent} onOpenChange={onOpenChange}>
       <DialogContent size="sm" aria-describedby={`${id}-desc`} data-testid="clone-dialog">
         <DialogHeader>
-          <DialogTitle>Duplicate {agent?.name}</DialogTitle>
+          <DialogTitle>Duplicate {shown}</DialogTitle>
           <DialogDescription id={`${id}-desc`}>A new agent with the same instructions, tools, model and skills. Its history starts empty.</DialogDescription>
         </DialogHeader>
         <DialogBody className="flex flex-col gap-3">
@@ -311,6 +315,8 @@ export interface LoanDialogProps {
 /** Lend an agent to another department, or move it there (team.agents.loan). */
 export function LoanDialog({ agent, onOpenChange, departments, onLoaned }: LoanDialogProps) {
   const id = useId();
+  // The agent as every other surface names it, under the reader's preference (One name everywhere).
+  const shown = useAgentPersona().labelFor(agent ?? { name: "" });
   const action = useAction();
   const current = new Set(agent?.departmentIds ?? (agent?.departments ?? []).map((d) => d.id));
   const options = departmentOptions(departments).filter((o) => !current.has(o.value));
@@ -336,7 +342,7 @@ export function LoanDialog({ agent, onOpenChange, departments, onLoaned }: LoanD
     <Dialog open={!!agent} onOpenChange={onOpenChange}>
       <DialogContent size="sm" aria-describedby={`${id}-desc`} data-testid="loan-dialog">
         <DialogHeader>
-          <DialogTitle>Lend {agent?.name} to another department</DialogTitle>
+          <DialogTitle>Lend {shown} to another department</DialogTitle>
           <DialogDescription id={`${id}-desc`}>The agent joins another department's team and keeps its skills, tools and model.</DialogDescription>
         </DialogHeader>
         <DialogBody className="flex flex-col gap-3">

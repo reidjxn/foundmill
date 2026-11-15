@@ -31,6 +31,8 @@ export interface SavedView {
   density?: TableDensity;
   /** Built-in views cannot be deleted or overwritten; "Save as" creates a copy. */
   builtIn?: boolean;
+  /** Offered only while Builder view is on (docs/DESIGN.md "Builder view"); kept, unseen, while it is off. */
+  builderOnly?: boolean;
 }
 
 export type TableDensity = "compact" | "comfortable";
@@ -103,6 +105,8 @@ export interface EntityDetails extends EntityRef {
    */
   personaKey?: string | null;
   role?: string | null;
+  /** Agents only: the layer; a `utility` agent is a background helper and keeps its role name with the preference on. */
+  layer?: string | null;
   chips?: EntityChip[];
   /** Up to three; extra facts are dropped. */
   facts?: EntityFact[];

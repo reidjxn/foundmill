@@ -1,5 +1,14 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
-import { LEDGERLY_BUSINESS_ID, LONG, NORTHWIND_BUSINESS_ID, devApi, openBusiness, openSwitcher, signIn } from "./helpers";
+import { LEDGERLY_BUSINESS_ID, LONG, NORTHWIND_BUSINESS_ID, devApi, openBusiness, openSwitcher, signIn, setBuilderView } from "./helpers";
+
+// Builder view on for this file (it reads the "Reconnecting…" chip, which a founder without Builder view sees only as "Updates may be late" after 30 s); global-setup.ts starts every run with it off. Restored afterwards.
+let builderViewBefore = false;
+test.beforeAll(async ({ playwright }) => {
+  builderViewBefore = await setBuilderView(playwright, true);
+});
+test.afterAll(async ({ playwright }) => {
+  await setBuilderView(playwright, builderViewBefore);
+});
 
 /** lib/chunk-error.ts CHUNK_RELOAD_KEY (a spec cannot import app code that reaches for the window). */
 const CHUNK_RELOAD_KEY = "fm.chunk-reload-at";
@@ -89,7 +98,8 @@ test.describe("shell resilience", () => {
     let blocked = true;
     // Only the chunks the Inbox did not need fail (blocking the shell's own would leave nothing to show the panel).
     await page.route("**/_next/static/chunks/**", (route) => (blocked && !loaded.has(route.request().url()) ? route.fulfill({ status: 404, body: "" }) : route.continue()));
-    await page.getByRole("link", { name: "Milestones" }).first().click();
+    // A client navigation to a screen the Inbox did not load (the sidebar has no Milestones item since the founder areas: Plan holds it).
+    await page.locator("[data-testid=app-shell] nav [data-sidebar-item='area-plan']").click();
     const panel = page.getByTestId("error-panel");
     await expect(panel).toBeVisible({ timeout: LONG });
     await expect(panel).toContainText("was updated");
@@ -100,13 +110,13 @@ test.describe("shell resilience", () => {
     await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
   });
 
-  test("Switch business reaches Home, the other businesses and Create a new business (IAE-08, WEB-13)", async ({ page }) => {
+  test("Switch business reaches Today, the other businesses and Create a new business (IAE-08, WEB-13)", async ({ page }) => {
     await openBusiness(page);
     let switcher = await openSwitcher(page);
     // By id: the foundations spec takes charge of throwaways named "Ledgerly <suffix>", which the founder owns too.
     await expect(switcher.locator(`[data-business-id="${LEDGERLY_BUSINESS_ID}"]`)).toBeVisible({ timeout: LONG });
-    await switcher.getByRole("option", { name: /^Home$/ }).click();
-    await expect(page).toHaveURL(new RegExp(`/b/${NORTHWIND_BUSINESS_ID}/home$`));
+    await switcher.getByRole("option", { name: /^Today$/ }).click();
+    await expect(page).toHaveURL(new RegExp(`/b/${NORTHWIND_BUSINESS_ID}/today$`));
     switcher = await openSwitcher(page);
     await switcher.getByRole("option", { name: /Create a new business/ }).click();
     await expect(page).toHaveURL(/\/new$/, { timeout: LONG });
@@ -129,7 +139,7 @@ test.describe("shell resilience", () => {
     const ledgerly = page.getByRole("option", { name: /^Switch to Ledgerly\s*Switch business$/ });
     await expect(ledgerly).toBeVisible({ timeout: LONG });
     await ledgerly.click();
-    await expect(page).toHaveURL(new RegExp(`/b/${LEDGERLY_BUSINESS_ID}/home$`), { timeout: LONG });
+    await expect(page).toHaveURL(new RegExp(`/b/${LEDGERLY_BUSINESS_ID}/today$`), { timeout: LONG });
   });
 
   test("Edit layout is offered only where a layout can be edited (OL-29)", async ({ page }) => {
@@ -186,7 +196,8 @@ test.describe("shell resilience", () => {
       }
       await page.getByRole("link", { name: "Inbox" }).first().click();
       await page.waitForURL(/\/inbox/, { timeout: LONG });
-      await page.getByRole("link", { name: "Home" }).first().click();
+      await page.getByRole("link", { name: "Today", exact: true }).first().click();
+      await page.getByRole("tab", { name: "Details" }).click();
       await expect(screen).toBeVisible({ timeout: LONG });
       await expect(widgets).toHaveCount(before - 1);
       // Opening Home saved nothing by itself.
@@ -232,11 +243,13 @@ test.describe("keyboard focus is visible (A11Y-02, A11Y-20)", () => {
   });
 });
 
-test.describe("a phone gets the larger-window page, not a slice of the desktop one (PAS-4)", () => {
+test.describe("a phone gets a page at its real width, not a slice of the desktop one (PAS-4)", () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
-  test("the sign-in page shows NeedsLargerWindow", async ({ page }) => {
+  test("the sign-in page, which works from 390 px, renders at the phone's real width (e2e/login.spec.ts checks it fits)", async ({ page }) => {
     await page.goto("/login");
-    await expect(page.getByTestId("needs-larger-window")).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("brand-panel")).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
     await expect(page.locator('meta[name="viewport"]')).toHaveAttribute("content", /width=device-width/);
+    expect(await page.evaluate(() => window.innerWidth)).toBe(390);
   });
 });

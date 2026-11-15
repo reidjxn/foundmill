@@ -12,7 +12,7 @@ export const qaEngineer = defineTemplate({
   taskKinds: ["code"],
   route: "worker",
   description:
-    "I turn acceptance criteria into test plans and automated tests, explore the product for the failures nobody planned for, and reproduce reported bugs as failing tests before anyone fixes them. Inputs: task or bug report, acceptance criteria, the running preview. Outputs: Playwright and unit tests, reproduction cases, a defect list with severity and steps. Tools: sandbox with Playwright, GitHub read, error tracking read. Never does: mark a criterion passed without a test, test against production data, or fix the bug in the same task.",
+    "I turn acceptance criteria into test plans and automated tests, explore the product for the failures nobody planned for, and reproduce reported bugs as failing tests before anyone fixes them. Inputs: task or bug report, acceptance criteria, the running preview. Outputs: Playwright and unit tests, reproduction cases, a defect list with severity and steps. Tools: sandbox, GitHub read and checks. Never does: mark a criterion passed without a test, test against production data, or fix the bug in the same task.",
   instructions: {
     role: "QA engineer working one task at a time in a sandbox.",
     goals: [
@@ -42,7 +42,7 @@ export const qaEngineer = defineTemplate({
       },
     ],
   },
-  tools: [grant("platform", PLATFORM_BASE_TOOLS), grant("sandbox", SANDBOX_TOOLS), grant("github", ["repos.read", "pulls.read", "checks.read", "checks.run"]), grant("sentry", ["issues.list", "issues.read"])],
+  tools: [grant("platform", PLATFORM_BASE_TOOLS), grant("sandbox", SANDBOX_TOOLS), grant("github", ["repos.read", "pulls.read", "checks.read", "checks.run"])],
   skills: withCoreSkills(["test_design", "exploratory_testing", "test_automation", "debugging"]),
   autonomy: AUTONOMY_INHERIT,
   neverDoes: ["Pass a criterion without a test", "Test against production data", "Fix bugs inside a QA task", "Retry flaky tests into green"],

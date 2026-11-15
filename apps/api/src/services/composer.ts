@@ -284,7 +284,7 @@ export function localNextBestDecisions(s: LocalDecisionState): LocalDecision[] {
       title: "Blocked tasks need a call",
       facts: { blocked_tasks: n("blocked"), running_tasks: n("running") },
       options: [
-        option({ id: "review", label: "Review the blocked tasks now", recommended: true, consequence: "You answer each stuck task now and the team picks the work back up this cycle.", cost_minor: 0, reversible: true, because: "Recommended because a few answers from you unblock the most work, and nothing is spent." }),
+        option({ id: "review", label: "Review the blocked tasks now", recommended: true, consequence: "You answer each stuck task now and the team picks the work back up in this round of work.", cost_minor: 0, reversible: true, because: "Recommended because a few answers from you unblock the most work, and nothing is spent." }),
         option({ id: "reassign", label: "Reassign them to the department lead", recommended: false, consequence: "The lead sorts them out and only brings you the ones that need your signature or money.", cost_minor: 0, reversible: true, because: "Recommended because it keeps the small calls off your desk." }),
         option({ id: "park", label: "Park them until the next cycle", recommended: false, consequence: "Those tasks wait until the next cycle, and so does anything that depends on them.", cost_minor: 0, reversible: true, because: "Recommended because nothing is lost by waiting one cycle." }),
       ],
@@ -435,7 +435,8 @@ async function composeLocallyWithSlot(db: Db, models: ModelClient, businessId: s
     status_strip: out.status_strip.slice(0, 4),
     exhibit: NAMED_QUERIES.some((q) => q.id === out.exhibit.spec_ref) ? out.exhibit : { kind: "none" as const, spec_ref: null },
     decision: withSaneDeadline(out.type === "decision" || out.type === "customer_won" ? (out.decision ?? defaultDecision()) : out.decision, grounded),
-    blocks_continue: out.type === "decision" || out.type === "customer_won" ? true : out.blocks_continue,
+    // A Composer note never holds Continue (Nov 7, 2026; 0071): only the platform's hard stops do.
+    blocks_continue: false,
     source_event_ids: eventIds,
     entity_ids: entityIds,
   };

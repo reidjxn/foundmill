@@ -34,11 +34,16 @@ export function snapSpan(span: number): GridSpan {
 export interface PageGridProps extends HTMLAttributes<HTMLDivElement> {
   /** Remove the outer gutter padding (when the parent already pads). */
   flush?: boolean;
+  /**
+   * One column while the grid's container (the shell) is narrower than `page-wide`: every cell takes the full row, in
+   * order. Opt in; the 12 columns return at `page-wide` and wider, so a desktop page is unchanged (package 2.1).
+   */
+  stack?: boolean;
 }
 
 /** The content grid: 12 columns, 16 px gutters, 16 px outer padding (BUILD §5.3, DESIGN §6). */
-export const PageGrid = forwardRef<HTMLDivElement, PageGridProps>(function PageGrid({ className, flush, ...rest }, ref) {
-  return <div ref={ref} className={cn("grid w-full grid-cols-12 gap-gutter", !flush && "p-gutter", className)} {...rest} />;
+export const PageGrid = forwardRef<HTMLDivElement, PageGridProps>(function PageGrid({ className, flush, stack, ...rest }, ref) {
+  return <div ref={ref} className={cn("grid w-full grid-cols-12 gap-gutter", !flush && "p-gutter", stack && "page-grid-stack", className)} data-stack={stack || undefined} {...rest} />;
 });
 
 export interface GridSpanProps extends HTMLAttributes<HTMLDivElement> {

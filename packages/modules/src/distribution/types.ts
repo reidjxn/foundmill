@@ -4,7 +4,9 @@
  * depends only on wave-1 packages; dates arrive as ISO strings on the wire and every field the API may omit is
  * optional-tolerant.
  */
-import type { AgentStatus, ApprovalState, AssetKind, CampaignStatus, ChannelKey, ChannelLine, ConversionKind, DeptColourToken, EntityKind, MatchdayLevel } from "@foundmill/shared";
+import type { PostDraft } from "@foundmill/shared/post-draft";
+import type { PostOutcomeCounts } from "@foundmill/shared/post-outcomes";
+import type { AgentStatus, ApprovalState, AssetKind, CampaignStatus, ChannelAvailabilityRow, ChannelKey, ChannelLine, ConversionKind, DeptColourToken, EntityKind, MatchdayLevel } from "@foundmill/shared";
 
 export type Iso = string;
 
@@ -57,12 +59,21 @@ export interface ChannelRow {
   meta?: { label: string; line: ChannelLine; coreMetric: string; kitModeByDefault?: boolean };
   form: ChannelSummaryRow | null;
   updatedAt?: Iso;
+  /**
+   * Whether the channel can really act for this business, why, and one plain sentence when it cannot (founder,
+   * 2026-11-11). Computed by the API; absent only in an older response, which reads as available.
+   */
+  availability?: ChannelAvailabilityRow;
 }
 
 export interface ChannelsListResponse {
   channels: ChannelRow[];
   lines: Record<ChannelLine, string[]>;
   blended: BlendedSummary;
+  /** Every channel's availability by key, so a channel with no stored row has one too. */
+  availability?: Partial<Record<ChannelKey, ChannelAvailabilityRow>>;
+  /** The sentence for a Board with no channel that can run; null or absent otherwise. */
+  noChannel?: string | null;
 }
 
 /* ---------- distribution.channels.metrics ---------- */
@@ -102,6 +113,8 @@ export interface RecommendResponse {
   channels: ChannelRow[];
   recommendation: RecommendationRow[];
   cpaLabel: "Estimate";
+  /** Why nothing is recommended, when no channel can run (one plain sentence); null otherwise. */
+  note?: string | null;
 }
 
 /* ---------- distribution.channels.enable / disable ---------- */
@@ -140,6 +153,16 @@ export interface AssetRow {
   body?: string | null;
   approvalState: ApprovalState;
   authoredByAgentId: string | null;
+  /**
+   * A post the team wrote for the founder to share by tap (packages/shared `team-posts.ts`): the words with the link and
+   * the picture the api attached, ready for the share panel. Null or absent for every other asset.
+   */
+  sharePost?: PostDraft | null;
+  /**
+   * What a team post led to (item 8): real follows and replies when the reader reads the CRM, payments when they read
+   * Finance. Null or absent when it led to nothing the reader may see. Visits are never in it.
+   */
+  postOutcomes?: PostOutcomeCounts | null;
   createdAt?: Iso;
   updatedAt?: Iso;
 }
@@ -172,6 +195,8 @@ export interface LeadRow {
   source: string | null;
   createdAt?: Iso;
   role: LeadRoleRow;
+  /** When they agreed to email (a follower of the public page, package 1.6); null or absent otherwise. */
+  emailConsentAt?: Iso | null;
 }
 
 /* ---------- journey.list ---------- */
@@ -215,4 +240,10 @@ export interface AgentRow {
   avatarSeed: string;
   departmentIds?: string[];
   departments?: { id: string; name: string; colourToken: DeptColourToken }[];
+}
+
+/** What `team.agents.list` answers: the agents under `agents` (never a bare array). */
+export interface AgentsListResponse {
+  agents: AgentRow[];
+  templates?: string[];
 }

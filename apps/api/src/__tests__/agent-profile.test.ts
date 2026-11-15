@@ -8,7 +8,7 @@
  */
 import { CUSTOM_SKILL_TEST_COUNT } from "@foundmill/agents";
 import { periodOf, repos } from "@foundmill/db";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
 
 const instructions = (role: string) => ({ role, goals: ["Plan every cycle"], rules: ["Ask before spending"], playbook: ["Read the inbox first"], tone: "Plain", examples: [] });
@@ -35,6 +35,29 @@ describe("agent profile and training (W19)", () => {
     // No agent line manager: it reports to the owner, who is "You" only to that person.
     expect(profile.reportsToOwner).toEqual({ userId: ownerId, isViewer: true });
     expect((await hz.caller({ userId: hz.A.adminId }).agent.profile.get({ businessId, agentId: agent2Id })).reportsToOwner).toEqual({ userId: ownerId, isViewer: false });
+  });
+
+  it("the profile's versions list only tools that exist; a draft saved from what is shown never counts as new tools", async () => {
+    const { businessId, ownerId, memberId } = hz.A;
+    // Held since before Nov 11, 2026: grants on a connector that was never built and capabilities no tool serves.
+    const stored = [
+      { connectorKey: "platform", tools: ["tasks.list", "documents.write", "rfq.create", "inbox.request_human_action"] },
+      { connectorKey: "figma", tools: ["files.read", "nodes.read"] },
+      { connectorKey: "github", tools: ["repos.read", "issues.list"] },
+    ];
+    const agent = await repos.agents.create(hz.db, businessId, { name: "Hired last month", agentType: "frontend_engineer", initialVersion: { instructions: instructions("Frontend engineer"), tools: stored } });
+    const shown = [
+      { connectorKey: "platform", tools: ["tasks.list", "inbox.request_human_action"] },
+      { connectorKey: "github", tools: ["repos.read"] },
+    ];
+    const profile = await hz.caller({ userId: ownerId }).agent.profile.get({ businessId, agentId: agent.id });
+    expect(profile.current?.tools).toEqual(shown);
+    expect(profile.versions.map((v) => v.tools)).toEqual([shown]);
+    // The stored version is untouched.
+    expect((await repos.agents.getVersion(hz.db, businessId, agent.currentVersionId!)).tools).toEqual(stored);
+    // Saving what the Tools tab shows is a narrower grant set, so anyone with Team write may save it.
+    const saved = await hz.caller({ userId: memberId }).agent.training.saveDraft({ businessId, agentId: agent.id, instructions: instructions("Frontend engineer"), tools: shown });
+    expect(saved.version.tools).toEqual(shown);
   });
 
   it("the wage is for the month the viewer names, and the default month is evaluated per request (RA-25)", async () => {
@@ -177,6 +200,21 @@ describe("custom skills (AC-08)", () => {
     const listed = (await owner.agent.skills.custom({ businessId, agentId: agent2Id })).find((d) => d.definitionId === again.definitionId);
     expect(listed?.drafts.map((d) => d.id).sort()).toEqual(again.drafts.map((d) => d.id).sort());
     expect(listed?.draftsHeldOut).toBe(again.draftsHeldOut);
+  });
+
+  it("the Coach drafting the tests is offered mock tools only for connectors the agent really holds tools on", async () => {
+    const { businessId, ownerId } = hz.A;
+    // Held since before Nov 11, 2026: a grant on a connector that was never built.
+    const agent = await repos.agents.create(hz.db, businessId, { name: "Hired in October", agentType: "frontend_engineer", initialVersion: { instructions: instructions("Frontend engineer"), tools: [{ connectorKey: "figma", tools: ["files.read"] }, { connectorKey: "github", tools: ["repos.read"] }] } });
+    const complete = vi.spyOn(hz.deps.models, "complete");
+    try {
+      await hz.caller({ userId: ownerId }).agent.skills.createCustom({ businessId, agentId: agent.id, name: "Component docs", description: "Writes component documentation that follows the design system." });
+      const prompt = JSON.stringify(complete.mock.calls.find(([req]) => req.attribution?.kind === "custom_skill_tests")?.[0].messages);
+      expect(prompt).toContain("github.mock");
+      expect(prompt).not.toContain("figma");
+    } finally {
+      complete.mockRestore();
+    }
   });
 });
 

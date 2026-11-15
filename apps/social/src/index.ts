@@ -1,5 +1,5 @@
 /**
- * @foundmill/social — LIVE network, communities, leaderboards (docs/ARCHITECTURE.md §1; BUILD §11.14; Phase 4).
+ * @foundmill/social — LIVE network and communities (docs/ARCHITECTURE.md §1; BUILD §11.14; Phase 4).
  *
  * Skeleton only now: `/health`, `GET /v1/public-profiles` over the `public_profiles` view, and 501 placeholders for
  * the Phase 4 routers. Boot: load env → service database (repositories only) → Hono app → listen on PORT (fallback

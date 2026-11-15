@@ -1,7 +1,8 @@
-/** 0011 — integrations, credentials, webhooks, policies, approvals, audit log, events, outbox. */
+/** 0011 — integrations, credentials, webhooks, policies, approvals, audit log, events, outbox; 0085 — account events and their outbox. */
 import { ACTOR_KINDS, CONNECTOR_AUTH_KINDS, DECISION_TYPES, INTEGRATION_STATUSES } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
-import { bigint, boolean, char, index, integer, jsonb, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { bigint, boolean, char, foreignKey, index, integer, jsonb, pgTable, text, unique, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { authUsers } from "drizzle-orm/supabase";
 import { bytea, createdAt, emptyArray, emptyObject, id, timestamps, timestampsWithArchive, tstz } from "./_common";
 import { businessId } from "./_refs";
 import { agentSessions, agents, tasks } from "./agents";
@@ -247,3 +248,64 @@ export const outbox = pgTable(
 );
 export type OutboxRow = typeof outbox.$inferSelect;
 export type NewOutboxRow = typeof outbox.$inferInsert;
+
+/**
+ * 0085 — account-scoped events: facts about one person (their profile went public; later a follow, an ask, an answer),
+ * keyed by the account they belong to and never by a business, so no project's members can read them. The types are
+ * declared in the one event catalog (packages/events, `scope: "account"`) and written only by
+ * `@foundmill/events` `writeAccountEvent`, on the service connection. A signed-in person reads their own rows and only
+ * `ACCOUNT_EVENT_CLIENT_COLUMNS`; `actor` and `idempotency_key` are the services'. A fact about two people is one row
+ * per person, each with a payload shaped for that reader: a payload never carries an account id (trigger
+ * `fm_account_events_guard`), and the actor is the person themselves or the system (`account_events_actor_own`). Rows
+ * are never changed once written and go with the account (`on delete cascade`).
+ */
+export const accountEvents = pgTable(
+  "account_events",
+  {
+    id: id(),
+    userId: uuid("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }),
+    type: text("type").notNull(),
+    occurredAt: tstz("occurred_at").notNull().defaultNow(),
+    actor: jsonb("actor").$type<{ kind: "user" | "system"; id: string }>().notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default(emptyObject),
+    idempotencyKey: text("idempotency_key"),
+    ...timestamps(),
+  },
+  (t) => [
+    index("account_events_user_id_idx").on(t.userId, t.occurredAt.desc(), t.id.desc()),
+    index("account_events_type_idx").on(t.userId, t.type, t.occurredAt.desc()),
+    uniqueIndex("account_events_idempotency_idx").on(t.userId, t.idempotencyKey).where(sql`${t.idempotencyKey} is not null`),
+    unique("account_events_id_user_id_key").on(t.id, t.userId),
+  ],
+);
+export type AccountEventRow = typeof accountEvents.$inferSelect;
+
+/** The columns of `account_events` the `authenticated` role may select (0085): everything but these is the services'. */
+export const ACCOUNT_EVENT_CLIENT_COLUMNS = ["id", "user_id", "type", "occurred_at", "payload", "created_at"] as const;
+/** The columns kept from client roles: who acted (a system name), the idempotency key (it may be built from other ids) and bookkeeping. */
+export const ACCOUNT_EVENT_HIDDEN_COLUMNS = ["actor", "idempotency_key", "updated_at"] as const;
+
+/**
+ * 0085 — the delivery queue of `account_events`, written in the same transaction and relayed to Redis `ae:{userId}`
+ * by apps/api (`runAccountOutboxRelay`). `attempts`, `lastError` and `nextAttemptAt` record a row the relay could not
+ * publish and when it tries again; a row that can never be published is closed with its `lastError`. Service role only.
+ */
+export const accountOutbox = pgTable(
+  "account_outbox",
+  {
+    id: id(),
+    userId: uuid("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }),
+    eventId: uuid("event_id").notNull().unique("account_outbox_event_id_key"),
+    publishedAt: tstz("published_at"),
+    attempts: integer("attempts").notNull().default(0),
+    lastError: text("last_error"),
+    nextAttemptAt: tstz("next_attempt_at"),
+    ...timestamps(),
+  },
+  (t) => [
+    foreignKey({ name: "account_outbox_event_fkey", columns: [t.eventId, t.userId], foreignColumns: [accountEvents.id, accountEvents.userId] }).onDelete("cascade"),
+    index("account_outbox_user_id_idx").on(t.userId),
+    index("account_outbox_unpublished_idx").on(t.createdAt).where(sql`${t.publishedAt} is null`),
+  ],
+);
+export type AccountOutboxRow = typeof accountOutbox.$inferSelect;

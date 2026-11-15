@@ -21,14 +21,14 @@ export function AgentNotFound() {
   const agentId = decodeURIComponent(params?.agentId ?? "");
   const tab = decodeURIComponent(params?.tab ?? "");
   const teamDept = departments.find((d) => d.moduleKeys.includes("team"));
-  const agentsHref = teamDept ? routes.department(businessId, teamDept.slug, teamDept.tabs.slice().sort((a, b) => a.position - b.position)[0]?.slug ?? "squad") : routes.home(businessId);
+  const agentsHref = teamDept ? routes.department(businessId, teamDept.slug, teamDept.tabs.slice().sort((a, b) => a.position - b.position)[0]?.slug ?? "squad") : routes.today(businessId);
   const badAgent = !UUID_RE.test(agentId);
   useShellChrome({ title: badAgent ? "Agent" : "Agent profile", breadcrumbs: [{ label: "Agents", href: teamDept ? agentsHref : undefined }, { label: "Not found" }] }, [agentsHref, badAgent]);
   return (
     <div className="p-gutter" data-testid="agent-not-found">
       <Panel title="Agent" span={12}>
         {badAgent ? (
-          <EmptyState icon={Users} title="No such agent" action={{ label: teamDept ? "Open Agents" : "Go to Home", icon: ArrowRight, onClick: () => router.push(agentsHref) }}>
+          <EmptyState icon={Users} title="No such agent" action={{ label: teamDept ? "Open Agents" : "Go to Today", icon: ArrowRight, onClick: () => router.push(agentsHref) }}>
             There is no agent at this address in this business.
           </EmptyState>
         ) : (

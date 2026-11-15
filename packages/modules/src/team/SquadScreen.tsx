@@ -4,11 +4,19 @@
  * Current task, Form, Rating /20, Tools, Model, AI cost, Latest update built from Dugout's team cells, the five saved
  * views General / Health / Tools / Cost / Performance, right-click verbs (open profile, change model, duplicate, lend,
  * let go) and live status: `agent.health_changed` flips the row within 2 s (AC-11.9.1).
+ *
+ * Leads first (founder, 2026-11-08): the Chief of Staff pinned first, then the leads in department order, each with a
+ * "+N specialists" expander (collapsed by default) over its specialists, indented. Sorting orders each level; a filter
+ * keeps a lead whose specialist matches and opens it; saved views keep their shape (expansion is never saved); the CSV
+ * is flat with a "Reports to" column. Background helpers are not rows: one line under the table says they run and
+ * opens their read-only list.
  */
 import { useMemo, useState } from "react";
 import { ArrowLeftRight, Copy, Cpu, ExternalLink, UserRoundMinus, UserRoundPlus, Users } from "lucide-react";
-import { Button, DataTable, Explainer, FormCells, MODEL_LABELS, Panel, SQUAD_VIEWS, Term, formatRelative, squadColumns, useAgentPersona, useGuided, type DataTableColumn, type RowAction, type SavedView, type SquadRow } from "@foundmill/dugout";
+import { Button, DataTable, Explainer, FormCells, MODEL_LABELS, Panel, SQUAD_VIEWS, Term, formatRelative, squadColumns, useAgentPersona, useBuilderView, useGuided, type DataTableColumn, type RowAction, type SavedView, type SquadRow } from "@foundmill/dugout";
 import { AGENT_STATUSES } from "@foundmill/shared/constants";
+import { teamCaption, teamTree, type TeamTree } from "@foundmill/shared/team-tiers";
+import { needsAttention } from "@foundmill/widgets/shared/health";
 import { moduleTabHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { useWidgetData } from "@foundmill/widgets/data";
 import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
@@ -16,10 +24,12 @@ import { usePinToHomeMenu } from "@foundmill/widgets/shared/pin";
 import { useModuleEnv } from "../env";
 import { fitToGrow, plural, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
+import { BackgroundHelpersLine } from "./BackgroundHelpers";
 import { CloneDialog, LoanDialog, ReleaseDialog } from "./dialogs";
 import { ModelChangeDialog, describeModelSet } from "./ModelChangeDialog";
 import { AgentCell, AgentStatusWordPill, InlineError, STATUS_WORD, Screen, agentEntity, agentHref, agentTypeNoun, isChiefOfStaff, isChiefOfStaffType, taskHref, toSquadRow, useAgents, useLiveAgentStatus, useNow, useTeamOptions, withLiveStatus } from "./shared";
 import type { AgentRow } from "./types";
+import type { DepartmentRow } from "@foundmill/widgets/shared/types";
 
 /** The built-in "Simple" saved view (UX plan §7.10): the four columns a first-timer needs, the table's default while guidance is on. */
 export const SIMPLE_VIEW_ID = "simple";
@@ -33,6 +43,16 @@ export const TEAM_SQUAD_VIEWS: SavedView[] = [
   { id: SIMPLE_VIEW_ID, name: "Simple", builtIn: true, columns: ["name", "status", "currentTask", "rating"], sort: [{ id: "rating", desc: true }], filters: [] },
   ...SQUAD_VIEWS.map((v) => (v.id === "general" ? { ...v, columns: ["name", "role", "departments", "status", "currentTask", "form", "rating", "model", "wage"] } : v)),
 ];
+
+/**
+ * The views with Builder view off (docs/DESIGN.md): Simple reads Agent, Status, Current task, Latest update (the rating
+ * is Builder view's); Form, Rating, Tools and Model drop out of every view and the Health, Tools and Performance views
+ * are not offered (DataTable `builderOnly`).
+ */
+export const FOUNDER_SIMPLE_COLUMNS = ["name", "status", "currentTask", "latestUpdate"];
+export function teamSquadViews(builder: boolean): SavedView[] {
+  return builder ? TEAM_SQUAD_VIEWS : TEAM_SQUAD_VIEWS.map((v) => (v.id === SIMPLE_VIEW_ID ? { ...v, columns: FOUNDER_SIMPLE_COLUMNS, sort: [] } : v));
+}
 
 /** What the Agents tab is for (UX plan §7.10, the Team sentence), with the words a founder meets here defined on first use. */
 export const TEAM_AGENTS_EXPLAINER = {
@@ -68,17 +88,39 @@ export const SQUAD_FIT: Record<string, ColumnFit> = {
   latestUpdate: { min: 240, grow: 2 },
 };
 
-/** "12 agents · 9 healthy · 2 down · 1 idle" for the panel header. */
-export function squadSummary(agents: readonly Pick<AgentRow, "status">[]): string {
-  const counts = new Map<string, number>();
-  for (const a of agents) counts.set(a.status, (counts.get(a.status) ?? 0) + 1);
-  const parts = [plural(agents.length, "agent")];
-  for (const s of AGENT_STATUSES) {
-    const n = counts.get(s);
-    if (n) parts.push(`${n} ${STATUS_WORD[s].toLowerCase()}`);
-  }
-  return parts.join(" · ");
+/**
+ * "Chief of Staff · 6 leads · 23 specialists · 2 need you" for the panel header: the tiers the founder sees (background
+ * helpers are not in it), and how many of them are failing, down or degraded.
+ */
+export function squadSummary(agents: readonly AgentRow[], departments?: readonly DepartmentRow[] | null): string {
+  const tree = teamTree(agents, departments);
+  return teamCaption(tree.counts, tree.visible.filter((a) => needsAttention(a.status)).length);
 }
+
+/** "+3 specialists": the words on a lead row's expander. */
+export function specialistsLabel(count: number): string {
+  return `+${count} ${count === 1 ? "specialist" : "specialists"}`;
+}
+
+/**
+ * The table's rows: the Chief of Staff and each lead as a top-level row, its specialists as `reports`. `reportsTo` is
+ * who each one reports to in words (the CSV's "Reports to"), named as the table names agents.
+ */
+export function squadTreeRows(tree: TeamTree<AgentRow>, currency: string, nameOf: (agent: AgentRow) => string, founder = "You"): SquadRow[] {
+  const byId = new Map(tree.visible.map((a) => [a.id, a]));
+  const reportsTo = (a: AgentRow) => {
+    const parent = tree.parentOf.get(a.id);
+    const agent = parent ? byId.get(parent) : undefined;
+    return agent ? nameOf(agent) : founder;
+  };
+  const row = (a: AgentRow): SquadRow => ({ ...toSquadRow(a, currency), tier: tree.tierOf.get(a.id) as SquadRow["tier"], reportsTo: reportsTo(a) });
+  return tree.groups.map((g) => ({ ...row(g.agent), reports: g.specialists.length ? g.specialists.map(row) : undefined }));
+}
+
+/** The Chief of Staff's row stays first whatever the sort. */
+const isChiefRow = (r: SquadRow) => r.tier === "chief";
+/** The CSV is flat; this column keeps the shape the table shows. */
+const REPORTS_TO_EXPORT = [{ header: "Reports to", value: (r: SquadRow) => r.reportsTo ?? "" }];
 
 export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
   const { navigate, currency } = useWidgetData();
@@ -93,18 +135,22 @@ export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
   const live = useLiveAgentStatus(agentsQuery, { debounceMs: liveRefetchMs });
   const agents = useMemo(() => withLiveStatus(agentsQuery.data?.agents, live).filter((a) => !a.archivedAt), [agentsQuery.data, live]);
   const byId = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents]);
-  const rows = useMemo(() => agents.map((a) => toSquadRow(a, currency)), [agents, currency]);
+  const persona = useAgentPersona();
+  // Leads first: the tiers and reporting lines from what is stored (packages/shared team-tiers).
+  const tree = useMemo(() => teamTree(agents, departments.data), [agents, departments.data]);
+  const rows = useMemo(() => squadTreeRows(tree, currency, (a) => persona.labelFor(a)), [tree, currency, persona]);
   // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance
   // is on (UX plan §7.10); a view the person left open still wins.
   const defaultViewId = guided ? SIMPLE_VIEW_ID : "general";
-  const savedViews = useSavedViews("team.agents", TEAM_SQUAD_VIEWS, { defaultViewId });
+  const builder = useBuilderView();
+  const builtInViews = useMemo(() => teamSquadViews(builder), [builder]);
+  const savedViews = useSavedViews("team.agents", builtInViews, { defaultViewId });
   const [modelAgent, setModelAgent] = useState<AgentRow | null>(null);
   const [release, setRelease] = useState<AgentRow | null>(null);
   const [clone, setClone] = useState<AgentRow | null>(null);
   const [loan, setLoan] = useState<AgentRow | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const persona = useAgentPersona();
   const open = (agentId: string) => navigate(agentHref(businessId, agentId));
   const recruitHref = moduleTabHref(businessId, departments.data, "team", "recruitment");
 
@@ -188,7 +234,7 @@ export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
         error={agentsQuery.error ? agentsQuery.error.message : undefined}
         onRetry={refetch}
         empty={agentsQuery.data && agents.length === 0 ? { icon: Users, title: "No agents yet", children: "The team table lists every agent with its status, form, rating, model and AI cost once the first one is hired. Hire from the catalog on the Recruitment tab.", action: { label: "Go to Recruitment", icon: UserRoundPlus, onClick: () => navigate(recruitHref) } } : undefined}
-        meta={agents.length ? <span data-testid="squad-summary">{squadSummary(agents)}</span> : undefined}
+        meta={agents.length ? <span data-testid="squad-summary">{teamCaption(tree.counts, tree.visible.filter((a) => needsAttention(a.status)).length)}</span> : undefined}
         actions={
           <Button size="sm" icon={UserRoundPlus} onClick={() => navigate(recruitHref)} disabled={Boolean(readOnly)} title={readOnly}>
             Hire
@@ -214,6 +260,7 @@ export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
             <span>
               <Term id="wage">AI cost</Term> is this month's model, sandbox and tool spend so far, in US dollars (Estimate). Status updates arrive live.
             </span>
+            <BackgroundHelpersLine businessId={businessId} helpers={tree.background} now={now} />
             {liveNote ? <span data-testid="live-note">{liveNote}</span> : null}
             {notice ? (
               <span data-testid="model-notice" className="text-secondary">
@@ -234,6 +281,10 @@ export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
             columns={columns}
             {...savedViews}
             defaultViewId={defaultViewId}
+            getSubRows={(r) => r.reports}
+            subRowsLabel={(_r, n) => specialistsLabel(n)}
+            isPinnedRow={isChiefRow}
+            exportColumns={REPORTS_TO_EXPORT}
             rowActions={rowActions}
             onRowOpen={(row) => open(row.id)}
             height={typeof window === "undefined" ? 480 : Math.max(320, window.innerHeight - 264)}

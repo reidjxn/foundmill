@@ -10,11 +10,15 @@
  * (`tierBusinessLimit`, packages/db `assertBusinessAllowance`): put a number back in `businesses` to bring a limit back.
  * The included-credit pool is its own number (`includedCreditBusinesses`, SEC2 S6), so lifting the business limit never
  * hands out more free credits.
+ *
+ * People are free on every plan (founder, 2026-11-11; CLAUDE.md "the words for people"): `seats` is "unlimited", so a
+ * cofounder or collaborator is never a plan limit and plans differ by agent work only. The machinery stays
+ * (`tierSeatLimit`, packages/db `assertSeatAvailable`), as for businesses.
  */
 export const TIERS = {
-  free: { priceMonthly: null, modelBilling: "credits_or_byok", businesses: "unlimited", includedCreditBusinesses: 1, maxConcurrentAgents: 4, channels: "all", seats: 1, includedCreditsMinor: 500 },
-  pro: { priceMonthly: "TBD", modelBilling: "credits_or_byok", businesses: "unlimited", includedCreditBusinesses: 3, maxConcurrentAgents: 16, channels: "all", seats: 3, includedCreditsMinor: "TBD" },
-  scale: { priceMonthly: "TBD", modelBilling: "credits_or_byok", businesses: "unlimited", includedCreditBusinesses: "unlimited", maxConcurrentAgents: 64, channels: "all", seats: 10, includedCreditsMinor: "TBD", prioritySupport: true },
+  free: { priceMonthly: null, modelBilling: "credits_or_byok", businesses: "unlimited", includedCreditBusinesses: 1, maxConcurrentAgents: 4, channels: "all", seats: "unlimited", includedCreditsMinor: 500 },
+  pro: { priceMonthly: "TBD", modelBilling: "credits_or_byok", businesses: "unlimited", includedCreditBusinesses: 3, maxConcurrentAgents: 16, channels: "all", seats: "unlimited", includedCreditsMinor: "TBD" },
+  scale: { priceMonthly: "TBD", modelBilling: "credits_or_byok", businesses: "unlimited", includedCreditBusinesses: "unlimited", maxConcurrentAgents: 64, channels: "all", seats: "unlimited", includedCreditsMinor: "TBD", prioritySupport: true },
 } as const;
 export type TierKey = keyof typeof TIERS;
 /** Lowest to highest: an owner's allowance follows the highest tier any business they own is on. */
@@ -53,6 +57,31 @@ export function includedCreditsMinor(tier: TierKey): number {
 }
 
 /**
+ * Low credits (credit saver). When a month's spendable credits fall below the line, routine work moves to a lower-cost
+ * model (each route's `lowCredits` in packages/models routing.ts) while founder-facing and high-stakes work keeps its
+ * own, so the team does not stop dead a few calls before the pause at zero.
+ *
+ * The line is the larger of a share of the month's included credits and a small floor:
+ * - `LOW_CREDITS_SHARE` (20 %): on the free plan's $5 that is $1, the last fifth of the month, where a founder with
+ *   little money most needs the team to keep going.
+ * - `LOW_CREDITS_FLOOR_MINOR` ($1): a month that started with nothing included (the founder's pool went to another
+ *   business) or a small top-up still gets the saver before the pause, and a larger plan's line never drops below it.
+ * A top-up raises the balance above the line again, and the saver lifts by itself.
+ */
+export const LOW_CREDITS_SHARE = 0.2;
+export const LOW_CREDITS_FLOOR_MINOR = 100;
+
+/** The low-credits line in USD cents for a month that includes `includedMinor` (see `LOW_CREDITS_SHARE`). */
+export function lowCreditsThresholdMinor(includedMinor: number): number {
+  return Math.max(LOW_CREDITS_FLOOR_MINOR, Math.round(Math.max(0, includedMinor) * LOW_CREDITS_SHARE));
+}
+
+/** Whether `spendableMinor` is in the saver's band: something left, but below the line. Zero is the pause, not this. */
+export function creditsAreLow(spendableMinor: number, includedMinor: number): boolean {
+  return spendableMinor > 0 && spendableMinor < lowCreditsThresholdMinor(includedMinor);
+}
+
+/**
  * How a new business on `tier` pays for model calls: on credits (its included credits) unless the tier requires the
  * founder's own key. Storing a key moves a business to `byok` (apps/api keys).
  */
@@ -67,6 +96,12 @@ export function tierBusinessLimit(tier: TierKey): number | null {
   return typeof limit === "number" ? limit : null;
 }
 
+/** How many people a business on `tier` may hold (null = unlimited; every plan, founder 2026-11-11: people are free). */
+export function tierSeatLimit(tier: TierKey): number | null {
+  const limit: number | string = TIERS[tier].seats;
+  return typeof limit === "number" ? limit : null;
+}
+
 /**
  * How many of a founder's businesses get the tier's included credits each month (null = every one): the founder's
  * monthly pool (SEC2 S6), its own number so it never grows with the business limit.
@@ -74,6 +109,15 @@ export function tierBusinessLimit(tier: TierKey): number | null {
 export function tierIncludedCreditPlaces(tier: TierKey): number | null {
   const places: number | string = TIERS[tier].includedCreditBusinesses;
   return typeof places === "number" ? places : null;
+}
+
+/**
+ * Whether a project on `tier` carries the small "Built on Foundmill" mark on what its visitors see (docs/NETWORK.md F2;
+ * founder, 2026-11-12): the free plan does, and a paid plan removes it completely, from the page, the line after a
+ * follow, the confirmation email and page, and the share image.
+ */
+export function tierShowsBuiltOnMark(tier: TierKey): boolean {
+  return tier === "free";
 }
 
 /** The higher of two tiers. */

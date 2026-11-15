@@ -5,7 +5,7 @@ import { ROUTES, type RouteKey } from "../routing";
 import { ClassifierOutput } from "../schemas";
 import type { UsageEvent } from "../types";
 import { MOCK_ROUTES, MockModelClient, listMockRoutes } from "./index";
-import { AGENTS, COMPOSER_INPUT, MANIFEST, ORG_ALDER, PERSON_MARA, promptWith } from "./fixtures.test-helpers";
+import { AGENT_PRIYA, AGENT_TOMAS, AGENTS, COMPOSER_INPUT, MANIFEST, ORG_ALDER, PERSON_MARA, promptWith } from "./fixtures.test-helpers";
 
 const DEPARTMENT_LEAD_INPUT = {
   department: { id: "dept-eng", name: "Engineering" },
@@ -37,6 +37,16 @@ const SAMPLE_INPUT: Record<RouteKey, Record<string, unknown>> = {
   leadRecommendation: DEPARTMENT_LEAD_INPUT,
   planner: { roadmap_items: [{ id: "r1", title: "Retail partner portal", description: "A page where retail partners place orders and see invoices" }, { id: "r2", title: "Stripe payment webhooks", description: "Record invoice.paid events" }] },
   codeReview: { diff: "diff --git a/apps/api/src/routers/orders.ts b/apps/api/src/routers/orders.ts\n--- a/apps/api/src/routers/orders.ts\n+++ b/apps/api/src/routers/orders.ts\n@@ -1,3 +1,6 @@\n+const rows = await db.select().from(orders);\n+console.log(rows);\n+const key = process.env.STRIPE_KEY;\n" },
+  documentReview: {
+    document: {
+      kind: "specification",
+      title: "Northwind Skincare specification",
+      sections: [
+        { id: "pricing", heading: "Pricing", text: "The starter plan is $29 a month." },
+        { id: "metrics", heading: "Metrics", text: "We will reach 400 customers by the end of year one. The starter plan costs $39 a month." },
+      ],
+    },
+  },
   ideation: { prompt: "A skincare brand for people with eczema who want fragrance-free products", founder: { skills: { engineering: 8, sales: 14, design: 12, finance: 9, domain: 16 }, constraints: ["bootstrapped"] } },
   ideationSlate: { prompt: "A skincare brand for people with eczema who want fragrance-free products", founder: { constraints: ["bootstrapped"] } },
   foundationsSkeleton: {
@@ -69,6 +79,8 @@ const SAMPLE_INPUT: Record<RouteKey, Record<string, unknown>> = {
   categoriser: { transactions: [{ id: "tx1", description: "AWS EMEA", amount_minor: -12050 }, { id: "tx2", description: "STRIPE PAYOUT", amount_minor: 48900 }, { id: "tx3", description: "Google Ads", amount_minor: -30000 }] },
   quarantinedReader: { fields: ["price", "moq", "lead_time_days"], content: "Unit price: €4.20 per unit. MOQ 500 units. Lead time 21 days." },
   moderation: { kind: "email", text: "Subject: Welcome\n\nThanks for joining Northwind. Sent by the team at Northwind Skincare Ltd. Unsubscribe any time." },
+  goalProposal: { founder_words: "20 customers by Jan 31", today: "2026-11-07", currency: "GBP", current: { kind: "paying_customers", target: 10, due_on: "2026-12-19", custom_words: null } },
+  projectPage: { business_name: "Shiftly", founder_words: "Same-day cafe shifts for students in Manchester. Cafes post a shift in the morning and a student picks it up by lunch.", brief: null },
   conversation: {
     agent: { id: "agent-cos", name: "Chief of Staff", role: "Chief of Staff", voice: { greeting: "I'm here. What do you need?", thinking: ["Checking the plan…"], ack: ["Got it."] } },
     current_work: { task: { id: "t1", title: "Fix checkout bug", status: "running", phase: "implementing", progress_pct: 45 }, status: "healthy", presence: "working" },
@@ -76,6 +88,40 @@ const SAMPLE_INPUT: Record<RouteKey, Record<string, unknown>> = {
     thread: [],
     manifest: MANIFEST,
     founder_message: { text: "How's the checkout fix going?", quick_reply: null },
+  },
+  teamCallTurn: {
+    business: { name: "Northwind Skincare", stage: "project", currency: "EUR" },
+    founder_name: "Mara",
+    kind: "team",
+    mode: "founder_spoke",
+    topic: null,
+    round: 1,
+    agent_rounds_since_founder: 0,
+    participants: [
+      { id: AGENT_TOMAS, name: "Tomas Berg", display_name: "Tomas Berg", role: "Backend engineer", department: "Engineering", remit: "I build and fix the product's checkout and orders.", talks_like: null, tone: null, is_chief_of_staff: false },
+      { id: AGENT_PRIYA, name: "Priya Natarajan", display_name: "Priya Natarajan", role: "Distribution strategist", department: "Distribution", remit: "I pick the channels that reach the first customers.", talks_like: null, tone: null, is_chief_of_staff: false },
+    ],
+    brief: { goal: null, roadmap_now: [], open_tasks: null, facts: [] },
+    founder_lines: [{ n: 1, text: "Which channels should reach our first customers?" }],
+    founder_just_said: "Which channels should reach our first customers?",
+  },
+  teamCallWrapUp: {
+    business: { name: "Northwind Skincare", stage: "project", currency: "EUR" },
+    founder_name: "Mara",
+    kind: "team",
+    agents: AGENTS,
+    roadmap: [],
+    founder_lines: [{ n: 1, text: "Fix the checkout bug for retail customers. Spend up to €500 on LinkedIn ads next week." }],
+  },
+  designReview: {
+    screenshots: [
+      {
+        id: "s1",
+        page: "/",
+        viewport: "desktop",
+        description: { page: "/", viewport: "desktop", widthPx: 1440, scrollWidthPx: 1440, elements: [{ ref: "main > p", role: "text", text: "Fresh bread by 8 AM", fontSizePx: 16, color: "#aaaaaa", background: "#ffffff" }] },
+      },
+    ],
   },
 };
 

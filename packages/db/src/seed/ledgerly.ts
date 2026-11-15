@@ -2,7 +2,7 @@
  * Ledgerly (BUILD §17.2): a B2B SaaS club (month-end reconciliation for fintech operations teams), LIVE game mode,
  * Automated business mode and currently on holiday. A GitHub test repository reference, Stripe subscriptions as
  * payments, all 15 channels in mixed states, a cap table with common stock, an option pool and two post-money
- * SAFEs, a community, a leaderboard entry, and a coding squad with recorded sessions.
+ * SAFEs, a community, and a coding squad with recorded sessions.
  */
 import { getArchetypeSeed, getSkillDefinition } from "@foundmill/agents";
 import { APP_NAME, CREDITS_CURRENCY, LIMITS } from "@foundmill/config";
@@ -11,12 +11,14 @@ import { eq } from "drizzle-orm";
 import { openApprovalItem } from "../approvals";
 import { repos } from "../repos";
 import { agentSessions, type Entity } from "../schema";
-import { agentMention, seedAgentEntities, seedChannels, seedDashboards, seedHistoricalTasks, seedInbox, seedIntegrations, seedRoadmap, seedSignedOffAndSelling, seedSpec, seedTasks, seededRelevance, type InboxSpec, type RoadmapSpec, type TaskSpec } from "./content";
+import { agentMention, seedAgentEntities, seedChannels, seedDashboards, seedHistoricalTasks, seedInbox, seedIntegrations, seedRoadmap, seedActiveGoal, seedSignedOffAndSelling, seedSpec, seedTasks, seededRelevance, type InboxSpec, type RoadmapSpec, type TaskSpec } from "./content";
 import { ensureSeedCommunity, ensureSeedPost } from "./community";
 import { BOOTSTRAPPED_COMMUNITY_SLUG, DEMO_OWNER_DISPLAY_NAME, DEMO_SEED_AUDIT_ACTION, LEDGERLY_BUSINESS_ID, LEDGERLY_COMMUNITY_SLUG, LEDGERLY_GITHUB_REPO, LEDGERLY_NAME, LEDGERLY_SLUG } from "./constants";
-import { addDays, addHours, atHour, mention, money, pct, quarterFacts, quarterKey, type SeedCtx } from "./context";
+import { addDays, addHours, atHour, mention, money, pct, type SeedCtx } from "./context";
+import { recordSampleRows } from "./roll-forward";
 import { seedFinance } from "./finance";
-import { seedJourney } from "./journey";
+import { seedJourney, seedRevenueMilestones } from "./journey";
+import { monthlyRevenueAt } from "../milestones";
 import { seedLegal } from "./legal";
 import { seedLedgerlyResearch } from "./research";
 import { applyAgentStatuses, seedSquad } from "./squad";
@@ -184,6 +186,7 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
   const { ids: specIds, versionId: specVersionId } = await seedSpec(ctx, businessId, archetype.specOutline, SPEC_TEXT, squad.byTemplate.get("product_lead")?.agent.id ?? null);
   // Signed off in the first days and selling since week three (founder, 2026-10-18): the channels keep running.
   await seedSignedOffAndSelling(ctx, businessId, specVersionId);
+  await seedActiveGoal(ctx, businessId, squad.chief.agent.id);
   const roadmapIds = await seedRoadmap(ctx, businessId, ROADMAP, specIds, squad);
   // The Product Researcher's plan to test the specification with the ICP (Product › Research).
   const research = await seedLedgerlyResearch(ctx, businessId, squad, specIds);
@@ -394,7 +397,7 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
   // The founder answers it in the Inbox, like every approval (audit FR-01): Approve or Reject on its decision item.
   if (paidAds) await openApprovalItem(db, businessId, pendingApproval, { agentId: paidAds.agent.id, agentName: paidAds.agent.name, taskTitle: null, argsSummary: "Raise the paid search budget to £600.00 for the month-end close keyword cluster" });
 
-  // --- social: community and leaderboard (LIVE) ----------------------------------------------------------------------
+  // --- social: community (LIVE) --------------------------------------------------------------------------------------
   // Public communities real founders join: a rebuild adopts them (members and posts stay) instead of recreating them.
   const community = await ensureSeedCommunity(db, { name: "Fintech ops founders", slug: LEDGERLY_COMMUNITY_SLUG, descriptionMd: "Founders selling to operations teams at fintechs. Benchmarks are shared as verified metrics only.", ownerBusinessId: businessId, createdBy: ctx.owner.userId });
   const outboundPost = await ensureSeedPost(db, { communityId: community.id, authorUserId: ctx.owner.userId, businessId, bodyMd: "We moved first-touch to outbound for UK fintechs and the time to first reply halved. Lawful basis per country is the whole game." });
@@ -402,13 +405,6 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
   await ensureSeedPost(db, { communityId: community.id, authorUserId: ctx.owner.userId, businessId, bodyMd: "Question for the room: does anyone run share-of-answer panels for AI assistants and treat them as more than approximate?" });
   // A second public community the demo founder has not joined (no creator): the demo founder sees Join on offer.
   await ensureSeedCommunity(db, { name: "Bootstrapped founders", slug: BOOTSTRAPPED_COMMUNITY_SLUG, descriptionMd: "Founders building without outside funding. Share what you tried, what it cost and what it returned." });
-  // data: customers won since the quarter began (first payments), and MRR growth since the day before it began.
-  const quarter = quarterFacts(ctx, journey.data.meta.startDate, journey.data.series.mrrMinorByDay);
-  const wonThisQuarter = (await repos.journeys.countConversions(db, businessId, { from: quarter.startsAt })).payment;
-  const board = await repos.social.upsertLeaderboard(db, { boardKind: "growth", division: "b2b_saas", period: quarterKey(ctx.today), metric: "mrr_growth_pct", archetype: "b2b_saas", region: "eu" });
-  await repos.social.setLeaderboardEntries(db, board.id, [{ businessId, metricValue: quarter.mrrGrowthPct, verified: true, form: "WWDLW" }]);
-  const customersBoard = await repos.social.upsertLeaderboard(db, { boardKind: "customers_won", division: "b2b_saas", period: quarterKey(ctx.today), metric: "customers_won", archetype: "b2b_saas", region: "eu" });
-  await repos.social.setLeaderboardEntries(db, customersBoard.id, [{ businessId, metricValue: wonThisQuarter, verified: true, form: "WLWWW" }]);
 
   await seedDashboards(ctx, businessId);
 
@@ -481,20 +477,23 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
   const chief = squad.chief;
   const latest = journey.latestPayments[0];
   const won = latest ? mention(latest.customer.entityId, latest.customer.displayName) : "a new account";
-  const trophy = journey.data.milestones.filter((m) => m.trophyKey).at(-1);
+  // Revenue milestones from Finance's monthly figure (the bank seeded above), and that figure for the notes' MRR.
+  const trophy = await seedRevenueMilestones(ctx, businessId, "public");
+  const trophyLabel = trophy ? `${trophy.label}${trophy.estimate ? " (Estimate)" : ""}` : "";
+  const mrrNow = await monthlyRevenueAt(db, businessId, ctx.today);
   const inboxDrafts: Array<InboxSpec | null> = [
     {
       type: "report",
       fromAgentId: chief.agent.id,
       subject: "Vacation report: day 3",
       bodyMd: [
-        `You are away until ${addDays(ctx.today, 11).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}. Within the authority grant I took two decisions today and queued one.`,
+        `You are away for 11 more days. Within the authority grant I took two decisions today and queued one.`,
         `Decided: published the month-end close checklist article by ${agentMention(agentEntities, squad.byTemplate.get("channel_seo")!)} (publish_content; reason: founder-approved outline, no claims in your name); merged the invoice PDF fix by ${agentMention(agentEntities, backend)} after ${agentMention(agentEntities, squad.byTemplate.get("review_agent")!)} cleared it (merge_to_main).`,
         `Queued for you: the paid search budget increase to ${money(60_000, CURRENCY)} per month is above the per-decision cap. Spend so far this vacation: ${money(32_400, CURRENCY)} of the ${money(250_000, CURRENCY)} ceiling (Estimate).`,
-        `${agentMention(agentEntities, dataEngineer)} is down (GitHub rate limit hit on the backfill job); expected back tomorrow. MRR ${money(journey.mrrMinorNow, CURRENCY)} (synthetic).`,
+        `${agentMention(agentEntities, dataEngineer)} is down (GitHub rate limit hit on the backfill job); expected back tomorrow. MRR ${money(mrrNow, CURRENCY)} (synthetic, Estimate).`,
       ].join("\n\n"),
       statusStrip: [
-        { metric: `MRR ${money(journey.mrrMinorNow, CURRENCY)}`, source: "conversions" },
+        { metric: `MRR ${money(mrrNow, CURRENCY)} (Estimate)`, source: "pnl" },
         { metric: `Runway ${finance.runwayMonths ?? "n/a"} mo (Estimate)`, source: "forecasts" },
         { metric: `Vacation spend ${money(32_400, CURRENCY)}`, source: "usage_ledger" },
       ],
@@ -568,8 +567,8 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
       ? {
           type: "milestone",
           fromAgentId: chief.agent.id,
-          subject: `Milestone: ${trophy.label}`,
-          bodyMd: `${trophy.label} on ${new Date(trophy.achievedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })} (synthetic demo data). ${journey.paidCustomers} paying accounts; MRR ${money(journey.mrrMinorNow, CURRENCY)}. Standout agent: ${agentMention(agentEntities, outbound!)}, most first touches this quarter.`,
+          subject: `Milestone: ${trophyLabel}`,
+          bodyMd: `${trophyLabel} reached (synthetic demo data). ${journey.paidCustomers} paying accounts; MRR ${money(mrrNow, CURRENCY)} (Estimate). Standout agent: ${agentMention(agentEntities, outbound!)}, most first touches this quarter.`,
           createdDaysAgo: 2,
           state: "read",
         }
@@ -613,13 +612,15 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
     for (const sessionId of t.sessionIds) await db.update(agentSessions).set({ workflowId: `holiday:${holiday.id}:${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40)}` }).where(eq(agentSessions.id, sessionId));
   }
 
+  // Every row written so far is the sample's own: the only rows the roll-forward ever moves (roll-forward.ts).
+  await recordSampleRows(db, businessId);
   // The build's last write: seed-on-boot reads it as "this business was built completely" (demoSeedState).
   await repos.audit.append(db, businessId, {
     actorKind: "system",
     actorId: null,
     action: DEMO_SEED_AUDIT_ACTION,
     target: { kind: "business", id: businessId },
-    details: { app: APP_NAME, seed: ctx.seed, slug: LEDGERLY_SLUG, inboxItems: inbox.length, journeys: journey.counts.journeys, holidayId: holiday.id, legalEntityId: legal.legalEntityId, communityId: community.id, leaderboardId: board.id, activation: pct(journey.signups ? journey.activations / journey.signups : 0) },
+    details: { app: APP_NAME, seed: ctx.seed, anchor: ctx.today.toISOString(), slug: LEDGERLY_SLUG, inboxItems: inbox.length, journeys: journey.counts.journeys, holidayId: holiday.id, legalEntityId: legal.legalEntityId, communityId: community.id, activation: pct(journey.signups ? journey.activations / journey.signups : 0) },
   });
 
   return {

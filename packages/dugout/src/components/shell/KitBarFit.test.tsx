@@ -3,7 +3,7 @@ import { act, render, screen } from "@testing-library/react";
 import { DateFormatProvider } from "../foundation/DateFormatProvider";
 import { ContinueButton, holidayCaptionParts } from "./ContinueButton";
 import { createSearchWidthCache, fitKitBar, KitBarFit, KITBAR_COMPACT_STEPS, KITBAR_SEARCH_FULL_WIDTH, kitBarFits, kitBarIsRoomy, kitBarSearchFullWidth, setKitBarCompact } from "./KitBarFit";
-import { GameModeChip, KITBAR_BRIEF_CLASS, ModeChip, modeChipTooltip } from "./ModeChip";
+import { GameModeChip, KITBAR_BRIEF_CLASS, KITBAR_BRIEF_ONLY_CLASS, ModeChip, modeChipTooltip } from "./ModeChip";
 import { RunwayChip } from "./RunwayChip";
 
 describe("KitBarFit", () => {
@@ -111,17 +111,18 @@ describe("KitBarFit", () => {
       <header>
         <RunwayChip date="2026-10-10" runwayMonths={null} />
         <GameModeChip mode="live" />
-        <ModeChip mode="automated" holiday />
+        <ModeChip mode="automated" holiday spendLineMinor={100_000} currency="GBP" />
         <ContinueButton state={{ kind: "holiday", until: "2026-10-21" }} />
       </header>,
     );
     expect(document.querySelector(".kitbar-date .kitbar-year")?.textContent).toBe(", 2026");
-    // The mode chip says the mode once, with its second phrase at the widest step; the holiday is in its label (and
-    // beside Continue).
-    const mode = screen.getByRole("group", { name: "Business mode: Automated, on vacation" });
-    expect(mode.querySelector(".kitbar-chip-word")?.textContent).toBe("Automated");
-    expect(mode.querySelector("[data-chip-brief]")?.textContent).toBe(" · runs inside limits");
-    expect(mode.querySelector("[data-chip-brief]")?.className).toContain(KITBAR_BRIEF_CLASS);
+    // The mode chip says the setting in words at the widest step and its short form once the bar tightens; the holiday
+    // is in its label (and beside Continue).
+    const mode = screen.getByRole("group", { name: "What the team can do: decides alone, asks over £1,000, on vacation" });
+    expect(mode.querySelector("[data-chip-full]")?.textContent).toBe("Decides alone, asks over £1,000");
+    expect(mode.querySelector("[data-chip-full]")?.className).toContain(KITBAR_BRIEF_CLASS);
+    expect(mode.querySelector("[data-chip-brief]")?.textContent).toBe("Asks over £1,000");
+    expect(mode.querySelector("[data-chip-brief]")?.className).toContain(KITBAR_BRIEF_ONLY_CLASS);
     // The runway chip carries its short reason the same way.
     expect(document.querySelector("[data-runway-brief]")?.textContent).toBe("· connect a bank");
     expect(document.querySelectorAll(".kitbar-chip-word:not([data-chip-brief])")).toHaveLength(2);
@@ -133,27 +134,39 @@ describe("KitBarFit", () => {
     expect(holidayCaptionParts({ kind: "holiday", until: null, untilLabel: "until I return" })).toEqual({ full: "On vacation until I return", date: null, short: "Until I return" });
   });
 
-  it("shows the mode in force on vacation: Automated, saying which mode comes back (OL-26)", () => {
-    render(<ModeChip mode="assisted" holiday />);
-    const chip = screen.getByRole("group", { name: "Business mode: Automated, on vacation; Assisted when you come back" });
-    expect(chip.querySelector(".kitbar-chip-word")?.textContent).toBe("Automated");
+  it("shows what is in force on vacation, saying what comes back (OL-26)", () => {
+    render(<ModeChip mode="assisted" holiday spendLineMinor={5_000} currency="GBP" />);
+    const chip = screen.getByRole("group", { name: "What the team can do: decides alone, asks over £50, on vacation; asks before spending over £50 when you come back" });
+    expect(chip.querySelector("[data-chip-full]")?.textContent).toBe("Decides alone, asks over £50");
     expect(chip.getAttribute("data-mode")).toBe("automated");
     expect(chip.getAttribute("data-base-mode")).toBe("assisted");
+    expect(modeChipTooltip("assisted", true, { spendLineMinor: 5_000, currency: "GBP" })).toMatch(/^On vacation\. .* Back to: asks before spending over £50\.$/);
   });
 
-  it("tells the stakes of each mode in plain words and where to change it (B3)", () => {
-    expect(modeChipTooltip("assisted")).toBe("Assisted mode: the team does routine work alone and asks you before spending above your limit, signing anything or contacting new people. Change it in Settings › Mode.");
-    expect(modeChipTooltip("augmented")).toBe("Augmented mode: the team prepares and asks before every outside action or spend. Change it in Settings › Mode.");
-    expect(modeChipTooltip("automated")).toBe("Automated mode: the team decides on its own inside your limits; money, signatures and contracts still wait for you. Change it in Settings › Mode.");
-    expect(modeChipTooltip("assisted", true)).toMatch(/^On vacation\. Automated mode: .* Assisted again when you come back\.$/);
+  it("tells the stakes in plain words with the business's currency, and where to change them (B3)", () => {
+    expect(modeChipTooltip("assisted", false, { spendLineMinor: 5_000, currency: "GBP" })).toBe("The team does routine work on its own. It asks you before spending over £50, before anything it can't undo and before any contract. Moving money, signing and filings always come to you. Change it in Settings › What the team can do.");
+    expect(modeChipTooltip("augmented")).toBe("The team prepares the work and asks you before contacting anyone, spending anything or doing what can't be undone. Moving money, signing and filings always come to you. Change it in Settings › What the team can do.");
+    expect(modeChipTooltip("automated", false, { spendLineMinor: 100_000, currency: "USD" })).toMatch(/^The team works and decides on its own, and the Chief of Staff answers routine questions for you\. It still asks you before spending over \$1,000\./);
+    // No line set: each agent's own limit, with the real default, never "no limit".
+    expect(modeChipTooltip("assisted", false, { spendLineMinor: null, currency: "GBP" })).toContain("before spending over each agent's own limit (£250 unless you set one)");
     render(
       <>
-        <ModeChip mode="assisted" />
-        <ModeChip mode="augmented" />
+        <ModeChip mode="assisted" spendLineMinor={5_000} currency="GBP" />
+        <ModeChip mode="assisted" spendLineMinor={0} currency="GBP" />
+        <ModeChip mode="assisted" spendLineMinor={null} currency="GBP" />
+        <ModeChip mode="augmented" spendLineMinor={5_000} currency="GBP" />
+        <ModeChip mode="automated" spendLineMinor={1_000_000} currency="SEK" />
       </>,
     );
-    expect(screen.getByRole("group", { name: "Business mode: Assisted" }).textContent).toBe("Assisted · asks before spending");
-    expect(screen.getByRole("group", { name: "Business mode: Augmented" }).textContent).toBe("Augmented · asks before acting");
+    const part = (name: string, which: "full" | "brief") => screen.getByRole("group", { name }).querySelector(`[data-chip-${which}]`)?.textContent;
+    expect(part("What the team can do: asks before spending over £50", "full")).toBe("Asks before spending over £50");
+    expect(part("What the team can do: asks before spending over £50", "brief")).toBe("Asks over £50");
+    expect(part("What the team can do: asks before any spending", "full")).toBe("Asks before any spending");
+    expect(part("What the team can do: asks before spending over each agent's limit", "full")).toBe("Asks before spending over each agent's limit");
+    expect(part("What the team can do: asks before spending over each agent's limit", "brief")).toBe("Asks before spending");
+    expect(part("What the team can do: asks before acting", "full")).toBe("Asks before acting");
+    expect(part("What the team can do: asks before acting", "brief")).toBe("Asks first");
+    expect(part("What the team can do: decides alone, asks over kr 10K", "full")).toBe("Decides alone, asks over kr 10K");
   });
 
   it("drops the year first in the signed-in person's own date format (DateFormatProvider)", () => {

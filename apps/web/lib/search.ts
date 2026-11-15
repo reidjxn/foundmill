@@ -7,10 +7,13 @@
  */
 import { KEYBOARD_SHORTCUTS_HELP_ITEM, type PaletteHelpItem, type PaletteItem, type SearchQuery } from "@foundmill/dugout";
 import type { DeptColourToken, EntityKind, Glossary } from "@foundmill/shared";
+import { AREA_LABELS, AREA_LETTERS, type AreaTab } from "@foundmill/shared/areas";
+import { visibleTabs } from "@foundmill/shared/constants";
 import { learnPath, termsWithGlossary } from "@foundmill/shared/terms";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { accountRoutes } from "./account-routes";
 import { canOpenDepartment, FULL_ACCESS, type Access } from "./access";
+import { areaHref, areaNav } from "./areas";
 import { entityHref } from "./entity-links";
 import { CRM_LABEL } from "./sidebar";
 
@@ -19,6 +22,8 @@ export interface SearchDepartment {
   name: string;
   slug: string;
   colourToken: DeptColourToken;
+  /** The sidebar order (department.list rows carry it); the areas list departments in it. */
+  position?: number;
   hidden?: boolean;
   moduleKeys?: readonly string[];
   tabs: readonly { slug: string; title: string; position: number }[];
@@ -33,11 +38,13 @@ export interface SearchInboxItem {
 
 export const SETTINGS_TABS = [
   { slug: "business", label: "Business" },
-  { slug: "mode", label: "Mode" },
+  // "What the team can do" on screen (founder, 2026-11-07); the slug stays "mode", and "mode" stays a keyword.
+  { slug: "mode", label: "What the team can do" },
   { slug: "departments", label: "Departments" },
   // "Your words" on screen (docs/UX_AUDIT_AND_PLAN.md §7.17); the slug stays "glossary", and "glossary" stays a keyword.
   { slug: "glossary", label: "Your words" },
-  { slug: "members", label: "Members" },
+  // "People" on screen (THESIS_REVIEW 3.3, the words for people); the slug stays "members".
+  { slug: "members", label: "People" },
   { slug: "integrations", label: "Integrations" },
   { slug: "keys", label: "Keys" },
   { slug: "billing", label: "Billing" },
@@ -64,38 +71,58 @@ export interface LocalPaletteInput {
   businesses?: readonly SearchBusiness[];
   /** What the person may open and change (walled departments, the CRM, admin-only commands). Default: everything. */
   access?: Access;
+  /** Builder view: its tabs are offered only while it is on, and engine tabs carry the founder's names while off. Default off. */
+  builder?: boolean;
 }
 
 export function localPaletteItems(input: LocalPaletteInput): PaletteItem[] {
   const bid = input.businessId;
   const access = input.access ?? FULL_ACCESS;
   const items: PaletteItem[] = [
-    { id: "screen:home", kind: "screen", label: "Home", href: routes.home(bid), keywords: ["dashboard"], shortcut: ["G", "H"] },
-    { id: "screen:inbox", kind: "screen", label: "Inbox", href: routes.inbox(bid), shortcut: ["G", "I"] },
-    // "Contacts" on screen; "crm" stays a keyword so the old name still finds it.
-    ...(access.canRead("crm") ? [{ id: "screen:crm", kind: "screen" as const, label: CRM_LABEL, href: routes.crm(bid), keywords: ["crm", "contacts", "people", "organizations"], shortcut: ["G", "C"] }] : []),
-    { id: "screen:milestones", kind: "screen", label: "Milestones", href: `/b/${bid}/milestones` },
+    // Today is the front door (founder, 2026-11-07) and keeps G H; the dashboards are "Details", found by home too.
+    { id: "screen:today", kind: "screen", label: "Today", href: routes.today(bid), keywords: ["today", "goal", "front door", "start"], shortcut: ["G", "H"] },
+    { id: "screen:home", kind: "screen", label: "Details", href: routes.home(bid), keywords: ["home", "dashboard", "dashboards"] },
+    // "Needs you" in the sidebar: the Inbox on what needs a response; both words find it.
+    { id: "screen:inbox", kind: "screen", label: "Inbox", href: routes.inbox(bid), keywords: ["needs you", "respond", "notes"], shortcut: ["G", "I"] },
+    // "Contacts" on screen, a Customers tab; "crm" stays a keyword so the old name still finds it.
+    ...(access.canRead("crm") ? [{ id: "screen:crm", kind: "screen" as const, label: CRM_LABEL, description: AREA_LABELS.customers, href: routes.crm(bid), keywords: ["crm", "contacts", "people", "organizations"] }] : []),
+    { id: "screen:milestones", kind: "screen", label: "Milestones", description: AREA_LABELS.plan, href: `/b/${bid}/milestones` },
+    // Team call (docs/TEAM_CALL.md): the lobby, and the one-step "Start a team call" for whoever may speak on one.
+    ...(access.canRead("team") ? [{ id: "screen:calls", kind: "screen" as const, label: "Team call", description: AREA_LABELS.team, href: routes.calls(bid), keywords: ["calls", "call", "meeting", "talk", "video"] }] : []),
+    ...(access.canWrite("team") ? [{ id: "command:start-team-call", kind: "command" as const, label: "Start a team call", description: "Talk your project through with your team", href: routes.calls(bid), keywords: ["call", "team call", "meeting", "talk", "speak", "video"] }] : []),
   ];
+  // The founder areas (docs/DESIGN.md §8) with their chords, then every tab under its area's name: "Customers · Leads".
+  // Tabs behind "More detail" are offered too; Builder view's only while it is on.
+  const nav = areaNav({ businessId: bid, departments: input.departments.map((d) => ({ ...d, position: d.position ?? 0 })), access, builder: input.builder ?? false });
+  const byId = new Map<string, AreaTab>();
+  for (const [area, tabs] of nav) {
+    items.push({ id: `area:${area}`, kind: "screen", label: AREA_LABELS[area], href: areaHref(bid, tabs), keywords: [area, ...tabs.map((t) => t.title.toLowerCase())], shortcut: ["G", AREA_LETTERS[area]] });
+    for (const t of tabs) byId.set(t.id, t);
+  }
   for (const d of input.departments) {
     // Hidden departments, and those whose every module is walled for this person, are not offered.
     if (d.hidden || !canOpenDepartment(access, d)) continue;
-    const tabs = d.tabs.slice().sort((a, b) => a.position - b.position);
+    const tabs = visibleTabs(d, input.builder ?? false);
     const first = tabs[0];
     items.push({ id: `department:${d.id}`, kind: "department", label: d.name, dept: d.colourToken, href: first ? routes.department(bid, d.slug, first.slug) : undefined, keywords: [d.slug] });
-    for (const t of tabs) items.push({ id: `screen:${d.id}:${t.slug}`, kind: "screen", label: `${d.name} · ${t.title}`, dept: d.colourToken, href: routes.department(bid, d.slug, t.slug), keywords: [d.slug, t.slug] });
+    for (const t of tabs) {
+      const inArea = byId.get(`${d.slug}/${t.slug}`);
+      const label = inArea ? `${AREA_LABELS[inArea.area]} · ${inArea.label}` : `${d.name} · ${t.title}`;
+      items.push({ id: `screen:${d.id}:${t.slug}`, kind: "screen", label, description: inArea ? d.name : undefined, dept: d.colourToken, href: routes.department(bid, d.slug, t.slug), keywords: [d.slug, t.slug, d.name.toLowerCase()] });
+    }
   }
   for (const t of SETTINGS_TABS) {
     if (t.slug === "preferences") continue;
-    items.push({ id: `command:settings:${t.slug}`, kind: "command", label: `Settings · ${t.label}`, href: routes.settings(bid, t.slug), keywords: ["settings", t.slug, ...(t.slug === "glossary" ? ["rename", "words", "nouns"] : [])] });
+    items.push({ id: `command:settings:${t.slug}`, kind: "command", label: `Settings · ${t.label}`, href: routes.settings(bid, t.slug), keywords: ["settings", t.slug, ...(t.slug === "glossary" ? ["rename", "words", "nouns"] : t.slug === "mode" ? ["spending", "approvals", "autopilot", "vacation", "ask first"] : [])] });
   }
   // The person's own preferences (the date format, the guided layer's switch and the text size), found by what they change.
   items.push({
     id: "command:preferences",
     kind: "command",
     label: "Preferences",
-    description: "Your date format, guidance and text size, in every business",
+    description: "Your date format, guidance, text size and Builder view, in every business",
     href: routes.settings(bid, "preferences"),
-    keywords: ["settings", "date format", "time format", "24-hour", "12-hour", "clock", "day first", "ISO 8601", "guidance", "explain", "text size", "comfortable", "checklist", "tour"],
+    keywords: ["settings", "date format", "time format", "24-hour", "12-hour", "clock", "day first", "ISO 8601", "guidance", "explain", "text size", "comfortable", "checklist", "tour", "builder view", "technical", "tokens"],
   });
   // Commands a role cannot use are not offered (they would only answer with a refusal).
   if (access.canChange) items.push({ id: "command:refresh-inbox", kind: "command", label: "Refresh Inbox", description: "Ask the team for one quick note; no new work starts", shortcut: ["R"] });
@@ -107,21 +134,19 @@ export function localPaletteItems(input: LocalPaletteInput): PaletteItem[] {
   // Every other business the founder can open, a new one and the list of them all (audit IAE-08, WEB-13).
   for (const b of input.businesses ?? []) {
     if (b.id === bid) continue;
-    items.push({ id: `business:${b.id}`, kind: "command", label: `Switch to ${b.name}`, description: "Switch business", href: routes.home(b.id), keywords: ["switch", "business", "open", b.name] });
+    items.push({ id: `business:${b.id}`, kind: "command", label: `Switch to ${b.name}`, description: "Switch business", href: routes.today(b.id), keywords: ["switch", "business", "open", b.name] });
   }
   items.push({ id: "command:new-business", kind: "command", label: "Create a new business", description: "From an idea in the Ideation Studio, or import what already exists", href: accountRoutes.newBusiness, keywords: ["new business", "create", "start", "another", "business", "idea", "import"] });
   items.push({ id: "command:manage-businesses", kind: "command", label: "Manage businesses", description: "Open one, change its settings or restore an archived one", href: accountRoutes.businesses, keywords: ["businesses", "manage", "archived", "restore", "your businesses"] });
   items.push({ id: "command:profile", kind: "command", label: "Your profile", description: "Your founder profile: name, background and preferences", href: "/onboarding", keywords: ["profile", "founder", "account", "me"] });
+  items.push({ id: "command:public-profile", kind: "command", label: "Your public profile", description: "A page about you at its own address, public only when you publish it", href: accountRoutes.publicProfile, keywords: ["public profile", "profile", "page", "about me", "link", "share"] });
   for (const it of input.inboxItems ?? []) {
     if (it.state === "archived") continue;
     items.push({ id: `inbox:${it.id}`, kind: "inbox", label: it.subject, description: it.type.replace(/_/g, " "), href: routes.inbox(bid, it.id) });
   }
   // Network is the founder's own, in every mode (as in the sidebar).
   items.push({ id: "screen:network", kind: "screen", label: "Network", href: "/network" });
-  if (input.live) {
-    items.push({ id: "screen:communities", kind: "screen", label: "Communities", href: "/communities" });
-    items.push({ id: "screen:leaderboards", kind: "screen", label: "Leaderboards", href: "/leaderboards" });
-  }
+  if (input.live) items.push({ id: "screen:communities", kind: "screen", label: "Communities", href: "/communities" });
   return items;
 }
 

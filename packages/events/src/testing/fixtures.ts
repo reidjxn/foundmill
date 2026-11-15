@@ -3,8 +3,10 @@
  * (connector `simulate`, composer fixtures, apps/stream tests) through `@foundmill/events/testing/fixtures`.
  * Ids are deterministic so recorded fixtures stay stable.
  */
-import type { EventType } from "@foundmill/shared";
+import type { AccountEventType, BusinessEventType, EventType } from "@foundmill/shared";
+import type { AccountEvent } from "../account-event";
 import type { EventPayloadInput, PlatformEvent } from "../catalogue";
+import { buildAccountEvent, type WriteAccountEventInput } from "../outbox/account-writer";
 import { buildEvent, type WriteEventInput } from "../outbox/writer";
 
 /** Deterministic UUID-shaped id from a short label (not RFC-4122 random; valid for `Id`). */
@@ -124,6 +126,26 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
     detail: "Schema change to orders table needs approval",
     approvalId: fixtureId("approval"),
     occurrence: 1,
+  },
+  "task.design_checked": {
+    taskId: fixtureId("task"),
+    kind: "code",
+    title: "Checkout: add travel-size variant",
+    assigneeAgentId: FIXTURE_AGENT_ID,
+    sessionId: fixtureId("session"),
+    result: {
+      status: "reviewed",
+      reason: null,
+      pages: ["/products/hydra-serum"],
+      fixes: [{ rank: 1, page: "/products/hydra-serum", viewport: "phone", element: "the size picker (main > fieldset)", problem: "The page is 520 px wide at 390 px, so it scrolls sideways on a phone.", fix: "Stack the three sizes in one column below 640 px.", principle: "responsive", severity: "high" }],
+      unreadable: [],
+      before: [
+        { id: "before-1-desktop", page: "/products/hydra-serum", viewport: "desktop", width: 1440, height: 900, cut: false, sha256: "a".repeat(64) },
+        { id: "before-1-phone", page: "/products/hydra-serum", viewport: "phone", width: 390, height: 1688, cut: false, sha256: "b".repeat(64) },
+      ],
+      after: [{ id: "after-1-phone", page: "/products/hydra-serum", viewport: "phone", width: 390, height: 1688, cut: false, sha256: "c".repeat(64) }],
+      fixesAsked: true,
+    },
   },
   "pr.merged": {
     taskId: fixtureId("task"),
@@ -417,6 +439,17 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
     inboxItemIds: [fixtureId("inbox-1")],
     durationMs: 11_520_000,
   },
+  "cycle.run_started": {
+    runId: fixtureId("run-1"),
+    firstCycleNumber: 12,
+  },
+  "cycle.run_ended": {
+    runId: fixtureId("run-1"),
+    reason: "daily_cycles",
+    rounds: 3,
+    cost: { amountMinor: 420, currency: "USD" },
+    maxCyclesPerDay: 6,
+  },
   "autopilot.changed": {
     change: "paused",
     pausedReason: "idle_cycles",
@@ -522,15 +555,53 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
     taskIds: [fixtureId("task-1")],
     inboxItemId: fixtureId("inbox-item"),
   },
+  "goal.proposed": { goalId: fixtureId("goal"), revision: 1, metricKind: "paying_customers", targetValue: 10, currency: null, dueOn: "2026-12-19", reason: "first", proposedByAgentId: FIXTURE_AGENT_ID, inboxItemId: fixtureId("inbox-item"), replacesGoalId: null, source: "default" },
+  "goal.approved": { goalId: fixtureId("goal"), revision: 1, metricKind: "paying_customers", targetValue: 10, currency: null, dueOn: "2026-12-19", approvedBy: { kind: "user", id: FIXTURE_USER_ID }, startValue: 0, replacedGoalId: null, via: "inbox" },
+  "goal.change_requested": { goalId: fixtureId("goal"), revision: 1, requestedBy: { kind: "user", id: FIXTURE_USER_ID }, words: "20 customers by Jan 31", revisedGoalId: fixtureId("goal-2"), via: "inbox" },
+  "goal.achieved": { goalId: fixtureId("goal"), revision: 1, metricKind: "paying_customers", targetValue: 10, currency: null, dueOn: "2026-12-19", achievedValue: 10, inboxItemId: fixtureId("inbox-item") },
+  "page.published": { pageId: fixtureId("page"), slug: "northwind-skincare", url: "https://foundmill.example/p/northwind-skincare" },
+  "page.unpublished": { pageId: fixtureId("page"), slug: "northwind-skincare", url: "https://foundmill.example/p/northwind-skincare" },
+  "team_call.started": { callId: fixtureId("team_call"), kind: "team", agentIds: [fixtureId("agent")], topic: "Launch plan" },
+  "team_call.ended": { callId: fixtureId("team_call"), kind: "team", turnCount: 12, actionCount: 3, filedCount: 2, awaitingCount: 1, durationSeconds: 540 },
+  "page.followed": { pageId: fixtureId("page"), entityId: fixtureId("entity"), consentId: fixtureId("consent") },
   "guidance.tour_completed": { tourId: "home", steps: 4 },
   "guidance.tour_skipped": { tourId: "inbox", atStep: 2, steps: 4 },
   "guidance.explainer_dismissed": { screenId: "finance/runway" },
   "guidance.term_opened": { termId: "runway", screenId: "home" },
   "guidance.turned_off": { from: "settings", toursDone: 2, explainersSeen: 5 },
+  "mail.sent": { messageRef: fixtureId("mail"), messageId: "14c5d75ce93.dfd.64b469.filter0001.16648.5515E0B88.0", recipientHash: "a".repeat(64), fromLocalPart: "northwind-skincare", channelKey: "email_automation", agentId: fixtureId("agent"), sessionId: null, simulated: false },
+  "notify.email_sent": { kind: "decision_waiting", userId: fixtureId("user"), inboxItemId: fixtureId("inbox"), messageId: "14c5d75ce93.dfd.64b469.filter0001.16648.5515E0B88.1", simulated: false, notificationId: fixtureId("notification"), offersAnswer: false },
+  "push.sent": { kind: "decision", sourceEventId: fixtureId("event-source"), sourceEventType: "inbox.item_created", recipients: 2, devices: 3, provider: "onesignal", mode: "mock", providerMessageIds: [fixtureId("push-1")] },
+  "founder.session_started": { via: "email", notificationId: fixtureId("notification"), minutesAway: 720, sessions: 3 },
+  "milestone.shown": { milestoneId: fixtureId("milestone"), key: "page_live", slug: "northwind-skincare", url: `https://foundmill.example/m/${fixtureId("milestone")}` },
+  "milestone.hidden": { milestoneId: fixtureId("milestone"), key: "page_live", slug: "northwind-skincare", url: `https://foundmill.example/m/${fixtureId("milestone")}` },
+  "share.opened": { network: "x", kind: "milestone", refId: fixtureId("milestone"), target: "tap" },
+  "post.drafted": { assetId: fixtureId("asset-post"), trigger: "page_published", subject: "page_live", agentId: FIXTURE_AGENT_ID },
+  "quiz.approved": { quizId: fixtureId("page-quiz"), version: 2, typeCount: 3, questionCount: 3 },
+  "quiz.published": { quizId: fixtureId("page-quiz"), version: 2, typeCount: 3, questionCount: 3, slug: "northwind-skincare" },
+  "quiz.unpublished": { quizId: fixtureId("page-quiz"), version: 2, typeCount: 3, questionCount: 3, slug: "northwind-skincare" },
+  "invitation.sent": { invitationId: fixtureId("invitation"), role: "collaborator", emailed: false },
+  "invitation.accepted": { invitationId: fixtureId("invitation"), role: "cofounder", userId: fixtureId("user") },
+  "invitation.declined": { invitationId: fixtureId("invitation"), role: "collaborator" },
+  "showcase.requested": { requestId: fixtureId("showcase-request"), subjectBusinessId: fixtureId("business") },
+  "showcase.approved": { requestId: fixtureId("showcase-request"), subjectBusinessId: fixtureId("business"), assetId: fixtureId("asset-post") },
+  "showcase.withdrawn": { requestId: fixtureId("showcase-request"), subjectBusinessId: fixtureId("business"), reason: "founder_withdrew" },
+  "showcase.asked": { requestId: fixtureId("showcase-request") },
+  "showcase.settled": { requestId: fixtureId("showcase-request"), state: "approved" },
+  "visit.attributed": { linkId: fixtureId("post-link"), assetId: fixtureId("asset-post"), network: "x" },
+  "post.outcome_attributed": { linkId: fixtureId("post-link"), assetId: fixtureId("asset-post"), network: null, outcomeKind: "follow", outcomeEventId: fixtureId("event-followed") },
+  // Account-scoped (a person's own): written with `accountFixtureInput`, never with `fixtureInput`.
+  "profile.published": { handle: "maya-okafor" },
+  "profile.unpublished": { handle: "maya-okafor" },
+  // One sign-up, two people, two rows: the new person's and the credited person's. A public address and nothing else.
+  "signup.attributed": { sourceKind: "project_page", sourceRef: "northwind-skincare" },
+  "referral.arrived": { sourceKind: "person_profile", sourceRef: "maya-okafor" },
+  // A founder notice for the person emailed: the notice and the project's and the record's ids, nobody's account.
+  "founder_notice.sent": { notice: "removed", businessId: fixtureId("business"), notificationId: fixtureId("notification"), offersCancel: true, simulated: true },
 };
 
-/** A valid `WriteEventInput` for the given type, with the fixture payload and envelope. */
-export function fixtureInput<T extends EventType>(
+/** A valid `WriteEventInput` for the given business-scoped type, with the fixture payload and envelope. */
+export function fixtureInput<T extends BusinessEventType>(
   type: T,
   overrides: Partial<WriteEventInput<T>> = {},
 ): WriteEventInput<T> {
@@ -547,9 +618,35 @@ export function fixtureInput<T extends EventType>(
 }
 
 /** A fully built, validated `PlatformEvent` fixture. */
-export function fixtureEvent<T extends EventType>(
+export function fixtureEvent<T extends BusinessEventType>(
   type: T,
   overrides: Partial<WriteEventInput<T>> = {},
 ): PlatformEvent<T> {
   return buildEvent(fixtureInput(type, overrides));
+}
+
+/** A valid `WriteAccountEventInput` for the given account-scoped type: the fixture person acting on their own account. */
+export function accountFixtureInput<T extends AccountEventType>(
+  type: T,
+  overrides: Partial<WriteAccountEventInput<T>> = {},
+): WriteAccountEventInput<T> {
+  const userId = overrides.userId ?? FIXTURE_USER_ID;
+  return {
+    userId,
+    type,
+    actor: { kind: "user", id: userId },
+    payload: EVENT_FIXTURES[type] as EventPayloadInput<T>,
+    occurredAt: T0,
+    id: fixtureId(`event:${type}`),
+    ...overrides,
+  };
+}
+
+/** A fully built, validated `AccountEvent` fixture (the envelope a consumer receives). */
+export function accountFixtureEvent<T extends AccountEventType>(
+  type: T,
+  overrides: Partial<WriteAccountEventInput<T>> = {},
+): AccountEvent<T> {
+  const { idempotencyKey: _key, ...event } = buildAccountEvent(accountFixtureInput(type, overrides));
+  return event as unknown as AccountEvent<T>;
 }

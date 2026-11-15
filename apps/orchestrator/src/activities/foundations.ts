@@ -26,6 +26,8 @@ import {
   describeFoundationsFailure,
   finaliseFoundations,
   foundationsSignoffNotes,
+  PROJECT_PAGE_ROUTE,
+  PROJECT_PAGE_USAGE_KIND,
   progressEventPayload,
   readFoundationsProgress,
   readyEventPayload,
@@ -40,15 +42,17 @@ import {
   runFoundationsRoadmap,
   runFoundationsSections,
   runFoundationsSkeleton,
+  runProjectPageStep,
   startFoundationsDraft,
   type FoundationsStepContext,
   type FoundationsUsage,
+  type ProjectPageStore,
 } from "@foundmill/agents/foundations-steps";
 import { CREDITS_CURRENCY } from "@foundmill/config";
 import { repos, type Executor } from "@foundmill/db";
 import type { OrchestratorDeps } from "../deps";
 import { agentActor, emitEvent, systemActor } from "../events";
-import type { BusinessFoundationsInput, FoundationsDrafted, FoundationsPlanned, FoundationsStepDone } from "./types";
+import type { BusinessFoundationsInput, FoundationsDrafted, FoundationsPlanned, FoundationsStepDone, ProjectPageStepDone } from "./types";
 
 /** Errors a retry cannot fix: the key was refused, the model declined, or the model account cannot pay (until someone adds credit). */
 const NON_RETRYABLE_CODES = new Set(["auth", "refusal", "request", "billing"]);
@@ -88,6 +92,39 @@ function progressStore(db: Executor, businessId: string, attempt: number, author
 }
 
 const usageModel = (u: FoundationsUsage): FoundationsStepDone["usage"] => ({ calls: u.calls, inputTokens: u.inputTokens, outputTokens: u.outputTokens, costMinor: u.costMinor, model: u.model, mode: u.mode, repaired: u.repaired });
+
+/** The page step's failure type: the workflow carries on with the vision whatever it says (the page is never in the way). */
+export const PROJECT_PAGE_DRAFT_ERROR = "ProjectPageDraftError";
+
+/**
+ * Where the page step writes (package 1.2): `repos.pages.writeTeamDraft`, the call the api's in-process run makes too,
+ * with the note's `inbox.item_created` event through the outbox in the same transaction.
+ */
+export function projectPageStore(db: Executor, businessId: string, authorAgentId: string | null): ProjectPageStore {
+  return {
+    needed: () => repos.pages.teamDraftNeeded(db, businessId),
+    async write({ draft, source, reason, note, usage }) {
+      const slug = await repos.pages.suggestSlug(db, businessId);
+      const out = await repos.pages.writeTeamDraft(db, businessId, {
+        draft,
+        slug,
+        agentId: authorAgentId,
+        source,
+        reason,
+        model: { route: PROJECT_PAGE_ROUTE, model: usage.model, mode: usage.mode, costMinor: usage.costMinor, costLabel: "Estimate", runner: "temporal" },
+        note,
+        onInboxItem: (tx, item) =>
+          emitEvent(tx, {
+            businessId,
+            type: "inbox.item_created",
+            actor: agentActor(item.fromAgentId!),
+            payload: { inboxItemId: item.id, type: item.type, fromAgentId: item.fromAgentId, subject: item.subject, blocksContinue: item.blocksContinue, sourceEventIds: [], cost: { amountMinor: usage.costMinor, currency: CREDITS_CURRENCY } },
+          }),
+      });
+      return { written: out.written, inboxItemId: out.item?.id ?? null };
+    },
+  };
+}
 
 export function createFoundationsActivities(deps: OrchestratorDeps) {
   /**
@@ -146,6 +183,34 @@ export function createFoundationsActivities(deps: OrchestratorDeps) {
         deps.log.warn({ businessId: input.businessId, attempt: input.attempt, err: (err as Error)?.message }, "foundations drafting attempt failed");
         // The founder sees a fixed readable reason; the cause stays in the worker log for operators.
         throw ApplicationFailure.create({ message: describeFoundationsFailure(err), type: FOUNDATIONS_DRAFT_ERROR, nonRetryable: NON_RETRYABLE_CODES.has(String((err as { code?: unknown })?.code)) });
+      } finally {
+        if (beat) clearInterval(beat);
+      }
+    },
+
+    /**
+     * Step 0 (package 1.2): the project's public page, before the vision. The Product lead drafts it from the founder's
+     * own words (`projectPage` route), or the starter draft is written when the call fails or its answer is not usable;
+     * nothing is asked when the page already has a row. Never published. A failure here (a database error) is thrown as
+     * `ProjectPageDraftError` and the workflow goes on with the vision.
+     */
+    async draftProjectPage(input: BusinessFoundationsInput): Promise<ProjectPageStepDone> {
+      const skipped: ProjectPageStepDone = { current: false, written: false, source: null, inboxItemId: null, usage: usageModel(NO_FOUNDATIONS_USAGE) };
+      const ctx = activityContext();
+      const beat = ctx ? setInterval(() => ctx.heartbeat({ businessId: input.businessId, attempt: input.attempt, step: "page" }), FOUNDATIONS_HEARTBEAT_MS) : null;
+      try {
+        ctx?.heartbeat({ businessId: input.businessId, attempt: input.attempt, step: "page" });
+        const row = await repos.foundations.get(deps.db, input.businessId);
+        if (!row || row.status !== "drafting" || row.attempt !== input.attempt) return skipped;
+        const inputs = await repos.foundations.inputs(deps.db, input.businessId);
+        const done = await runProjectPageStep(
+          { models: deps.models, inputs, signal: ctx?.cancellationSignal, scope: `foundations:${input.businessId}`, attribution: { businessId: input.businessId, agentId: inputs.authorAgentId ?? undefined, kind: PROJECT_PAGE_USAGE_KIND }, log: deps.log },
+          projectPageStore(deps.db, input.businessId, inputs.authorAgentId),
+        );
+        return { current: true, written: done.written, source: done.source, inboxItemId: done.inboxItemId, usage: usageModel(done.usage) };
+      } catch (err) {
+        deps.log.warn({ businessId: input.businessId, attempt: input.attempt, err: (err as Error)?.message }, "project page: the draft could not be written");
+        throw ApplicationFailure.create({ message: "The page draft could not be saved.", type: PROJECT_PAGE_DRAFT_ERROR });
       } finally {
         if (beat) clearInterval(beat);
       }

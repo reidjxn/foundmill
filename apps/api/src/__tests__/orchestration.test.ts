@@ -34,7 +34,9 @@ describe("a cycle exists from the press of Continue (audit SOAK-05, RUI-15, OL-2
     // Another tab that never saw the first press asks Temporal for the same cycle: it answers "already started".
     const third = await hz.caller({ userId: hz.A.ownerId }).business.continue({ businessId });
     expect(third.action).toBe("already_running");
-    expect(temporal.starts.filter((s) => s.type === "businessCycle")).toHaveLength(1);
+    // One run, one first round: the workflow starts the cycle (Continue runs until done, Nov 7, 2026).
+    expect(temporal.signalStarts.filter((s) => s.signal === "continueRun")).toHaveLength(1);
+    expect(temporal.starts.filter((s) => s.type === "businessCycle")).toHaveLength(0);
     expect((await repos.audit.list(hz.db, businessId, { action: "business.continue" })).items).toHaveLength(1);
 
     // The cycle number is taken: a failed-before-start cycle cannot be given the same workflow id again.
@@ -94,16 +96,21 @@ describe("a cycle exists from the press of Continue (audit SOAK-05, RUI-15, OL-2
       const press = await o2.business.continue({ businessId: b2 });
       expect(press.status.queued).toBe(true);
       temporal.statuses.set(`cycle:${b2}:1`, "TERMINATED");
+      // The run's workflow is gone as well (it would have ended the run itself on the failed round).
+      temporal.statuses.set(`autopilot:${b2}`, "TERMINATED");
       // Two minutes on: old enough to be asked about.
       vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + 120_000 });
       const status = await o2.cycle.status({ businessId: b2 });
       expect(status).toMatchObject({ running: false, lastOutcome: "failed" });
       expect((await o2.cycle.continueState({ businessId: b2 })).kind).toBe("idle");
-      const warnings = (await o2.inbox.list({ businessId: b2, type: "warning", limit: 20 })).items.filter((i) => i.subject === "Cycle 1 did not finish");
+      const warnings = (await o2.inbox.list({ businessId: b2, type: "warning", limit: 20 })).items.filter((i) => i.subject === "The team's last round of work did not finish");
       expect(warnings).toHaveLength(1);
+      // Founder words (Nov 8, 2026): the note names no cycle number and no workflow.
+      expect(warnings[0]!.bodyMd).toMatch(/^The round of work stopped before it finished: it ended \(terminated\) before the work was done\./);
+      expect(warnings[0]!.bodyMd).not.toMatch(/cycle \d|workflow/i);
       // Asking again does not write a second note.
       await o2.cycle.status({ businessId: b2 });
-      expect((await o2.inbox.list({ businessId: b2, type: "warning", limit: 20 })).items.filter((i) => i.subject === "Cycle 1 did not finish")).toHaveLength(1);
+      expect((await o2.inbox.list({ businessId: b2, type: "warning", limit: 20 })).items.filter((i) => i.subject === "The team's last round of work did not finish")).toHaveLength(1);
       // The next press takes number 2.
       vi.useRealTimers();
       expect((await o2.business.continue({ businessId: b2 })).status.cycleNumber).toBe(2);

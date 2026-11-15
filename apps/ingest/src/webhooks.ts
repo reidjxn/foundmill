@@ -63,9 +63,42 @@ export const RECEIVING_STATUSES: readonly IntegrationStatus[] = ["connected", "d
  */
 export const requiresConnectedIntegration = (deps: Pick<IngestDeps, "env">): boolean => !mockWebhooksAllowed(deps.env.APP_ENV);
 
-async function connectedIntegration(deps: IngestDeps, businessId: string, connectorKey: string): Promise<boolean> {
+type IntegrationRow = NonNullable<Awaited<ReturnType<typeof repos.integrations.getByKey>>>;
+
+/** The business's integration for the connector when it may receive deliveries (connected or degraded, not archived). */
+async function connectedIntegration(deps: IngestDeps, businessId: string, connectorKey: string): Promise<IntegrationRow | null> {
   const integration = await repos.integrations.getByKey(deps.db, businessId, connectorKey);
-  return integration !== null && integration.archivedAt === null && (RECEIVING_STATUSES as readonly string[]).includes(integration.status);
+  return integration !== null && integration.archivedAt === null && (RECEIVING_STATUSES as readonly string[]).includes(integration.status) ? integration : null;
+}
+
+const sameAccount = (a: string | null, b: string | null): boolean => a !== null && b !== null && a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/**
+ * Whether a delivery that names vendor account `claimed` belongs to the business whose integration this is
+ * (SECURITY_REVIEW SEC-10). The signature proves the vendor sent it; with a secret shared by every business (a
+ * platform endpoint secret, a GitHub App's secret) it does not prove for whom, so the account the delivery names must
+ * be the one this business connected:
+ * - GitHub: the installation the gateway verified for the business (`app_installations`), else the stored account id.
+ * - Shopify: the shop domain the business connected.
+ * - Stripe through the platform (Connect): the connected account. Stripe on the founder's own key: the delivery names
+ *   no account, or the business's own, and the business has its own endpoint secret; without one the delivery could
+ *   only have been verified with the platform's secret, which says nothing about this business.
+ * Returns null when it belongs, else the reason for the log.
+ */
+export async function accountMismatch(deps: Pick<IngestDeps, "db">, integration: IntegrationRow, connectorKey: string, claimed: string | null): Promise<string | null> {
+  const settings = (integration.settings ?? {}) as { externalAccountId?: string | null; config?: { kind?: unknown } };
+  const stored = settings.externalAccountId ?? null;
+  if (connectorKey === "github") {
+    const verified = await repos.integrations.verifiedInstallation(deps.db, integration.businessId, connectorKey);
+    const expected = verified?.installationId ?? stored;
+    return sameAccount(claimed, expected) ? null : "the delivery names another installation than the one this business connected";
+  }
+  if (connectorKey === "stripe" && settings.config?.kind !== "connect") {
+    if (claimed !== null && !sameAccount(claimed, stored)) return "the delivery names another Stripe account than the one this business connected";
+    const own = await repos.credentials.latest(deps.db, integration.businessId, integration.id, "stripe_webhook_secret");
+    return own ? null : "this business has no endpoint secret of its own, so the delivery was not verified for it";
+  }
+  return sameAccount(claimed, stored) ? null : "the delivery names another account than the one this business connected";
 }
 
 export const findWebhook = (mounted: readonly MountedWebhook[], segment: string): MountedWebhook | null => mounted.find((m) => m.segment === segment) ?? null;
@@ -149,11 +182,21 @@ export async function handleWebhook(deps: IngestDeps, mounted: readonly MountedW
   }
 
   if (requiresConnectedIntegration(deps)) {
+    // The account a delivery names is read once; a vendor whose scheme names none (`accountOf` absent) is not bound here.
+    const claimed = target.webhook.accountOf ? await target.webhook.accountOf(ctx.req).catch(() => null) : undefined;
     for (const businessId of new Set(events.map((e) => e.businessId))) {
-      if (await connectedIntegration(deps, businessId, target.connector)) continue;
+      const integration = await connectedIntegration(deps, businessId, target.connector);
+      if (!integration) {
+        await deps.nonces.release(nonce);
+        log.warn({ connector: target.connector, businessId, deliveryId: identity.deliveryId }, "webhook for a business without that connector connected refused");
+        return { status: 404, body: { ok: false, error: "not_connected", message: `This business has no connected ${target.connector} integration`, connector: target.connector } };
+      }
+      if (claimed === undefined) continue;
+      const mismatch = await accountMismatch(deps, integration, target.connector, claimed);
+      if (!mismatch) continue;
       await deps.nonces.release(nonce);
-      log.warn({ connector: target.connector, businessId, deliveryId: identity.deliveryId }, "webhook for a business without that connector connected refused");
-      return { status: 404, body: { ok: false, error: "not_connected", message: `This business has no connected ${target.connector} integration`, connector: target.connector } };
+      log.warn({ connector: target.connector, businessId, deliveryId: identity.deliveryId, reason: mismatch }, "webhook for another account than the business connected refused");
+      return { status: 422, body: { ok: false, error: "business_mismatch", message: "This delivery belongs to a different account than the business in the URL connected", connector: target.connector } };
     }
   }
 

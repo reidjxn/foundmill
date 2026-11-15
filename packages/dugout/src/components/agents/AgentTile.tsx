@@ -1,6 +1,8 @@
 "use client";
 import { useState } from "react";
 import { GitCompareArrows, ListChecks, MonitorPlay, SquareTerminal } from "lucide-react";
+import { useAgentPersona } from "../foundation/AgentPersona";
+import { useBuilderView } from "../guidance/BuilderView";
 import { DiffPane } from "./DiffPane";
 import { PlanView } from "./PlanView";
 import { PreviewView } from "./PreviewView";
@@ -14,6 +16,9 @@ export const AGENT_TILE_VIEWS: readonly TileViewOption[] = [
   { id: "preview", label: "Preview", icon: MonitorPlay },
   { id: "plan", label: "Plan", icon: ListChecks },
 ];
+
+/** The views with Builder view off (Nov 8, 2026): the agent's plan and its preview; no terminal and no diff. */
+export const FOUNDER_TILE_VIEWS: readonly TileViewOption[] = AGENT_TILE_VIEWS.filter((v) => v.id === "plan" || v.id === "preview").sort((a, b) => (a.id === "plan" ? -1 : b.id === "plan" ? 1 : 0));
 
 export interface AgentTileProps {
   session: AgentTileSession;
@@ -56,13 +61,21 @@ export function sessionActivity(session: Pick<AgentTileSession, "toolCalls" | "n
  */
 export function AgentTile({ session, view: viewProp, defaultView = "terminal", onViewChange, focused, compact, controls, onFocus, onOpenTask, now, terminalRenderer, diffEngine, className }: AgentTileProps) {
   const [viewState, setViewState] = useState<TileView>(defaultView);
-  const view = viewProp ?? viewState;
+  // Builder view off: the agent's screen (terminal) and its code (diff) are the engine; the tile opens on the plan.
+  const builder = useBuilderView();
+  const views = builder ? AGENT_TILE_VIEWS : FOUNDER_TILE_VIEWS;
+  const wanted = viewProp ?? viewState;
+  const view = (views.some((v) => v.id === wanted) ? wanted : views[0]!.id) as TileView;
   const setView = (v: string) => {
     setViewState(v as TileView);
     onViewChange?.(v as TileView);
   };
+  // The activity line names the agent under the reader's preference (its notes carry the stored name).
+  const persona = useAgentPersona();
+  const raw = sessionActivity(session);
+  const activity = raw ? persona.withNames(raw, [session.agent]) : null;
   return (
-    <TileFrame session={session} views={AGENT_TILE_VIEWS} view={view} onViewChange={setView} focused={focused} compact={compact} controls={controls} onFocus={onFocus} onOpenTask={onOpenTask} now={now} className={className}>
+    <TileFrame session={session} views={views} view={view} onViewChange={setView} focused={focused} compact={compact} controls={controls} onFocus={onFocus} onOpenTask={onOpenTask} now={now} className={className}>
       {view === "terminal" ? (
         <TerminalView
           chunks={session.stdout}
@@ -73,7 +86,7 @@ export function AgentTile({ session, view: viewProp, defaultView = "terminal", o
           compact={compact && !focused}
           queued={Boolean(session.queued) && session.status === "running"}
           live={!session.queued && (session.status === "running" || session.status === "review" || session.status === "merging")}
-          activity={sessionActivity(session)}
+          activity={activity}
         />
       ) : null}
       {view === "diff" ? <DiffPane files={session.files} engine={diffEngine} hideFiles={compact && !focused} /> : null}

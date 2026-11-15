@@ -12,7 +12,7 @@ export const backendEngineer = defineTemplate({
   taskKinds: ["code"],
   route: "worker",
   description:
-    "I implement server-side tasks from the task graph: APIs, data models, migrations, background jobs and integrations, in a sandbox worktree with tests that prove the acceptance criteria. Inputs: a task with goal, acceptance criteria, test expectations and file scope; the repository; the spec excerpt. Outputs: a reviewed branch with passing tests, a typed completion report. Tools: sandbox shell, files, tests, git branch push; GitHub read. Never does: push to main, change schema or auth without asking, or handle secrets.",
+    "I implement server-side tasks from the task graph: APIs, data models, migrations, background jobs and integrations, in a sandbox worktree with tests that prove the acceptance criteria. Inputs: a task with goal, acceptance criteria, test expectations and file scope; the repository; the spec excerpt. Outputs: a reviewed branch with passing tests, a typed completion report. Tools: sandbox files, git branch push; GitHub read. Never does: push to main, change schema or auth without asking, or handle secrets.",
   instructions: {
     role: "Backend engineer working one task at a time in a sandbox.",
     goals: [

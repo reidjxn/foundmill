@@ -5,6 +5,7 @@
  * query maps here to the tRPC query that already holds the same rows and a pure transform into the composer's
  * `ExhibitData` shape (columns/rows/series + label + source). Renderers in Exhibit.tsx only look at that shape.
  */
+import { channelMayRun } from "@foundmill/shared/channel-availability";
 import type { ExhibitKind } from "@foundmill/shared";
 
 export const NAMED_QUERY_IDS = ["tasks_by_status", "conversions_30d", "channel_cpa", "cash_position", "runway_forecast", "roadmap_status"] as const;
@@ -168,12 +169,13 @@ export function conversions30d(input: RibbonLike | undefined, from: string, to: 
 }
 
 export interface ChannelsLike {
-  channels: readonly { channelKey: string; enabled: boolean; currency?: string; meta?: { label: string } | null; form: { spendMinor: number; customers: number } | null }[];
+  channels: readonly { channelKey: string; enabled: boolean; currency?: string; meta?: { label: string } | null; form: { spendMinor: number; customers: number } | null; kitMode?: boolean; availability?: { available: boolean } | null }[];
 }
 
 export function channelCpa(input: ChannelsLike | undefined, currency: string): ExhibitData {
   const rows = (input?.channels ?? [])
-    .filter((c) => c.enabled || (c.form && c.form.spendMinor > 0))
+    // On the board and able to run (or in offline tracking), or with spend to show: a channel that cannot act is not listed as running.
+    .filter((c) => (c.enabled && channelMayRun(c.availability, c.kitMode)) || (c.form && c.form.spendMinor > 0))
     .map((c) => {
       const spend = c.form?.spendMinor ?? 0;
       const customers = c.form?.customers ?? 0;

@@ -1,12 +1,14 @@
 "use client";
 import { forwardRef, useCallback, useEffect, useMemo, useState, type CSSProperties, type HTMLAttributes, type ReactNode } from "react";
-import type { BusinessMode, GameMode, Money } from "@foundmill/shared";
+import type { AreaKey, BusinessMode, GameMode, Money } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { BusinessLogo } from "../foundation/BusinessLogo";
 import { FitText } from "../foundation/FitText";
 import { useToastPlacement } from "../foundation/Toast";
 import { TooltipProvider } from "../foundation/Tooltip";
+import { ExplainPageButton } from "../guidance/ExplainPageButton";
 import { useGuided } from "../guidance/GuidanceProvider";
+import { PageExplainProvider } from "../guidance/PageExplain";
 import { Breadcrumbs } from "./Breadcrumbs";
 import { CommandPalette, KEYBOARD_SHORTCUTS_HELP_ITEM, type CommandPaletteProps, type PaletteItem } from "./CommandPalette";
 import { continueButtonAction, type ContinueHandlers } from "./ContinueButton";
@@ -14,13 +16,14 @@ import { KeyboardHelp } from "./KeyboardHelp";
 import type { ConnectionChipProps } from "./ConnectionChip";
 import { KitBar, kitStyle, type KitBarBusinessMenu, type KitBarNav } from "./KitBar";
 import { NeedsLargerWindow } from "./NeedsLargerWindow";
+import { PhoneBar, PhoneMenu } from "./PhoneBar";
 import { ProcessingStrip, processingStatusText } from "./ProcessingStrip";
 import { RightRail } from "./RightRail";
 import type { RunwayWords } from "./RunwayChip";
 import { Sidebar } from "./Sidebar";
 import type { StopAllAgentsProps } from "./StopAllAgents";
 import { TabBar, type TabBarProps } from "./TabBar";
-import { departmentLetters, RESERVED_SECTION_LETTERS, useKeyboardMap, type DepartmentForKeys, type GoToTarget, type KeyboardMapContext } from "./keyboard";
+import { AREA_LETTERS, SHELL_FIXED_LETTERS, shellDepartmentLetters, useKeyboardMap, type DepartmentForKeys, type GoToTarget, type KeyboardMapContext } from "./keyboard";
 import type { BreadcrumbItem, ContinueState, Kit, ProcessingSegment, SidebarBrand, SidebarItem } from "./types";
 import { isViewportTooSmall, MIN_VIEWPORT_WIDTH, useViewportWidth } from "./useViewportWidth";
 
@@ -43,6 +46,10 @@ export interface AppShellContinue extends ContinueHandlers {
   disabled?: boolean;
   /** The action is in flight: Continue keeps focus but refuses presses (ContinueButton `pending`). */
   pending?: boolean;
+  /** What a press can and cannot do right now, under the tooltip's sentence (ContinueButton `caveat`). */
+  caveat?: string | null;
+  /** What the last cycle cost, as an Estimate (ContinueButton `hint`). */
+  hint?: string | null;
 }
 
 export interface AppShellProcessing {
@@ -51,6 +58,13 @@ export interface AppShellProcessing {
   active: boolean;
   /** The running cycle's number, for the strip's sentence ("Product and Finance are working on cycle 3"). */
   cycleNumber?: number | null;
+  /**
+   * The answer to a press of Continue, the moment it is known (first-time founder report, Nov 8, 2026): "Starting the
+   * next cycle…", then "Cycle 2 started: 6 tasks ready to build" or "The team cannot run right now: …". While set it is
+   * the strip's sentence and the tab bar's line, guidance on or off, so "No cycle running" never stays unchanged after
+   * a press. The app clears it when the strip's own sentence has caught up.
+   */
+  notice?: string | null;
 }
 
 /** The floor the tab bar's processing line steps down to before it truncates (DESIGN §2: 11 px). */
@@ -75,9 +89,11 @@ export function processingLineText(segments: readonly ProcessingSegment[], activ
  * stacks a figure over its words, which would need a second row the bar does not have, and `ConsequenceLine` is for
  * what an action will do, not for what is happening now.
  */
-function ProcessingLine({ text }: { text: string }) {
+function ProcessingLine({ text, notice = false }: { text: string; notice?: boolean }) {
+  // The answer to a press reads in the secondary ink, not the tertiary: it is news, not ambient status, and it is
+  // announced once (role status) so a screen reader hears what the press did.
   return (
-    <FitText minPx={PROCESSING_LINE_MIN_PX} className="t-small max-w-64 min-w-0 text-tertiary" data-testid="processing-line">
+    <FitText minPx={PROCESSING_LINE_MIN_PX} className={cn("t-small max-w-80 min-w-0", notice ? "text-secondary" : "text-tertiary")} data-testid="processing-line" data-notice={notice ? "" : undefined} role={notice ? "status" : undefined}>
       {text}
     </FitText>
   );
@@ -112,8 +128,10 @@ export interface AppShellProps extends Omit<HTMLAttributes<HTMLDivElement>, "tit
   logoSrc?: string | null;
   /** A ready element instead of `logoSrc`. */
   logo?: ReactNode;
-  /** A small badge after the business name in the top bar (KitBar `businessBadge`: the Example chip). */
+  /** A one-line caption under the business name in the top bar (KitBar `businessBadge`: "Sample business"). */
   businessBadge?: ReactNode;
+  /** What that caption means, in one line (KitBar `businessBadgeLine`: joins the switcher's tooltip). */
+  businessBadgeLine?: string;
   /**
    * Something else in Continue's slot (KitBar `continueSlot`: the Example frame's "Start your own"). Continue's
    * keyboard shortcut still follows `continueButton`, so pass it disabled alongside.
@@ -130,6 +148,12 @@ export interface AppShellProps extends Omit<HTMLAttributes<HTMLDivElement>, "tit
   processing: AppShellProcessing;
   tabs?: TabBarProps;
   breadcrumbs?: BreadcrumbItem[];
+  /**
+   * The page's one "Ask <Chief of Staff>" control (`AskChiefOfStaff`), drawn beside "Explain this page" at the right end
+   * of the tab row; in the breadcrumb row on a page with breadcrumbs and no tabs; and in a thin row of its own on a page
+   * with neither, so every business page has exactly one. Omit when the business has no Chief of Staff.
+   */
+  pageActions?: ReactNode;
   rightRail?: AppShellRightRail;
   /** Universal search. Without it the search trigger calls `keyboard.onSearch`‐style fallbacks only. */
   search?: AppShellSearch;
@@ -141,11 +165,15 @@ export interface AppShellProps extends Omit<HTMLAttributes<HTMLDivElement>, "tit
    */
   date: Date | string | number | null;
   runwayMonths: number | null | undefined;
-  /** The words when there is no runway figure ("No limit", "Not known yet") and why; see RunwayChip. */
+  /** The words when there is no runway figure ("Not running out", "Not known yet") and why; see RunwayChip. */
   runwayWords?: RunwayWords | null;
   cash?: Money;
   runwayEstimate?: boolean;
   onRunwayClick?: () => void;
+  /** The business's spend line for the mode chip (KitBar `spendLineMinor`). */
+  spendLineMinor?: number | null;
+  /** The business's own currency for the mode chip (KitBar `businessCurrency`). */
+  businessCurrency?: string | null;
   onModeClick?: () => void;
   /** The logo and name become the business switcher: the founder's businesses, Create a new business, Manage businesses, Home, Your profile. */
   businessMenu?: KitBarBusinessMenu;
@@ -157,24 +185,40 @@ export interface AppShellProps extends Omit<HTMLAttributes<HTMLDivElement>, "tit
   viewportWidth?: number;
   /** Minimum width (default 1280). */
   minViewportWidth?: number;
+  /**
+   * This screen works on a phone (CLAUDE.md "Small screens"). Under the minimum width the shell draws its phone layout
+   * instead of NeedsLargerWindow: a compact top bar with a menu button, no sidebar and no right rail, the page's tabs
+   * scrolling sideways, the content at full width with the 16 px gutter and the shell as an `@container` (so a page can
+   * use `@page-wide:`). At or over the minimum width, and without this prop, nothing changes.
+   */
+  phone?: boolean;
   children?: ReactNode;
 }
 
-/** The departments in sidebar order, with their stored letters, for the G chord. */
+/** The module-less departments in sidebar order, with their stored letters, for the G chord. */
 function departmentsForKeys(items: readonly SidebarItem[]): DepartmentForKeys[] {
   return items.filter((it) => it.group === "department").map((it) => ({ id: it.id, name: it.label, shortcut: it.shortcut }));
 }
 
-/** Sidebar items with their chords filled in: fixed surfaces from `fixed`, departments from `departmentLetters`. Exported for tests. */
+/** The founder areas the sidebar shows, in its order, for the G chord. */
+function areasForKeys(items: readonly SidebarItem[]): AreaKey[] {
+  return items.flatMap((it) => (it.group === "area" && it.area ? [it.area] : []));
+}
+
+/**
+ * Sidebar items with their chords filled in: Today and Needs you from `fixed` (G H, G I), the areas from
+ * `AREA_LETTERS` (G P, G C, G M, G R, G T) and module-less departments from `shellDepartmentLetters`. Exported for tests.
+ */
 export function withSidebarKeys(items: readonly SidebarItem[]): SidebarItem[] {
-  const letters = departmentLetters(departmentsForKeys(items));
-  const fixedLetter = (fixed: NonNullable<SidebarItem["fixed"]>) => Object.entries(RESERVED_SECTION_LETTERS).find(([, v]) => v === fixed)?.[0];
+  const letters = shellDepartmentLetters(departmentsForKeys(items));
+  const fixedLetter = (fixed: NonNullable<SidebarItem["fixed"]>) => Object.entries(SHELL_FIXED_LETTERS).find(([, v]) => v === fixed)?.[0];
   return items.map((it) => {
     if (it.keys) return it;
     if (it.fixed) {
       const l = fixedLetter(it.fixed);
       return l ? { ...it, keys: ["G", l] } : it;
     }
+    if (it.group === "area" && it.area) return { ...it, keys: ["G", AREA_LETTERS[it.area]] };
     if (it.group === "department") {
       const l = letters.get(it.id);
       return l ? { ...it, keys: ["G", l] } : it;
@@ -186,6 +230,7 @@ export function withSidebarKeys(items: readonly SidebarItem[]): SidebarItem[] {
 /** The sidebar item a G chord targets. Exported for tests. */
 export function sidebarItemForTarget(items: readonly SidebarItem[], target: GoToTarget): SidebarItem | undefined {
   if (target.kind === "department") return items.find((it) => it.group === "department" && it.id === target.id);
+  if (target.kind === "area") return items.find((it) => it.group === "area" && it.area === target.area);
   return items.find((it) => it.fixed === target.kind);
 }
 
@@ -230,6 +275,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
     logoSrc,
     logo,
     businessBadge,
+    businessBadgeLine,
     continueSlot,
     businessName,
     screenTitle,
@@ -241,6 +287,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
     processing,
     tabs,
     breadcrumbs,
+    pageActions,
     rightRail,
     search,
     onSearch,
@@ -250,12 +297,15 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
     cash,
     runwayEstimate,
     onRunwayClick,
+    spendLineMinor,
+    businessCurrency,
     onModeClick,
     businessMenu,
     connection,
     keyboard,
     viewportWidth,
     minViewportWidth = MIN_VIEWPORT_WIDTH,
+    phone = false,
     className,
     style,
     children,
@@ -266,9 +316,12 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
   const measured = useViewportWidth();
   const width = viewportWidth ?? measured;
   const tooSmall = isViewportTooSmall(width, minViewportWidth);
+  const phoneLayout = phone && tooSmall;
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const items = useMemo(() => withSidebarKeys(sidebar.items), [sidebar.items]);
   const departments = useMemo(() => departmentsForKeys(items), [items]);
+  const areas = useMemo(() => areasForKeys(items), [items]);
 
   const [searchOpenState, setSearchOpenState] = useState(false);
   const searchOpen = search?.open ?? searchOpenState;
@@ -282,9 +335,12 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
   const [helpOpen, setHelpOpen] = useState(false);
   const guided = useGuided();
 
-  const { state, cycleNumber, pulseKey, disabled: continueDisabled, pending: continuePending, ...continueHandlers } = continueButton;
+  const { state, cycleNumber, pulseKey, disabled: continueDisabled, pending: continuePending, caveat: continueCaveat, hint: continueHint, ...continueHandlers } = continueButton;
   const continueAction = continueButtonAction(state, continueHandlers);
-  const processingText = processingStatusText(processing.segments, processing.active, processing.cycleNumber);
+  const notice = processing.notice?.trim() || null;
+  const processingText = notice ?? processingStatusText(processing.segments, processing.active, processing.cycleNumber);
+  // The line in the tab bar: the strip's sentence while guidance is on; the answer to a press for everyone, while it stands.
+  const lineText = notice ?? (guided ? processingLineText(processing.segments, processing.active, processing.cycleNumber) : null);
   // The Help group always offers the keyboard shortcuts; the app adds its defined terms (apps/web/lib/search.ts).
   const helpItems = useMemo(() => {
     const given = search?.helpItems ?? [];
@@ -314,6 +370,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
 
   const { chordPending, cancelChord } = useKeyboardMap({
     enabled: keyboard?.enabled ?? true,
+    areas,
     departments,
     onContinue: continueAction && !continueDisabled && !continuePending ? continueAction : undefined,
     onRefreshInbox: keyboard?.onRefreshInbox,
@@ -335,22 +392,100 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
   // Toasts stack bottom left beside the sidebar, at its real width (collapsed or not), while the shell is mounted.
   useToastPlacement({ position: "bottom-left", sidebar: sidebar.collapsed ? "collapsed" : "expanded" });
 
-  if (tooSmall) return <NeedsLargerWindow width={width} minWidth={minViewportWidth} />;
+  if (tooSmall && !phone) return <NeedsLargerWindow width={width} minWidth={minViewportWidth} />;
 
   const homeItem = items.find((it) => it.fixed === "home");
   const rootStyle: CSSProperties = { ...kitStyle(kit), ...style };
   // A first-time callout (Coachmark, next wave) never starts while a cycle runs or an overlay is open.
   const coachmarkPause = state.kind === "processing" || searchOpen || helpOpen || stopAll.open === true;
 
+  if (phoneLayout) {
+    const tabsLeading = tabs ? { ...tabs, trailing: undefined } : null;
+    return (
+      <TooltipProvider delayDuration={400} skipDelayDuration={300}>
+        <PageExplainProvider>
+          <div
+            ref={ref}
+            data-testid="app-shell"
+            data-phone=""
+            data-game-mode={mode}
+            data-chord-pending={chordPending || undefined}
+            data-coachmark-pause={coachmarkPause || undefined}
+            className={cn("@container flex h-dvh w-full min-w-0 flex-col overflow-hidden canvas-lit text-primary", className)}
+            style={rootStyle}
+            {...rest}
+          >
+            <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded-panel focus:bg-panel-alt focus:px-2 focus:py-1">
+              Skip to content
+            </a>
+            <PhoneBar
+              kit={kit}
+              logoSrc={logoSrc}
+              logo={logo}
+              businessName={businessName}
+              continueButton={{ state, cycleNumber, pulseKey, disabled: continueDisabled, pending: continuePending, caveat: continueCaveat, hint: continueHint, ...continueHandlers }}
+              continueSlot={continueSlot}
+              stopAll={stopAll}
+              menuOpen={menuOpen}
+              onMenuOpenChange={setMenuOpen}
+            />
+            <ProcessingStrip segments={processing.segments} active={processing.active} cycleNumber={processing.cycleNumber} label={processingText} data-notice={notice ? "" : undefined} />
+            <div className="rule-under flex min-h-tap shrink-0 items-center gap-2 px-gutter" data-testid="phone-title-row">
+              <h1 className="t-display-md min-w-0 flex-1 truncate" data-testid="phone-screen-title">
+                {screenTitle}
+              </h1>
+              {pageActions ? <div className="flex shrink-0 items-center [&_a]:min-h-tap [&_button]:min-h-tap">{pageActions}</div> : null}
+            </div>
+            {tabsLeading ? (
+              <div className="flex shrink-0 items-stretch" data-testid="phone-tabs">
+                <div className="min-w-0 flex-1 overflow-x-auto" data-testid="phone-tabs-scroll">
+                  <TabBar {...tabsLeading} className={cn("min-h-tap min-w-max [&_.shell-tab]:min-h-tap", tabsLeading.className)} />
+                </div>
+                {tabs?.trailing ? <div className="rule-under flex shrink-0 items-center gap-2 pr-gutter [&_a]:min-h-tap [&_button]:min-h-tap">{tabs.trailing}</div> : null}
+              </div>
+            ) : null}
+            <main id="main" tabIndex={-1} className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto outline-none" data-testid="shell-content">
+              {children}
+            </main>
+            <PhoneMenu
+              open={menuOpen}
+              onOpenChange={setMenuOpen}
+              items={items}
+              activeId={sidebar.activeId}
+              businessName={businessName}
+              onSelect={(item) => {
+                cancelChord();
+                onNavigate?.(item);
+              }}
+              onSearch={search || onSearch ? openSearch : undefined}
+            />
+            {search ? (
+              <CommandPalette
+                {...search}
+                business={search.business ?? { name: businessName, href: homeItem?.href, logo: logoSrc !== undefined || !logo ? <BusinessLogo src={logoSrc} name={businessName} primary={kit.primary} size={20} /> : undefined }}
+                helpItems={helpItems}
+                onSelect={onPaletteSelect}
+                open={searchOpen}
+                onOpenChange={setSearchOpen}
+              />
+            ) : null}
+            <KeyboardHelp open={helpOpen} onOpenChange={setHelpOpen} departments={departments} areas={areas} />
+          </div>
+        </PageExplainProvider>
+      </TooltipProvider>
+    );
+  }
+
   return (
     <TooltipProvider delayDuration={400} skipDelayDuration={300}>
+      <PageExplainProvider>
       <div
         ref={ref}
         data-testid="app-shell"
         data-game-mode={mode}
         data-chord-pending={chordPending || undefined}
         data-coachmark-pause={coachmarkPause || undefined}
-        className={cn("flex h-screen w-full min-w-(--min-viewport) overflow-hidden canvas-lit text-primary", className)}
+        className={cn("@container flex h-screen w-full overflow-hidden canvas-lit text-primary", !phone && "min-w-(--min-viewport)", className)}
         style={rootStyle}
         {...rest}
       >
@@ -386,35 +521,50 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
             runwayEstimate={runwayEstimate}
             onRunwayClick={onRunwayClick}
             businessMode={businessMode}
+            spendLineMinor={spendLineMinor}
+            businessCurrency={businessCurrency}
             onModeClick={onModeClick}
             gameMode={mode}
-            continueButton={{ state, cycleNumber, pulseKey, disabled: continueDisabled, pending: continuePending, ...continueHandlers }}
+            continueButton={{ state, cycleNumber, pulseKey, disabled: continueDisabled, pending: continuePending, caveat: continueCaveat, hint: continueHint, ...continueHandlers }}
             continueSlot={continueSlot}
             businessBadge={businessBadge}
+            businessBadgeLine={businessBadgeLine}
             stopAll={stopAll}
             onHome={homeItem && onNavigate ? () => onNavigate(homeItem) : undefined}
             businessMenu={businessMenu}
             connection={connection}
           />
-          <ProcessingStrip segments={processing.segments} active={processing.active} cycleNumber={processing.cycleNumber} label={processingText} />
+          <ProcessingStrip segments={processing.segments} active={processing.active} cycleNumber={processing.cycleNumber} label={processingText} data-notice={notice ? "" : undefined} />
           {tabs ? (
             <TabBar
               {...tabs}
               trailing={
-                guided ? (
-                  <>
-                    {tabs.trailing}
-                    <ProcessingLine text={processingLineText(processing.segments, processing.active, processing.cycleNumber)} />
-                  </>
-                ) : (
-                  tabs.trailing
-                )
+                <>
+                  {tabs.trailing}
+                  {lineText !== null ? <ProcessingLine text={lineText} notice={notice !== null} /> : null}
+                  {pageActions}
+                  {/* The page's one "Explain this page" button, at the right end of the tab row; nothing until a screen registered. */}
+                  <ExplainPageButton />
+                </>
               }
             />
           ) : null}
           {breadcrumbs && breadcrumbs.length > 0 ? (
             <div className="rule-under flex h-control-md shrink-0 items-center px-gutter">
               <Breadcrumbs items={breadcrumbs} />
+              {/* A page with breadcrumbs and no tab row keeps the buttons here, so there is still exactly one of each. */}
+              {tabs ? null : (
+                <div className="ml-auto flex items-center gap-1">
+                  {pageActions}
+                  <ExplainPageButton />
+                </div>
+              )}
+            </div>
+          ) : null}
+          {/* A page with neither row: a thin row of its own for the Ask control, so no page is without it. */}
+          {pageActions && !tabs && !(breadcrumbs && breadcrumbs.length > 0) ? (
+            <div className="rule-under flex h-control-md shrink-0 items-center justify-end px-gutter" data-testid="page-actions-row">
+              {pageActions}
             </div>
           ) : null}
           <div className="flex min-h-0 flex-1">
@@ -438,8 +588,9 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
             onOpenChange={setSearchOpen}
           />
         ) : null}
-        <KeyboardHelp open={helpOpen} onOpenChange={setHelpOpen} departments={departments} />
+        <KeyboardHelp open={helpOpen} onOpenChange={setHelpOpen} departments={departments} areas={areas} />
       </div>
+      </PageExplainProvider>
     </TooltipProvider>
   );
 });

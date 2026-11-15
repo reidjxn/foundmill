@@ -414,6 +414,265 @@
       "when": 1796127120000,
       "tag": "0070_task_founder_titles",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1796127180000,
+      "tag": "0071_inbox_only_hard_stops_hold",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1796127240000,
+      "tag": "0072_goals",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1796127300000,
+      "tag": "0073_builder_view",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1796127360000,
+      "tag": "0074_demo_roll_forward",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1796127420000,
+      "tag": "0075_founder_devices",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1796127480000,
+      "tag": "0076_drop_leaderboards",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1796127540000,
+      "tag": "0077_project_pages",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1796127600000,
+      "tag": "0078_project_mail",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1796127660000,
+      "tag": "0079_page_followers",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1796127720000,
+      "tag": "0080_person_profiles",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1796127780000,
+      "tag": "0081_public_page_grants",
+      "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1796127960000,
+      "tag": "0082_team_calls",
+      "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1796128020000,
+      "tag": "0083_founder_return",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1796128080000,
+      "tag": "0084_autopilot_own_limits",
+      "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1796128380000,
+      "tag": "0085_account_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1796128440000,
+      "tag": "0086_idea_drafts",
+      "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1796128500000,
+      "tag": "0087_client_grants",
+      "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1796128560000,
+      "tag": "0088_attributions",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1796128620000,
+      "tag": "0089_public_milestones",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1796128680000,
+      "tag": "0090_page_dates_recorded",
+      "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1796129580000,
+      "tag": "0091_invitations",
+      "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1796130180000,
+      "tag": "0092_people_roles",
+      "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1796130780000,
+      "tag": "0093_admission_cutover",
+      "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1796131380000,
+      "tag": "0094_collaborator_reads",
+      "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1796131980000,
+      "tag": "0095_collaborator_money_legal",
+      "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1796132580000,
+      "tag": "0096_membership_grant_guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1796133180000,
+      "tag": "0097_founder_departures",
+      "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1796133240000,
+      "tag": "0098_credit_lots",
+      "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1796133840000,
+      "tag": "0099_events_collaborator_walls",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1796134440000,
+      "tag": "0100_adult_confirmations",
+      "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1796135040000,
+      "tag": "0101_project_postal_address",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1796135640000,
+      "tag": "0102_post_media",
+      "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1796136240000,
+      "tag": "0103_showcase_videos",
+      "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1796136840000,
+      "tag": "0104_funding_source",
+      "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1796137440000,
+      "tag": "0105_page_quizzes",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1796138040000,
+      "tag": "0106_post_attributions",
+      "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1796138640000,
+      "tag": "0107_collaborator_finance_fields",
+      "breakpoints": true
     }
   ]
 }

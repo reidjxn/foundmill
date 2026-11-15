@@ -5,7 +5,7 @@
 import { ARCHETYPES, ARCHETYPE_LABELS, type Archetype } from "@foundmill/shared";
 import { uuidFromSeed } from "../hash";
 import { IDEA_ATTRIBUTE_KEYS, type ConceptCard, type IdeaAttributeKey, type IdeationOutput } from "../schemas";
-import { type MockContext, isRecord, keywords, titleCase } from "./inputs";
+import { type BriefFacts, type MockContext, briefFacts, isRecord, keywords, titleCase } from "./inputs";
 
 const ARCHETYPE_HINTS: Array<[Archetype, RegExp]> = [
   ["b2b_saas", /\b(saas|b2b|software|platform|dashboard|workflow|api|teams?|enterprise|smb|accounting|crm|analytics)\b/i],
@@ -76,6 +76,8 @@ interface DraftInputs {
   constraints: string[];
   skills: Record<string, unknown> | undefined;
   hinted: Archetype[];
+  /** What the founder's own brief names (audiences, outcomes, the product), when it names anything. */
+  facts: BriefFacts;
 }
 
 function draftInputs(ctx: MockContext): DraftInputs {
@@ -83,13 +85,31 @@ function draftInputs(ctx: MockContext): DraftInputs {
   // by the report, as a model would shape it.
   const prompt = ctx.getString("import_report") ?? ctx.getString("prompt", "concept", "brief", "idea") ?? ctx.lastUser;
   const founder = ctx.getRecord("founder", "founder_profile", "profile");
+  const imported = Boolean(ctx.getString("import_report"));
   return {
     prompt,
     kws: keywords(prompt, 8),
     constraints: founder && Array.isArray(founder.constraints) ? founder.constraints.filter((c): c is string => typeof c === "string") : [],
     skills: founder && isRecord(founder.skills) ? founder.skills : undefined,
     hinted: ARCHETYPE_HINTS.filter(([, re]) => re.test(prompt)).map(([a]) => a),
+    facts: imported ? { audiences: [], outcomes: [], mechanism: null, specific: false } : briefFacts(prompt),
   };
+}
+
+/**
+ * Who a card serves and what it does for them. A brief that names its people and their struggle is echoed, card by
+ * card (first-time founder report, Nov 8, 2026: a founder who typed "students … cafes … same-day shifts" read ten cards
+ * about renters and fitness instructors). Every fourth card still roams to an adjacent audience, so a set stays a set
+ * of different ideas; a brief that names nobody draws from the archetype's audiences as before.
+ */
+function castOf(i: number, archetype: Archetype, inputs: DraftInputs, rng: MockContext["rng"]): { audience: string; outcome: string; mechanism: string } {
+  const { facts } = inputs;
+  const roam = facts.specific && i % 4 === 3;
+  const audience = facts.audiences.length && !roam ? facts.audiences[i % facts.audiences.length]! : rng.pick(AUDIENCES[archetype]);
+  const outcome = facts.outcomes.length && !roam ? facts.outcomes[i % facts.outcomes.length]! : rng.pick(OUTCOMES);
+  // The founder's own product sentence leads the first card; the others try another mechanism on the same people.
+  const mechanism = facts.mechanism && i === 0 ? facts.mechanism : rng.pick(MECHANISMS);
+  return { audience, outcome, mechanism };
 }
 
 /** One card. Without a spec this consumes the seed exactly as the full-set generator always has (fixtures stay stable). */
@@ -99,10 +119,9 @@ function draftCard(ctx: MockContext, i: number, inputs: DraftInputs, usedNames: 
   const archetype: Archetype = spec.archetype ?? (hinted.length > 0 && rng.chance(0.65) ? rng.pick(hinted) : rng.pick(ARCHETYPES));
   const keyword = kws.length > 0 ? (kws[i % kws.length] as string) : undefined;
   const name = spec.name ?? uniqueName(rng, keyword, usedNames);
-  const audience = rng.pick(AUDIENCES[archetype]);
-  const outcome = rng.pick(OUTCOMES);
-  const mechanism = rng.pick(MECHANISMS);
-  const pitch = spec.angle ?? `${name} helps ${audience} ${outcome} through ${mechanism}${keyword ? `, built around ${keyword}` : ""}.`;
+  const { audience, outcome, mechanism } = castOf(i, archetype, inputs, rng);
+  // "built around <keyword>" only pads a pitch whose brief named nobody; a brief that did is already in the sentence.
+  const pitch = spec.angle ?? `${name} helps ${audience} ${outcome} through ${mechanism}${keyword && !inputs.facts.specific ? `, built around ${keyword}` : ""}.`;
 
   const attributes = IDEA_ATTRIBUTE_KEYS.map((key) => {
     let value = BASELINE[archetype][key] + rng.int(-3, 3);
@@ -191,9 +210,84 @@ export function generateConceptCard(ctx: MockContext): ConceptCard {
   return draftCard(ctx, 0, draftInputs(ctx), new Set<string>(), Object.keys(slateItem).length > 0 ? slateItem : importSpec(ctx));
 }
 
-/** The `ideation` route: one card when the caller's schema is a single card (it has `attributes`), else a full set. */
-export function generateIdeationRoute(ctx: MockContext): IdeationOutput | ConceptCard {
+/** The `ideation` route: one card when the caller's schema is a single card (it has `attributes`), a Compare verdict when it asks for one (`verdict_md`), else a full set. */
+export function generateIdeationRoute(ctx: MockContext): IdeationOutput | ConceptCard | CompareVerdict {
+  if (ctx.schemaKeys.includes("verdict_md")) return generateCompareVerdict(ctx);
   return ctx.schemaKeys.includes("attributes") && !ctx.schemaKeys.includes("concepts") ? generateConceptCard(ctx) : generateIdeation(ctx);
+}
+
+/** What Compare asks for (apps/api `idea.compare`): a verdict in Markdown and a ranking of the compared cards. */
+export interface CompareVerdict {
+  verdict_md: string;
+  ranking: { idea_id: string; rank: number; reason: string }[];
+}
+
+interface ComparedCard {
+  id: string;
+  title: string;
+  pitch: string;
+  attributes: { key: string; value: number }[];
+}
+
+const ATTRIBUTE_WORDS = (key: string) => key.replace(/_/g, " ").replace(/\bagent executability\b/, "agent-executability");
+
+/** The cards Compare sends (`concepts: [{ id, title, pitch, attributes }]`, attributes as a map or a list). */
+function comparedCards(ctx: MockContext): ComparedCard[] {
+  return ctx
+    .getArray<unknown>("concepts", "ideas", "cards")
+    .filter(isRecord)
+    .flatMap((c) => {
+      const id = typeof c.id === "string" ? c.id : null;
+      if (!id) return [];
+      const raw = c.attributes;
+      const attributes: ComparedCard["attributes"] = Array.isArray(raw)
+        ? raw.filter(isRecord).flatMap((a) => (typeof a.key === "string" && typeof a.value === "number" ? [{ key: a.key, value: a.value }] : []))
+        : isRecord(raw)
+          ? Object.entries(raw).flatMap(([key, a]) => (isRecord(a) && typeof a.value === "number" ? [{ key, value: a.value }] : []))
+          : [];
+      return [{ id, title: typeof c.title === "string" ? c.title : typeof c.name === "string" ? c.name : "This concept", pitch: typeof c.pitch === "string" ? c.pitch : "", attributes }];
+    });
+}
+
+/**
+ * Compare's verdict, written from the cards' own ratings and nothing else (the first-time founder report, Nov 8, 2026,
+ * found the schema synthesizer's "Mock verdict md about distribution" on the Compare screen): where each card leads
+ * outright, where it is weakest, which one to commit and why, with every figure quoted from the cards.
+ */
+export function generateCompareVerdict(ctx: MockContext): CompareVerdict {
+  const cards = comparedCards(ctx);
+  if (cards.length === 0) return { verdict_md: "Pick two to four concept cards and I compare them attribute by attribute.", ranking: [{ idea_id: "none", rank: 1, reason: "No cards were given to compare." }] };
+  const mean = (c: ComparedCard) => (c.attributes.length ? c.attributes.reduce((s, a) => s + a.value, 0) / c.attributes.length : 0);
+  const ranked = [...cards].sort((a, b) => mean(b) - mean(a) || a.title.localeCompare(b.title));
+  const leadsOf = (c: ComparedCard) =>
+    c.attributes
+      .filter((a) => cards.every((o) => o === c || (o.attributes.find((x) => x.key === a.key)?.value ?? -Infinity) < a.value))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 2);
+  const weakestOf = (c: ComparedCard) => [...c.attributes].sort((a, b) => a.value - b.value)[0];
+  const lines = ranked.map((c, i) => {
+    const leads = leadsOf(c);
+    const weakest = weakestOf(c);
+    const lead = leads.length ? `leads on ${leads.map((a) => `${ATTRIBUTE_WORDS(a.key)} (${a.value})`).join(" and ")}` : "leads on no attribute outright";
+    const weak = weakest ? `; weakest on ${ATTRIBUTE_WORDS(weakest.key)} (${weakest.value})` : "";
+    return `${i + 1}. **${c.title}** ${lead}${weak}.`;
+  });
+  const top = ranked[0]!;
+  const runner = ranked[1];
+  const topWeak = weakestOf(top);
+  const verdict = [
+    `Ranked by the mean of the ten ratings, highest first. These are the cards' own ratings (the Ideation agent's priors, not research), so the gaps between them are estimates.`,
+    ...lines,
+    `**Commit ${top.title}** if you want the strongest card today${runner ? `; ${runner.title} is the one to keep if ${topWeak ? `${ATTRIBUTE_WORDS(topWeak.key)} worries you` : "you want a second route"}` : ""}. ${topWeak ? `Before building, ask the Research agent about ${top.title}'s ${ATTRIBUTE_WORDS(topWeak.key)}: it is the rating most likely to move once checked against a source.` : ""}`.trim(),
+  ].join("\n\n");
+  return {
+    verdict_md: verdict,
+    ranking: ranked.map((c, i) => {
+      const leads = leadsOf(c);
+      const weakest = weakestOf(c);
+      return { idea_id: c.id, rank: i + 1, reason: `${leads.length ? `Leads on ${leads.map((a) => `${ATTRIBUTE_WORDS(a.key)} (${a.value})`).join(" and ")}` : "Leads on no attribute outright"}${weakest && !leads.includes(weakest) ? `; weakest on ${ATTRIBUTE_WORDS(weakest.key)} (${weakest.value})` : ""}.` };
+    }),
+  };
 }
 
 function uniqueName(rng: MockContext["rng"], keyword: string | undefined, used: Set<string>): string {

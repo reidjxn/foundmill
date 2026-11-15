@@ -1,11 +1,12 @@
 import { useState, type ReactNode } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { CircleCheck, Hourglass, Landmark, TrendingUp, Trophy, Users } from "lucide-react";
+import { CircleCheck, Hourglass, Landmark, TrendingUp, Users } from "lucide-react";
 import { formatMoney } from "../../lib/format";
 import { Avatar, AvatarStack } from "../foundation/Avatar";
 import { SAMPLE_LOGOS } from "../foundation/logo-samples";
 import { Button } from "../foundation/Button";
 import { DeptChip, ProvenanceChip } from "../foundation/Chip";
+import { StatusStrip } from "../data/MetricTile";
 import { Icon, type IconComponent } from "../foundation/Icon";
 import { Sparkline } from "../foundation/Sparkline";
 import { StatusPill } from "../foundation/StatusPill";
@@ -114,7 +115,6 @@ function HomeContent() {
       <StatTile icon={TrendingUp} label="Revenue (30 d)" value={formatMoney({ amountMinor: 1120000, currency: "EUR" })} caption="▲ 8.4% vs previous 30 d" />
       <StatTile icon={Users} label="Customers this week" value="23" caption="4 from Nordic Beauty AB" />
       <StatTile icon={CircleCheck} label="Team health" value="67%" caption="4 of 6 agents healthy" />
-      <StatTile icon={Trophy} label="Leaderboard position" value="14th" caption="DTC skincare · 212 businesses" />
       {DEPARTMENTS.map((d) => (
         <DepartmentCard key={d.id} d={d} />
       ))}
@@ -181,6 +181,8 @@ function Shell({ children, sidebar, tabs, rightRail, ...props }: Partial<AppShel
     <AppShell
       mode="live"
       businessMode="assisted"
+      spendLineMinor={5_000}
+      businessCurrency="GBP"
       kit={NORTHWIND_KIT}
       logoSrc={SAMPLE_LOGOS.stack}
       businessName="Northwind Skincare"
@@ -209,6 +211,8 @@ function Shell({ children, sidebar, tabs, rightRail, ...props }: Partial<AppShel
 const baseArgs = {
   mode: "live",
   businessMode: "assisted",
+  spendLineMinor: 5_000,
+  businessCurrency: "GBP",
   kit: NORTHWIND_KIT,
   logoSrc: SAMPLE_LOGOS.stack,
   businessName: "Northwind Skincare",
@@ -236,6 +240,18 @@ export const ContinueProcessing: Story = {
   args: { ...baseArgs, continueButton: { state: { kind: "processing" }, cycleNumber: 3 } },
   render: (args) => <Shell {...args} tabs={{ tabs: DISTRIBUTION_TABS, activeId: "formation" }} />,
   parameters: { docs: { description: { story: "A cycle runs: Continue reads Pause (its tooltip “The team is working · cycle 3”), the strip travels, and while guidance is on the strip's sentence sits in words at the right end of the tab bar. The shell root carries data-coachmark-pause." } } },
+};
+export const ContinueAnswered: Story = {
+  name: "Continue · the press answered",
+  args: { ...baseArgs, continueButton: { state: { kind: "processing", run: true }, cycleNumber: 2 }, processing: { segments: NORTHWIND_SEGMENTS, active: false, notice: "Cycle 2 started: 6 tasks ready to build" } },
+  render: (args) => <Shell {...args} tabs={{ tabs: DISTRIBUTION_TABS, activeId: "formation" }} />,
+  parameters: { docs: { description: { story: "One press of Continue, answered (first-time founder report, Nov 8, 2026): the strip's sentence and the tab bar's line read what the press did the moment the answer lands, guidance on or off, so “No cycle running” never stays unchanged after a press. The orchestrator's own `cycle.started` catches the strip up moments later." } } },
+};
+export const ContinueCannotRun: Story = {
+  name: "Continue · the team cannot run",
+  args: { ...baseArgs, continueButton: { state: { kind: "idle" }, caveat: "The orchestrator is not reachable: a press writes one note; no agent works." }, processing: { segments: NORTHWIND_SEGMENTS, active: false, notice: "The team cannot run right now: the orchestrator is not reachable" } },
+  render: (args) => <Shell {...args} tabs={{ tabs: DISTRIBUTION_TABS, activeId: "formation" }} />,
+  parameters: { docs: { description: { story: "No orchestrator (a laptop stack, a service down): the press is answered honestly in the line and the toast, and Continue's tooltip carries the caveat before the next press." } } },
 };
 export const ContinueCustomerUpdate: Story = {
   name: "Continue · Customer Update",
@@ -299,4 +315,69 @@ export const At1280: Story = {
   args: { ...baseArgs, viewportWidth: 1280, screenTitle: "Retail Partnerships", continueButton: { state: { kind: "blocked", count: 2 } } },
   render: (args) => <Shell {...args} tabs={{ tabs: DISTRIBUTION_TABS, activeId: "formation" }} />,
   parameters: { docs: { description: { story: "The minimum window: the search gives way first (placeholder → “Search” → icon); the title and every chip keep their words." } } },
+};
+
+/** A phone: the shell fills a 390 × 844 frame (the shell's own `h-dvh` gives way to the frame's height). */
+const PhoneFrame = ({ children }: { children: ReactNode }) => <div className="h-[844px] w-phone overflow-hidden border-x border-line">{children}</div>;
+
+const PHONE_TABS = [
+  { id: "all", label: "All", href: "#all" },
+  { id: "respond", label: "Needs you", href: "#respond", badge: 1 },
+  { id: "customers", label: "Customers", href: "#customers" },
+  { id: "updates", label: "Updates", href: "#updates" },
+  { id: "archive", label: "Archive", href: "#archive" },
+];
+
+function PhoneToday() {
+  return (
+    <PageGrid flush stack className="p-gutter">
+      <Panel title="Your goal" span={6}>
+        <p className="text-body">Reach 1,500 paying customers by Dec 15</p>
+      </Panel>
+      <Panel title="Needs you" span={6}>
+        <p className="text-body">Approve batch 002 before the Ireland launch?</p>
+      </Panel>
+      <Panel title="Health" span={12} flush>
+        <StatusStrip
+          wrap
+          className="rounded-none border-0"
+          tiles={[
+            { label: "Cash", value: { amountMinor: 1_842_000, currency: "USD" } },
+            { label: "Runway", value: 7, format: "integer", unit: "mo", estimate: "estimate" },
+            { label: "Customers this week", value: 12, format: "integer" },
+          ]}
+        />
+      </Panel>
+    </PageGrid>
+  );
+}
+
+export const Phone390Today: Story = {
+  name: "390 px · phone mode (Today)",
+  args: { ...baseArgs, phone: true, viewportWidth: 390, screenTitle: "Today", className: "h-full" },
+  render: (args) => (
+    <PhoneFrame>
+      <Shell {...args} tabs={{ tabs: [{ id: "today", label: "Today", href: "#today" }, { id: "details", label: "Details", href: "#details" }], activeId: "today" }}>
+        <PhoneToday />
+      </Shell>
+    </PhoneFrame>
+  ),
+  parameters: { layout: "centered", docs: { description: { story: "A screen that works on a phone (CLAUDE.md \"Small screens\"): a compact top bar with a menu button, the logo and name, Continue and Stop all agents at 44 px; no sidebar or right rail; one column from the shell's own width (container queries)." } } },
+};
+export const Phone390Tabs: Story = {
+  name: "390 px · phone mode (tabs scroll sideways)",
+  args: { ...baseArgs, phone: true, viewportWidth: 390, screenTitle: "Inbox", className: "h-full", continueButton: { state: { kind: "blocked", count: 1 } } },
+  render: (args) => (
+    <PhoneFrame>
+      <Shell {...args} tabs={{ tabs: PHONE_TABS, activeId: "respond" }}>
+        <p className="p-gutter text-body text-secondary">One pane at a time: the list, then the note with a Back control.</p>
+      </Shell>
+    </PhoneFrame>
+  ),
+  parameters: { layout: "centered" },
+};
+export const Phone390WithoutPhoneMode: Story = {
+  name: "390 px · a screen that is not phone-ready (NeedsLargerWindow)",
+  args: { ...baseArgs, viewportWidth: 390 },
+  render: (args) => <Shell {...args} />,
 };

@@ -1,24 +1,26 @@
 /**
  * LIVE social layer — public_profiles, connections, message threads/messages, communities, posts,
- * leaderboards, negotiation_threads (BUILD §7.2 "LIVE social", §7.3, §11.14; routers live.*).
+ * negotiation_threads (BUILD §7.2 "LIVE social", §7.3, §11.14; routers live.*).
  *
  * Most of this is user-scoped, not business-scoped (connections and messages are between people), so the
- * account-scoped functions take `userId` first (ARCHITECTURE §4 exception). Leaderboards and negotiations are
+ * account-scoped functions take `userId` first (ARCHITECTURE §4 exception). Negotiations are
  * business-facing. Personal businesses never appear in `publicProfiles`/`searchPublic`: the `public_profiles`
  * view only selects LIVE businesses (0012), so the visibility rule is enforced in SQL, not here.
  */
 import { RESERVED_NAME_MESSAGE, isReservedName } from "@foundmill/config";
-import { AppError, ARCHETYPES, DATA_REGIONS, ForbiddenError, NotFoundError, ValidationError, VISIBILITY } from "@foundmill/shared";
+import { AppError, ForbiddenError, NotFoundError, OWNER_ROLES, ValidationError, VISIBILITY } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { authUsers } from "drizzle-orm/supabase";
 import { z } from "zod";
 import {
-  businesses, communities, COMMUNITY_KINDS, communityMembers, CONNECTION_STATUSES, connections, founderProfiles, leaderboardEntries, leaderboards, memberships, messages, messageThreads,
-  NEGOTIATION_STATUSES, negotiationThreads, networkAttestations, POST_REPORT_REASONS, postReports, posts, publicProfiles,
-  type COMMUNITY_ROLES, type Community, type CommunityMember, type Connection, type Leaderboard, type LeaderboardEntry, type Message, type MessageThread, type NegotiationThread, type Post,
+  businesses, communities, COMMUNITY_KINDS, communityMembers, CONNECTION_STATUSES, connections, founderProfiles, memberships, messages, messageThreads,
+  NEGOTIATION_STATUSES, negotiationThreads, POST_REPORT_REASONS, postReports, posts, publicProfiles,
+  type COMMUNITY_ROLES, type Community, type CommunityMember, type Connection, type Message, type MessageThread, type NegotiationThread, type Post,
   type POST_REPORT_RESOLUTIONS, type PostReport, type PostScreening, type PublicProfile,
 } from "../schema";
-import { Id, JsonObject, numericText, one, PageInput, parseInput, rowsOf, sqlState, timeKeyset, toPage, type Executor, type Page } from "./_shared";
+import { Id, JsonObject, one, PageInput, parseInput, rowsOf, sqlState, timeKeyset, toPage, type Executor, type Page } from "./_shared";
+import { adultsRepo } from "./adults";
+import { membershipNotEnded } from "./memberships";
 
 export const CreateCommunityInput = z.object({
   name: z.string().trim().min(1).max(120),
@@ -68,26 +70,6 @@ export type MemberModerationAction = (typeof MEMBER_MODERATION_ACTIONS)[number];
 
 /** A member who reads a community: active, or muted (reads but cannot post). */
 const READING = ["active", "muted"] as const;
-
-export const UpsertLeaderboardInput = z.object({
-  boardKind: z.string().trim().min(1).max(60),
-  division: z.string().trim().min(1).max(40).default("open"),
-  /** e.g. 2026-Q4, 2026-10 or all-time. */
-  period: z.string().trim().min(1).max(20),
-  metric: z.string().trim().min(1).max(60),
-  archetype: z.enum(ARCHETYPES).nullable().optional(),
-  region: z.enum(DATA_REGIONS).nullable().optional(),
-});
-export type UpsertLeaderboardInput = z.input<typeof UpsertLeaderboardInput>;
-
-export const LeaderboardEntryInput = z.object({
-  businessId: Id,
-  metricValue: z.number(),
-  /** Only verified metric values enter a board (BUILD §7.2 "verified only"); unverified rows are kept but flagged. */
-  verified: z.boolean().default(true),
-  form: z.string().max(10).default(""),
-});
-export type LeaderboardEntryInput = z.input<typeof LeaderboardEntryInput>;
 
 export const CreateNegotiationInput = z.object({
   businessB: Id,
@@ -187,8 +169,8 @@ const badgeQueries = {
       .from(posts)
       .where(and(inArray(posts.communityId, moderated), isNull(posts.archivedAt), or(eq(posts.status, "pending_review"), and(eq(posts.status, "visible"), inArray(posts.id, reported)))));
   },
-  /** The person's own confirmation that they are 18 or older. */
-  adultConfirmedAt: (db: Executor, userId: string) => db.select({ at: networkAttestations.adultConfirmedAt }).from(networkAttestations).where(eq(networkAttestations.userId, userId)).limit(1),
+  /** The person's own confirmation that they are 18 or older: the account's record (0100), which every check reads. */
+  adultConfirmedAt: (_db: Executor, userId: string) => adultsRepo.confirmedAtSql(userId),
 };
 
 export const socialRepo = {
@@ -210,11 +192,14 @@ export const socialRepo = {
       .limit(limit);
   },
 
-  // the network is for adults (0027) ----------------------------------------------------------------------------------
-  /** When this person confirmed that they are 18 or older; null when they have not (BUILD §11.14 "18+ only"). */
+  // the network is for adults (0027; since 0100 the account's own confirmation at sign-up) -----------------------------
+  /**
+   * When this person confirmed that they are 18 or older; null when they have not (BUILD §11.14 "18+ only"). Reads the
+   * account's record (`adult_confirmations`, 0100): a confirmation at sign-up counts for the network, and every row of
+   * `network_attestations` was copied there and is kept in step.
+   */
   async adultConfirmedAt(db: Executor, userId: string): Promise<Date | null> {
-    const rows = await badgeQueries.adultConfirmedAt(db, userId);
-    return rows[0]?.at ?? null;
+    return adultsRepo.confirmedAt(db, userId);
   },
 
   /**
@@ -232,11 +217,12 @@ export const socialRepo = {
     return { unreadMessages: Number(row?.unreadMessages ?? 0), requestsWaiting: Number(row?.requestsWaiting ?? 0), invitations: Number(row?.invitations ?? 0), moderation: Number(row?.moderation ?? 0), adultConfirmed: row?.adultConfirmed === true };
   },
 
-  /** Records the person's own confirmation that they are 18 or older. The first one stands; asking again changes nothing. */
+  /**
+   * Records the person's own confirmation that they are 18 or older, on the account (`adult_confirmations`, 0100; a
+   * trigger writes the network's row too). The first one stands; asking again changes nothing.
+   */
   async confirmAdult(db: Executor, userId: string): Promise<Date> {
-    const v = parseInput(Id, userId, "user");
-    await db.insert(networkAttestations).values({ userId: v }).onConflictDoNothing({ target: networkAttestations.userId });
-    return one(await db.select({ at: networkAttestations.adultConfirmedAt }).from(networkAttestations).where(eq(networkAttestations.userId, v)).limit(1), "attestation").at;
+    return (await adultsRepo.confirm(db, userId)).confirmedAt;
   },
 
   /**
@@ -733,20 +719,20 @@ export const socialRepo = {
         .select({ businessId: businesses.id, name: businesses.name, slug: businesses.slug, kitPrimary: businesses.kitPrimary, kitSecondary: businesses.kitSecondary, archetype: businesses.archetype, gameMode: businesses.gameMode })
         .from(businesses)
         .innerJoin(memberships, eq(memberships.businessId, businesses.id))
-        // An example membership is a walk-through, not the viewer's business (0065).
-        .where(and(eq(memberships.userId, viewerId), ne(memberships.source, "example"), inArray(businesses.id, businessIds), isNull(businesses.archivedAt)));
+        // An example membership is a walk-through, not the viewer's business (0065); an ended one is not theirs any more.
+        .where(and(eq(memberships.userId, viewerId), ne(memberships.source, "example"), membershipNotEnded, inArray(businesses.id, businessIds), isNull(businesses.archivedAt)));
       for (const b of own) cards.set(b.businessId, { businessId: b.businessId, name: b.name, slug: b.slug, kitPrimary: b.kitPrimary, kitSecondary: b.kitSecondary, archetype: b.archetype, live: b.gameMode === "live" });
     }
     return { users, businesses: [...cards.values()] };
   },
 
-  /** The owner of a listed business: the person "Ask to connect" on a leaderboard row reaches. Null when it is not listed. */
+  /** The owner of a listed business (the longest-standing owner or cofounder): the person a request to connect with the business reaches. Null when it is not listed. */
   async listedBusinessOwner(db: Executor, businessId: string): Promise<string | null> {
     const rows = await db
       .select({ userId: memberships.userId })
       .from(memberships)
       .innerJoin(businesses, eq(businesses.id, memberships.businessId))
-      .where(and(eq(memberships.businessId, businessId), eq(memberships.role, "owner"), ne(memberships.source, "example"), publicBusiness))
+      .where(and(eq(memberships.businessId, businessId), inArray(memberships.role, [...OWNER_ROLES]), ne(memberships.source, "example"), publicBusiness))
       .orderBy(asc(memberships.createdAt))
       .limit(1);
     return rows[0]?.userId ?? null;
@@ -1199,117 +1185,6 @@ export const socialRepo = {
 
   async setPostStatus(db: Executor, postId: string, status: (typeof posts.status.enumValues)[number]): Promise<Post> {
     return one(await db.update(posts).set({ status }).where(eq(posts.id, postId)).returning(), "post", postId);
-  },
-
-  // leaderboards (built nightly by the social service from verified metrics) ------------------------------------------
-  async upsertLeaderboard(db: Executor, input: UpsertLeaderboardInput): Promise<Leaderboard> {
-    const v = parseInput(UpsertLeaderboardInput, input, "leaderboard");
-    const existing = await db
-      .select()
-      .from(leaderboards)
-      .where(
-        and(
-          eq(leaderboards.boardKind, v.boardKind),
-          eq(leaderboards.division, v.division),
-          eq(leaderboards.period, v.period),
-          v.archetype ? eq(leaderboards.archetype, v.archetype) : isNull(leaderboards.archetype),
-          v.region ? eq(leaderboards.region, v.region) : isNull(leaderboards.region),
-        ),
-      )
-      .limit(1);
-    if (existing[0]) return one(await db.update(leaderboards).set({ metric: v.metric }).where(eq(leaderboards.id, existing[0].id)).returning(), "leaderboard");
-    return one(await db.insert(leaderboards).values({ boardKind: v.boardKind, division: v.division, period: v.period, metric: v.metric, archetype: v.archetype ?? null, region: v.region ?? null }).returning(), "leaderboard");
-  },
-
-  async listLeaderboards(db: Executor, filter: { period?: string; boardKind?: string } = {}): Promise<Leaderboard[]> {
-    return db
-      .select()
-      .from(leaderboards)
-      .where(and(filter.period ? eq(leaderboards.period, filter.period) : undefined, filter.boardKind ? eq(leaderboards.boardKind, filter.boardKind) : undefined))
-      .orderBy(desc(leaderboards.period), asc(leaderboards.boardKind), asc(leaderboards.division));
-  },
-
-  /**
-   * Replaces a board's entries: ranks verified values of listed businesses (highest first), computes movement against
-   * the previous positions and stamps computed_at. Unverified values never enter a board (the table's `check (verified)`
-   * enforces BUILD §7.2 "verified only"), and neither do businesses that are not LIVE and committed; both are dropped
-   * here so a caller can pass its whole metric set.
-   */
-  async setLeaderboardEntries(db: Executor, leaderboardId: string, entries: LeaderboardEntryInput[]): Promise<LeaderboardEntry[]> {
-    const parsed = entries.map((e) => parseInput(LeaderboardEntryInput, e, "leaderboard entry"));
-    return db.transaction(async (tx) => {
-      await socialRepo.getLeaderboard(tx, leaderboardId);
-      const previous = await tx.select({ businessId: leaderboardEntries.businessId, position: leaderboardEntries.position }).from(leaderboardEntries).where(eq(leaderboardEntries.leaderboardId, leaderboardId));
-      const prevPos = new Map(previous.map((p) => [p.businessId, p.position]));
-      // Only LIVE, committed, non-archived businesses take a position (the policy `is_public`): a Personal business's
-      // numbers are never ranked, whoever passes them in. Demo businesses (0044) rank after every real one, so a real
-      // business's position never counts a synthetic one above it.
-      const ids = [...new Set(parsed.map((e) => e.businessId))];
-      const listed = new Map(ids.length ? (await tx.select({ id: businesses.id, isDemo: businesses.isDemo }).from(businesses).where(and(inArray(businesses.id, ids), publicBusiness))).map((b) => [b.id, b.isDemo] as const) : []);
-      const rank = (demo: boolean, before: number) =>
-        parsed
-          .filter((e) => e.verified && listed.get(e.businessId) === demo)
-          .sort((a, b) => b.metricValue - a.metricValue || a.businessId.localeCompare(b.businessId))
-          .map((e, i) => ({ ...e, position: before + i + 1 }));
-      const real = rank(false, 0);
-      const ranked = [...real, ...rank(true, real.length)];
-      await tx.delete(leaderboardEntries).where(eq(leaderboardEntries.leaderboardId, leaderboardId));
-      const rows = ranked.length
-        ? await tx
-            .insert(leaderboardEntries)
-            .values(
-              ranked.map((e) => ({
-                leaderboardId,
-                businessId: e.businessId,
-                position: e.position,
-                movement: prevPos.has(e.businessId) ? (prevPos.get(e.businessId) as number) - e.position : 0,
-                form: e.form,
-                metricValue: numericText(e.metricValue) ?? "0",
-                verified: e.verified,
-              })),
-            )
-            .returning()
-        : [];
-      await tx.update(leaderboards).set({ computedAt: new Date() }).where(eq(leaderboards.id, leaderboardId));
-      return rows.sort((a, b) => a.position - b.position);
-    });
-  },
-
-  async getLeaderboard(db: Executor, leaderboardId: string): Promise<Leaderboard> {
-    return one(await db.select().from(leaderboards).where(eq(leaderboards.id, leaderboardId)).limit(1), "leaderboard", leaderboardId);
-  },
-
-  /**
-   * A board's entries for businesses that are listed (LIVE, committed, not archived: the `leaderboard_entries_select`
-   * policy). With `viewerId`, a demo business's entry only for its own members (0044).
-   */
-  async leaderboardEntries(db: Executor, leaderboardId: string, limit = 100, options: { viewerId?: string } = {}): Promise<LeaderboardEntry[]> {
-    const rows = await db
-      .select({ entry: leaderboardEntries })
-      .from(leaderboardEntries)
-      .innerJoin(businesses, eq(businesses.id, leaderboardEntries.businessId))
-      .where(and(eq(leaderboardEntries.leaderboardId, leaderboardId), publicBusiness, options.viewerId ? sql`not ${demoHiddenFrom(businesses.id, options.viewerId)}` : undefined))
-      .orderBy(asc(leaderboardEntries.position))
-      .limit(limit);
-    return rows.map((r) => r.entry);
-  },
-
-  /** A business's positions across boards (its profile's trophy cabinet strip). */
-  async positionsForBusiness(db: Executor, businessId: string, period?: string): Promise<(LeaderboardEntry & { board: Leaderboard })[]> {
-    const rows = await db
-      .select({ entry: leaderboardEntries, board: leaderboards })
-      .from(leaderboardEntries)
-      .innerJoin(leaderboards, eq(leaderboards.id, leaderboardEntries.leaderboardId))
-      .innerJoin(businesses, eq(businesses.id, leaderboardEntries.businessId))
-      .where(and(eq(leaderboardEntries.businessId, businessId), publicBusiness, period ? eq(leaderboards.period, period) : undefined))
-      .orderBy(desc(leaderboards.period), asc(leaderboards.boardKind));
-    return rows.map((r) => ({ ...r.entry, board: r.board }));
-  },
-
-  /** LIVE → Personal: removes the business from every board (BUILD §7.3 "within 15 minutes"). */
-  async removeBusinessFromLeaderboards(db: Executor, businessId: string): Promise<number> {
-    const rows = await db.delete(leaderboardEntries).where(eq(leaderboardEntries.businessId, businessId)).returning({ id: leaderboardEntries.id });
-    return rows.length;
   },
 
   // negotiations (business-scoped: businessId is party A) -------------------------------------------------------------

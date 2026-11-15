@@ -71,9 +71,10 @@ export function takeLive(userId: string, action: LiveAction): void {
 export const GO_LIVE_ADULTS_ONLY = "Confirm that you are 18 or older to go live: the network is for adults.";
 
 /**
- * A business going LIVE (Settings › Mode, or Take charge as a LIVE business) puts it on the network, which is for adults
+ * A business going LIVE (Settings › Business, or Take charge as a LIVE business) puts it on the network, which is for adults
  * (BUILD §11.14): the founder confirms once that they are 18 or older (`confirm`, from the dialog that asks), or has
- * already. Going back to Personal never asks.
+ * already. Going back to Personal never asks. Both read and write the account's record (`adult_confirmations`, 0100;
+ * services/adults.ts), so the confirmation a person gave at sign-up answers here and they are never asked twice.
  */
 export async function requireAdultToGoLive(db: Executor, userId: string, confirm: boolean | undefined): Promise<void> {
   if (confirm) await repos.social.confirmAdult(db, userId);

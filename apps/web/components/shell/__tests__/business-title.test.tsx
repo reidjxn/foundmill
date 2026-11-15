@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApiClient, type AppRouter } from "@/lib/trpc";
 import { TRPCProvider } from "@/lib/trpc-react";
 import { BusinessProvider, makeBusinessContext, type BusinessGet, type DepartmentList } from "../business-context";
+import { shellQueryInputs } from "@/lib/shell-queries";
 import { BusinessTitle } from "../BusinessTitle";
 
 let pathname = "/";
@@ -83,6 +84,18 @@ describe("BusinessTitle", () => {
       queryClient.setQueryData(trpc.crm.entity.get.queryKey({ businessId: BID, entityId: ENTITY }), { entity: { displayName: "Acme Ltd" } } as never);
     });
     await waitFor(() => expect(document.title).toBe("Activity · Acme Ltd · Northwind Skincare · Foundmill"));
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("puts how many things need the founder in front, from the shell's Inbox read", async () => {
+    const { queryClient, client, view } = setup();
+    pathname = `/b/${BID}/today`;
+    render(view("Northwind Skincare"));
+    const trpc = createTRPCOptionsProxy<AppRouter>({ client, queryClient });
+    await act(async () => {
+      queryClient.setQueryData(trpc.inbox.list.queryKey(shellQueryInputs(BID).inbox), { items: [], counts: { respond: 2 } } as never);
+    });
+    await waitFor(() => expect(document.title).toBe("(2) Today · Northwind Skincare · Foundmill"));
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

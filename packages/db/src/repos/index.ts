@@ -21,6 +21,14 @@ import { eventsRepo } from "./events";
 import { financeRepo } from "./finance";
 import { foundationsRepo } from "./foundations";
 import { foundersRepo } from "./founders";
+import { goalsRepo } from "./goals";
+import { pagesRepo } from "./pages";
+import { pageQuizzesRepo } from "./page-quizzes";
+import { personProfilesRepo } from "./person-profiles";
+import { mailRepo } from "./mail";
+import { postalAddressRepo } from "./postal-address";
+import { followersRepo } from "./followers";
+import { notifyEmailRepo } from "./notify-email";
 import { holidaysRepo } from "./holidays";
 import { ideasRepo } from "./ideas";
 import { inboxRepo } from "./inbox";
@@ -44,10 +52,25 @@ import { trainingRepo } from "./training";
 import { usageRepo } from "./usage";
 import { workspacesRepo } from "./workspaces";
 import { conversationsRepo } from "./conversations";
-import { preferencesRepo } from "./preferences";
+import { emailPrefsRepo, preferencesRepo } from "./preferences";
+import { devicesRepo } from "./devices";
+import { accountEventsRepo } from "./account-events";
 import { portabilityRepo } from "./portability";
 import { tableViewsRepo } from "./table-views";
 import { personaPortraitsRepo } from "./persona-portraits";
+import { teamCallsRepo } from "./team-calls";
+import { presenceRepo } from "./presence";
+import { notificationsRepo } from "./notifications";
+import { notifyFactsRepo } from "./notify-facts";
+import { attributionsRepo } from "./attributions";
+import { teamPostsRepo } from "./team-posts";
+import { postMediaRepo } from "./post-media";
+import { postAttributionsRepo, postLinksRepo } from "./post-attributions";
+import { ideaDraftsRepo, waitlistRepo } from "./idea-drafts";
+import { admissionsRepo, invitationsRepo } from "./people";
+import { showcaseRepo } from "./showcase";
+import { adultsRepo } from "./adults";
+import { founderCancelLinksRepo, founderDeparturesRepo } from "./founder-departures";
 
 export const repos = {
   businesses: businessesRepo,
@@ -55,8 +78,18 @@ export const repos = {
   memberships: membershipsRepo,
   founders: foundersRepo,
   ideas: ideasRepo,
+  ideaDrafts: ideaDraftsRepo,
+  waitlist: waitlistRepo,
   product: productRepo,
   productSignoffs: productSignoffsRepo,
+  goals: goalsRepo,
+  pages: pagesRepo,
+  pageQuizzes: pageQuizzesRepo,
+  personProfiles: personProfilesRepo,
+  projectMail: mailRepo,
+  postalAddress: postalAddressRepo,
+  followers: followersRepo,
+  notifyEmail: notifyEmailRepo,
   departments: departmentsRepo,
   screens: screensRepo,
   dashboards: dashboardsRepo,
@@ -89,11 +122,29 @@ export const repos = {
   research: researchRepo,
   conversations: conversationsRepo,
   preferences: preferencesRepo,
+  devices: devicesRepo,
   tableViews: tableViewsRepo,
   checkouts: checkoutsRepo,
   portability: portabilityRepo,
   recordings: recordingsRepo,
   personaPortraits: personaPortraitsRepo,
+  teamCalls: teamCallsRepo,
+  presence: presenceRepo,
+  notifications: notificationsRepo,
+  emailPrefs: emailPrefsRepo,
+  notifyFacts: notifyFactsRepo,
+  accountEvents: accountEventsRepo,
+  attributions: attributionsRepo,
+  teamPosts: teamPostsRepo,
+  postMedia: postMediaRepo,
+  admissions: admissionsRepo,
+  invitations: invitationsRepo,
+  showcase: showcaseRepo,
+  adults: adultsRepo,
+  postLinks: postLinksRepo,
+  postAttributions: postAttributionsRepo,
+  founderDepartures: founderDeparturesRepo,
+  founderCancelLinks: founderCancelLinksRepo,
 } as const;
 export type Repos = typeof repos;
 export type RepoArea = keyof Repos;
@@ -104,6 +155,7 @@ export { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, encodeCursor, decodeCursor, decodeTim
 export * from "./agents";
 export * from "./approvals";
 export * from "./audit";
+export { formerFounderSince, type FounderDepartureView } from "./founder-departures";
 export * from "./autopilot";
 export * from "./businesses";
 export * from "./campaigns";
@@ -117,8 +169,15 @@ export * from "./events";
 export * from "./finance";
 export * from "./foundations";
 export * from "./founders";
+export * from "./goals";
+export * from "./pages";
+export * from "./page-quizzes";
+export * from "./person-profiles";
+export * from "./mail";
+export * from "./notify-email";
 export * from "./holidays";
 export * from "./ideas";
+export * from "./idea-drafts";
 export * from "./inbox";
 export * from "./integrations";
 export * from "./journeys";
@@ -134,6 +193,7 @@ export * from "./research";
 export * from "./screens";
 export * from "./skills";
 export * from "./social";
+export * from "./adults";
 export * from "./tasks";
 export * from "./training";
 export * from "./usage";
@@ -141,7 +201,19 @@ export * from "./workspaces";
 export * from "./logos";
 export * from "./conversations";
 export * from "./preferences";
+export * from "./devices";
 export * from "./table-views";
 export * from "./checkouts";
 export * from "./portability";
 export * from "./persona-portraits";
+export * from "./team-calls";
+export * from "./presence";
+export * from "./notifications";
+export * from "./notify-facts";
+export * from "./account-events";
+export * from "./attributions";
+export * from "./post-attributions";
+export * from "./team-posts";
+export * from "./post-media";
+export * from "./people";
+export * from "./showcase";

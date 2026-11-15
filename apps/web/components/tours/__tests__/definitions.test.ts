@@ -25,7 +25,7 @@ describe("tour definitions", () => {
   it("says the plan's sentences", () => {
     const bodies = (tour: typeof HOME_TOUR) => tour.steps.map((s) => s.body);
     expect(bodies(HOME_TOUR)).toEqual([
-      "Your business, one place per department.",
+      "Your business, one place per question.",
       "This runs the team; what they need from you lands in the Inbox.",
       "A light here means the team is working.",
       "Your numbers; anything marked Estimate is worked out, not measured.",

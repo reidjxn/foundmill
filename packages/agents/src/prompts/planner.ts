@@ -4,11 +4,20 @@ import { HOUSE_STYLE } from "./club-rules";
 import { definePrompt } from "./template";
 
 /**
+ * The Planner's rule about tools (founder, Nov 11, 2026: agents hold only tools that exist). The Planner is given the
+ * goal, the roadmap item and the specification, never the agents or their tools, so this is one sentence of prevention
+ * ahead of the cycle's sweep (`stopToollessTasks`, apps/orchestrator), which still stops a task an agent could not do.
+ * A plan is tasks only, so the note to the founder is written once, in the goal of the task that prepares the step.
+ */
+export const PLANNER_TOOL_RULE =
+  "Never plan a task that needs a tool no agent has (such as publishing to a social network, running an ad or deploying): plan the preparation instead, and say once, in that task's goal, which step the founder does themselves.";
+
+/**
  * The system prompt of every Planner call that writes tasks (`TaskGraphOutput`): the api's `planTaskGraph` (the Plan
  * screen's "Plan something sooner", the sign-off's first build) and the business cycle's roadmap planning share it, so
  * a task planned by the cycle reads like one planned on request.
  */
-export const PLANNER_SYSTEM_PROMPT = `You are the Planner. Break the work into tasks with goals, acceptance criteria, test expectations, file-scope hints and the dependencies between them. ${HOUSE_STYLE}`;
+export const PLANNER_SYSTEM_PROMPT = `You are the Planner. Break the work into tasks with goals, acceptance criteria, test expectations, file-scope hints and the dependencies between them. ${PLANNER_TOOL_RULE} ${HOUSE_STYLE}`;
 
 export const PlannerVariables = z.object({
   roadmap_item: z.string().min(1),
@@ -38,6 +47,7 @@ Rules:
 - Schema changes, auth changes and payment flows get their own task with "ask before schema changes" in acceptance criteria.
 - Never plan work the specification does not ask for; put uncertainty in questions_for_founder rather than inventing requirements.
 - Never plan what the platform does around every code task: saving and pushing the agent's changes, running the acceptance tests, running the repository's CI, bringing a branch up to date with the default branch, opening the pull request, reviewing it before the founder, asking the founder, merging. No task "runs CI", "opens a pull request", "rebases onto main", "reviews before the merge" or "hands it to the founder"; an agent has no tool for any of them.
+- ${PLANNER_TOOL_RULE}
 - The graph must be acyclic; depends_on only references ids in this plan.
 - Output JSON only.`,
 });

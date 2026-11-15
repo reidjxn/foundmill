@@ -7,7 +7,7 @@ import { prompts } from "@foundmill/agents";
 import { repos, type Agent, type Business, type Event, type Executor } from "@foundmill/db";
 import { buildManifest, type Manifest, type ManifestEntityInput } from "@foundmill/entity-linker";
 import { getEventDeclaration } from "@foundmill/events";
-import { AppError, EVENT_TYPES, type EntityKind, type EventType } from "@foundmill/shared";
+import { AppError, EVENT_TYPES, isBackgroundHelper, type EntityKind, type EventType } from "@foundmill/shared";
 import { loadMetricsSnapshot, statusMetrics, type MetricsSnapshot, type StatusMetric } from "./metrics";
 
 export type FounderExperience = prompts.FounderExperience;
@@ -84,8 +84,10 @@ export async function loadContext(db: Executor, businessId: string, options: Loa
     entityInputs.push({ id: e.id, kind: e.kind as EntityKind, name: e.displayName, aliases: e.aliases, visible: true });
   }
   const crmIds = new Set(entityInputs.map((e) => e.id));
+  // Background helpers (the utility templates) never write to the founder and stay out of their lists, so the
+  // composer is never offered one to name (Leads first, 2026-11-08). The entity resolver still knows them.
   for (const a of agents) {
-    if (seen.has(a.id)) continue;
+    if (seen.has(a.id) || isBackgroundHelper(a)) continue;
     seen.add(a.id);
     entityInputs.push({ id: a.id, kind: "agent", name: a.name, aliases: [], visible: true, role: a.role || a.agentType });
   }

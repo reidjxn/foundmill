@@ -22,6 +22,7 @@ export const WORKFLOWS = {
   importBusiness: "importBusiness",
   businessFoundations: "businessFoundations",
   sourceWatch: "sourceWatch",
+  postDraft: "postDraft",
 } as const;
 
 export const SIGNALS = {
@@ -33,6 +34,9 @@ export const SIGNALS = {
   founderSubmit: "founderSubmit",
   wake: "wake",
   autopilotRefresh: "autopilotRefresh",
+  /** Continue runs until done (Nov 7, 2026): start a run on `autopilot:<businessId>`, or end it (Pause). */
+  continueRun: "continueRun",
+  continueRunEnd: "continueRunEnd",
 } as const;
 export type SignalName = (typeof SIGNALS)[keyof typeof SIGNALS];
 
@@ -55,6 +59,8 @@ export const workflowIds = {
   /** One Source Watcher read of one source (a re-read after it settled gets a new suffix). */
   sourceWatch: (sourceId: string, suffix = "added") => `source-watch:${sourceId}:${suffix}`,
   importBusiness: (businessId: string, at: Date) => `import:${businessId}:${at.getTime().toString(36)}`,
+  /** One draft of a post for the founder to share by tap, per business and trigger (a milestone's draft names the milestone). */
+  postDraft: (businessId: string, trigger: { kind: string; milestoneId?: string }) => `post-draft:${businessId}:${trigger.kind}${trigger.milestoneId ? `:${trigger.milestoneId}` : ""}`,
 } as const;
 
 export interface TemporalResult {
@@ -100,6 +106,8 @@ export interface TemporalClientLike {
   workflow: {
     start(workflowType: string, options: { workflowId: string; taskQueue: string; args?: unknown[] }): Promise<unknown>;
     getHandle(workflowId: string): { signal(signalName: string, ...args: unknown[]): Promise<void>; describe?(): Promise<{ status: { name: string } }> };
+    /** Start the workflow if it is not running, and deliver the signal either way (one call, no race). */
+    signalWithStart?(workflowType: string, options: { workflowId: string; taskQueue: string; args?: unknown[]; signal: string; signalArgs?: unknown[] }): Promise<unknown>;
   };
   /** Raw WorkflowService (the worker health check describes the task queues). */
   workflowService?: { describeTaskQueue(request: { namespace: string; taskQueue: { name: string; kind?: number }; taskQueueType?: number; reportStats?: boolean }): Promise<DescribeTaskQueueAnswer> };
@@ -123,10 +131,30 @@ const toNumber = (v: LongLike): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
+/**
+ * What is known about the orchestrator's reachability without waiting for it: `reachable` null until the first connect
+ * attempt has answered. `reason` is the service's own words (they name Temporal), for logs; never shown to a founder.
+ */
+export interface TemporalHealth {
+  reachable: boolean | null;
+  reason: string | null;
+}
+
 export interface TemporalService {
   reachable(): Promise<boolean>;
+  /**
+   * The last verdict at once, never a wait (first-time founder report, Nov 8, 2026: `business.get` tells the shell
+   * whether Continue and Start can run anything). A verdict that is missing or due for a retry starts a connect attempt
+   * in the background, so the next read knows.
+   */
+  health(): TemporalHealth;
   start(workflowType: string, options: { workflowId: string; args?: unknown[] }): Promise<TemporalResult>;
   signal(workflowId: string, signal: SignalName, ...args: unknown[]): Promise<TemporalResult>;
+  /**
+   * Signal the workflow, starting it first when it is not running (Temporal's signal-with-start). A client without it
+   * starts (an already running workflow is fine) and then signals.
+   */
+  signalWithStart(workflowType: string, options: { workflowId: string; args?: unknown[]; signal: SignalName; signalArgs?: unknown[] }): Promise<TemporalResult>;
   /** The state of one workflow, or `reachable: false` when Temporal cannot be asked (never throws). */
   describe(workflowId: string): Promise<WorkflowState>;
   /** Signal many workflows within a time budget (kill switch). */
@@ -165,6 +193,8 @@ export function createTemporalService(opts: CreateTemporalServiceOptions): Tempo
   let connecting: Promise<TemporalClientLike | null> | null = null;
   let unreachableUntil = 0;
   let lastReason = opts.disabled ? "temporal disabled" : UNREACHABLE;
+  /** A connect attempt has answered at least once (so `health` has a verdict, not a guess). */
+  let probed = opts.disabled;
 
   const defaultConnect = async (): Promise<TemporalClientLike> => {
     const { Client, Connection } = await import("@temporalio/client");
@@ -190,6 +220,7 @@ export function createTemporalService(opts: CreateTemporalServiceOptions): Tempo
           opts.log.warn({ address: opts.address, err: (err as Error).message }, "temporal unreachable; workflow calls will be reported as not queued");
           return null;
         } finally {
+          probed = true;
           connecting = null;
         }
       })();
@@ -205,6 +236,14 @@ export function createTemporalService(opts: CreateTemporalServiceOptions): Tempo
   const service: TemporalService = {
     async reachable() {
       return (await getClient()) !== null;
+    },
+    health() {
+      if (client) return { reachable: true, reason: null };
+      if (opts.disabled) return { reachable: false, reason: lastReason };
+      // Unknown, or the unreachable verdict is due for a retry: ask in the background (one attempt at a time) and
+      // answer with what is known now.
+      if (Date.now() >= unreachableUntil) void getClient();
+      return probed ? { reachable: false, reason: lastReason } : { reachable: null, reason: null };
     },
     async start(workflowType, options) {
       const c = await getClient();
@@ -228,6 +267,26 @@ export function createTemporalService(opts: CreateTemporalServiceOptions): Tempo
         return { queued: true, workflowId };
       } catch (err) {
         return { queued: false, workflowId, reason: describe(err) };
+      }
+    },
+    async signalWithStart(workflowType, options) {
+      const c = await getClient();
+      if (!c) return { queued: false, workflowId: options.workflowId, reason: lastReason };
+      try {
+        if (c.workflow.signalWithStart) {
+          await c.workflow.signalWithStart(workflowType, { workflowId: options.workflowId, taskQueue: opts.taskQueue, args: options.args ?? [], signal: options.signal, signalArgs: options.signalArgs ?? [] });
+        } else {
+          try {
+            await c.workflow.start(workflowType, { workflowId: options.workflowId, taskQueue: opts.taskQueue, args: options.args ?? [] });
+          } catch (err) {
+            if ((err as { name?: string }).name !== "WorkflowExecutionAlreadyStartedError") throw err;
+          }
+          await c.workflow.getHandle(options.workflowId).signal(options.signal, ...(options.signalArgs ?? []));
+        }
+        return { queued: true, workflowId: options.workflowId };
+      } catch (err) {
+        opts.log.warn({ workflowType, workflowId: options.workflowId, signal: options.signal, err: describe(err) }, "workflow signal-with-start failed");
+        return { queued: false, workflowId: options.workflowId, reason: describe(err) };
       }
     },
     async describe(workflowId) {
