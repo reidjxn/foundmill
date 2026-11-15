@@ -269,7 +269,7 @@ All four: `consumers: []` (there is no metrics consumer; T10 reads the table), `
 **Steps:** 1. Use the `new-event` skill for each type. Catalogue and fixtures first; `pnpm --filter @foundmill/events test` fails until the declarations exist. verify: green. 2. Migration; `pnpm test:rls` compares the SQL list with `ACCOUNT_EVENT_TYPES`. verify: green. 3. The two steps in `PERSON_CREATED_STEPS` (each in its own transaction and try/catch, as the file's rules say; a failure never fails the save). verify: `person-created.test.ts`. 4. The two router writes, each inside the transaction that makes the change; a repeat writes nothing. verify: router tests assert exactly one `account_events` row after two calls. 5. The remaining `consumers: ["metrics"]` annotations in the catalogue (77 types, no consumer): leave them, and add one line to `packages/events/CLAUDE.md` saying "metrics" names T10's nightly reader, not a `consume()` group. verify: none needed.
 **Done when:** a new account's four facts are rows in `account_events`, and T10's funnel reads them.
 
-### T10: Nightly numbers: funnel, north star, retention, agent work        [M] [ships alone, after T9]
+### [x] T10: Nightly numbers: funnel, north star, retention, agent work        [M] [ships alone, after T9]
 
 **Why:** FR-10 steps 2 to 4, A8-08 fixes 2 and 3, A8-06 (demo leak), AR-13 (count the parked tasks), OUTLINE principle 1 ("we can see it in the numbers").
 

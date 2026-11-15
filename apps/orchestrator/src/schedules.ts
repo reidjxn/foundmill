@@ -47,6 +47,7 @@ export const SCHEDULES: readonly ScheduleDefinition[] = [
   { id: "crm-deletion-sweep", workflowType: "crmDeletionSweep", spec: daily(15, 1), args: [{}], description: "Nightly: CRM records whose deletion request came due are purged" },
   { id: "founder-notifications", workflowType: "founderNotifications", spec: every("5m"), args: [{}], description: "Every 5 minutes: founder emails (waiting decisions, wins, milestones, finished runs, used-up credits, the morning brief and the weekly review)" },
   { id: "mock-results-cleanup", workflowType: "mockResultsCleanup", spec: daily(30, 3), args: [{}], description: "Nightly: generated results on real projects, counted or removed (MOCK_RESULTS_CLEANUP)", triggerOnRegister: true },
+  { id: "platform-metrics", workflowType: "platformMetrics", spec: daily(15, 3), args: [{}], description: "Nightly: funnel, north star, retention and agent-work counts for real projects" },
   { id: "business-deletion-sweep", workflowType: "businessDeletionSweep", spec: daily(45, 1), args: [{}], description: "Nightly: businesses whose scheduled deletion came due are deleted" },
 ];
 
