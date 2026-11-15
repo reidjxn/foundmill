@@ -136,7 +136,7 @@ test.describe("commit", () => {
   test("says what happens next in the real order, with an example per mode and a change-it-later line (A4, §7.6)", async ({ page }) => {
     const next = page.getByTestId("what-happens-next");
     await expect(next).toContainText("Your team is hired");
-    await expect(next).toContainText("Two notes ask you to sign them off");
+    await expect(next).toContainText("Then your plan arrives as two notes to sign off");
     await expect(next).not.toContainText("Board");
     await openHowItRuns(page);
     await expect(page.locator("[data-mode-example]")).toHaveCount(3);
