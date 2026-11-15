@@ -347,9 +347,10 @@ All four: `consumers: []` (there is no metrics consumer; T10 reads the table), `
 **Steps:** 1. `check-production.test.mjs` (`node --test`): parses a fixture table; with a fake `fetch`, a matching response is `ok`, a changed `env` is `differs` with exit code 1, a `manual` row is never fetched, an unknown check id fails the run (so a typo in the record cannot pass silently), a timeout is `differs: no answer`. verify: fails, then passes. 2. Write the script and the new §6; fill "State on Nov 15, 2026" from WP-00 §1 and e0, word for word where they are quoted. verify: `node scripts/check-production.mjs` from the cloud session against production (public GETs only) prints `ok` for the rows whose expected value is today's state; paste the output into the PR. 3. Add the test to CI beside the other script tests (one line; if WP-01 has rewritten `ci.yml`, add it to its fast lane instead). verify: CI green. 4. `docs/holistic-plan/WP-00-setup-and-switches.md`: every step's "record in docs/DEPLOY.md" now means "change the row in §6"; add that sentence to its header. verify: none.
 **Done when:** Done-when 8.
 
-### T13: Say once when the team cannot do something                        [S] [needs the founder: decision 2]
+### [x] T13: Say once when the team cannot do something                        [S] [needs the founder: decision 2]
 
 **Owner:** this change is built once, as WP-05 T18 (the same founder decision, D1 there). This package builds nothing for it; the text below is kept as the reasoning.
+**Shipped as WP-05 T18** (Nov 15, 2026; docs/log/2026-11/2026-11-15-claude-wp05-t18-said-once.md).
 
 **Why:** AR-13. Today `stopToollessTasks` (`apps/orchestrator/src/activities/cycle.ts:287`) archives the task and tells nobody, by the founder's own ruling of Nov 7, 2026 (the comment at `:279-286`: "never into the founder's Inbox"). T10 already counts these (`tool_missing_stopped`). The audit's further step, one clause in the round's note, changes that ruling, so it waits for the founder.
 

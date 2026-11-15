@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { createEvalClient, isLiveEvalEnabled, runAll } from "../harness";
-import { COMPOSER_CORPUS, COMPOSER_PASS_THRESHOLD, runComposerCase, summariseComposer } from "../composer";
+import { COMPOSER_CORPUS, COMPOSER_PARKED_CASES, COMPOSER_PASS_THRESHOLD, runComposerCase, runParkedClauseCase, summariseComposer } from "../composer";
 
 const live = isLiveEvalEnabled();
 
@@ -30,5 +30,15 @@ describe.skipIf(!live)("inbox composer (live)", () => {
       expect(summary.meanScore).toBeGreaterThanOrEqual(COMPOSER_PASS_THRESHOLD);
     },
     30 * 60 * 1000,
+  );
+
+  it(
+    "composer.parked_clause: a parked task is said once, explained in plain words, never as a request or an option (WP-05 T18)",
+    async () => {
+      const results = await runAll(COMPOSER_PARKED_CASES, 3, (c) => runParkedClauseCase(c, client!));
+      for (const r of results) if (!r.passed) console.warn(`[eval] composer parked ${r.caseId}: ${r.problems.join(" | ")}${r.error ? ` (${r.error})` : ""}`);
+      expect(results.filter((r) => !r.passed).map((r) => r.caseId)).toEqual([]);
+    },
+    4 * 60 * 1000,
   );
 });
