@@ -133,7 +133,7 @@ describe("the first-Continue callout (UX plan §7.7)", () => {
   });
 
   it("is anchored to the top bar's Continue and says the loop in one sentence", () => {
-    expect(FIRST_CONTINUE_CALLOUT).toEqual({ tourId: "first-continue", targetId: "continue", title: "This is how you move forward", body: "Press it when you have answered what needs you." });
+    expect(FIRST_CONTINUE_CALLOUT).toEqual({ tourId: "first-continue", targetId: "continue", title: "This is how you move forward", body: "One press and your team works until nothing is left to do. Anything that needs you shows in Needs you." });
   });
 });
 

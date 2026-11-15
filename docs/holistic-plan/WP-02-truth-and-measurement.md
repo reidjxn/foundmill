@@ -134,7 +134,7 @@ select (select count(*) from entities e join businesses b on b.id = e.business_i
 **Tests and evals:** as named; RLS is not involved (service role, existing tables).
 **Done when:** the query in step 4 returns five zeros on production, and T10's `fabricated_left` is 0 every night after.
 
-### T5: The build path says what is true without a repository             [S] [ships alone]
+### [x] T5: The build path says what is true without a repository             [S] [ships alone]
 
 **Why:** A4-03 (P0, the copy half), A4-10 (P1). The site workspace that makes the promises true is WP-07.
 
@@ -162,7 +162,7 @@ select (select count(*) from entities e join businesses b on b.id = e.business_i
 **Tests and evals:** as named; extend the existing engineer eval's rubric with "does not claim a pull request when none can open" only if an eval file for code summaries already exists; do not add a new harness here (WP-05 AR-15 builds it).
 **Done when:** a real project with no repository shows none of the seven "Before" strings.
 
-### T6: The first day says the page comes first; smaller untrue lines      [S] [ships alone]
+### [x] T6: The first day says the page comes first; smaller untrue lines      [S] [ships alone]
 
 **Why:** FR-07 (the copy half; the panel order on Today is WP-04), FR-06 outside the landing page (the kept card), A2-18, A2-11 (the Cash tile's zero), FR-16 row 2 (stale order in the welcome note; the voice rewrite is WP-04).
 
@@ -193,7 +193,7 @@ WP-04 changes this constant when the two notes become one; nothing else needs to
 **Steps:** 1. Tests pin every "After" (and that rows 3 and 4 read the constant, not a copy). verify: fail. 2. Change the strings; run the three word scripts. verify: green. 3. `apps/web/e2e/first-days.spec.ts`: the toast and the empty text on a new business. verify: passes locally in the cloud session.
 **Done when:** the six places that tell the first day agree, by test.
 
-### T7: The Follow form is offered only when a confirmation can be sent    [S] [ships alone]
+### [x] T7: The Follow form is offered only when a confirmation can be sent    [S] [ships alone]
 
 **Why:** FR-12, GTM-03 (b) and (c). Part (a) is WP-00 (S1, S2); part (d), re-offering confirmation to old pending records, is not needed: `contact_consents` has 0 rows (e0).
 

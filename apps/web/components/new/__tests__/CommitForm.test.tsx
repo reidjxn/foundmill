@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { describe, expect, it, vi } from "vitest";
 import { CONCEPT_ATTRIBUTE_KEYS, GuidanceProvider, TooltipProvider } from "@foundmill/dugout";
 import { TRPCClientError } from "@trpc/client";
-import { domainCandidates } from "@foundmill/shared";
+import { FIRST_DAY_PROMISE, domainCandidates } from "@foundmill/shared";
 import { termsWithGlossary } from "@foundmill/shared/terms";
 import { CommitForm, HOW_IT_RUNS_REASSURANCE, WHAT_HAPPENS_NEXT, archetypeParam, commitSteps, departmentColour, importHref, includedCreditsLine, spendCapSummary, teamCountsLine, upgradeHrefOf, type CommitDomainApi, type CommitLogoApi } from "../commit/CommitScreen";
 import type { DomainCheck } from "../commit/naming";
@@ -212,7 +212,9 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
   it("says what happens next in the real order, with the included credits and no card (A4, A10)", () => {
     renderForm();
     const next = screen.getByTestId("what-happens-next");
-    expect(WHAT_HAPPENS_NEXT).toEqual(["Your team is hired", "The Product lead drafts vision, specification and roadmap (a minute or two)", "Two notes ask you to sign them off", "Then building starts. Nothing is spent until you approve it."]);
+    // The steps are the shared first-day promise itself, not a copy of it (WP-02 T6).
+    expect(WHAT_HAPPENS_NEXT).toBe(FIRST_DAY_PROMISE.steps);
+    expect(WHAT_HAPPENS_NEXT).toEqual(["Your team is hired", "Your public page is drafted first: check it and put it live", "Then your plan arrives as two notes to sign off", "Nothing is spent on finding customers until you say so"]);
     for (const step of WHAT_HAPPENS_NEXT) expect(next.textContent).toContain(step);
     expect(next.textContent).not.toMatch(/Board|three decisions|first cycle/);
     expect(includedCreditsLine()).toBe("Starts with $5.00 of included credits this month. No card.");

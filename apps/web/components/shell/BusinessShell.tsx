@@ -285,7 +285,7 @@ export function wantsFirstContinueCallout(cycle: { completedCount: number }, can
   return canChange && cycle.completedCount <= 1;
 }
 
-export const FIRST_CONTINUE_CALLOUT = { tourId: "first-continue", targetId: "continue", title: "This is how you move forward", body: "Press it when you have answered what needs you." } as const;
+export const FIRST_CONTINUE_CALLOUT = { tourId: "first-continue", targetId: "continue", title: "This is how you move forward", body: "One press and your team works until nothing is left to do. Anything that needs you shows in Needs you." } as const;
 
 /**
  * The Example frame (docs/UX_AUDIT_AND_PLAN.md §12 item 5): what the shell changes for an example viewer (a read-only

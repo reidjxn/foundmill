@@ -34,11 +34,11 @@ import type { Query } from "@anthropic-ai/claude-agent-sdk";
 import { AgentInstructions, buildSystemPrompt, docText, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, restoredWorkspaceNote, roleSkillsFor, ToolGrant, type AgentSkillPrompt, type AgentTemplate } from "@foundmill/agents";
 import { APP_NAME, CREDITS_CURRENCY, sandboxCostMicroMinor } from "@foundmill/config";
 import { firstChannelToOpen, resolveGrants } from "@foundmill/connectors";
-import { bookUsage, checkPlatformCredits, closeApprovalItem, loadByokApiKey, MICRO_PER_MINOR, repos, signoffDecisionBlock, type Agent, type AgentVersion, type Approval, type Business, type Task } from "@foundmill/db";
+import { bookUsage, buildDestinationOf, checkPlatformCredits, closeApprovalItem, loadByokApiKey, MICRO_PER_MINOR, repos, signoffDecisionBlock, type Agent, type AgentVersion, type Approval, type Business, type Task } from "@foundmill/db";
 import { publishSessionEvent, type SessionEventInput } from "@foundmill/events";
 import { meter, MODEL_PRICING, resolveModel, type ModelId, type RouteKey } from "@foundmill/models";
 import { assertNoLongLivedCredentials, capturePages, MockSandbox, MockSandboxProvider, RECORDINGS, redactCredentialValues, stableHash32, type Sandbox, type SandboxSpecInput } from "@foundmill/sandbox";
-import { CHANNEL_KEYS, CHANNEL_META, channelEngineMayRun, channelTeamRuns, isUuid, noChannelSentence, type AgentStatus, type ChannelKey, type DesignCheckResult, type DesignShotRef, type ModelKey, type TaskStatus } from "@foundmill/shared";
+import { CHANNEL_KEYS, CHANNEL_META, channelEngineMayRun, channelTeamRuns, isUuid, noChannelSentence, type AgentStatus, type BuildDestination, type ChannelKey, type DesignCheckResult, type DesignShotRef, type ModelKey, type TaskStatus } from "@foundmill/shared";
 import { channelAvailabilityFor } from "./channel-availability";
 import { currentTraceparent } from "@foundmill/shared/telemetry";
 import { Context } from "@temporalio/activity";
@@ -1527,7 +1527,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
 
   const continuing = [handedBack ? `## Why this task is back\n${handedBack}` : "", checkout ? checkoutNote(checkout) : checkoutMissing ? checkoutMissingNote(checkoutMissing) : "", updateNoteText ?? "", restored && restored.files > 0 ? restoredWorkspaceNote(restored.files) : ""].filter(Boolean).join("\n\n");
   const resumed = !ctx.run.resume ? "" : ctx.run.resume.reason === "handoff" || ctx.run.resume.reason === "retry" ? "This session moved to another worker mid-task and has been resumed. Continue the task from where the work stands, and check what is already done before you repeat any external action." : "This session was paused for a while and has been resumed. Continue the task from where the work stands.";
-  const taskPrompt = [`# Task: ${task.title}`, task.goalMd || "", Array.isArray(task.acceptance) && task.acceptance.length ? `## Acceptance criteria\n${task.acceptance.map((a) => `- ${typeof a === "string" ? a : JSON.stringify(a)}`).join("\n")}` : "", policy.fileTools ? codeTaskNote(launch.branch) : "Keep every action inside the tools you were given; this task has no file access.", continuing, resumed, "Report each phase change and keep every external action inside the tools you were given."].filter(Boolean).join("\n\n");
+  const taskPrompt = [`# Task: ${task.title}`, task.goalMd || "", Array.isArray(task.acceptance) && task.acceptance.length ? `## Acceptance criteria\n${task.acceptance.map((a) => `- ${typeof a === "string" ? a : JSON.stringify(a)}`).join("\n")}` : "", policy.fileTools ? codeTaskNote(launch.branch, buildDestinationOf(await repos.integrations.codeRepository(deps.db, input.businessId))) : "Keep every action inside the tools you were given; this task has no file access.", continuing, resumed, "Report each phase change and keep every external action inside the tools you were given."].filter(Boolean).join("\n\n");
 
   const waits = founderWaits(deps);
   /**
@@ -2018,10 +2018,12 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
  * the acceptance command in a test copy, brings the branch up to date, runs CI, opens the pull request and asks the
  * founder. Said up front, so a session finishes instead of blocking on a step that was never its own.
  */
-export function codeTaskNote(branch: string): string {
+export function codeTaskNote(branch: string, destination: BuildDestination = "github"): string {
   return [
     `Work on branch ${branch} inside your working directory; it is the only place you can read or write files.`,
-    "You have no shell, no node_modules and no way to run tests here, and that is expected. When your session ends the platform saves your changes and pushes them to your branch, runs the task's acceptance command in a test copy, brings the branch up to date with the live product, runs the repository's CI and opens the pull request; the founder decides what goes live.",
+    destination === "none"
+      ? "You have no shell, no node_modules and no way to run tests here, and that is expected. When your session ends the platform saves your changes and runs the task's acceptance command in a test copy. This project has no repository connected, so nothing is pushed and no pull request opens: never say that it was."
+      : "You have no shell, no node_modules and no way to run tests here, and that is expected. When your session ends the platform saves your changes and pushes them to your branch, runs the task's acceptance command in a test copy, brings the branch up to date with the live product, runs the repository's CI and opens the pull request; the founder decides what goes live.",
     "Never block or stop the task because you cannot run tests, CI, a rebase or a merge yourself, and never plan or ask for those steps: write the change and the tests it needs, then finish. Block only for something the task itself needs and you cannot get (a decision, a missing credential, a dependency that is not done).",
   ].join(" ");
 }

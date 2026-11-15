@@ -8,7 +8,7 @@ export { agentWorkFunding, assertPlatformCredits, bookUsage, chargesCredits, fun
 export { loadNotifyFacts } from "./notify-facts";
 export { loadBriefFacts, type BriefAgent, type BriefFacts } from "./brief-facts";
 export { autopilotChangedPayload, CAPPED_TRIGGERS, loadAutopilotFacts, openRunOf, runRoundsOf, summarizeCycleEvents, STALE_CYCLE_MS, type AutopilotChange, type CycleEventLike, type CycleSummary, type OpenRun } from "./autopilot";
-export { bothSignedOff, loadProductStage, productStageOf, type ProductStageFacts } from "./product-stage";
+export { bothSignedOff, buildDestinationOf, loadProductStage, productStageOf, type ProductStageFacts } from "./product-stage";
 export { resumeBusinessAgents, stopBusinessAgents, type ResumeBusinessResult, type StopBusinessResult } from "./controls";
 export { changeAgentModels, routeOf, type ModelChange } from "./agent-model";
 export { APPROVAL_OPTIONS, BATCHED_TOOLS, approvalAction, approvalAmount, approvalArgsText, approvalItem, approvalOutcomeOf, approvalSection, approvalTaskTests, approvalTaskTitle, batchApprovalItem, batchLine, closeApprovalItem, connectorLabel, founderReason, founderReasons, integrationConnected, isApprovalOption, isBatchedApproval, isReleaseApproval, openApprovalItem, openBatchFor, toolWords, type ApprovalItemDetails, type ApprovalOptionId } from "./approvals";
