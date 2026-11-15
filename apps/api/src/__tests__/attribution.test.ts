@@ -31,7 +31,9 @@ const page = (over: Partial<ProjectPageContent> = {}): ProjectPageContent => ({ 
 const person = (over: Partial<PersonProfileContent> = {}): PersonProfileContent => ({ headline: "Baker", about: "I bake bread.", strengths: [], wantsToLearn: [], lookingFor: "on_my_own", place: "", ...over });
 const rows = async <T>(q: ReturnType<typeof sql>): Promise<T[]> => ((await hz.db.execute(q)) as unknown as { rows: T[] }).rows;
 const eventCounts = async () => (await rows<{ events: number; outbox: number }>(sql`select (select count(*)::int from events) as events, (select count(*)::int from outbox) as outbox`))[0]!;
-const accountCounts = async () => (await rows<{ events: number; queued: number }>(sql`select (select count(*)::int from account_events) as events, (select count(*)::int from account_outbox) as queued`))[0]!;
+// Every new account also gets the funnel's facts (WP-02 T9); the counts here are of everything else.
+const FUNNEL = sql`('account.admitted', 'profile.created', 'idea.kept', 'idea.drafted')`;
+const accountCounts = async () => (await rows<{ events: number; queued: number }>(sql`select (select count(*)::int from account_events where type not in ${FUNNEL}) as events, (select count(*)::int from account_outbox o join account_events e on e.id = o.event_id where e.type not in ${FUNNEL}) as queued`))[0]!;
 interface StoredEvent {
   id: string;
   user_id: string;
@@ -46,7 +48,7 @@ interface StoredEvent {
 const accountEvents = (userId: string) =>
   rows<StoredEvent>(sql`
     select e.id, e.user_id, e.type, e.actor, e.payload, e.occurred_at, e.idempotency_key, (select count(*)::int from account_outbox o where o.event_id = e.id and o.user_id = e.user_id) as queued
-      from account_events e where e.user_id = ${userId}::uuid order by e.created_at, e.id`);
+      from account_events e where e.user_id = ${userId}::uuid and e.type not in ${FUNNEL} order by e.created_at, e.id`);
 /** The two attribution types of a person (the fixtures' owners also publish nothing here, so these are all their rows). */
 const attributionEventsOf = async (userId: string) => (await accountEvents(userId)).filter((e) => e.type === "signup.attributed" || e.type === "referral.arrived");
 /** The columns a person may read of their own events (the grant of the migration). */
@@ -336,7 +338,7 @@ describe("signup.attributed and referral.arrived", () => {
     const theirsId = theirs[0]!.id;
 
     // Each reads their own row.
-    expect((await hz.h.asUser(p.userId).execute<{ id: string; type: string; payload: unknown }>(readable)).map((r) => [r.id, r.type, r.payload])).toEqual([[mineId, "signup.attributed", { sourceKind: "project_page", sourceRef: "bread-by-bike" }]]);
+    expect((await hz.h.asUser(p.userId).execute<{ id: string; type: string; payload: unknown }>(readable)).filter((r) => r.type === "signup.attributed").map((r) => [r.id, r.type, r.payload])).toEqual([[mineId, "signup.attributed", { sourceKind: "project_page", sourceRef: "bread-by-bike" }]]);
     const ownerSees = await hz.h.asUser(hz.A.ownerId).execute<{ id: string; user_id: string; type: string }>(readable);
     expect(ownerSees.map((r) => r.id)).toContain(theirsId);
     expect(ownerSees.every((r) => r.user_id === hz.A.ownerId)).toBe(true);
