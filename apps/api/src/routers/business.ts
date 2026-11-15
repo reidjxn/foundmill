@@ -425,11 +425,11 @@ export const businessRouter = router({
     .input(
       z.object({
         until: HolidayUntil,
-        authority: z.array(z.enum(DECISION_TYPES)).default(DECISION_TYPES.filter((d) => d !== "sign_contracts")),
+        authority: z.array(z.enum(DECISION_TYPES)).max(DECISION_TYPES.length).default(DECISION_TYPES.filter((d) => d !== "sign_contracts")),
         budgetCeilingMinor: z.number().int().nonnegative().nullable().default(null),
         /** The ceiling's currency; absent: the business's own (0025). */
         currency: CurrencyCode.optional(),
-        wakeEvents: z.array(z.enum(EVENT_TYPES)).default(["credential.expiring", "filing.due", "runway.threshold_crossed"]),
+        wakeEvents: z.array(z.enum(EVENT_TYPES)).max(EVENT_TYPES.length).default(["credential.expiring", "filing.due", "runway.threshold_crossed"]),
       }),
     )
     .mutation(async ({ ctx, input }) => {

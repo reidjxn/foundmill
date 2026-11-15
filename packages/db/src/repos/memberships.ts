@@ -10,7 +10,7 @@
  * procedure checks), `hasRole` and `listForUser` leave it out, as the database's `is_member` and `has_role` do. The
  * lists of a business's people (`list`, `listNamed`) still show it, with its date, so the founders see it and can remove it.
  */
-import { ConflictError, DEFAULT_AGENT_STYLE, MEMBERSHIP_ROLES, OWNER_ROLES, SECTIONS, ValidationError, isAgentStyle, isOwnerRole, type AgentStyle, type MembershipRole } from "@foundmill/shared";
+import { boundedRecord, ConflictError, DEFAULT_AGENT_STYLE, MEMBERSHIP_ROLES, OWNER_ROLES, SECTIONS, ValidationError, isAgentStyle, isOwnerRole, type AgentStyle, type MembershipRole } from "@foundmill/shared";
 import { and, asc, eq, gt, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { accountPreferences, businesses, entities, memberships, MEMBERSHIP_SOURCES, type Business, type Membership } from "../schema";
@@ -19,15 +19,20 @@ import { Id, maybeOne, one, parseInput, type Executor } from "./_shared";
 /**
  * A membership's own levels, by section: only the sections the walls know (`SECTIONS`), each "read", "write" or "none";
  * a section left out takes the role's default. An unknown key is refused: stored, it would open that section the day a
- * section of that name is added, without anyone having given it. 0096's CHECK says the same in the database.
+ * section of that name is added, without anyone having given it. 0096's CHECK says the same in the database. At most one
+ * key per section, counted before zod reads a key (`boundedRecord`, GHSA-mrhx-c7xc-m3w5).
  */
-export const SectionPermissions = z.partialRecord(z.enum(SECTIONS), z.enum(["read", "write", "none"]), {
-  // zod reports the unknown keys as `unrecognized_keys`, an issue its types for this option leave out.
-  error: (issue) => {
-    const keys = (issue as { code: string; keys?: unknown }).code === "unrecognized_keys" ? (issue as { keys?: unknown }).keys : undefined;
-    return Array.isArray(keys) ? `No such section: ${keys.join(", ")}` : undefined;
-  },
-});
+export const SectionPermissions = boundedRecord(
+  SECTIONS.length,
+  z.partialRecord(z.enum(SECTIONS), z.enum(["read", "write", "none"]), {
+    // zod reports the unknown keys as `unrecognized_keys`, an issue its types for this option leave out.
+    error: (issue) => {
+      const keys = (issue as { code: string; keys?: unknown }).code === "unrecognized_keys" ? (issue as { keys?: unknown }).keys : undefined;
+      return Array.isArray(keys) ? `No such section: ${keys.join(", ")}` : undefined;
+    },
+  }),
+  "At most one level per section",
+);
 export type SectionPermissions = z.infer<typeof SectionPermissions>;
 
 export const AddMembershipInput = z.object({

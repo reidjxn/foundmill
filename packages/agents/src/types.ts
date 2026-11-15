@@ -6,6 +6,7 @@
  * templates, agent versions, skills and skill tests.
  */
 import { z } from "zod";
+import { INPUT_LIMITS } from "@foundmill/config";
 import type { ROUTES as ModelRoutes } from "@foundmill/models/routing";
 import {
   AgentLayer,
@@ -115,11 +116,11 @@ export type AgentExample = z.infer<typeof AgentExample>;
 
 export const AgentInstructions = z.object({
   role: z.string().min(1),
-  goals: z.array(z.string().min(1)).min(1),
-  rules: z.array(z.string().min(1)).min(1),
-  playbook: z.array(z.string().min(1)).min(1),
+  goals: z.array(z.string().min(1)).max(INPUT_LIMITS.agentInstructionLines).min(1),
+  rules: z.array(z.string().min(1)).max(INPUT_LIMITS.agentInstructionLines).min(1),
+  playbook: z.array(z.string().min(1)).max(INPUT_LIMITS.agentInstructionLines).min(1),
   tone: z.string().min(1),
-  examples: z.array(AgentExample),
+  examples: z.array(AgentExample).max(INPUT_LIMITS.agentInstructionLines),
 });
 export type AgentInstructions = z.infer<typeof AgentInstructions>;
 

@@ -10,6 +10,7 @@
  * Importing a registry record is idempotent: the same company (jurisdiction + registration number) is updated in
  * place, its officers and deadlines are matched to the ones already recorded, never added twice.
  */
+import { INPUT_LIMITS } from "@foundmill/config";
 import { FILINGS_DUE_SOON_DAYS, INCORPORATION_ROUTES, ValidationError } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -78,7 +79,7 @@ export const CreateContractInput = z.object({
   endsAt: z.string().date().nullable().optional(),
   valueMinor: MinorAmount.nullable().optional(),
   currency: Currency.optional(),
-  obligations: JsonArray.default([]),
+  obligations: JsonArray.max(INPUT_LIMITS.contractObligations).default([]),
 });
 export type CreateContractInput = z.input<typeof CreateContractInput>;
 export const UpdateContractInput = patchSchema(CreateContractInput.omit({ status: true }));

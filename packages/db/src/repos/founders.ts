@@ -1,6 +1,6 @@
 /** founder_profiles — account-scoped (userId first), routers founder.profile.get/update. */
-import { BIDI_NAME_MESSAGE, RESERVED_NAME_MESSAGE, hasBidiControl, isReservedName } from "@foundmill/config";
-import { ADMIN_ROLES, OWNER_ROLES, VISIBILITY, ValidationError } from "@foundmill/shared";
+import { BIDI_NAME_MESSAGE, INPUT_LIMITS, RESERVED_NAME_MESSAGE, hasBidiControl, isReservedName } from "@foundmill/config";
+import { ADMIN_ROLES, boundedRecord, OWNER_ROLES, VISIBILITY, ValidationError } from "@foundmill/shared";
 import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { authUsers } from "drizzle-orm/supabase";
 import { z } from "zod";
@@ -9,7 +9,7 @@ import { Currency, changes, Id, maybeOne, MinorAmount, one, parseInput, type Exe
 import { adultsRepo } from "./adults";
 import { membershipNotEnded } from "./memberships";
 
-const SkillRatings = z.record(z.string(), z.number().int().min(1).max(20));
+const SkillRatings = boundedRecord(INPUT_LIMITS.founderProfileList, z.record(z.string(), z.number().int().min(1).max(20)));
 
 export const FounderProfileInput = z.object({
   // Not a name that poses as the platform or its staff ("Foundmill Support"): other founders read it as who wrote to them.
@@ -28,8 +28,8 @@ export const FounderProfileInput = z.object({
   currency: Currency.optional(),
   citizenship: z.string().max(80).nullable().optional(),
   residence: z.string().max(80).nullable().optional(),
-  targetMarkets: z.array(z.string().max(80)).default([]),
-  constraints: z.array(z.string().max(400)).default([]),
+  targetMarkets: z.array(z.string().max(80)).max(INPUT_LIMITS.founderProfileList).default([]),
+  constraints: z.array(z.string().max(400)).max(INPUT_LIMITS.founderProfileList).default([]),
   riskAppetite: z.string().max(80).nullable().optional(),
   visibility: z.enum(VISIBILITY).default("private"),
 });

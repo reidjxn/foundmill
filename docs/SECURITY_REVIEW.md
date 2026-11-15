@@ -250,4 +250,4 @@ The remaining non-critical advisories (dev tools, the test DOM, the agent and MC
 | Finding | Severity | Status | PR |
 |---|---|---|---|
 | GHSA-mrhx-c7xc-m3w5 through `publicQuiz.answer` (signed out): a 2 MB body of junk keys made zod build an issue per key (about 83 MB per request), and the error sent back listed every key (6.9 MB) | P1 | Fixed: the input's keys are counted before zod reads them; every procedure's error is bounded (`boundedIssues` in `trpc.ts`); zod 4.6.7 | #139 |
-| The same shape on signed-in inputs: lists without `.max()` first and records without a count first, reachable by any signed-in person | P3 | Open: a follow-up PR bounds every list and map an api input can reach | — |
+| The same shape on signed-in inputs: lists without `.max()` first and records without a count first, reachable by any signed-in person | P3 | Fixed: every list an api input can reach has a `.max()` first and every record a key count (`boundedRecord`, `INPUT_LIMITS`); `input-limits.test.ts` fails on a new unbounded input | #139 follow-up (`claude/tips-zod-limits`) |

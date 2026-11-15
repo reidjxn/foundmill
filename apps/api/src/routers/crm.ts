@@ -1,6 +1,7 @@
 /** crm.search/entity.list/get/update/merge/unmerge/create/requestDeletion/notes/roles (BUILD §11.12; AC-11.12.2 via RLS, AC-11.12.3 merge/unmerge). */
+import { INPUT_LIMITS } from "@foundmill/config";
 import { AddRoleInput, EntityListFilter, STRONG_IDENTIFIERS, SearchInput, UpdateEntityInput, repos } from "@foundmill/db";
-import { AppError, hasSectionAccess } from "@foundmill/shared";
+import { AppError, boundedRecord, hasSectionAccess } from "@foundmill/shared";
 import { z } from "zod";
 import { Id, audit, router, sectionRead, sectionWrite } from "../trpc";
 
@@ -126,7 +127,7 @@ export const crmRouter = router({
      * already holds is a duplicate (BUILD §11.12 "strong identifiers first"): the call is refused with a CONFLICT
      * (`duplicate_entity`, `details.existing` names the record) unless the founder confirms with `allowDuplicate`.
      */
-    create: write.input(z.object({ kind: z.enum(["person", "organisation", "venue"]), displayName: z.string().min(1).max(200), identifiers: z.record(z.string(), z.string()).default({}), aliases: z.array(z.string()).default([]), lawfulBasis: z.string().max(80).nullable().default(null), allowDuplicate: z.boolean().default(false) })).mutation(({ ctx, input: { allowDuplicate, ...input } }) =>
+    create: write.input(z.object({ kind: z.enum(["person", "organisation", "venue"]), displayName: z.string().min(1).max(200), identifiers: boundedRecord(INPUT_LIMITS.entityIdentifiers, z.record(z.string(), z.string())).default({}), aliases: z.array(z.string()).max(INPUT_LIMITS.entityAliases).default([]), lawfulBasis: z.string().max(80).nullable().default(null), allowDuplicate: z.boolean().default(false) })).mutation(({ ctx, input: { allowDuplicate, ...input } }) =>
       ctx.rls(async (tx) => {
         if (!allowDuplicate) {
           for (const key of STRONG_IDENTIFIERS) {

@@ -2,7 +2,8 @@
  * product — spec blocks, spec versions, change proposals + hunks, roadmap, sources
  * (BUILD §11.5; routers product.spec.*, product.roadmap.*, product.proposals.*).
  */
-import { HUNK_DECISIONS, NotFoundError, ROADMAP_HORIZONS, SEVERITIES, SOURCE_KINDS, ValidationError, type PROPOSAL_STATUSES } from "@foundmill/shared";
+import { INPUT_LIMITS } from "@foundmill/config";
+import { boundedRecord, HUNK_DECISIONS, NotFoundError, ROADMAP_HORIZONS, SEVERITIES, SOURCE_KINDS, ValidationError, type PROPOSAL_STATUSES } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -29,8 +30,8 @@ export const CreateSpecBlockInput = z.object({
 export type CreateSpecBlockInput = z.input<typeof CreateSpecBlockInput>;
 
 export const EditSpecBlockInput = z.object({
-  content: JsonObject.optional(),
-  sources: z.array(Id).optional(),
+  content: boundedRecord(INPUT_LIMITS.jsonObjectKeys, JsonObject).optional(),
+  sources: z.array(Id).max(INPUT_LIMITS.linkedIds).optional(),
   position: z.number().int().min(0).optional(),
   pinned: z.boolean().optional(),
   authoredByKind: z.enum(AUTHOR_KINDS).optional(),
@@ -74,7 +75,7 @@ export const UpsertRoadmapItemInput = z.object({
   targetEnd: z.string().date().nullable().optional(),
   confidence: z.number().int().min(1).max(5).default(3),
   ownerRef: OwnerRef.nullable().optional(),
-  specBlockIds: z.array(Id).default([]),
+  specBlockIds: z.array(Id).max(INPUT_LIMITS.linkedIds).default([]),
   status: z.string().max(40).default("planned"),
   position: z.number().int().min(0).optional(),
 });
