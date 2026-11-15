@@ -6,7 +6,7 @@ import { INPUT_LIMITS } from "@foundmill/config";
 import { APPROVAL_STATES, ASSET_KINDS, boundedRecord, CAMPAIGN_STATUSES, ValidationError, type CampaignStatus } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
-import { approvals, assets, campaigns, channels, type Asset, type Campaign } from "../schema";
+import { approvals, assets, campaigns, channels, type Approval, type Asset, type Campaign } from "../schema";
 import { Currency, changes, defined, Id, IsoDateInput, JsonObject, MinorAmount, one, PageInput, parseInput, timeKeyset, toPage, type Executor, type Page, patchSchema } from "./_shared";
 
 export const CreateCampaignInput = z.object({
@@ -219,21 +219,23 @@ export const campaignsRepo = {
   /**
    * Ends every open campaign of a channel (draft, waiting for approval, scheduled, live or paused) and expires the
    * pending launch approvals the engine asked for them: taking a channel off the board is the full stop (DECISIONS
-   * 2026-10-07), so nothing keeps spending on it. Returns the campaigns it ended.
+   * 2026-10-07), so nothing keeps spending on it. Returns the campaigns it ended and the approvals it expired; the caller
+   * records the expiries (`recordExpiredApprovals` in @foundmill/events: the event and the closed note, WP-02 T1).
    */
-  async endForChannel(db: Executor, businessId: string, channelId: string): Promise<Campaign[]> {
+  async endForChannel(db: Executor, businessId: string, channelId: string): Promise<{ ended: Campaign[]; expiredApprovals: Approval[] }> {
     const ended = await db
       .update(campaigns)
       .set({ status: "ended", endsAt: sql`case when ${campaigns.endsAt} is not null and ${campaigns.endsAt} < now() then ${campaigns.endsAt} else now() end` })
       .where(and(eq(campaigns.businessId, businessId), eq(campaigns.channelId, channelId), inArray(campaigns.status, OPEN_STATUSES)))
       .returning();
-    if (ended.length) {
-      await db
-        .update(approvals)
-        .set({ outcome: "expired", byKind: "system", resolvedAt: new Date() })
-        .where(and(eq(approvals.businessId, businessId), isNull(approvals.resolvedAt), eq(approvals.tool, "launch_campaign"), inArray(sql<string>`${approvals.args} ->> 'campaignId'`, ended.map((c) => c.id))));
-    }
-    return ended;
+    const expiredApprovals = ended.length
+      ? await db
+          .update(approvals)
+          .set({ outcome: "expired", byKind: "system", resolvedAt: new Date() })
+          .where(and(eq(approvals.businessId, businessId), isNull(approvals.resolvedAt), eq(approvals.tool, "launch_campaign"), inArray(sql<string>`${approvals.args} ->> 'campaignId'`, ended.map((c) => c.id))))
+          .returning()
+      : [];
+    return { ended, expiredApprovals };
   },
 
   /**
