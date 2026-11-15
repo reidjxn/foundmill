@@ -37,3 +37,11 @@ supersedes: []
   the two researcher cases.
 - Not checked live: whether the reader's digest of a supplier page keeps enough (summary at most 600 characters,
   amounts) for a comparison report. If the next run blocks on missing facts, `fetch_page` needs a typed read.
+
+## Security review
+The `security-reviewer` agent found no blocker: the facts' URLs go through `fact.url` (no query, fragment, userinfo
+or port; http(s) only; at most 8 path words and 200 characters) and are recorded in the untrusted-recipient register
+before the agent sees them (`pipeline.ts:939`). Fixed here: the facts slice the results to 10, as SerpApi does.
+Left as follow-ups, all shared with the existing SerpApi, Perplexity and Firecrawl facts: a 7-word path can still
+carry text; a phone number or `%40` email in a path is not recorded; a site's bare root is not recorded; IPv4 hosts
+pass `fact.host` (`fetch_page` refuses private and local addresses, so this is not server-side request forgery).

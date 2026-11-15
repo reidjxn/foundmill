@@ -81,7 +81,7 @@ export const webTools = [
     untrusted: "web",
     // The addresses are what a search is for: without them an agent on the reader's digest has nothing to fetch_page.
     // Titles stay out (a result chooses its own title); an address that does not pass `fact.url` is null.
-    facts: (data) => ({ results: data.results.map((r) => ({ url: fact.url(r.url), host: fact.hostOf(r.url) })) }),
+    facts: (data) => ({ results: data.results.slice(0, 10).map((r) => ({ url: fact.url(r.url), host: fact.hostOf(r.url) })) }),
     untrustedRef: (a) => `search:${a.query.slice(0, 120)}`,
     costMinor: () => WEB_SEARCH_COST_MINOR,
     annotations: { readOnlyHint: true, openWorldHint: true },
