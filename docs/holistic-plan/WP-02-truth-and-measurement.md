@@ -205,7 +205,7 @@ WP-04 changes this constant when the two notes become one; nothing else needs to
 **Steps:** 1. Api tests first: mail off → the public page has `followForm: false` and `followPage` answers the existing "not accepting" refusal; mail live → unchanged. verify: fail, then pass. 2. Console: when `followAvailable` is false, the switch is disabled with the line "Following opens when email is switched on for Foundmill. Your page works without it." verify: Playwright at 390 and 1440 px. 3. Health field. verify: `apps/api` health test.
 **Done when:** no visitor can be told "Check your email to confirm." on a deployment that cannot send it.
 
-### T8: One vocabulary in the shell                                        [M] [ships alone]
+### [x] T8: One vocabulary in the shell                                        [M] [ships alone]
 
 **Why:** A2-09. CLAUDE.md: "project" until the first sale and where the stage is not known; "team"; Needs you. Only strings a first-timer meets with Builder view off; Builder view keeps the engine's words.
 
@@ -214,7 +214,7 @@ WP-04 changes this constant when the two notes become one; nothing else needs to
 **Produces:** in `founder-words.ts`:
 ```ts
 /** The founder's word for a cycle. Builder view keeps the engine's word. */
-export function roundWords(builder: boolean): { one: string; a: string; idle: string } // builder: { "cycle", "a cycle", "No cycle running" }; else { "round of work", "a round of work", "The team is not working right now" }
+export function roundWords(builder: boolean): { one: string; a: string; idle: string } // builder: { "cycle", "a cycle", "No cycle running" }; else { "round of work", "a round of work", "The team is idle" }
 /** "project" until the first sale and where the stage is not known (CLAUDE.md, 2026-11-11). */
 export function ventureNoun(hadFirstSale?: boolean | null): "project" | "business"
 ```
@@ -222,7 +222,7 @@ export function ventureNoun(hadFirstSale?: boolean | null): "project" | "busines
 
 | File:line | Before | After (Builder view off) |
 | --- | --- | --- |
-| `ProcessingStrip.tsx:43` | "No cycle running" | "The team is not working right now" |
+| `ProcessingStrip.tsx:43` | "No cycle running" | "The team is idle" |
 | `InboxScreen.tsx:46` | "Your team works in cycles: rounds of work whose notes land here. Press Continue to start one." | "Your team works in rounds, and their notes land here. Press Continue to start one." |
 | `InboxScreen.tsx:55` | "Ask the team for one quick note (does not start a cycle)" | "Ask the team for one quick note (does not start a round of work)" |
 | `BusinessShell.tsx:221` | "The orchestrator is not reachable right now: a press writes one note; no agent works." | "The team cannot start right now. Pressing Continue will only write a short note." |
@@ -247,7 +247,7 @@ Left alone, with the reason: Settings tab "Business" and Team › "Staff" (tab s
 **Steps:** 1. `founder-words.test.ts` for the two helpers; `shell-words.test.ts` renders each constant or component with Builder view off and asserts none matches `/\bcycles?\b|orchestrator|\bInbox\b(?! tab)|Switch business|Sample business/`. verify: fails listing every row. 2. Change the strings; where a string is built from a number or a flag, take the word from `roundWords(builder)`. verify: the test passes; Storybook stories for the three dugout components still render (update their fixtures). 3. Run the word scripts and update `docs/DESIGN.md` §10 with the four-row table "Engine word → founder word" (cycle → round of work; orchestrator → the team; Inbox as a place → Needs you; business → project until the first sale). verify: `node scripts/banned-terms.mjs` green. 4. Playwright specs that assert the old strings (`today.spec.ts`, `inbox.spec.ts`, `shell.spec.ts`: grep the old text under `apps/web/e2e`). verify: green.
 **Done when:** Done-when 5.
 
-### T9: Four funnel facts in the account event store                      [M] [ships alone]
+### [x] T9: Four funnel facts in the account event store                      [M] [ships alone]
 
 **Why:** FR-10 step 1, A8-08 fix 1. Recorded decision: "Account events: a private, person-level event store (founder, 2026-11-12)" and "The account relay is turned off" (same day): writes still land in `account_events`; nothing here starts a poller.
 
@@ -269,7 +269,7 @@ All four: `consumers: []` (there is no metrics consumer; T10 reads the table), `
 **Steps:** 1. Use the `new-event` skill for each type. Catalogue and fixtures first; `pnpm --filter @foundmill/events test` fails until the declarations exist. verify: green. 2. Migration; `pnpm test:rls` compares the SQL list with `ACCOUNT_EVENT_TYPES`. verify: green. 3. The two steps in `PERSON_CREATED_STEPS` (each in its own transaction and try/catch, as the file's rules say; a failure never fails the save). verify: `person-created.test.ts`. 4. The two router writes, each inside the transaction that makes the change; a repeat writes nothing. verify: router tests assert exactly one `account_events` row after two calls. 5. The remaining `consumers: ["metrics"]` annotations in the catalogue (77 types, no consumer): leave them, and add one line to `packages/events/CLAUDE.md` saying "metrics" names T10's nightly reader, not a `consume()` group. verify: none needed.
 **Done when:** a new account's four facts are rows in `account_events`, and T10's funnel reads them.
 
-### T10: Nightly numbers: funnel, north star, retention, agent work        [M] [ships alone, after T9]
+### [x] T10: Nightly numbers: funnel, north star, retention, agent work        [M] [ships alone, after T9]
 
 **Why:** FR-10 steps 2 to 4, A8-08 fixes 2 and 3, A8-06 (demo leak), AR-13 (count the parked tasks), OUTLINE principle 1 ("we can see it in the numbers").
 
@@ -316,7 +316,7 @@ All four: `consumers: []` (there is no metrics consumer; T10 reads the table), `
 **Steps:** 1. Fixture test: a ledger with a demo project, micro and pre-0039 rows, one blocked session with a `task.blocked` event keyed `task.blocked:<sessionId>` (confirm the payload's reason key in `packages/events` before relying on query 6, as Appendix B warns). Assert totals to the cent and that the demo adds nothing. verify: fails, then passes. 2. `notMeasured` always lists: "Model calls before a project exists (ideas, compare, logo) are not in the ledger (A7-02)", "The gateway's reader and web search are not booked (A7-03)". verify: test. 3. **Desktop session, once:** run against production (`--print-sql`, read-only) and paste the output into the WP-09 file's "measured" section and docs/DEPLOY.md §6. Expected from e0: about $119 total; opus sessions 142 at $58.25, sonnet 176 at $24.67; one training run at $12.78. verify: totals agree within a dollar or the PR explains.
 **Done when:** Done-when 7.
 
-### T12: One production record, and a script that checks it               [M] [ships alone]
+### [x] T12: One production record, and a script that checks it               [M] [ships alone]
 
 **Why:** a11 §9 ("one current record of what is configured in production"), §5; WP-00 "Done when"; e0 "Live configuration". docs/DEPLOY.md §6 is dated Oct 8 to Oct 20.
 

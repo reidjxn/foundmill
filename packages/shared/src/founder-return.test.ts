@@ -23,7 +23,12 @@ describe("sessions and presence", () => {
 describe("founderActivation", () => {
   const done = { committedAt: at(0), specificationSignedOffAt: at(1), roadmapSignedOffAt: at(2), firstFounderContinueAt: at(3) };
   it("is activated when all three steps land within 24 hours of commit, at the last of them", () => {
-    expect(founderActivation(done)).toEqual({ activated: true, activatedAt: at(3), missing: [] });
+    expect(founderActivation(done)).toEqual({ activated: true, activatedAt: at(3), missing: [], pagePublishedWithin24h: false, minutesToPage: null });
+  });
+  it("reports the first published page beside activation, without changing it", () => {
+    expect(founderActivation({ ...done, firstPagePublishedAt: at(5.5) })).toMatchObject({ activated: true, pagePublishedWithin24h: true, minutesToPage: 330 });
+    expect(founderActivation({ ...done, firstFounderContinueAt: null, firstPagePublishedAt: at(30) })).toMatchObject({ activated: false, pagePublishedWithin24h: false, minutesToPage: 1800 });
+    expect(founderActivation({ ...done, committedAt: null, firstPagePublishedAt: at(1) })).toMatchObject({ pagePublishedWithin24h: false, minutesToPage: null });
   });
   it("names what is missing, in the order a founder meets it", () => {
     expect(founderActivation({ ...done, roadmapSignedOffAt: null, firstFounderContinueAt: null }).missing).toEqual(["roadmap", "continue"]);

@@ -1,6 +1,7 @@
 "use client";
 import type { CSSProperties, HTMLAttributes } from "react";
-import type { DeptColourToken } from "@foundmill/shared";
+import { roundWords, type DeptColourToken } from "@foundmill/shared";
+import { useBuilderView } from "../guidance/BuilderView";
 import { cn } from "../../lib/cn";
 import { Tooltip } from "../foundation/Tooltip";
 import { useGuided, useTerm } from "../guidance/GuidanceProvider";
@@ -39,12 +40,13 @@ export function listWords(words: readonly string[]): string {
  * guided mode, a line at the right end of the tab bar: "Product and Finance are working on cycle 3", "The team is
  * working on cycle 3" (a cycle with no department busy yet), "No cycle running". Exported for tests.
  */
-export function processingStatusText(segments: readonly ProcessingSegment[], active: boolean, cycleNumber?: number | null): string {
-  if (!active) return "No cycle running";
+export function processingStatusText(segments: readonly ProcessingSegment[], active: boolean, cycleNumber?: number | null, builder = false): string {
+  // Builder view keeps the engine's word; the founder reads that the team is not working (WP-02 T8).
+  if (!active) return roundWords(builder).idle;
   const working = segments.filter((s) => s.active).map((s) => s.label);
   const who = working.length ? listWords(working) : "The team";
   const verb = working.length > 1 ? "are" : "is";
-  const on = typeof cycleNumber === "number" && cycleNumber > 0 ? ` on cycle ${cycleNumber}` : "";
+  const on = builder && typeof cycleNumber === "number" && cycleNumber > 0 ? ` on cycle ${cycleNumber}` : "";
   return `${who} ${verb} working${on}`;
 }
 
@@ -63,7 +65,8 @@ export function segmentState(segment: ProcessingSegment, active: boolean): "work
  * it in words in the tab bar while guidance is on. The motion is CSS.
  */
 export function ProcessingStrip({ segments, active, cycleNumber, label, className, ...rest }: ProcessingStripProps) {
-  const text = label ?? processingStatusText(segments, active, cycleNumber);
+  const builder = useBuilderView();
+  const text = label ?? processingStatusText(segments, active, cycleNumber, builder);
   // The sentence names a cycle, so the tooltip says what one is while guidance is on (UX plan §8.3: define on first use).
   const cycle = useTerm("cycle");
   const guided = useGuided();

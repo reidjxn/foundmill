@@ -283,9 +283,9 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     expect(onCommit.mock.calls[1]![0]).not.toHaveProperty("overnight");
   });
 
-  it("offers Anthropomorphic agents, starting from the account preference, sends the choice with idea.commit and keeps the five chips", async () => {
+  it("offers Give agents names and faces, starting from the account preference, sends the choice with idea.commit and keeps the five chips", async () => {
     const onCommit = renderForm();
-    const toggle = screen.getByRole("switch", { name: "Anthropomorphic agents" });
+    const toggle = screen.getByRole("switch", { name: "Give agents names and faces" });
     expect(toggle.getAttribute("aria-checked")).toBe("false");
     expect(screen.getByTestId("anthropomorphic-choice").textContent).toContain("still AI agents");
     // The summary line stays the five choices the step is laid out around.
@@ -313,7 +313,7 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     });
     expect(onCommit.mock.calls[0]![0]).toMatchObject({ anthropomorphicAgents: true, agentStyle: "fantasy" });
     // Switching the faces off hides the choice.
-    fireEvent.click(screen.getByRole("switch", { name: "Anthropomorphic agents" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Give agents names and faces" }));
     expect(screen.queryByRole("radiogroup", { name: "Style" })).toBeNull();
   });
 
@@ -326,7 +326,7 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     expect(onCommit.mock.calls[0]![0]).toMatchObject({ anthropomorphicAgents: false, agentStyle: "humans" });
   });
 
-  it("starts the Anthropomorphic agents switch on when the account preference is on, and follows it until the founder chooses", () => {
+  it("starts the Give agents names and faces switch on when the account preference is on, and follows it until the founder chooses", () => {
     const view = render(
       <GuidanceProvider value={{ guidance: "on", terms: TERMS }}>
         <TooltipProvider>
@@ -335,7 +335,7 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
       </GuidanceProvider>,
     );
     openHowItRuns();
-    const toggle = screen.getByRole("switch", { name: "Anthropomorphic agents" });
+    const toggle = screen.getByRole("switch", { name: "Give agents names and faces" });
     expect(toggle.getAttribute("aria-checked")).toBe("true");
     // The preference arrives late: the switch follows it while untouched ...
     view.rerender(
@@ -345,9 +345,9 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
         </TooltipProvider>
       </GuidanceProvider>,
     );
-    expect(screen.getByRole("switch", { name: "Anthropomorphic agents" }).getAttribute("aria-checked")).toBe("false");
+    expect(screen.getByRole("switch", { name: "Give agents names and faces" }).getAttribute("aria-checked")).toBe("false");
     // ... and stops following once the founder has chosen here.
-    fireEvent.click(screen.getByRole("switch", { name: "Anthropomorphic agents" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Give agents names and faces" }));
     view.rerender(
       <GuidanceProvider value={{ guidance: "on", terms: TERMS }}>
         <TooltipProvider>
@@ -355,7 +355,7 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
         </TooltipProvider>
       </GuidanceProvider>,
     );
-    expect(screen.getByRole("switch", { name: "Anthropomorphic agents" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("switch", { name: "Give agents names and faces" }).getAttribute("aria-checked")).toBe("true");
   });
 
   it("submits the idea.commit input and blocks an empty name", async () => {

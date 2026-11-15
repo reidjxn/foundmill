@@ -125,7 +125,9 @@ describe("IndexNow asks first, and a hosted connection stops with its page", () 
     expect(sent.result.ok).toBe(true);
     expect(vendor.urls).toEqual(["https://api.indexnow.org/indexnow"]);
     await repos.pages.unpublish(g.db, g.businessId, { userId: null });
-    await expect(g.client.call(token, { connector: "indexnow", tool: "submit_urls", args })).rejects.toMatchObject({ code: "integration_not_connected", status: 409 });
+    // A later session: the same call in the same session would be replayed, not sent (WP-05 T14).
+    const later = await g.token({ allowedTools: ["indexnow:*"], sessionId: await g.newSession() });
+    await expect(g.client.call(later, { connector: "indexnow", tool: "submit_urls", args })).rejects.toMatchObject({ code: "integration_not_connected", status: 409 });
     expect(vendor.urls).toHaveLength(1);
   });
 });

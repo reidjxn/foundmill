@@ -12,7 +12,7 @@ const meta = {
   component: BusinessSwitcher,
   parameters: {
     layout: "padded",
-    docs: { description: { component: "The top bar's logo and name as the business switcher: a chevron after the name and the tooltip “Switch business”. A glass popover headed “Switch business” lists the founder's businesses (24 px logos, the current one first and checked, then A to Z, role and Demo chips), a “Find a business…” filter from six businesses, then Create a new business, Manage businesses, Home and Your profile." } },
+    docs: { description: { component: "The top bar's logo and name as the business switcher: a chevron after the name and the tooltip “Switch project”. A glass popover headed “Switch project” lists the founder's businesses (24 px logos, the current one first and checked, then A to Z, role and Demo chips), a “Find a project…” filter from six businesses, then Start a new project, Your projects, Home and Your profile." } },
   },
   args: {
     businessName: "Northwind Skincare",

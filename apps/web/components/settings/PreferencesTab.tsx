@@ -217,7 +217,7 @@ export function AnthropomorphicAgentsSection() {
           data-testid="anthropomorphic-switch"
         />
         <div className="flex flex-col gap-1">
-          <Label htmlFor="anthropomorphic-switch">Anthropomorphic agents</Label>
+          <Label htmlFor="anthropomorphic-switch">Give agents names and faces</Label>
           <p id="anthropomorphic-switch-hint" className="text-small text-secondary">
             {ANTHROPOMORPHIC_EXPLAINER}
           </p>

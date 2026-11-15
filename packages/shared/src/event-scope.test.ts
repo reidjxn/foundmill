@@ -19,7 +19,7 @@ describe("event scope", () => {
   });
 
   it("the account-scoped types are the two profile events and the two attribution events, each in the one list", () => {
-    expect([...ACCOUNT_EVENT_TYPES]).toEqual(["profile.published", "profile.unpublished", "signup.attributed", "referral.arrived", "founder_notice.sent"]);
+    expect([...ACCOUNT_EVENT_TYPES]).toEqual(["profile.published", "profile.unpublished", "signup.attributed", "referral.arrived", "founder_notice.sent", "account.admitted", "profile.created", "idea.kept", "idea.drafted"]);
     // Where they sit in the list is not pinned: every team appends its types at the end, of either scope.
     for (const type of ACCOUNT_EVENT_TYPES) expect(EVENT_TYPES as readonly string[]).toContain(type);
   });

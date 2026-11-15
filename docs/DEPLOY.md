@@ -233,7 +233,68 @@ What happens while any of these is missing (it fails closed, never with a broken
    - Cloudflare `CLOUDFLARE_API_TOKEN` and Dropbox Sign `DROPBOX_SIGN_API_KEY` (a business's own key takes precedence).
    - OAuth apps (Google for Gmail, Calendar and Drive: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`; Notion: `NOTION_CLIENT_ID`, `NOTION_CLIENT_SECRET`; Shopify: `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET`), on the gateway only (the api signs and checks the state; the gateway builds the consent link, exchanges the code and seals the token). Register `https://foundmill.com/integrations/oauth/callback` as the redirect URI of each: Google Cloud console → APIs & Services → Credentials → the OAuth client (type Web application) → Authorized redirect URIs; Notion → My integrations → the public integration → Redirect URIs; Shopify Partners → the app → Configuration → Allowed redirection URL(s). The address is `APP_URL` plus `/integrations/oauth/callback`, so it follows `APP_URL`. Connect in Settings › Integrations opens the vendor's consent page with a signed state (founder, business and connector, 15 minutes); the vendor sends the founder back, the page shows "Connect <name>", and nothing is stored before that state checks out. Shopify needs the store's `*.myshopify.com` address with the connect request, and the store that comes back must be the same.
 
-## 6. Staging status (2026-10-08, cloud session)
+## 6. Production record
+
+The one current record of what is configured in production (WP-02 T12). `node scripts/check-production.mjs` reads the
+table between the markers and checks every row whose Check is an id, from outside (public GETs only); `manual` rows
+are read by the named person or session. A work package that changes a fact changes its row in the same pull request.
+WP-00's steps "record in docs/DEPLOY.md" mean: change the row here.
+
+<!-- production-record:start -->
+| Area | Expected | State on Nov 15, 2026 | Check |
+| --- | --- | --- | --- |
+| api health | `env: "staging"`, `modes.integrations: "mock"`, `modes.models: "live"`, db, redis, temporal healthy | As expected; `modes.liveConnectors` lists github, openai_images, elevenlabs, sendgrid, apollo, vercel, serpapi, firecrawl, openai, gemini, perplexity, anthropic, buffer | `api-health` |
+| Platform mail | `platformMail: "live"` (after WP-02 T7 deploys) | Not reported yet: the deployed api predates T7 (6 PM UTC) | `api-platform-mail` |
+| ingest webhooks | `refusedMockWebhooks` contains `sendgrid` until WP-00 S2; then `webhooks` contains it | `refusedMockWebhooks`: dropbox_sign, github, sendgrid, shopify, stripe; `webhooks` empty | `ingest-webhooks` |
+| Landing indexing | `noindex` and `/robots.txt` 404 until WP-03; then 200 and indexable | `noindex, nofollow`; `/robots.txt` 404 | `landing-robots` |
+| Sign-up | Closed to a list; the sign-in page loads and offers Google | Sign-in page 200 with Google; `SIGNUP_OPEN` not set | `signin-page` |
+| Public page route | `/p/<unknown>` answers 404, not 500 | 404 | `public-404` |
+| Web deployment | `https://foundmill.com` 200, `www` redirects to apex | 200; `www` answers 308 to `https://foundmill.com/` | `web-up` |
+| Stream, ingest, api | `/health` 200 on each public host listed in §3 (composer has no public host) | 200 on all three | `service-health` |
+| `LIVE_CONNECTORS`, `MODEL_MODE` per service | Values recorded by WP-00 S3 | api and gateway lists in `/health` (above); composer, stream, ingest have none | `manual: founder reads, Desktop records` |
+| Turnstile, idea cookie, Google sign-in, Stripe, push, E2B template | As WP-00 §1 | Turnstile on both sides; idea cookie on; Google on; no `STRIPE_*`; no `ONESIGNAL_*`; `E2B_TEMPLATE` set | `manual: Desktop (variable names)` |
+| Wait for CI, watch paths | As WP-00 S4 | Wait for CI on all six; watch paths on all six (Nov 15 below) | `manual: Desktop` |
+| Supabase: Data API off, Confirm email on | `/rest/v1/` answers 503 | No schema exposed, `rest/v1/` 401; Confirm email on | `manual: Desktop` |
+| Fabricated rows on real projects | Five zeros (WP-02 T4 query) | Not run yet; the nightly cleanup reports its counts after T4 deploys | `manual: Desktop, T4 query` |
+| Nightly numbers | A `platform_metric_days` row for yesterday | Table not built yet (WP-02 T10) | `manual: Desktop` |
+| Hosting plan, spend limits, DMARC | WP-00 S13 to S15 | Vercel Pro; spend limits not recorded; DMARC `p=none` | `manual: founder` |
+<!-- production-record:end -->
+
+### Nov 15, 2026: read and changed through the connectors (cloud session, on the founder's go)
+
+| What | State | How it was read or changed |
+| --- | --- | --- |
+| Watch paths | **Set** on api, gateway, orchestrator, composer, stream and ingest, each to its block of `node scripts/railway-watch.mjs --print` (WP-01 T4) | Railway connector, `update-service` `watchPatterns`, production; read back on ingest |
+| Wait for CI (`checkSuites`) | **On for all six** (api and gateway turned on Nov 15 by the founder in the dashboard, after the CI lanes merged; the staged change read "Check Suites false → true" on those two only, and the repository connection stayed `reidjxn/foundmill@main`). A connector-staged attempt earlier that day showed the whole Source replaced by `{}` and was discarded unapplied | Railway service config, read back |
+| Build | Every service builds from the root `Dockerfile` without a config file being read (Railway's agent: no deployment reports a config file); healthchecks, overlap and draining are in the service settings, so Dec 1, 2026 changes nothing else | Railway service config and its agent |
+| `APP_ENV`, modes | api and ingest answer `env: "staging"`; the api runs integrations `mock`, models `live` | `GET /health` |
+| `LIVE_CONNECTORS` | Set on api, gateway and orchestrator, not on composer, stream or ingest; the values are hidden from the connector and from Railway's agent. Since this change the api's `/health` shows its own list (`modes.liveConnectors`) and the gateway's (`gateway.liveConnectors`), so the value is read from outside | Railway service config; `/health` |
+| SendGrid event webhook (WP-00 S2) | **Working**: SendGrid's Event API posted to `https://ingest.foundmill.com/mail/events` on Nov 14, 2026 at 4:38 PM UTC and ingest answered 200 | Railway http logs of ingest |
+| Supabase auth (WP-00 S10) | Six-digit code, 900 s expiry, "Confirm email" on, Google on, magic-link template carries the code, custom SMTP. The redirect list was narrowed to the three entries of `supabase/config.toml` (founder's go; previews and `localhost` no longer sign in). **Open:** the "Confirm signup" template has no code (WP-03 T4) | Supabase management API (founder's personal access token, saved as a network secret of the cloud environment) |
+| Supabase Data API | Exposes no schema (`db_schema` empty); `rest/v1/` answers 401 at the gateway | Management API; `curl` |
+| Database | 19 accounts (1 in 14 days), 0 waitlist entries, admissions, invitations or published pages, 54 open approvals, 1 idea draft, `bak_20261013` still present | Supabase connector, counts only |
+| Vercel | The team `fm-2f083c2b` (display name fm-504afaf6) is on **Pro** (founder, Nov 15, 2026; the plan's audit had Hobby). Project domains: foundmill.com, www.foundmill.com, foundmill.vercel.app, founder-manager.vercel.app | Founder; Chrome extension report |
+| foundmill.com apex | One A record, `216.150.1.1` (Vercel's recommended address), in place of `64.29.17.1` and `216.198.79.1`; every other record at Spaceship unchanged | Spaceship (founder through the Chrome extension); `dns.google` |
+| foundmill.app | **Bought** by the founder (renews Nov 15, 2027), DNS on Vercel, attached to no project: reserved for Foundmill Sites (WP-07) | Vercel team domains; `curl` answers 404 |
+| Railway project | Renamed `founder-manager` to `foundmill` | Railway connector |
+| Indexing | The home page still sends `noindex, nofollow` (WP-03) | `curl` |
+
+## 7. Local stack without Postgres or Redis
+
+```
+pnpm install
+SEED_TARGET=pglite pnpm db:seed                       # writes ./.pglite/dev and prints the DATABASE_URL to reuse
+DATABASE_URL=pglite:./.pglite/dev APP_ENV=development DEV_AUTH_USER_ID=<printed owner id> pnpm --filter @foundmill/api dev
+NEXT_PUBLIC_APP_ENV=development pnpm --filter @foundmill/web dev
+```
+
+PGlite allows one process per data directory, so only the api opens `./.pglite/dev`; the web talks to the api. The exact e2e stack is in `apps/web/e2e/README.md`.
+
+## History: staging status, Oct 2026
+
+The record before Nov 15, 2026, kept as it was. §6 replaces it.
+
+### Staging status (2026-10-08, cloud session)
 
 Checked against the Railway GraphQL API (team token), the Vercel and Supabase connectors, and the live site. ✅ done, ⬜ open and who can do it.
 
@@ -275,33 +336,3 @@ Checked against the Railway GraphQL API (team token), the Vercel and Supabase co
 | Temporal pinned and its database backed up (§3 "Temporal and its database"): explicit tags on `temporal` and `temporal-ui`, a daily backup schedule on the Postgres volume | ✅ 2026-10-15 (Railway API): `temporal` is `temporalio/auto-setup:1.29.3` and `temporal-ui` is `temporalio/ui:2.55.0`, the versions whose digests were running (`sha256:9be7b8d98f60…` and `sha256:3899d5cf749b…`, matched against Docker Hub), so nothing changes until the next deploy of either; the Postgres volume has a daily (kept 6 days) and a weekly (kept 27 days) schedule, and a manual backup `before-pin-2026-10-15` was taken first |
 | Redis `maxmemory` and an alert on `used_memory` (§3 "Redis memory") | ⬜ founder (2026-10-11: `maxmemory 0`, `noeviction`) |
 | Agents' code on real GitHub: a GitHub App with OAuth during installation; `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET` and `LIVE_CONNECTORS=github` on the gateway; `LIVE_CONNECTORS=github` on the api (§5.4) | ✅ App `foundmill` (id 5246243) created by the founder 2026-10-09; `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID` set on the gateway, `GITHUB_APP_PRIVATE_KEY` and `GITHUB_APP_CLIENT_SECRET` set by the founder. ✅ `LIVE_CONNECTORS=github` on the gateway and the api (the gateway logs `liveConnectors: ["github"]`, checked 2026-10-11); connect through Settings › Integrations |
-
-### Nov 15, 2026: read and changed through the connectors (cloud session, on the founder's go)
-
-| What | State | How it was read or changed |
-| --- | --- | --- |
-| Watch paths | **Set** on api, gateway, orchestrator, composer, stream and ingest, each to its block of `node scripts/railway-watch.mjs --print` (WP-01 T4) | Railway connector, `update-service` `watchPatterns`, production; read back on ingest |
-| Wait for CI (`checkSuites`) | **On for all six** (api and gateway turned on Nov 15 by the founder in the dashboard, after the CI lanes merged; the staged change read "Check Suites false → true" on those two only, and the repository connection stayed `reidjxn/foundmill@main`). A connector-staged attempt earlier that day showed the whole Source replaced by `{}` and was discarded unapplied | Railway service config, read back |
-| Build | Every service builds from the root `Dockerfile` without a config file being read (Railway's agent: no deployment reports a config file); healthchecks, overlap and draining are in the service settings, so Dec 1, 2026 changes nothing else | Railway service config and its agent |
-| `APP_ENV`, modes | api and ingest answer `env: "staging"`; the api runs integrations `mock`, models `live` | `GET /health` |
-| `LIVE_CONNECTORS` | Set on api, gateway and orchestrator, not on composer, stream or ingest; the values are hidden from the connector and from Railway's agent. Since this change the api's `/health` shows its own list (`modes.liveConnectors`) and the gateway's (`gateway.liveConnectors`), so the value is read from outside | Railway service config; `/health` |
-| SendGrid event webhook (WP-00 S2) | **Working**: SendGrid's Event API posted to `https://ingest.foundmill.com/mail/events` on Nov 14, 2026 at 4:38 PM UTC and ingest answered 200 | Railway http logs of ingest |
-| Supabase auth (WP-00 S10) | Six-digit code, 900 s expiry, "Confirm email" on, Google on, magic-link template carries the code, custom SMTP. The redirect list was narrowed to the three entries of `supabase/config.toml` (founder's go; previews and `localhost` no longer sign in). **Open:** the "Confirm signup" template has no code (WP-03 T4) | Supabase management API (founder's personal access token, saved as a network secret of the cloud environment) |
-| Supabase Data API | Exposes no schema (`db_schema` empty); `rest/v1/` answers 401 at the gateway | Management API; `curl` |
-| Database | 19 accounts (1 in 14 days), 0 waitlist entries, admissions, invitations or published pages, 54 open approvals, 1 idea draft, `bak_20261013` still present | Supabase connector, counts only |
-| Vercel | The team `fm-2f083c2b` (display name fm-504afaf6) is on **Pro** (founder, Nov 15, 2026; the plan's audit had Hobby). Project domains: foundmill.com, www.foundmill.com, foundmill.vercel.app, founder-manager.vercel.app | Founder; Chrome extension report |
-| foundmill.com apex | One A record, `216.150.1.1` (Vercel's recommended address), in place of `64.29.17.1` and `216.198.79.1`; every other record at Spaceship unchanged | Spaceship (founder through the Chrome extension); `dns.google` |
-| foundmill.app | **Bought** by the founder (renews Nov 15, 2027), DNS on Vercel, attached to no project: reserved for Foundmill Sites (WP-07) | Vercel team domains; `curl` answers 404 |
-| Railway project | Renamed `founder-manager` to `foundmill` | Railway connector |
-| Indexing | The home page still sends `noindex, nofollow` (WP-03) | `curl` |
-
-## 7. Local stack without Postgres or Redis
-
-```
-pnpm install
-SEED_TARGET=pglite pnpm db:seed                       # writes ./.pglite/dev and prints the DATABASE_URL to reuse
-DATABASE_URL=pglite:./.pglite/dev APP_ENV=development DEV_AUTH_USER_ID=<printed owner id> pnpm --filter @foundmill/api dev
-NEXT_PUBLIC_APP_ENV=development pnpm --filter @foundmill/web dev
-```
-
-PGlite allows one process per data directory, so only the api opens `./.pglite/dev`; the web talks to the api. The exact e2e stack is in `apps/web/e2e/README.md`.

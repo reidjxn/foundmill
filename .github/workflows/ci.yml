@@ -158,7 +158,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Config and guard self-tests (Railway, .env.example, Supabase, the decisions index, the unit matrix, the e2e shards, the log entries, the Vercel ignore step)
-        run: node --test scripts/railway-config.test.mjs scripts/env-example.test.mjs scripts/supabase-config.test.mjs scripts/decisions-index.test.mjs scripts/ci-matrix.test.mjs scripts/e2e-shard.test.mjs scripts/log-entries.test.mjs scripts/vercel-ignore.test.mjs scripts/test-inventory.test.mjs
+        run: node --test scripts/railway-config.test.mjs scripts/env-example.test.mjs scripts/supabase-config.test.mjs scripts/decisions-index.test.mjs scripts/ci-matrix.test.mjs scripts/e2e-shard.test.mjs scripts/log-entries.test.mjs scripts/vercel-ignore.test.mjs scripts/test-inventory.test.mjs scripts/check-production.test.mjs
       # On a pull request HEAD is the merge commit, so a branch that is merely behind does not trip this (WP-01 T6).
       - name: The frozen logs are not edited (new entries go in docs/log/)
         if: ${{ github.event_name == 'pull_request' }}

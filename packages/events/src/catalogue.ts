@@ -2207,6 +2207,26 @@ const founderNoticeSent = declareAccountEvent("founder_notice.sent", FounderNoti
   recordIds: ["businessId", "notificationId"],
 });
 
+// The funnel's four account facts (WP-02 T9): the steps no table states with a time and a way in. Sign-up, commit and
+// a page going live are already rows (`auth.users`, `idea.committed`, `page.published`); these four are not. Each is
+// written once per account (its idempotency key) and read by the nightly numbers (T10), never by a consumer.
+const accountAdmitted = declareAccountEvent("account.admitted", z.object({ how: z.enum(["list", "invitation", "open", "existing"]) }).strict(), {
+  doc: "For the new person: you were let in, and how (from the waitlist or allowlist, an invitation, open sign-up, or an account from before the gate). Written once per account when the profile is first created (apps/api person-created `admission_fact`), from `repos.admissions`; `list` when no admission row exists. No id, no address.",
+  consumers: ["metrics"],
+});
+const profileCreated = declareAccountEvent("profile.created", z.object({ client: z.enum(["web", "app"]) }).strict(), {
+  doc: "For the new person: your founder profile was first saved, from the web or the app (the `x-foundmill-client` header). Written once per account (apps/api person-created `profile_fact`). No free text.",
+  consumers: ["metrics"],
+});
+const ideaKept = declareAccountEvent("idea.kept", z.object({ from: z.literal("idea_box") }).strict(), {
+  doc: "For the person: you kept the idea card you made in the landing page's idea box, once you had an account (`ideaBox.claim` when it claims a draft for the first time). Once per card (idempotency key `idea.kept:<ideaId>`); the card's id is never in the payload.",
+  consumers: ["metrics"],
+});
+const ideaDrafted = declareAccountEvent("idea.drafted", z.object({ source: z.enum(["set", "written", "idea_box"]), cards: z.number().int().min(1).max(12) }).strict(), {
+  doc: "For the person: your first idea cards were made, from a generated set, a written idea or a kept idea-box card, and how many. Written once per account (idempotency key `idea.drafted:first`) where cards are first created for the person.",
+  consumers: ["metrics"],
+});
+
 // ---------------------------------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------------------------------
@@ -2296,6 +2316,10 @@ export const EVENTS = {
   "share.opened": shareOpened,
   "referral.arrived": referralArrived,
   "founder_notice.sent": founderNoticeSent,
+  "account.admitted": accountAdmitted,
+  "profile.created": profileCreated,
+  "idea.kept": ideaKept,
+  "idea.drafted": ideaDrafted,
   "post.drafted": postDrafted,
   "quiz.approved": quizApproved,
   "quiz.published": quizPublished,

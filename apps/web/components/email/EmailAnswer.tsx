@@ -92,7 +92,7 @@ export function EmailAnswer({ token }: { token: string }) {
               </Button>
             ) : (
               <Button asChild size="sm" variant="secondary" iconRight={ArrowRight}>
-                <a href={inbox}>Open the Inbox</a>
+                <a href={inbox}>Open Needs you</a>
               </Button>
             )
           }
