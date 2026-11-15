@@ -6,6 +6,8 @@
 
 **Done when:** the table below has no row in the state "unknown"; docs/DEPLOY.md carries the same table (WP-02 writes it and `scripts/check-production.mjs` checks the public half every night); a stranger can shape an idea on the landing page, follow a project and get the confirmation email, on production.
 
+**Recording a step.** Every step's "record in docs/DEPLOY.md" means: change the row in docs/DEPLOY.md §6, the production record, which `node scripts/check-production.mjs` checks (WP-02 T12).
+
 **Who does what.** A cloud session cannot reach Vercel, Railway or Supabase. Three kinds of actor appear below:
 
 - **Desktop**: a Claude Code session on the founder's computer with the claude.ai connectors for Vercel, Railway and Supabase (they worked on Nov 15; the `.mcp.json` servers `vercel`, `supabase` and `github` did not). It changes production only on the founder's go-ahead, one step at a time, and writes each change into docs/DEPLOY.md in the same sitting.
