@@ -126,6 +126,7 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
       app: APP_NAME,
       db,
       mode: deps.mode,
+      liveConnectors: [...(deps.liveConnectors ?? [])],
       connectors: deps.registry.keys().length,
       policy: { cedar: cedarVersion(), policies: Object.keys(engine.policySet.byId).length },
       vault: deps.vault?.kind ?? "none",

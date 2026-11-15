@@ -5,30 +5,30 @@ One row per task of docs/holistic-plan/WP-*.md. Updated before a task starts and
 | Package | Task | Name | State | Waits on |
 | --- | --- | --- | --- | --- |
 | WP-00 | S1 | Prove the front door works | waiting | Desktop, read-only, then Founder for one test |
-| WP-00 | S2 | Confirm SendGrid's event webhook reaches ingest | waiting | Founder in SendGrid, Desktop records |
-| WP-00 | S3 | Record what `LIVE_CONNECTORS` and `MODEL_MODE` are, per service | waiting | Founder reads, Desktop records |
-| WP-00 | S4 | Stop redeploying everything on every push | waiting | WP-01 T4, then Desktop (deadline Dec 1, 2026) |
+| WP-00 | S2 | Confirm SendGrid's event webhook reaches ingest | done (Nov 15) | SendGrid's events reach ingest |
+| WP-00 | S3 | Record what `LIVE_CONNECTORS` and `MODEL_MODE` are, per service | pull request open (stacked on #144) | the values show on the api's /health once deployed |
+| WP-00 | S4 | Stop redeploying everything on every push | half done (Nov 15) | watch paths set; Wait for CI on api and gateway after #144 |
 | WP-00 | S5 | Open the door | waiting | Founder decides, Desktop switches |
 | WP-00 | S6 | Real web research | waiting | Desktop |
 | WP-00 | S7 | Indexing | waiting | cloud half is WP-03 T6; then Desktop and Founder |
-| WP-00 | S8 | Payments | waiting | Founder, then Desktop |
+| WP-00 | S8 | Payments | waiting | founder: Stripe is the last step before launch |
 | WP-00 | S9 | A domain for Foundmill Sites | waiting | Founder decides and buys, Desktop wires |
 | WP-00 | S10 | Supabase settings | waiting | Founder, with the CLI or dashboard |
 | WP-00 | S11 | Skills in cloud sessions | done (in the plan branch) | optional founder step: plugins in the setup script |
 | WP-00 | S12 | Watching production | waiting | cloud half is WP-01 T2 and WP-02 T12; then Founder |
 | WP-00 | S13 | Spending backstops | waiting | Founder |
-| WP-00 | S14 | Hosting plan | waiting | Founder decides |
+| WP-00 | S14 | Hosting plan | done | Vercel is on Pro |
 | WP-00 | S15 | Mail reputation | waiting | Founder at Spaceship, later |
 | WP-00 | S16 | Leftovers | waiting | Desktop, on the founder's go |
 | WP-00 | S17 | Later, with the phone app | waiting | Desktop or Founder |
-| WP-01 | T1 | Split the hour into parallel lanes | in progress (branch claude/wp01-t1-ci-lanes) |  |
-| WP-01 | T2 | A red main opens an issue; a nightly lane exists | not started |  |
-| WP-01 | T3 | Tests load a migrated database instead of replaying 96 migrations | not started |  |
-| WP-01 | T4 | Watch paths per service, written out and proven | not started |  |
-| WP-01 | T5 | Fewer web builds | not started |  |
-| WP-01 | T6 | One small file per change; the two logs are frozen | not started |  |
-| WP-01 | T7 | Skipped and flaky tests are counted on every run | not started |  |
-| WP-01 | T8 | The seven stale agent pull requests | not started | founder decision or go-ahead (see the package) |
+| WP-01 | T1 | Split the hour into parallel lanes | pull request open (#144) | founder merge |
+| WP-01 | T2 | A red main opens an issue; a nightly lane exists | pull request open (#146) | founder merge; first real run after merge |
+| WP-01 | T3 | Tests load a migrated database instead of replaying 96 migrations | pull request open (#150) | founder merge; step 5 (fewer unit shards) after CI numbers |
+| WP-01 | T4 | Watch paths per service, written out and proven | pull request open (#145) | founder merge; then WP-00 S4 |
+| WP-01 | T5 | Fewer web builds | pull request open (#151) | founder merge |
+| WP-01 | T6 | One small file per change; the two logs are frozen | waiting | founder: the freeze day (WP-01 decision 5), and the plan branch merged |
+| WP-01 | T7 | Skipped and flaky tests are counted on every run | pull request open (#152) | founder merge |
+| WP-01 | T8 | The seven stale agent pull requests | in progress | five closed; #52 and #38 after #144; branch deletion is the founder's |
 | WP-02 | T1 | An approval that expires says so | not started |  |
 | WP-02 | T2 | The channel engine stops claiming launches on a real project | not started |  |
 | WP-02 | T3 | Never ask the founder to approve a call that cannot run | not started |  |
@@ -152,8 +152,8 @@ One row per task of docs/holistic-plan/WP-*.md. Updated before a task starts and
 | WP-10 | T11 | Settings opens on five basics | not started |  |
 | WP-10 | T12 | States that lose or hide information | not started |  |
 | WP-10 | T13 | Today's bundle, dead code and a token scanner | not started |  |
-| WP-11 | T1 | Real Postgres in CI | not started |  |
-| WP-11 | T2 | A failed migration fails readiness | not started |  |
+| WP-11 | T1 | Real Postgres in CI | pull request open (#147) | founder merge; then F1 |
+| WP-11 | T2 | A failed migration fails readiness | pull request open (#148) | founder merge |
 | WP-11 | T3 | Backup and restore runbook | not started | founder decision or go-ahead (see the package) |
 | WP-11 | T4 | Advisor test, pinned service-only tables, `search_path` migration | not started |  |
 | WP-11 | T5 | Migration: `auth.uid()` once per statement | not started |  |

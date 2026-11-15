@@ -44,6 +44,8 @@ describe("health and catalogue", () => {
   it("GET /health reports the mode, the connectors and the policy set", async () => {
     const health = await g.client.health();
     expect(health).toMatchObject({ ok: true, db: true, service: "gateway", mode: "mock", connectors: 1, vault: "local", rateLimitStore: "memory" });
+    // The connectors switched live one by one (LIVE_CONNECTORS): names only, so nobody reads them off Railway by hand.
+    expect(health.liveConnectors).toEqual([]);
     expect(health.policy.policies).toBeGreaterThanOrEqual(15);
   });
 

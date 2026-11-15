@@ -152,6 +152,8 @@ export interface HealthResponse {
   /** False when the database did not answer at boot (the service still runs; see db-boot.ts). */
   db: boolean;
   mode: "mock" | "live";
+  /** The connectors switched live one by one (LIVE_CONNECTORS), by key; names only, never a credential. */
+  liveConnectors: string[];
   connectors: number;
   policy: { cedar: string; policies: number };
   vault: "local" | "kms" | "none";
