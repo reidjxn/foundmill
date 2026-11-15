@@ -675,6 +675,19 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
     }
   });
 
+  it("a session started without the cycle's brief (Start, a plan, a playbook) still knows what the project is and can read the product notes (WP-05 T4)", async () => {
+    const business = await repos.businesses.get(t.db, t.businessId);
+    const { sessionId, input, launch } = await start();
+    script = success(sessionId);
+    expect((await acts.runAgentSession(input, launch, null)).outcome).toBe("done");
+    const system = String(calls.at(-1)!.options.systemPrompt);
+    const about = system.indexOf(`## About ${business.name}`);
+    expect(about).toBeGreaterThan(system.indexOf("## Business brief"));
+    expect(system.indexOf("Stage: project; public page:")).toBeGreaterThan(about);
+    expect(launch.allowedTools).toContain("platform:read_product");
+    await repos.tasks.setStatus(t.db, t.businessId, researchTaskId, "ready", { force: true });
+  });
+
   it("Stop interrupts the turn in flight, waits for the SDK's final usage and ends stopped with every token booked (O-04)", async () => {
     const { sessionId, input, launch } = await start();
     script = async function* (call) {

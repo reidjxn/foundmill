@@ -140,7 +140,7 @@ Steps:
 Tests and evals: above; golden eval `researcher.report_saved` in T6.
 Done when: a finished research task has a row in `task_reports`, the next agent can read it, and query 4 returns no row for tasks finished after the deploy.
 
-### T4: The brief says what the project is, and every session gets it [M] [session.ts chain 3]
+### [x] T4: The brief says what the project is, and every session gets it [M] [session.ts chain 3]
 Why: AR-05 parts 1, 2 and 4.
 Files: modify `apps/orchestrator/src/activities/brief.ts`, `apps/orchestrator/src/activities/session.ts` (`runAgentSession`), `packages/agents/src/connectors.ts`; tests `apps/orchestrator/src/__tests__/billing-brief.test.ts` (or a new `about-brief.test.ts`), `session-live.test.ts`, `grants-contract.test.ts`.
 Interfaces, consumes: `loadBrief({ businessId }): Promise<BusinessBrief>` (`brief.ts:122`; sections pushed from `:168`; cut at `BRIEF_TOKEN_BUDGET`); `repos.pages.starterInputs(db, businessId): Promise<{ founderWords: string | null; visionStatement: string | null; visionForWhom: string | null }>` (`packages/db/src/repos/pages.ts:132`); `repos.pages.get(db, businessId): Promise<ProjectPage | null>`; `runAgentSession(input, launched, briefText: string | null = null, runOptions)` (`session.ts:806`); sessions started by Start (`apps/api/src/services/task-start.ts:112`), a plan (`activities/plan.ts`) or a playbook pass no `briefText`.

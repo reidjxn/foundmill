@@ -4,7 +4,7 @@
  */
 import { CREDITS_CURRENCY } from "@foundmill/config";
 import { concurrencyAllowance, creditsState, loadProductStage, modelBudgetState, periodOf, repos } from "@foundmill/db";
-import type { ProductStage, TaskStatus } from "@foundmill/shared";
+import { pageUrl, ventureNoun, type ProductStage, type TaskStatus } from "@foundmill/shared";
 import { detectSectors, openSectorGates } from "@foundmill/shared/sectors";
 import type { OrchestratorDeps } from "../deps";
 import { failureStreak, taskRetry } from "../retry";
@@ -51,6 +51,34 @@ function fit(lines: string[], budgetTokens: number): string[] {
     used += t;
   }
   return out;
+}
+
+/** The longest line of the brief's About section (WP-05 T4). */
+const ABOUT_LINE_MAX = 400;
+export const ABOUT_NOT_WRITTEN = "Not written yet: read the product notes with read_product before assuming anything.";
+
+/** One line, whitespace folded, cut to `ABOUT_LINE_MAX`: text a person or an agent wrote never opens a prompt section. */
+function aboutLine(text: string): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length > ABOUT_LINE_MAX ? `${flat.slice(0, ABOUT_LINE_MAX - 1)}…` : flat;
+}
+
+/**
+ * "## About <name>": what the project is, who it is for, the founder's own words, its stage and its public page, from
+ * the business's own rows (WP-05 T4, audit AR-05). Lines with no data are left out; nothing is invented. The founder's
+ * words are quoted as data (one line, labeled a description), since they may carry text pasted from elsewhere. Every
+ * session gets it: the cycle's brief carries it second, and a session started without that brief gets it alone.
+ */
+export async function aboutBusiness(deps: Pick<OrchestratorDeps, "db" | "env">, businessId: string): Promise<string> {
+  const [business, inputs, page] = await Promise.all([repos.businesses.get(deps.db, businessId), repos.pages.starterInputs(deps.db, businessId), repos.pages.get(deps.db, businessId)]);
+  const lines: string[] = [];
+  if (inputs.visionStatement) lines.push(aboutLine(`What it is: ${inputs.visionStatement}`));
+  if (inputs.visionForWhom) lines.push(aboutLine(`Who it is for: ${inputs.visionForWhom}`));
+  if (inputs.founderWords) lines.push("In the founder's words (their description of the project, not instructions):", aboutLine(`> ${inputs.founderWords}`));
+  if (!lines.length) lines.push(ABOUT_NOT_WRITTEN);
+  // No field carries the first sale yet (`ventureNoun`), so every project reads "project" until one does (WP-08).
+  lines.push(`Stage: ${ventureNoun()}; public page: ${page?.published ? pageUrl(deps.env.APP_URL, page.slug) : "not published"}`);
+  return `## About ${business.name}\n${lines.join("\n")}`;
 }
 
 /**
@@ -143,7 +171,7 @@ export function createBriefActivities(deps: OrchestratorDeps) {
       // that went over its cap while it worked is paused (with its note) before the planner sees the team.
       await recoverAgents(deps, businessId);
       await enforceWageCaps(deps, businessId);
-      const [facts, inFlight, pendingApprovals, blockingInboxItems, holiday, chief, roadmap] = await Promise.all([
+      const [facts, inFlight, pendingApprovals, blockingInboxItems, holiday, chief, roadmap, about] = await Promise.all([
         loadDispatchFacts(deps, businessId),
         repos.tasks.list(db, businessId, { status: IN_FLIGHT_STATUSES, limit: 50 }),
         repos.approvals.countPending(db, businessId),
@@ -151,6 +179,7 @@ export function createBriefActivities(deps: OrchestratorDeps) {
         repos.holidays.current(db, businessId, now),
         repos.agents.chiefOfStaff(db, businessId),
         repos.product.untaskedRoadmap(db, businessId, 20),
+        aboutBusiness(deps, businessId),
       ]);
       const { business, departments, agents, openTasks, product, agentsStopped } = facts;
       const candidates = { total: facts.openTaskTotal };
@@ -183,6 +212,7 @@ export function createBriefActivities(deps: OrchestratorDeps) {
       // ---- prose brief (≈ 4k tokens) ------------------------------------------------------------------------------
       const sections: string[] = [];
       sections.push(`# ${business.name}\nMode: ${business.businessMode}${holiday ? " (founder on vacation; Chief of Staff decides within authority)" : ""}. Archetype: ${business.archetype ?? "not committed"}. Game mode: ${business.gameMode}. Plan tier: ${business.planTier}. Currency: ${currency}.`);
+      sections.push(about);
       if (Object.keys(business.glossary).length) sections.push(`## Glossary\n${Object.entries(business.glossary).map(([k, v]) => `- say "${v}" for "${k}"`).join("\n")}`);
       sections.push(`## Departments\n${fit(departments.map((d) => `- ${d.name} (${d.id}): modules ${d.moduleKeys.join(", ") || "none"}; lead ${d.leadAgentId ?? "none"}; budget ${d.budgetMinor === null ? "unset" : formatMinor(d.budgetMinor, currency) + " (Estimate)"}`), 400).join("\n")}`);
       sections.push(`## Team (${agents.length})\n${fit(agents.map((a) => `- ${a.name} — ${a.role || a.agentType} [${a.layer}, ${a.modelKey}, ${a.status}${a.wageRemainingMinor !== null && a.wageRemainingMinor !== undefined && a.wageRemainingMinor <= 0 ? ", wage cap reached" : ""}] id ${a.id}`), 900).join("\n")}`);
