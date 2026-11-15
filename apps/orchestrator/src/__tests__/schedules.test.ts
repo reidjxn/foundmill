@@ -7,6 +7,8 @@
 import { repos } from "@foundmill/db";
 import { MockActivityEnvironment } from "@temporalio/testing";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { LOST_SESSION_AFTER_MS, openAgentSession } from "../activities/dispatch";
+import { createHealthActivities } from "../activities/health";
 import { createScheduleActivities } from "../activities/schedules";
 import type { ScheduleResult } from "../activities/types";
 import { emitEvent, systemActor } from "../events";
@@ -54,20 +56,24 @@ describe("schedule registration", () => {
   it("defines a schedule for every periodic job, each naming a workflow the worker bundles", () => {
     const ids = SCHEDULES.map((s) => s.id);
     expect(new Set(ids).size).toBe(ids.length);
-    for (const job of ["journeyDailyRefresh", "journeyMatviewRefresh", "benchmarksRebuild", "credentialExpiryScan", "consentRenewalScan", "agentMetricsRollup", "agentHealthSweep", "legalCalendarRoll", "sourceWatchSweep", "channelEngineReconcile", "crmDeletionSweep", "businessDeletionSweep", "founderNotifications"]) {
+    for (const job of ["journeyDailyRefresh", "journeyMatviewRefresh", "benchmarksRebuild", "credentialExpiryScan", "consentRenewalScan", "agentMetricsRollup", "agentHealthSweep", "legalCalendarRoll", "sourceWatchSweep", "channelEngineReconcile", "crmDeletionSweep", "businessDeletionSweep", "founderNotifications", "platformMetrics"]) {
       expect(SCHEDULES.map((s) => s.workflowType)).toContain(job);
       expect(typeof (workflows as Record<string, unknown>)[job]).toBe("function");
     }
     expect(WORKFLOWS_PATH).toMatch(/workflows\/index\.ts$/);
   });
 
-  it("creates every schedule once on the main queue, triggers the engine reconciler, and leaves unchanged ones alone", async () => {
+  it("creates every schedule once on the main queue, triggers the engine reconciler and the mock-results count, and leaves unchanged ones alone", async () => {
     const fake = fakeScheduleClient();
     const first = await registerSchedules(fake.client, { taskQueue: "fm-main" });
     expect(first.created).toHaveLength(SCHEDULES.length);
     const reconcile = fake.store.get(scheduleId("fm-main", "channel-engine-reconcile"))!;
     expect(reconcile.options).toMatchObject({ action: { type: "startWorkflow", workflowType: "channelEngineReconcile", taskQueue: "fm-main" }, policies: { overlap: "SKIP" } });
-    expect(fake.triggered).toEqual([scheduleId("fm-main", "channel-engine-reconcile")]);
+    const onBoot = [scheduleId("fm-main", "channel-engine-reconcile"), scheduleId("fm-main", "mock-results-cleanup")];
+    expect(fake.triggered).toEqual(onBoot);
+    expect(fake.store.get(scheduleId("fm-main", "mock-results-cleanup"))!.options).toMatchObject({ spec: { cronExpressions: ["30 3 * * *"] }, action: { workflowType: "mockResultsCleanup", args: [{}] } });
+    // The nightly numbers run on their schedule only (not on boot): 03:15 UTC, for the UTC day before.
+    expect(fake.store.get(scheduleId("fm-main", "platform-metrics"))!.options).toMatchObject({ spec: { cronExpressions: ["15 3 * * *"] }, action: { workflowType: "platformMetrics", args: [{}] } });
     const nightly = fake.store.get(scheduleId("fm-main", "journey-daily-refresh"))!;
     expect(nightly.options).toMatchObject({ spec: { cronExpressions: ["10 2 * * *"] }, action: { workflowType: "journeyDailyRefresh", args: [{}] } });
     expect(nightly.note).toContain(`[fm:${scheduleFingerprint(SCHEDULES.find((s) => s.id === "journey-daily-refresh")!, "fm-main")}]`);
@@ -76,7 +82,7 @@ describe("schedule registration", () => {
     const second = await registerSchedules(fake.client, { taskQueue: "fm-main" });
     expect(second).toEqual({ created: [], updated: [], unchanged: SCHEDULES.map((s) => scheduleId("fm-main", s.id)) });
     expect(fake.updates).toEqual([]);
-    expect(fake.triggered).toEqual([scheduleId("fm-main", "channel-engine-reconcile"), scheduleId("fm-main", "channel-engine-reconcile")]);
+    expect(fake.triggered).toEqual([...onBoot, ...onBoot]);
   });
 
   it("updates a schedule whose definition changed, keeping an operator's pause", async () => {
@@ -181,6 +187,22 @@ describe("schedule activities on PGlite", () => {
     expect(heartbeats.slice(0, 2)).toEqual([1, 1]);
   });
 
+  it("the hourly health sweep closes a lost session and plans its task again (WP-05 T13)", async () => {
+    const task = await repos.tasks.create(t.db, t.businessId, { kind: "ops", title: "Lost in the sweep", status: "ready", assigneeAgentId: t.workerId });
+    const opened = await openAgentSession(t.deps, { businessId: t.businessId, agentId: t.workerId, taskId: task.id, sessionId: null });
+    expect(opened.refused).toBeNull();
+    const before = t.deps.workflowRunning;
+    t.deps.workflowRunning = async (id) => (id === opened.workflowId ? false : null);
+    try {
+      await t.clock.advance(LOST_SESSION_AFTER_MS + 60_000);
+      await createHealthActivities(t.deps).refreshAgentHealth({ businessId: t.businessId });
+    } finally {
+      t.deps.workflowRunning = before;
+    }
+    expect((await repos.agents.getSession(t.db, t.businessId, opened.sessionId!)).outcome).toBe("lost");
+    expect((await repos.tasks.get(t.db, t.businessId, task.id)).status).toBe("ready");
+  });
+
   it("the nightly milestone catch-up awards the trophies the business reached", async () => {
     await repos.journeys.recordConversion(t.db, t.businessId, { kind: "payment", amountMinor: 2_000, currency: "EUR", occurredAt: new Date("2026-10-01T09:00:00Z") });
     const result = await acts.milestonesCatchUp({ businessIds: [t.businessId], at: "2026-10-05T00:00:00Z" });
@@ -198,7 +220,7 @@ describe("schedule activities on PGlite", () => {
     expect(await acts.recordEngineWorkflows({ entries: [{ businessId: t.businessId, channelId: t.fixture.channelId, workflowId: `engine:${t.fixture.channelId}` }] })).toEqual({ updated: 0 });
   });
 
-  it("on staging the reconciler leaves out a channel that cannot really act, keeps one in offline tracking and one that acts (founder, 2026-11-11)", async () => {
+  it("on staging the reconciler keeps only offline tracking: a channel that cannot act, or acts through tasks, gets no engine (founder, 2026-11-11; WP-02 T2)", async () => {
     const staging = createScheduleActivities({ ...t.deps, env: { ...t.deps.env, APP_ENV: "staging", LIVE_CONNECTORS: "github" } });
     const print = await repos.channels.upsert(t.db, t.businessId, { channelKey: "print", line: "wings", enabled: true, kitMode: true });
     const seo = await repos.channels.upsert(t.db, t.businessId, { channelKey: "seo", line: "defence", enabled: true, kitMode: false });
@@ -206,11 +228,13 @@ describe("schedule activities on PGlite", () => {
     // Events has no publisher, SEO's connector is live here but not connected: only print (offline tracking) keeps its engine.
     expect(await mine()).toEqual(["print"]);
     await repos.integrations.upsert(t.db, t.businessId, { connectorKey: "github", status: "connected", authKind: "app" });
-    expect(await mine()).toEqual(["print", "seo"]);
+    // SEO can act now (the agents work through tasks and sessions), but the weekly engine has nothing it can send for
+    // it yet, so it gets no engine and no launch is ever claimed (WP-02 T2). Offline tracking keeps its engine.
+    expect(await mine()).toEqual(["print"]);
     // Tap-to-post (founder, 2026-11-12): social is available and on the board, and the founder posts it. No engine is
     // ever ensured for it, so the reconciler does not start one every 15 minutes for the engine to stop at once.
     const social = await repos.channels.upsert(t.db, t.businessId, { channelKey: "social", line: "midfield", enabled: true, kitMode: false });
-    expect(await mine()).toEqual(["print", "seo"]);
+    expect(await mine()).toEqual(["print"]);
     // In test (and development) nothing is left out.
     const all = (await acts.listEnginesToEnsure()).channels.filter((c) => c.businessId === t.businessId).map((c) => c.channelId);
     expect(all).toEqual(expect.arrayContaining([t.fixture.channelId, print.id, seo.id, social.id]));

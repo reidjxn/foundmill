@@ -148,7 +148,14 @@ describe("turning on a channel that cannot run is refused", () => {
     const offline = await testEnv().distribution.campaigns.create({ businessId: hz.A.businessId, channelId: outdoor.id, name: "Posters", budgetMinor: 5_000 });
     await repos.campaigns.createAsset(hz.db, hz.A.businessId, { campaignId: offline.id, kind: "print", title: "Poster", approvalState: "approved", authoredByAgentId: hz.A.agentId });
     expect((await staging().distribution.campaigns.setStatus({ businessId: hz.A.businessId, campaignId: offline.id, status: "scheduled" })).status).toBe("scheduled");
-    expect((await staging().distribution.campaigns.setStatus({ businessId: hz.A.businessId, campaignId: offline.id, status: "live" })).status).toBe("live");
+    // Nothing is sent from here, so a real project never marks it live by hand (WP-02 T2, GTM-36): the founder submits the
+    // materials and ends it. A sample or test project still can.
+    await expect(staging().distribution.campaigns.setStatus({ businessId: hz.A.businessId, campaignId: offline.id, status: "live" })).rejects.toMatchObject({
+      code: "CONFLICT",
+      message: "Nothing is sent from here, so the campaign stays as it is. Submit the materials yourself, then mark it ended.",
+    });
+    expect((await repos.campaigns.get(hz.db, hz.A.businessId, offline.id)).status).toBe("scheduled");
+    expect((await testEnv().distribution.campaigns.setStatus({ businessId: hz.A.businessId, campaignId: offline.id, status: "live" })).status).toBe("live");
   });
 
   it("a plan never turns one on: the action is refused in the founder's words, the channel stays off and no engine starts", async () => {

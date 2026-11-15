@@ -9,11 +9,22 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import { matches, redeploys, watchPaths } from "./railway-watch.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SERVICES = ["api", "gateway", "orchestrator", "composer", "stream", "ingest"];
-/** What every service's image is built from (Dockerfile COPY lines and the install). */
-const BUILD_INPUTS = ["/packages/**", "/patches/**", "/Dockerfile", "/package.json", "/pnpm-lock.yaml", "/pnpm-workspace.yaml", "/.npmrc"];
+/** The workspace packages each service imports through `dependencies`, transitively (WP-01 T4). Pinned here so a new
+ * dependency shows up as a diff in this test, and the Railway settings are updated with it. */
+const PACKAGES = {
+  api: ["agents", "config", "connectors", "db", "entity-linker", "events", "journey", "models", "policy", "shared"],
+  gateway: ["agents", "config", "connectors", "db", "events", "journey", "models", "policy", "shared"],
+  orchestrator: ["agents", "config", "connectors", "db", "entity-linker", "events", "journey", "models", "policy", "sandbox", "shared"],
+  composer: ["agents", "config", "db", "entity-linker", "events", "journey", "models", "shared"],
+  stream: ["agents", "config", "db", "events", "journey", "models", "shared"],
+  ingest: ["agents", "config", "connectors", "db", "events", "journey", "models", "shared"],
+};
+/** What every service's image is built from (Dockerfile COPY lines and the install), besides the packages. */
+const IMAGE_INPUTS = ["/patches/**", "/Dockerfile", "/package.json", "/pnpm-lock.yaml", "/pnpm-workspace.yaml", "/.npmrc"];
 
 /** The flat subset of TOML these files use: `[section]` headers and `key = "string" | number | ["string", ...]` lines. */
 function parseToml(text) {
@@ -63,13 +74,22 @@ describe("Railway config files", () => {
     assert.ok(read("railway/orchestrator.toml").deploy.healthcheckTimeout >= 120);
   });
 
-  it("each service redeploys on its own code, the shared packages and the image, and on nothing else", () => {
+  it("each service's watch paths are its app, the packages it imports and the image, and the toml mirrors them", () => {
     for (const service of SERVICES) {
+      const expected = [`/apps/${service}/**`, ...(service === "orchestrator" ? ["/infra/**"] : []), ...PACKAGES[service].map((p) => `/packages/${p}/**`), ...IMAGE_INPUTS];
+      assert.deepEqual([...watchPaths(service)].sort(), [...expected].sort(), `${service}: watchPaths`);
       const patterns = read(`railway/${service}.toml`).build.watchPatterns;
       assert.ok(Array.isArray(patterns), `${service}: watchPatterns`);
-      assert.deepEqual([...patterns].sort(), [`/apps/${service}/**`, `/railway/${service}.toml`, ...BUILD_INPUTS].sort(), service);
-      // Docs, the web app and the other services never restart it.
-      for (const other of ["/docs/README.md", "/apps/web/app/page.tsx", ...SERVICES.filter((s) => s !== service).map((s) => `/apps/${s}/src/index.ts`)]) {
+      assert.deepEqual([...patterns].sort(), [...watchPaths(service)].sort(), `${service}: the toml mirrors watchPaths`);
+    }
+  });
+
+  it("each service redeploys on its own code and the packages it imports, and on nothing else", () => {
+    for (const service of SERVICES) {
+      const patterns = watchPaths(service);
+      // Docs, the web app, the UI packages, a toml Railway no longer reads and the other services never restart it.
+      const never = ["/docs/README.md", "/apps/web/app/page.tsx", "/packages/dugout/src/index.ts", "/packages/widgets/src/index.ts", `/railway/${service}.toml`];
+      for (const other of [...never, ...SERVICES.filter((s) => s !== service).map((s) => `/apps/${s}/src/index.ts`)]) {
         assert.ok(!patterns.some((p) => matches(p, other)), `${service} must not redeploy on ${other}`);
       }
       assert.ok(patterns.some((p) => matches(p, `/apps/${service}/src/index.ts`)), `${service} redeploys on its own code`);
@@ -84,7 +104,14 @@ describe("Railway config files", () => {
   });
 });
 
-/** Railway's watch patterns are gitignore-style globs; the ones here only use a trailing `/**` or an exact path. */
-function matches(pattern, path) {
-  return pattern.endsWith("/**") ? path.startsWith(pattern.slice(0, -2)) : path === pattern;
-}
+describe("which services a change redeploys", () => {
+  it("a docs-only change redeploys nothing", () => assert.deepEqual(redeploys(["docs/PROGRESS.md"]), []));
+  it("an apps/ingest change redeploys only ingest", () => assert.deepEqual(redeploys(["apps/ingest/src/index.ts"]), ["ingest"]));
+  it("a packages/sandbox change redeploys only the orchestrator", () => assert.deepEqual(redeploys(["packages/sandbox/src/worktree.ts"]), ["orchestrator"]));
+  it("the lockfile redeploys all six", () => assert.deepEqual([...redeploys(["pnpm-lock.yaml"])].sort(), [...SERVICES].sort()));
+  it("the optional negations keep Markdown and tests under a package from redeploying", () => {
+    assert.deepEqual(redeploys(["packages/shared/CLAUDE.md"], { withNegation: true }), []);
+    assert.deepEqual(redeploys(["packages/db/src/__tests__/x.test.ts"], { withNegation: true }), []);
+    assert.equal(redeploys(["packages/shared/CLAUDE.md"]).length, 6);
+  });
+});

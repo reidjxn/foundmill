@@ -16,7 +16,7 @@ import { FOLLOW_ERRORS, followConsentText, type ProjectPageContent } from "@foun
 import { createHash } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { FOLLOW_MOCK_TURNSTILE_TOKEN, followAddressKey, followLimitKeys, followPage, PAGE_FOLLOW_LIMITS } from "../services/pages";
+import { FOLLOW_MOCK_TURNSTILE_TOKEN, followAddressKey, followLimitKeys, followPage, PAGE_FOLLOW_LIMITS, publicPageBySlug } from "../services/pages";
 import type { GatewayConfirmFollowRequest, GatewayConfirmFollowResult, GatewayTurnstileRequest, GatewayTurnstileResult } from "../services/gateway";
 import { createApiHarness, type ApiHarness } from "./harness";
 
@@ -171,7 +171,7 @@ describe("publicPage.follow (double opt-in)", () => {
 
   it("on staging and production the token must come from the site's own hostname", async () => {
     const b = await project("Hostname");
-    const env = { ...hz.deps.env, APP_ENV: "production" as const, APP_URL: "https://www.foundmill.com" };
+    const env = { ...hz.deps.env, APP_ENV: "production" as const, APP_URL: "https://www.foundmill.com", PLATFORM_MAIL_DOMAIN: "mail.foundmill.com", LIVE_CONNECTORS: "sendgrid" };
     expect(await followPage({ ...hz.deps, env }, { slug: b.slug, email: "host@example.com", consent: true, turnstile: TOKEN })).toEqual({ ok: true });
     expect(checked.at(-1)).toMatchObject({ hostname: "foundmill.com", action: "page_follow" });
   });
@@ -404,3 +404,20 @@ describe("publicPage.follow (double opt-in)", () => {
     expect(await refusal(other.member.crm.roles.byRole({ businessId: a.id, role: "lead" }))).toMatch(/^FORBIDDEN:/);
   });
 });
+
+describe("the Follow form only where a confirmation can be sent (WP-02 T7)", () => {
+  it("staging without platform mail live: the public page has no form and following is refused as closed; live mail keeps it", async () => {
+    const b = await project("MailOff");
+    const off = { ...hz.deps.env, APP_ENV: "staging" as const, INTEGRATIONS_MODE: "mock" as const, LIVE_CONNECTORS: "", PLATFORM_MAIL_DOMAIN: "mail.foundmill.test" };
+    const offPage = await publicPageBySlug({ ...hz.deps, env: off }, b.slug);
+    expect(offPage!.followForm).toBe(false);
+    expect(await followPage({ ...hz.deps, env: off }, { slug: b.slug, email: "off@example.com", consent: true, turnstile: TOKEN }).then(() => "ok", (e: { code?: string }) => e.code)).toBe("follow_closed");
+    expect(asked).toHaveLength(0);
+    const on = { ...off, LIVE_CONNECTORS: "sendgrid" };
+    expect((await publicPageBySlug({ ...hz.deps, env: on }, b.slug))!.followForm).toBe(true);
+    expect(await followPage({ ...hz.deps, env: on }, { slug: b.slug, email: "on@example.com", consent: true, turnstile: TOKEN })).toEqual({ ok: true });
+    // The founders see why the switch is off (page.get's followAvailable).
+    expect((await b.owner.page.get({ businessId: b.id })).followAvailable).toBe(true);
+  });
+});
+

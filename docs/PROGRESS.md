@@ -1,5 +1,7 @@
 # PROGRESS.md
 
+> Frozen on Nov 15, 2026. New entries are files under docs/log/ (skill `log-entry`). Search both with `node scripts/decisions-index.mjs <words>`.
+
 Status legend: ☐ not started · ◐ in progress · ☑ done · ✗ blocked
 
 ## Phase 0 — Foundations (BUILD §16.1)
@@ -2190,11 +2192,14 @@ zod 4.6.7 stops an array, set or map at a length check placed first in its chain
 - **Tests.** `apps/api/src/__tests__/input-limits.test.ts`: a walk over every procedure's input schema finds no array, set or map without a cap first and no record without its key guard (a new unbounded input fails it); for each of 64 bounded fields through the caller, one past the limit and 100,000 junk elements or keys are a BAD_REQUEST with at most 3 issues and a message under 2,000 characters, the limit itself passes the procedure's input parsers, a small valid input passes input validation; five representative calls succeed end to end; playbook flows. `packages/shared/src/bounded-record.test.ts` (limit, plain objects only, `__proto__`, a Map, 200,000 keys as one issue).
 - **Not changed.** `apps/ingest/src/simulate.ts` (behind a service token). Schemas that parse model output or stored rows and never a request (`OptionAction.params`, `PostDraft.variants`, the jurisdiction cards in `legal.ts`, the idea verdict in `idea.ts`).
 
-## 2026-11-15 — The landing page's design-system pieces (landing session, pull request 2)
+## Holistic review and plan (Nov 15, 2026)
 
-- **Tokens** (`packages/dugout/src/tokens.css`, new only, so nothing the console reads moves): the landing type scale (`--fs-landing-h1` … `--fs-landing-small`, body 16/26), `--landing-column`, `--landing-screen`, `--landing-section-y`, `--landing-field-h`, `--landing-gen-h`, and `--line-control` (a field's edge at 3 : 1 against the canvas).
-- **Styles** (`packages/dugout/src/landing.css`, imported by dugout.css): `landing-page` (the root, a container), `landing-col`, `landing-measure`, `t-landing-*`, `landing-section`, `landing-split` (two columns from 1024 px), `landing-day`, `landing-field-edge`, `idea-gen-filled` (the founder's filled idea button, Nov 15), `screen-frame` and its chip.
-- **Components** (`packages/dugout/src/components/landing/`, server-safe, each with a story): `ScreenFrame`, `LandingSection`, `DayList`, `AssuranceList`, `QuestionList`; Storybook also has `Landing/Idea button` (filled and recorded).
-- **Tests.** `landing.test.tsx` (10): the Example caption names the figure, a section is a region named by its h2 with a focusable `<id>-title`, the screen goes beside the words only when given, a milestone is named in words, all three assurances render, questions are native `<details>` closed in the server's HTML, body 16 px, the field edge at 3 : 1 and the filled button's label at 4.5 : 1 and fill at 3 : 1. The five files are in `SERVER_SAFE_FILES`. Dugout: 128 files, 1,305 tests pass; `check:rsc` passes.
-- **Checked in Storybook at 390 and 1440 px:** no horizontal scroll, axe clean for every new story.
-- **Not done.** `IdeaCard`'s rating-name buttons are under 24 px in the console; the landing page lifts them to 24 px inside `landing-page` only. The component itself is a follow-up.
+- ☑ **Review.** `docs/HOLISTIC_REVIEW.md`: the product as a first-time founder meets it, from eleven read-only code audits at `04a0a509`, four reviews made with the copied skills and production facts read through the Vercel, Railway and Supabase connectors. Evidence in `docs/holistic-plan/audits/`.
+- ☑ **Plan.** `docs/HOLISTIC_PLAN.md` and `docs/holistic-plan/WP-00` to `WP-12`: thirteen work packages with tasks, interfaces, tests and starting prompts for cloud sessions. Not started: no package has been executed.
+- ☑ **Skills for sessions.** Thirty outside skills copied into `.claude/skills/` with notices; CLAUDE.md's vetting rule replaced (see DECISIONS, same date).
+- ☑ **Skills for the product's agents, drafted.** `docs/holistic-plan/skills/`: the authoring spec and the drafts, by category. They are not in `packages/agents` yet; WP-06 moves them.
+- **Tests.** None run: documents only, and the laptop runs no builds. `node scripts/us-english.mjs`, `banned-terms.mjs` and `plain-language.mjs` results are in the change's description.
+
+## Holistic plan, WP-01 T1: CI in parallel lanes (Nov 15, 2026)
+
+- ◐ **CI split into lanes** (`.github/workflows/ci.yml`, branch `claude/wp01-t1-ci-lanes`). A `changes` job decides per pull request which lanes run (main and dispatched agent runs run all); `static` (typecheck and lint, the config self-tests) and a 14-entry `unit` matrix replace the one 90-minute job, and `Typecheck, lint, unit tests` is now a gate that ends success when its inputs passed or were not needed. Playwright runs in eight shards dealt by the seconds each file took in CI (`scripts/e2e-shard.mjs` over `apps/web/e2e/shard-weights.json`, measured on the first run of this change; shard 1 keeps onboarding first and the golden path), with the browser cached. Docker and Storybook run only when their inputs changed. Main's runs are no longer cancelled by the next push. The interim guard "the logs only grow" runs in `static` and in the banned-terms job. Test: `scripts/ci-matrix.test.mjs` (every workspace package with a test script is in a matrix entry; a missing one is named). Times are in the pull request.

@@ -132,6 +132,12 @@ export const BUILTIN_CONNECTOR_KEYS: readonly string[] = Object.freeze(Object.ke
  */
 export const ALWAYS_LIVE_CONNECTORS: ReadonlySet<string> = new Set(["platform", "quarantine"]);
 
+/**
+ * Account-free connectors whose mock refuses a simulated send by itself on a person's project (apps/gateway
+ * platform-mail.ts and notify-email.ts), so the gateway's connection refusal leaves them to it (WP-05 T1).
+ */
+export const SELF_REFUSING_MOCK_CONNECTORS: ReadonlySet<string> = new Set(["platform_mail", "platform_notify"]);
+
 /** The built-in connectors, live side wired with `options`. */
 export function createBuiltinConnectors(options: LiveConnectorOptions = {}): Connector[] {
   return Object.values(BUILTIN_CONNECTOR_FACTORIES).map((factory) => factory(options));

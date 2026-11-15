@@ -115,6 +115,16 @@ describe("planner task graph (BUILD §11.6)", () => {
     expect(tasks[1]!.file_scope_hints.join(" ")).toMatch(/connectors|ingest/);
     expect(tasks.every((t) => t.roadmap_item_id === "r1")).toBe(true);
   });
+
+  it("plans no code when there is nowhere for it to go live, and says once that building starts later (WP-05 T5)", async () => {
+    const r = await client.complete({ route: "planner", messages: promptWith({ destination: "none", roadmap_items: [{ id: "r1", title: "Stripe payment webhooks", description: "Record invoice.paid events" }] }), schema: TaskGraphOutput });
+    const tasks = r.json.tasks;
+    expect(tasks.length).toBeGreaterThanOrEqual(2);
+    expect(tasks.some((t) => t.kind === "code")).toBe(false);
+    expect(tasks.filter((t) => /building starts once the project has a place to publish/i.test(t.goal))).toHaveLength(1);
+    const ids = new Set(tasks.map((t) => t.id));
+    expect(tasks.every((t) => t.depends_on.every((d) => ids.has(d)))).toBe(true);
+  });
 });
 
 describe("code review", () => {

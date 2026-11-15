@@ -8,7 +8,7 @@
  * same item, goal and department returns that plan (`reused: true`) instead of a second graph; the write holds a
  * per-business planning lock so a plan written on another instance meanwhile is seen, not written twice.
  */
-import { dropPlatformDuties, PLANNER_SYSTEM_PROMPT } from "@foundmill/agents";
+import { buildPlannerRequest, dropPlatformDuties, PLANNER_SYSTEM_PROMPT, plannerDestination, plannerSpecSections, plannerWorkerTypes } from "@foundmill/agents";
 import { repos, roadmapItemDepartmentId, type DbTx, type Task } from "@foundmill/db";
 import { TaskGraphOutput } from "@foundmill/models";
 import { ValidationError } from "@foundmill/shared";
@@ -53,12 +53,17 @@ export async function planTaskGraph(ctx: BusinessContext, input: PlanInput, key:
   const roadmapItem = input.roadmapItemId ? await ctx.rls((tx) => repos.product.getRoadmapItem(tx, ctx.businessId, input.roadmapItemId!)) : null;
   const goal = input.goal ?? roadmapItem?.descriptionMd ?? roadmapItem?.title;
   if (!goal) throw new ValidationError("Give a goal or a roadmap item to plan");
-  const blocks = await ctx.rls((tx) => repos.product.listBlocks(tx, ctx.businessId));
+  // What the Planner reads (WP-05 T5): the specification's text, the team it plans for and whether code can land.
+  const { blocks, repository, agents } = await ctx.rls(async (tx) => ({
+    blocks: await repos.product.listBlocks(tx, ctx.businessId),
+    repository: await repos.integrations.codeRepository(tx, ctx.businessId),
+    agents: (await repos.agents.list(tx, ctx.businessId, { limit: 500 })).items,
+  }));
   const result = await ctx.models.complete({
     route: "planner",
     schema: TaskGraphOutput,
     system: PLANNER_SYSTEM_PROMPT,
-    messages: [{ role: "user", content: "```json\n" + JSON.stringify({ goal, roadmap_item: roadmapItem, spec_sections: blocks.map((b) => b.section) }) + "\n```" }],
+    messages: [{ role: "user", content: buildPlannerRequest({ goal, roadmapItem, sections: plannerSpecSections(blocks), destination: plannerDestination(repository), workerTypes: plannerWorkerTypes(agents) }) }],
     attribution: { businessId: ctx.businessId, kind: "planner" },
   });
   return ctx.rls(async (tx) => {

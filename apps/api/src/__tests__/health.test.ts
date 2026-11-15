@@ -31,6 +31,11 @@ describe("HTTP surface on an ephemeral port", () => {
     const body = (await res.json()) as Record<string, unknown>;
     expect(body).toMatchObject({ ok: true, service: "api", db: true, redis: false, temporal: false, composer: false, vault: true, modes: { integrations: "mock", models: "mock" } });
     expect(res.headers.get("x-request-id")).toBeTruthy();
+    // The connectors switched live one by one, here and on the gateway (unreachable in this test, so null).
+    expect(body.modes).toMatchObject({ liveConnectors: [] });
+    // Mock integrations: the project's address does not really send (WP-02 T7).
+    expect(body.platformMail).toBe("off");
+    expect(body.gateway).toBeNull();
   });
 
   it("GET /health answers 503 without the database, so Railway's healthcheck keeps traffic on the previous deployment", async () => {
@@ -40,6 +45,17 @@ describe("HTTP surface on an ephemeral port", () => {
     expect(await res.json()).toMatchObject({ ok: false, service: "api", db: false });
     // Redis, Temporal and the composer are optional: their absence alone never fails the check (they are down here).
     expect((await createApp(hz.deps).request("/health")).status).toBe(200);
+  });
+
+  it("GET /health answers 503 while a migration is missing, and says which count is behind (WP-11 T2)", async () => {
+    const behind = createApp({ ...hz.deps, health: { ...hz.deps.health, schema: async () => ({ ready: false, applied: 95, expected: 96 }) } });
+    const res = await behind.request("/health");
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ ok: false, db: true, schema: { applied: 95, expected: 96 } });
+    // Without a schema probe (tests, the in-process caller) the schema counts as ready.
+    const plain = await createApp(hz.deps).request("/health");
+    expect(plain.status).toBe(200);
+    expect(await plain.json()).toMatchObject({ ok: true, schema: { applied: null, expected: null } });
   });
 
   it("CORS allows the web origin and localhost:3000 with credentials", async () => {

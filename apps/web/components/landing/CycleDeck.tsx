@@ -51,7 +51,7 @@ const PAUSE_GRACE_MS = 800;
  * Continue. Its target is the deck's own Continue (a wrapper the deck marks `data-coachmark="deck-continue"`), never
  * the one the How-it-works beat draws.
  */
-export const DECK_CALLOUT = { tourId: "deck-continue", targetId: "deck-continue", title: "This is how you move forward", body: "Press it when you have answered what needs you." } as const;
+export const DECK_CALLOUT = { tourId: "deck-continue", targetId: "deck-continue", title: "This is how you move forward", body: "One press and your team works until nothing is left to do. Anything that needs you shows in Needs you." } as const;
 /** The callout's sentence as one line, for copy that quotes it. */
 export const CONTINUE_CALLOUT = `${DECK_CALLOUT.title}. ${DECK_CALLOUT.body}`;
 
@@ -148,7 +148,7 @@ export function CycleDeck({ onOpenJourney }: { onOpenJourney?: () => void }) {
           </span>
           <StopAllAgents onConfirm={stop} runningCount={working ? cycleTasks(state.cycle).tasks : 0} />
         </div>
-        <ProcessingStrip segments={segments} active={working} label={working ? `Cycle ${state.cycle} running` : "No cycle running"} />
+        <ProcessingStrip segments={segments} active={working} label={working ? "The team is working" : "The team is not working right now"} />
 
         <div className="grid h-125 grid-cols-[21rem_1fr_18rem]">
           <InboxColumn business={business} state={state} decisionRef={decisionRef} onDecide={decide} onOpenWin={openWin} />

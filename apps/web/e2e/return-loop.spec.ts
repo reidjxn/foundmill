@@ -47,7 +47,7 @@ test.describe("the return loop", () => {
     await page.goto(`/a/${"x".repeat(43)}`);
     await expect(page.getByTestId("email-answer")).toHaveAttribute("data-state", "unavailable", { timeout: LONG });
     await expect(page.getByText("This link no longer works")).toBeVisible();
-    await expect(page.getByRole("link", { name: "Open the Inbox" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Open Needs you" })).toBeVisible();
     await page.goto("/email/pause?t=forged.token");
     const pause = page.getByTestId("email-pause");
     await expect(pause).toHaveAttribute("data-state", "ready", { timeout: LONG });

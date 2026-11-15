@@ -6,6 +6,7 @@ export * from "./account-event";
 export * from "./keys";
 export * from "./redis";
 export * from "./outbox/writer";
+export * from "./approval-expiry";
 export * from "./outbox/relay";
 export * from "./outbox/account-writer";
 export * from "./outbox/account-relay";

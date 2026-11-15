@@ -136,7 +136,7 @@ test.describe("commit", () => {
   test("says what happens next in the real order, with an example per mode and a change-it-later line (A4, §7.6)", async ({ page }) => {
     const next = page.getByTestId("what-happens-next");
     await expect(next).toContainText("Your team is hired");
-    await expect(next).toContainText("Two notes ask you to sign them off");
+    await expect(next).toContainText("Then your plan arrives as two notes to sign off");
     await expect(next).not.toContainText("Board");
     await openHowItRuns(page);
     await expect(page.locator("[data-mode-example]")).toHaveCount(3);
@@ -220,8 +220,8 @@ test.describe("commit", () => {
     const bid = /\/b\/([0-9a-f-]+)\//.exec(page.url())![1]!;
     // The Inbox has the Chief of Staff's welcome note (an Update); Continue is not "Respond" for it.
     await page.goto(`/b/${bid}/inbox`);
-    await expect(inboxRow(page, "Your team is drafting the product foundations")).toBeVisible({ timeout: LONG });
-    await inboxRow(page, "Your team is drafting the product foundations").click();
+    await expect(inboxRow(page, "Your team is drafting your page and your plan")).toBeVisible({ timeout: LONG });
+    await inboxRow(page, "Your team is drafting your page and your plan").click();
     await expect(page.getByTestId("inbox-item")).toHaveAttribute("data-type", "update", { timeout: LONG });
     await expect(page.getByTestId("decision-bar")).toHaveCount(0);
     // The spend cap per action chosen on Commit (the Assisted default, 250) is kept on the business, editable in Settings › What the team can do.

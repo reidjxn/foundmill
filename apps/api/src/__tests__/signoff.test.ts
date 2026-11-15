@@ -9,7 +9,7 @@ import { CHANNEL_SCORING_TASK } from "@foundmill/agents";
 import { repos, signoffDecisionBlock } from "@foundmill/db";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { runFoundationsLocally } from "../services/foundations";
-import { REVISION_TASK_PRIORITY } from "../services/signoff";
+import { REVISION_TASK_PRIORITY, buildingStartsBody } from "../services/signoff";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
@@ -140,6 +140,10 @@ describe("sign-offs: the specification and the roadmap (founder, 2026-10-18)", (
     // The follow-up and the event say the build started; distribution still waits.
     const note = (await bySubject(b.caller, b.businessId, `Building starts: ${build.plannedTaskIds.length} tasks planned`))[0];
     expect(note?.bodyMd).toContain("Distribution waits until you start it from Customers › Board.");
+    // No repository connected (WP-02 T5): the round of work starts, and nothing is said to go live.
+    expect(note?.bodyMd).toContain("The first round of work is under way. The code is kept in your project; nothing goes live from it until a repository is connected.");
+    expect(note?.bodyMd).not.toMatch(/build cycle/);
+    expect((await b.caller.business.get({ businessId: b.businessId })).buildDestination).toBe("none");
     const events = await repos.events.list(hz.db, b.businessId, { type: "product.signoff_decided" });
     const last = events.items[0]!.payload as { buildStarted: boolean; plannedTaskIds: string[]; cycle: { queued: boolean; workflowId: string } | null };
     expect(last.buildStarted).toBe(true);
@@ -253,5 +257,14 @@ describe("distribution waits for an explicit start", () => {
     expect((await f.caller.product.signoff.get({ businessId: f.businessId })).readyToSell).toMatchObject({ status: "approved" });
     expect((await f.caller.business.get({ businessId: f.businessId })).productStage).toBe("selling");
     expect(await bySubject(f.caller, f.businessId, "Where should the first customer come from?")).toHaveLength(1);
+  });
+});
+
+describe("buildingStartsBody (WP-02 T5)", () => {
+  const build = { plannedTaskIds: ["t1"], planned: ["Landing page"], failed: [], cycle: { started: false, mode: null, workflowId: null, reason: null }, importItemId: null } as unknown as Parameters<typeof buildingStartsBody>[0];
+  it("names a round of work, and says the code stays in the project only when there is no repository", () => {
+    expect(buildingStartsBody(build, "none")).toContain("Press Continue to start the first round of work. The code is kept in your project; nothing goes live from it until a repository is connected.");
+    expect(buildingStartsBody(build, "github")).toContain("Press Continue to start the first round of work. Distribution");
+    expect(buildingStartsBody(build, "github")).not.toContain("kept in your project");
   });
 });

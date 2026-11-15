@@ -114,6 +114,7 @@ export async function createWorker(options: CreateWorkerOptions = {}): Promise<{
   const taskQueue = options.taskQueue ?? env.TEMPORAL_TASK_QUEUE;
   const shutdownGraceTime = options.shutdownGraceTimeMs ?? workerShutdownTimes(env.SHUTDOWN_TIMEOUT_MS).graceMs;
   const shutdownForceTime = options.shutdownForceTimeMs ?? workerShutdownTimes(env.SHUTDOWN_TIMEOUT_MS).forceMs;
+  deps.workflowRunning = (workflowId) => workflowRunning(connection, namespace, workflowId);
   const activities = createActivities(deps);
   const worker = await Worker.create({
     connection,
@@ -218,6 +219,21 @@ export async function describeQueues(connection: Pick<NativeConnectionType, "wor
     );
   } catch {
     return null;
+  }
+}
+
+/**
+ * Whether a workflow's latest run is running, as Temporal says (`OrchestratorDeps.workflowRunning`): true while it runs,
+ * false once it ended or when Temporal has never heard of it, null when it cannot be asked.
+ */
+export async function workflowRunning(connection: Pick<NativeConnectionType, "workflowService">, namespace: string, workflowId: string): Promise<boolean | null> {
+  try {
+    const r = await connection.workflowService.describeWorkflowExecution({ namespace, execution: { workflowId } });
+    // WORKFLOW_EXECUTION_STATUS_RUNNING = 1.
+    return r.workflowExecutionInfo?.status === 1;
+  } catch (err) {
+    // gRPC NOT_FOUND = 5: no such workflow (never started, or past retention).
+    return (err as { code?: unknown }).code === 5 ? false : null;
   }
 }
 

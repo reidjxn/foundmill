@@ -15,8 +15,8 @@
  */
 import { CHANNEL_SCORING_TASK, getArchetypeSeed } from "@foundmill/agents";
 import { LIMITS } from "@foundmill/config";
-import { bothSignedOff, loadProductStage, repos, signoffDecisionBlock, type Decision, type DbTx, type InboxItem, type PlanWithActions, type ProductSignoff, type Task } from "@foundmill/db";
-import { AppError, CHANNEL_KEYS, CHANNEL_META, channelEngineMayRun, ConflictError, ForbiddenError, isAdminRole, ValidationError, type ChannelKey, type ProductStage, type SignoffKind, type SignoffStatus } from "@foundmill/shared";
+import { bothSignedOff, buildDestinationOf, loadProductStage, repos, signoffDecisionBlock, type Decision, type DbTx, type InboxItem, type PlanWithActions, type ProductSignoff, type Task } from "@foundmill/db";
+import { AppError, CHANNEL_KEYS, CHANNEL_META, channelEngineMayRun, ConflictError, ForbiddenError, isAdminRole, ValidationError, type BuildDestination, type ChannelKey, type ProductStage, type SignoffKind, type SignoffStatus } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
 import { channelRowsFor, MIN_DECISION_OPTIONS, offerableOptions, OPTIONS_LEFT_OUT_LINE } from "./channel-availability";
@@ -50,6 +50,8 @@ export interface SignoffView {
 
 export interface SignoffViews {
   stage: ProductStage;
+  /** Where the team's code goes (WP-02 T5). */
+  destination: BuildDestination;
   spec: SignoffView | null;
   roadmap: SignoffView | null;
   readyToSell: SignoffView | null;
@@ -73,9 +75,9 @@ function viewOf(row: ProductSignoff | null, versions: Map<string, number>): Sign
 
 /** The latest round of each kind as the screens read it, with the stage. */
 export async function signoffViews(tx: DbTx, businessId: string): Promise<SignoffViews> {
-  const [{ stage, signoffs }, versions] = await Promise.all([loadProductStage(tx, businessId), repos.product.listVersions(tx, businessId)]);
+  const [{ stage, signoffs, facts }, versions] = await Promise.all([loadProductStage(tx, businessId), repos.product.listVersions(tx, businessId)]);
   const numbers = new Map(versions.map((v) => [v.id, v.version] as const));
-  return { stage, spec: viewOf(signoffs.spec, numbers), roadmap: viewOf(signoffs.roadmap, numbers), readyToSell: viewOf(signoffs.readyToSell, numbers) };
+  return { stage, destination: facts.destination, spec: viewOf(signoffs.spec, numbers), roadmap: viewOf(signoffs.roadmap, numbers), readyToSell: viewOf(signoffs.readyToSell, numbers) };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -249,7 +251,7 @@ export async function decideProductSignoff(ctx: BusinessContext, input: DecideSi
     const day = dayWords(new Date(), ctx.business.timeZone);
     let note: InboxItem | null = null;
     if (written.voice) {
-      if (build) note = await postUpdate(tx, ctx, written.voice.id, `Building starts: ${build.plannedTaskIds.length} task${build.plannedTaskIds.length === 1 ? "" : "s"} planned`, buildingStartsBody(build));
+      if (build) note = await postUpdate(tx, ctx, written.voice.id, `Building starts: ${build.plannedTaskIds.length} task${build.plannedTaskIds.length === 1 ? "" : "s"} planned`, buildingStartsBody(build, buildDestinationOf(await repos.integrations.codeRepository(tx, ctx.businessId))));
       else if (input.decision === "approve") {
         const other = input.kind === "spec" ? "roadmap" : "specification";
         note = await postUpdate(tx, ctx, written.voice.id, `${words.tab} signed off`, `You approved ${words.the}${written.specVersion ? ` (version ${written.specVersion.version})` : ""} on ${day}. Sign off the ${other} and the build starts.`);
@@ -286,11 +288,13 @@ export function changesRequestedBody(voiceName: string, words: { the: string; ta
   return `${quoted} ${now} You can also edit it yourself on the ${words.tab} tab and approve it there.`;
 }
 
-function buildingStartsBody(build: BuildStart): string {
+export function buildingStartsBody(build: BuildStart, destination: BuildDestination = "github"): string {
   const planned = build.planned.length ? `The Planner turned ${build.planned.map((t) => `“${t}”`).join(" and ")} into ${build.plannedTaskIds.length} task${build.plannedTaskIds.length === 1 ? "" : "s"} on Product › Work list.` : "Nothing was planned yet: open Product › Work list and build a task graph for the first roadmap item.";
   const failed = build.failed.length ? ` ${build.failed.map((f) => `“${f.title}” could not be planned (${f.reason}); plan it from Product › Work list.`).join(" ")}` : "";
-  const cycle = build.cycle.started ? "The first build cycle is under way." : `Press Continue to start the first build cycle${build.cycle.reason ? `: ${build.cycle.reason}` : "."}`;
-  return `Signed off: the specification and the roadmap. ${planned}${failed} ${cycle} Distribution waits until you start it from Customers › Board.`;
+  const cycle = build.cycle.started ? "The first round of work is under way." : `Press Continue to start the first round of work${build.cycle.reason ? `: ${build.cycle.reason}` : "."}`;
+  // No repository to push to (WP-02 T5): the code stays in the project and nothing goes live from it.
+  const kept = destination === "none" ? " The code is kept in your project; nothing goes live from it until a repository is connected." : "";
+  return `Signed off: the specification and the roadmap. ${planned}${failed} ${cycle}${kept} Distribution waits until you start it from Customers › Board.`;
 }
 
 /**

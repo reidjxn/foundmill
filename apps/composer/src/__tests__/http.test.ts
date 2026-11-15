@@ -80,6 +80,10 @@ describe("composer HTTP", () => {
 
   it("validates bodies (400), maps not-found (404) and composer errors, and answers JSON 404 on unknown routes", async () => {
     expect((await post("/v1/narrate", { businessId: "nope", eventIds: [] })).status).toBe(400);
+    // Parked tasks (WP-05 T18): at most three, each a short title.
+    const tooMany = Array.from({ length: 4 }, (_, i) => ({ title: `Task ${i}` }));
+    expect((await post("/v1/narrate", { businessId: hz.A.businessId, eventIds: [hz.A.eventIds[0]], parked: tooMany })).status).toBe(400);
+    expect((await post("/v1/narrate", { businessId: hz.A.businessId, eventIds: [hz.A.eventIds[0]], parked: [{ title: "" }] })).status).toBe(400);
     expect((await fetch(`${base}/v1/refresh`, { method: "POST", body: "{not json", headers: { "content-type": "application/json" } })).status).toBe(400);
     const missing = await post("/v1/narrate", { businessId: hz.A.businessId, eventIds: [crypto.randomUUID()] });
     expect(missing.status).toBe(404);

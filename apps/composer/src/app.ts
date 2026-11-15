@@ -5,7 +5,7 @@
 import { modelBillingFacts, modelBillingMessage } from "@foundmill/agents";
 import { APP_NAME, LIMITS } from "@foundmill/config";
 import { isModelBillingError, platformBillingRefusal, type ModelLogger } from "@foundmill/models";
-import { AppError } from "@foundmill/shared";
+import { AppError, PARKED_DETAIL_MAX, PARKED_TASKS_MAX, PARKED_TITLE_MAX } from "@foundmill/shared";
 import { Hono } from "hono";
 import { z } from "zod";
 import { QUARTER_RE } from "./chapter";
@@ -14,7 +14,9 @@ import type { ComposerService } from "./service";
 
 const Id = z.guid();
 
-export const NarrateBody = z.object({ businessId: Id, eventIds: z.array(Id).min(1).max(LIMITS.narrateMaxEvents) });
+/** Tasks the round parked because no agent has a tool for them (WP-05 T18): said once, in the note's closing sentence. */
+const ParkedTaskBody = z.object({ title: z.string().trim().min(1).max(PARKED_TITLE_MAX), detail: z.string().max(PARKED_DETAIL_MAX).optional() });
+export const NarrateBody = z.object({ businessId: Id, eventIds: z.array(Id).min(1).max(LIMITS.narrateMaxEvents), parked: z.array(ParkedTaskBody).max(PARKED_TASKS_MAX).optional() });
 export const RefreshBody = z.object({ businessId: Id });
 export const CommentaryBody = z.object({ businessId: Id, journeyId: Id });
 export const FounderTitlesBody = z.object({ businessId: Id, taskIds: z.array(Id).max(200).optional() });
@@ -65,8 +67,8 @@ export function createApp(service: ComposerService, options: AppOptions = {}) {
   };
 
   app.post("/v1/narrate", async (c) => {
-    const { businessId, eventIds } = await body(c, NarrateBody);
-    const r = await service.narrate(businessId, eventIds);
+    const { businessId, eventIds, parked } = await body(c, NarrateBody);
+    const r = await service.narrate(businessId, eventIds, parked);
     return c.json({ inboxItemId: r.item.id, item: r.item, eventIds: r.eventIds, reasked: r.reasked, replayed: r.replayed, entityIds: r.entityIds, draftEntityIds: r.draftEntityIds, cost: { amountMinor: r.costMinor, label: ESTIMATE }, model: r.model, durationMs: r.durationMs });
   });
 

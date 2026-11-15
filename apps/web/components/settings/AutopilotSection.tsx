@@ -31,7 +31,7 @@ export const AUTOPILOT_HELP = "Autopilot presses Continue for you on a schedule.
  * Continue and Autopilot share one set of limits (Nov 7, 2026): a press keeps the team working until nothing is left,
  * and the day's cycle and spend limits set here bound those cycles too.
  */
-export const AUTOPILOT_CONTINUE_NOTE = "Continue keeps the team working, one cycle after another, until nothing is left to do. The daily limits below apply to those cycles too.";
+export const AUTOPILOT_CONTINUE_NOTE = "Continue keeps the team working, one round of work after another, until nothing is left to do. The daily limits below apply to those rounds too.";
 
 /** The section's title, the word defined on first use; a string while it loads or fails, so nothing moves. */
 const TITLE = <Term id="autopilot">Autopilot</Term>;

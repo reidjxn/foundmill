@@ -3,18 +3,24 @@
  * real workflow id, nothing starts while the team is stopped, an agent at its wage cap is paused (and comes back next
  * period), failed tasks and failing agents come back after a backoff, and a finishing session never overwrites a pause.
  */
+import { LIMITS } from "@foundmill/config";
+import { parkedTasksSentence } from "@foundmill/shared";
 import { concurrencyAllowance, modelBudgetState, periodOf, repos, resumeBusinessAgents, stopBusinessAgents, type Task } from "@foundmill/db";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createBriefActivities } from "../activities/brief";
 import { createChannelActivities, emptyChannelState } from "../activities/channel";
 import { createCycleActivities, lacksTool, PLATFORM_DUTY_STOPPED_AUDIT_ACTION, TOOL_MISSING_STOPPED_AUDIT_ACTION } from "../activities/cycle";
-import { MODEL_BUDGET_ALERT_ACTION, WAGE_ALERT_ACTION, attemptSessionId, nextPeriodStart, openAgentSession, recoverAgents } from "../activities/dispatch";
+import { LOST_SESSION_AFTER_MS, MODEL_BUDGET_ALERT_ACTION, SESSION_RECONCILED_ACTION, WAGE_ALERT_ACTION, attemptSessionId, closeLostSessions, nextPeriodStart, openAgentSession, recoverAgents } from "../activities/dispatch";
 import { createHolidayActivities } from "../activities/holiday";
 import { createPlanActivities } from "../activities/plan";
+import { ComposerRequestError } from "../composer-client";
 import { createSessionActivities } from "../activities/session";
 import type { SessionLaunch, SessionResult } from "../activities/types";
 import { AGENT_COOLDOWN_BASE_MS, TASK_RETRY_BASE_MS, TASK_RETRY_LIMIT } from "../retry";
 import { setupOrchestratorHarness, type OrchestratorTestHarness } from "./harness";
+import type { OrchestratorDeps } from "../deps";
+
+type OrchestratorDepsRunning = OrchestratorDeps["workflowRunning"];
 
 let t: OrchestratorTestHarness;
 let cycle: ReturnType<typeof createCycleActivities>;
@@ -316,11 +322,57 @@ describe("a task no agent has a tool for leaves the loop after one attempt", () 
     const audits = (await repos.audit.list(t.db, B(), { action: TOOL_MISSING_STOPPED_AUDIT_ACTION, limit: 20 })).items.filter((a) => (a.target as { id: string }).id === noTool.id);
     expect(audits).toHaveLength(1);
     expect(audits[0]!.details).toMatchObject({ cycleNumber: 12, dependentsFreed: 1 });
-    // A missing tool is the platform's gap, never a founder chore: nothing reaches the Inbox (Nov 7, 2026).
+    // A missing tool is the platform's gap, never a founder chore: no note, to-do or decision of its own (Nov 7, 2026).
     const notes = (await repos.inbox.list(t.db, B(), { limit: 50 })).items.filter((i) => i.subject.includes("Import agent skills as business skills") || i.subject.startsWith("Only you can do this"));
     expect(notes).toEqual([]);
+    // It is said once, in the round's note (founder, Nov 15, 2026, D1): the plan carries its founder title and the agent's words.
+    expect(plan.parked).toEqual([{ title: "Import agent skills as business skills", detail: "No tool is available to create or list business skills. My tools cover GitHub, the task board, messages and founder actions only." }]);
+    expect(plan.summary).not.toContain("Import agent skills");
     const after = await brief.loadBrief({ businessId: B() });
     expect(after.openTasks.find((x) => x.id === dependent.id)).toMatchObject({ blocked: false, dependsOn: [] });
+  });
+
+  it("the round's note says it once, in one plain sentence, and never as a to-do or a decision (WP-05 T18)", async () => {
+    const parked = [{ title: "Import agent skills as business skills", detail: "No tool is available to create or list business skills." }];
+    const sentence = parkedTasksSentence(["Import agent skills as business skills"]);
+    const tasksBefore = (await repos.tasks.list(t.db, B(), { limit: 500 })).items.length;
+    // Nothing finished: the plain note carries it.
+    const plain = await cycle.narrateCycle({ businessId: B(), eventIds: [], summary: "Ship the pricing page.\n\nThis round of work: 0 tasks started.", fallbackSubject: "Round finished", parked });
+    const body = (await repos.inbox.get(t.db, B(), plain.inboxItemIds[0]!)).bodyMd;
+    expect(body.split(sentence)).toHaveLength(2);
+    expect(body.startsWith("Ship the pricing page.")).toBe(true);
+    // With events and the composer down (development), the plain note carries it once as well.
+    const ev = await repos.events.write(t.db, B(), { type: "task.completed", actor: { kind: "system", id: "test" }, payload: { probe: "parked-said-once" } });
+    const down = await cycle.narrateCycle({ businessId: B(), eventIds: [ev.id], summary: "Ship the pricing page.", parked });
+    const item = await repos.inbox.get(t.db, B(), down.inboxItemIds[0]!);
+    expect(item.bodyMd.split(sentence)).toHaveLength(2);
+    expect(item).toMatchObject({ type: "update", decision: null, blocksContinue: false });
+    // No to-do for the founder came of it.
+    expect((await repos.tasks.list(t.db, B(), { limit: 500 })).items.length).toBe(tasksBefore);
+    // A round with nothing parked says nothing about it.
+    const none = await cycle.narrateCycle({ businessId: B(), eventIds: [], summary: "Quiet round." });
+    expect((await repos.inbox.get(t.db, B(), none.inboxItemIds[0]!)).bodyMd).toBe("Quiet round.");
+  });
+
+  it("the composer gets the parked tasks once, with the first batch of events, and a note it wrote is not repeated by the plain one", async () => {
+    const parked = [{ title: "Post the demo video", detail: "No video upload tool among my tools." }];
+    const calls: { eventIds: string[]; parked?: unknown }[] = [];
+    const ids: string[] = [];
+    for (let i = 0; i <= LIMITS.narrateMaxEvents; i += 1) ids.push((await repos.events.write(t.db, B(), { type: "task.completed", actor: { kind: "system", id: "test" }, payload: { probe: `parked-batch-${i}` } })).id);
+    const composerNote = await repos.inbox.createItem(t.db, B(), { type: "update", from_agent_id: t.chiefId, subject: "Composer note", body_md: "Written by the composer.", status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: null, blocks_continue: false, source_event_ids: [], entity_ids: [] });
+    const composer = { ...t.deps.composer, narrate: async (input: { eventIds: string[]; parked?: unknown }) => {
+      calls.push(input);
+      // The first batch is narrated; the composer turns the second down, so the plain note covers the rest.
+      if (calls.length > 1) throw new ComposerRequestError("validation", "Composer /v1/narrate returned 400", 400);
+      return { inboxItemId: composerNote.id, replayed: false };
+    } } as typeof t.deps.composer;
+    const acts = createCycleActivities({ ...t.deps, composer });
+    const out = await acts.narrateCycle({ businessId: B(), eventIds: ids, summary: "Busy round.", parked });
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toMatchObject({ parked });
+    expect(calls[1]!.parked).toBeUndefined();
+    expect(out.inboxItemIds).toHaveLength(2);
+    expect((await repos.inbox.get(t.db, B(), out.inboxItemIds[1]!)).bodyMd).toBe("Busy round.");
   });
 });
 
@@ -486,5 +538,88 @@ describe("the monthly model budget at dispatch (audit #15)", () => {
     await t.clock.set(nextPeriodStart(nextPeriodStart(t.clock.now())));
     expect((await cycle.openSession({ businessId: B(), agentId: t.workerId, taskId: task.id })).sessionId).toBeTruthy();
     await endOpenSessions();
+  });
+});
+
+describe("lost sessions are closed and their tasks planned again (WP-05 T13, AR-11)", () => {
+  /** Answer `workflowRunning` from a table of workflow ids (missing ids answer `fallback`); restored after each test. */
+  const original = () => t.deps.workflowRunning;
+  let restore: OrchestratorDepsRunning;
+  beforeEach(() => {
+    restore = original();
+  });
+  afterEach(() => {
+    t.deps.workflowRunning = restore;
+  });
+  const answer = (fallback: boolean | null, table: Record<string, boolean | null> = {}) => {
+    const asked: string[] = [];
+    t.deps.workflowRunning = async (id) => {
+      asked.push(id);
+      return id in table ? table[id]! : fallback;
+    };
+    return asked;
+  };
+  const openOne = async (title: string) => {
+    const task = await readyTask(title, t.workerId);
+    const opened = await cycle.openSession({ businessId: B(), agentId: t.workerId, taskId: task.id });
+    expect(opened.sessionId).toBeTruthy();
+    return { task, sessionId: opened.sessionId!, workflowId: `session:${opened.sessionId!}` };
+  };
+
+  it("the default answer is unknown, so a worker that cannot ask Temporal changes nothing", async () => {
+    expect(await original()("session:anything")).toBeNull();
+  });
+
+  it("a lost session is closed and its task is planned again", async () => {
+    const { task, sessionId, workflowId } = await openOne("Lost on a dead worker");
+    await t.clock.advance(LOST_SESSION_AFTER_MS + 60_000);
+    const asked = answer(true, { [workflowId]: false });
+    expect(await closeLostSessions(t.deps, B())).toEqual([sessionId]);
+    expect(asked).toContain(workflowId);
+    expect(await repos.agents.getSession(t.db, B(), sessionId)).toMatchObject({ outcome: "lost", endedAt: t.clock.now() });
+    expect((await repos.tasks.get(t.db, B(), task.id)).status).toBe("ready");
+    const audit = (await repos.audit.list(t.db, B(), { action: SESSION_RECONCILED_ACTION, limit: 20 })).items.find((e) => (e.target as { id?: string }).id === sessionId);
+    expect(audit?.details).toMatchObject({ outcome: "lost", taskId: task.id, workflowId, taskStatus: "ready" });
+    // The task can start again: the dispatch guard no longer sees an open session on it.
+    expect((await cycle.openSession({ businessId: B(), agentId: t.workerId, taskId: task.id })).refused).toBeNull();
+    // Nothing left to close a second time.
+    expect(await closeLostSessions(t.deps, B())).toEqual([]);
+  });
+
+  it("an unknown answer changes nothing", async () => {
+    const { task, sessionId } = await openOne("Temporal cannot be asked");
+    await t.clock.advance(LOST_SESSION_AFTER_MS + 60_000);
+    answer(null);
+    expect(await closeLostSessions(t.deps, B())).toEqual([]);
+    expect((await repos.agents.getSession(t.db, B(), sessionId)).endedAt).toBeNull();
+    expect((await repos.tasks.get(t.db, B(), task.id)).status).toBe("running");
+  });
+
+  it("a running workflow is left alone", async () => {
+    const { task, sessionId } = await openOne("Still working");
+    await t.clock.advance(LOST_SESSION_AFTER_MS + 60_000);
+    answer(true);
+    expect(await closeLostSessions(t.deps, B())).toEqual([]);
+    expect((await repos.agents.getSession(t.db, B(), sessionId)).endedAt).toBeNull();
+    expect((await repos.tasks.get(t.db, B(), task.id)).status).toBe("running");
+  });
+
+  it("a row younger than 10 minutes is left alone, and Temporal is not asked about it", async () => {
+    const { task, sessionId } = await openOne("Just opened");
+    await t.clock.advance(LOST_SESSION_AFTER_MS - 60_000);
+    const asked = answer(false);
+    expect(await closeLostSessions(t.deps, B())).toEqual([]);
+    expect(asked).toEqual([]);
+    expect((await repos.agents.getSession(t.db, B(), sessionId)).endedAt).toBeNull();
+    expect((await repos.tasks.get(t.db, B(), task.id)).status).toBe("running");
+  });
+
+  it("a task that moved on is closed without being planned again", async () => {
+    const { task, sessionId } = await openOne("Moved to review");
+    await repos.tasks.setStatus(t.db, B(), task.id, "review");
+    await t.clock.advance(LOST_SESSION_AFTER_MS + 60_000);
+    answer(false);
+    expect(await closeLostSessions(t.deps, B())).toEqual([sessionId]);
+    expect((await repos.tasks.get(t.db, B(), task.id)).status).toBe("review");
   });
 });

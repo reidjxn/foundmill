@@ -86,6 +86,8 @@ create table if not exists auth.users (
   raw_user_meta_data jsonb not null default '{}',
   created_at timestamptz not null default now()
 );
+-- Supabase's own column; the nightly numbers read it (repos.metrics, signed in during the last 14 days).
+alter table auth.users add column if not exists last_sign_in_at timestamptz;
 -- Mirrors Supabase's auth.uid(): the sub claim of request.jwt.claims (set per transaction by withRls).
 create or replace function auth.uid() returns uuid language sql stable as $$
   select coalesce(
@@ -125,6 +127,8 @@ export function rewriteForMissingVector(sqlText: string): string {
 export interface BootPgliteOptions extends PgliteTarget {
   /** Force the no-pgvector path even when the extension is installed (test harness only). */
   disableVector?: boolean;
+  /** A dump of a database to start from (testing/snapshot.ts); it already holds the bootstrap, so that is skipped. */
+  loadDataDir?: Blob;
 }
 
 export interface BootedPglite {
@@ -191,7 +195,7 @@ export async function bootPglite(options: BootPgliteOptions = {}): Promise<Boote
   const vector = options.disableVector ? null : await loadVectorExtension();
   const extensions: Record<string, Extension> = { pg_trgm };
   if (vector) extensions.vector = vector;
-  const pgOptions: PGliteOptions = { extensions, relaxedDurability: true };
+  const pgOptions: PGliteOptions = { extensions, relaxedDurability: true, ...(options.loadDataDir ? { loadDataDir: options.loadDataDir } : {}) };
   let releaseLock = () => {};
   if (options.dataDir) {
     fs.mkdirSync(options.dataDir, { recursive: true });
@@ -201,7 +205,7 @@ export async function bootPglite(options: BootPgliteOptions = {}): Promise<Boote
   let pg: PGlite;
   try {
     pg = await PGlite.create(pgOptions);
-    await pg.exec(PGLITE_BOOTSTRAP_SQL);
+    if (!options.loadDataDir) await pg.exec(PGLITE_BOOTSTRAP_SQL);
   } catch (err) {
     releaseLock();
     throw err;

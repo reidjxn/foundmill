@@ -9,6 +9,7 @@ import { repos } from "@foundmill/db";
 import type { ModelClient } from "@foundmill/models";
 import { CHANNEL_META, type ChannelKey } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createApprovalActivities } from "../activities/approvals";
 import { channelUnavailableNote, createChannelActivities, emptyChannelState, MOCK_CREATIVE_LABEL, mockLead, mockResultsAllowed } from "../activities/channel";
 import type { ChannelEngineState, ChannelStep } from "../activities/types";
 import { setupOrchestratorHarness, type OrchestratorTestHarness } from "./harness";
@@ -177,11 +178,13 @@ describe("measure: leads are CRM records the Leads tab lists", () => {
     expect(mockResultsAllowed("production", false)).toBe(false);
     expect(mockResultsAllowed("production", true)).toBe(true);
     expect(mockResultsAllowed("test", false)).toBe(true);
-    const channel = await channelFor("email_automation");
-    const live = await withMode("automated", () => steps(channel.id, "email_automation", ["plan", "create", "approve", "launch"]));
-    // The channel really acts here (SendGrid live on the deployment and connected for the business), so its engine runs
-    // on staging; the other connectors are still mock, so nothing reports results.
-    await repos.integrations.upsert(t.db, t.businessId, { connectorKey: "sendgrid", status: "connected", authKind: "api_key" });
+    // Offline tracking runs on a real project (the agent prepares, the founder submits), and nothing it measures is
+    // invented: the connectors are mock here, so nothing reports results.
+    const channel = await channelFor("email_automation", { kitMode: true });
+    const asked = await steps(channel.id, "email_automation", ["plan", "create", "approve"]);
+    expect(asked.awaitingApprovalId).toBeTruthy();
+    const approved = await acts.channelStep({ businessId: t.businessId, channelId: channel.id, channelKey: "email_automation", step: "approve", weekIndex: 0, state: asked.state, approvedApprovalId: asked.awaitingApprovalId! });
+    const live = await steps(channel.id, "email_automation", ["launch"], approved.state);
     const staging = createChannelActivities({ ...t.deps, env: { ...t.deps.env, APP_ENV: "staging", LIVE_CONNECTORS: "sendgrid" } });
     const leadsBefore = (await repos.entities.listByRole(t.db, t.businessId, "lead", { limit: 500 })).items.length;
     const measured = await steps(channel.id, "email_automation", ["measure"], live.state, 0, staging);
@@ -277,11 +280,46 @@ describe("only a channel that can really act runs (founder, 2026-11-11)", () => 
     const notConnected = await steps(channel.id, "email_automation", ["plan"], emptyChannelState(), 0, stagingActs({ LIVE_CONNECTORS: "sendgrid" }));
     expect(notConnected.stop).toBe(true);
     expect(notConnected.note).toMatch(/sendgrid is not connected for this business/);
-    // Connected and live: it acts, so it plans.
+    // Connected and live: its agents can act, through tasks and sessions. The weekly engine has nothing it can send for
+    // it yet, so it stops too, ends what it had open and says so; nothing is ever claimed as launched (WP-02 T2).
     await repos.integrations.upsert(t.db, t.businessId, { connectorKey: "sendgrid", status: "connected", authKind: "api_key" });
+    const campaign = await repos.campaigns.create(t.db, t.businessId, { channelId: channel.id, name: "Email automation — week 1", status: "pending_approval" });
+    const approval = await repos.approvals.create(t.db, t.businessId, { agentId: t.workerId, connectorKey: "platform", tool: "launch_campaign", args: { campaignId: campaign.id, channelKey: "email_automation" } });
     const acts2 = await steps(channel.id, "email_automation", ["plan"], emptyChannelState(), 0, stagingActs({ LIVE_CONNECTORS: "sendgrid" }));
-    expect(acts2.stop).toBe(false);
-    expect(acts2.note).toMatch(/^Plan for Email automation/);
+    expect(acts2.stop).toBe(true);
+    expect(acts2.note).toMatch(/nothing the weekly engine can send yet; the team works on it through tasks/);
+    expect((await repos.campaigns.get(t.db, t.businessId, campaign.id)).status).toBe("ended");
+    expect((await repos.approvals.get(t.db, t.businessId, approval.id)).outcome).toBe("expired");
+    const resolved = (await repos.events.list(t.db, t.businessId, { type: "approval.resolved", limit: 200 })).items.filter((e) => (e.payload as { approvalId: string }).approvalId === approval.id);
+    expect(resolved.map((e) => (e.payload as { outcome: string }).outcome)).toEqual(["expired"]);
+  });
+
+  it("offline tracking on a real project asks once: an expired ask is not repeated until the founder approves the materials (WP-02 T2)", async () => {
+    const channel = await channelFor("direct_mail", { kitMode: true });
+    const real = stagingActs();
+    const asks = async () => (await repos.events.list(t.db, t.businessId, { type: "approval.requested", limit: 500 })).items.filter((e) => (e.payload as { tool: string; approvalId: string }).tool === "launch_campaign").length;
+    const before = await asks();
+    // Week 1 asks; nobody answers and the wait expires it.
+    const week1 = await steps(channel.id, "direct_mail", ["plan", "create", "approve"], emptyChannelState(), 0, real);
+    expect(week1.awaitingApprovalId).toBeTruthy();
+    const requested = (await repos.events.list(t.db, t.businessId, { type: "approval.requested", limit: 500 })).items.find((e) => (e.payload as { approvalId: string }).approvalId === week1.awaitingApprovalId);
+    expect((requested!.payload as { summary: string }).summary).toMatch(/has Direct mail materials ready for you to check$/);
+    await createApprovalActivities(t.deps).expireApproval({ businessId: t.businessId, approvalId: week1.awaitingApprovalId! });
+    // Weeks 2 to 4: nothing new is drafted and nothing is asked; the note says where the materials wait.
+    let state: ChannelEngineState = { ...week1.state, approvalId: null };
+    for (let week = 1; week <= 3; week++) {
+      const created = await steps(channel.id, "direct_mail", ["plan", "create"], state, week, real);
+      expect(created.note).toBe("Waiting for you: the materials are on Creative.");
+      const approve = await steps(channel.id, "direct_mail", ["approve"], created.state, week, real);
+      expect(approve.note).toBe("Waiting for you: the materials are on Creative.");
+      expect(approve.awaitingApprovalId).toBeNull();
+      state = approve.state;
+    }
+    expect((await asks()) - before).toBe(1);
+    // The founder approves the materials on Creative: the next week asks as before.
+    await repos.campaigns.approveCampaignAssets(t.db, t.businessId, week1.state.campaignId!);
+    const week5 = await steps(channel.id, "direct_mail", ["plan", "create", "approve"], state, 4, real);
+    expect(week5.awaitingApprovalId).toBeTruthy();
   });
 
   it("offline tracking runs whatever the connectors are: the agent prepares, the founder submits", async () => {

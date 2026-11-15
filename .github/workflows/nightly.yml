@@ -1,0 +1,39 @@
+# The nightly lane (WP-01 T2). It reads the public half of production only and holds no secret. Other packages add their
+# jobs here (live evals, outcome evals: WP-05, WP-06, WP-08); each new job ends with the same "Open or update the issue"
+# step. scripts/check-production.mjs is WP-02's: exit 0 passes, anything else fails, and what it writes to the file named
+# by GITHUB_STEP_SUMMARY is the report and becomes the issue's body.
+name: Nightly
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  production-check:
+    name: Production check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: scripts/check-production.mjs (WP-02)
+        run: |
+          if [ -f scripts/check-production.mjs ]; then node scripts/check-production.mjs
+          else echo "scripts/check-production.mjs is not written yet (WP-02)" >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: Open or update the issue
+        if: ${{ failure() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          { echo "Nightly production check failed: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"; cat "$GITHUB_STEP_SUMMARY" 2>/dev/null || true; } > body.md
+          bash scripts/open-or-update-issue.sh nightly-red "The nightly production check failed" body.md

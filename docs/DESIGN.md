@@ -446,6 +446,15 @@ Plain, specific, short. Sentence case everywhere: actions, tabs, titles, labels,
 8. **Every number carries a word.** A 1–20 figure shows its band (Poor / Average / Good / Excellent), a rating shows its scale ("/20"), stars carry one caption, Form has a key, and Estimate is defined on hover and focus.
 9. **"Needs you" has two families.** *Answer* (Respond, Needs your answer, Your decision; the chip is "Holds Continue") and *go-ahead* (Needs your go-ahead, Waiting for your go-ahead).
 
+**Engine word → founder word** (WP-02 T8, Nov 15, 2026). What a founder reads with Builder view off; Builder view keeps the engine's word (`roundWords(builder)`, `ventureNoun()` in packages/shared founder-words.ts).
+
+| Engine word | Founder word |
+| --- | --- |
+| cycle | round of work ("The team is idle" when idle) |
+| orchestrator | the team ("The team cannot start right now") |
+| the Inbox, as a place to go | Needs you |
+| business | project, until the first sale |
+
 `node scripts/plain-language.mjs` (§8.3 of the plan) checks the words: a replace-tier word fails on sight; a define-tier word passes only where its file defines it (a `Term`, a hint, tooltip, footer or help line, a definition in the string, an Explainer on the screen).
 
 **US English and US dates** (founder, 2026-10-10). Every word a person reads is American English: color, organization, judgment, center, behavior, favorite, labeled, canceled, catalog, program, gray, while, among, learned. The founder's away mode is **Vacation** ("On vacation until Oct 21"); the Finance tab is **Payroll**. Dates read "Oct 7, 2026", "Oct 7" when the year is implied, "Wed, Oct 7" with the weekday, "Oct 2026" for a month, and "Oct 7 – 21" for a range; times are 12-hour ("3:45 PM"); relative times stay as they are ("2 days ago"). Numbers are grouped the en-US way. Money keeps the business's own currency and its narrow symbol, formatted en-US (a GBP business still reads "£1,240.00"), and a business's real-world facts keep their form (GBP, VAT, "Ltd"). Design-system dates come from `DATE_FORMATS` in `packages/dugout/src/lib/format.ts`; apps/web's own helpers (`apps/web/lib/format.ts`) print in UTC so the server's HTML and the browser's hydration agree, and a time they print says "UTC". The top bar's date and the vacation caption are the founder's own day, so they appear once the browser knows it (`apps/web/lib/today.ts`): on a US evening UTC is already tomorrow. A stored key shown in words (`prioritisation`, `categoriser`, `holiday.read_authority`) goes through `usSpelling` and reads US English ("Prioritization", "Categorizer", "Vacation read authority"); a table cell never shows a raw key as its tooltip. `node scripts/us-english.mjs` (CI) fails on a British spelling or a day-first date in user-facing text.

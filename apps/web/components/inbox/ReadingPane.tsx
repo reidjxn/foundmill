@@ -346,7 +346,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
       void invalidate(["inbox", "plan", "dev", "distribution", "team", "business"]);
       if (res.approval) {
         const a = res.approval;
-        toast({ title: a.outcome === "approved" ? "Approved" : "Rejected", description: `${withNames(a.summary)}${a.cycle?.started ? " A cycle started." : ""}`, tone: a.outcome === "approved" ? "good" : "info", action: res.followUp ? { label: "Open the note", onClick: () => router.push(routes.inbox(businessId, res.followUp!.id)) } : undefined });
+        toast({ title: a.outcome === "approved" ? "Approved" : "Rejected", description: `${withNames(a.summary)}${a.cycle?.started ? " The team started working." : ""}`, tone: a.outcome === "approved" ? "good" : "info", action: res.followUp ? { label: "Open the note", onClick: () => router.push(routes.inbox(businessId, res.followUp!.id)) } : undefined });
       } else if (res.requiresConfirmation) setConfirmOpen(true);
       else if (isPageReadyDecision(item.decision) && res.decision.chosenOption === PAGE_READY_NOTE.options.check) {
         // "Check it and publish" (package 1.3): straight to Product › Public page, where the founder publishes.

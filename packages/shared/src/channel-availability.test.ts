@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  assertMockResultsAllowed,
   CHANNEL_AVAILABILITY_REASONS,
   CHANNEL_BY_TAP_SENTENCE,
   CHANNELS_SHARED_BY_TAP,
@@ -95,10 +96,12 @@ describe("tap-to-post (founder, 2026-11-12): a channel the founder posts with on
     // Offline tracking is the founder's own choice: the agent prepares, the founder submits.
     expect(channelEngineMayRun(byTap, true)).toBe(true);
     // Every other available reason is the team's to run, as before.
-    for (const reason of ["acts", "simulated_allowed"] as const) {
-      expect(channelTeamRuns({ available: true, reason }), reason).toBe(true);
-      expect(channelEngineMayRun({ available: true, reason }, false), reason).toBe(true);
-    }
+    for (const reason of ["acts", "simulated_allowed"] as const) expect(channelTeamRuns({ available: true, reason }), reason).toBe(true);
+    // The weekly engine's launch step sends nothing for any channel yet (WP-02 T2): a channel whose agents can act does
+    // so through tasks and sessions, so it gets no engine. Sample projects, development and tests keep theirs.
+    expect(channelEngineMayRun({ available: true, reason: "acts" }, false)).toBe(false);
+    expect(channelEngineMayRun({ available: true, reason: "acts" }, true)).toBe(true);
+    expect(channelEngineMayRun({ available: true, reason: "simulated_allowed" }, false)).toBe(true);
     const simulatedTap: ChannelAvailability = { available: true, reason: "simulated_allowed", byTap: true };
     expect(channelTeamRuns(simulatedTap)).toBe(true);
     for (const reason of ["no_publisher", "not_connected"] as const) {
@@ -120,5 +123,14 @@ describe("tap-to-post (founder, 2026-11-12): a channel the founder posts with on
       "No channel can run on its own yet. Email automation opens first: connect SendGrid in Settings › Integrations and the team can run it. Nothing is wrong. Social media is ready now: you post each one with one press.",
     );
     expect(noChannelSentence({ byTap: [] })).toBe(noChannelSentence());
+  });
+});
+
+describe("assertMockResultsAllowed (WP-02 T4)", () => {
+  it("throws mock_result_refused on a person's project on staging or production, and passes where simulated results are allowed", () => {
+    expect(() => assertMockResultsAllowed("production", false, "generated leads")).toThrow(expect.objectContaining({ code: "mock_result_refused" }));
+    expect(() => assertMockResultsAllowed("staging", false, "estimated channel numbers")).toThrow(/simulated results are not written/);
+    expect(() => assertMockResultsAllowed("production", true, "x")).not.toThrow();
+    expect(() => assertMockResultsAllowed("test", false, "x")).not.toThrow();
   });
 });

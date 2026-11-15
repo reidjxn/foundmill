@@ -1,7 +1,8 @@
 /** distribution.recommend / channels.* / campaigns.* / assets.* (BUILD §11.7; AC-11.7.2 enable/disable re-scores). */
+import { recordExpiredApprovals } from "@foundmill/events";
 import { CreateCampaignInput, UpdateCampaignInput, hasLaunched, repos } from "@foundmill/db";
 import { HOUSE_STYLE, POST_DRAFT_CHANNEL } from "@foundmill/agents";
-import { CAMPAIGN_STATUSES, CHANNEL_KEYS, CHANNEL_LINES, CHANNEL_META, CHANNEL_WINDOW_DAYS, ChannelKey, CurrencyCode, dayKeyIn, isTeamPost, ValidationError, type ChannelLine } from "@foundmill/shared";
+import { AppError, CAMPAIGN_STATUSES, CHANNEL_KEYS, CHANNEL_LINES, CHANNEL_META, CHANNEL_WINDOW_DAYS, ChannelKey, CurrencyCode, dayKeyIn, isTeamPost, mockResultsAllowed, ValidationError, type ChannelLine } from "@foundmill/shared";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { assertChannelMayLaunch, assertChannelMayRun, channelRowsFor, FOUNDER_POSTS_CHANNEL, runnableChannels } from "../services/channel-availability";
@@ -182,6 +183,12 @@ export const distributionRouter = router({
           // refused too: no agent can publish there, so a campaign on it is never "live" (founder, 2026-11-12).
           await assertChannelMayLaunch(tx, ctx, owner);
         }
+        // On a real project only the engine's launch step marks a campaign live (WP-02 T2, GTM-36): nothing is sent from
+        // here, so an offline-tracking campaign is not marked live by hand either. A sample or test project still can.
+        if (input.status === "live" && before.status !== "live" && !mockResultsAllowed(ctx.env.APP_ENV, ctx.business.isDemo)) {
+          const owner = await repos.channels.get(tx, ctx.businessId, before.channelId);
+          if (owner.kitMode) throw new AppError("campaign_nothing_to_send", "Nothing is sent from here, so the campaign stays as it is. Submit the materials yourself, then mark it ended.", 409);
+        }
         const campaign = await repos.campaigns.setStatus(tx, ctx.businessId, input.campaignId, input.status);
         if (launching) {
           const channel = await repos.channels.get(tx, ctx.businessId, campaign.channelId);
@@ -231,7 +238,11 @@ async function setEnabled(ctx: Ctx, channelKey: ChannelKey, enabled: boolean) {
     // Only a channel that can really act goes on the board (founder, 2026-11-11). One in offline tracking may: the agent
     // prepares the materials and the founder submits them. Taking a channel off the board is always allowed.
     if (enabled) await assertChannelMayRun(tx, ctx, { channelKey, kitMode: existing ? existing.kitMode : CHANNEL_META[channelKey].kitModeByDefault });
-    const row = existing ? await repos.channels.setEnabled(tx, ctx.businessId, existing.id, enabled) : await repos.channels.upsert(tx, ctx.businessId, { channelKey, line: CHANNEL_META[channelKey].line, enabled, kitMode: CHANNEL_META[channelKey].kitModeByDefault });
+    const toggled = existing ? await repos.channels.setEnabled(tx, ctx.businessId, existing.id, enabled) : null;
+    // Launch approvals the channel's campaigns were waiting on expire with it: the event and the closed note (WP-02 T1).
+    if (toggled) await recordExpiredApprovals(tx, ctx.businessId, toggled.expiredApprovals, new Date());
+    // The expired approvals stay server-side: the response carries the channel only.
+    const row = toggled ? (({ expiredApprovals: _expired, ...rest }) => rest)(toggled) : await repos.channels.upsert(tx, ctx.businessId, { channelKey, line: CHANNEL_META[channelKey].line, enabled, kitMode: CHANNEL_META[channelKey].kitModeByDefault });
     await audit(tx, ctx, { action: enabled ? "distribution.channels.enable" : "distribution.channels.disable", target: { kind: "channel", id: row.id }, details: { channelKey } });
     return row;
   });

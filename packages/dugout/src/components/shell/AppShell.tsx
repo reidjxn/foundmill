@@ -7,6 +7,7 @@ import { FitText } from "../foundation/FitText";
 import { useToastPlacement } from "../foundation/Toast";
 import { TooltipProvider } from "../foundation/Tooltip";
 import { ExplainPageButton } from "../guidance/ExplainPageButton";
+import { useBuilderView } from "../guidance/BuilderView";
 import { useGuided } from "../guidance/GuidanceProvider";
 import { PageExplainProvider } from "../guidance/PageExplain";
 import { Breadcrumbs } from "./Breadcrumbs";
@@ -75,10 +76,10 @@ export const PROCESSING_LINE_MIN_PX = 11;
  * once it names three or more ("4 departments are working on cycle 12"), so the line never reaches an ellipsis at
  * 1280 px. The strip's tooltip and accessible name keep every department's name. Exported for tests.
  */
-export function processingLineText(segments: readonly ProcessingSegment[], active: boolean, cycleNumber?: number | null): string {
+export function processingLineText(segments: readonly ProcessingSegment[], active: boolean, cycleNumber?: number | null, builder = false): string {
   const working = active ? segments.filter((s) => s.active).length : 0;
-  if (working < 3) return processingStatusText(segments, active, cycleNumber);
-  const on = typeof cycleNumber === "number" && cycleNumber > 0 ? ` on cycle ${cycleNumber}` : "";
+  if (working < 3) return processingStatusText(segments, active, cycleNumber, builder);
+  const on = builder && typeof cycleNumber === "number" && cycleNumber > 0 ? ` on cycle ${cycleNumber}` : "";
   return `${working} departments are working${on}`;
 }
 
@@ -338,9 +339,10 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
   const { state, cycleNumber, pulseKey, disabled: continueDisabled, pending: continuePending, caveat: continueCaveat, hint: continueHint, ...continueHandlers } = continueButton;
   const continueAction = continueButtonAction(state, continueHandlers);
   const notice = processing.notice?.trim() || null;
-  const processingText = notice ?? processingStatusText(processing.segments, processing.active, processing.cycleNumber);
+  const builder = useBuilderView();
+  const processingText = notice ?? processingStatusText(processing.segments, processing.active, processing.cycleNumber, builder);
   // The line in the tab bar: the strip's sentence while guidance is on; the answer to a press for everyone, while it stands.
-  const lineText = notice ?? (guided ? processingLineText(processing.segments, processing.active, processing.cycleNumber) : null);
+  const lineText = notice ?? (guided ? processingLineText(processing.segments, processing.active, processing.cycleNumber, builder) : null);
   // The Help group always offers the keyboard shortcuts; the app adds its defined terms (apps/web/lib/search.ts).
   const helpItems = useMemo(() => {
     const given = search?.helpItems ?? [];

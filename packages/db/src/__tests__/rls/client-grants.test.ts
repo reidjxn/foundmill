@@ -207,7 +207,8 @@ describe("structural: what the client roles may call and create", () => {
          where n.nspname = 'public' and p.prosecdef and p.prorettype <> 'trigger'::regtype
            and has_function_privilege(${role}::name, p.oid, 'execute')
          order by 1`);
-      expect(callable.map((r) => r.fn)).toEqual([...MAY_CALL[role]].sort());
+      // Sorted here, not by `order by`: a real Postgres orders text by the database's collation, PGlite bytewise.
+      expect(callable.map((r) => r.fn).sort()).toEqual([...MAY_CALL[role]].sort());
     });
     it(`${role} cannot CREATE in schema public`, async () => {
       expect(await one(sql`select has_schema_privilege(${role}::name, 'public', 'create') as ok`)).toBe(false);
