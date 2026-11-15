@@ -9,6 +9,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+# The workflow only reads the repository (security audit, Nov 13, 2026): an explicit scope, not the repository's default.
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -108,6 +112,8 @@ jobs:
         run: node --test scripts/railway-config.test.mjs
       - name: .env.example lists exactly the variables the code reads
         run: node --test scripts/env-example.test.mjs
+      - name: Supabase config (the sign-in redirect list holds production's callbacks only)
+        run: node --test scripts/supabase-config.test.mjs
       - name: Typecheck and lint (all packages)
         # apps/web's tsc needs more than Node's default 2 GB heap when it runs next to the other packages' (run 16 died
         # with "JavaScript heap out of memory"); four at a time keeps the runner's 16 GB comfortable.

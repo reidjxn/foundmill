@@ -1781,3 +1781,402 @@ A run of the migrations on a real Postgres 16 with Supabase's roles and classic 
 - **Migration `0087_client_grants.sql`** (idx 75; 0086 is left to `0086_idea_drafts`, PR #98). It revokes EXECUTE on `fm_purge_business(uuid)` and `refresh_journey_daily()` from `public, anon, authenticated` (service_role keeps it). It revokes DELETE on `account_preferences`, `founder_presence` and `founder_visit_days` from the client roles (nothing in the api deletes those rows as a client role, and the policies are unchanged). It revokes TRUNCATE, TRIGGER and REFERENCES on every table and view in `public` from the client roles, and from the migration role's default privileges. On the two service-read public views, `service_role` keeps SELECT only (`public_person_profiles` was auto-updatable through Supabase's default grants). Nothing is granted and no policy changes.
 - **Harness.** `createTestDb()` builds the same harness on a fresh database of the server that `RLS_TEST_DATABASE_URL` names (`src/testing/postgres.ts`, from branch `pg-check`). How to set up a cluster like Supabase's: docs/DEPLOY.md §4 "Checking grants on a real Postgres".
 - **Tests.** `src/__tests__/rls/client-grants.test.ts` (25 cases: EXECUTE on the two functions, the purge and the refresh refused to an owner and to anon, no client DELETE on the three tables with the rows kept, no TRUNCATE, TRIGGER or REFERENCES on any relation or on a table created later, a trigger on `businesses` refused, the views' service grant). Without 0087, 19 of its 25 cases fail on the Supabase-like cluster. With it, every RLS suite passes there (23 files, 1,475 tests), including the account-preferences, founder-return, journey refresh and view-grant asserts that failed before, and the full PGlite db suite passes (90 files, 2,102 tests, 18 skipped).
+
+## 2026-11-12 — Team call: a sound at the mic no longer loses the team's answer (#88, via #90)
+
+- 2026-11-12: **Team call: a sound at the mic no longer loses the team's answer** (apps/web `components/calls/`; docs/TEAM_CALL.md §6, DECISIONS). From the first live test's logs: the answer's speech was fetched but never played, because the start of an utterance dropped the queue and that utterance then transcribed to nothing. `playback-queue.ts` gains `held` with `hold` / `release` (nothing starts while held); `use-call-playback.ts` gains `hold()`, `release()` and `paused` (pauses and resumes the audio element, the browser's voice and the turn's timers; a hold lets go by itself after `HOLD_MAX_MS`); `use-call-microphone.ts` calls `onSpeechDiscarded` for every start that yields no utterance (including the mic switched off mid-word); `CallRoom.tsx` holds on speech start and releases once the utterance is sent or comes to nothing. Tests: queue and hook tests for hold, release, a hold over an answer still being fetched, a streamed line paused and resumed, and the 75 s let-go (57 call tests pass); typecheck clean.
+
+## 2026-11-12 — Connectors on the founder's own key, second part, and typed reads (#89)
+
+- **Four more connectors** on the founder's own key, each real and mock with contract tests, a health check on the founder's key, its own rate limits and a row in Settings › Integrations: `apollo` (find people for free; a company search or a person's work email spends a credit and asks first), `vercel` (see deployments; a redeploy that keeps its target asks first), `posthog` (one read-only query on the founder's project, no person data), `resend` (one email to one person from the founder's verified domain, with Foundmill's own signed unsubscribe link; asks first for someone outside the project).
+- **Typed reads.** An agent that holds an outward tool reads web, search and vendor results as the quarantined reader's digest. A tool can now give it checked values beside the digest (an id, a short name or role, an email, a host, a link, a number, a flag, a date), and never free text; an agent names its own terms and gets back whether and how often they appear. On the panels (Anthropic's too), SerpApi, Firecrawl, Apollo and Vercel. docs/DECISIONS.md has the rules and what remains open by design.
+- **Agents.** Lead generation (Apollo), engineering lead and infrastructure engineer (Vercel), distribution strategist and data engineer (PostHog), the email channel (Resend); the rows restored are gone from PLANNED_GRANTS.md. Email can act through Resend too; a connected Resend takes the place of the project's Foundmill address, as SendGrid does. Lead generation stays "no publisher" on the Channel Board.
+- **Evals.** Golden task `channel_lead_generation.own_apollo_account`, and a typed-read injection suite of five cases (the worst text that still fits the checked values, given to the agent that holds the outward tool). Neither was run against a live model when first written. The typed-read suite now runs live in its own workflow on the repository key; its first two runs planned no outward action in any case and failed two only on questions that quoted the planted text to warn the founder, so escalations are now judged by the skill grader instead of a word match (DECISIONS, 2026-11-13).
+- **Security reviews** (three, in docs/DECISIONS.md): the paid Apollo calls ran without asking in assisted mode (fixed: they ask in every mode); a preview could be redeployed to production, the agent chose Resend's unsubscribe link, PostHog could read person data, a display name could add a recipient (all fixed); the typed read's first guard checked size and not kind, and links and hosts carried too much text (fixed).
+- **Verified.** Workspace typecheck (25 of 25); lint with no errors; connectors 1,172, gateway 341, api 1,081, web 1,322, dugout 1,193, agents 439, orchestrator 665, shared 697, policy 224, evals 96; banned-terms and US English scans clean.
+- **Open.** No connector has called its vendor for real (no keys here; each has an env-gated live suite). A founder's own Resend sends only where the deployment's mail settings can sign an unsubscribe link, and its bounces and complaints do not reach the project's suppression list yet. A production redeploy in automated mode runs without asking, and Vercel is not pinned to one project. A work email from a lookup cannot be mailed until the founder approves the address (the recipient rule, kept). A short label or a link's path can still spell a few words. The Settings › Integrations rows were not looked at in a browser. Next: `buffer`, the optional publishing connector, as a third change.
+
+## 2026-11-13 — People pages from 390 px (THESIS_REVIEW 2.1, part B) (#102)
+
+- **Done:** /public-profile, /network (with Messages), /communities, /communities/[id] and /profiles/[kind]/[id] work from 390 px, in the person frame (`smallScreen`) and, by container queries, in the business shell. Each screen root is its own `@container`; below `page-wide` (640) the 12-column grids are one column in reading order (Network: messages and connections, then search, requests, invitations, visibility), and from `page-wide` the desktop layout is unchanged. Connections and Communities show `PeopleList` (name, one fact, a 44 px main action, a More menu) instead of the DataTable below `page-wide`; saved views and the right-click menu stay on the table. Messages shows one pane at a time with a Back control and no fixed height. Controls on these routes are `min-h-tap` below `page-wide`. `useNarrow` (components/live) measures the screen root for the two places that render differently.
+- **Kept from #99:** no connect control without a project, no suggestions, "Find people" unbadged.
+- **Verified:** see the hand-off message for counts. New: `components/live/__tests__/SmallScreen.test.tsx`; `e2e/person-home.spec.ts` gains the 390 px test.
+- **Not done:** saved views and bulk row actions on a small screen; no Storybook story (PeopleList lives in apps/web, not dugout).
+
+## 2026-11-13 — Today and Needs you from 390 px (THESIS_REVIEW 2.1, part A) (#102)
+
+- **Done:** `AppShell` takes `phone`; `BusinessShell` sets it on `/b/<id>/today` and `/b/<id>/inbox[/<itemId>]` (`worksOnSmallScreens`). Under 1280 px it draws `PhoneBar` (menu button, logo and name, Continue and Stop all agents at 44 px), a title row, the tabs scrolling sideways, and `PhoneMenu` (the sidebar's items in a focus-trapped panel; Esc closes it): no sidebar, right rail, NeedsLargerWindow or `min-w` floor. The shell root is an `@container` at every width. `ShellSkeleton` drops its floor and rail on those routes. Today: `PageGrid stack` (new `page-grid-stack` utility), `StatusStrip wrap` (two per row, an odd last tile full width), WeekPlan and FirstWeekTimeline stack, the since-last-visit and Needs you rows and the public page note reflow, all by container queries; no data request or widget logic changed (still one `today.visit` read). Inbox: one pane at a time below `page-wide`, a Back control, the URL with `/<itemId>` opens the note; the 380 px list is unchanged at desktop widths; the first-visit tour does not start on a phone. Tap targets: the shell's controls, Today's and the note's buttons and links are at least 44 px; small inline controls (InfoTip, Term, Estimate word, EntityLink, metric provenance) keep their look and get an invisible 44 px hit area (`tap-reach`) in phone mode.
+- **Stories (390 px):** AppShell (Today, tabs scrolling, a screen without phone mode), PhoneBar (bar, Needs you, long name, menu open), PageGrid stack, StatusStrip wrap, NeedsYouList, SinceLastVisit, PublicPageNote, GoalPanel, StreakStrip, WeekPlan, FirstWeekTimeline.
+- **Verified:** see the hand-off message for commands and counts. New: `e2e/phone-today.spec.ts` (Today, Needs you list/note/Back, a decision note, another route still gated, 1280 unchanged); unit tests for phone mode on and off, PageGrid stack, StatusStrip wrap, NeedsYouList, ShellSkeleton.
+- **Not done:** the server's first paint on a phone is the desktop shell until the browser measures the width (a brief flash); Ask the Chief of Staff and the tab row's Refresh are in the title and tab rows, but "Explain this page" is not drawn on a phone; Today's Goal panel stays above Needs you in the one column.
+
+## 2026-11-13 — The legal pages: the registered address, and Cloudflare's Turnstile Privacy Addendum (#103)
+
+2026-11-13: the legal pages carry the registered address and the Turnstile addendum.
+
+## 2026-11-13 — The account relay is back, in the business relay's loop (#96)
+
+- `apps/api/src/services/relay.ts`: one loop (`combineRelays`) runs the business batch and then the account batch each tick, so the database pool carries one poller (one probe every 250 ms when both outboxes are empty), as before account events. An account failure is logged and never fails the tick; a business failure backs the loop off as before. `ACCOUNT_RELAY_ENABLED` is true again; `accountRelay: false` still turns the account outbox off.
+- `stop()` waits at most `RELAY_STOP_TIMEOUT_MS` (5 s), then logs "outbox relay did not stop in time" and moves on, so a tick stuck behind a starved pool can no longer hold a shutdown for 45 s.
+- `@foundmill/events` exports `createRelayLoop`.
+- Lands after the request-transaction gate (#95), which also keeps a reserve of connections the relays can always use.
+- Tests (`account-events.test.ts`): both outboxes relayed by the one relay against PGlite and an in-memory Redis; order and isolation in the combined tick; turned off, account events stay queued; the bounded stop.
+
+## 2026-11-13 — Idea box: "Shape my idea" sits beside the field (#104)
+
+- Idea box: Generate moved out of the field, made smaller, and given a hover shimmer on its outline (founder feedback, Nov 13).
+
+## 2026-11-13 — The landing page, less dense (founder) (#105)
+
+The founder loved the page's copy and content and worried it read as crowded. Every word, chip, component and section stays; only layout changed. DECISIONS "The landing page, less dense".
+- **Top bar.** The six section links are gone: the wordmark, Sign in and Start your business. The section anchors stay, and the Why now pillars link to the sections that prove them.
+- **Room for the product's screens.** The page column is 92 rem (about 1,200 px) instead of `max-w-7xl` (1,040 px at the 13 px root). The lead's attribute names had 42 px and broke mid-word ("Resea / rch / synthe / sis"); they now have 90 px, at 1280 and 1440 px.
+- **Rhythm.** Sections `py-24` → `py-36`, heading-to-content `gap-14` → `gap-20`, side-by-side cards `gap-6` → `gap-10`, card padding `p-6` → `p-8`, Why now opens with more air; the hero leaves `gap-20` between the idea box and the example run (enough for the deck's Continue callout to still open under it at 1440 × 900, checked by screenshot).
+- **A collision fixed.** How it works' Example chip moved from the product part's top-right corner, where it covered "Drafting" on step 04, to the step's own line beside "Step 01".
+- **Tests.** web `LandingPage.test.tsx` (no section nav; the pillars link to team, live, journey, control); Playwright `landing.spec.ts` (no section nav; each pillar link scrolls to its section): 15 of 16 pass against `next dev` here; the prerender test (`s-maxage=3600`) needs a production build and fails under `next dev` with or without this change. typecheck, lint, banned-terms and us-english pass. DESIGN §9a updated (top bar, How it works chip, rhythm).
+
+## 2026-11-13 — Claude Code workflow: skills, a decisions index, a rule for outside skills (#107)
+
+- 2026-11-13: `.claude/skills` replaces `.claude/commands` (plus plan-change, verify-done, ship-change, vet-third-party-skill); `scripts/decisions-index.mjs` with tests; a CLAUDE.md rule on outside skills; `est.json` removed.
+
+## 2026-11-13 — Terms: Copyright complaints (#108)
+
+- Terms: "Copyright complaints" section (notice, takedown, counter-notice with the 10–14 business day window, repeat infringers, false notices), the `COPYRIGHT_AGENT` and `COPYRIGHT_EMAIL` values, and tests.
+
+## 2026-11-13 — Security hotfix: role grants (#113)
+
+Security hotfix (role grants): `team.humans.role` and `team.humans.invite` no longer let a walled admin grant sections or roles beyond their own access (`apps/api/src/services/grants.ts`, `apps/api/src/__tests__/grant-access.test.ts`). No other non-owner path writes memberships. No migration.
+
+## 2026-11-12 — The network and community specification (document only, no product change) (#93)
+
+The founder asked for a whole specification of the network side, written around one question: how does Foundmill go viral. `docs/NETWORK.md` (new):
+- **The argument.** The product spreads through what founders make (every real outcome is a thing worth showing, and only Foundmill can prove it is real) and holds people through how others respond. The loops that bring people in are started by a solo founder for their own project's sake, so growth never depends on pushing anyone toward a cofounder.
+- **The shape.** Two ways to be with people: alongside (follow, signal, answer an ask, a cohort, a build hour; everyone, no commitment) and with (a two-week trial, cofounders; always the founder's own step), as a ladder of small steps that can each be undone.
+- **Eight loops** with attribution on every public address, **the hook** at four speeds (minutes, daily, weekly, chapter), **twenty-one features** in six groups (proof, reaching people outside, the room, alongside, with, the pulse), the surfaces and routes, what each agent does and never does, the solo guard feature by feature, the new objects and events, the measures, and a build order in four waves.
+- **Fifteen questions for the founder** (its section 14), each with a recommendation. The first is the one the rest depend on: whether the alongside layer is open to a founder building on their own.
+- A pointer at the top of `docs/THESIS_REVIEW.md` §13. Roadmap packages are unchanged.
+- **Checked.** `node scripts/us-english.mjs docs/NETWORK.md` passes; no word from the vocabulary table or the subtext list in it. Nothing else was run: no code changed.
+- **Found while reading.** The daily streak (founder, Nov 11) is decided and described in `docs/mobile`, and no code on this branch counts it yet; the specification says so and adds no second streak.
+
+## 2026-11-12 — Network, wave 1 (first part): the "Built on Foundmill" mark (#93)
+
+The founder answered the questions of `docs/NETWORK.md` §14 (DECISIONS, same date); the specification is revised to match and wave 1 started with the mark (F2, first half; the story page is next).
+- **The rule.** `tierShowsBuiltOnMark` (packages/config): the free plan carries the mark, a paid plan removes every part of it. `builtOnWords` (packages/shared `project-page`) holds the words; the mark's text is "Built on Foundmill" in one place.
+- **Made for the visitor, quiet for the member.** By placement, never by size:
+  - The foot of `/p/<slug>` (`mark` on Dugout `ProjectPage`): for a signed-out visitor the page's one link, small, to the home page with `?via=p.<slug>`, coming up from dim as it scrolls into view (`mark-arrive`: opacity only; at full with reduced motion, without scroll timelines and on a page too short to scroll). For someone signed in: plain dim words, no link. On a paid plan: no foot.
+  - After a visitor follows: one small line under "Check your email to confirm", "‹name› is built on Foundmill." with "Start your own".
+  - The confirmation email ends with that sentence (words only), and the page after "Confirm" shows it small under the answer.
+  - The share image: the words small in a corner.
+  - The console: the phone preview shows the mark once with "The small line at the foot is removed on a paid plan." under the frame.
+- **Api.** `publicPage.bySlug` and `page.get` answer `mark`. The plan behind a public page is read through the public view (`repos.pages.public.planTierBySlug`), on the service connection; the view itself is unchanged and still exposes no plan.
+- **Attribution, the shared part.** `@foundmill/shared/via`: `p.<slug>` and `u.<handle>`, `parseVia`, `formatVia`, `withVia`, the parameter and cookie names. Recording it at sign-up is being built separately.
+- **Verified.** Typecheck of the nine touched packages; eslint on the changed files; vitest: shared 682, config 19, dugout 1151, modules 601, web 1260, gateway 293, ingest 110, api `pages` and `page-follow` 29, db `rls/project-pages` 20; banned-terms, us-english, focus-visible, plain-language gate 2. **Playwright ran:** `public-page.spec.ts` (8 passed) against the PGlite stack: the visitor's link and its address at 390 and 1280 px, the line after a follow, the founder's own signed-in view (plain words, no link), the preview note. Screenshots 40 and 41 retaken.
+- **Not done.** The story page the mark will link to (it goes to the home page until then). The person page (`/u/<handle>`) still ends with "Made with Foundmill": a person has no plan, so whether it carries a mark at all is a question for the founder. The full api and db suites were not run, only the files named above.
+
+## 2026-11-12 — A person's page carries no mark; decisions recorded (#93)
+
+- **`/u/<handle>` has no footer and no mark** (founder, Nov 12: the mark is only on what a person builds). Dugout `PersonPage` loses the "Made with Foundmill" footer and its `homeHref` prop; the share image loses the words; DESIGN §9c, the story text, the component test and `person-page.spec.ts` follow (no footer, no "Built on" or "Made with", every link still a 44 px target).
+- **CLAUDE.md:** the mark is written in as the one exception to "plans differ by agent work only", scoped to the mark.
+- **Recorded:** the founder's answers relayed by the alignment session (the wording "Built on", the exception, this session owning invitations and the waitlist), migration numbers 0085 and up for this branch, `docs/mobile` left to its owner, and the decision to build a private person-level event store before wave 2.
+- **Verified.** Typecheck of dugout and web; vitest: dugout `public` 23, web 1260; eslint on the changed files; banned-terms and us-english. **Playwright ran:** `person-page.spec.ts` (8 passed); screenshots 42 and 43 retaken.
+- **In flight.** Sign-up attribution (0085) and early milestones with the story page and cards (0086), each on its own working copy; not merged yet.
+
+## 2026-11-12 — Network, wave 1: sign-up attribution (#93)
+
+Who or what brought a new person is recorded once (docs/NETWORK.md §5).
+- **Web.** The proxy keeps the first valid `?via=` a visitor arrives with in the httpOnly `fm_via` cookie (first touch wins, 30 days; no database write and no api call per visit). `/onboarding` reads it on the server for a person without a profile and hands it to the form; the save that creates the profile sends it; a Server Action then clears the cookie.
+- **Api.** `founder.profile.update` takes an optional `via`. On the save that creates the profile, `services/attribution.ts` resolves it against the two public views only and records one row. Not a reference, nothing public behind it, a self-referral and a second time are all ignored silently with the same answer; the value is never logged; a failure never fails the save.
+- **Database.** Migration `0088_attributions` (first numbered 0085, then 0086; renumbered when the merge order was set and again after #98 and #101): one row per account, service role only (row level security on, no policy, no grant to a client role: not even the person reads who brought them). For a project page the person credited is its longest-standing owner.
+- **Event.** `signup.attributed` is declared; no row is written until the person-level event store exists (being built as its own change, migration 0085). Each row is checked against the event's schema, so the events can be written from the rows.
+- **Verified** (by the build, on its own working copy): workspace typecheck 25 of 25; vitest: db 1976 (13 skipped), events 76, shared 680, stream 87, api 1061 (3 skipped), web 1276; Playwright `onboarding.spec.ts` and `attribution.spec.ts` (7 passed); banned-terms, us-english. **Again after merging onto this branch:** workspace typecheck 25 of 25; db `rls/attributions` and `migrations` 27; api `attribution` and `pages` 28; web 1276. Playwright was not rerun after the merge.
+- **Known limits.** It only works when the person signs up in the browser they arrived in (the native app must pass `via` itself). A signed-in person without a profile who lands straight on `/onboarding?via=…` gets the cookie on that request but it is not handed over until the next one. The cookie's value reaches the onboarding page's script as a prop (the cookie itself stays httpOnly). `docs/ARCHITECTURE.md` does not describe the table or the cookie yet.
+- **Seen in passing, not looked into.** In `next dev` with the api unreachable, `/new` and `/onboarding` answered 500 with `TypeError: frame.join is not a function`; `/new` is untouched by this change.
+
+## 2026-11-12 — Network, wave 1: early milestones, the story page and milestone cards (#93)
+
+docs/NETWORK.md F2 (second half) and F3; THESIS_REVIEW package 5.3.
+- **Two early milestones**, recorded in the transaction of the real event: "Page live" when the page is first published, "First follower" when the first follower confirms. Listed before the customer and revenue ones. Existing projects are caught up with the original dates; never a sample business.
+- **A founder chooses to show one.** Plan › Milestones: "Show on your page" under a reached milestone, then "On your page" with Hide and Copy card link. An owner or an admin only (`journey.showMilestone`, `journey.hideMilestone`), audited, with `milestone.shown` and `milestone.hidden` through the outbox. Showing needs a published page; hiding never does.
+- **Only a milestone recorded from one real outside event can be shown** (`isShowableTrophyKey`: "Page live" and "First follower"). A customer or revenue milestone is counted or estimated, so the api, the console and the table's guard all refuse to make it public: "Verified by Foundmill" must be true of everything a page shows.
+- **The story:** `/p/<slug>/story`, "How ‹name› was built": shown milestones oldest first, each a date, the words and "Verified by Foundmill", one sentence on what verified means, no counts. From 390 px, signed out, indexable only when it exists. The project page's mark and the line after a follow now go to the story when there is one ("See how it was made").
+- **The card:** `/m/<id>` for one shown milestone, with a wide share image and a tall one for story posts (`/m/<id>/story-image`). `noindex, follow`. "Start your own" appears only on the free plan and only for a signed-out visitor.
+- **Database.** Migration `0089_public_milestones`: the view `public_project_milestones` (service role only; rows only while the page is public, so taking the page down removes the story and every card at once; public words are built from the key, never from a stored label) and a guard on `milestones` so a client cannot write or change a platform-recorded milestone by hand, and only an owner or an admin shows or hides.
+- **Verified on the merged branch.** Workspace typecheck 25 of 25; vitest: db 1993 (13 skipped), journey 133, shared 686, events 77, dugout 1165, widgets 243, web 1279, stream 87, ingest 111, api 1074 (3 skipped, the full suite); eslint on the changed files; banned-terms, us-english, focus-visible, plain-language gate 2. **Playwright ran:** `project-story.spec.ts`, `public-page.spec.ts`, `milestones.spec.ts` (14 passed).
+- **Not done.** Nothing in the console links to the tall image, and there is no share control yet (tap-to-post is the next package). The card has no Follow button of its own; it links to the project page. On a business in the old "Live" mode, a shown milestone also gets the older Share button. Publishing a page now ends Today's "day one" view, because that view ends at the first milestone.
+- **Open, found by the build:** the "Page live" date follows `project_pages.published_at`, and migration 0077's guard checks who writes that column, not its value, so an owner could backdate it with a direct write. Filed as a suggested task ("Make a page's published date server-set"); not fixed here.
+
+## 2026-11-12 — Network, wave 1: tap-to-post sharing (#93)
+
+The founder's default way for a project to post (DECISIONS, two entries of this date): one button per network opens that network's own share window with the text and link filled in, and the founder presses Post there. Foundmill posts nothing.
+- **The share panel** (Dugout `SharePost`, DESIGN §9g) opens from Plan › Milestones ("Share" on a milestone that is on the page), Product › Public page ("Share your page") and Customers › Creative (on a post drafted for social). The text is drafted from facts already public and can be edited; it is refitted to each network as the founder types; every link carries `via`.
+- **Where each network landed**, checked on Nov 12, 2026 against the networks' own pages or their live answers (no signed-in account was used, so no composer was seen filled in):
+  - **Opens ready to post** (text and link): X, Threads, Bluesky.
+  - **Opens with your link** (the words are not carried): LinkedIn and Facebook take only a link; Reddit takes a title and link but the founder still picks a community.
+  - **Copy and post in the app:** Instagram, TikTok ("Copy text" and the image to download).
+  - **Send to someone:** WhatsApp, Telegram, Copy link.
+- **The social channel is available by tap** (reason `by_tap`, with no connector), from the three networks above. The team never runs it: no engine starts, a campaign on it cannot be scheduled, it is never a default start, and the Distribution Strategist is told the founder posts it. On the Board it reads "You post it".
+- **One draft shape** for tap-to-post and the optional Buffer connector (`packages/shared/src/post-draft.ts`, agreed with the connectors session): https links with no credentials, networks append-only.
+- **A press is recorded as a share** (`share.opened`), never as posted, at most 30 a minute per person, and nothing counts it as a real outcome.
+- **Verified.** The merge was a fast-forward, so the build's own runs are of this exact tree: workspace typecheck 25 of 25; vitest: shared 733, events 79, connectors 787 (113 skipped), stream 87, dugout 1186, modules 619, widgets 243, web 1279, api 1087 (3 skipped), orchestrator 667; eslint; the four script gates. Rerun here: typecheck 25 of 25, and shared, connectors, events, dugout, modules, web, stream with the same counts. **Playwright ran here:** `tap-to-post`, `public-page`, `milestones`, `project-story` (15 passed). Screenshot `docs/ux-audit/53-share-panel.png`.
+- **Seen once and not reproduced:** in the build's combined run, `first-days.spec.ts` (an element not found after 60 s) and `public-page.spec.ts` (a page crash) each failed once and passed on their own afterward. Not shown to predate this change.
+- **Not done.**
+  - **On a real project the social agent drafts nothing yet**, so the Share control on Creative has drafts only where simulated results are allowed. The panel's two other places work everywhere. Agent-written post drafts are the next piece of this.
+  - The Share control on a drafted post is covered by unit tests only (the browser test stack has no drafted post).
+  - Share buttons for visitors on the public story and card pages; counting a visit that comes back through a shared link.
+  - Storybook was not built (stories are typechecked).
+  - A milestone on a business in the old "Live" mode shows two controls both labeled "Share" (the older one copies a line of text).
+
+## 2026-11-12 — Sign-up attribution writes its events to the person-level store; one step for a new person (#93)
+
+- **Two account events, one per person** (replacing the business-scoped `signup.attributed` that was declared and never written). `signup.attributed` goes to the new person; `referral.arrived` goes to the person credited, when there is one. Both carry only what was in a public address: `sourceKind` and `sourceRef`. Neither names the other person in any way, and the idempotency keys come from the attribution row's own id.
+- **Written with the row, never instead of it.** Both events go in a savepoint inside the transaction that inserts the `attributions` row: both with the row, or the row without them. The row is what credit is later paid from and is written once, so an event that cannot be written (a page address shaped like an id is one real case) never loses it.
+- **The SQL list of account-scoped types** (`fm_account_event_types()`) is redefined inside `0088_attributions` with all four types; 0085, which is applied in production, is untouched. A test reads the latest definition across migrations and holds it equal to `ACCOUNT_EVENT_TYPES`.
+- **`onPersonCreated`** (`apps/api/src/services/person-created.ts`): the one place for what runs once when a person's profile is first created. Each step in its own try, so one failing never stops another or fails the save. Today it has one step, attribution. `founder.profile.update` also accepts an optional `ideaDraftToken` and passes it through; no step reads it yet (the idea-box work adds its claim, if the founder chooses "questions first").
+- **Verified on this branch after merging the change:** workspace typecheck 25 of 25; vitest: shared 784, events 129, stream 97, db 2106 (13 skipped). The build's own run of the api suite on its base: 1170 passed, 3 skipped; rerun here after this entry.
+- **Open.**
+  - A person can read their own account events, so a person credited can see that someone arrived through their page and when, with no screen for it yet. The spec said the store was "one that only the service reads"; what #86 built lets a person read their own rows. For the founder to confirm.
+  - Nothing has run on real Postgres. A database that already applied an earlier 0088 from this branch needs the function redefined by hand.
+  - The account relay is off on main, so these events are written and not relayed.
+
+## 2026-11-13 — Network, wave 1: the social agent writes post drafts for tap-to-post (#93)
+
+The founder's ask after tap-to-post ("a post the social channel agent wrote"). Drafting is separate from running the channel: nothing here launches, schedules, publishes or measures.
+- **When a draft is written.** Only for a project whose social channel is available by tap and that the founder has put on the Channel Board, never a sample business, never while the team is stopped or out of credits. One draft per trigger: the page going live, a milestone shown on the page, the first follower. Putting social on the board with the page already live catches up the page's draft.
+- **How it starts.** The writer of the event starts a `postDraft` workflow after its commit (the api for the page, a shown milestone and the board; ingest for the first follower). Nothing polls, and the api adds no loop, timer or background query on its database pool.
+- **Caps.** At most 2 drafts in 24 hours and 5 in 7 days per project (`TEAM_POST_CAPS`), dropped attempts included; never a second waiting draft about the same thing.
+- **What the agent is given.** The project's name, its published page (inside an untrusted-content block), the one fact that happened with its date, and the length it may use. Never a follower's or customer's name or email, never a count, never revenue.
+- **The check on its answer** (`checkPostDraft`, pure code): refuses a link or bare domain, an email, an @mention, markup, a phone number, a figure or quantity not in the facts, a hashtag the page does not use, emoji, praise, a claim of customers or results, the phrases the product never writes, and a mention of AI or the product. One retry with the reason code, then the draft is dropped; only the code is logged. The code, not the model, attaches the link with `via` and the image, and fits the text to each network.
+- **Where it shows.** Customers › Creative, as a post the team wrote, with Share (the tap-to-post panel) and "Not this one"; one quiet line on Today, "A post is ready to share", until it is shared or set aside. No Inbox note, no email, no push. Event `post.drafted` (ids and the kind of trigger, never the words). No migration.
+- **Model and cost.** The `projectPage` route (Sonnet at low effort). Estimate: about 0.6 to 1.5 cents a call, up to about 3 cents a draft with the retry, at most about 15 cents per project per week at the cap; worked out from the built request and list prices, not measured.
+- **Verified on the merged branch:** workspace typecheck 25 of 25; vitest: shared 796, models 297, agents 465, events 130, db 2125 (13 skipped), stream 97, ingest 114, modules 625, orchestrator 686, dugout 1237, web 1370, evals 105 (16 skipped: the live suites). The build's own runs on its base: api 1165 (3 skipped), Playwright `post-drafts`, `tap-to-post`, `public-page`, `milestones`, `project-story`, `money-legal-distribution`, `first-days` (37 passed) and the golden path (17). The api suite and the Playwright specs are rerun on the merged branch after this entry.
+- **Not verified.** The eval was written and **not run**: there is no model key in this environment, so no real model has produced a draft yet. The social template's standing instructions pull against the post prompt in places ("specific numbers", "cite record ids"); the prompt overrides them, and only a live run shows whether that holds.
+- **Known gaps.** In production a trigger that fires while the workflow service is down is lost, with no retry. A figure the founder states on their own page can be repeated in a post (the check refuses only what the facts do not contain). `screens-plain.spec.ts:77` (Milestones) times out on this branch and on its base alike.
+
+## 2026-11-12 — A page's dates are recorded by the database (the open point above) (#93)
+
+The "Published Oct 7, 2026" line on a public page and the date of the milestone "Page live" are now facts the platform recorded. Built on the network branch (`claude/bold-johnson-hjxopx`), which is not merged yet.
+- **What was wrong.** The guard on `project_pages` (0077) checked who wrote the publish columns, not the dates. An owner or an admin could write any `published_at` straight at the table, on a live page or on a row that was never published. The public page showed it, the nightly catch-up recorded "Page live" from it, and a member could delete a private "Page live" so it was recorded again. Reproduced first: the new tests fail without the migration.
+- **Database.** Migration `0090_page_dates_recorded`:
+  - For a signed-in client the database writes `published_at` when a page goes live and `unpublished_at` when it is taken down, from its own clock, whatever the client sent. Neither moves otherwise, and a row that was never published holds no date. The service connection keeps the dates it writes (seeds, backfills).
+  - No signed-in client deletes a milestone the platform recorded, shown or not. A founder hides or archives one. A note without a key is deleted as before. Deleting a business still removes its milestones.
+  - Rows written earlier: a date on a page that never went live is cleared, and a date in the future becomes the moment of the migration (or of the take-down, when that is earlier). A date in the past stays (it cannot be told from a real one).
+- **Repo.** `repos.pages.publish` and `unpublish` are unchanged in what they do; their `at` is for the service connection only and says so. The api reads the date back from the row, as before.
+- **Tests.** db `rls/project-pages` (26) and `rls/public-milestones` (21): a client's date is replaced on every route (the repo, a direct insert, a direct update, with another change, on a draft, on a page taken down), for an owner and an admin; a member is still refused; another business's people reach nothing; the full route from the report (delete, backdate, re-insert, the catch-up) ends with the real date on the page, the milestone and the story; business deletion on the service connection. api `pages` and `milestones-show`: publish and take-down still work, "Page live" gets the page's date, and an owner writing around the api moves neither.
+- **Verified.** Typecheck of db and api; eslint on the changed files; vitest: db 2003 (13 skipped), api 1076 (3 skipped) (the full suites); banned-terms, us-english. **Playwright ran:** `project-story.spec.ts` and `public-page.spec.ts` (10 passed) against the PGlite stack. A security review of the two trigger functions found no route around them; its one point (the earlier rows above) is in the migration.
+- **Checked on a real Postgres** (16.15, a local cluster with the Supabase roles and the `auth` stub; not PGlite), after the pull request opened: every migration then on the branch, through the public milestones (now 0089), and then this one (now 0090) apply; 30 of 30 cases pass through `set local role authenticated` with JWT claims, as PostgREST connects. They cover the hole before 0090 and the repair of earlier rows, the dates on insert, update, upsert and take-down, "Page live" accepted only with the page's own date as the driver reads it back, the delete rule, another business's owner, and `fm_purge_business` as `service_role`. Not checked on the production database itself, where the migration role is `postgres` without superuser.
+- **Not done.** `published_by` is still what an owner or an admin writes (not public; the audit row names who published). The migration number and its journal `when` are final only when the network branch is rebased for its merge. No screen changed, so no story and no new Playwright spec.
+
+## 2026-11-13 — Network, wave 1: the merge of main and #101 (#93)
+
+- **Merged** origin/main (#94, #95, #97, #98, #99, #100, #85) and #101 (`claude/definer-grants`) into the branch; renumbered its migrations to 0088 to 0090 (idx 76 to 78); `public_project_milestones` holds SELECT only for the service role; the Privacy Policy lists `fm_via` and "How you found us"; DESIGN §9f and §9g for the story and the share panel; the e2e tap-target checks use `expectTapTarget`.
+- **Verified.** Workspace typecheck 25 of 25; eslint on the changed files (0 errors; 4 warnings in `apps/api/src/services/plans.ts` line 23, as on main); vitest: db 2182 passed and 18 skipped, api 1236 passed and 3 skipped, shared 809, stream 97, web 1404, dugout 1245, agents 465, events 130; banned-terms and us-english pass. Playwright, this branch's seven specs on a fresh PGlite stack: 12 of 13, then `project-story.spec.ts` 2 of 2 alone.
+- **Found, not this branch's:** with no Temporal the api drafts a project's foundations in process on the request's gated executor (#95), so a browser that leaves before the drafting ends cancels it ("The request was closed before this part of it started", then "foundations: could not record the failure"); the page-ready note then never reaches Needs you.
+
+## 2026-11-13 — The morning brief on real outcomes, and "When the team stops" (#112)
+
+- 2026-11-13, item 10:
+  - The morning brief is one page in four sections: What worked (real outcomes only), What's booked, Waiting on you (with the one-click answer inline) and What's next.
+  - Settings › What the team can do gains a read-only "When the team stops" list held to Cedar.
+  - Files: `packages/shared/src/morning-brief.ts`, `loop-stops.ts`, `notify-words.ts`; `packages/db/src/brief-facts.ts`, `repos/notify-facts.ts`; `apps/gateway/src/notify-email.ts`; `apps/web/components/settings/TeamCanDoTab.tsx`; tests in shared, policy and gateway; `e2e/team-can-do.spec.ts`.
+
+## 2026-11-13 — Security fixes from the Nov 13 audit (#116)
+
+- Security audit fixes (7 findings plus review fixups), each with a test:
+  - export walls;
+  - tool grants (rollback, save, promote, empty list);
+  - delegated approval reuse;
+  - gateway session secret (SEC-9) and pause-link secret;
+  - digest recipients;
+  - inbox note images and mention cleanup;
+  - Supabase redirect list.
+
+## 2026-11-13 — A second read: the agent that checks is never the agent that wrote it (#117)
+
+- Item 6, a second read:
+  - Before a merge is asked for, a different agent reviews the diff, and its findings appear with the approval.
+  - After the foundations are written, a second agent reads the drafts in at most two rounds, with web fact-checks where available.
+  - The founder gets one Inbox note, and the author one revision task limited to document tools.
+  - New `documentReview` route, evals (including injection), unit and workflow tests, and the security review's five fixes.
+
+## 2026-11-13 — Invitations and roles: the security review's findings fixed (#120)
+
+The review of the waitlist-invitations branch before it goes to production. New commits on top of its four; the calls are in DECISIONS ("The security review of invitations and roles").
+- **A link is not a key.** An invitation that names an address is accepted only by the account signed in with that confirmed address; anyone else meets the same "This invitation no longer works" as a dead link. A cofounder invitation must name one (api, and 0093's check on the table); Settings › People asks for "Their email" for a cofounder.
+- **Who an invitation lets in.** Only an inviter the list, open sign-up or the time before let in can admit a new account, three a UTC day each, under the advisory lock; an account an invitation let in can still add people who are already in. Open sign-up counts invitation admissions toward the day's ceiling. "A person from before" means a profile created before 0093 ran (`admission_existing_before()`, or SIGNUP_EXISTING_BEFORE). Making and keeping an invitation needs Team write, re-checked at read and accept. A collaborator whose access ended can be invited again (the same row, a new start).
+- **An ended collaborator gets nothing:** no email (the gateway and the notify pass), no push, not in the switcher or the account read, never an approver.
+- **Email to an address:** its own 10% of the day's ceiling, five emailed invitations a day per inviter, three a day per address, never the recipient's own three; "Don't send me invitations" in the footer and the one-click header (ingest `/mail/invitations/off`, a platform-wide suppression honored before sending). The footer says what is true. The note that someone joined no longer uses up the inviter's three a day.
+- **`/i/<token>`** is read by the browser from the api itself, so each visitor has their own limit; a refused read says "Too many people opened links just now. Try again in a minute." with Try again (`InvitationCard` gained `checking` and `busy`, with stories).
+- **0094:** a collaborator reads nothing of the admin-written and Money tables (twelve) nor the invitations. The tables still readable, and the gap left (Money and Legal tables members write), are named in 0094, ARCHITECTURE and `rls/people-roles.test.ts`. 0092's header corrected.
+- **The waitlist panel** says "We'll let you in as soon as there is room. Come back tomorrow to check." until the waitlist that would send an email exists (`ON_WAITLIST_EMAIL_PROMISE` kept for then).
+- **Verified:** `pnpm -w turbo typecheck --force` 25 of 25; eslint on every changed file, clean; vitest (full suites, one at a time): db 2373 passed, 13 skipped (RLS included, the generic cross-tenant suite 1437); api 1240 passed, 1 failed, 3 skipped on the full run (the failure: `team-roster.test.ts` made a cofounder invitation without an address; fixed, the file rerun 16 of 16); gateway 332; shared 806; web 1379; stream 97; collab 39; dugout 1242; modules 624; ingest 117; connectors 827 (121 skipped). Playwright on a local PGlite stack (api :4420, web :3420): `invitations.spec.ts` 6 passed, 1 skipped (the open sign-up test) on the unrestricted stack, then 7 of 7 with the api at `SIGNUP_OPEN=1 SIGNUP_DAILY_CEILING=0`; `settings-plain.spec.ts` 10 passed, 1 skipped (no removable member on the seed). banned-terms, us-english, focus-visible and `plain-language --gate --summary` (0 replace-tier, 41 define-tier, limit 300) pass.
+- **Not verified:** the races run on PGlite's one connection, so the tests show the mechanism (the conditional UPDATE decides; the lock comes before the count) and each says it needs a real-Postgres run. Not run against real Postgres today.
+- **Recorded, not fixed:** one person can still take open sign-up's ceiling with many addresses (per-domain caps and a captcha before it opens); tokens travel in GET query strings; apps/stream and apps/collab do not check that the address is confirmed; a single cofounder can remove the founder who created the project and ask for its deletion without the others being told. And the Money and Legal tables members write stay open to a collaborator in the database.
+
+## 2026-11-13 — Invitations and roles: the second review's follow-ups, and the Money and Legal tables closed to a collaborator (#120)
+
+The second security review found no P1s (verdict: ship). Its follow-ups, and the coordinating session's line on the Money and Legal tables, in new commits on the branch; the calls are in DECISIONS ("The second review of invitations").
+- **0095:** a collaborator, running or ended, reads and writes nothing of `transactions`, `ledger_snapshots`, `forecasts`, `filings`, `contracts`, `compliance_events` and `regulatory_gates` (both `fm_tenant_table` policies rewritten; the migration refuses to run on any other policy there). Owners, cofounders, admins and members write them as before; viewers read them. No api path changed (every Money and Legal read a collaborator could reach was already walled).
+- **P2-1 (open sign-up):** an invitation from an inviter open sign-up let in is stopped at the day's ceiling like any sign-up ("You're on the list.", the invitation stays pending); only a listed inviter, the dev user or a person from before goes past it, within their three a day and 50 a day past the ceiling for everyone together.
+- **P2-2 (`/i/<token>`):** every per-caller window counts an IPv6 caller by their /64 (`limitAddress` in @foundmill/shared, a TODO naming PR #98's copy); 60 reads a minute per token hash beside the ceiling for all.
+- **P3s:** an ended collaborator gets no project card and cannot own a record; the accept locks the inviter's row for share; declining an addressed invitation needs its address; the wrong account reads "Sign in with the address this invitation was sent to." (a dead link keeps its words; story, card test, DESIGN §9h and the e2e test updated); the 0094 test checks every SELECT and ALL policy on its tables.
+- **DEPLOY:** invitations ship with production invite-only (`SIGNUP_OPEN` unset until this P2-1 fix is on main and per-domain caps and a captcha exist) and the Supabase Data API off.
+- **Verified:** `pnpm -w turbo typecheck` 25 of 25; eslint on the 19 changed TypeScript files, clean; vitest one package at a time: db 2381 passed, 13 skipped; api 1249 passed, 3 skipped; shared 809; web 1379; dugout 1243. Playwright `invitations.spec.ts` on a fresh PGlite stack (`.pglite/e2e-fu`, api :4430, web :3430, `--trace off`, deleted afterwards): 6 passed and 1 skipped on the unrestricted api (plus the 6 onboarding setup tests it depends on), then 7 of 7 with the api at `SIGNUP_OPEN=1 SIGNUP_DAILY_CEILING=0` (the dev owner's cofounder invitation went past the ceiling as a trusted inviter's). banned-terms and us-english pass.
+- **Not verified:** the races (two accepts at the last place past the ceiling, an accept against a demotion of its inviter) show their mechanism on PGlite's one connection (the lock before the counts, the RowShareLock taken) and need a real-Postgres run.
+- **Next:** P2-3, telling every founder of a project when one of them demotes or removes another or asks for the project's deletion.
+
+## 2026-11-14 — api: work that outlives its request runs on the database (#123)
+
+api: `ungated(db)` in tx-gate; post drafts and foundations' in-process runs use it, so a closed request no longer cancels them (post-drafts.spec on #119; the foundations flake noted in #93). Tests for both.
+
+## 2026-11-14 — Entity links: the final fallback always returns valid text (#121)
+
+- Entity links: the final fallback always returns valid text (a spliced hidden mention can't survive), and a space before a mention is kept. Follow-up to #116.
+
+## 2026-11-14 — Follow form: a bot check (Turnstile), and follow confirmations on their own daily counts (#119)
+
+- Audit finding 10: the Follow form checks Turnstile before recording or sending anything. Confirmations count on their own per-project (100) and per-deployment (1,000) daily keys, so sign-ups never block a project's own email. Tests are in gateway follow-confirm, api page-follow and e2e public-page.
+
+## 2026-11-14 — Generated video and voiceover on the founder's own keys: Runway and ElevenLabs voice (#109)
+
+- Item 9, connectors half: Runway and ElevenLabs voice on the founder's own key, with mocks, contract tests and a social-engine grant. The post-draft integration waits for #93.
+
+## 2026-11-14 — Founder notices and the former founder's cancel (#124)
+
+1. **Every founder is emailed about these changes**, and so is the person it happened to, even once they are out:
+   - a founder's role goes below a founder's (owner or cofounder to anything lower);
+   - a founder is removed (a founder is always stepped down first, so a removal counts as a founder's when someone else lowered their founder's role in the last 30 days; the audit entry names it as `formerRole`);
+   - deletion is asked for: every founder, **everyone someone else ever demoted or removed from the project** who is not a founder now, and a **receipt to the person who asked**;
+   - deletion is canceled: the same people, never the one who canceled.
+
+   The api sends ids only (`POST /v1/notify/email`, kind `founder_notice`, the audit entry's id); the gateway's one sender reads the entry, the people and the project again, and sends through `platform_notify`. The Inbox gets a Chief of Staff note for a lowered role or a removal (the deletion request and the cancel already had theirs; a cancel by a former founder now says who).
+2. **A former founder for the request (someone else demoted or removed them within 30 days before it, or after it) can cancel it until its scheduled day**: from the one-click link in their email (`/a/<token>`, a POST to confirm) or from a card on their home (Today, Home and /new). It cancels that request only, restores nothing else (they stay out; rejoining is a normal invitation), writes their own audit entry (`formerFounder: true`, `requestId`, `via`), and every founder is told.
+3. **The purge**: no change. The cancel right lasts until the request's own scheduled day, the day the sweep purges on, so nothing has to wait for it.
+4. **Events**: one new account-scoped event, `founder_notice.sent`, on the reader's own account events (the reader may no longer belong to the project). `fm_account_event_types()` lists it (0097), the catalog declares it, a fixture and a stream-wall test cover it.
+5. **Limits** (second and third reviews): founder notices have their own enforced daily ceiling (`pn:safety:day`, `PLATFORM_SAFETY_DAILY_CEILING`, default 5,000), no longer counted in `pn:all:day`, and a cap of 500 a day per project under it; one person hears about one project at most 10 times an hour and 30 a day, past which one "More changes in {project}" email stands for the rest of the window and the rest are recorded as `folded`. **Essential** notices (final review: one that carries the cancel; the removal's email to the person removed; a deletion request's email to a founder now, to whoever asked and to a former founder for that request) skip those ceilings and the per-project fold and have bounds of their own: 10 a day per person across every project, then, until the end of the UTC day, one email for each deletion that person may cancel (with its link) and one for none; and a circuit breaker over all of them (`PLATFORM_SAFETY_RESERVED_DAILY_CEILING`, default 20,000; a warning at half, an error at the ceiling; past it, the same per-person path). A deletion request (and its cancel) emails every former founder for it, uncapped, and beyond its 30-day window at most the 50 people someone else most recently took out of the project. In the api, one person may lower a founder's role, or ask for a deletion, 5 times a day in a project, and 10 times a day in all across every project, and a project has at most 3 deletion requests and 10 founders lowered a day, whoever asks (plain 429 refusals).
+
+### Tests (verbatim totals, Nov 14, 2026, after the bounds check's fixes and main merged in: #120 squashed, #117, #119, #121, #123)
+
+- `pnpm -w turbo typecheck` (run alone): Tasks: 25 successful, 25 total
+- eslint on the files changed against main: no errors, no warnings
+- packages/db: Test Files 99 passed | 1 skipped (100); Tests 2462 passed | 18 skipped (2480)
+- apps/api: Test Files 144 passed (144); Tests 1333 passed | 9 skipped (1342)
+- apps/gateway: Test Files 37 passed (37); Tests 391 passed (391)
+- packages/shared: Test Files 62 passed (62); Tests 853 passed (853)
+- apps/web: Test Files 179 passed (179); Tests 1431 passed (1431)
+- packages/dugout: Test Files 123 passed (123); Tests 1269 passed (1269)
+- packages/connectors (before #119, which touches no connectors file): Test Files 54 passed | 1 skipped (55); Tests 1178 passed | 189 skipped (1367)
+- `node --test scripts/env-example.test.mjs`: tests 3, pass 3, fail 0
+- `rls/client-grants.test.ts` (from main, #101): Test Files 1 passed (1); Tests 32 passed (32). The migration adds one security-definer function, the trigger's (`fm_memberships_record_founder_departure`, revoked from public, anon and authenticated; a trigger function, which the allowlist leaves out); `fm_account_event_types()` is not security definer. `rls/founder-departures.test.ts` now also checks both tables explicitly: authenticated holds SELECT on `founder_departures` and nothing else, anon nothing, no client role anything on `founder_cancel_links` (so no TRUNCATE, TRIGGER or REFERENCES), and no client role EXECUTE on the trigger's function.
+- Playwright `founder-notices.spec.ts` and `invitations.spec.ts` on a fresh PGlite stack (api :4330, web :3330, `APP_URL=http://localhost:3330`, gateway recorder :4331, `--trace off`): 15 passed, 1 skipped (the onboarding project runs first as their dependency; the skipped one is the sign-up ceiling test, which needs its own stack with `SIGNUP_OPEN=1 SIGNUP_DAILY_CEILING=0`). The stack's `.pglite` directory was deleted afterwards. Run again after #119 was merged in, on its own fresh stack: the same.
+- `node scripts/banned-terms.mjs` and `node scripts/us-english.mjs`: clean
+
+## 2026-11-13 — Buffer connector on the founder's own key (social channel) (#126)
+
+- 2026-11-13: **Buffer connector on the founder's own key (social channel).** New `packages/connectors/src/connectors/buffer/` (`tools.ts`, `index.ts`, `mock.ts`, `fixtures/responses.ts`, `buffer.test.ts`): `list_channels` and `get_post` (reads, untrusted, typed reads), `queue_post` (`contactsThirdParty` + `irreversible`, asks in augmented and assisted mode; no share-now; the draft's network variant fitted to the network's limit; pictures only at lasting https addresses; Instagram needs a picture, TikTok and unknown services are refused; time within 90 days; our own errors; a daily cap of 20 and a double-post guard held in the connector). Connect and health use the read-only `account { organizations }` query and store the organization (a connect field picks one when there are several). Wiring: catalogue, index, grants (`channels.read`, `posts.queue`, `posts.read`), `CHANNEL_ACTING_TOOLS.social` and `ACTING_CONNECTOR_NAMES` (append only; social stays `by_tap` until Buffer is live and connected, then `acts`), `THIRD_PARTY_CONNECTOR_KEYS`, the social template's grants and playbook, Squad TOOL_ICONS, inbox BRANDS, ARCHITECTURE and DEPLOY §6. Tests: connectors buffer (45 + 7 env-gated live), registry, connect-fields and channel-availability pins; agents `tools-that-exist`; gateway `byo-key-connectors-buffer.test.ts` (asks first in both modes with no vendor request, reads run, not connected 409 with platform secrets set, mock simulated with the notice and never "sent", typed read beside the digest, signed-link picture refused before any vendor call, over-limit text fitted, an untrusted link refused; 10 after the review); eval `channel_social.own_buffer_account`. Not run against Buffer (no key here). Follow-ups: media storage so generated pictures can be queued; a shared per-tool limit in the gateway; whether the tap-to-post team drafts continue once the social channel `acts`.
+
+## 2026-11-14 — A design check on the UI the code agents build for founders (#114)
+
+- Design check on founders' UI (item 13): principles skill, sandbox page capture, separate image reviewer, one fix turn, `task.design_checked`, rows on the approval, evals with real fixture screenshots, and the six security-review fixes.
+
+## 2026-11-14 — Linear address scan (security fix) (#129)
+
+- The quarantine scan for untrusted tool results is linear.
+- The quarantined reader is shown text and size notes instead of bytes.
+- New tests: `quarantine-scan.test.ts` and `large-result.test.ts`.
+
+## 2026-11-14 — Credit lots (0098) (#106)
+
+Bought credits are kept 12 months from purchase and spent after the month's included credits, oldest first. The Terms and the Billing tab say so. Tests cover expiry, FIFO, the month rollover, RLS (collaborators closed out) and the export classification. Also fixed: a random failure in the conversation tests' leak check.
+
+## 2026-11-14 — Events: collaborator walls (#131)
+
+A collaborator's RLS connection no longer reads `payment.received`, the bank, runway, filing, contract, credential, network and Settings-metric events, nor their outbox rows (`fm_collaborator_event_types()`, 59 of 77 business types, held equal to the stream's `EVENT_WALLS` by a stream test). `events_write` and `outbox_write` were split per command, and a collaborator's writes are held to the same list. Everyone else is unchanged. Follow-ups listed above.
+
+## 2026-11-14 — Security fix: Next.js 16.4.3 and dompurify 3.4.17 (#133)
+
+- Found by `pnpm audit` in the CI-scanning work.
+- Web typecheck, lint, unit tests, the production build and Playwright (landing, idea-box, public page, golden path) pass on a production build.
+- `pnpm audit --prod` finds no critical advisory.
+
+## 2026-11-14 — Dates in raw SQL on Postgres (#134)
+
+`createDb` now writes a `Date` in a raw `sql` template as its ISO string, which fixes the former founder's cancel link (#124), the credit lot queries and #128's week summary on a real Postgres. A real-Postgres test runs through `createDb`, both as Drizzle sends a query (never prepared) and prepared and described by the server first (#137, after the security review); the wire round-trip harness wraps its database the same way.
+
+## 2026-11-14 — 18 or older, confirmed once at sign-up for the whole product (0100) (#127)
+
+18 or older is confirmed once at sign-up for the whole product:
+- Migration 0100 adds `adult_confirmations` and the 18+ filter on `public_person_profiles`.
+- The api has the person-created step, the record written before the profile save, the invitation and commit checks, and `founder.adult.*`.
+- The web has the box on the profile form and invitations, and a one-time step for people from before.
+- The design system has `AdultCheck`.
+- Network and go-live read the same record, so nobody confirms twice.
+
+## 2026-11-13 — A postal address in every marketing email (US CAN-SPAM), 0101 (#111)
+
+- Nov 13, 2026: Postal address in marketing email (CAN-SPAM, item 2):
+  - migration 0101 `project_postal_addresses`;
+  - Settings › Integrations field;
+  - gateway refusal and Needs you note;
+  - reply, receipt and follow-confirmation exemption;
+  - Foundmill's address in all its own email, from `APP_POSTAL_ADDRESS`.
+
+## 2026-11-13 — Ready-to-post kits (#125)
+
+- **Item 9 part 2: ready-to-post kits.**
+  - An optional Runway video and ElevenLabs voiceover on team post drafts, on the founder's own key only, asking first.
+  - Stored in `post_media` (0102) with limits, previewed in Creative and the share sheet, and shared as a file where the device allows.
+  - Simulated results are labeled.
+  - Covered by tests across packages, the RLS suite, the `post-media` eval and the `post-drafts` e2e, plus the security review's three fixes.
+
+## 2026-11-14 — Showcase videos (item 15, 0103) (#130)
+
+- House owners can ask a project to be featured, if its founders turned the setting on (off by default).
+- `showcaseScript` writes the script, and a code check guards the model's words.
+- The video is made through the gateway's `runway` tools on the house's key.
+- Each founder gets their own ask in Needs you (from 390 px) once the media is final.
+- One founder's no, withdrawal or departure overrides the others, as do expiry, a private page, a hidden milestone or the setting switched off.
+- Sharing passes the gate, and no connector queues a showcase post. There are five events and an eval suite.
+- Real media waits on #125.
+
+## 2026-11-13 — Low credits move routine work to a lighter model; a provider-neutral funding source (own plan off), 0104 (#118)
+
+- **Item 11, credit saver:** routine work moves to a lighter model below the low line. Outward, money, irreversible, finance and legal work keeps its model, re-checked on every run. One Inbox note a month. The pause at zero is unchanged.
+- **Item 12, funding-source seam (0104):** RLS and cross-tenant tests. The own plan is off, with no provider integrated.
+
+## 2026-11-13 — An optional "Which one is for you?" quiz on a project's public page (0105) (#122)
+
+Nov 13, 2026: Optional "Which one is for you?" quiz on public pages (0105):
+- drafted by the Product lead from real customers, refusing when there's too little data, with personal data never reaching the model or the page;
+- the founder reviews, approves and turns it on;
+- works from 390 px; results counted without names and marked unverified;
+- RLS, api, eval, Playwright, story and the security review's fixes included.
+
+## 2026-11-14 — Post-to-outcome attribution (item 8, 0106) (#128)
+
+- Team posts carry per-network `s.` codes; there's an `fm_post` cookie and a visit beacon.
+- Confirmed follows, and real replies and payments within 30 days, are credited to the post.
+- The Creative tab shows "Led to …" behind the walls, and the brief names the post.
+- Agents learn from code-written lines only.
+- Security review fixes are in: the Finance export, collaborator RLS and the visit limits.
+
+## 2026-11-14 — Collaborators: Finance fields (#132)
+
+Behind a Finance wall no procedure returns a Finance figure (cycle cost, vacation figure, revenue goals, approval amounts, Ribbon chapter/milestone money, CRM payment amounts with `moneyHidden`, Inbox note cost). `EVENT_WALLS` moved to @foundmill/shared and the api cuts the same fields as the stream. Migration 0107: `member_conversions` and `journey_daily` without money for a collaborator. CRM › Commercial shows "—" and the reason. Follow-ups: agents' AI cost on the Team; free-text commentary; department metrics' walls.
+
+## 2026-11-14 — Four CI flakes fixed (#135)
+
+The changes are to tests only:
+- gateway `large-result` and connectors `quarantine-scan`: CI timing budgets;
+- gateway `notify-email` ("777") and api `milestones-show` ("4900"): random ids blanked before the check.
+
+## 2026-11-14 — Security fix: zod memory DoS on a signed-out input (#139)
+
+- `publicQuiz.answer` counts its keys before zod reads them; any invalid input's error is bounded (20 issues, short messages); zod 4.6.7 everywhere.
+- Tests: 150,000 junk keys are one issue; over HTTP a junk body is a 400 under 10 KB; bounded issues for any error; zod's early stop at `.max()`.
+
+## 2026-11-14 — Main green again: inbox, entity-profile and foundations specs (#140, #141)
+
+The changes are to tests, plus one attribute:
+- inbox `status-strip captions`: waits for the reading pane to show each clicked row (`data-item-id` on the rows), and checks the status strip without a count-then-assert race;
+- entity-profile: finds a paying customer by stage instead of list order;
+- foundations: waits for the decision's options before counting them.

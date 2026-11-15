@@ -352,8 +352,11 @@ describe("email from Foundmill to a person (gateway)", () => {
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     expect(text).toContain("A new customer paid $49.00");
     expect(text).toMatch(/- 1 email went out from your project's address/);
-    // The simulated payment and the three simulated emails are nowhere.
-    expect(text).not.toContain("777");
+    // The simulated payment ($777.00) and the three simulated emails are nowhere. The digits are looked for in the
+    // brief's words only, with its links and ids blanked: a random id or token in a link can hold "777".
+    const words = text.replace(/https?:\/\/\S+/g, "<link>").replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "<id>");
+    expect(text).not.toContain("$777");
+    expect(words).not.toContain("777");
     expect(text).not.toMatch(/[2-9] emails went out/);
     // Off in the person's preferences: never sent, recorded as such.
     expect((await ask({ userId: off.userId, kind: "daily_brief", businessId: g.businessId, data: { day } })).body.reason).toBe("turned_off");
