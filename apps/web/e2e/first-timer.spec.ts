@@ -2,9 +2,9 @@ import { expect, test, type Page } from "@playwright/test";
 
 /**
  * The first-timer's page at `/` (DESIGN §9a; docs/holistic-plan/landing/DIRECTION.md): one page for every width from
- * 390 px, one h1, the idea box the one main action, people in the first half. Signed out: a fresh context. The web
- * stack runs with every landing switch off (sign-up closed, the people layer closed on the page, no platform mail), so
- * the page here is the one production has today. The card itself is idea-box.spec.ts.
+ * 390 px, one h1, the idea box the one main action, people in the first half. Signed out: a fresh context. Sign-up and
+ * platform mail are off on the test stack, as in production; the people layer follows the build's LIVE_MODE (on in CI),
+ * read from the page's `data-people`. The card itself is idea-box.spec.ts.
  */
 test.use({ storageState: { cookies: [], origins: [] } });
 
@@ -36,12 +36,16 @@ for (const [width, height] of [
       await expect(page.getByText(a, { exact: true })).toBeVisible();
     }
 
-    // People sit in the first half of the page; the find block is off with the people layer closed.
+    // People sit in the first half of the page. The find block and the top bar's link follow the people layer the page
+    // was built with (LIVE_MODE: on in CI and the local stack, off in production today), and nothing says "coming soon".
     const people = (await page.locator("#people").boundingBox())!;
     const total = await page.evaluate(() => document.documentElement.scrollHeight);
     expect(people.y).toBeLessThan(total / 2);
-    await expect(page.getByTestId("people-find")).toHaveCount(0);
-    await expect(page.getByRole("link", { name: "Find people" })).toHaveCount(0);
+    const open = (await page.getByTestId("landing").getAttribute("data-people")) === "open";
+    await expect(page.getByTestId("people-find")).toHaveCount(open ? 1 : 0);
+    await expect(page.getByRole("link", { name: "Find people" })).toHaveCount(open ? 2 : 0);
+    if (open) for (const a of await page.getByRole("link", { name: "Find people" }).all()) await expect(a).toHaveAttribute("href", "/network");
+    await expect(page.locator("body")).not.toContainText(/coming soon|opening soon/i);
 
     // The closing button takes the visitor back to the box with the cursor in it.
     await page.getByTestId("start-shape").click();
