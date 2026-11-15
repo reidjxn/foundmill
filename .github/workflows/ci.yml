@@ -13,9 +13,11 @@ on:
 permissions:
   contents: read
 
+# A pull request run and a dispatch on the same branch share a group. On main nothing running is cancelled: GitHub keeps
+# one run going and one waiting, and a newer push replaces the waiting one (docs/holistic-plan/audits/a10 EH-24).
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   CI: true
@@ -39,6 +41,17 @@ jobs:
           cache: pnpm
       # The vocabulary scan parses source files with the TypeScript compiler API from the root devDependencies.
       - run: pnpm install --frozen-lockfile
+      # static (below) is skipped on a docs-only change, which is exactly when a log could shrink, so the guard runs here too.
+      - name: The logs only grow (docs/DECISIONS.md, docs/PROGRESS.md)
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_REF"
+          for f in docs/DECISIONS.md docs/PROGRESS.md; do
+            base=$(git show "FETCH_HEAD:$f" | wc -l); head=$(wc -l < "$f")
+            if [ "$head" -lt $(( base * 98 / 100 )) ]; then echo "::error file=$f::$f shrank from $base to $head lines"; exit 1; fi
+          done
       - name: Scanner self-test
         run: node --test scripts/banned-terms.test.mjs
       - name: Brand scan (Football Manager / SI / SEGA) and vocabulary scan (football-only words in user-facing text)
@@ -96,10 +109,48 @@ jobs:
           path: docs/PLAIN_LANGUAGE_SWEEP.md
           if-no-files-found: ignore
 
-  checks:
-    name: Typecheck, lint, unit tests
+  changes:
+    # Which lanes a pull request needs. A job skipped by its own `if:` satisfies a required check, a workflow that never
+    # starts does not, so the filtering is here and never on `on:`. Main and dispatched runs (agent branches) run everything.
+    name: Changed areas
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 3
+    outputs:
+      code: ${{ steps.f.outputs.code }}
+      web: ${{ steps.f.outputs.web }}
+      image: ${{ steps.f.outputs.image }}
+      stories: ${{ steps.f.outputs.stories }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: f
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "$EVENT" != "pull_request" ]; then
+            echo "$EVENT run: every lane"
+            for o in code web image stories; do echo "$o=true" >> "$GITHUB_OUTPUT"; done
+            exit 0
+          fi
+          FILES="$(git diff --name-only "$PR_BASE" HEAD)"
+          echo "changed files:"; echo "$FILES"
+          has() { if echo "$FILES" | grep -qE "$1"; then echo true; else echo false; fi; }
+          ROOT='^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|turbo\.json|tsconfig\.base\.json|eslint\.config\.mjs|\.github/)'
+          {
+            echo "code=$(has "^(apps|packages|evals|e2e|scripts|patches)/|$ROOT")"
+            echo "web=$(has "^(apps/(web|api)|packages|e2e)/|$ROOT")"
+            echo "image=$(has "^(apps/(api|gateway|orchestrator|composer|stream|ingest)|packages|patches|infra)/|^Dockerfile|$ROOT")"
+            echo "stories=$(has "^packages/(dugout|shared|config)/|$ROOT")"
+          } | tee -a "$GITHUB_OUTPUT"
+
+  static:
+    name: Typecheck and lint
+    needs: changes
+    if: ${{ needs.changes.outputs.code == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -108,27 +159,82 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Railway config (a healthcheck and watch patterns per service, the same teardown everywhere)
-        run: node --test scripts/railway-config.test.mjs
-      - name: .env.example lists exactly the variables the code reads
-        run: node --test scripts/env-example.test.mjs
-      - name: Supabase config (the sign-in redirect list holds production's callbacks only)
-        run: node --test scripts/supabase-config.test.mjs
+      - name: Config and guard self-tests (Railway, .env.example, Supabase, the decisions index, the unit matrix)
+        run: node --test scripts/railway-config.test.mjs scripts/env-example.test.mjs scripts/supabase-config.test.mjs scripts/decisions-index.test.mjs scripts/ci-matrix.test.mjs
+      - name: The logs only grow (docs/DECISIONS.md, docs/PROGRESS.md)
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_REF"
+          for f in docs/DECISIONS.md docs/PROGRESS.md; do
+            base=$(git show "FETCH_HEAD:$f" | wc -l); head=$(wc -l < "$f")
+            if [ "$head" -lt $(( base * 98 / 100 )) ]; then echo "::error file=$f::$f shrank from $base to $head lines"; exit 1; fi
+          done
       - name: Typecheck and lint (all packages)
         # apps/web's tsc needs more than Node's default 2 GB heap when it runs next to the other packages' (run 16 died
         # with "JavaScript heap out of memory"); four at a time keeps the runner's 16 GB comfortable.
         env:
           NODE_OPTIONS: --max-old-space-size=4096
         run: pnpm exec turbo run typecheck lint --continue --concurrency=4 --output-logs=new-only
-      - name: Unit tests (all packages except e2e)
-        if: ${{ !cancelled() }}
-        run: pnpm exec turbo run test --continue --concurrency=2 --output-logs=new-only --filter='!@foundmill/e2e' -- --maxWorkers=2
+
+  unit:
+    # One runner per entry, so the slowest package no longer sets the pace of all of them. scripts/ci-matrix.test.mjs fails
+    # when a workspace package with a test script is in no entry. --maxWorkers=2 is what fits the runner today.
+    name: Unit (${{ matrix.name }})
+    needs: changes
+    if: ${{ needs.changes.outputs.code == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: "api 1 of 3", run: "pnpm --filter @foundmill/api exec vitest run --maxWorkers=2 --shard=1/3" }
+          - { name: "api 2 of 3", run: "pnpm --filter @foundmill/api exec vitest run --maxWorkers=2 --shard=2/3" }
+          - { name: "api 3 of 3", run: "pnpm --filter @foundmill/api exec vitest run --maxWorkers=2 --shard=3/3" }
+          - { name: "db 1 of 2", run: "pnpm --filter @foundmill/db exec vitest run --maxWorkers=2 --shard=1/2" }
+          - { name: "db 2 of 2", run: "pnpm --filter @foundmill/db exec vitest run --maxWorkers=2 --shard=2/2" }
+          - { name: "gateway 1 of 2", run: "pnpm --filter @foundmill/gateway exec vitest run --maxWorkers=2 --shard=1/2" }
+          - { name: "gateway 2 of 2", run: "pnpm --filter @foundmill/gateway exec vitest run --maxWorkers=2 --shard=2/2" }
+          - { name: "web 1 of 2", run: "pnpm --filter @foundmill/web exec vitest run --maxWorkers=2 --shard=1/2" }
+          - { name: "web 2 of 2", run: "pnpm --filter @foundmill/web exec vitest run --maxWorkers=2 --shard=2/2" }
+          - { name: "orchestrator", run: "pnpm --filter @foundmill/orchestrator exec vitest run --maxWorkers=2" }
+          - { name: "dugout", run: "pnpm --filter @foundmill/dugout exec vitest run --maxWorkers=2" }
+          - { name: "modules, widgets", run: "pnpm exec turbo run test --continue --concurrency=1 --output-logs=new-only --filter=@foundmill/modules --filter=@foundmill/widgets -- --maxWorkers=2" }
+          - { name: "services", run: "pnpm exec turbo run test --continue --concurrency=1 --output-logs=new-only --filter=@foundmill/ingest --filter=@foundmill/composer --filter=@foundmill/stream --filter=@foundmill/collab --filter=@foundmill/social -- --maxWorkers=2" }
+          - { name: "libraries", run: "pnpm exec turbo run test --continue --concurrency=2 --output-logs=new-only --filter=@foundmill/connectors --filter=@foundmill/evals --filter=@foundmill/agents --filter=@foundmill/events --filter=@foundmill/shared --filter=@foundmill/journey --filter=@foundmill/models --filter=@foundmill/policy --filter=@foundmill/entity-linker --filter=@foundmill/sandbox --filter=@foundmill/config -- --maxWorkers=2" }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: ${{ matrix.run }}
+
+  checks:
+    # The required check keeps its name; it is now a gate, like the Playwright one. It ends success when its inputs were
+    # skipped (a docs-only change), never cancelled, because the product's checksState reads cancelled as a failure.
+    name: Typecheck, lint, unit tests
+    needs: [static, unit]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: |
+          for r in "${{ needs.static.result }}" "${{ needs.unit.result }}"; do
+            case "$r" in success|skipped) ;; *) echo "a needed job ended: $r"; exit 1 ;; esac
+          done
 
   docker:
     # The image Railway builds for every backend service (#435): a base-image, corepack/pnpm or COPY regression used to
     # show up only in Railway's build. Booted once against an in-memory PGlite with no Redis, Temporal or secrets, the
     # same degraded mode the e2e job uses, until /health answers.
     name: Docker image (build and boot)
+    needs: changes
+    if: ${{ needs.changes.outputs.image == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -146,6 +252,8 @@ jobs:
 
   storybook:
     name: Storybook build
+    needs: changes
+    if: ${{ needs.changes.outputs.stories == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -159,15 +267,17 @@ jobs:
       - run: pnpm --filter @foundmill/dugout storybook:build
 
   e2e-shard:
-    # The screens take about two hours one after another, so they run as three shards at once, each on its own runner with
-    # its own seeded database. The required check below ("Playwright (web screens + golden path)") passes when all three do.
-    name: Playwright shard ${{ matrix.shard }} of 3
+    # The screens take about an hour one after another, so they run as six shards at once, each on its own runner with
+    # its own seeded database. The required check below ("Playwright (web screens + golden path)") passes when all six do.
+    name: Playwright shard ${{ matrix.shard }} of 6
+    needs: changes
+    if: ${{ needs.changes.outputs.web == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: [1, 2, 3, 4, 5, 6]
     continue-on-error: false
     env:
       # One file-backed PGlite database, seeded below, shared by the api and the seed script (packages/db/src/pglite.ts:
@@ -197,10 +307,16 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # On a hit the install below skips the download and still installs the system libraries.
+      - name: Cache the Playwright browser
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       - name: Install Chromium (replaces the preinstalled-browser step used in the build container)
         run: pnpm --filter @foundmill/web exec playwright install --with-deps chromium
       - name: Seed the PGlite database (Northwind Skincare + Ledgerly, reduced volume)
-        # Shard 1 starts without a founder profile (onboarding.spec.ts meets the gate and saves it); shards 2 and 3 start
+        # Shard 1 starts without a founder profile (onboarding.spec.ts meets the gate and saves it); the other shards start
         # with one, so their screens do not bounce to /onboarding.
         run: SEED_TARGET=pglite SEED_PGLITE_DIR=./.pglite/e2e SEED_VOLUME_SCALE=0.1 SEED_OWNER_PROFILE=${{ matrix.shard == 1 && '0' || '1' }} pnpm --filter @foundmill/db seed
       - name: Start apps/api against the seeded database
@@ -226,10 +342,11 @@ jobs:
           echo "apps/web did not answer within 120 s"; cat web.log; exit 1
       - name: Playwright (apps/web screens, this shard's files)
         # E2E_BASE_URL makes both configs skip their own webServer and use the servers started above. Spec files are dealt
-        # out to the shards round-robin; onboarding.spec.ts (the profile project) always runs in shard 1, first.
+        # out by weight (count of test( calls, heaviest first) in rounds of six: shard 2 takes the heaviest of each round and
+        # shard 1 the lightest, because shard 1 also runs onboarding.spec.ts (the profile project) first and the golden path.
         working-directory: apps/web
         run: |
-          mapfile -t files < <(ls e2e/*.spec.ts | grep -v '/onboarding.spec.ts$' | awk -v n="${{ matrix.shard }}" '(NR - 1) % 3 == n - 1')
+          mapfile -t files < <(grep -c 'test(' e2e/*.spec.ts | grep -v '/onboarding.spec.ts:' | sort -t: -k2,2nr -k1,1 | cut -d: -f1 | awk -v n="${{ matrix.shard }}" '(NR - 1) % 6 == (n + 4) % 6')
           echo "this shard runs ${#files[@]} spec files"
           if [ "${{ matrix.shard }}" = "1" ]; then
             E2E_BASE_URL=http://localhost:3000 E2E_EXPECT_PROFILE_GATE=1 pnpm exec playwright test e2e/onboarding.spec.ts "${files[@]}"
@@ -268,7 +385,8 @@ jobs:
     if: ${{ always() }}
     timeout-minutes: 5
     steps:
-      - name: All three shards passed
+      - name: All six shards passed or were not needed
         run: |
-          echo "shards: ${{ needs.e2e-shard.result }}"
-          test "${{ needs.e2e-shard.result }}" = "success"
+          r="${{ needs.e2e-shard.result }}"
+          echo "shards: $r"
+          case "$r" in success|skipped) ;; *) echo "a needed job ended: $r"; exit 1 ;; esac
