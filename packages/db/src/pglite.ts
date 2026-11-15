@@ -125,6 +125,8 @@ export function rewriteForMissingVector(sqlText: string): string {
 export interface BootPgliteOptions extends PgliteTarget {
   /** Force the no-pgvector path even when the extension is installed (test harness only). */
   disableVector?: boolean;
+  /** A dump of a database to start from (testing/snapshot.ts); it already holds the bootstrap, so that is skipped. */
+  loadDataDir?: Blob;
 }
 
 export interface BootedPglite {
@@ -191,7 +193,7 @@ export async function bootPglite(options: BootPgliteOptions = {}): Promise<Boote
   const vector = options.disableVector ? null : await loadVectorExtension();
   const extensions: Record<string, Extension> = { pg_trgm };
   if (vector) extensions.vector = vector;
-  const pgOptions: PGliteOptions = { extensions, relaxedDurability: true };
+  const pgOptions: PGliteOptions = { extensions, relaxedDurability: true, ...(options.loadDataDir ? { loadDataDir: options.loadDataDir } : {}) };
   let releaseLock = () => {};
   if (options.dataDir) {
     fs.mkdirSync(options.dataDir, { recursive: true });
@@ -201,7 +203,7 @@ export async function bootPglite(options: BootPgliteOptions = {}): Promise<Boote
   let pg: PGlite;
   try {
     pg = await PGlite.create(pgOptions);
-    await pg.exec(PGLITE_BOOTSTRAP_SQL);
+    if (!options.loadDataDir) await pg.exec(PGLITE_BOOTSTRAP_SQL);
   } catch (err) {
     releaseLock();
     throw err;
