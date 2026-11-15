@@ -261,11 +261,23 @@ describe("team.humans and team.responsibilities (W19)", () => {
     const message = await repos.approvals.create(hz.db, businessId, { agentId: agent2Id, connectorKey: "gmail", tool: "send_email", decisionType: "message_customers" });
     expect(message).toMatchObject({ outcome: "approved", byKind: "agent", byId: decider.id });
     expect((await hz.caller({ userId: ownerId }).team.approvals.pending({ businessId })).map((a) => a.id)).not.toContain(message.id);
-    // Delegating merges does not hand them to the agent: the founder answers every merge.
-    await hz.caller({ userId: ownerId }).team.responsibilities.set({ businessId, decisionType: "merge_to_main", handler: { kind: "agent", id: decider.id }, departmentId });
+    // Merges cannot be delegated: the API refuses, and the founder answers every merge.
+    const owner = hz.caller({ userId: ownerId });
+    for (const handler of [{ kind: "agent" as const, id: decider.id }, { kind: "user" as const, id: hz.A.memberId }]) {
+      await expect(owner.team.responsibilities.set({ businessId, decisionType: "merge_to_main", handler, departmentId })).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining("always handled by the founder") });
+    }
+    expect(await owner.team.responsibilities.set({ businessId, decisionType: "merge_to_main", handler: { kind: "founder", id: null }, departmentId })).toEqual({ updated: 1 });
+    expect((await owner.team.responsibilities.get({ businessId })).matrix.find((m) => m.decisionType === "merge_to_main")).toMatchObject({ handler: { kind: "founder", id: null }, uniform: true });
     const merge = await repos.approvals.create(hz.db, businessId, { agentId: agent2Id, connectorKey: "github", tool: "merge_pr" });
     expect(merge).toMatchObject({ outcome: null, handlerKind: null });
     expect((await hz.caller({ userId: ownerId }).team.approvals.pending({ businessId })).map((a) => a.id)).toContain(merge.id);
     await expect(hz.caller({ userId: ownerId }).team.responsibilities.set({ businessId, decisionType: "sign_contracts", handler: { kind: "agent", id: decider.id } })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("reading responsibilities reports the founder as merge handler even when a legacy row names someone else", async () => {
+    const { businessId, ownerId, memberId, departmentId } = hz.A;
+    await repos.departments.update(hz.db, businessId, departmentId, { approvers: [{ decisionType: "merge_to_main", handler: { kind: "user", id: memberId } }] });
+    const got = await hz.caller({ userId: ownerId }).team.responsibilities.get({ businessId });
+    expect(got.matrix.find((m) => m.decisionType === "merge_to_main")).toMatchObject({ handler: { kind: "founder", id: null }, uniform: true });
   });
 });
