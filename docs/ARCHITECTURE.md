@@ -307,7 +307,7 @@ WebSocket at `/`. The access token (Supabase access token or dev token) never tr
 
 ## 16. Rules for parallel build agents
 
-1. **Own your directory.** Edit only the package/app you were assigned plus `docs/PROGRESS.md` (your rows) and `docs/DECISIONS.md` (append only). Never touch root files, `pnpm-workspace.yaml`, `pnpm-lock.yaml`, or another package.
+1. **Own your directory.** Edit only the package/app you were assigned plus your branch's file under `docs/log/`. Never touch root files, `pnpm-workspace.yaml`, `pnpm-lock.yaml`, or another package.
 2. **No installs, no new dependencies.** Everything you need is already installed (see the catalog in `pnpm-workspace.yaml`). If something essential is missing, append a line to `docs/NEEDED_DEPS.md` (`package — version — why — who`) and write the smallest local substitute so your package still typechecks.
 3. **Check your work**: `pnpm --filter @foundmill/<name> typecheck`, `lint`, `test`. Fix every error in your package before you finish.
 4. **No long-running servers on fixed ports** during the build phase (other agents share the machine). If you must boot something, use an ephemeral `PORT=0`/random port and stop it.
