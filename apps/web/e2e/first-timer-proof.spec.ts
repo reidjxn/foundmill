@@ -4,8 +4,8 @@ import { expect, test, type Page } from "@playwright/test";
 /**
  * The proof for the first-timer's page at `/` (DESIGN §9a; docs/holistic-plan/landing/DIRECTION.md §8): at 390, 768,
  * 1280 and 1440 px the same sections, one h1, no sideways scroll, the idea box reachable and labeled, and axe clean
- * against WCAG 2.2 AA, at rest and with a card landed (mock model). Signed out. The web stack builds with every
- * landing switch off, as production has them today; the people block's "on" side is covered by LandingPage.test.tsx.
+ * against WCAG 2.2 AA, at rest and with a card landed (mock model). Signed out. The people block follows the build's
+ * LIVE_MODE (the page's `data-people`); both sides are also covered by LandingPage.test.tsx.
  *
  * axe-core is injected from the web's own dev dependency (the same way claude/blissful-fermat-q03yq1's e2e/axe.ts does;
  * once that lands, this file can use its helper). Cloudflare's Turnstile frame is not ours and is left out.
@@ -79,10 +79,11 @@ test("under reduced motion the hero does not animate in", async ({ browser }) =>
   await context.close();
 });
 
-test("with the people layer off (as production today) nothing about finding people shows, and nothing says it is coming", async ({ page }) => {
+test("finding people follows the build's people layer (off in production today, on in CI), and nothing says it is coming", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByTestId("people-find")).toHaveCount(0);
-  await expect(page.getByRole("link", { name: "Find people" })).toHaveCount(0);
+  const open = (await page.getByTestId("landing").getAttribute("data-people")) === "open";
+  await expect(page.getByTestId("people-find")).toHaveCount(open ? 1 : 0);
+  await expect(page.getByRole("link", { name: "Find people" })).toHaveCount(open ? 2 : 0);
   await expect(page.locator("body")).not.toContainText(/coming soon|opening soon/i);
   // The true people lines are there whatever the switch.
   await expect(page.locator("#people")).toContainText("Invite anyone.");
