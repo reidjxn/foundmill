@@ -189,7 +189,7 @@ describe("PageGrid", () => {
 
 describe("ProcessingStrip", () => {
   it("reports the working departments and shimmers only when active", () => {
-    expect(processingStatusText(NORTHWIND_SEGMENTS, false)).toBe("The team is not working right now");
+    expect(processingStatusText(NORTHWIND_SEGMENTS, false)).toBe("The team is idle");
     expect(processingStatusText(NORTHWIND_SEGMENTS, true)).toBe("Product, Formulation Lab, Distribution and Operations are working");
     // Builder view keeps the engine's word (WP-02 T8).
     expect(processingStatusText(NORTHWIND_SEGMENTS, false, 3, true)).toBe("No cycle running");

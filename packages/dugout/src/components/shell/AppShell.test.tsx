@@ -270,7 +270,7 @@ describe("AppShell", () => {
         <AppShell {...shellProps({ tabs, processing: { segments: NORTHWIND_SEGMENTS, active: false } })} />
       </GuidanceProvider>,
     );
-    expect(screen.getByRole("status", { name: "The team is not working right now" })).toBeTruthy();
+    expect(screen.getByRole("status", { name: "The team is idle" })).toBeTruthy();
     expect(screen.queryByTestId("processing-line")).toBeNull();
   });
 
@@ -281,8 +281,8 @@ describe("AppShell", () => {
         <AppShell {...shellProps({ tabs, processing: { segments: NORTHWIND_SEGMENTS, active: false, notice: "Cycle 2 started: 6 tasks ready to build" } })} />
       </GuidanceProvider>,
     );
-    // Never "The team is not working right now" over a press that was answered.
-    expect(screen.queryByRole("status", { name: "The team is not working right now" })).toBeNull();
+    // Never "The team is idle" over a press that was answered.
+    expect(screen.queryByRole("status", { name: "The team is idle" })).toBeNull();
     expect(screen.getByRole("status", { name: "Cycle 2 started: 6 tasks ready to build" }).hasAttribute("data-notice")).toBe(true);
     const line = screen.getByTestId("processing-line");
     expect(line.textContent).toBe("Cycle 2 started: 6 tasks ready to build");
@@ -302,7 +302,7 @@ describe("AppShell", () => {
     expect(processingLineText([seg("Product", true), seg("Development", true), seg("Distribution", true), seg("Finance", true)], true, 12)).toBe(
       "4 departments are working",
     );
-    expect(processingLineText([seg("Product", true), seg("Development", true), seg("Distribution", true)], false, 12)).toBe("The team is not working right now");
+    expect(processingLineText([seg("Product", true), seg("Development", true), seg("Distribution", true)], false, 12)).toBe("The team is idle");
     expect(PROCESSING_LINE_MIN_PX).toBe(11);
   });
 

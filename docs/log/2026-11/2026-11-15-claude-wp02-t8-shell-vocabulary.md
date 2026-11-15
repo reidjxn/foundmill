@@ -23,6 +23,10 @@ processing strip and the shell's status line use `roundWords`, so Builder view k
   /new page title "Create a new business", the foundations status "Open the Inbox" button, and the names-and-faces
   toast text. None of them are in the table.
 - The Needs you title comes from the `tab` query parameter, which BusinessTitle now reads.
+- The idle words are "The team is idle", not the plan's "The team is not working right now". The strip's sentence
+  also sits at the right end of the tab bar, and the longer sentence pushed Northwind's promoted "Specialists ·
+  Formulation Lab" tab into the overflow menu at 1440 px (builder-view.spec failed in CI, Playwright shard 4). The new
+  words are as long as "No cycle running", so the tab bar keeps the room it had.
 
 ## Not done
 - Playwright specs were updated to the new strings but not run locally; CI runs them.

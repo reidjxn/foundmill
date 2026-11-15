@@ -233,7 +233,7 @@ test.describe("shell", () => {
     await hoverFor(page.getByTestId("kit-bar").locator("[data-runway-tone]"), () => expect(tooltip).toContainText("Runway: how many months your cash lasts", { timeout: 2_000 }));
     await hoverFor(page.getByTestId("stop-all-trigger"), () => expect(tooltip).toHaveText("Stop all agents (pauses everything, nothing is lost)", { timeout: 2_000 }));
     // The strip under the top bar has a sentence too, as its name.
-    await expect(page.getByTestId("kit-bar").locator("xpath=following-sibling::*[@role='status']")).toHaveAttribute("aria-label", /(are|is) working|The team is not working right now/);
+    await expect(page.getByTestId("kit-bar").locator("xpath=following-sibling::*[@role='status']")).toHaveAttribute("aria-label", /(are|is) working|The team is idle/);
   });
 
   test("shows NeedsLargerWindow below 1280 px (BUILD §2.1 rule 10)", async ({ page }) => {

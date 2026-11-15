@@ -113,7 +113,7 @@ describe("the engine's numbers (Builder view, Nov 8, 2026)", () => {
 
 describe("roundWords and ventureNoun (WP-02 T8)", () => {
   it("a round of work for the founder, the cycle in Builder view", () => {
-    expect(roundWords(false)).toEqual({ one: "round of work", a: "a round of work", idle: "The team is not working right now" });
+    expect(roundWords(false)).toEqual({ one: "round of work", a: "a round of work", idle: "The team is idle" });
     expect(roundWords(true)).toEqual({ one: "cycle", a: "a cycle", idle: "No cycle running" });
   });
   it("project until the first sale", () => {

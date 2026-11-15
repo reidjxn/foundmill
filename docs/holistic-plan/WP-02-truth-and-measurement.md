@@ -214,7 +214,7 @@ WP-04 changes this constant when the two notes become one; nothing else needs to
 **Produces:** in `founder-words.ts`:
 ```ts
 /** The founder's word for a cycle. Builder view keeps the engine's word. */
-export function roundWords(builder: boolean): { one: string; a: string; idle: string } // builder: { "cycle", "a cycle", "No cycle running" }; else { "round of work", "a round of work", "The team is not working right now" }
+export function roundWords(builder: boolean): { one: string; a: string; idle: string } // builder: { "cycle", "a cycle", "No cycle running" }; else { "round of work", "a round of work", "The team is idle" }
 /** "project" until the first sale and where the stage is not known (CLAUDE.md, 2026-11-11). */
 export function ventureNoun(hadFirstSale?: boolean | null): "project" | "business"
 ```
@@ -222,7 +222,7 @@ export function ventureNoun(hadFirstSale?: boolean | null): "project" | "busines
 
 | File:line | Before | After (Builder view off) |
 | --- | --- | --- |
-| `ProcessingStrip.tsx:43` | "No cycle running" | "The team is not working right now" |
+| `ProcessingStrip.tsx:43` | "No cycle running" | "The team is idle" |
 | `InboxScreen.tsx:46` | "Your team works in cycles: rounds of work whose notes land here. Press Continue to start one." | "Your team works in rounds, and their notes land here. Press Continue to start one." |
 | `InboxScreen.tsx:55` | "Ask the team for one quick note (does not start a cycle)" | "Ask the team for one quick note (does not start a round of work)" |
 | `BusinessShell.tsx:221` | "The orchestrator is not reachable right now: a press writes one note; no agent works." | "The team cannot start right now. Pressing Continue will only write a short note." |

@@ -450,7 +450,7 @@ Plain, specific, short. Sentence case everywhere: actions, tabs, titles, labels,
 
 | Engine word | Founder word |
 | --- | --- |
-| cycle | round of work ("The team is not working right now" when idle) |
+| cycle | round of work ("The team is idle" when idle) |
 | orchestrator | the team ("The team cannot start right now") |
 | the Inbox, as a place to go | Needs you |
 | business | project, until the first sale |

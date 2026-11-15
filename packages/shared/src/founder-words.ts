@@ -286,7 +286,7 @@ export function founderTitleFallback(technical: string): string | null {
 
 /** The founder's word for a cycle (WP-02 T8). Builder view keeps the engine's word. */
 export function roundWords(builder: boolean): { one: string; a: string; idle: string } {
-  return builder ? { one: "cycle", a: "a cycle", idle: "No cycle running" } : { one: "round of work", a: "a round of work", idle: "The team is not working right now" };
+  return builder ? { one: "cycle", a: "a cycle", idle: "No cycle running" } : { one: "round of work", a: "a round of work", idle: "The team is idle" };
 }
 
 /**
