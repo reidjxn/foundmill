@@ -13,6 +13,7 @@
  * drafts or finds a slot with its own tools, through the same gateway and policy). The gateway's answer is checked:
  * `ask` waits for the founder (once), a refused or failed tool call fails the action with the connector's reason.
  */
+import { recordExpiredApprovals } from "@foundmill/events";
 import { LIMITS } from "@foundmill/config";
 import { channelRefusal } from "@foundmill/connectors";
 import { getTemplate, getTemplateByAgentType, initialVersionFromTemplate, type AgentTemplate } from "@foundmill/agents";
@@ -380,7 +381,9 @@ export function createPlanActivities(deps: OrchestratorDeps) {
           const blocked = await channelBlocked(deps, ctx.business, p.channel, existing ? existing.kitMode : CHANNEL_META[p.channel].kitModeByDefault);
           if (blocked) throw new Error(channelRefusal(p.channel, blocked));
         }
-        const channel = existing ? await repos.channels.setEnabled(db, businessId, existing.id, enabled) : await repos.channels.upsert(db, businessId, { channelKey: p.channel, line: CHANNEL_META[p.channel].line, enabled, kitMode: CHANNEL_META[p.channel].kitModeByDefault, ownerAgentId: action.agentId });
+        const toggled = existing ? await repos.channels.setEnabled(db, businessId, existing.id, enabled) : null;
+        if (toggled) await recordExpiredApprovals(db, businessId, toggled.expiredApprovals, deps.clock.now());
+        const channel = toggled ?? (await repos.channels.upsert(db, businessId, { channelKey: p.channel, line: CHANNEL_META[p.channel].line, enabled, kitMode: CHANNEL_META[p.channel].kitModeByDefault, ownerAgentId: action.agentId }));
         // Before the founder has started distribution (0062) the channel keeps its place on the board; its engine starts
         // with Start distribution and nothing is recorded now.
         // A channel the founder posts by tap goes on the board and gets no engine (founder, 2026-11-12): no agent can

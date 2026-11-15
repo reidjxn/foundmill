@@ -15,6 +15,7 @@
  *                pending, which is the durable record that it still has to start: `redispatchPlans` starts it on the
  *                next decision or Continue (audit api-services-15).
  */
+import { recordExpiredApprovals } from "@foundmill/events";
 import { buildSystemPrompt, chiefOfStaff, getTemplateByAgentType } from "@foundmill/agents";
 import { APP_NAME, LIMITS } from "@foundmill/config";
 import { repos, type Agent, type Business, type Department, type Executor, type PlanAction as PlanActionRow, type PlanWithActions } from "@foundmill/db";
@@ -497,7 +498,9 @@ async function executeLocally(tx: Executor, businessId: string, action: PlanActi
       if (!isChannelKey(p.channel)) return null;
       const enabled = action.type === "enable_channel";
       const existing = await repos.channels.getByKey(tx, businessId, p.channel);
-      const channel = existing ? await repos.channels.setEnabled(tx, businessId, existing.id, enabled) : await repos.channels.upsert(tx, businessId, { channelKey: p.channel, line: CHANNEL_META[p.channel].line, enabled, kitMode: CHANNEL_META[p.channel].kitModeByDefault, ownerAgentId: action.agentId });
+      const toggled = existing ? await repos.channels.setEnabled(tx, businessId, existing.id, enabled) : null;
+      if (toggled) await recordExpiredApprovals(tx, businessId, toggled.expiredApprovals, new Date());
+      const channel = toggled ?? (await repos.channels.upsert(tx, businessId, { channelKey: p.channel, line: CHANNEL_META[p.channel].line, enabled, kitMode: CHANNEL_META[p.channel].kitModeByDefault, ownerAgentId: action.agentId }));
       return { channelId: channel.id, channelKey: p.channel, enabled };
     }
     case "set_budget": {
