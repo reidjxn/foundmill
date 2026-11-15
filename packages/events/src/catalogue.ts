@@ -393,6 +393,10 @@ export const TASK_BLOCKED_REASONS = [
   "stopped",
   /** The task's change clashes with newer work on the default branch (or its checks failed there): its agent brings it up to date. */
   "needs_update",
+  /** A task that is not code ended without its agent reporting a result (`complete_task` or `block_task`). */
+  "no_result",
+  /** Every outside call of the session came back simulated or not connected on a real project: nothing real happened. */
+  "not_connected",
 ] as const;
 export const TaskBlockedReason = z.enum(TASK_BLOCKED_REASONS);
 export type TaskBlockedReason = z.infer<typeof TaskBlockedReason>;

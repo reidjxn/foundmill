@@ -104,7 +104,7 @@ export function retryDeferral(task: BriefTask, trigger: CycleTrigger | null = nu
   // business, Oct 28, 2026). Autopilot, the schedule and wakes keep the doubling waits and the limit.
   if (trigger === "continue") return null;
   const what = task.status === "failed" ? "failed" : "blocked";
-  if (task.retry.exhausted) return `${what} ${task.retry.failures} times in a row; start it from the Plan once the cause is fixed`;
+  if (task.retry.exhausted) return `${what} ${task.retry.failures === 1 ? "once" : `${task.retry.failures} times in a row`}; start it from the Plan once the cause is fixed`;
   const next = task.retry.nextAttemptAt ? new Date(task.retry.nextAttemptAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "UTC" }) : null;
   return `retrying after ${task.retry.failures} ${what} session${task.retry.failures === 1 ? "" : "s"}${next ? `; next try after ${next} UTC` : ""}`;
 }

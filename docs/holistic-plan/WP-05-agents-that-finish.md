@@ -102,7 +102,7 @@ Steps:
 Tests and evals: above. The eval `researcher.real_citations` is in T6.
 Done when: no session on a real project can receive a simulated web or rates result. Then WP-00 S6 may run.
 
-### T2: A task that is not code is done only when the agent reported a result on real tools [M] [session.ts chain 1]
+### [x] T2: A task that is not code is done only when the agent reported a result on real tools [M] [session.ts chain 1]
 Why: AR-03, AR-25, A7-01 step 4.
 Files: modify `apps/orchestrator/src/activities/session.ts`, `apps/orchestrator/src/activities/types.ts`, `packages/events/src/catalogue.ts`, `packages/events/src/testing/fixtures.ts`; tests `apps/orchestrator/src/__tests__/session-live.test.ts`. Grep `TASK_BLOCKED_REASONS|"needs_update"` for every switch over the reason (today: `activities/merge.ts`, `activities/cycle.ts`, `packages/db/src/__tests__/repos/inbox-lifecycle.test.ts`, the composer prompt).
 Interfaces, consumes: `SessionRecorder.publish(event, opts: { args?: unknown })` (`session.ts:475`); `trackBlockTask` (`:520`); the message loop's `tool_result` branch (`:1808-1817`, result text cut to 1,000 characters for the stream); the turn-end branch where `design.atTurnEnd()` may `send(fixTurn)` (`:1846-1853`); the final return for a task that is not code (`:1993`); `SessionResult.blockedReason` (`types.ts:247`); `TASK_BLOCKED_REASONS` (`catalogue.ts:383`); `mockResultsAllowed(appEnv, isDemo)` (`@foundmill/shared`); `LiveContext.business` (`:1302`).
