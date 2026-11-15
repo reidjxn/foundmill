@@ -19,11 +19,11 @@
  * to choose; free text on them goes to the agent's desk (`replyToInboxItem`).
  */
 import { classifyFounderText } from "@foundmill/agents";
-import { approvalOutcomeOf, closeApprovalItem, repos, type Approval, type DbTx, type Decision, type InboxItem, type PlanWithActions } from "@foundmill/db";
+import { approvalOutcomeOf, closeApprovalItem, releaseFollowUpOf, repos, type Approval, type DbTx, type Decision, type InboxItem, type PlanWithActions } from "@foundmill/db";
 import { AppError, ONE_CLICK_ACTION_TYPES, SHOWCASE_ANSWER_HERE_MESSAGE, ValidationError, endSentence, hasSectionAccess, isPageReadyDecision, isPostalAddressDecision, isShowcaseConsentDecision, type SectionMembership } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
-import { assertApprovalAccess, deliverApprovalAnswer, recordApprovalAnswer, type ApprovalAnswer } from "./approvals";
+import { assertApprovalAccess, decideReleaseFollowUp, deliverApprovalAnswer, recordApprovalAnswer, type ApprovalAnswer } from "./approvals";
 import { assertMayConfirmAsks } from "./approver";
 import { idsOfItem, inboxWalls, isWalled, loadRedactionSource, mentionIds, noteMask, redactInboxItem, redactPlan, redactValue } from "./inbox-redaction";
 import { startModelRetests } from "./agent-model";
@@ -120,6 +120,9 @@ export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInp
   // An agent's gated call waiting for the founder: Approve or Reject answers the approval itself.
   const approvals = await ctx.rls((tx) => repos.approvals.listForInboxItem(tx, ctx.businessId, item.id));
   if (approvals.length) return decideApprovalItem(ctx, item, approvals, { chosenOption, freeText });
+  // "What should happen to this change?" after a no without words (WP-05 T16): the founder's words or Drop, in-process.
+  const release = releaseFollowUpOf(item.decision);
+  if (release) return decideReleaseFollowUp(ctx, item, release, { chosenOption, freeText });
   // The founder's sign-off of the specification or the roadmap, or Ready to start selling (founder, 2026-10-18): decided
   // in-process from its round; free text is a request for changes in the founder's words.
   const signoff = await ctx.rls((tx) => repos.productSignoffs.forInboxItem(tx, ctx.businessId, item.id));

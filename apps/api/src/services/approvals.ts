@@ -16,14 +16,16 @@
  * Answering never moves money by itself: the approval lets one call run exactly as it was asked, within the amount it
  * named, and only when the agent makes it again; hard gates are never approvals of this kind.
  */
-import { APPROVAL_OPTIONS, ASK_FOR_DETAILS_NOTE, approvalAction, approvalArgsText, approvalSection, approvalTaskTitle, approvalWhatExactly, founderReasons, integrationConnected, isReleaseApproval, repos, type Approval, type ApprovalReview, type ApprovalWhat, type ApprovalWhatContext, type Db, type DbTx, type InboxItem, type Task } from "@foundmill/db";
-import { DesignCheckResult, ForbiddenError, agentMention, hasSectionAccess, ValidationError, type SectionMembership, type TaskStatus } from "@foundmill/shared";
+import { APPROVAL_OPTIONS, ASK_FOR_DETAILS_NOTE, RELEASE_FOLLOW_UP, approvalAction, approvalArgsText, approvalSection, approvalTaskTitle, approvalWhatExactly, founderReasons, founderReworkDetail, integrationConnected, isReleaseApproval, releaseFollowUpItem, repos, type Approval, type ApprovalReview, type ApprovalWhat, type ApprovalWhatContext, type Db, type DbTx, type InboxItem, type Task } from "@foundmill/db";
+import { ConflictError, DesignCheckResult, ForbiddenError, agentMention, hasSectionAccess, ValidationError, type SectionMembership, type TaskStatus } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
 import { continueStateFor, cycleStatus } from "./cycle";
 import { maskFinance } from "./inbox-redaction";
 import { approvalIsForViewer, assertCanResolveApproval, canResolveApproval } from "./approval-handler";
 import { assertMayResolveApproval } from "./approver";
+import { answerNote } from "./answer-note";
+import type { DecideItemResult } from "./decide";
 import { SIGNALS, WORKFLOWS, workflowIds, type TemporalResult } from "./temporal";
 
 export type ApprovalOutcome = "approved" | "rejected";
@@ -103,9 +105,14 @@ export async function recordApprovalAnswer(tx: DbTx, ctx: BusinessContext, appro
   let wantsCycle = false;
   let followUp: InboxItem | null = null;
   let next: string;
-  if (release) {
+  if (release && outcome === "approved") {
     // The merge review (apps/orchestrator mergeReview) waits for the repository's tests and reports the outcome on the approval.
-    next = outcome === "approved" ? "It goes live once the final quality checks pass; if one fails, the work goes back to the agent." : "Nothing goes live; the work waits.";
+    next = "It goes live once the final quality checks pass; if one fails, the work goes back to the agent.";
+  } else if (release) {
+    // A "no" has a next step (WP-05 T16): with words the change goes back to its agent with them; with none, one question.
+    const handled = task && task.status === "review" ? await releaseRejected(tx, ctx, approval, task, agent, note) : null;
+    if (handled) ({ task, followUp } = handled);
+    next = handled?.reworked ? `Nothing goes live. ${agent ? agent.name : "The agent"} gets your note and reworks it.` : followUp ? "Nothing goes live. A note asks what should happen to it next." : "Nothing goes live.";
   } else if (sessionWaiting) {
     next = outcome === "approved" ? `${who} carries on.` : `Nothing runs; ${who} is told not to retry it.`;
   } else if (task && MOVED_ON.has(task.status)) {
@@ -150,6 +157,79 @@ async function rejectionNote(tx: DbTx, ctx: BusinessContext, approval: Approval,
   if (eventId) await repos.events.markNarrated(tx, ctx.businessId, [eventId]);
   await emit(tx, ctx, { type: "inbox.item_created", actor: { kind: "agent", id: chief.id }, payload: { inboxItemId: item.id, type: item.type, fromAgentId: chief.id, subject: item.subject, blocksContinue: false, sourceEventIds: eventId ? [eventId] : [], cost: null } });
   return item;
+}
+
+/**
+ * The founder said no to a change going live (WP-05 T16, A4-13). With words, the change goes back to its agent with
+ * them as the instruction; with none, one follow-up asks what should happen to it. Until then a rejected change sat in
+ * review with the work that waited on it held up, and nothing asked about it again.
+ */
+async function releaseRejected(tx: DbTx, ctx: BusinessContext, approval: Approval, task: Task, agent: { id: string; name: string } | null, note: string | null): Promise<{ task: Task; followUp: InboxItem | null; reworked: boolean }> {
+  if (note?.trim()) return { task: await handReleaseBack(tx, ctx, approval, task, note), followUp: null, reworked: true };
+  const from = agent ?? (await repos.agents.chiefOfStaff(tx, ctx.businessId));
+  if (!from) return { task, followUp: null, reworked: false };
+  const item = await repos.inbox.createItem(tx, ctx.businessId, releaseFollowUpItem({ agentId: from.id, agentName: from.name, taskTitle: task.founderTitle ?? task.title, approvalId: approval.id }));
+  await emit(tx, ctx, { type: "inbox.item_created", actor: { kind: "agent", id: from.id }, payload: { inboxItemId: item.id, type: item.type, fromAgentId: from.id, subject: item.subject, blocksContinue: false, sourceEventIds: [], cost: null } });
+  return { task, followUp: item, reworked: false };
+}
+
+/**
+ * The change goes back to its agent with the founder's words first, the same way the merge review hands back a branch
+ * (apps/orchestrator merge.ts `handBack`): blocked `needs_update`, which the next session starts from. The founder asked
+ * for it, so the event is not narrated back to them.
+ */
+async function handReleaseBack(tx: DbTx, ctx: BusinessContext, approval: Approval, task: Task, words: string): Promise<Task> {
+  const blocked = await repos.tasks.setStatus(tx, ctx.businessId, task.id, "blocked", { force: true });
+  const assignee = task.assigneeAgentId ?? approval.agentId ?? (await repos.agents.chiefOfStaff(tx, ctx.businessId))?.id ?? null;
+  if (assignee) {
+    const eventId = await emit(tx, ctx, { type: "task.blocked", payload: { taskId: task.id, kind: task.kind, title: task.title.slice(0, 200), assigneeAgentId: assignee, sessionId: approval.sessionId, reason: "needs_update", detail: founderReworkDetail(words, `agent/${task.id}`), approvalId: approval.id, occurrence: 1 } });
+    await repos.events.markNarrated(tx, ctx.businessId, [eventId]);
+  }
+  await audit(tx, ctx, { action: "merge.handed_back", target: { kind: "task", id: task.id }, details: { approvalId: approval.id, why: "founder", prNumber: (approval.args as { prNumber?: unknown } | null)?.prNumber ?? null, detail: words.trim().slice(0, 500) } });
+  return blocked;
+}
+
+/** Drop: the task is put away and the work that waited on it waits no longer (the pattern of the cycle's `stopPlatformDuties`). */
+async function dropRelease(tx: DbTx, ctx: BusinessContext, approval: Approval, task: Task): Promise<void> {
+  const freed = (await repos.tasks.listEdges(tx, ctx.businessId, [task.id])).filter((e) => e.fromTask === task.id);
+  for (const e of freed) await repos.tasks.removeEdge(tx, ctx.businessId, e.fromTask, e.toTask);
+  await repos.tasks.setStatus(tx, ctx.businessId, task.id, "stopped", { force: true });
+  await repos.tasks.archive(tx, ctx.businessId, task.id);
+  await audit(tx, ctx, { action: "merge.dropped", target: { kind: "task", id: task.id }, details: { approvalId: approval.id, title: task.title.slice(0, 200), dependentsFreed: freed.length } });
+}
+
+/**
+ * The answer to "What should happen to this change?": the founder's words (with Tell the team what to change, or on
+ * their own) hand the change back; Drop puts it away. A change that moved on since (reworked, live, put away) is left
+ * as it is and the note is answered.
+ */
+export async function decideReleaseFollowUp(ctx: BusinessContext, item: InboxItem, ref: { approvalId: string }, input: { chosenOption: string | null; freeText: string | null }): Promise<DecideItemResult> {
+  const drop = input.chosenOption === RELEASE_FOLLOW_UP.options.drop;
+  const rework = input.chosenOption === RELEASE_FOLLOW_UP.options.rework || (!input.chosenOption && !!input.freeText);
+  if (!drop && !rework) throw new ValidationError(`Choose ${RELEASE_FOLLOW_UP.reworkLabel} or ${RELEASE_FOLLOW_UP.dropLabel}.`, { itemId: item.id });
+  if (rework && !input.freeText) throw new ValidationError("What should change? Write it in the box, then send it.", { route: "conversation", itemId: item.id });
+  const approval = await ctx.rls((tx) => repos.approvals.get(tx, ctx.businessId, ref.approvalId));
+  assertApprovalAccess(ctx.membership, approval);
+  const answered = await ctx.rls(async (tx) => {
+    const task = approval.taskId ? await repos.tasks.get(tx, ctx.businessId, approval.taskId).catch(() => null) : null;
+    const agent = approval.agentId ? await repos.agents.get(tx, ctx.businessId, approval.agentId).catch(() => null) : null;
+    let summary: string;
+    if (!task || task.status !== "review" || task.archivedAt !== null) summary = "Nothing changed: this change is no longer waiting to go live.";
+    else if (drop) {
+      await dropRelease(tx, ctx, approval, task);
+      summary = "You dropped this change. Nothing goes live, and the work that waited on it goes ahead without it.";
+    } else {
+      await handReleaseBack(tx, ctx, approval, task, input.freeText!);
+      summary = `Nothing goes live. ${agent ? agent.name : "The agent"} gets your note and reworks it.`;
+    }
+    const option = drop ? RELEASE_FOLLOW_UP.options.drop : RELEASE_FOLLOW_UP.options.rework;
+    const note = await answerNote(tx, ctx, item.id, option, input.freeText, item.fromAgentId, summary, { params: { release_option: option, approval_id: approval.id }, result: { releaseOption: option, taskId: task?.id ?? null } });
+    // Answered a moment ago (another tab): nothing above is kept.
+    if (!note) throw new ConflictError("This note was answered a moment ago.", { itemId: item.id, code: "already_decided" });
+    await audit(tx, ctx, { action: "inbox.decide", target: { kind: "inbox_item", id: item.id }, details: { chosenOption: option, approvalId: approval.id, taskId: task?.id ?? null, planId: note.plan.id } });
+    return note;
+  });
+  return { item: answered.item, decision: answered.decision, plan: answered.plan, evaluations: [], requiresConfirmation: false, executed: [answered.actionId], deferred: [], denied: [], dispatch: null, followUp: null };
 }
 
 /** After commit: tell whatever waits on the approval, and start a cycle for an approved task whose session ended. */

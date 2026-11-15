@@ -299,7 +299,7 @@ Steps:
 2. Build. verify: named tests.
 Done when: the overnight round starts one session with 15 cents, not four with 3.
 
-### T16: A founder's "no" to a change has a next step [M] [beside the chain]
+### [x] T16: A founder's "no" to a change has a next step [M] [beside the chain]
 Why: A4-13.
 Files: modify `apps/api/src/services/approvals.ts`, `packages/db/src/approvals.ts`, `apps/orchestrator/src/activities/merge.ts`, `activities/types.ts`; tests api `approvals.test.ts`, orchestrator `merge.test.ts`.
 Interfaces, consumes: `recordMergeDecision` only audits (`merge.ts:452`); `pendingMerges` treats a task with a `decision` step as settled (`:227`); the api's line (`approvals.ts:108`); `handBack(input & { why: MergeHoldReason; detail })` (`merge.ts:412`); `handBackDetail(why, branch, detail)` (`:140`); the archive-and-free pattern of `stopPlatformDuties` (`cycle.ts:240`).
