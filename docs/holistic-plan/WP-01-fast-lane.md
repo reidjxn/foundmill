@@ -474,7 +474,7 @@ The agent-pack files are given to the product's agents; `apps/gateway/src/__test
 
 ---
 
-### T7: Skipped and flaky tests are counted on every run  [S] [ships alone]
+### [x] T7: Skipped and flaky tests are counted on every run  [S] [ships alone]
 
 **Why:** EH-14 (retries hide flakes: `apps/web/playwright.config.ts:120` `retries: isCI ? 2 : 0`, `e2e/playwright.config.ts:93` `retries: 1`), a10 §1.4 (what never runs), the OUTLINE's "skipped/flaky test inventory".
 
