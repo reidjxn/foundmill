@@ -29,7 +29,7 @@ test.describe("switch business and Your businesses", () => {
 
     await watchShellPairs(page);
     const switcher = await openSwitcher(page);
-    await expect(switcher.getByRole("option", { name: /Northwind Skincare/ })).toContainText("Current business");
+    await expect(switcher.getByRole("option", { name: /Northwind Skincare/ })).toContainText("Current project");
     // By id: the foundations spec takes charge of throwaways named "Ledgerly <suffix>", which the founder owns too.
     const ledgerly = switcher.locator(`[data-business-id="${LEDGERLY_BUSINESS_ID}"]`);
     await expect(ledgerly).toBeVisible({ timeout: LONG });
@@ -99,7 +99,7 @@ test.describe("switch business and Your businesses", () => {
     await page.waitForLoadState("networkidle", { timeout: LONG });
     await settled(page);
     const switcher = await openSwitcher(page);
-    await expect(switcher.getByRole("option", { name: new RegExp(name) })).toContainText("Current business");
+    await expect(switcher.getByRole("option", { name: new RegExp(name) })).toContainText("Current project");
     await expect(switcher.locator(`[data-business-id="${bid}"]`)).toHaveAttribute("data-current", "true");
     await expect(switcher.getByRole("option", { name: /Northwind Skincare/ })).toBeVisible({ timeout: LONG });
     await switcher.getByRole("option", { name: /Northwind Skincare/ }).click();
