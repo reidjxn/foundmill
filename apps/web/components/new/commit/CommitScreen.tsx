@@ -18,7 +18,7 @@ import { ArrowLeft, ArrowRight, Check, ChevronDown, ChevronUp, Globe, Lock, Rota
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { CREDITS_CURRENCY, includedCreditsMinor } from "@foundmill/config";
-import { ARCHETYPES, ARCHETYPE_LABELS, type Archetype, type BusinessMode, type DeptColourToken, type GameMode } from "@foundmill/shared";
+import { ARCHETYPES, ARCHETYPE_LABELS, FIRST_DAY_PROMISE, type Archetype, type BusinessMode, type DeptColourToken, type GameMode } from "@foundmill/shared";
 import { DEFAULT_AGENT_STYLE, type AgentStyle } from "@foundmill/shared/personas";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { AgentStylePicker, Avatar, Button, Checkbox, Chip, ConceptCard, EmptyState, Field, Icon, Input, Label, MoneyInput, Panel, ProvenanceChip, RadioGroup, RadioGroupItem, ReassuranceLine, SkeletonRows, StatusPill, Switch, Term, cn, fieldDescribedBy, formatMoney, useDateFormat, useFormatters, useGuided, useToast, type Kit } from "@foundmill/dugout";
@@ -123,7 +123,7 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
         // A second Take charge of this idea (another tab, a retried request) answers with the business the first created.
         // The first days are about the product (founder, 2026-10-18): Home shows the foundations drafting; the Inbox has
         // the Chief of Staff's welcome note and, once drafted, the two sign-off notes.
-        toast({ title: res.alreadyCommitted ? `${res.business.name} is already yours` : `${res.business.name} is yours`, description: "Your team is drafting the vision, specification and roadmap; two notes will ask you to sign them off.", tone: "good" });
+        toast({ title: res.alreadyCommitted ? `${res.business.name} is already yours` : `${res.business.name} is yours`, description: FIRST_DAY_PROMISE.sentence, tone: "good" });
         const to = routes.today(res.business.id);
         // The new business is in the founder's lists at once (Switch business, Your businesses).
         void queryClient.invalidateQueries({ queryKey: trpcPathPrefix("founder") as unknown[] });
@@ -235,12 +235,7 @@ const SETTING_UP = "Setting up your business: departments, team and the first cy
  * Product lead drafts the foundations, two sign-off notes land, then building starts. Nothing is spent before the
  * founder approves it.
  */
-export const WHAT_HAPPENS_NEXT: readonly string[] = [
-  "Your team is hired",
-  "The Product lead drafts vision, specification and roadmap (a minute or two)",
-  "Two notes ask you to sign them off",
-  "Then building starts. Nothing is spent until you approve it.",
-];
+export const WHAT_HAPPENS_NEXT: readonly string[] = FIRST_DAY_PROMISE.steps;
 
 /** "Starts with $5.00 of included credits this month. No card." — the free tier's grant, in credits' own currency (A10). */
 export function includedCreditsLine(): string {
@@ -519,7 +514,7 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
           SETTING_UP
         ) : (
           <>
-            Name it, give it a logo, choose how it is run. Taking charge hires the team, which starts by drafting your vision, <Term id="specification">specification</Term> and roadmap.
+            Name it, give it a logo, choose how it is run. Taking charge hires the team, which starts by drafting your public page, then your plan.
           </>
         )
       }

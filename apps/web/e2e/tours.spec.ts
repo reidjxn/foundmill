@@ -94,7 +94,7 @@ test.describe("tours", () => {
     // Step 2: Continue in the top bar.
     await home.getByRole("button", { name: "Next" }).click();
     await expect(home).toHaveAttribute("data-step", "2");
-    await expect(home).toContainText("This runs the team; what they need from you lands in the Inbox.");
+    await expect(home).toContainText("This runs the team; what they need from you lands in Needs you.");
     await expect(page.locator("[data-coachmark='continue'][data-coachmark-active]")).toHaveCount(1);
     await expect(page.locator("[data-coachmark='sidebar'][data-coachmark-active]")).toHaveCount(0);
 

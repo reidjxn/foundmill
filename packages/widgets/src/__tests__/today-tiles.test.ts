@@ -4,6 +4,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { routes } from "../shared/routes";
+import { NOT_KNOWN_YET } from "../shared/cash";
 import { SPEND_WORDS, cashTile, customersThisWeek, customersWeekTile, runwayTile, spendWeekTiles, statusTiles } from "../widgets/status-strip";
 import { TODAY, finance, ribbon as ribbonOf } from "./fixtures";
 
@@ -19,6 +20,13 @@ describe("Today's tiles are the status strip's", () => {
     expect(strip0(cashTile(finance, false, "USD", noop))).toEqual(strip0(pick("Cash")));
     expect(strip0(runwayTile(finance, false, noop))).toEqual(strip0(pick("Runway")));
     expect(strip0(customersWeekTile(ribbon, false, TODAY, noop))).toEqual(strip0(pick("Customers this week")));
+  });
+
+  it("Cash with no bank connected is not known yet, never a zero (WP-02 T6)", () => {
+    const none = { ...finance, cash: { ...finance.cash, accounts: 0, amountMinor: 0 } } as typeof finance;
+    const tile = cashTile(none, false, "USD", noop);
+    expect(tile.value).toEqual(NOT_KNOWN_YET.value);
+    expect(tile.caption).toBe("No bank connected");
   });
 
   it("counts first payments over the last 7 days against the 7 before", () => {

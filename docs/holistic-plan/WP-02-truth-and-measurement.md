@@ -162,7 +162,7 @@ select (select count(*) from entities e join businesses b on b.id = e.business_i
 **Tests and evals:** as named; extend the existing engineer eval's rubric with "does not claim a pull request when none can open" only if an eval file for code summaries already exists; do not add a new harness here (WP-05 AR-15 builds it).
 **Done when:** a real project with no repository shows none of the seven "Before" strings.
 
-### T6: The first day says the page comes first; smaller untrue lines      [S] [ships alone]
+### [x] T6: The first day says the page comes first; smaller untrue lines      [S] [ships alone]
 
 **Why:** FR-07 (the copy half; the panel order on Today is WP-04), FR-06 outside the landing page (the kept card), A2-18, A2-11 (the Cash tile's zero), FR-16 row 2 (stale order in the welcome note; the voice rewrite is WP-04).
 
