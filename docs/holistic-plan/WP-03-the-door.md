@@ -442,7 +442,7 @@ Facts:
 
 **Done when:** Done-when 7. Opening itself also waits on WP-09's per-account ceiling and Decision 4.
 
-### T9: The store-links value and its first readers [S] [ships alone]
+### [x] T9: The store-links value and its first readers [S] [ships alone] (the value and `GetTheApp` built; both readers left: `ContinueLater` waits on T3, the landing footer on the landing session)
 
 **Why:** A2-02, A9-P2-1; CLAUDE.md "through one config value for the store links (unset until launch)".
 
