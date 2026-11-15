@@ -122,6 +122,10 @@ describe("toEnvironmentRows", () => {
     expect(providerLabel("unknown")).toBeNull();
     expect(providerLabel("my_host")).toBe("My host");
   });
+  it("a done task saved with nowhere to push reads saved, even with a repository connected now (WP-05 T8)", () => {
+    const prs = { open: [], merged: [{ eventId: null, source: "merge_queue" as const, occurredAt: "2026-10-07T09:00:00Z", taskId: tasks[5]!.id, landed: "saved_only" as const }] };
+    expect(toEnvironmentRows([tasks[5]!], prs, [], agentMap).map((r) => r.state)).toEqual(["no_artifact"]);
+  });
   it("marks done tasks merged and stopped tasks stopped regardless of deployments", () => {
     const rows = toEnvironmentRows([{ ...tasks[5]!, status: "stopped" }, tasks[5]!], undefined, [], agentMap);
     expect(rows.map((r) => r.state)).toEqual(["merged"]);
@@ -134,13 +138,13 @@ describe("toEnvironmentRows", () => {
 });
 
 describe("what exists now (first-time founder report, Nov 8, 2026)", () => {
-  it("a done task with nothing deployed and no repository connected reads 'No artifact yet', and the counts say so", async () => {
+  it("a done task with nothing deployed and no repository connected reads 'Saved, not live anywhere', and the counts say so", async () => {
     const fake = createFakeSource({ responses: { ...responses(), "dev.repository": { connected: false, status: null, repository: null, simulated: true } } });
     renderScreen(fake, <EnvironmentsScreen {...props} />);
     const table = await screen.findByRole("grid", { name: "Environments" });
-    expect(within(table).getByText("No artifact yet")).toBeTruthy();
+    expect(within(table).getByText("Saved, not live anywhere")).toBeTruthy();
     expect(within(table).queryByText("Merged")).toBeNull();
-    expect(screen.getByTestId("env-counts").textContent).toBe("0 live · 2 awaiting · 1 with no artifact yet");
+    expect(screen.getByTestId("env-counts").textContent).toBe("0 live · 2 awaiting · 1 saved, not live anywhere");
     expect(screen.getByTestId("what-exists-now").textContent).toContain("Nothing exists outside these screens yet");
   });
 });

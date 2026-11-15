@@ -1473,8 +1473,9 @@ describe("honest outcomes: a code session ends done only when it did the work (d
     const nextId = await openSessionRow(t, t.workerId, task.id);
     const next = { ...input, sessionId: nextId };
     const finishNext = await acts.finishSession(next, launch, done);
-    // Done, as the run says: the session's outcome; the code task waits in review for its merge (Oct 31, 2026).
-    expect(finishNext.taskStatus).toBe(launch.branch === `agent/${task.id}` ? "review" : "done");
+    // Done, as the run says: the session's outcome. With no repository to push to there is no merge to wait for, so the
+    // code task ends done, saved only (WP-05 T8), instead of waiting in review (Oct 31, 2026).
+    expect(finishNext.taskStatus).toBe("done");
     expect((await repos.agents.getSession(t.db, t.businessId, nextId)).outcome).toBe("done");
   });
 
@@ -1689,22 +1690,58 @@ describe("honest outcomes: a code session ends done only when it did the work (d
     provider.files.clear();
   });
 
-  it("a code session that changes files and passes its acceptance run ends done, its task in review for the merge", async () => {
-    const { task, sessionId, input, launch } = await freshCodeTask("Add the named paths");
+  /** A code session that changes a file and passes its acceptance run (3 of 3), not yet finished. */
+  const passingCodeRun = async (title: string) => {
+    const fresh = await freshCodeTask(title);
     script = async function* (call) {
       await writeFile(path.join(call.options.cwd as string, "paths.ts"), "export const paths = { home: \"/\" };\n");
-      yield* success(sessionId)();
+      yield* success(fresh.sessionId)();
     };
-    const result = await acts.runAgentSession(input, launch);
+    const result = await acts.runAgentSession(fresh.input, fresh.launch);
     expect(result).toMatchObject({ outcome: "done", reason: null, blockedReason: null });
-    const tests = await readSessionEvents(t.redis, sessionId, { kinds: ["test_result"] });
+    const tests = await readSessionEvents(t.redis, fresh.sessionId, { kinds: ["test_result"] });
     expect(tests.at(-1)?.event).toMatchObject({ acceptance: true, passed: 3, failed: 0 });
-    const finish = await acts.finishSession(input, launch, result);
+    return { ...fresh, result };
+  };
+  const completedOfSession = async (sessionId: string) => (await repos.events.list(t.db, t.businessId, { type: "task.completed", limit: 200 })).items.find((e) => (e.payload as { sessionId?: string }).sessionId === sessionId);
+  const withRepository = async <T>(settings: Record<string, unknown>, body: () => Promise<T>): Promise<T> => {
+    await repos.integrations.upsert(t.deps.db, t.businessId, { connectorKey: "github", status: "mock", authKind: "app", settings });
+    try {
+      return await body();
+    } finally {
+      await repos.integrations.disconnect(t.deps.db, t.businessId, (await repos.integrations.getByKey(t.deps.db, t.businessId, "github"))!.id);
+    }
+  };
+
+  it("a code session that passes with a push-enabled repository ends done, its task in review for the merge", async () => {
+    const { task, sessionId, input, launch, result } = await passingCodeRun("Add the named paths");
+    const finish = await withRepository({ repo: "acme/shop", writeEnabled: true }, () => acts.finishSession(input, launch, result));
     // Its work is on its own branch until merged: the task waits in review and the merge review starts with it.
     expect(finish.taskStatus).toBe("review");
     expect((await repos.tasks.get(t.db, t.businessId, task.id)).status).toBe("review");
     expect(finish.merge).toMatchObject({ taskId: task.id, branch: `agent/${task.id}`, acceptance: { passing: 3, total: 3 } });
+    expect((await completedOfSession(sessionId))?.payload).toMatchObject({ landed: null });
     expect(await blockedEventsOf(sessionId)).toEqual([]);
+  });
+
+  it("a code task with nowhere to push ends done, saved only, with no merge, and the tasks after it can start (WP-05 T8)", async () => {
+    const { task, sessionId, input, launch, result } = await passingCodeRun("Add the saved paths");
+    const after = await repos.tasks.create(t.db, t.businessId, { kind: "code", title: "Use the saved paths", dependsOn: [task.id], status: "ready" });
+    expect((await repos.tasks.dispatchable(t.db, t.businessId, 500)).map((x) => x.id)).not.toContain(after.id);
+    const finish = await acts.finishSession(input, launch, result);
+    expect(finish.taskStatus).toBe("done");
+    expect(finish.merge).toBeNull();
+    expect((await repos.tasks.get(t.db, t.businessId, task.id)).status).toBe("done");
+    expect((await completedOfSession(sessionId))?.payload).toMatchObject({ landed: "saved_only", branch: `agent/${task.id}` });
+    expect((await repos.tasks.dispatchable(t.db, t.businessId, 500)).map((x) => x.id)).toContain(after.id);
+    await repos.tasks.setStatus(t.db, t.businessId, after.id, "stopped", { force: true });
+  });
+
+  it("a code task whose repository has pushing turned off ends done, saved only, too (WP-05 T8)", async () => {
+    const { sessionId, input, launch, result } = await passingCodeRun("Add the read-only paths");
+    const finish = await withRepository({ repo: "acme/shop", writeEnabled: false }, () => acts.finishSession(input, launch, result));
+    expect(finish).toMatchObject({ taskStatus: "done", merge: null });
+    expect((await completedOfSession(sessionId))?.payload).toMatchObject({ landed: "saved_only" });
   });
 
   /** Run `during(sessionId)` inside the acceptance run's test phase (the sandbox's last exec), before it answers. */
@@ -1909,6 +1946,33 @@ describe("honest outcomes: a task that is not code is done only when its agent r
     expect((await repos.tasks.get(t.db, t.businessId, task.id)).status).toBe("blocked");
     expect((await blockedOf(sessionId))[0]?.payload).toMatchObject({ reason: "not_connected" });
     expect(await completedOf(sessionId)).toEqual([]);
+  });
+
+  /** An email task whose one send the gateway refused with this policy id, then `complete_task`, on a real project. */
+  const refusedSend = async (title: string, policyId: string) => {
+    const staging = { ...liveDeps, env: { ...liveDeps.env, APP_ENV: "staging" as const } };
+    const run = await nonCodeTask(title, staging);
+    script = async function* () {
+      yield { type: "system", subtype: "init", session_id: `sdk-${run.sessionId}` };
+      yield toolUse("tu-send", "mcp__platform_mail__send_mail", { to: "ana@example.com", subject: "Hello", text: "Hi" });
+      yield { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tu-send", is_error: true, content: JSON.stringify({ outcome: "deny", reasons: ["refused"], policyIds: [policyId], costMinor: 0, auditId: "a" }) }] } };
+      yield toolUse("tu-done", "mcp__platform__complete_task", { taskId: run.task.id, summary: "Sent the welcome email." });
+      yield toolResult("tu-done", JSON.stringify({ id: run.task.id, status: "done" }));
+      yield resultOf(modelUsage(10, 5, 0.01));
+    };
+    return { ...run, result: await run.acts.runAgentSession(run.input, run.launch) };
+  };
+
+  it.each(["platform-mail-off", "platform-mail-unconfigured", "platform-mail-simulated"])("(a2) every send refused because sending is not switched on (%s) ends blocked not_connected, not done", async (policyId) => {
+    const { input, launch, acts: a, result } = await refusedSend(`Send the welcome email (${policyId})`, policyId);
+    expect(result).toMatchObject({ outcome: "blocked", blockedReason: "not_connected", reason: "not connected: platform_mail" });
+    expect((await a.finishSession(input, launch, result)).taskStatus).toBe("blocked");
+  });
+
+  it.each(["untrusted-recipient", "platform-mail-daily-cap", "platform-mail-suppressed"])("(a3) an ordinary refusal (%s) is not counted as not connected", async (policyId) => {
+    const { result } = await refusedSend(`Send the reminder (${policyId})`, policyId);
+    expect(result.outcome).toBe("done");
+    expect(result.blockedReason).toBeNull();
   });
 
   it("(b) an agent that ends without reporting gets exactly one more turn, then the session ends blocked no_result", async () => {

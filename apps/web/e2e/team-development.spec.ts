@@ -71,6 +71,19 @@ async function headersInside(page: Page, grid: string): Promise<string[]> {
   });
 }
 
+/** A tRPC answer (one result or a batch) with the first merge-queue row of `dev.prs.list` marked saved only. */
+function withOneSavedOnly(body: unknown): unknown {
+  for (const entry of Array.isArray(body) ? body : [body]) {
+    const merged = (entry as { result?: { data?: { json?: { merged?: Array<Record<string, unknown>> } } } })?.result?.data?.json?.merged;
+    const row = merged?.find((m) => m.source === "merge_queue");
+    if (row) {
+      row.landed = "saved_only";
+      break;
+    }
+  }
+  return body;
+}
+
 for (const width of [1280, 1440]) {
   test.describe(`team and development at ${width} px`, () => {
     test.beforeEach(async ({ page }) => {
@@ -383,6 +396,12 @@ for (const width of [1280, 1440]) {
       const labTabs = page.getByRole("tablist", { name: "Product tabs" }).locator(`[role=tab][id^="tab-${lab.split("/").pop()}/"]`);
       await expect(labTabs).toHaveText([/^Specialists · (Formulation Lab|Operations)/, /^Plan · (Formulation Lab|Operations)/]);
 
+      // One finished change saved with nowhere to push (WP-05 T8): the first queue merge of the real answer is marked
+      // `landed: "saved_only"`, as dev.prs.list marks a task whose latest completion says so (dev-prs.test.ts).
+      await page.route(/\/trpc\/[^?]*dev\.prs\.list/, async (route) => {
+        const response = await route.fetch();
+        await route.fulfill({ response, json: withOneSavedOnly(await response.json()) });
+      });
       await openTab(page, dev, "environments", "development/environments");
       const envs = page.getByRole("grid", { name: "Environments" });
       await expect(envs).toBeVisible({ timeout: LONG });
@@ -390,9 +409,15 @@ for (const width of [1280, 1440]) {
       expect(pills, "state pills are never cut").toEqual([]);
       expect(await headersInside(page, "Environments")).toEqual([]);
       // Live and awaiting branches come before the merged history.
-      const states = await envs.locator("[role=row]").evaluateAll((rows) => rows.slice(1).map((r) => (/Live|Awaiting deployment|Merged|Stopped/.exec(r.textContent ?? "") ?? [""])[0]));
-      const rank = (s: string) => ["Live", "Awaiting deployment", "Merged", "Stopped"].indexOf(s);
-      expect(states.map(rank), "rows ordered live, awaiting, merged, stopped").toEqual([...states.map(rank)].sort((a, b) => a - b));
+      const states = await envs.locator("[role=row]").evaluateAll((rows) => rows.slice(1).map((r) => (/Saved, not live anywhere|Live|Awaiting deployment|Merged|Stopped/.exec(r.textContent ?? "") ?? [""])[0]));
+      // Saved and merged rows share a rank (both finished history).
+      const rank = (s: string) => ["Live", "Awaiting deployment", "Merged", "Stopped"].indexOf(s === "Saved, not live anywhere" ? "Merged" : s);
+      expect(states.map(rank), "rows ordered live, awaiting, merged or saved, stopped").toEqual([...states.map(rank)].sort((a, b) => a - b));
+      // A change finished with nowhere to push reads as saved with its task, not live anywhere (WP-05 T8, D3).
+      const savedPill = envs.locator("[data-status-pill]", { hasText: "Saved, not live anywhere" }).first();
+      await expect(savedPill).toBeVisible();
+      await expect(savedPill).toHaveAttribute("title", "The work is kept with this task. It goes live once the project has a place to publish.");
+      await expect(page.getByTestId("env-saved-only")).toContainText("Saved, not live anywhere: The work is kept with this task.");
       // Branches read as their tasks ("order-webhook-hardening-3"), the git branch (agent/<task id>) in the tooltip. The
       // Simple view (guidance on, UX plan §7.10) leaves the Branch column out, so the check reads the full view.
       await chooseTableView(page, "All environments");

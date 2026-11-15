@@ -44,6 +44,16 @@ describe("Development with Builder view off", () => {
     expect(text).not.toMatch(/#41|a1b2c3d|agent\/|\+120|Merge|pull request/i);
   });
 
+  it("What changed: a change saved with nowhere to publish is listed as 'Saved, not live anywhere', never as gone live (WP-05 T8)", async () => {
+    const saved = { eventId: null, source: "merge_queue" as const, occurredAt: "2026-10-07T09:00:00Z", taskId: TASK_BUNDLE, title: "Gift wrap option at checkout", branch: `agent/${TASK_BUNDLE}`, mergedBy: { kind: "agent", id: null }, landed: "saved_only" as const };
+    const prs: PrsListResponse = { open: [], merged: [...prsResponse.merged, saved] };
+    renderScreen(createFakeSource({ responses: { "dev.prs.list": prs, "team.agents.list": agentsResponse } }), <PullRequestsScreen {...props} />, {}, off);
+    const list = await screen.findByRole("grid", { name: "Saved, not live anywhere" });
+    expect(within(list).getByText("Gift wrap option at checkout")).toBeTruthy();
+    expect(screen.getByTestId("what-changed-saved").textContent).toContain("The work is kept with this task. It goes live once the project has a place to publish.");
+    expect(within(screen.getByRole("grid", { name: "Gone live" })).queryByText("Gift wrap option at checkout")).toBeNull();
+  });
+
   it("What changed with Builder view on keeps the pull request tables", async () => {
     renderScreen(createFakeSource({ responses: { "dev.prs.list": prsResponse, "team.agents.list": agentsResponse } }), <PullRequestsScreen {...props} />);
     expect(await screen.findByRole("grid", { name: "Open pull requests" })).toBeTruthy();

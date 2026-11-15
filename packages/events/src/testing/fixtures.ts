@@ -117,6 +117,7 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
     summary: "Variant selector, price rules and tests added.",
     reportId: fixtureId("report"),
     simulated: false,
+    landed: null,
   },
   "task.blocked": {
     taskId: fixtureId("task"),
