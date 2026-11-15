@@ -343,8 +343,18 @@ export function followWords(name: string) {
     botCheck: "Protected by Cloudflare Turnstile",
     botCheckLink: "privacy",
     botCheckLinkLabel: "Cloudflare Turnstile privacy policy (opens in a new tab)",
+    /** The link to what happens to a follower's address (`FOLLOW_PRIVACY_HREF`), above the bot check's line. */
+    privacyLink: "How your email is used",
+    privacyLinkLabel: "How your email is used, in the Privacy Policy (opens in a new tab)",
   } as const;
 }
+
+/**
+ * The Privacy Policy's section on following a project (apps/web `content/legal/privacy.ts`, section `following`). The
+ * form links it so a visitor can read what happens to their address before they leave it; apps/web's
+ * `legal-content.test.ts` fails if the section is renamed or the policy moves.
+ */
+export const FOLLOW_PRIVACY_HREF = "/privacy#following";
 
 /** Cloudflare's Turnstile Privacy Addendum, which a site using Turnstile in Invisible mode must link. */
 export const TURNSTILE_PRIVACY_URL = "https://www.cloudflare.com/turnstile-privacy-policy/";

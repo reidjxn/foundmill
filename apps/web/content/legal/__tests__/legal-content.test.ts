@@ -14,8 +14,9 @@ import { VIA_COOKIE, VIA_POST_COOKIE, VIA_POST_MAX_AGE_SECONDS } from "@foundmil
 import { LAST_BUSINESS_COOKIE } from "@/lib/auth/constants";
 import { DATE_FORMAT_COOKIE } from "@/lib/date-format";
 import { TEXT_SIZE_COOKIE } from "@/components/providers/text-size-cookie";
-import { LEGAL_ENTITY, entityLine } from "../facts";
-import { POST_COOKIE_DAYS, PRIVACY, PRIVACY_COOKIES } from "../privacy";
+import { FOLLOW_PRIVACY_HREF } from "@foundmill/shared/project-page";
+import { LEGAL_CONTACT_EMAIL, LEGAL_ENTITY, LEGAL_ROUTES, entityLine } from "../facts";
+import { FOLLOW_CONFIRM_DAYS, POST_COOKIE_DAYS, PRIVACY, PRIVACY_COOKIES } from "../privacy";
 import { TERMS } from "../terms";
 
 const REPO = resolve(__dirname, "../../../../..");
@@ -87,6 +88,18 @@ describe("the legal pages", () => {
     const row = PRIVACY_COOKIES.find((c) => c.term === VIA_POST_COOKIE)!;
     expect(row.detail).toBe(`Remembers the public code in the link of the last post from a project on ${APP_NAME} that brought you here, if one did, so the project can see which post led to your follow. 7 days.`);
     expect(row.detail.endsWith(`${POST_COOKIE_DAYS} days.`)).toBe(true);
+  });
+
+  it("has the section the Follow form links, saying what happens to a follower's address, from the constants the code uses", () => {
+    const [path, anchor] = FOLLOW_PRIVACY_HREF.split("#");
+    expect(path).toBe(LEGAL_ROUTES.privacy);
+    const section = PRIVACY.sections.find((s) => s.id === anchor);
+    expect(section, `Privacy Policy section "${anchor}"`).toBeDefined();
+    const text = walk({ ...PRIVACY, summary: [], sections: [section!] }).text.join(" ");
+    expect(FOLLOW_CONFIRM_DAYS).toBe(7);
+    expect(text).toContain(`works for ${FOLLOW_CONFIRM_DAYS} days`);
+    for (const fact of [/confirm/, /contacts/, /unsubscribe/i, /responsible/, /deleted/]) expect(text).toMatch(fact);
+    expect(walk({ ...PRIVACY, summary: [], sections: [section!] }).hrefs).toContain(`mailto:${LEGAL_CONTACT_EMAIL}`);
   });
 
   it("link only to places the page follows, with unique anchors, and hold no placeholders", () => {

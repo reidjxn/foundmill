@@ -10,9 +10,13 @@ import { APP_NAME } from "@foundmill/config";
 import type { LegalDocument } from "@foundmill/dugout";
 import { LEGAL_CONTACT_EMAIL, LEGAL_ENTITY, LEGAL_ROUTES, PRIVACY_UPDATED, entityLine } from "./facts";
 import { VIA_POST_MAX_AGE_SECONDS } from "@foundmill/shared/via";
+import { FOLLOW_CONFIRM_TTL_MS } from "@foundmill/shared/project-page";
 
 /** How long `fm_post` lives, in whole days, from the very constant the cookie is set with (7). */
 export const POST_COOKIE_DAYS = VIA_POST_MAX_AGE_SECONDS / 86_400;
+
+/** How long a follow's confirmation link works, in whole days, from the constant the gateway signs it with (7). */
+export const FOLLOW_CONFIRM_DAYS = FOLLOW_CONFIRM_TTL_MS / 86_400_000;
 
 const mail = { text: LEGAL_CONTACT_EMAIL, href: `mailto:${LEGAL_CONTACT_EMAIL}` };
 const terms = { text: "Terms of Service", href: LEGAL_ROUTES.terms };
@@ -107,6 +111,26 @@ export const PRIVACY: LegalDocument = {
         { kind: "p", text: "Your team of agents runs on AI models from other companies. To do what you ask, we send them the parts of your project the work needs. Under the terms we use them on, Anthropic and OpenAI do not use what we send to train their models." },
         { kind: "p", text: "We do not use your content to train AI models, and we do not sell it." },
         { kind: "p", text: "If you connect your own AI provider with your own key, that work runs on your account with that provider, under your agreement with them." },
+      ],
+    },
+    {
+      // Linked from the Follow form (`FOLLOW_PRIVACY_HREF`); legal-content.test.ts holds the id.
+      id: "following",
+      heading: "Following a project",
+      blocks: [
+        { kind: "p", text: `A project on ${N} can have a public page with a Follow form. You do not need an account to follow one. If you leave your email address there, this is what happens to it.` },
+        {
+          kind: "terms",
+          items: [
+            { term: "What is kept", detail: "Your email address, the sentence you agreed to, when you agreed, the page you followed from and, if a post from that project brought you there, which post." },
+            { term: "Confirming", detail: `We send you one email to confirm. You are a follower only once you confirm. The link in it works for ${FOLLOW_CONFIRM_DAYS} days.` },
+            { term: "Who sees it", detail: "Your address is added to the project's contacts, which the project's founders and collaborators can see, together with whether you have confirmed." },
+            { term: "Who writes to you", detail: `The project's founders decide what to send you and are responsible for it. They write to you because you agreed to it. Their emails come from the project's ${N} address, say who sent them and carry an unsubscribe link. We keep the list and send the emails for them.` },
+            { term: "Stopping", detail: "Unsubscribe from any of the project's emails. That ends your agreement with that project; a bounce or a spam report does the same. We keep a note that you unsubscribed, so you are not emailed again." },
+            { term: "Deleting", detail: ["Your address stays in the project's contacts until the project deletes it or the project is deleted. To have it deleted sooner, reply to one of the project's emails or write to ", mail, "."] },
+          ],
+        },
+        { kind: "p", text: "The form's bot check is described under What we collect." },
       ],
     },
     {

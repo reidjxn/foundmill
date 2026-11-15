@@ -147,7 +147,7 @@ jobs:
   storybook:
     name: Storybook build
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -157,6 +157,13 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @foundmill/dugout storybook:build
+      # Every story through axe (WCAG 2.2 AA; packages/dugout/a11y): the stories' a11y panel is set to fail, but a build
+      # alone never ran it. A violation not in a11y/baseline.json fails, and so does a baseline entry that was fixed.
+      # The job keeps its name so a required check on "Storybook build" still matches.
+      - name: Install Chromium
+        run: pnpm --filter @foundmill/dugout exec playwright install --with-deps chromium
+      - name: Accessibility of every story (axe)
+        run: pnpm --filter @foundmill/dugout test:a11y
 
   e2e-shard:
     # The screens take about two hours one after another, so they run as three shards at once, each on its own runner with

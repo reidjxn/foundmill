@@ -1,6 +1,7 @@
 import type { Decorator, Preview } from "@storybook/react-vite";
 import { createElement } from "react";
 import { BuilderViewProvider } from "../src/components/guidance/BuilderView";
+import { AXE_TAGS } from "./a11y-rules";
 import "../src/fonts.css";
 import "../src/dugout.css";
 
@@ -36,8 +37,9 @@ const preview: Preview = {
       },
     },
     a11y: {
-      // WCAG 2.2 AA (BUILD §5.4). Colour-contrast is checked by axe against the resolved tokens.
-      options: { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"] },
+      // WCAG 2.2 AA (BUILD §5.4). Colour-contrast is checked by axe against the resolved tokens. CI runs the same rules
+      // over every story (a11y/stories.spec.ts) and fails on a violation not in a11y/baseline.json.
+      options: { runOnly: [...AXE_TAGS] },
       test: "error",
     },
     docs: { toc: true },

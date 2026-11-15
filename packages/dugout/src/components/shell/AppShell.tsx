@@ -418,6 +418,8 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
             <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded-panel focus:bg-panel-alt focus:px-2 focus:py-1">
               Skip to content
             </a>
+            {/* The page's header (banner): the bar, the title and the tabs, so every one of them is inside a landmark. */}
+            <header className="flex shrink-0 flex-col" data-testid="shell-header">
             <PhoneBar
               kit={kit}
               logoSrc={logoSrc}
@@ -444,6 +446,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
                 {tabs?.trailing ? <div className="rule-under flex shrink-0 items-center gap-2 pr-gutter [&_a]:min-h-tap [&_button]:min-h-tap">{tabs.trailing}</div> : null}
               </div>
             ) : null}
+            </header>
             <main id="main" tabIndex={-1} className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto outline-none" data-testid="shell-content">
               {children}
             </main>
@@ -506,6 +509,8 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
           }}
         />
         <div className="flex min-w-0 flex-1 flex-col">
+          {/* The page's header (banner): the bar, the tab row and the breadcrumbs, so every one of them is inside a landmark. */}
+          <header className="flex shrink-0 flex-col" data-testid="shell-header">
           <KitBar
             kit={kit}
             logoSrc={logoSrc}
@@ -567,6 +572,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
               {pageActions}
             </div>
           ) : null}
+          </header>
           <div className="flex min-h-0 flex-1">
             <main id="main" tabIndex={-1} className="min-w-0 flex-1 overflow-auto outline-none" data-testid="shell-content">
               {children}

@@ -74,11 +74,14 @@ export function PersonPage({ name, headline, about, strengths, wantsToLearn, loo
   const goodId = useId();
   const learnId = useId();
   const projectsId = useId();
+  // A full page is the document's one main landmark; a preview sits inside the console's own <main>, as an article.
+  const Root = variant === "page" ? "div" : "article";
+  const Body = variant === "page" ? "main" : "div";
   return (
-    <article data-person-page="" data-variant={variant} className={cn("@container relative flex flex-col bg-canvas text-primary", variant === "page" ? "min-h-dvh" : "min-h-full", className)} {...rest}>
+    <Root data-person-page="" data-variant={variant} className={cn("@container relative flex flex-col bg-canvas text-primary", variant === "page" ? "min-h-dvh" : "min-h-full", className)} {...rest}>
       {/* The line along the top, as on a project's page; a person has no brand colors, so it is the product's accent. */}
       <div aria-hidden className="h-1 w-full shrink-0 bg-accent" data-brand-line="" />
-      <div className="mx-auto flex w-full max-w-reading min-w-0 flex-1 flex-col gap-8 px-gutter py-10 @page-wide:gap-10 @page-wide:py-16">
+      <Body className="mx-auto flex w-full max-w-reading min-w-0 flex-1 flex-col gap-8 px-gutter py-10 @page-wide:gap-10 @page-wide:py-16">
         <header className="flex min-w-0 flex-col gap-4">
           <AvatarBase name={name} size={64} ring="none" className="self-start" data-person-avatar="" />
           <div className="flex min-w-0 flex-col gap-2">
@@ -172,7 +175,7 @@ export function PersonPage({ name, headline, about, strengths, wantsToLearn, loo
             </ul>
           </section>
         ) : null}
-      </div>
-    </article>
+      </Body>
+    </Root>
   );
 }

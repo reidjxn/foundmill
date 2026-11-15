@@ -643,10 +643,11 @@
 
 /* The "Built on" mark at the foot of a project's public page, as a visitor meets it (DESIGN §9b): it comes up from
    dim to full as the foot of the page scrolls into view, and rests there. Opacity only, never a glow on text. Without
-   scroll timelines, and with reduced motion, it simply rests at full. */
+   scroll timelines, and with reduced motion, it simply rests at full. It never starts below 0.7: text-secondary on the
+   canvas is 5.0:1 there (0.55 was 3.5:1, under AA, while the mark came in; axe color-contrast). */
 @keyframes dugout-mark-arrive {
   from {
-    opacity: 0.55;
+    opacity: 0.7;
   }
   to {
     opacity: 1;
