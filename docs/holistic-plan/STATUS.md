@@ -152,7 +152,7 @@ One row per task of docs/holistic-plan/WP-*.md. Updated before a task starts and
 | WP-10 | T11 | Settings opens on five basics | not started |  |
 | WP-10 | T12 | States that lose or hide information | not started |  |
 | WP-10 | T13 | Today's bundle, dead code and a token scanner | not started |  |
-| WP-11 | T1 | Real Postgres in CI | not started |  |
+| WP-11 | T1 | Real Postgres in CI | pull request open (stacked on #144) | founder merge; then F1 (make it required after five green main runs) |
 | WP-11 | T2 | A failed migration fails readiness | not started |  |
 | WP-11 | T3 | Backup and restore runbook | not started | founder decision or go-ahead (see the package) |
 | WP-11 | T4 | Advisor test, pinned service-only tables, `search_path` migration | not started |  |
