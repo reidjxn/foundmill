@@ -14,6 +14,8 @@ export interface BusinessStageResponse {
   business?: { id: string; name: string };
   /** Whether the orchestrator, the service that runs the team's work, can be reached (null: not known yet). */
   orchestrator?: { reachable: boolean | null } | null;
+  /** Where the team's code goes (WP-02 T5): "none" until a repository is connected with pushing on. */
+  buildDestination?: "none" | "github";
 }
 
 const BUSINESS_INPUT: Record<string, unknown> = {};
@@ -34,5 +36,7 @@ export function useBusinessStage() {
      * run a cycle, so the screens say so instead of offering a Start that is refused. Unknown reads as fine.
      */
     orchestratorDown: data?.orchestrator?.reachable === false,
+    /** Unknown reads as "github": the copy that promises less is shown only when the api says there is nowhere to push. */
+    buildDestination: data?.buildDestination ?? ("github" as const),
   };
 }

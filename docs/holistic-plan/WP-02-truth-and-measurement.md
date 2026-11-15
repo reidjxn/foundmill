@@ -134,7 +134,7 @@ select (select count(*) from entities e join businesses b on b.id = e.business_i
 **Tests and evals:** as named; RLS is not involved (service role, existing tables).
 **Done when:** the query in step 4 returns five zeros on production, and T10's `fabricated_left` is 0 every night after.
 
-### T5: The build path says what is true without a repository             [S] [ships alone]
+### [x] T5: The build path says what is true without a repository             [S] [ships alone]
 
 **Why:** A4-03 (P0, the copy half), A4-10 (P1). The site workspace that makes the promises true is WP-07.
 

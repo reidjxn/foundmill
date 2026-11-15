@@ -42,7 +42,7 @@ export const SIGNOFF_OPTIONS: Record<SignoffKind, readonly SignoffOption[]> = {
     { id: "request_changes", label: "Request changes", recommended: false, consequence: "Tell me what to change; I revise the specification and ask for your sign-off again.", cost_minor: 0, reversible: true },
   ],
   roadmap: [
-    { id: "approve", label: "Approve the roadmap", recommended: true, consequence: "Building starts: the Planner turns the Now items into tasks and the engineers pick them up in the next cycle.", cost_minor: 0, reversible: true },
+    { id: "approve", label: "Approve the roadmap", recommended: true, consequence: "Building starts: the Planner turns the Now items into tasks and the team starts on them in its next round of work.", cost_minor: 0, reversible: true },
     { id: "request_changes", label: "Request changes", recommended: false, consequence: "Tell me what to change; I revise the roadmap and ask for your sign-off again.", cost_minor: 0, reversible: true },
   ],
   ready_to_sell: [

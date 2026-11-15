@@ -16,6 +16,7 @@ import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import { RelativeDateText } from "../dates";
 import { fitColumns, fitToGrow, humanise, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
+import { moduleTabHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { LiveProduct, deploymentAt, founderTitleOf, liveProductOf, type FounderPreviewRow } from "./founder-views";
 import { useDevScreenOptions } from "./options";
 import { SIMPLE_VIEW_ID, Screen, WhatExistsNow, agentBranch, shortSha, toDate, useAgentIndex, useAgents, useDefaultViewId, useDevDepartment, useRepository } from "./shared";
@@ -222,6 +223,7 @@ export function EnvironmentsScreen({ businessId, departmentId }: ModuleScreenPro
   // Where the code goes (first-time founder report, Nov 8, 2026): a done task with no deployment and no repository
   // connected has no artifact to open, and reads so instead of "Merged".
   const repo = useRepository();
+  const departments = useDepartments();
   const pushed = repo.data?.connected !== false;
   // Agents named under the reader's preference, in the rows' name fields too (One name everywhere).
   const persona = useAgentPersona();
@@ -348,6 +350,7 @@ export function EnvironmentsScreen({ businessId, departmentId }: ModuleScreenPro
           recorded.refetch();
         }}
         now={now}
+        publicPageHref={moduleTabHref(businessId, departments.data, "product", "public-page")}
       />
     );
   }
