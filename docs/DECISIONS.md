@@ -4623,3 +4623,9 @@ Drizzle's postgres-js driver makes the date and time serializers pass values thr
 - **The tour's picker writes `/tour` or `/?example=<id>`**, because only the `/?example=` deep link is served for another business.
 - **`/tour` is added to `PUBLIC_PREFIXES`**, a one-line change outside the landing session's files, without which the founder's `/tour` would send a stranger to sign-in.
 - **The keep panel's research lines are replaced on both pages** ("checks it against real sources", "A researched version of this card, with sources"): web research is not live (a1 FR-06). `CardKeptView` still says "checks every number against real sources"; that screen belongs to WP-03 and is listed for it.
+
+## 2026-11-15 — The home page's search and share: the calls made (landing session, pull request 4)
+
+- **Indexing follows `SIGNUP_OPEN`** in `homeMetadata`, not a separate constant (founder, Nov 15: index once sign-up opens).
+- **The home's share image is its own route under /examples/**, not a root `opengraph-image`, which would change the share image of every page without one (sign-in, the legal pages) outside the landing session's files.
+- **The JSON-LD lives in the page, not in a shared `JsonLd` component**, because WP-03 T6 (which brings one) has not merged; when it does, the page can switch to it.

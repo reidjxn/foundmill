@@ -10,9 +10,12 @@
  */
 import { LandingPage } from "@/components/landing/LandingPage";
 import { landingSwitches } from "@/components/landing/flags";
+import { homeMetadata } from "@/components/landing/seo";
 import { calendarDay } from "@/components/landing/examples/helpers";
 
 export const revalidate = 3600;
+/** Title, description, canonical, share image, and indexing that follows open sign-up (components/landing/seo.tsx). */
+export const metadata = homeMetadata(landingSwitches(process.env));
 // The root layout reads the session and the text-size cookie (app/layout.tsx), which would render every visit on demand:
 // forced static, those reads come back empty here, which is what a signed-out visitor has anyway (proxy.ts never serves
 // this page to a signed-in founder).
