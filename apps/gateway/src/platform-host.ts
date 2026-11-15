@@ -10,12 +10,12 @@
  * and answered with a plain "try again".
  */
 import { AppError, ConflictError, NotFoundError, filingWindow, uuid, type TaskStatus } from "@foundmill/shared";
-import { attachAddedSkills, repos, resolveLibrarySkill, resolveSkillFile, skillLibraryEntries, type Agent, type Db, type ResolvedSkill, type Task } from "@foundmill/db";
+import { attachAddedSkills, repos, resolveLibrarySkill, resolveSkillFile, skillLibraryEntries, type Agent, type Db, type Executor, type ResolvedSkill, type Task } from "@foundmill/db";
 import { PlatformToolError, type PlatformCaller, type PlatformHost, type TaskSummaryT } from "@foundmill/connectors";
 import { writeGatewayEvent } from "./events";
 import { hashRecipient } from "./recipients";
 import type { GatewayLogger } from "./pipeline";
-import { safeError } from "./pipeline";
+import { AUDIT_ACTION_TOOL_CALL, safeError } from "./pipeline";
 
 /** What `read_repository_doc` serves: documents only (code stays with the engineers' own GitHub grants). */
 export const REPOSITORY_DOC_EXTENSIONS = /\.(md|markdown|mdx|txt|rst)$/i;
@@ -27,6 +27,10 @@ const REPOSITORY_DOC_NOTICE = "Text from the business's code repository (default
 export const PLATFORM_MESSAGE_WINDOW = 500;
 /** How far ahead `read_legal` looks for filing and compliance deadlines (days): a lookahead; each carries `dueSoon` for the shared 30-day window. */
 export const PLATFORM_DEADLINE_DAYS = 90;
+/** The newest `task.blocked` events `get_task` looks through for a task's last block. */
+export const PLATFORM_BLOCK_WINDOW = 200;
+/** The audit action `read_report` writes when the report it served was simulated (the taint carries to what is saved next). */
+export const AUDIT_ACTION_REPORT_READ = "platform.report.read";
 const TERMINAL: ReadonlySet<TaskStatus> = new Set(["done", "failed", "stopped"]);
 
 const summary = (t: Task): TaskSummaryT => ({ id: t.id, title: t.title, kind: t.kind, status: t.status, priority: t.priority, progress: Number(t.progress ?? 0), assigneeAgentId: t.assigneeAgentId, updatedAt: t.updatedAt.toISOString() });
@@ -110,6 +114,50 @@ export function createDbPlatformHost({ db, log, now = () => new Date(), reposito
     return { messageId, sentAt: event.occurredAt.toISOString() };
   };
 
+  // ---- reports (WP-05 T3) ---------------------------------------------------------------------------------------
+  /**
+   * Whether the session read or did anything through a mock connector: its `tool.call` audit rows say which mode each
+   * allowed call ran in. A report built on simulated reads is marked simulated, so it never counts as a real result.
+   * Outside a session nothing is known, and the report is not marked.
+   */
+  const sessionSimulated = async (caller: PlatformCaller): Promise<boolean> => {
+    if (!caller.sessionId) return false;
+    let since = new Date(0);
+    try {
+      since = (await repos.agents.getSession(db, caller.businessId, caller.sessionId)).startedAt;
+    } catch (e) {
+      if (!(e instanceof NotFoundError)) throw e;
+    }
+    const [mocked, readSimulated] = await Promise.all([
+      repos.audit.latestMatching(db, caller.businessId, AUDIT_ACTION_TOOL_CALL, { sessionId: caller.sessionId, outcome: "allow", mode: "mock" }, since),
+      // The taint carries over: a session that read a simulated report builds on simulated findings.
+      repos.audit.latestMatching(db, caller.businessId, AUDIT_ACTION_REPORT_READ, { sessionId: caller.sessionId, simulated: true }, since),
+    ]);
+    return mocked !== null || readSimulated !== null;
+  };
+  const saveReport = async (caller: PlatformCaller, t: Task, input: { title: string; bodyMd: string; sources: { url: string; title: string }[] }, simulated: boolean, tx: Executor = db) =>
+    repos.taskReports.save(tx, caller.businessId, { taskId: t.id, sessionId: caller.sessionId, agentId: caller.agentId, ...input, simulated });
+  /** A task as `get_task` and `update_task` answer it: its scope, dependencies, newest report and newest block. */
+  const detail = async (caller: PlatformCaller, t: Task) => {
+    const [edges, report, blocks] = await Promise.all([
+      repos.tasks.listEdges(db, caller.businessId, [t.id]),
+      repos.taskReports.latestForTask(db, caller.businessId, t.id),
+      repos.events.list(db, caller.businessId, { type: "task.blocked", limit: PLATFORM_BLOCK_WINDOW }),
+    ]);
+    const block = blocks.items.map((e) => e.payload as { taskId?: unknown; reason?: unknown }).find((p) => p.taskId === t.id);
+    return {
+      ...summary(t),
+      goalMd: t.goalMd,
+      acceptance: Array.isArray(t.acceptance) ? t.acceptance : [],
+      fileScope: t.fileScope,
+      dependsOn: edges.filter((e) => e.toTask === t.id).map((e) => e.fromTask),
+      // No report text and no block detail here: both are agent-written and may quote web pages, so the text is read only
+      // through read_report, inside the untrusted envelope (security review of T3).
+      lastReport: report ? { id: report.id, title: report.title, simulated: report.simulated, createdAt: report.createdAt.toISOString() } : null,
+      lastBlock: block ? { reason: String(block.reason ?? "") } : null,
+    };
+  };
+
   const host: PlatformHost = {
     // ---- task board ----------------------------------------------------------------------------------------------
     async listTasks(caller, { scope, status, limit }) {
@@ -118,9 +166,7 @@ export function createDbPlatformHost({ db, log, now = () => new Date(), reposito
       return { items: items.sort((a, b) => b.priority - a.priority).slice(0, limit).map(summary) };
     },
     async getTask(caller, { taskId }) {
-      const t = await taskOf(caller, taskId);
-      const edges = await repos.tasks.listEdges(db, caller.businessId, [taskId]);
-      return { ...summary(t), goalMd: t.goalMd, acceptance: Array.isArray(t.acceptance) ? t.acceptance : [], fileScope: t.fileScope, dependsOn: edges.filter((e) => e.toTask === taskId).map((e) => e.fromTask) };
+      return detail(caller, await taskOf(caller, taskId));
     },
     async createTask(caller, { title, goal, kind, assigneeAgentId, priority, dependsOn }) {
       if (assigneeAgentId) await agentOf(caller, assigneeAgentId);
@@ -152,8 +198,7 @@ export function createDbPlatformHost({ db, log, now = () => new Date(), reposito
       const changed = { ...(title !== undefined ? { title } : {}), ...(goal !== undefined ? { goalMd: goal } : {}), ...(acceptance !== undefined ? { acceptance } : {}), ...(fileScope !== undefined ? { fileScope } : {}) };
       const updated = await repos.tasks.update(db, caller.businessId, t.id, changed);
       await repos.audit.append(db, caller.businessId, { actorKind: "agent", actorId: caller.agentId, action: "platform.task.updated", target: { kind: "task", id: t.id }, details: { sessionId: caller.sessionId, fields: Object.keys(changed) } });
-      const edges = await repos.tasks.listEdges(db, caller.businessId, [t.id]);
-      return { ...summary(updated), goalMd: updated.goalMd, acceptance: Array.isArray(updated.acceptance) ? updated.acceptance : [], fileScope: updated.fileScope, dependsOn: edges.filter((e) => e.toTask === t.id).map((e) => e.fromTask) };
+      return detail(caller, updated);
     },
     async blockTask(caller, { taskId, reason }) {
       const t = await taskOf(caller, taskId);
@@ -180,10 +225,37 @@ export function createDbPlatformHost({ db, log, now = () => new Date(), reposito
       const t = await taskOf(caller, taskId);
       mine(caller, t, "complete");
       open(t);
-      // Code is reviewed before it counts as done (BUILD §11.6); the report stays with the task's history.
-      const done = await repos.tasks.setStatus(db, caller.businessId, t.id, t.kind === "code" ? "review" : "done", { force: true });
-      await repos.audit.append(db, caller.businessId, { actorKind: "agent", actorId: caller.agentId, action: "platform.task.completed", target: { kind: "task", id: t.id }, details: { sessionId: caller.sessionId, status: done.status, summary: report } });
+      // The result is kept (WP-05 T3): a session that saved no report of its own leaves its summary as one, under the
+      // task's title, so the next agent and the founder's note read what was found.
+      const saved = await repos.taskReports.latestForTask(db, caller.businessId, t.id);
+      const needsReport = !saved || !caller.sessionId || saved.sessionId !== caller.sessionId;
+      const simulated = needsReport ? await sessionSimulated(caller) : false;
+      // One transaction: the report and the status change land together or not at all.
+      const done = await db.transaction(async (tx) => {
+        if (needsReport) await saveReport(caller, t, { title: t.title.slice(0, 200), bodyMd: report, sources: [] }, simulated, tx);
+        // Code is reviewed before it counts as done (BUILD §11.6); the report stays with the task's history.
+        const d = await repos.tasks.setStatus(tx, caller.businessId, t.id, t.kind === "code" ? "review" : "done", { force: true });
+        await repos.audit.append(tx, caller.businessId, { actorKind: "agent", actorId: caller.agentId, action: "platform.task.completed", target: { kind: "task", id: t.id }, details: { sessionId: caller.sessionId, status: d.status, summary: report } });
+        return d;
+      });
       return summary(done);
+    },
+
+    async saveReport(caller, { taskId, title, bodyMd, sources }) {
+      const t = await taskOf(caller, taskId);
+      mine(caller, t, "report on");
+      // A finished task's report stays as it was (a blocked task or one in review may still report).
+      open(t);
+      const saved = await saveReport(caller, t, { title, bodyMd, sources }, await sessionSimulated(caller));
+      return { reportId: saved.id, taskId: t.id, title: saved.title };
+    },
+    async readReport(caller, { taskId }) {
+      const t = await taskOf(caller, taskId);
+      const r = await repos.taskReports.latestForTask(db, caller.businessId, t.id);
+      if (!r) throw new PlatformToolError("not_found", `task ${taskId} has no report yet`);
+      // A session that read a simulated report saves a simulated one (sessionSimulated matches this row).
+      if (r.simulated) await repos.audit.append(db, caller.businessId, { actorKind: "agent", actorId: caller.agentId, action: AUDIT_ACTION_REPORT_READ, target: { kind: "task_report", id: r.id }, details: { sessionId: caller.sessionId, simulated: true } });
+      return { reportId: r.id, taskId: r.taskId, title: r.title, bodyMd: r.bodyMd, sources: r.sources, simulated: r.simulated, createdAt: r.createdAt.toISOString() };
     },
 
     // ---- typed messages ------------------------------------------------------------------------------------------

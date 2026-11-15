@@ -115,6 +115,8 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
     prNumber: 42,
     branch: `agent/${fixtureId("task")}`,
     summary: "Variant selector, price rules and tests added.",
+    reportId: fixtureId("report"),
+    simulated: false,
   },
   "task.blocked": {
     taskId: fixtureId("task"),

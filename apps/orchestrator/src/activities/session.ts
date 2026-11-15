@@ -542,9 +542,12 @@ class SessionRecorder {
     if (call.status === "succeeded" && call.policyOutcome !== "deny" && call.policyOutcome !== "ask") this.agentBlock = { reason };
   }
 
-  /** A `complete_task` on this session's own task, tracked like `trackBlockTask`: it counts once the call went through. */
+  /**
+   * A `complete_task` or a `save_report` on this session's own task (WP-05 T3: a saved report is a reported result),
+   * tracked like `trackBlockTask`: it counts once the call went through.
+   */
   private trackCompleteTask(call: Extract<SessionEventInput, { kind: "tool_call" }>, args: unknown): void {
-    if (call.tool !== "complete_task" || (call.connectorKey !== null && call.connectorKey !== undefined && call.connectorKey !== "platform")) return;
+    if ((call.tool !== "complete_task" && call.tool !== "save_report") || (call.connectorKey !== null && call.connectorKey !== undefined && call.connectorKey !== "platform")) return;
     if (call.status === "started") {
       const a = (args ?? {}) as { taskId?: unknown };
       if (a.taskId === undefined || a.taskId === this.ctx.task.id) this.completeCalls.add(call.callId);
@@ -866,6 +869,7 @@ export function createSessionActivities(deps: OrchestratorDeps) {
           durationMs: deps.clock.nowMs() - startedAtMs,
           sandboxMs: recorder.sandboxMs,
           prNumber: recorder.prNumber,
+          simulatedResults: recorder.outside.simulated,
           // A run moved back up to its usual model books what it spent on that model (`finishSession`).
           ...(kept ? { modelKey: kept.modelKey } : {}),
         };
@@ -1009,11 +1013,16 @@ export function createSessionActivities(deps: OrchestratorDeps) {
           const testsRun = result.progress.acceptanceTests;
           const onOwnBranch = task.kind === "code" && launch.branch === `agent/${task.id}` && (testsRun === 0 || result.progress.acceptanceTestsPassing >= testsRun);
           taskStatus = result.review ? "review" : result.progress.merged ? "done" : onOwnBranch || result.progress.reviewPassed || result.progress.phase === "review" || result.progress.phase === "merge" ? "review" : "done";
+          // The report this session saved on the task (WP-05 T3): the event names it, and for a task that is not code the
+          // founder's note quotes it (its title, then the start of its body) instead of the run's count of tool calls.
+          const saved = await repos.taskReports.latestForTask(db, input.businessId, task.id);
+          const report = saved && saved.sessionId === input.sessionId ? saved : null;
+          const summary = report && task.kind !== "code" ? `${report.title}\n\n${report.bodyMd.slice(0, REPORT_SUMMARY_BODY_CHARS)}` : result.summary;
           const ev = await emitEvent(db, {
             businessId: input.businessId,
             type: "task.completed",
             actor: { kind: "agent", id: agent.id },
-            payload: { taskId: task.id, kind: task.kind, title: task.title, assigneeAgentId: agent.id, sessionId: input.sessionId, outcome: result.progress.progress >= 0.999 ? "success" : "partial", durationMs: Math.max(0, Math.round(result.durationMs)), cost, acceptanceTestsPassing: result.progress.acceptanceTestsPassing, acceptanceTests: result.progress.acceptanceTests, prNumber: result.prNumber, branch: launch.branch, summary: result.summary.slice(0, 2000) },
+            payload: { taskId: task.id, kind: task.kind, title: task.title, assigneeAgentId: agent.id, sessionId: input.sessionId, outcome: result.progress.progress >= 0.999 ? "success" : "partial", durationMs: Math.max(0, Math.round(result.durationMs)), cost, acceptanceTestsPassing: result.progress.acceptanceTestsPassing, acceptanceTests: result.progress.acceptanceTests, prNumber: result.prNumber, branch: launch.branch, summary: summary.slice(0, 2000), reportId: report?.id ?? null, simulated: Boolean(report?.simulated) || (result.simulatedResults ?? 0) > 0 },
           }, { idempotencyKey: `task.completed:${input.sessionId}` });
           eventIds.push(ev.id);
           break;
@@ -2544,6 +2553,8 @@ async function adoptPushedBranch(deps: OrchestratorDeps, recorder: SessionRecord
 export const REPORT_TURN = "You ended without reporting. Call complete_task with what you found or made, or block_task with what stopped you.";
 /** Why a task that is not code is blocked when its agent never reported a result. */
 export const NO_RESULT_REASON = "no result: the session ended without complete_task or block_task";
+/** How much of a report's body `task.completed.summary` carries after its title (the schema allows 2,000 in all). */
+export const REPORT_SUMMARY_BODY_CHARS = 1_700;
 
 /** A connector's display name for the founder, or its key when the catalog does not know it. */
 const connectorNames = new Map<string, string>();

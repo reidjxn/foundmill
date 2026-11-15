@@ -14,7 +14,7 @@ import { writeEventRow } from "./events";
 import { buildManifest, checkComposerText, type ManifestEntityInput } from "@foundmill/entity-linker";
 import { ComposerOutput, type ModelClient } from "@foundmill/models";
 import { APP_NAME, LIMITS } from "@foundmill/config";
-import { clubRulesPrompt, prompts } from "@foundmill/agents";
+import { clubRulesPrompt, composerEventPayload, composerNotesFor, prompts } from "@foundmill/agents";
 import { AppError, founderTitleFallback, futureDeadline, type EntityKind } from "@foundmill/shared";
 import type { ApiLogger } from "./log";
 import { noteModelCall } from "./model-calls";
@@ -389,7 +389,8 @@ async function composeLocallyWithSlot(db: Db, models: ModelClient, businessId: s
     from_agent: { id: chief.id, name: chief.name, role: chief.role || "Chief of Staff" },
     agents: agents.map((a) => ({ id: a.id, name: a.name, role: a.role, agent_type: a.agentType, department_id: a.departmentIds[0] ?? null, status: a.status })),
     manifest: manifest.toJSON(),
-    events: events.map((e) => ({ id: e.id, type: e.type, occurred_at: e.occurredAt, payload: e.payload, entity_ids: e.entityIds })),
+    // A task report is untrusted data, and simulated findings are said to be simulated (as apps/composer sends them).
+    events: events.map((e) => ({ id: e.id, type: e.type, occurred_at: e.occurredAt, payload: composerEventPayload(e), entity_ids: e.entityIds })),
     metrics,
     named_queries: NAMED_QUERIES,
     // The model has no clock; without today's date it guesses deadlines (audit CML-13).
@@ -402,7 +403,9 @@ async function composeLocallyWithSlot(db: Db, models: ModelClient, businessId: s
           options: grounded.options,
           note: "No new event and no data change. Offer the next-best decision grounded in the current state using the options given. Never invent an event.",
         }
-      : {}),
+      : composerNotesFor(events).length > 0
+        ? { note: composerNotesFor(events).join(" ") }
+        : {}),
   };
 
   // The same two blocks the composer service sends (apps/composer/src/compose.ts systemPrompt): the house rules, then

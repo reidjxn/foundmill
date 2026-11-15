@@ -74,9 +74,19 @@ export function generateInboxComposer(ctx: MockContext): ComposerOutput {
   // or a data-change insight: write from it, never a "nothing new" filler note.
   const grounded = events.length === 0 ? readGrounded(ctx) : undefined;
 
+  // A finished task whose findings rest on simulated results (the composer's `note`, or the event's own flag) is said
+  // to be simulated, never narrated as real (WP-05 T3).
+  const simulated = !grounded && (events.some((e) => e.type === "task.completed" && simulatedFindings(e)) || (ctx.getString("note") ?? "").includes("Simulated findings:"));
+
   // --- the stake, the fact, the ask -------------------------------------------------------------------------------
-  const fact = grounded ? groundedFact(grounded) : factSentence(type, primary, who, channel, taskTitle, amount, businessName, rng);
-  const why = grounded
+  const fact = grounded
+    ? groundedFact(grounded)
+    : simulated
+      ? `${taskTitle ? `"${taskTitle}"` : "The task"} is finished, but its findings were simulated: nothing real was read, found or done.`
+      : factSentence(type, primary, who, channel, taskTitle, amount, businessName, rng);
+  const why = simulated
+    ? "Treat it as a practice run; the team can do it for real once the tools it needs are connected."
+    : grounded
     ? grounded.kind === "decision"
       ? "It is the most useful call while the team waits for news; each option says what changes for you and whether it can be undone."
       : "It is a real change in the numbers rather than an event, so I have kept to the figures behind it."
@@ -96,7 +106,7 @@ export function generateInboxComposer(ctx: MockContext): ComposerOutput {
   // --- the chart or table under the note -------------------------------------------------------------------------
   const exhibit = chooseExhibit(type, queries, channel, rng);
 
-  const subject = truncate(grounded ? grounded.title : subjectLine(type, who ? plainName(subjectEntity, who) : undefined, channel, taskTitle, voice, rng), 80);
+  const subject = truncate(grounded ? grounded.title : simulated ? `Simulated: ${taskTitle ?? "a task"} (nothing real was done)` : subjectLine(type, who ? plainName(subjectEntity, who) : undefined, channel, taskTitle, voice, rng), 80);
 
   // A Composer note never holds Continue (Nov 7, 2026): only the platform's hard stops (credits, a revoked key) do.
   const blocksContinue = false;
@@ -382,6 +392,11 @@ export function metricWords(key: string): string {
     .split(" ")
     .map((w) => METRIC_WORDS[w] ?? w)
     .join(" ");
+}
+
+/** A `task.completed` whose findings rest on simulated results (apps/composer sends `payload.simulated`, and `report.simulated`). */
+function simulatedFindings(e: EventIn): boolean {
+  return e.payload.simulated === true || (isRecord(e.payload.report) && e.payload.report.simulated === true);
 }
 
 function metricPhrase(e: EventIn): string {

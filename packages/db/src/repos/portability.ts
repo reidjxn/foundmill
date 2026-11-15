@@ -57,6 +57,8 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   tasks: t(s.tasks, "development"),
   task_edges: t(s.taskEdges, "development"),
   agent_sessions: t(s.agentSessions, "development"),
+  // 0110: what each finished task reported (findings, sources, the recommendation).
+  task_reports: t(s.taskReports, "development"),
   // team
   departments: t(s.departments, "team"),
   department_members: t(s.departmentMembers, "team"),

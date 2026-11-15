@@ -5,7 +5,7 @@
 import { CHANNEL_META, type ChannelKey, type ChannelLine, type EventType } from "@foundmill/shared";
 import { grant, PLATFORM_BASE_TOOLS, QUARANTINE_TOOLS, type ConnectorKey } from "../../connectors";
 import { type AgentExample, type AgentTemplate, type ToolGrant } from "../../types";
-import { CHANNEL_COMMON_RULES, defineTemplate, spendingAutonomy, WORKER_COMMON_RULES, withCoreSkills } from "../_shared";
+import { CHANNEL_COMMON_RULES, defineTemplate, SAVE_REPORT_RULE, spendingAutonomy, WORKER_COMMON_RULES, withCoreSkills } from "../_shared";
 
 export interface ChannelTemplateInit {
   channelKey: ChannelKey;
@@ -89,7 +89,7 @@ export function defineChannelTemplate(init: ChannelTemplateInit): AgentTemplate 
         "Every launch has passed policy approval, every contact has passed suppression and consent checks, and every result is attributed through links, codes or conversion APIs.",
         "Learn weekly: move spend and effort toward what measured best, pause what breached its cap, and say so in the report.",
       ],
-      rules: [...CHANNEL_COMMON_RULES, ...WORKER_COMMON_RULES, ...init.guardrails],
+      rules: [...CHANNEL_COMMON_RULES, ...WORKER_COMMON_RULES, SAVE_REPORT_RULE, ...init.guardrails],
       playbook: init.playbook,
       tone: "Practical marketer's voice: specific audiences, specific numbers, no hype, no invented social proof.",
       examples: init.examples,

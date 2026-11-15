@@ -70,6 +70,9 @@ export {
   FounderExperience,
   founderExperienceFrom,
   COMPOSER_PLUMBING_WORDS,
+  SIMULATED_FINDINGS_NOTE,
+  composerEventPayload,
+  composerNotesFor,
   // Team call (docs/TEAM_CALL.md §4): the turn director and the wrap-up.
   TEAM_CALL_TURN_ROUTE,
   TEAM_CALL_WRAP_UP_ROUTE,

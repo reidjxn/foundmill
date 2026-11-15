@@ -81,6 +81,8 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   spec("task_edges", s.taskEdges, "member", (f) => ({ fromTask: f.taskId, toTask: take(f.taskIds, "task_edges") })),
   spec("agent_sessions", s.agentSessions, "service", (f) => ({ agentId: f.agentId, versionId: f.agentVersionId, taskId: f.taskId })),
   spec("agent_metrics", s.agentMetrics, "service", (f) => ({ agentId: f.agent2Id, day: day(), tasksDone: 1 })),
+  // 0110 task reports (written by the gateway's platform tools with the service role)
+  spec("task_reports", s.taskReports, "service", (f) => ({ taskId: f.taskId, agentId: f.agentId, title: uniq("Findings"), bodyMd: "Three suppliers compared.", sources: [{ url: "https://example.test/a", title: "A" }] })),
   // 0015 verified App installations (written by the gateway)
   spec("app_installations", s.appInstallations, "service", () => ({ connectorKey: uniq("connector"), installationId: String(counter()), verifiedBy: "founder-login", verifiedAt: new Date("2026-10-09T00:00:00Z") })),
   // 0017 the business logo (written by the api with the service role after its checks; one row per business)
@@ -182,9 +184,10 @@ export const TENANT_TABLES: TenantTableSpec[] = [
 /**
  * 0094: the tables a collaborator does not read at all (their select policy is `is_member_not_collaborator`): the ones
  * only owners and admins write, and the Money tables services write, outside what a collaborator's screens use. The
- * generic suite checks a collaborator reads none of their rows and everyone else reads them as before.
+ * generic suite checks a collaborator reads none of their rows and everyone else reads them as before. 0110 adds
+ * `task_reports`: what an agent found, which the event walls hide from a collaborator in `task.completed.summary`.
  */
-export const COLLABORATOR_CLOSED_TABLES: readonly string[] = ["accounts", "securities", "cap_table_entries", "usage_ledger", "credit_balances", "billing_checkouts", "credit_lots", "legal_entities", "incorporations", "integrations", "webhooks", "policies", "app_installations"];
+export const COLLABORATOR_CLOSED_TABLES: readonly string[] = ["accounts", "securities", "cap_table_entries", "usage_ledger", "credit_balances", "billing_checkouts", "credit_lots", "legal_entities", "incorporations", "integrations", "webhooks", "policies", "app_installations", "task_reports"];
 /**
  * Admin- or service-written tables a collaborator still reads, each for a screen of theirs (0094's header gives the
  * reasons). Named so a change to the list is a decision.

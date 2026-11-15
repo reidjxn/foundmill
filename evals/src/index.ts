@@ -16,6 +16,7 @@ export { FOUNDER_TITLE_CORPUS, founderTitlesSystemPrompt, runFounderTitlesCase, 
 export { PROJECT_PAGE_CASES, projectPageInputs, projectPageProblems, runProjectPageCase, type ProjectPageCase, type ProjectPageCaseResult } from "./project-page";
 export { PAGE_QUIZ_CASES, pageQuizEvalProblems, pageQuizTexts, runPageQuizCase, type PageQuizCase, type PageQuizCaseResult } from "./page-quiz";
 export { CHANNEL_ENGINE_NOTE_CASES, LAUNCH_CLAIM, OFFLINE_TRACKING_NOTE as CHANNEL_ENGINE_OFFLINE_NOTE, runChannelEngineNoteCase, type ChannelEngineNoteResult } from "./channel-engine-notes";
+export { INJECTION_FOLLOWED, SIMULATED_SAID, TASK_REPORT_NOTE_CASES, runTaskReportNoteCase, type TaskReportNoteResult } from "./task-report-notes";
 export { SECOND_READ_CASES, SECOND_READ_INJECTION_PAGE, caseFactChecker, injectionFactChecker, runSecondReadCase, runSecondReadInjectionCase, secondReadProblems, type SecondReadCase, type SecondReadCaseResult, type SecondReadInjectionResult } from "./second-read";
 export { PLANNER_CASES, plannerProblems, runPlannerCase, type PlannerCase, type PlannerCaseResult } from "./planner";
 export { SHOWCASE_ADVERSARIAL_OUTPUTS, SHOWCASE_SCRIPT_CASES, judgeShowcaseScript, runShowcaseScriptCase, showcaseEvalFacts, showcaseScriptProblems, type ShowcaseScriptCase, type ShowcaseScriptCaseResult } from "./showcase-script";

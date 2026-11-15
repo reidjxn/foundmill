@@ -213,6 +213,9 @@ export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, r
     "tasks.block": ["block_task"],
     "tasks.handoff": ["handoff_task"],
     "tasks.complete": ["complete_task"],
+    // WP-05 T3: the result of a task, saved for the founder and the next agent.
+    "reports.write": ["save_report"],
+    "reports.read": ["read_report"],
     "messages.request": ["send_message", "list_messages"],
     "messages.inform": ["send_message", "list_messages"],
     "messages.review": ["send_message", "list_messages"],

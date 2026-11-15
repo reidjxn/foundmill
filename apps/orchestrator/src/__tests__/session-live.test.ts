@@ -1939,4 +1939,72 @@ describe("honest outcomes: a task that is not code is done only when its agent r
     expect(finish.taskStatus).toBe("done");
     expect((await completedOf(sessionId))[0]?.payload).toMatchObject({ outcome: "success" });
   });
+
+  it("(d) a report saved with save_report counts as a reported result, and task.completed carries it (WP-05 T3)", async () => {
+    const { task, sessionId, input, launch } = await nonCodeTask("Compare three suppliers");
+    // An earlier session's report on the same task is not this session's result.
+    const earlier = await openSessionRow(t, t.workerId, task.id);
+    await repos.taskReports.save(t.db, t.businessId, { taskId: task.id, sessionId: earlier, agentId: t.workerId, title: "Old notes", bodyMd: "Not this session." });
+    const body = `## Findings\n\n${"Supplier A is cheapest. ".repeat(100)}`;
+    script = async function* () {
+      yield { type: "system", subtype: "init", session_id: `sdk-${sessionId}` };
+      yield toolUse("tu-report", "mcp__platform__save_report", { taskId: task.id, title: "Three suppliers compared", bodyMd: body });
+      // The gateway saves the row (the test gateway answers without the database).
+      await repos.taskReports.save(t.db, t.businessId, { taskId: task.id, sessionId, agentId: t.workerId, title: "Three suppliers compared", bodyMd: body });
+      yield toolResult("tu-report", JSON.stringify({ reportId: "r", taskId: task.id, title: "Three suppliers compared" }));
+      yield resultOf(modelUsage(10, 5, 0.01));
+    };
+    const result = await acts.runAgentSession(input, launch);
+    expect(result.outcome).toBe("done");
+    const finish = await acts.finishSession(input, launch, result);
+    expect(finish.taskStatus).toBe("done");
+    const report = await repos.taskReports.latestForTask(t.db, t.businessId, task.id);
+    const payload = (await completedOf(sessionId))[0]?.payload as { reportId: string; summary: string };
+    expect(payload.reportId).toBe(report!.id);
+    expect(payload.summary).toBe(`Three suppliers compared\n\n${body.slice(0, 1700)}`);
+  });
+
+  it("(e) a session that saved no report of its own completes with reportId null", async () => {
+    const { task, sessionId, input, launch } = await nonCodeTask("Shortlist two wholesalers");
+    script = async function* () {
+      yield { type: "system", subtype: "init", session_id: `sdk-${sessionId}` };
+      yield toolUse("tu-done", "mcp__platform__complete_task", { taskId: task.id, summary: "Two wholesalers." });
+      yield toolResult("tu-done", JSON.stringify({ id: task.id, status: "done" }));
+      yield resultOf(modelUsage(10, 5, 0.01));
+    };
+    const result = await acts.runAgentSession(input, launch);
+    await acts.finishSession(input, launch, result);
+    expect((await completedOf(sessionId))[0]?.payload).toMatchObject({ reportId: null, summary: result.summary, simulated: false });
+  });
+
+  it("(f) a simulated report makes task.completed simulated", async () => {
+    const { task, sessionId, input, launch } = await nonCodeTask("Price three suppliers");
+    script = async function* () {
+      yield { type: "system", subtype: "init", session_id: `sdk-${sessionId}` };
+      yield toolUse("tu-report", "mcp__platform__save_report", { taskId: task.id, title: "Supplier prices", bodyMd: "A is cheapest." });
+      // The gateway marked it simulated (its session read through a mock connector or a simulated report).
+      await repos.taskReports.save(t.db, t.businessId, { taskId: task.id, sessionId, agentId: t.workerId, title: "Supplier prices", bodyMd: "A is cheapest.", simulated: true });
+      yield toolResult("tu-report", JSON.stringify({ reportId: "r", taskId: task.id, title: "Supplier prices" }));
+      yield resultOf(modelUsage(10, 5, 0.01));
+    };
+    const result = await acts.runAgentSession(input, launch);
+    await acts.finishSession(input, launch, result);
+    expect((await completedOf(sessionId))[0]?.payload).toMatchObject({ reportId: expect.any(String), simulated: true });
+  });
+
+  it("(g) a simulated result of a connector outside the business makes task.completed simulated, even with a real report", async () => {
+    const { task, sessionId, input, launch } = await nonCodeTask("Find two wholesalers");
+    script = async function* () {
+      yield { type: "system", subtype: "init", session_id: `sdk-${sessionId}` };
+      yield toolUse("tu-search", "mcp__web__search_web", { query: "wholesalers" });
+      yield toolResult("tu-search", JSON.stringify({ ok: true, data: { results: [] }, simulated: true, notice: "Simulated: nothing was read." }));
+      yield toolUse("tu-done", "mcp__platform__complete_task", { taskId: task.id, summary: "Two wholesalers." });
+      yield toolResult("tu-done", JSON.stringify({ id: task.id, status: "done" }));
+      yield resultOf(modelUsage(10, 5, 0.01));
+    };
+    const result = await acts.runAgentSession(input, launch);
+    expect(result.simulatedResults).toBe(1);
+    await acts.finishSession(input, launch, result);
+    expect((await completedOf(sessionId))[0]?.payload).toMatchObject({ simulated: true });
+  });
 });
