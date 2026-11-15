@@ -23,7 +23,7 @@ import { STALE_BUSINESS_PARAM, lastBusinessHome } from "./last-business";
  * `/i/<token>` (an invitation to a project) is opened by people who may have no account yet: the page says "Sign in"
  * itself and comes back with `next`.
  */
-const PUBLIC_PREFIXES = ["/login", "/auth/", "/_next/", "/brand/", "/favicon", "/icon", "/apple-icon", "/opengraph-image", "/robots.txt", "/sitemap.xml", "/health", "/examples/", "/p/", "/u/", "/m/", "/a/", "/email/pause", "/email/unsubscribe", "/terms", "/privacy", "/i/"];
+const PUBLIC_PREFIXES = ["/login", "/auth/", "/_next/", "/brand/", "/favicon", "/icon", "/apple-icon", "/opengraph-image", "/robots.txt", "/sitemap.xml", "/health", "/examples/", "/p/", "/u/", "/m/", "/a/", "/email/pause", "/email/unsubscribe", "/terms", "/privacy", "/i/", "/tour"];
 
 /** The signed-in index (app/start/page.tsx): a signed-in `/` the proxy cannot answer itself is rewritten here. */
 export const SIGNED_IN_INDEX = "/start";

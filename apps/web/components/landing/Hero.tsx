@@ -69,7 +69,7 @@ export function Hero({ layout = "desktop" }: { layout?: "desktop" | "phone" }) {
             </p>
           ) : null}
           <div className="mt-3 w-full">
-            <IdeaBox layout={layout} onLanded={setLanded} />
+            <IdeaBox onLanded={setLanded} />
           </div>
         </div>
         {!phone ? (

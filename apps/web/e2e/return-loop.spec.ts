@@ -66,10 +66,10 @@ test.describe("the return loop", () => {
     expect(box && box.x >= 0 && box.x + box.width <= 390).toBe(true);
     await page.goto("/email/pause?t=forged.token");
     await expect(page.getByTestId("email-pause")).toBeVisible({ timeout: LONG });
-    // The landing page's hero and idea box work from 390 px too (founder, 2026-11-13; docs/IDEA_BOX.md); the app itself
-    // still asks for a larger window (gate0-screens.spec.ts).
+    // The landing page is one page for every width from 390 px (DESIGN §9a); the app itself still asks for a larger
+    // window (gate0-screens.spec.ts).
     await page.goto("/");
-    await expect(page.locator('[data-testid="landing"][data-layout="phone"]')).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("landing")).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("idea-input")).toBeVisible();
     await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
     await context.close();

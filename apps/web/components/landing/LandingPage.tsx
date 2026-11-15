@@ -1,183 +1,228 @@
-"use client";
 /**
- * The signed-out landing page at `/`: what Foundmill is, why now, how it works, and a way in. Built from the product's
- * own parts on an example business the visitor picks above the hero's deck (Tutorlane, Glitchwick or Northwind
- * Skincare: the deck runs real cycles, the concept cards, the team's attribute ratings, live agent tiles, the Journey
- * Ribbon, a Customer Update, the Channel Board, an Inbox note with its DecisionBar), so what a visitor sees is the
- * product itself. The page wears the chosen business's brand colours. Under 1280 px a phone gets the hero and its idea
- * box alone (founder, 2026-11-13; docs/IDEA_BOX.md), with a word that the rest is built for a larger window.
+ * The signed-out page at `/` (DESIGN §9a; docs/holistic-plan/landing/DIRECTION.md), for one reader: a first-timer,
+ * most likely on a phone. One job: type a sentence, get a card back, want to keep it. Everything else answers a fear
+ * (cost, something done behind your back, looking stupid) or offers people, never as a requirement.
+ *
+ * One page for every width from 390 px: no phone branch, so the server's HTML is the page a phone keeps. It lays itself
+ * out from its own width (`landing-page` is a container). A server component: only the hero (the idea box) and the
+ * closing button run in the browser. Every string is in words.ts; every switch arrives in `switches`, read once at
+ * build time (flags.ts). The earlier page, for an investor or an experienced founder, is `/tour` (TourPage.tsx).
  */
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Users } from "lucide-react";
 import { APP_NAME, APP_TAGLINE } from "@foundmill/config";
-import { Button, Wordmark, isViewportTooSmall, kitStyle, useViewportWidth } from "@foundmill/dugout";
+import { DayList, Icon, IdeaCard, LandingSection, PersonPage, ProjectPage, QuestionList, ScreenFrame, Wordmark, type QuestionItem } from "@foundmill/dugout";
 import { LEGAL_ROUTES } from "@/content/legal/facts";
-import { Channels, LiveSessions } from "./LiveSessions";
-import { FinalCall, YourCall } from "./Control";
-import { Hero, Ticker } from "./Hero";
-import { HowItWorks } from "./HowItWorks";
-import { JourneySection } from "./Journey";
-import { TeamSection } from "./TeamSection";
-import { Thesis } from "./Thesis";
-import { Container, RenderDayProvider, SIGN_IN, useToday } from "./parts";
-import { ExampleProvider, useExample } from "./examples/context";
-import type { ExampleBusiness } from "./examples/types";
+import { EXAMPLE_CARD, EXAMPLE_PERSON, EXAMPLE_PROJECT } from "./first-timer-examples";
+import { SWITCHES_OFF, TOUR_ENABLED, type LandingSwitches } from "./flags";
+import { LandingHero } from "./LandingHero";
+import { SIGN_IN } from "./parts";
+import { StartButton } from "./StartButton";
+import { LANDING_WORDS as W } from "./words";
+
+/** Where "Find people" goes when the people layer is on (the network; sign-in first for a stranger). */
+export const FIND_PEOPLE_HREF = "/network";
 
 export interface LandingPageProps {
-  /** Terminal renderer for the live tiles; tests pass "plain" (no canvas). */
-  terminalRenderer?: "plain" | "xterm";
-  /**
-   * The business a deep link chose (`/?example=northwind`), loaded on the server so the first paint and hydration
-   * agree. Absent: the default business, Tutorlane.
-   */
-  initialExample?: ExampleBusiness;
-  /**
-   * The UTC day the server rendered the page on ("2026-10-12"). The page is prerendered and served for up to an hour,
-   * so hydration reads this day rather than the browser's clock (`useToday`). Absent: the UTC day at render time.
-   */
+  /** The page's switches; all off when absent (production today). */
+  switches?: LandingSwitches;
+  /** The UTC day the page was rendered on ("2026-11-15"), for the footer's year. Absent: today. */
   renderDay?: string;
 }
 
-export function LandingPage({ terminalRenderer, initialExample, renderDay }: LandingPageProps) {
+export function LandingPage({ switches = SWITCHES_OFF, renderDay }: LandingPageProps) {
+  const year = (renderDay ?? new Date().toISOString()).slice(0, 4);
   return (
-    <RenderDayProvider value={renderDay ?? null}>
-      <ExampleProvider initial={initialExample}>
-        <LandingContent terminalRenderer={terminalRenderer} />
-      </ExampleProvider>
-    </RenderDayProvider>
-  );
-}
-
-/**
- * Everything that shows the example is keyed by the business, so choosing another one starts each part afresh on it
- * (the deck's cycle loop, the department tour, the live tiles, the board); the hero's headline and the picker stay put.
- */
-function LandingContent({ terminalRenderer }: { terminalRenderer?: "plain" | "xterm" }) {
-  const width = useViewportWidth();
-  const business = useExample();
-  const id = business.identity.id;
-  // From 390 px the hero and its idea box work on their own (founder, 2026-11-13; docs/IDEA_BOX.md); the sections below
-  // are built for a large window, so a phone gets the hero and a kind word about the rest.
-  if (isViewportTooSmall(width)) return <PhoneLanding />;
-  return (
-    <div className="relative min-h-screen overflow-x-clip bg-base text-primary" style={kitStyle(business.identity.kit)} data-testid="landing" data-example={id}>
-      <Backdrop />
-      <TopBar />
+    <div className="landing-page" data-testid="landing" data-landing="" data-people={switches.peopleOpen ? "open" : "closed"}>
+      <TopBar peopleOpen={switches.peopleOpen} />
       <main>
-        <Hero />
-        <Ticker key={`ticker-${id}`} />
-        <Thesis />
-        <HowItWorks key={`how-${id}`} />
-        <TeamSection key={`team-${id}`} />
-        <LiveSessions key={`live-${id}`} terminalRenderer={terminalRenderer} />
-        <JourneySection key={`journey-${id}`} />
-        <Channels key={`channels-${id}`} />
-        <YourCall key={`control-${id}`} />
-        <FinalCall />
+        <LandingHero signupOpen={switches.signupOpen} />
+        <CardSection />
+        <PeopleSection peopleOpen={switches.peopleOpen} />
+        <FirstWeekSection platformMail={switches.platformMail} />
+        <LandingSection id="control" title={W.control.title}>
+          <p className="text-secondary">{W.control.rules}</p>
+          <p className="text-secondary">{W.control.yes}</p>
+        </LandingSection>
+        <LandingSection id="cost" title={W.cost.title} lede={W.cost.free}>
+          <p className="text-secondary">{W.cost.allowance}</p>
+          <p className="text-secondary">{W.cost.people}</p>
+        </LandingSection>
+        <LandingSection id="questions" title={W.questions.title}>
+          <QuestionList items={questions(switches)} />
+        </LandingSection>
+        <section id="start" aria-labelledby="start-title" className="landing-section">
+          <div className="landing-col flex flex-col items-start gap-5 @page-wide:items-center @page-wide:text-center">
+            <h2 id="start-title" className="t-landing-h2 text-primary">
+              {W.start.title}
+            </h2>
+            <p className="t-landing-lede">{W.start.text}</p>
+            <StartButton />
+          </div>
+        </section>
       </main>
-      <Footer />
-    </div>
-  );
-}
-
-/** The landing page on a phone: the top bar's name and Sign in, the hero with the idea box, the legal links. */
-function PhoneLanding() {
-  const business = useExample();
-  return (
-    <div className="relative min-h-dvh overflow-x-clip bg-base text-primary" style={kitStyle(business.identity.kit)} data-testid="landing" data-layout="phone">
-      <Backdrop />
-      <header className="sticky top-0 z-40 border-b border-subtle/60 bg-base/70 backdrop-blur-md">
-        <div className="flex h-14 items-center gap-3 px-4">
-          <Link href="/" className="flex items-center text-primary hover:no-underline" aria-label={`${APP_NAME} home`}>
-            <Wordmark height={14} label={APP_NAME} />
-          </Link>
-          <span className="flex-1" />
-          <Button asChild variant="ghost" className="min-h-tap">
-            <Link href={SIGN_IN}>Sign in</Link>
-          </Button>
+      <footer className="border-t border-line">
+        <div className="landing-col flex flex-col gap-6 py-10">
+          <div className="landing-measure flex flex-col gap-2">
+            <h2 className="t-landing-body font-semibold text-primary">{W.footer.whatTitle}</h2>
+            <p className="t-landing-small text-secondary" data-testid="what-foundmill-is">
+              {W.footer.what}
+            </p>
+          </div>
+          <div className="t-landing-small flex flex-wrap items-center gap-x-5 gap-y-1 text-secondary">
+            <span>{APP_TAGLINE}</span>
+            <nav aria-label="Legal" className="flex items-center gap-4">
+              <Link href={LEGAL_ROUTES.terms} className="inline-flex min-h-tap items-center hover:text-primary" data-testid="landing-terms">
+                {W.footer.terms}
+              </Link>
+              <Link href={LEGAL_ROUTES.privacy} className="inline-flex min-h-tap items-center hover:text-primary" data-testid="landing-privacy">
+                {W.footer.privacy}
+              </Link>
+              {TOUR_ENABLED ? (
+                <Link href="/tour" className="hidden min-h-tap items-center hover:text-primary desktop:inline-flex">
+                  {W.footer.tour}
+                </Link>
+              ) : null}
+            </nav>
+            <span>
+              © {year} {APP_NAME}
+            </span>
+          </div>
         </div>
-      </header>
-      <main className="relative">
-        <Hero layout="phone" />
-        <p className="mx-4 rounded-md border border-line bg-surface-1 px-4 py-3 text-small text-secondary" data-testid="landing-phone-note">
-          The rest of {APP_NAME}, and the example business running, is built for screens 1280 px wide or more. Your card works here.
-        </p>
-      </main>
-      <footer className="mt-8 border-t border-subtle/60 px-4 py-4 text-small text-secondary">
-        <nav aria-label="Legal" className="flex items-center gap-4">
-          <Link href={LEGAL_ROUTES.terms} className="inline-flex min-h-tap items-center">
-            Terms
-          </Link>
-          <Link href={LEGAL_ROUTES.privacy} className="inline-flex min-h-tap items-center">
-            Privacy
-          </Link>
-        </nav>
       </footer>
     </div>
   );
 }
 
-function Backdrop() {
+/** The wordmark, "Find people" with the people layer on, and Sign in. No second start button: the box is the one. */
+function TopBar({ peopleOpen }: { peopleOpen: boolean }) {
   return (
-    <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-300">
-      <div className="absolute inset-0" style={{ background: "radial-gradient(ellipse 70% 45% at 50% 0%, color-mix(in oklab, var(--kit-primary) 34%, transparent), transparent 70%), radial-gradient(ellipse 35% 30% at 10% 30%, color-mix(in oklab, var(--dept-6) 9%, transparent), transparent 70%), radial-gradient(ellipse 35% 30% at 92% 34%, color-mix(in oklab, var(--dept-5) 9%, transparent), transparent 70%)" }} />
-      <div
-        className="absolute inset-0"
-        style={{
-          backgroundImage: "radial-gradient(color-mix(in oklab, var(--white) 9%, transparent) 1px, transparent 1.5px)",
-          backgroundSize: "24px 24px",
-          maskImage: "radial-gradient(ellipse 60% 40% at 50% 10%, black 20%, transparent 80%)",
-        }}
-      />
-    </div>
-  );
-}
-
-/**
- * The wordmark, Sign in and Start your business, nothing else: the page reads top to bottom, and the Why now pillars
- * link to the sections that prove them (founder, 2026-11-13: a quieter first screen).
- */
-function TopBar() {
-  return (
-    <header className="sticky top-0 z-40 border-b border-subtle/60 bg-base/70 backdrop-blur-md">
-      <Container className="flex h-16 items-center gap-6">
-        <Link href="/" className="flex items-center text-primary hover:no-underline" aria-label={`${APP_NAME} home`}>
-          <Wordmark height={20} label={APP_NAME} />
+    <header className="border-b border-line">
+      <div className="landing-col flex h-16 items-center gap-2">
+        <Link href="/" className="flex min-h-tap items-center text-primary hover:no-underline" aria-label={W.topBar.home}>
+          <Wordmark height={16} label={APP_NAME} />
         </Link>
         <span className="flex-1" />
-        <Button asChild variant="ghost">
-          <Link href={SIGN_IN}>Sign in</Link>
-        </Button>
-        <Button asChild variant="glass" iconRight={ArrowRight}>
-          <Link href={SIGN_IN}>Start your business</Link>
-        </Button>
-      </Container>
+        {peopleOpen ? (
+          <Link href={FIND_PEOPLE_HREF} className="inline-flex min-h-tap items-center px-3 font-medium text-secondary hover:text-primary">
+            {W.topBar.findPeople}
+          </Link>
+        ) : null}
+        <Link href={SIGN_IN} className="inline-flex min-h-tap items-center px-3 font-medium text-secondary hover:text-primary">
+          {W.topBar.signIn}
+        </Link>
+      </div>
     </header>
   );
 }
 
-function Footer() {
-  // The year of the day the page shows (the render day until hydrated), so a page rendered last year still hydrates.
-  const year = useToday().slice(0, 4);
+function Points({ items }: { items: ReadonlyArray<{ lead: string; rest: string }> }) {
   return (
-    <footer className="border-t border-subtle/60">
-      <Container className="flex h-20 items-center gap-6 text-small text-secondary">
-        <Wordmark height={12} label={APP_NAME} className="text-secondary" />
-        <span>{APP_TAGLINE}</span>
-        <span className="flex-1" />
-        <span>Desktop only · 1280 px and wider</span>
-        <nav aria-label="Legal" className="flex items-center gap-4">
-          <Link href={LEGAL_ROUTES.terms} className="transition-colors duration-hover hover:text-primary" data-testid="landing-terms">
-            Terms
-          </Link>
-          <Link href={LEGAL_ROUTES.privacy} className="transition-colors duration-hover hover:text-primary" data-testid="landing-privacy">
-            Privacy
-          </Link>
-        </nav>
-        <span>
-          © {year} {APP_NAME}
-        </span>
-      </Container>
-    </footer>
+    <ul className="m-0 flex list-none flex-col gap-4 p-0 text-secondary">
+      {items.map((p) => (
+        <li key={p.lead}>
+          <strong className="font-semibold text-primary">{p.lead}</strong>
+          {p.rest}
+        </li>
+      ))}
+    </ul>
   );
+}
+
+/** Section 2: the prize, before any explanation. Its example steps aside once the visitor's own card has landed. */
+function CardSection() {
+  return (
+    <LandingSection
+      id="card"
+      title={W.card.title}
+      lede={W.card.lede}
+      screen={
+        <ScreenFrame className="in-data-landed:hidden">
+          <IdeaCard card={EXAMPLE_CARD} className="max-w-full" />
+        </ScreenFrame>
+      }
+    >
+      <Points items={W.card.points} />
+    </LandingSection>
+  );
+}
+
+/** Section 3: solo is complete; people are one step away. The find block exists only with the people layer on. */
+function PeopleSection({ peopleOpen }: { peopleOpen: boolean }) {
+  return (
+    <LandingSection
+      id="people"
+      title={W.people.title}
+      lede={W.people.lede}
+      screen={
+        <ScreenFrame>
+          <PersonPage {...EXAMPLE_PERSON} />
+        </ScreenFrame>
+      }
+    >
+      <p className="text-secondary">{W.people.intro}</p>
+      <Points items={W.people.points} />
+      {peopleOpen ? (
+        <div className="flex flex-col gap-3 border-t border-line pt-5" data-testid="people-find">
+          <h3 className="t-landing-body flex items-center gap-2 font-semibold text-primary">
+            <Icon icon={Users} size="default" className="text-accent" />
+            {W.people.findTitle}
+          </h3>
+          <p className="text-secondary">{W.people.findText}</p>
+          <Link href={FIND_PEOPLE_HREF} className="inline-flex min-h-tap items-center gap-2 self-start font-medium text-accent">
+            {W.people.findLink}
+            <Icon icon={ArrowRight} size="default" />
+          </Link>
+        </div>
+      ) : null}
+    </LandingSection>
+  );
+}
+
+/** Section 4: an example first week, using only what works today. Kept out of search snippets. */
+function FirstWeekSection({ platformMail }: { platformMail: boolean }) {
+  const d = W.firstWeek.days;
+  return (
+    <LandingSection
+      id="first-week"
+      data-nosnippet=""
+      title={W.firstWeek.title}
+      lede={W.firstWeek.lede}
+      screen={
+        <ScreenFrame label={W.firstWeek.label}>
+          <ProjectPage {...EXAMPLE_PROJECT} />
+        </ScreenFrame>
+      }
+    >
+      <p className="t-landing-small text-secondary">
+        <span className="font-medium text-primary">{W.firstWeek.label}</span> · {W.firstWeek.project} · {W.firstWeek.pitch}
+      </p>
+      <DayList
+        days={[
+          { day: "Day 1", text: d.d1 },
+          { day: "Day 2", text: d.d2 },
+          { day: "Day 3", text: platformMail ? `${d.d3} ${d.d3Follow}` : d.d3 },
+          { day: "Day 4", text: d.d4 },
+          { day: "Day 5", text: d.d5, milestone: true },
+          { day: "Day 7", text: d.d7 },
+        ]}
+      />
+      <details className="group">
+        <summary className="inline-flex min-h-tap cursor-pointer items-center font-medium text-accent">{W.firstWeek.another}</summary>
+        <div className="flex flex-col gap-4 pt-3">
+          <p className="t-landing-small text-secondary">
+            <span className="font-medium text-primary">{W.firstWeek.label}</span> · {W.firstWeek.second.project} · {W.firstWeek.second.pitch}
+          </p>
+          <DayList days={W.firstWeek.second.days} />
+        </div>
+      </details>
+    </LandingSection>
+  );
+}
+
+/** The questions, the door's only while sign-up is closed, the limits line by whether platform mail is on. */
+function questions(switches: LandingSwitches): QuestionItem[] {
+  const q = W.questions;
+  const limits = [q.limitsBase, switches.platformMail ? null : q.limitsMail, q.limitsEnd].filter(Boolean).join(" ");
+  return [...(switches.signupOpen ? [] : [q.getIn]), ...q.always, { ...q.limits, answer: limits }, q.adults];
 }

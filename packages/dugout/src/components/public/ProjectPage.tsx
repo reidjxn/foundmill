@@ -54,6 +54,11 @@ export interface ProjectPageProps extends Omit<HTMLAttributes<HTMLElement>, "chi
   mark?: ProjectPageMark;
   /** Where a visitor's mark goes. Default the site root. */
   markHref?: string;
+  /**
+   * The level of the page's title: 1 on its own route (default); 3 when the page is shown inside another page as an
+   * example (the landing page), so that page keeps one h1. Its section labels follow one level below.
+   */
+  titleLevel?: 1 | 3;
   /** "page" fills the window (the public route); "preview" sits inside a frame (the console). */
   variant?: "page" | "preview";
   /** The "Follow" form (`ProjectFollowForm`), after everything the founders wrote; nothing when the page has none. */
@@ -73,7 +78,9 @@ export const PROJECT_PAGE_WORDS = {
   builtOn: builtOnWords(APP_NAME).mark,
 } as const;
 
-export function ProjectPage({ name, pitch, about, forWhom, stage, publishedAt, brandPrimary, brandSecondary, logo, founderNames, mark = "visitor", markHref = "/", variant = "page", follow, quiz, className, style, ...rest }: ProjectPageProps) {
+export function ProjectPage({ name, pitch, about, forWhom, stage, publishedAt, brandPrimary, brandSecondary, logo, founderNames, mark = "visitor", markHref = "/", titleLevel = 1, variant = "page", follow, quiz, className, style, ...rest }: ProjectPageProps) {
+  const Title = titleLevel === 1 ? "h1" : "h3";
+  const Sub = titleLevel === 1 ? "h2" : "h4";
   const paragraphs = pageParagraphs(about);
   const who = (forWhom ?? "").trim();
   const builtBy = builtByLine(founderNames);
@@ -98,9 +105,9 @@ export function ProjectPage({ name, pitch, about, forWhom, stage, publishedAt, b
               {name}
             </p>
           </div>
-          <h1 className="t-display-lg min-w-0 text-balance break-words text-primary @page-wide:t-display-xl" data-project-pitch="">
+          <Title className="t-display-lg min-w-0 text-balance break-words text-primary @page-wide:t-display-xl" data-project-pitch="">
             {pitch}
-          </h1>
+          </Title>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <Chip tone="kit" icon={Sprout} data-project-stage={stage}>
               {PAGE_STAGE_LABELS[stage]}
@@ -123,9 +130,9 @@ export function ProjectPage({ name, pitch, about, forWhom, stage, publishedAt, b
 
         {who ? (
           <section aria-labelledby={whoId} className="flex min-w-0 flex-col gap-2 border-l-2 border-kit-primary pl-4" data-project-for-whom="">
-            <h2 id={whoId} className="t-label text-kit-lift">
+            <Sub id={whoId} className="t-label text-kit-lift">
               {PROJECT_PAGE_WORDS.forWhom}
-            </h2>
+            </Sub>
             <p className="t-reading whitespace-pre-line break-words text-prose">{who}</p>
           </section>
         ) : null}
