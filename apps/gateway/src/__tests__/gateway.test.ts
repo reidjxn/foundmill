@@ -313,7 +313,7 @@ describe("recipients", () => {
     // After a restart without Redis (or on a replica that does not share it) the seed is gone, and the token's
     // untrustedSeeded claim makes that session fail closed, while an unseeded session is unaffected.
     await g.recipients.clear(g.businessId, restored);
-    expect(asDeny(await g.client.call(seededToken, { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL, body: "hello" } })).policyIds).toEqual(["untrusted-recipient"]);
+    expect(asDeny(await g.client.call(seededToken, { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL, body: "hello again" } })).policyIds).toEqual(["untrusted-recipient"]);
     asAllow(await g.client.call(await g.token({ sessionId: fresh }), { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL } }));
     // Tools that contact nobody still work.
     asAllow(await g.client.call(seededToken, { connector: "test", tool: "note", args: { text: "x" } }));

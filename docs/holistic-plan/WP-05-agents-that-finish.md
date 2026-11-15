@@ -279,7 +279,7 @@ Steps:
 2. Build. verify: named tests.
 Done when: query 5 returns no row an hour after the deploy.
 
-### T14: The same outward call runs once per session [M] [beside the chain; gateway only]
+### [x] T14: The same outward call runs once per session [M] [beside the chain; gateway only]
 Why: AR-12.
 Files: modify `apps/gateway/src/pipeline.ts`, `apps/gateway/src/types.ts`; tests `apps/gateway/src/__tests__/gateway.test.ts`.
 Interfaces, consumes: `appendAudit` writes `details: { sessionId, outcome, resultOk, argsHash, … }` (`pipeline.ts:550-572`); `repos.audit.latestMatching(db, businessId, action, match: Record<string, string>, since)`; each tool's `policyHints`; `executeToolCall` (`:286`).
