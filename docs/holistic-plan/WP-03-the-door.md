@@ -486,6 +486,8 @@ Facts:
 
 ## Decisions for the founder
 
+**Answered by the founder on Nov 15, 2026** (docs/log/2026-11/2026-11-15-claude-wp03-founder-decisions.md): 1 yes (index once T5 and T6 merge); 2 B; 3 yes, up to 2 redraws; 4 no (open sign-up needs T8 and WP-09's per-account ceiling; reporting gates `liveMode`); 5 this package builds T10 after T2; 6 the bot check only once the app sends a token; 7 the numbers as written; 8 keep `/tour` for now.
+
 1. **Let search engines index the home page when T5 and T6 merge?** Recommended: yes. The page will be true, and "Built on Foundmill" links land on it. The other choice is to hold until sign-up opens.
 2. **AI training crawlers.** (A) allow everywhere, or (B) allow on Foundmill's own pages and disallow on `/p/` and `/u/`. Recommended: B, which matches "we do not use your content to train AI models" for founders' words and costs no search presence. Either way one sentence goes in the Terms.
 3. **A second and third try in the idea box** (T7 step 3). It replaces the card in place, inside the same per-address and daily limits. Recommended: yes; a typo should not be permanent for seven days.
