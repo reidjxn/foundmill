@@ -1,5 +1,7 @@
 # DECISIONS.md
 
+> Frozen on Nov 15, 2026. New entries are files under docs/log/ (skill `log-entry`). Search both with `node scripts/decisions-index.mjs <words>`.
+
 Decisions this build has taken where `docs/BUILD.md` left room. Each entry: the decision, the option chosen, why. Newest at the bottom.
 
 ## 2026-10-05 — Toolchain versions (BUILD §3.1 "record exact versions")
@@ -4627,9 +4629,4 @@ Drizzle's postgres-js driver makes the date and time serializers pass values thr
 - **Chosen.** The filter lives in a `changes` job inside `ci.yml`, never on `on:`, so every required check still reports (a job skipped by its `if:` counts as passed). A pull request is diffed against its base commit (`pull_request.base.sha`) to its merge commit; when the base has moved this can name a few files the branch did not change, which only runs more lanes, never fewer. Pushes to main and `workflow_dispatch` (agent branches through `run_checks`) always run every lane.
 - **Kept.** The required check names, the file name and the dispatch trigger; `--maxWorkers=2` on every unit entry (runner size unverified); the golden path in Playwright shard 1, because that shard is the one seeded without a founder profile.
 - **Small call.** The base branch name reaches the log guard's shell through an environment variable rather than an inline expression.
-
-## 2026-11-15 — The real-Postgres job's first run: the four failures were the tests' (WP-11 T1)
-
-- `rls/client-grants.test.ts` compared an `order by` result with a JS-sorted list; a real Postgres orders text by the database's collation (`is_member(uuid)` after `is_member_not_collaborator(uuid)`). The test now sorts both sides in JS.
-- `owner-lock.test.ts` created `auth` itself; on a Supabase-like cluster the template already has `auth.users` in a schema another role owns, so even `create ... if not exists` is refused. It now creates its stub only when `auth.users` is missing (the shared harness's rule).
-- Its first case asserted the defect under 0026 alone (both demotions commit). `0026_membership_guards.sql` was edited in place on Oct 12, 2026 (70a70e0a) to take a per-business lock, the same day 0035 added one, so the file no longer shows the defect. The case now asserts what 0026 says today. Not a product defect: 0035 replaces the function on every database. Editing an applied migration is against the repo's practice; noted, not changed.
+- **Beyond the plan's letter.** The plan dealt Playwright files by their count of `test(` calls in six shards. The first run measured 71.6 minutes of tests with shards between 5.9 and 18.3 minutes: two files take six minutes each and many take seconds, so a count is a poor weight. Files are now dealt by the seconds each took (greedy, heaviest first, to the lightest shard; shard 1 starts loaded with onboarding and the golden path) in eight shards, the split the plan names when a job runs past 14 minutes. The weights file is refreshed from a green run when the shards drift apart; a new file counts as the median.

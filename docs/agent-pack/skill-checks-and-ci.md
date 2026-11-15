@@ -7,7 +7,7 @@ Use this after you push a branch and before you open or update a pull request.
 The CI workflow `.github/workflows/ci.yml` runs on pull requests, pushes, and when started by hand. Its jobs:
 
 - **Typecheck, lint, unit tests**: typecheck and lint in one job, the unit tests in parallel jobs (one per package or part of a package), then this check, which is green when all of them are. About 15 minutes.
-- **Playwright** in six shards, plus the golden path. These run the real app against a seeded database. They take about 15 minutes each.
+- **Playwright** in eight shards, plus the golden path. These run the real app against a seeded database. They take about 15 minutes each.
 - **Storybook build**, **Docker image (build and boot)**, **Banned terms, vocabulary and US English**, **Plain-language linter**: short jobs.
 
 Your branch's commits carry `[skip ci]`. That means a push does not start CI. The only run on your branch is the one you start with `run_checks`.

@@ -41,17 +41,15 @@ jobs:
           cache: pnpm
       # The vocabulary scan parses source files with the TypeScript compiler API from the root devDependencies.
       - run: pnpm install --frozen-lockfile
-      # static (below) is skipped on a docs-only change, which is exactly when a log could shrink, so the guard runs here too.
-      - name: The logs only grow (docs/DECISIONS.md, docs/PROGRESS.md)
+      # static (below) is skipped on a docs-only change, so the freeze is checked here too.
+      # On a pull request HEAD is the merge commit, so a branch that is merely behind does not trip this (WP-01 T6).
+      - name: The frozen logs are not edited (new entries go in docs/log/)
         if: ${{ github.event_name == 'pull_request' }}
         env:
           BASE_REF: ${{ github.base_ref }}
         run: |
           git fetch --no-tags --depth=1 origin "$BASE_REF"
-          for f in docs/DECISIONS.md docs/PROGRESS.md; do
-            base=$(git show "FETCH_HEAD:$f" | wc -l); head=$(wc -l < "$f")
-            if [ "$head" -lt $(( base * 98 / 100 )) ]; then echo "::error file=$f::$f shrank from $base to $head lines"; exit 1; fi
-          done
+          git diff --quiet FETCH_HEAD HEAD -- docs/DECISIONS.md docs/PROGRESS.md || { echo "::error::docs/DECISIONS.md and docs/PROGRESS.md are frozen; add a file under docs/log/ (skill: log-entry)"; exit 1; }
       - name: Scanner self-test
         run: node --test scripts/banned-terms.test.mjs
       - name: Brand scan (Football Manager / SI / SEGA) and vocabulary scan (football-only words in user-facing text)
@@ -159,18 +157,16 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Config and guard self-tests (Railway, .env.example, Supabase, the decisions index, the unit matrix)
-        run: node --test scripts/railway-config.test.mjs scripts/env-example.test.mjs scripts/supabase-config.test.mjs scripts/decisions-index.test.mjs scripts/ci-matrix.test.mjs
-      - name: The logs only grow (docs/DECISIONS.md, docs/PROGRESS.md)
+      - name: Config and guard self-tests (Railway, .env.example, Supabase, the decisions index, the unit matrix, the e2e shards, the log entries)
+        run: node --test scripts/railway-config.test.mjs scripts/env-example.test.mjs scripts/supabase-config.test.mjs scripts/decisions-index.test.mjs scripts/ci-matrix.test.mjs scripts/e2e-shard.test.mjs scripts/log-entries.test.mjs
+      # On a pull request HEAD is the merge commit, so a branch that is merely behind does not trip this (WP-01 T6).
+      - name: The frozen logs are not edited (new entries go in docs/log/)
         if: ${{ github.event_name == 'pull_request' }}
         env:
           BASE_REF: ${{ github.base_ref }}
         run: |
           git fetch --no-tags --depth=1 origin "$BASE_REF"
-          for f in docs/DECISIONS.md docs/PROGRESS.md; do
-            base=$(git show "FETCH_HEAD:$f" | wc -l); head=$(wc -l < "$f")
-            if [ "$head" -lt $(( base * 98 / 100 )) ]; then echo "::error file=$f::$f shrank from $base to $head lines"; exit 1; fi
-          done
+          git diff --quiet FETCH_HEAD HEAD -- docs/DECISIONS.md docs/PROGRESS.md || { echo "::error::docs/DECISIONS.md and docs/PROGRESS.md are frozen; add a file under docs/log/ (skill: log-entry)"; exit 1; }
       - name: Typecheck and lint (all packages)
         # apps/web's tsc needs more than Node's default 2 GB heap when it runs next to the other packages' (run 16 died
         # with "JavaScript heap out of memory"); four at a time keeps the runner's 16 GB comfortable.
@@ -301,9 +297,9 @@ jobs:
       - run: pnpm --filter @foundmill/dugout storybook:build
 
   e2e-shard:
-    # The screens take about an hour one after another, so they run as six shards at once, each on its own runner with
-    # its own seeded database. The required check below ("Playwright (web screens + golden path)") passes when all six do.
-    name: Playwright shard ${{ matrix.shard }} of 6
+    # The screens take about 75 minutes one after another, so they run as eight shards at once, each on its own runner with
+    # its own seeded database. The required check below ("Playwright (web screens + golden path)") passes when all eight do.
+    name: Playwright shard ${{ matrix.shard }} of 8
     needs: changes
     if: ${{ needs.changes.outputs.web == 'true' }}
     runs-on: ubuntu-latest
@@ -311,7 +307,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     continue-on-error: false
     env:
       # One file-backed PGlite database, seeded below, shared by the api and the seed script (packages/db/src/pglite.ts:
@@ -376,11 +372,11 @@ jobs:
           echo "apps/web did not answer within 120 s"; cat web.log; exit 1
       - name: Playwright (apps/web screens, this shard's files)
         # E2E_BASE_URL makes both configs skip their own webServer and use the servers started above. Spec files are dealt
-        # out by weight (count of test( calls, heaviest first) in rounds of six: shard 2 takes the heaviest of each round and
-        # shard 1 the lightest, because shard 1 also runs onboarding.spec.ts (the profile project) first and the golden path.
+        # out by the seconds each took in CI (scripts/e2e-shard.mjs, apps/web/e2e/shard-weights.json); shard 1 starts loaded,
+        # because it also runs onboarding.spec.ts (the profile project) first and the e2e/ golden path.
         working-directory: apps/web
         run: |
-          mapfile -t files < <(grep -c 'test(' e2e/*.spec.ts | grep -v '/onboarding.spec.ts:' | sort -t: -k2,2nr -k1,1 | cut -d: -f1 | awk -v n="${{ matrix.shard }}" '(NR - 1) % 6 == (n + 4) % 6')
+          mapfile -t files < <(node ../../scripts/e2e-shard.mjs "${{ matrix.shard }}" 8)
           echo "this shard runs ${#files[@]} spec files"
           if [ "${{ matrix.shard }}" = "1" ]; then
             E2E_BASE_URL=http://localhost:3000 E2E_EXPECT_PROFILE_GATE=1 pnpm exec playwright test e2e/onboarding.spec.ts "${files[@]}"
@@ -419,7 +415,7 @@ jobs:
     if: ${{ always() }}
     timeout-minutes: 5
     steps:
-      - name: All six shards passed or were not needed
+      - name: All eight shards passed or were not needed
         run: |
           r="${{ needs.e2e-shard.result }}"
           echo "shards: $r"
