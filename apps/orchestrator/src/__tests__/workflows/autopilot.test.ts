@@ -398,11 +398,25 @@ describe("Continue runs until done (Nov 7, 2026)", () => {
 
   it("Pause ends the run: the round in progress finishes and no new one starts", async () => {
     const w = world({ enabled: false });
-    const result = await rig.run(mocks(w), (client, taskQueue) =>
-      press(w, client, taskQueue, `autopilot:${B}:run-pause`, id(503), 1, async (handle) => {
-        await until(() => w.cycles.length >= 2);
-        await handle.signal(continueRunEndSignal, { reason: "paused", runId: id(503), by: "founder" });
-      }),
+    const base = mocks(w);
+    // Round 2 is held open until the server has accepted Pause, so Pause lands while round 2 is in progress. Without
+    // the hold, a slow runner let the run finish round 2 and start round 3 before the signal arrived (CI, Nov 15, 2026).
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const result = await rig.run(
+      {
+        ...base,
+        async completeCycle(input: Parameters<NonNullable<Activities["completeCycle"]>>[0]) {
+          if (input.cycleNumber === 2) await gate;
+          return base.completeCycle!(input);
+        },
+      },
+      (client, taskQueue) =>
+        press(w, client, taskQueue, `autopilot:${B}:run-pause`, id(503), 1, async (handle) => {
+          await until(() => w.cycles.length >= 2);
+          await handle.signal(continueRunEndSignal, { reason: "paused", runId: id(503), by: "founder" });
+          release();
+        }),
     );
     expect(w.cycles).toHaveLength(2);
     expect(w.runEnds).toEqual([{ runId: id(503), reason: "paused" }]);
