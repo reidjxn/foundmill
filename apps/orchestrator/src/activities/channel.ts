@@ -30,7 +30,7 @@ import { buildChannelCreativeRequest, docText, finaliseCreative, getChannelTempl
 import { LIMITS } from "@foundmill/config";
 import { repos } from "@foundmill/db";
 import { stableHash } from "@foundmill/models";
-import { CHANNEL_KEYS, CHANNEL_META, mockResultsAllowed, type BusinessMode, type ChannelAvailability, type ChannelKey } from "@foundmill/shared";
+import { assertMockResultsAllowed, CHANNEL_KEYS, CHANNEL_META, mockResultsAllowed, type BusinessMode, type ChannelAvailability, type ChannelKey } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 import { openApprovalNote } from "./approvals";
@@ -297,8 +297,9 @@ export function createChannelActivities(deps: OrchestratorDeps) {
             const impressions = 400 + (seed % 3000);
             const leadChannel = LEAD_CHANNELS[key];
             // Lead channels count the leads they record; the others measure signups from their reach.
-            const recorded = leadChannel ? await recordMockLeads(businessId, channel.id, key, state.campaignId, owner?.id ?? null, 1 + (seed % leadChannel.maxPerWeek), leadChannel.basis, `${state.campaignId}:${input.weekIndex}`) : 0;
+            const recorded = leadChannel ? await recordMockLeads(deps, business, channel.id, key, state.campaignId, owner?.id ?? null, 1 + (seed % leadChannel.maxPerWeek), leadChannel.basis, `${state.campaignId}:${input.weekIndex}`) : 0;
             const signups = leadChannel ? Math.round(recorded * 0.3) : Math.round(impressions * (0.002 + (seed % 5) / 1000));
+            assertMockResultsAllowed(deps.env.APP_ENV, business.isDemo, "estimated channel numbers");
             await repos.channels.upsertMetric(db, businessId, { channelId: channel.id, campaignId: state.campaignId, day, spendMinor: Math.round(Number(campaign.budgetMinor) * 0.9), currency: campaign.currency, impressions, leads: recorded, signups, activations: Math.round(signups * 0.5), customers: Math.round(signups * 0.2), source: "estimate" });
             requestJourneyDailyRefresh(deps);
             return done(`Measured (mock, Estimate): ${impressions} impressions, ${recorded} leads, ${signups} signups.`);
@@ -339,25 +340,28 @@ export function createChannelActivities(deps: OrchestratorDeps) {
       }
     },
   };
+}
 
-  /**
-   * Mock mode: `count` leads for a lead channel, each a CRM record (deterministic name, an `.example` address, its
-   * company, the channel as source and the channel's lawful basis) with a `lead` role owned by the channel's agent, and
-   * `lead.created`. A suppressed address is skipped and not counted. Returns how many were recorded.
-   */
-  async function recordMockLeads(businessId: string, channelId: string, channelKey: ChannelKey, campaignId: string, ownerAgentId: string | null, count: number, basis: "legitimate_interest" | "consent", seed: string): Promise<number> {
-    let recorded = 0;
-    for (let i = 0; i < count; i++) {
-      const lead = mockLead(`${businessId}:${channelId}:${seed}:${i}`);
-      const out = await repos.entities.upsertLead(deps.db, businessId, { kind: "person", displayName: lead.displayName, email: lead.email, company: lead.company, domain: lead.domain, source: channelKey, lawfulBasis: basis, ownerAgentId });
-      if (out.status === "suppressed") continue;
-      // Counted even when a retried step finds the record it wrote before; announced once.
-      recorded += 1;
-      if (!out.roleCreated) continue;
-      await emitEvent(deps.db, { businessId, type: "lead.created", actor: ownerAgentId ? { kind: "agent", id: ownerAgentId } : systemActor, entityIds: [out.entity.id], payload: { entityId: out.entity.id, channelKey, campaignId, score: null, source: `${CHANNEL_META[channelKey].label} (mock)`, lawfulBasis: basis, country: null } });
-    }
-    return recorded;
+/**
+ * Mock mode: `count` leads for a lead channel, each a CRM record (deterministic name, an `.example` address, its
+ * company, the channel as source and the channel's lawful basis) with a `lead` role owned by the channel's agent, and
+ * `lead.created`. A suppressed address is skipped and not counted. Returns how many were recorded. Refused where
+ * simulated results are not allowed (WP-02 T4): the call site checks too, and a second caller cannot skip it.
+ */
+export async function recordMockLeads(deps: Pick<OrchestratorDeps, "db" | "env">, business: { id: string; isDemo: boolean }, channelId: string, channelKey: ChannelKey, campaignId: string, ownerAgentId: string | null, count: number, basis: "legitimate_interest" | "consent", seed: string): Promise<number> {
+  assertMockResultsAllowed(deps.env.APP_ENV, business.isDemo, "generated leads");
+  const businessId = business.id;
+  let recorded = 0;
+  for (let i = 0; i < count; i++) {
+    const lead = mockLead(`${businessId}:${channelId}:${seed}:${i}`);
+    const out = await repos.entities.upsertLead(deps.db, businessId, { kind: "person", displayName: lead.displayName, email: lead.email, company: lead.company, domain: lead.domain, source: channelKey, lawfulBasis: basis, ownerAgentId });
+    if (out.status === "suppressed") continue;
+    // Counted even when a retried step finds the record it wrote before; announced once.
+    recorded += 1;
+    if (!out.roleCreated) continue;
+    await emitEvent(deps.db, { businessId, type: "lead.created", actor: ownerAgentId ? { kind: "agent", id: ownerAgentId } : systemActor, entityIds: [out.entity.id], payload: { entityId: out.entity.id, channelKey, campaignId, score: null, source: `${CHANNEL_META[channelKey].label} (mock)`, lawfulBasis: basis, country: null } });
   }
+  return recorded;
 }
 
 export type ChannelActivities = ReturnType<typeof createChannelActivities>;

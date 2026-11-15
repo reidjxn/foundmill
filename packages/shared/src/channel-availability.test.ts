@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  assertMockResultsAllowed,
   CHANNEL_AVAILABILITY_REASONS,
   CHANNEL_BY_TAP_SENTENCE,
   CHANNELS_SHARED_BY_TAP,
@@ -122,5 +123,14 @@ describe("tap-to-post (founder, 2026-11-12): a channel the founder posts with on
       "No channel can run on its own yet. Email automation opens first: connect SendGrid in Settings › Integrations and the team can run it. Nothing is wrong. Social media is ready now: you post each one with one press.",
     );
     expect(noChannelSentence({ byTap: [] })).toBe(noChannelSentence());
+  });
+});
+
+describe("assertMockResultsAllowed (WP-02 T4)", () => {
+  it("throws mock_result_refused on a person's project on staging or production, and passes where simulated results are allowed", () => {
+    expect(() => assertMockResultsAllowed("production", false, "generated leads")).toThrow(expect.objectContaining({ code: "mock_result_refused" }));
+    expect(() => assertMockResultsAllowed("staging", false, "estimated channel numbers")).toThrow(/simulated results are not written/);
+    expect(() => assertMockResultsAllowed("production", true, "x")).not.toThrow();
+    expect(() => assertMockResultsAllowed("test", false, "x")).not.toThrow();
   });
 });

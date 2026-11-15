@@ -22,6 +22,7 @@ import { createPostDraftActivities } from "./post-draft";
 import { createPostMediaActivities } from "./post-media";
 import { createRoadmapPlanActivities } from "./roadmap-plan";
 import { createScheduleActivities } from "./schedules";
+import { createMockResultsCleanupActivities } from "./mock-results-cleanup";
 import { createSecondReadActivities } from "./second-read";
 import { createSessionActivities } from "./session";
 import { createSourceWatcherActivities } from "./source-watcher";
@@ -50,6 +51,7 @@ export function createActivities(deps: OrchestratorDeps) {
     ...createMiscActivities(deps),
     ...createFoundationsActivities(deps),
     ...createScheduleActivities(deps),
+    ...createMockResultsCleanupActivities(deps),
     ...createAutopilotActivities(deps),
     ...createSourceWatcherActivities(deps),
     ...createNotifyActivities(deps),

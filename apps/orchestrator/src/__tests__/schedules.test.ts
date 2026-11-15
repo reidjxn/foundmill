@@ -61,13 +61,15 @@ describe("schedule registration", () => {
     expect(WORKFLOWS_PATH).toMatch(/workflows\/index\.ts$/);
   });
 
-  it("creates every schedule once on the main queue, triggers the engine reconciler, and leaves unchanged ones alone", async () => {
+  it("creates every schedule once on the main queue, triggers the engine reconciler and the mock-results count, and leaves unchanged ones alone", async () => {
     const fake = fakeScheduleClient();
     const first = await registerSchedules(fake.client, { taskQueue: "fm-main" });
     expect(first.created).toHaveLength(SCHEDULES.length);
     const reconcile = fake.store.get(scheduleId("fm-main", "channel-engine-reconcile"))!;
     expect(reconcile.options).toMatchObject({ action: { type: "startWorkflow", workflowType: "channelEngineReconcile", taskQueue: "fm-main" }, policies: { overlap: "SKIP" } });
-    expect(fake.triggered).toEqual([scheduleId("fm-main", "channel-engine-reconcile")]);
+    const onBoot = [scheduleId("fm-main", "channel-engine-reconcile"), scheduleId("fm-main", "mock-results-cleanup")];
+    expect(fake.triggered).toEqual(onBoot);
+    expect(fake.store.get(scheduleId("fm-main", "mock-results-cleanup"))!.options).toMatchObject({ spec: { cronExpressions: ["30 3 * * *"] }, action: { workflowType: "mockResultsCleanup", args: [{}] } });
     const nightly = fake.store.get(scheduleId("fm-main", "journey-daily-refresh"))!;
     expect(nightly.options).toMatchObject({ spec: { cronExpressions: ["10 2 * * *"] }, action: { workflowType: "journeyDailyRefresh", args: [{}] } });
     expect(nightly.note).toContain(`[fm:${scheduleFingerprint(SCHEDULES.find((s) => s.id === "journey-daily-refresh")!, "fm-main")}]`);
@@ -76,7 +78,7 @@ describe("schedule registration", () => {
     const second = await registerSchedules(fake.client, { taskQueue: "fm-main" });
     expect(second).toEqual({ created: [], updated: [], unchanged: SCHEDULES.map((s) => scheduleId("fm-main", s.id)) });
     expect(fake.updates).toEqual([]);
-    expect(fake.triggered).toEqual([scheduleId("fm-main", "channel-engine-reconcile"), scheduleId("fm-main", "channel-engine-reconcile")]);
+    expect(fake.triggered).toEqual([...onBoot, ...onBoot]);
   });
 
   it("updates a schedule whose definition changed, keeping an operator's pause", async () => {
