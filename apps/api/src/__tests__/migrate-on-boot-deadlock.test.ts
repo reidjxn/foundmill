@@ -36,7 +36,7 @@ describe("migrateOnBoot and a deadlock", () => {
     const line = lines.find((l) => l.level === "error");
     expect(line?.obj.phase).toBe("deadlock");
     expect(line?.msg).toMatch(/^migration aborted by a deadlock with another connection; exiting with code 1/);
-    expect(lines.some((l) => /serving anyway/.test(l.msg ?? ""))).toBe(false);
+    expect(lines.some((l) => /migrations failed; serving/.test(l.msg ?? ""))).toBe(false);
   });
 
   it("still serves on any other migration failure (a broken migration would only loop)", async () => {
@@ -45,6 +45,6 @@ describe("migrateOnBoot and a deadlock", () => {
     const exit = vi.fn();
     expect(await migrateOnBoot(deps, { exit })).toBe(false);
     expect(exit).not.toHaveBeenCalled();
-    expect(lines.some((l) => l.level === "error" && /migrations failed; serving anyway/.test(l.msg ?? ""))).toBe(true);
+    expect(lines.some((l) => l.level === "error" && /migrations failed; serving/.test(l.msg ?? ""))).toBe(true);
   });
 });

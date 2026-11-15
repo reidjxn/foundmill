@@ -170,7 +170,7 @@
 
 ---
 
-### T2: A red main opens an issue; a nightly lane exists  [S] [ships alone]
+### [x] T2: A red main opens an issue; a nightly lane exists  [S] [ships alone]
 
 **Why:** EH-06 (a red main went unnoticed for five hours), EH-03 item 3, WP-00 S12, the OUTLINE's "nightly production check hook for WP-02's script".
 
@@ -474,7 +474,7 @@ The agent-pack files are given to the product's agents; `apps/gateway/src/__test
 
 ---
 
-### T7: Skipped and flaky tests are counted on every run  [S] [ships alone]
+### [x] T7: Skipped and flaky tests are counted on every run  [S] [ships alone]
 
 **Why:** EH-14 (retries hide flakes: `apps/web/playwright.config.ts:120` `retries: isCI ? 2 : 0`, `e2e/playwright.config.ts:93` `retries: 1`), a10 §1.4 (what never runs), the OUTLINE's "skipped/flaky test inventory".
 

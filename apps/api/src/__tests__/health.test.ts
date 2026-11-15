@@ -45,6 +45,17 @@ describe("HTTP surface on an ephemeral port", () => {
     expect((await createApp(hz.deps).request("/health")).status).toBe(200);
   });
 
+  it("GET /health answers 503 while a migration is missing, and says which count is behind (WP-11 T2)", async () => {
+    const behind = createApp({ ...hz.deps, health: { ...hz.deps.health, schema: async () => ({ ready: false, applied: 95, expected: 96 }) } });
+    const res = await behind.request("/health");
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ ok: false, db: true, schema: { applied: 95, expected: 96 } });
+    // Without a schema probe (tests, the in-process caller) the schema counts as ready.
+    const plain = await createApp(hz.deps).request("/health");
+    expect(plain.status).toBe(200);
+    expect(await plain.json()).toMatchObject({ ok: true, schema: { applied: null, expected: null } });
+  });
+
   it("CORS allows the web origin and localhost:3000 with credentials", async () => {
     const res = await fetch(`${base}/trpc/health`, { method: "OPTIONS", headers: { origin: "http://localhost:3000", "access-control-request-method": "POST", "access-control-request-headers": "authorization,content-type" } });
     expect(res.headers.get("access-control-allow-origin")).toBe("http://localhost:3000");

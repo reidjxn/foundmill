@@ -158,7 +158,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Config and guard self-tests (Railway, .env.example, Supabase, the decisions index, the unit matrix, the e2e shards, the log entries, the Vercel ignore step)
-        run: node --test scripts/railway-config.test.mjs scripts/env-example.test.mjs scripts/supabase-config.test.mjs scripts/decisions-index.test.mjs scripts/ci-matrix.test.mjs scripts/e2e-shard.test.mjs scripts/log-entries.test.mjs scripts/vercel-ignore.test.mjs
+        run: node --test scripts/railway-config.test.mjs scripts/env-example.test.mjs scripts/supabase-config.test.mjs scripts/decisions-index.test.mjs scripts/ci-matrix.test.mjs scripts/e2e-shard.test.mjs scripts/log-entries.test.mjs scripts/vercel-ignore.test.mjs scripts/test-inventory.test.mjs
       # On a pull request HEAD is the merge commit, so a branch that is merely behind does not trip this (WP-01 T6).
       - name: The frozen logs are not edited (new entries go in docs/log/)
         if: ${{ github.event_name == 'pull_request' }}
@@ -167,6 +167,8 @@ jobs:
         run: |
           git fetch --no-tags --depth=1 origin "$BASE_REF"
           git diff --quiet FETCH_HEAD HEAD -- docs/DECISIONS.md docs/PROGRESS.md || { echo "::error::docs/DECISIONS.md and docs/PROGRESS.md are frozen; add a file under docs/log/ (skill: log-entry)"; exit 1; }
+      - name: Skipped test sites by reason (an unconditional skip, .only, .fixme or .todo fails)
+        run: node scripts/test-inventory.mjs --skips
       - name: Typecheck and lint (all packages)
         # apps/web's tsc needs more than Node's default 2 GB heap when it runs next to the other packages' (run 16 died
         # with "JavaScript heap out of memory"); four at a time keeps the runner's 16 GB comfortable.
@@ -237,6 +239,40 @@ jobs:
           for r in "${{ needs.static.result }}" "${{ needs.unit.result }}"; do
             case "$r" in success|skipped) ;; *) echo "a needed job ended: $r"; exit 1 ;; esac
           done
+
+  postgres-suites:
+    # The suites PGlite cannot run: grants, default privileges and real concurrency (WP-11 T1, audit a8 A8-01). Two
+    # production-only bugs had passed PGlite (0087's header; packages/db client.ts withDateParams). The cluster is set up
+    # the way Supabase sets one up (scripts/ci/supabase-like.sql). On main it always runs; on a pull request when code
+    # changed. Not a required check until it has been green five times on main (WP-11 F1).
+    name: Real Postgres (migrations and tenancy)
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.code == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RLS_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+      FM_TEST_POSTGRES_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Postgres 17 with Supabase's roles and default privileges
+        # pg_isready on 127.0.0.1: while it initializes, the image listens on its socket alone.
+        run: |
+          docker run -d --name pg -p 5432:5432 -e POSTGRES_USER=supabase_admin -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres pgvector/pgvector:pg17 -c max_connections=300
+          until docker exec pg pg_isready -q -h 127.0.0.1 -U supabase_admin; do sleep 1; done
+          docker exec -i pg psql -q -v ON_ERROR_STOP=1 -U supabase_admin -d template1 < scripts/ci/supabase-like.sql
+      # pnpm exec vitest, not turbo: turbo passes only the variables turbo.json declares.
+      - name: packages/db (every migration and the cross-tenant suites, the migration lock, the owner lock, date parameters)
+        run: pnpm --filter @foundmill/db exec vitest run src/__tests__/rls src/__tests__/testing-postgres.test.ts src/__tests__/migrate-lock.test.ts src/__tests__/owner-lock.test.ts src/__tests__/date-params.test.ts
+      - name: apps/api (migrations at boot, the people races)
+        if: ${{ !cancelled() }}
+        run: pnpm --filter @foundmill/api exec vitest run src/__tests__/migrate-on-boot.test.ts src/__tests__/people-races.test.ts
 
   docker:
     # The image Railway builds for every backend service (#435): a base-image, corepack/pnpm or COPY regression used to
@@ -366,6 +402,9 @@ jobs:
       - name: Playwright (e2e/ golden path and smoke)
         if: ${{ !cancelled() && matrix.shard == 1 }}
         run: E2E_BASE_URL=http://localhost:3000 pnpm --filter @foundmill/e2e test
+      - name: Tests that passed only on retry
+        if: ${{ always() }}
+        run: node scripts/test-inventory.mjs --flaky apps/web/test-results/report.json e2e/test-results/report.json
       - name: Stop the servers
         if: ${{ always() }}
         run: |

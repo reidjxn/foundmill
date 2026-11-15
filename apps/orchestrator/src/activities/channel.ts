@@ -25,6 +25,7 @@
  * founder presses Post in the network's own window, and no agent can. Its engine ends at its first step with a note
  * that says so; nothing is planned, launched or measured, and no result is invented.
  */
+import { recordExpiredApprovals } from "@foundmill/events";
 import { buildChannelCreativeRequest, docText, finaliseCreative, getChannelTemplate } from "@foundmill/agents";
 import { LIMITS } from "@foundmill/config";
 import { repos } from "@foundmill/db";
@@ -127,7 +128,7 @@ export function createChannelActivities(deps: OrchestratorDeps) {
       const done = (note: string, extra: Partial<ChannelStepResult> = {}): ChannelStepResult => ({ step: input.step, state: { ...state, lastStep: input.step }, awaitingApprovalId: null, stop: false, note, ...extra });
       if (!channel.enabled || channel.archivedAt) {
         // Off the board is the full stop: whatever the engine had open on the channel ends with it.
-        await repos.campaigns.endForChannel(db, businessId, channel.id);
+        await recordExpiredApprovals(db, businessId, (await repos.campaigns.endForChannel(db, businessId, channel.id)).expiredApprovals, clock.now());
         return done("channel disabled; engine stopping", { stop: true });
       }
       // Stop all agents (or a revoked key, used-up credits) ends the engine even when its stop signal was missed;
@@ -145,7 +146,7 @@ export function createChannelActivities(deps: OrchestratorDeps) {
       const blocked = await channelEngineBlocked(deps, business, key, channel.kitMode);
       if (blocked) {
         // The full stop, as for a channel taken off the board: nothing the engine had open stays scheduled or live.
-        await repos.campaigns.endForChannel(db, businessId, channel.id);
+        await recordExpiredApprovals(db, businessId, (await repos.campaigns.endForChannel(db, businessId, channel.id)).expiredApprovals, clock.now());
         return done(channelUnavailableNote(meta.label, blocked), { stop: true });
       }
       const owner = channel.ownerAgentId ? await repos.agents.get(db, businessId, channel.ownerAgentId) : null;

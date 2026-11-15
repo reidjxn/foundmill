@@ -30,7 +30,7 @@
 
 ## Tasks
 
-### T1: An approval that expires says so                                   [S] [ships alone]
+### [x] T1: An approval that expires says so                                   [S] [ships alone]
 
 **Why:** GTM-02 step 4; §1.8 of `audits/a5-go-to-market.md` ("79 requested, 14 resolved"). The code has three silent expiry paths, not one (see Corrections).
 
