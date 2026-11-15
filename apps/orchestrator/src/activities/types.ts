@@ -5,7 +5,7 @@
 import type { SessionCommand } from "../control-bus";
 import type { ProgressState } from "../progress";
 import type { FoundationsDraft } from "@foundmill/agents";
-import type { AgentStatus, BusinessMode, ModelKey, PlanActionType, PolicyOutcome, TaskKind, TaskStatus, ProductStage } from "@foundmill/shared";
+import type { AgentStatus, BusinessMode, ModelKey, ParkedTask, PlanActionType, PolicyOutcome, TaskKind, TaskStatus, ProductStage } from "@foundmill/shared";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Brief and cycle planning
@@ -168,6 +168,11 @@ export interface CyclePlan {
   costMinor: number;
   /** Nothing could start, so no model was called: the cycle posts one plain note instead of a narration. */
   idle?: boolean;
+  /**
+   * Tasks this plan stopped because no agent has a tool for them (`stopToollessTasks`), in the founder's words, for the
+   * round's note to say once (WP-05 T18, founder D1). An idle plan says it in its own summary instead.
+   */
+  parked?: ParkedTask[];
 }
 
 export type CycleTrigger = "continue" | "holiday" | "schedule" | "wake" | "autopilot";

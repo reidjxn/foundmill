@@ -94,7 +94,11 @@ describe("prompt templates (BUILD §12)", () => {
     expect(composer).not.toContain("Under 180 words");
     expect(composer).toContain("mark exactly one recommended");
     // Nov 8, 2026 (v6, One name everywhere): agents only by their manifest name, never a first name the model picked.
-    expect(getPrompt("inbox_composer").version).toBe(6);
+    expect(getPrompt("inbox_composer").version).toBe(7);
+    // Nov 15, 2026 (v7, WP-05 T18, founder D1): a task parked for want of a tool is said once, explained, never a chore.
+    expect(composer).toContain("If the inputs carry `parked`");
+    expect(composer).toContain("end the note with exactly one sentence about them");
+    expect(composer).toContain("never make it a to-do, a decision or an option");
     expect(composer).toContain("Name an agent only as [[ent:<id>|Name]] markup with its id and its exact name from the manifest");
     expect(composer).toContain("The subject is plain text: there, use the agent's exact manifest name.");
   });
