@@ -66,7 +66,7 @@ The codebase is a pnpm and Turborepo monorepo:
 - `node scripts/banned-terms.mjs`, `node scripts/us-english.mjs`, `node scripts/plain-language.mjs --gate`
 - `pnpm evals` for agent behavior
 
-CI runs on every pull request. A full CI run takes about 40 to 50 minutes, because the unit-test job is long. The agent's own commits carry `[skip ci]`, so CI does not run on them until you start it with `run_checks`.
+CI runs on every pull request. A full CI run takes about 15 minutes: the unit tests and the Playwright screens run in parallel lanes. The agent's own commits carry `[skip ci]`, so CI does not run on them until you start it with `run_checks`.
 
 ## Open items, in priority order
 

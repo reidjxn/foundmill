@@ -41,7 +41,7 @@
 
 ## Tasks
 
-### T1: Split the hour into parallel lanes  [M] [ships alone]
+### [x] T1: Split the hour into parallel lanes  [M] [ships alone]
 
 **Why:** EH-01, EH-06, EH-24, EH-02 (the unwired guard); a10 §3.1 and §3.2.
 
