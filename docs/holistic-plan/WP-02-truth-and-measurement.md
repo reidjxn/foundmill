@@ -316,7 +316,7 @@ All four: `consumers: []` (there is no metrics consumer; T10 reads the table), `
 **Steps:** 1. Fixture test: a ledger with a demo project, micro and pre-0039 rows, one blocked session with a `task.blocked` event keyed `task.blocked:<sessionId>` (confirm the payload's reason key in `packages/events` before relying on query 6, as Appendix B warns). Assert totals to the cent and that the demo adds nothing. verify: fails, then passes. 2. `notMeasured` always lists: "Model calls before a project exists (ideas, compare, logo) are not in the ledger (A7-02)", "The gateway's reader and web search are not booked (A7-03)". verify: test. 3. **Desktop session, once:** run against production (`--print-sql`, read-only) and paste the output into the WP-09 file's "measured" section and docs/DEPLOY.md §6. Expected from e0: about $119 total; opus sessions 142 at $58.25, sonnet 176 at $24.67; one training run at $12.78. verify: totals agree within a dollar or the PR explains.
 **Done when:** Done-when 7.
 
-### T12: One production record, and a script that checks it               [M] [ships alone]
+### [x] T12: One production record, and a script that checks it               [M] [ships alone]
 
 **Why:** a11 §9 ("one current record of what is configured in production"), §5; WP-00 "Done when"; e0 "Live configuration". docs/DEPLOY.md §6 is dated Oct 8 to Oct 20.
 
