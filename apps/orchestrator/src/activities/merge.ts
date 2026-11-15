@@ -19,6 +19,7 @@
  * Never a push to the default branch, never a merge the founder did not approve (or delegate), never a second Inbox item
  * for the same merge (the gateway reuses an open approval for the same call, and an approved one covers the retry).
  */
+import { codeReviewHandBack } from "@foundmill/agents";
 import { APP_NAME } from "@foundmill/config";
 import { isUntrusted } from "@foundmill/connectors";
 import { founderReworkDetail, repos } from "@foundmill/db";
@@ -140,6 +141,8 @@ export function mergeableOf(state: string | null | undefined, draft: boolean | u
 export function handBackDetail(why: MergeHoldReason, branch: string, detail: string | null): string {
   // The founder's words are the instruction, first (WP-05 T16); the api writes the same text when the founder answers.
   if (why === "founder" && detail?.trim()) return founderReworkDetail(detail, branch);
+  // The second read asked for changes (WP-05 T17): `secondReadMerge` wrote the whole instruction, findings as data.
+  if (why === "review") return detail?.trim() ? detail.slice(0, 2000) : codeReviewHandBack(null, branch);
   const what =
     why === "conflicts"
       ? "This change clashes with newer work on the live product, so it could not go live as it is."

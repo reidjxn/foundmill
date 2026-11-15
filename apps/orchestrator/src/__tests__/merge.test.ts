@@ -245,6 +245,15 @@ describe("assessMerge and handBack", () => {
     expect(text).toMatch(/^The founder's instruction: “Make the prices bigger on phones”\./);
     expect(text).toContain("Bring your working copy (agent/x) up to date");
   });
+
+  it("a review's hand-back is the instruction the second read wrote, and says so plainly when there is none (WP-05 T17)", () => {
+    expect(handBackDetail("review", "agent/x", "The reviewer's notes.")).toBe("The reviewer's notes.");
+    const text = handBackDetail("review", "agent/x", null);
+    const first = text.split(". ")[0]!;
+    expect(first).toBe("Another agent read this change and asked for changes, so it went back to the agent who made it before the founder is asked");
+    expect(founderJargonHits(first).map((h) => h.term)).toEqual([]);
+    expect(text).toContain("(agent/x)");
+  });
 });
 
 describe("askMerge, awaitChecks and completeMerge", () => {
