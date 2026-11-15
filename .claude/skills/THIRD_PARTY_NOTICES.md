@@ -13,13 +13,20 @@ Where one of these skills disagrees with CLAUDE.md, docs/DESIGN.md or docs/DECIS
 | `design-taste-frontend` | github.com/Leonxlnx/taste-skill (2.5.1; SKILL.md and references only) | f6b76575f949707b4e3c37cd86cb44b0b98643e8 | MIT, Copyright (c) 2026 Leonxlnx |
 | `copywriting`, `copy-editing`, `cro`, `onboarding`, `signup`, `product-marketing`, `emails`, `pricing`, `launch`, `ai-seo`, `schema` | github.com/coreyhaines31/marketingskills (plugin `marketing-skills` 2.14.12) | 1f837447b20bb6f0e72d87b80ece1c221c362c7d | MIT, Copyright (c) 2025 Corey Haines |
 | `seo-technical`, `seo-schema`, `seo-geo`, `seo-agentic`, `seo-page` | github.com/AgriciDaniel/claude-seo (2.6.2) | 468ed5b0d9e3249394783710e54abb02837e326b | MIT, Copyright (c) 2026 agricidaniel |
+| `seo-content`, `seo-images`, `seo-sitemap` (added Nov 15 for the landing session) | github.com/AgriciDaniel/claude-seo (2.6.2) | 468ed5b0d9e3249394783710e54abb02837e326b | MIT, Copyright (c) 2026 agricidaniel |
+| `marketing-psychology`, `ab-testing`, `analytics`, `site-architecture`, `referrals`, `social` (added Nov 15) | github.com/coreyhaines31/marketingskills (plugin `marketing-skills` 2.14.12) | 1f837447b20bb6f0e72d87b80ece1c221c362c7d | MIT, Copyright (c) 2025 Corey Haines |
+| `impeccable` (added Nov 15; SKILL.md, reference/ and scripts/) | github.com/pbakaus/impeccable (plugin 4.9.1) | plugin version 4.9.1 | No license file in the plugin. Kept for internal use in this private repository; do not redistribute. Its plugin agents (finish reviewer, documenter and others) are not copied. |
+| `ui-ux-pro-max`, `design-system`, `design`, `brand` (added Nov 15) | github.com/nextlevelbuilder/ui-ux-pro-max-skill (2.15.0) | d643997c | MIT, Copyright (c) 2024 Next Level Builder |
+| `webapp-testing` (added Nov 15) | github.com/anthropics/skills (example-skills) | 1780c5e5a552fd4d1c9d6a7b0cab26b0c2bef064 | Apache-2.0 (see `webapp-testing/LICENSE.txt`) |
+| `react-best-practices` (added Nov 15) | Vercel plugin (`vercel-plugin` 0.54.0) | plugin version 0.54.0 | Apache-2.0, Copyright 2026 Vercel, Inc. |
 
 Notes for a session using them:
 
 - Inside a plugin these skills are named `superpowers:executing-plans`, `marketing-skills:copywriting` and so on. Here they have plain names (`executing-plans`, `copywriting`). Where a skill's text refers to a sibling by its plugin name, use the plain name.
+- `impeccable` and `ui-ux-pro-max` carry scripts (Node and Python) and data files; run them only inside the cloud sandbox, never against production, and skip any step that downloads and runs a binary.
 - The SEO skills refer to Python scripts and sub-agents that live in the plugin, not in this folder. Use their written checks and thresholds and do the checks by hand.
 - The marketing skills look for a product-marketing context file under `.agents/`. For Foundmill's own marketing, the equivalent is docs/foundmill-plan/foundmill-plan.md.
-- The rest of the founder's plugins (the full marketing, SEO and social sets, ui-ux-pro-max, impeccable, hyperframes, last30days and others) are not copied. docs/HOLISTIC_PLAN.md says how a cloud environment's setup script can install them.
+- The rest of the founder's plugins (the remaining marketing, SEO and social skills, hyperframes, last30days and others) are not copied. docs/HOLISTIC_PLAN.md says how a cloud environment's setup script can install them.
 
 ## MIT License (applies to the folders marked MIT above, each under its own copyright line)
 

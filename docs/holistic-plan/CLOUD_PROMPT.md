@@ -55,7 +55,7 @@ Stage 1, faster delivery and the production switches:
 Stage 2, honest claims and measurement, agents that finish, an open door:
 - WP-02 Truth and measurement
 - WP-05 Agents that finish. Its tasks that edit apps/orchestrator/src/activities/session.ts run strictly one after another, in the chain order the package gives.
-- WP-03 The door
+- WP-03 The door. Its T5, the landing page, has moved to a separate session: never edit apps/web/components/landing/**, apps/web/app/page.tsx, /examples, /tour or docs/DESIGN.md section 9a. If that session has a pull request open, rebase on it rather than touch those files.
 
 Stage 3, the first session, skills and cost:
 - WP-04 The first session

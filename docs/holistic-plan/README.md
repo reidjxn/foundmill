@@ -6,6 +6,7 @@ This folder is the working detail behind `docs/HOLISTIC_REVIEW.md` (what was fou
 | --- | --- |
 | `WP-00-…md` to `WP-12-…md` | One work package each. A work package is what one session takes from start to merged pull requests. |
 | `OUTLINE.md` | The diagnosis, the list of work packages and the boundaries between them. |
+| `landing/` | The landing page's own session: `PROMPT.md` to paste, and the draft WP-03 T5 held, as research. |
 | `audits/` | The evidence. Eleven read-only audits of the code at `04a0a509`, four reviews made with the copied skills (design, activation, search and AI visibility, market), and production facts measured through the Vercel, Railway and Supabase connectors. Every finding has an id (`AR-07`, `TS-01`, `A4-03`, `FR-02`, …) that the work packages cite. |
 | `skills/` | Drafted skills for the product's agents, the authoring spec (`skills/README.md`) and the notices for adapted text. WP-06 wires them into `packages/agents`. |
 

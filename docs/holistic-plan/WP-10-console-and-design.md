@@ -388,8 +388,8 @@ It renders, in reading type above the note body: "<Agent> suggests: <option>. <c
 
 Questions 1 to 4 are carried from `audits/s1-design-critique.md` §9. Only 3 blocks work in this package; 1, 2 and 4 are answered inside WP-03 and WP-04 and are repeated here so they are not lost.
 
-1. **Is the landing page for the first-timer alone,** with the investor's material moved to a linked tour? Most of s1 §3.1 follows from the answer. (WP-03.)
-2. **May the main action on outer pages be the flat filled primary,** including "Shape my idea", reversing the Oct 10 and Nov 13 glass and dark-outline decisions for that one role? (WP-03, WP-04.)
+1. **Is the landing page for the first-timer alone,** with the investor's material moved to a linked tour? Most of s1 §3.1 follows from the answer. (Now the landing session's: `docs/holistic-plan/landing/PROMPT.md`.)
+2. **May the main action on outer pages be the flat filled primary,** including "Shape my idea", reversing the Oct 10 and Nov 13 glass and dark-outline decisions for that one role? (The landing session for the landing page; WP-04 for the first run.)
 3. **May the console scroll sideways between 640 and 1279 px instead of showing the wall?** It fixes zoom for low-vision users (WCAG 1.4.4, 1.4.10) and 13-inch laptops at once. It needs CLAUDE.md's "Never show the dense console below 1280 px" read as "never lay it out narrower than 1280 px". If yes, it is one more S task here: `DesktopOnly.tsx` and `AppShell.tsx` render at `min-width: 1280px` in a scrolling shell with a dismissible note; test at 1152 × 800.
 4. **How far should a phone-only person get:** the profile and "Start building" with a name, so that Today (which already works on a phone) is reachable? (WP-04.)
 5. **Should a rating's figure show with Builder view off** ("14 of 20 · Good" instead of "Good")? Nov 8 says band word only; Nov 11 says ratings out of 20 stay the default view. Yes is one constant in T9 (`RATING_SHOWS_FIGURE_WITHOUT_BUILDER`).

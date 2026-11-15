@@ -2196,4 +2196,5 @@ zod 4.6.7 stops an array, set or map at a length check placed first in its chain
 - ☑ **Plan.** `docs/HOLISTIC_PLAN.md` and `docs/holistic-plan/WP-00` to `WP-12`: thirteen work packages with tasks, interfaces, tests and starting prompts for cloud sessions. Not started: no package has been executed.
 - ☑ **Skills for sessions.** Thirty outside skills copied into `.claude/skills/` with notices; CLAUDE.md's vetting rule replaced (see DECISIONS, same date).
 - ☑ **Skills for the product's agents, drafted.** `docs/holistic-plan/skills/`: the authoring spec and the drafts, by category. They are not in `packages/agents` yet; WP-06 moves them.
+- ☑ **Landing page split out (Nov 15).** WP-03 T5 moved to its own session: `docs/holistic-plan/landing/PROMPT.md`; sixteen more skills copied into `.claude/skills/` for it (see DECISIONS, same date).
 - **Tests.** None run: documents only, and the laptop runs no builds. `node scripts/us-english.mjs`, `banned-terms.mjs` and `plain-language.mjs` results are in the change's description.

@@ -32,7 +32,7 @@ Written at `04a0a509`. Nothing here has been built. Nothing in production was ch
 | WP-00 Setup and switches | Every switch a real outcome needs is on, recorded and checked by a script | `docs/holistic-plan/WP-00-setup-and-switches.md` |
 | WP-01 Fast lane for delivery | A pull request gets a trustworthy answer in under 15 minutes; a push redeploys only what changed; the two log files stop conflicting | `docs/holistic-plan/WP-01-fast-lane.md` |
 | WP-02 Truth and measurement | Nothing claims what did not happen; the funnel, the north star and cost are computed nightly | `docs/holistic-plan/WP-02-truth-and-measurement.md` |
-| WP-03 The door | A stranger on a phone gets in, or is told honestly when and how; the landing page is true and findable | `docs/holistic-plan/WP-03-the-door.md` |
+| WP-03 The door | A stranger on a phone gets in, or is told honestly when and how, and the site can be found | `docs/holistic-plan/WP-03-the-door.md` |
 | WP-04 The first session | Kept card to a live public page in one sitting, with a small team, one plan to approve and a reason to return | `docs/holistic-plan/WP-04-the-first-session.md` |
 | WP-05 Agents that finish | A task ends with a readable result, an honest status, and no repeated or lost work | `docs/holistic-plan/WP-05-agents-that-finish.md` |
 | WP-06 Skills for every role | Every agent starts with skills that fit its role, loads them on demand, and the founder sees what a skill changed | `docs/holistic-plan/WP-06-skills-for-every-role.md` |
@@ -97,7 +97,7 @@ Sizes: S under a day, M one to three days, L up to a week (all Estimates). Each 
 | --- | --- | --- |
 | WP-01 | 8 | CI split into parallel lanes; an issue when main is red and a nightly lane; tests load a migrated database; watch paths per service; fewer web builds; one small log file per change; skipped and flaky tests counted; the seven stale agent pull requests |
 | WP-02 | 13 | Expiring approvals say so; the channel engine stops claiming launches; no approval for a call that cannot run; fabricated results removed and generators guarded; true build-path and first-day strings; Follow form only when mail can send; one vocabulary in the shell; four funnel events; nightly numbers; the cost report; the production record and its check script |
-| WP-03 | 10 | Honest gate at any width; a waitlist that admits and emails; exits from the small-screen wall; sign-in email with a code; the landing page rewritten with full copy; robots, sitemap, structured data and a text file for AI readers; idea box limits; the guards sign-up needs; the store-links value; waitlist order by referral |
+| WP-03 | 10 | Honest gate at any width; a waitlist that admits and emails; exits from the small-screen wall; sign-in email with a code; robots, sitemap, structured data and a text file for AI readers; idea box limits; the guards sign-up needs; the store-links value; waitlist order by referral |
 | WP-04 | 16 | Profile as three questions; Commit as name and go; what commit starts on the free plan; three agents shown; one plan note; publish and share on any screen; one first-day story; a note budget; the founder's own task; Chief of Staff as mentor; lifecycle email; shortcuts off by default; the one-click answer page; a phone start; win-back |
 | WP-05 | 19 | Measure why sessions block; refuse mock research on real projects; honest task outcomes; saved reports the next agent and the founder can read; a brief that says what the project is; Planner inputs; outcome evals; code that finishes without a repository; failing tests go back to the author; turn limit as a checkpoint; resumed runs with memory; preflight; lost sessions; outward calls run once; an affordable night; a next step after a founder's no |
 | WP-06 | 12 | One resolver for every call; the library as Markdown with a generated catalog; the 64 drafts moved in; the skill index and `read_skill`; one hire implementation; default skills at hire and by backfill; picker data; platform measurement; measured ratings; the small per-agent check; edits without a run; honest copy |
@@ -116,7 +116,7 @@ Each package ends with "Decisions for the founder", with a recommendation per it
 2. **The starting team** (WP-04 decision 2). Recommended: hire everyone as today and show three until work brings in more.
 3. **No code planned for a project without a repository until Foundmill Sites exists** (WP-05 D3). Recommended: yes; twelve of thirteen real projects are in that state.
 4. **Foundmill Sites' two go-aheads** (WP-07 D1, D2): what "proven" means, and the separate domain.
-5. **Indexing the home page and the rule for AI training crawlers** (WP-03 decisions 1 and 2).
+5. **The rule for AI training crawlers** (WP-03 decision 2). Indexing the home page moved to the landing session.
 6. **Whether reporting still gates open sign-up** while the people layer is closed (WP-03 decision 4, WP-12 D2).
 7. **Does a founder-attested post count toward the north star** (WP-08 D1; WP-02 decision 1 for a republished page).
 8. **Spend on measuring skills once on the platform**, about $170 to $250 (Estimate), and that existing agents' ratings change (WP-06 decisions 1 and 2).
@@ -126,10 +126,14 @@ Each package ends with "Decisions for the founder", with a recommendation per it
 12. **Permanent steps in WP-11:** dropping the `bak_20261013` schema after a fresh backup, a restore drill, and a load run against production.
 13. **Reversals of earlier rulings, each one sentence wide:** one clause in the round's note when a task is parked for a missing tool (Nov 7; WP-05 D1), and one round of "request changes" back to the author (Nov 13; WP-05 D2).
 
-## 9. Findings no package builds
+## 9. The landing page: a separate session
+
+The landing page's rewrite and design overhaul are not part of these packages (founder, Nov 15). They run in their own session on Fable, from `docs/holistic-plan/landing/PROMPT.md`, with every design, copy and SEO skill copied into `.claude/skills/`. The draft WP-03 T5 held is kept as research in `docs/holistic-plan/landing/WP-03-T5-draft.md`. The packages leave `apps/web/components/landing/**`, `apps/web/app/page.tsx`, `/examples`, `/tour` and `docs/DESIGN.md` §9a to that session; WP-03 T6 still builds robots, the sitemap, `/llms.txt` and the 404 rule, and T7 still owns the idea box's limits.
+
+## 10. Findings no package builds
 
 Listed so they are not lost: turbo caching of the test tasks (a10 EH-05), slimmer service images (EH-13), cross-session agent memory (AR-16), the shared system-prompt cache prefix beyond what WP-09 does (AR-17), founder-fit measurement (FR-15), and the "not now" lists at the end of WP-08 (paid, influencer, affiliate, offline, cold outreach at scale) and WP-12 (network waves 2 to 4). A failed migration that still serves (EH-08) is assigned to WP-11.
 
-## 10. The agent skills
+## 11. The agent skills
 
 `docs/holistic-plan/skills/` holds 64 drafted skills for the product's agents: marketing 29, engineering 10, product 7, operations 5, finance 3, legal 3, sales 3, customers 2, design 2. Each keeps the substance of a skill used in this review, rewritten for an agent that works through Foundmill's records and gateway tools. Every draft passed the product's own skill screen in memory and the US English and vocabulary linters. `coding_discipline`, written in Foundmill's own words around the four Karpathy ideas, is a default for every engineering agent. WP-06 moves them into `packages/agents`, attaches defaults per role, and measures what each one changes.

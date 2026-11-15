@@ -76,7 +76,7 @@ After: WP-05's task for AR-01 (a mock connector is refused for a real project wh
 verify: the nightly eval `researcher.real_citations` passes; no report on a real project contains a simulated source.
 
 ### S7. Indexing [Cloud, then Desktop checks]
-After: WP-03's landing rewrite. The cloud session adds `robots.ts`, `sitemap.ts` and per-route robots; the Desktop session confirms `curl -sI https://foundmill.com/robots.txt` returns 200 and the landing page no longer sends `noindex`. Founder: add the site in Google Search Console (the apex already carries a `google-site-verification` record) and submit the sitemap.
+After: WP-03 T6 and the landing session's home page. The cloud session adds `robots.ts`, `sitemap.ts` and per-route robots; the Desktop session confirms `curl -sI https://foundmill.com/robots.txt` returns 200 and the landing page no longer sends `noindex`. Founder: add the site in Google Search Console (the apex already carries a `google-site-verification` record) and submit the sitemap.
 
 ### S8. Payments [Founder, then Desktop]
 After: WP-07's payment link tasks and WP-11's work on the open Stripe webhook item (N3).
