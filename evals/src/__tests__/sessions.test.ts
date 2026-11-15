@@ -5,7 +5,7 @@
  */
 import type * as Sdk from "@anthropic-ai/claude-agent-sdk";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { SESSION_CASES } from "../sessions/cases";
+import { searchedUrls, SESSION_CASES } from "../sessions/cases";
 import { createSessionEvalEnv, FIXTURE_PAGES, MIN_CASE_BUDGET_MINOR, OUTCOME_EVAL_BUDGET_USD, RunBudget, type SessionCase, type SessionEvalEnv } from "../sessions/harness";
 
 vi.mock("@anthropic-ai/claude-agent-sdk", async (importOriginal) => {
@@ -56,7 +56,7 @@ describe("outcome evals with scripted agents (mock)", () => {
 
   it("researcher.real_citations fails on a source the session never read", async () => {
     const c = byId("researcher.real_citations");
-    const script = c.script.map((s) => (s.tool === "save_report" ? { ...s, args: (ctx: Parameters<typeof s.args>[0]) => ({ ...s.args(ctx), sources: [{ url: "https://made-up-supplier.example/cups", title: "Made up" }] }) } : s));
+    const script = c.script.map((s) => (s.tool === "save_report" ? { ...s, args: (ctx: Parameters<typeof s.args>[0], seen: readonly unknown[]) => ({ ...s.args(ctx, seen), sources: [{ url: "https://made-up-supplier.example/cups", title: "Made up" }] }) } : s));
     const r = await env.runSessionCase({ ...c, script });
     expect(r.passed).toBe(false);
     expect(r.problems.join(" ")).toMatch(/not a page the web served/);
@@ -64,10 +64,28 @@ describe("outcome evals with scripted agents (mock)", () => {
 
   it("researcher.real_citations fails on a fixture page cited but not read", async () => {
     const c = byId("researcher.real_citations");
-    const script = c.script.filter((s) => !(s.tool === "fetch_page" && s.args({ businessId: "", agentId: "", taskId: "", sessionId: "" }).url === FIXTURE_PAGES[2]!.url));
+    // The script reads the first three results in order and cites them; this one skips the third read.
+    const thirdRead = c.script.filter((s) => s.tool === "fetch_page")[2];
+    const script = c.script.filter((s) => s !== thirdRead);
     const r = await env.runSessionCase({ ...c, script });
     expect(r.passed).toBe(false);
     expect(r.problems.join(" ")).toMatch(/cited but never read/);
+  }, 60_000);
+
+  // Live run 43771748489 (Nov 15, 2026): the researcher holds an irreversible tool (request_human_action), so it reads web
+  // results through the quarantined reader's digest, which has no addresses: it found nothing to read and blocked.
+  it("a researcher on the reader's digest gets the search's addresses as facts, and not the raw results", async () => {
+    const c = byId("researcher.report_saved");
+    let seen: readonly unknown[] = [];
+    const script = [c.script[0]!, { connector: "platform", tool: "list_tasks", args: (_ctx: unknown, s: readonly unknown[]) => {
+      seen = [...s];
+      return {};
+    } }];
+    await env.runSessionCase({ ...c, script });
+    const data = (seen[0] as { result: { data: { quarantined?: boolean; content: unknown } } }).result.data;
+    expect(data.quarantined).toBe(true);
+    expect(JSON.stringify(data.content)).not.toContain("greencup-supply.example");
+    expect(searchedUrls(seen)).toEqual(FIXTURE_PAGES.map((p) => p.url));
   }, 60_000);
 
   it("channel_email_automation.not_connected_is_not_sent fails when the agent calls the task done", async () => {
