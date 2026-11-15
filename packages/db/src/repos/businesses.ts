@@ -1,6 +1,6 @@
 /** businesses — the business record (BUILD §7.2 "Accounts and businesses", routers business.*). */
-import { AGENT_STOP_REASONS, ARCHETYPES, BUSINESS_MODES, ConflictError, DATA_REGIONS, DEFAULT_BUSINESS_CURRENCY, GAME_MODES, MODEL_BILLING, OWNER_ROLES, PLAN_TIERS, ValidationError, slugify, uuid, type AgentStopReason, type BusinessMode, type GameMode, type MembershipRole, type PlanTier } from "@foundmill/shared";
-import { ownPlanFunds } from "@foundmill/config";
+import { AGENT_STOP_REASONS, ARCHETYPES, BUSINESS_MODES, ConflictError, DATA_REGIONS, DEFAULT_BUSINESS_CURRENCY, GAME_MODES, MODEL_BILLING, OWNER_ROLES, PLAN_TIERS, ValidationError, boundedRecord, slugify, uuid, type AgentStopReason, type BusinessMode, type GameMode, type MembershipRole, type PlanTier } from "@foundmill/shared";
+import { INPUT_LIMITS, ownPlanFunds } from "@foundmill/config";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { auditLog, businessLogos, businesses, founderNotifications, memberships, type Business } from "../schema";
@@ -47,7 +47,7 @@ export const UpdateBusinessInput = z.object({
   region: z.enum(DATA_REGIONS).optional(),
   planTier: z.enum(PLAN_TIERS).optional(),
   modelBilling: z.enum(MODEL_BILLING).optional(),
-  glossary: z.record(z.string(), z.string()).optional(),
+  glossary: boundedRecord(INPUT_LIMITS.glossaryTerms, z.record(z.string(), z.string())).optional(),
   currency: BusinessCurrency.optional(),
 });
 export type UpdateBusinessInput = z.input<typeof UpdateBusinessInput>;

@@ -15,7 +15,8 @@
  * touches, conversions) are never re-pointed — they are service-written and resolve through
  * `merged_into_id` (`resolve`).
  */
-import { AppError, ENTITY_KINDS, INTERACTION_KINDS, ValidationError, VISIBILITY, type EntityKind } from "@foundmill/shared";
+import { INPUT_LIMITS } from "@foundmill/config";
+import { AppError, boundedRecord, ENTITY_KINDS, INTERACTION_KINDS, ValidationError, VISIBILITY, type EntityKind } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
@@ -30,14 +31,14 @@ import { channelsRepo, suppressionHash, type SuppressionKind } from "./channels"
 export const STRONG_IDENTIFIERS = ["email", "domain", "linkedin", "reg_no", "stripe_id"] as const;
 export type StrongIdentifier = (typeof STRONG_IDENTIFIERS)[number];
 
-export const Identifiers = z.record(z.string(), z.unknown()).refine((o) => Object.values(o).every((v) => v === null || typeof v === "string"), { message: "identifiers are strings" });
+export const Identifiers = boundedRecord(INPUT_LIMITS.entityIdentifiers, z.record(z.string(), z.unknown())).refine((o) => Object.values(o).every((v) => v === null || typeof v === "string"), { message: "identifiers are strings" });
 
 export const CreateEntityInput = z.object({
   /** A caller-chosen id (ingest keys a payer's record by a business-scoped id derived from the vendor's customer id). */
   id: Id.optional(),
   kind: z.enum(ENTITY_KINDS),
   displayName: z.string().trim().min(1).max(200),
-  aliases: z.array(z.string().trim().min(1).max(200)).default([]),
+  aliases: z.array(z.string().trim().min(1).max(200)).max(INPUT_LIMITS.entityAliases).default([]),
   avatarUrl: z.string().max(2048).nullable().optional(),
   identifiers: Identifiers.default({}),
   lawfulBasis: z.string().max(80).nullable().optional(),
@@ -52,7 +53,7 @@ export const UpdateEntityInput = patchSchema(CreateEntityInput.omit({ id: true, 
 export type UpdateEntityInput = z.input<typeof UpdateEntityInput>;
 
 export const EntityListFilter = PageInput.extend({
-  kind: z.union([z.enum(ENTITY_KINDS), z.array(z.enum(ENTITY_KINDS))]).optional(),
+  kind: z.union([z.enum(ENTITY_KINDS), z.array(z.enum(ENTITY_KINDS)).max(ENTITY_KINDS.length)]).optional(),
   visibility: z.enum(VISIBILITY).optional(),
   /** `role:` / `stage:` / `owner:` / `department:` filters on the entity's active roles (as in `SearchInput`). */
   role: z.string().max(80).optional(),
@@ -68,7 +69,7 @@ export const SearchInput = z
   .object({
     /** The words; empty when the operators alone say what to find (`role:supplier`). */
     q: z.string().trim().max(200).default(""),
-    kinds: z.array(z.enum(ENTITY_KINDS)).optional(),
+    kinds: z.array(z.enum(ENTITY_KINDS)).max(ENTITY_KINDS.length).optional(),
     /** `role:` / `stage:` / `owner:` / `department:` operators (BUILD §11.12). */
     role: z.string().max(80).optional(),
     stage: z.string().max(80).optional(),

@@ -4,9 +4,10 @@
  * needs one. A connector that runs live is connected and checked by the gateway (SEC-14), which holds the vendors' keys
  * and seals any secret the vendor hands back; the api never sees it. A mock one answers here.
  */
+import { INPUT_LIMITS } from "@foundmill/config";
 import { isServiceOnlyConnector, type HealthResult } from "@foundmill/connectors";
 import { repos, type Executor } from "@foundmill/db";
-import { AppError, connectorMode, ForbiddenError, platformMailAddress, platformMailDomain, platformMailLive } from "@foundmill/shared";
+import { AppError, boundedRecord, connectorMode, ForbiddenError, platformMailAddress, platformMailDomain, platformMailLive } from "@foundmill/shared";
 import { z } from "zod";
 import type { GatewayConnectResult } from "../services/gateway";
 import { clearPostalAddress, isProjectFounder, postalAddressOf, setPostalAddress } from "../services/postal-address";
@@ -83,7 +84,7 @@ export const integrationsRouter = router({
   /** The founders remove it: marketing email from the project's address waits again until one is entered. */
   clearPostalAddress: admin.mutation(({ ctx }) => clearPostalAddress(ctx)),
 
-  connect: admin.input(z.object({ connectorKey: z.string().min(1).max(60), input: z.record(z.string(), z.unknown()).default({}) })).mutation(async ({ ctx, input }) => {
+  connect: admin.input(z.object({ connectorKey: z.string().min(1).max(60), input: boundedRecord(INPUT_LIMITS.jsonObjectKeys, z.record(z.string(), z.unknown())).default({}) })).mutation(async ({ ctx, input }) => {
     const mode = connectorMode(ctx.env, input.connectorKey);
     if (!ctx.connectors.has(input.connectorKey)) throw new AppError("not_found", `Unknown connector ${input.connectorKey}`, 404);
     // The Anthropic key decides who pays for model calls and resumes a stopped team: it is stored only through

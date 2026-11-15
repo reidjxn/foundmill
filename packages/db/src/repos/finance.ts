@@ -8,7 +8,8 @@
  * number (`cashPosition`, `monthlyTotals`, `categoryTotals`) is a cash-basis aggregate the UI labels
  * "Estimate" unless a ledger snapshot exists.
  */
-import { NON_OPERATING_CATEGORY_KEYS, ValidationError } from "@foundmill/shared";
+import { INPUT_LIMITS } from "@foundmill/config";
+import { boundedRecord, NON_OPERATING_CATEGORY_KEYS, ValidationError } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -70,8 +71,8 @@ export type UpsertLedgerSnapshotInput = z.input<typeof UpsertLedgerSnapshotInput
 export const CreateForecastInput = z.object({
   scenario: z.enum(FORECAST_SCENARIOS),
   currency: Currency.optional(),
-  drivers: JsonObject.default({}),
-  series: JsonArray.default([]),
+  drivers: boundedRecord(INPUT_LIMITS.jsonObjectKeys, JsonObject).default({}),
+  series: JsonArray.max(INPUT_LIMITS.forecastSeries).default([]),
   generatedByAgentId: Id.nullable().optional(),
 });
 export type CreateForecastInput = z.input<typeof CreateForecastInput>;

@@ -2,7 +2,8 @@
  * campaigns + assets — what a channel engine runs and produces (BUILD §11.7; routers distribution.campaigns.*,
  * distribution.assets.approve/reject).
  */
-import { APPROVAL_STATES, ASSET_KINDS, CAMPAIGN_STATUSES, ValidationError, type CampaignStatus } from "@foundmill/shared";
+import { INPUT_LIMITS } from "@foundmill/config";
+import { APPROVAL_STATES, ASSET_KINDS, boundedRecord, CAMPAIGN_STATUSES, ValidationError, type CampaignStatus } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { approvals, assets, campaigns, channels, type Asset, type Campaign } from "../schema";
@@ -17,7 +18,7 @@ export const CreateCampaignInput = z.object({
   currency: Currency.optional(),
   startsAt: IsoDateInput.nullable().optional(),
   endsAt: IsoDateInput.nullable().optional(),
-  config: JsonObject.default({}),
+  config: boundedRecord(INPUT_LIMITS.jsonObjectKeys, JsonObject).default({}),
 });
 export type CreateCampaignInput = z.input<typeof CreateCampaignInput>;
 

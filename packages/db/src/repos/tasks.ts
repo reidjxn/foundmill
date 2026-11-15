@@ -34,7 +34,7 @@ export const UpdateTaskInput = patchSchema(CreateTaskInput.omit({ dependsOn: tru
 export type UpdateTaskInput = z.input<typeof UpdateTaskInput>;
 
 export const TaskListFilter = PageInput.extend({
-  status: z.union([z.enum(TASK_STATUSES), z.array(z.enum(TASK_STATUSES))]).optional(),
+  status: z.union([z.enum(TASK_STATUSES), z.array(z.enum(TASK_STATUSES)).max(TASK_STATUSES.length)]).optional(),
   assigneeAgentId: Id.optional(),
   kind: z.enum(TASK_KINDS).optional(),
   departmentId: Id.optional(),
