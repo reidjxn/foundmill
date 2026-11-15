@@ -168,7 +168,7 @@ The api admits them on their next request and the sweep emails them within 15 mi
 **Done when:** Done-when 3.
 **Needs setup:** WP-00 S1 and S2 for the email to arrive; before that the control falls back to Copy link, which is why the fallback is built.
 
-### T4: The sign-in email carries a code for a new address [S] [ships alone]
+### [x] T4: The sign-in email carries a code for a new address [S] [ships alone]
 
 **Why:** FR-13, s1 §3.3.
 

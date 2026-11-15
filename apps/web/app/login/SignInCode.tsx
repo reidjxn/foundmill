@@ -14,6 +14,8 @@ export const CODE_LENGTH = 6;
 
 export const SIGN_IN_CODE_WORDS = {
   label: "Or type the code from the email",
+  /** The label when the code comes first (a small screen, WP-03 T4): nothing above it to say "or" to. */
+  firstLabel: "The code from the email",
   submit: "Sign in with the code",
   wrong: "That code did not work. Check the newest email, or send a new link.",
   failed: "We could not check the code. Try again in a minute.",
@@ -22,7 +24,7 @@ export const SIGN_IN_CODE_WORDS = {
 /** Only digits, at most six. */
 export const cleanCode = (raw: string): string => raw.replace(/\D/g, "").slice(0, CODE_LENGTH);
 
-export function SignInCode({ email, next, go = (to) => window.location.assign(to) }: { email: string; next: string; go?: (to: string) => void }) {
+export function SignInCode({ email, next, first = false, go = (to) => window.location.assign(to) }: { email: string; next: string; first?: boolean; go?: (to: string) => void }) {
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -50,7 +52,7 @@ export function SignInCode({ email, next, go = (to) => window.location.assign(to
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-3 border-t border-line pt-4" data-testid="login-code">
-      <Field htmlFor="login-code" label={SIGN_IN_CODE_WORDS.label}>
+      <Field htmlFor="login-code" label={first ? SIGN_IN_CODE_WORDS.firstLabel : SIGN_IN_CODE_WORDS.label}>
         <Input
           id="login-code"
           controlSize="lg"
