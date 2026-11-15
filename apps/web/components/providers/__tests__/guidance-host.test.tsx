@@ -549,7 +549,7 @@ describe("helpers", () => {
     expect(applyGuidancePatch(prev, { explainersSeen: { inbox: true }, toursDone: { home: true } }, now)).toEqual({ ...prev, explainersSeen: { home: true, inbox: true }, toursDone: { home: true } });
     expect(applyGuidancePatch(prev, { checklistDismissed: true }, now).checklistDismissedAt).toBe(now);
     expect(applyGuidancePatch({ ...prev, checklistDismissedAt: now }, { checklistDismissed: false }, now).checklistDismissedAt).toBeNull();
-    // The Anthropomorphic agents switch travels with the guided layer's preferences.
+    // The Give agents names and faces switch travels with the guided layer's preferences.
     expect(applyGuidancePatch(prev, { anthropomorphicAgents: true }, now).anthropomorphicAgents).toBe(true);
     expect(applyGuidancePatch({ ...prev, anthropomorphicAgents: true }, { guidance: "off" }, now).anthropomorphicAgents).toBe(true);
     expect(applyGuidancePatch({ ...prev, anthropomorphicAgents: true }, { reset: true }, now).anthropomorphicAgents).toBe(true);

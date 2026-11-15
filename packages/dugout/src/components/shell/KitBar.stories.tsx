@@ -44,12 +44,12 @@ export const LightBrandColour: Story = {
 export const Ledgerly: Story = { args: { kit: LEDGERLY_KIT, businessName: "Ledgerly", logoSrc: SAMPLE_LOGOS.orbit, screenTitle: "Finance · Runway", businessMode: "automated", spendLineMinor: null, businessCurrency: "GBP", runwayMonths: null, runwayWords: { value: "Not running out", caption: "You earn more than you spend" } } };
 /** No logo yet: the initials mark in the primary, separated from the bar by its hairline. */
 /**
- * The Example frame: the quiet "Sample business" caption under the name (its line joins the switcher's tooltip), and
+ * The Example frame: the quiet "Sample project" caption under the name (its line joins the switcher's tooltip), and
  * "Start your own" in Continue's slot (its width kept).
  */
 export const ExampleFrame: Story = {
   args: {
-    businessBadge: <span className="t-small truncate text-kit-on-primary opacity-80">Sample business</span>,
+    businessBadge: <span className="t-small truncate text-kit-on-primary opacity-80">Sample project</span>,
     businessBadgeLine: "Its figures are made up for the example: nothing here is real money or real customers. Nothing you do here is saved.",
     continueSlot: (
       <Button variant="primary" iconRight={ArrowRight} className="h-kitbar-chip rounded-track min-w-continue-min" data-coachmark="start-your-own">
@@ -63,9 +63,9 @@ export const ExampleFrame: Story = {
 export const WithoutLogo: Story = { name: "No logo yet → initials mark", args: { logoSrc: null } };
 
 export const SwitchBusiness: Story = {
-  name: "Switch business",
+  name: "Switch project",
   args: { businessMenu: { businesses: SWITCHER_BUSINESSES, onOpenBusiness: () => {}, onNewBusiness: () => {}, onManageBusinesses: () => {}, onProfile: () => {} } },
-  parameters: { docs: { description: { story: "The logo and name are the business switcher: a chevron after the name and the tooltip “Switch business”. It opens the founder's businesses (the current one first and checked, logos, role and Demo chips), a filter from six businesses, then Create a new business, Manage businesses, Home and Your profile." } } },
+  parameters: { docs: { description: { story: "The logo and name are the business switcher: a chevron after the name and the tooltip “Switch project”. It opens the founder's businesses (the current one first and checked, logos, role and Demo chips), a filter from six businesses, then Start a new project, Your projects, Home and Your profile." } } },
 };
 
 export const ConnectionDown: Story = {

@@ -17,10 +17,10 @@ function setup(over: Partial<KitBarBusinessMenu> = {}, onHome = vi.fn()) {
       <span>Northwind Skincare</span>
     </BusinessSwitcher>,
   );
-  const trigger = screen.getByRole("button", { name: /^Switch business: Northwind Skincare$/ });
+  const trigger = screen.getByRole("button", { name: /^Switch project: Northwind Skincare$/ });
   const open = async () => {
     await user.click(trigger);
-    return screen.findByRole("dialog", { name: "Switch business" });
+    return screen.findByRole("dialog", { name: "Switch project" });
   };
   return { menu, onHome, user, trigger, open };
 }
@@ -43,24 +43,24 @@ describe("BusinessSwitcher", () => {
     const { menu, user, trigger } = setup();
     await user.hover(trigger);
     expect(menu.onIntent).toHaveBeenCalled();
-    expect((await screen.findAllByText("Switch business")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Switch project")).length).toBeGreaterThan(0);
     trigger.blur();
     trigger.focus();
     expect((menu.onIntent as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
-  it("adds the caption's line under Switch business in its one tooltip (the sample business)", async () => {
+  it("adds the caption's line under Switch project in its one tooltip (the sample business)", async () => {
     const user = userEvent.setup();
     const menu: KitBarBusinessMenu = { businesses: SWITCHER_BUSINESSES, onOpenBusiness: vi.fn() };
     render(
       <BusinessSwitcher businessName="Northwind Skincare" menu={menu} tooltipLine="Its figures are made up for the example.">
         <span>Northwind Skincare</span>
-        <span data-testid="caption">Sample business</span>
+        <span data-testid="caption">Sample project</span>
       </BusinessSwitcher>,
     );
     await user.hover(screen.getByTestId("caption"));
     const tip = await screen.findByRole("tooltip");
-    expect(tip.textContent).toContain("Switch business");
+    expect(tip.textContent).toContain("Switch project");
     expect(tip.textContent).toContain("Its figures are made up for the example.");
   });
 
@@ -69,10 +69,10 @@ describe("BusinessSwitcher", () => {
     await open();
     const options = screen.getAllByRole("option");
     expect(options[0]?.textContent).toContain("Northwind Skincare");
-    expect(options[0]?.textContent).toContain("Current business");
+    expect(options[0]?.textContent).toContain("Current project");
     expect(screen.getByRole("option", { name: /Ledgerly/ }).textContent).toContain("Demo");
     expect(screen.getByRole("option", { name: /Tutorlane/ }).textContent).toContain("Admin");
-    expect(screen.queryByRole("combobox", { name: "Find a business" })).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Find a project" })).toBeNull();
   });
 
   it("opens another business, or Home for the current one, and closes", async () => {
@@ -90,8 +90,8 @@ describe("BusinessSwitcher", () => {
   it("each action calls its callback", async () => {
     const { menu, onHome, user, open } = setup();
     for (const [label, fn] of [
-      ["Create a new business", menu.onNewBusiness],
-      ["Manage businesses", menu.onManageBusinesses],
+      ["Start a new project", menu.onNewBusiness],
+      ["Your projects", menu.onManageBusinesses],
       ["Today", onHome],
       ["Your profile", menu.onProfile],
       ["Your public profile", menu.onPublicProfile],
@@ -120,23 +120,23 @@ describe("BusinessSwitcher", () => {
   it("from six businesses, a focused filter narrows the list and says when nothing matches", async () => {
     const { user, open } = setup({ businesses: MANY_SWITCHER_BUSINESSES });
     await open();
-    const filter = screen.getByRole("combobox", { name: "Find a business" });
+    const filter = screen.getByRole("combobox", { name: "Find a project" });
     await waitFor(() => expect(document.activeElement).toBe(filter));
     await user.type(filter, "led");
     const names = screen.getAllByRole("option").map((o) => o.textContent ?? "");
     expect(names.filter((n) => /Ledgerly|Swiftledger/.test(n))).toHaveLength(2);
     expect(names.some((n) => n.includes("Tutorlane"))).toBe(false);
-    expect(names.some((n) => n.includes("Create a new business"))).toBe(true);
+    expect(names.some((n) => n.includes("Start a new project"))).toBe(true);
     await user.clear(filter);
     await user.type(filter, "zz");
-    expect(screen.getByText("No business found for “zz”.")).toBeTruthy();
+    expect(screen.getByText("No project found for “zz”.")).toBeTruthy();
   });
 
   it("says when the list is loading or did not load, and retries", async () => {
     const onRetry = vi.fn();
     const { user, open } = setup({ loading: true, error: "Could not load your other businesses.", onRetry });
     await open();
-    expect(screen.getByText("Loading your businesses")).toBeTruthy();
+    expect(screen.getByText("Loading your projects")).toBeTruthy();
     expect(screen.getByText("Could not load your other businesses.")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Try again" }));
     expect(onRetry).toHaveBeenCalledTimes(1);

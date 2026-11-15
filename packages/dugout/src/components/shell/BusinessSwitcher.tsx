@@ -139,11 +139,11 @@ export function BusinessSwitcher({ businessName, menu, onHome, defaultOpen = fal
             content={
               tooltipLine ? (
                 <span className="flex flex-col gap-0.5">
-                  <span>Switch business</span>
+                  <span>Switch project</span>
                   <span className="text-secondary">{tooltipLine}</span>
                 </span>
               ) : (
-                "Switch business"
+                "Switch project"
               )
             }
             side="bottom"
@@ -155,7 +155,7 @@ export function BusinessSwitcher({ businessName, menu, onHome, defaultOpen = fal
               ref={triggerRef}
               type="button"
               data-testid="kitbar-business-menu"
-              aria-label={`Switch business: ${businessName}`}
+              aria-label={`Switch project: ${businessName}`}
               aria-haspopup="dialog"
               aria-expanded={open}
               aria-controls={open ? dialogId : undefined}
@@ -202,15 +202,15 @@ export function BusinessSwitcher({ businessName, menu, onHome, defaultOpen = fal
           leftOutside.current = false;
         }}
       >
-        <Command ref={rootRef} tabIndex={-1} label="Find a business" shouldFilter={false} loop className="flex flex-col outline-none">
+        <Command ref={rootRef} tabIndex={-1} label="Find a project" shouldFilter={false} loop className="flex flex-col outline-none">
           <h2 id={headingId} className={menuLabelClass}>
-            Switch business
+            Switch project
           </h2>
-          {/* cmdk names its field after the root's `label`: "Find a business". */}
+          {/* cmdk names its field after the root's `label`: "Find a project". */}
           {showFilter ? (
-            <Command.Input ref={inputRef} value={query} onValueChange={setQuery} placeholder="Find a business…" className={cn(inputBaseClass, INPUT_HEIGHT.md, "mx-1 mb-1 w-auto px-2.5")} />
+            <Command.Input ref={inputRef} value={query} onValueChange={setQuery} placeholder="Find a project…" className={cn(inputBaseClass, INPUT_HEIGHT.md, "mx-1 mb-1 w-auto px-2.5")} />
           ) : null}
-          <Command.List label="Your businesses" className="max-h-96 overflow-y-auto">
+          <Command.List label="Your projects" className="max-h-96 overflow-y-auto">
             {rows.map((b) => (
               <Command.Item key={b.id} value={`business:${b.id}`} onSelect={() => pickBusiness(b)} data-business-id={b.id} data-current={b.current || undefined} className={ROW_CLASS}>
                 <BusinessLogo src={b.logoSrc} name={b.name} primary={b.primary ?? "#1b4fd8"} size={24} title="" />
@@ -220,14 +220,14 @@ export function BusinessSwitcher({ businessName, menu, onHome, defaultOpen = fal
                 {b.current ? (
                   <>
                     <Icon icon={Check} size="inline" className="shrink-0 text-accent" aria-hidden />
-                    <span className="sr-only">Current business</span>
+                    <span className="sr-only">Current project</span>
                   </>
                 ) : null}
               </Command.Item>
             ))}
             {menu.loading ? (
               <div aria-busy className="flex flex-col gap-2 p-2">
-                <span className="sr-only">Loading your businesses</span>
+                <span className="sr-only">Loading your projects</span>
                 <Skeleton className="w-2/3" />
                 <Skeleton className="w-1/2" />
               </div>
@@ -244,18 +244,18 @@ export function BusinessSwitcher({ businessName, menu, onHome, defaultOpen = fal
             ) : null}
             {showFilter && query.trim() && rows.length === 0 ? (
               <p role="status" className="px-2.5 py-2 text-small text-secondary">
-                No business found for “{query.trim()}”.
+                No project found for “{query.trim()}”.
               </p>
             ) : null}
             {menu.onNewBusiness || menu.onManageBusinesses ? <div className={menuSeparatorClass} role="separator" /> : null}
             {menu.onNewBusiness ? (
               <Command.Item value="action:new" onSelect={() => pick(menu.onNewBusiness)} data-testid="switcher-new-business" className={ROW_CLASS}>
-                <Icon icon={Plus} size="inline" className="shrink-0" /> Create a new business
+                <Icon icon={Plus} size="inline" className="shrink-0" /> Start a new project
               </Command.Item>
             ) : null}
             {menu.onManageBusinesses ? (
               <Command.Item value="action:manage" onSelect={() => pick(menu.onManageBusinesses)} data-testid="switcher-manage-businesses" className={ROW_CLASS}>
-                <Icon icon={Building2} size="inline" className="shrink-0" /> Manage businesses
+                <Icon icon={Building2} size="inline" className="shrink-0" /> Your projects
               </Command.Item>
             ) : null}
             {onHome || menu.onProfile || menu.onPublicProfile ? <div className={menuSeparatorClass} role="separator" /> : null}

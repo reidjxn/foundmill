@@ -780,7 +780,7 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
                       data-testid="anthropomorphic-agents"
                     />
                     <div className="flex flex-col gap-1">
-                      <Label htmlFor="anthropomorphic-agents">Anthropomorphic agents</Label>
+                      <Label htmlFor="anthropomorphic-agents">Give agents names and faces</Label>
                       <p id="anthropomorphic-agents-hint" className="text-small text-secondary">
                         {ANTHROPOMORPHIC_EXPLAINER} It is your account setting, so it applies to every business; Settings › Preferences changes it any time.
                       </p>

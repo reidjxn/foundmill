@@ -17,6 +17,7 @@ export { PROJECT_PAGE_CASES, projectPageInputs, projectPageProblems, runProjectP
 export { PAGE_QUIZ_CASES, pageQuizEvalProblems, pageQuizTexts, runPageQuizCase, type PageQuizCase, type PageQuizCaseResult } from "./page-quiz";
 export { CHANNEL_ENGINE_NOTE_CASES, LAUNCH_CLAIM, OFFLINE_TRACKING_NOTE as CHANNEL_ENGINE_OFFLINE_NOTE, runChannelEngineNoteCase, type ChannelEngineNoteResult } from "./channel-engine-notes";
 export { SECOND_READ_CASES, SECOND_READ_INJECTION_PAGE, caseFactChecker, injectionFactChecker, runSecondReadCase, runSecondReadInjectionCase, secondReadProblems, type SecondReadCase, type SecondReadCaseResult, type SecondReadInjectionResult } from "./second-read";
+export { PLANNER_CASES, plannerProblems, runPlannerCase, type PlannerCase, type PlannerCaseResult } from "./planner";
 export { SHOWCASE_ADVERSARIAL_OUTPUTS, SHOWCASE_SCRIPT_CASES, judgeShowcaseScript, runShowcaseScriptCase, showcaseEvalFacts, showcaseScriptProblems, type ShowcaseScriptCase, type ShowcaseScriptCaseResult } from "./showcase-script";
 export { POST_DRAFT_CASES, POST_DRAFT_EVAL_LINK, postDraftEvalFacts, postDraftProblems, runPostDraftCase, type PostDraftCase, type PostDraftCaseResult } from "./post-draft";
 export { POST_MEDIA_CLAIM_CASES, POST_MEDIA_OUTCOMES, VIDEO_EXISTS_RE, postMediaOutcomeProblems, runPostMediaClaimCase, type PostMediaClaimCase, type PostMediaCaseResult } from "./post-media";

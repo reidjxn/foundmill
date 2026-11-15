@@ -145,6 +145,57 @@ describe("planRoadmap: the cycle plans Now roadmap items into tasks", () => {
   });
 });
 
+describe("planRoadmap: what the Planner is given (WP-05 T5)", () => {
+  /** Run one planRoadmap and return the JSON the Planner received (the mock still answers). */
+  async function plannerInput(title: string): Promise<{ body: Record<string, unknown>; system: string; item: { id: string } }> {
+    await drain();
+    const item = await nowItem(title);
+    const complete = t.deps.models.complete.bind(t.deps.models);
+    const seen: { body: Record<string, unknown>; system: string }[] = [];
+    t.deps.models.complete = (async (req: Parameters<typeof complete>[0]) => {
+      if (req.route === "planner") {
+        const content = String(req.messages[0]!.content);
+        seen.push({ body: JSON.parse(content.replace(/^```json\n/, "").replace(/\n```$/, "")) as Record<string, unknown>, system: String(req.system) });
+      }
+      return complete(req);
+    }) as typeof t.deps.models.complete;
+    try {
+      await roadmapActs.planRoadmap({ businessId: B(), cycleNumber: 50, brief: await brief() });
+    } finally {
+      t.deps.models.complete = complete;
+    }
+    expect(seen).toHaveLength(1);
+    return { ...seen[0]!, item };
+  }
+
+  it("a business with no repository sends destination none, the specification's text and the team's agent types", async () => {
+    await repos.product.createBlock(t.db, B(), { section: "customers", content: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Independent bakeries with one shop." }] }] } });
+    expect(await repos.integrations.codeRepository(t.db, B())).toBeNull();
+    const { body, system, item } = await plannerInput("Online ordering");
+    expect(body.destination).toBe("none");
+    expect(system).toContain('When destination is "none"');
+    expect(body.spec_sections).toEqual(expect.arrayContaining([{ section: "customers", text: expect.stringContaining("Independent bakeries with one shop.") }]));
+    expect(body.worker_types).toEqual(expect.arrayContaining(["backend_engineer"]));
+    // The mock follows the rule: nothing of kind code is planned, and the work still moves.
+    const tasks = await tasksOf(item.id);
+    expect(tasks.length).toBeGreaterThan(0);
+    expect(tasks.some((x) => x.kind === "code")).toBe(false);
+  });
+
+  it("a push-enabled repository sends destination github; a planned graph keeps its test expectations", async () => {
+    await repos.integrations.upsert(t.db, B(), { connectorKey: "github", status: "mock", authKind: "app", settings: { repo: "acme/shop", writeEnabled: true } });
+    try {
+      const { body, item } = await plannerInput("Gift cards");
+      expect(body.destination).toBe("github");
+      const tasks = await tasksOf(item.id);
+      expect(tasks.some((x) => x.kind === "code")).toBe(true);
+      expect(tasks.some((x) => (x.acceptance as string[]).some((a) => a.startsWith("Test: ")))).toBe(true);
+    } finally {
+      await repos.integrations.setCodeRepository(t.db, B(), null);
+    }
+  });
+});
+
 describe("planCycle: the planner orders, it never gates", () => {
   it("starts every dispatchable task the planner left out while an agent slot is free, keeps its reason as a note, and defers only what no slot is left for", async () => {
     const b = await brief();

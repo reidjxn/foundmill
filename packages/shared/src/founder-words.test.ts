@@ -1,6 +1,6 @@
 /** The founder-language boundary (founder, 2026-11-01): the vocabulary map, the title rules and the deterministic rewrite. */
 import { describe, expect, it } from "vitest";
-import { FOUNDER_TITLE_MAX_WORDS, FOUNDER_WORDS, TITLE_BANNED_TERM_IDS, founderJargonHits, founderPhrase, founderTitleFallback, founderTitleProblems, founderWord, isFounderTitle, withoutEngineNumbers } from "./founder-words";
+import { FOUNDER_TITLE_MAX_WORDS, FOUNDER_WORDS, TITLE_BANNED_TERM_IDS, founderJargonHits, founderPhrase, founderTitleFallback, founderTitleProblems, founderWord, isFounderTitle, roundWords, ventureNoun, withoutEngineNumbers } from "./founder-words";
 import { PLAIN_LANGUAGE_TIERS, TERMS } from "./terms";
 
 describe("FOUNDER_WORDS", () => {
@@ -108,5 +108,18 @@ describe("the engine's numbers (Builder view, Nov 8, 2026)", () => {
     expect(withoutEngineNumbers("Round 2 of the sign-off")).toBe("a round of work of the sign-off");
     expect(founderTitleProblems("Finish cycle 4 work").map((p) => `${p.rule}:${p.text}`)).toContain("technical_word:cycle 4");
     expect(founderTitleFallback("Ship the export before cycle 4")).toBe("Ship the export before a round of work");
+  });
+});
+
+describe("roundWords and ventureNoun (WP-02 T8)", () => {
+  it("a round of work for the founder, the cycle in Builder view", () => {
+    expect(roundWords(false)).toEqual({ one: "round of work", a: "a round of work", idle: "The team is idle" });
+    expect(roundWords(true)).toEqual({ one: "cycle", a: "a cycle", idle: "No cycle running" });
+  });
+  it("project until the first sale", () => {
+    expect(ventureNoun()).toBe("project");
+    expect(ventureNoun(null)).toBe("project");
+    expect(ventureNoun(false)).toBe("project");
+    expect(ventureNoun(true)).toBe("business");
   });
 });
