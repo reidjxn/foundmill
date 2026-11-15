@@ -128,7 +128,7 @@ export function continueTooltip(state: ContinueState, cycleNumber?: number | nul
   switch (state.kind) {
     case "idle": {
       const defined = cycleDefinition ? cycleDefinitionSentence(cycleDefinition) : "";
-      return defined ? `Let the team work, one cycle after another, until nothing is left to do. ${defined}` : "Let the team work until nothing is left to do. Their notes land in the Inbox.";
+      return defined ? `Let the team work, one round of work after another, until nothing is left to do. ${defined}` : "Let the team work until nothing is left to do. Their notes land in the Inbox.";
     }
     case "blocked":
       return `${state.count} ${state.count === 1 ? "thing needs" : "things need"} you before the team can work (credits used up or a key to replace). Press to open the first.`;
@@ -282,7 +282,7 @@ export const ContinueButton = forwardRef<HTMLButtonElement, ContinueButtonProps>
       break;
     case "processing":
       button = (
-        <Button {...common} variant="default" icon={Pause} className={cn(skin, "orbit", pulseClass, className)} aria-label="Pause the running cycle">
+        <Button {...common} variant="default" icon={Pause} className={cn(skin, "orbit", pulseClass, className)} aria-label="Pause the team">
           {label}
         </Button>
       );

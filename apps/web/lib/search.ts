@@ -134,10 +134,10 @@ export function localPaletteItems(input: LocalPaletteInput): PaletteItem[] {
   // Every other business the founder can open, a new one and the list of them all (audit IAE-08, WEB-13).
   for (const b of input.businesses ?? []) {
     if (b.id === bid) continue;
-    items.push({ id: `business:${b.id}`, kind: "command", label: `Switch to ${b.name}`, description: "Switch business", href: routes.today(b.id), keywords: ["switch", "business", "open", b.name] });
+    items.push({ id: `business:${b.id}`, kind: "command", label: `Switch to ${b.name}`, description: "Switch project", href: routes.today(b.id), keywords: ["switch", "project", "business", "open", b.name] });
   }
-  items.push({ id: "command:new-business", kind: "command", label: "Create a new business", description: "From an idea in the Ideation Studio, or import what already exists", href: accountRoutes.newBusiness, keywords: ["new business", "create", "start", "another", "business", "idea", "import"] });
-  items.push({ id: "command:manage-businesses", kind: "command", label: "Manage businesses", description: "Open one, change its settings or restore an archived one", href: accountRoutes.businesses, keywords: ["businesses", "manage", "archived", "restore", "your businesses"] });
+  items.push({ id: "command:new-business", kind: "command", label: "Start a new project", description: "From an idea in the Ideation Studio, or import what already exists", href: accountRoutes.newBusiness, keywords: ["new project", "new business", "create", "start", "another", "business", "idea", "import"] });
+  items.push({ id: "command:manage-businesses", kind: "command", label: "Your projects", description: "Open one, change its settings or restore an archived one", href: accountRoutes.businesses, keywords: ["projects", "businesses", "manage", "archived", "restore", "your businesses"] });
   items.push({ id: "command:profile", kind: "command", label: "Your profile", description: "Your founder profile: name, background and preferences", href: "/onboarding", keywords: ["profile", "founder", "account", "me"] });
   items.push({ id: "command:public-profile", kind: "command", label: "Your public profile", description: "A page about you at its own address, public only when you publish it", href: accountRoutes.publicProfile, keywords: ["public profile", "profile", "page", "about me", "link", "share"] });
   for (const it of input.inboxItems ?? []) {

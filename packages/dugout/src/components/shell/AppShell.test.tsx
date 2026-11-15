@@ -214,19 +214,19 @@ describe("AppShell", () => {
     expect(mark.querySelector("path")).toBeNull();
   });
 
-  it("the logo and name are Switch business: the founder's other businesses, Create a new business and Today (audit IAE-08; Today since Nov 7, 2026)", async () => {
+  it("the logo and name are Switch project: the founder's other businesses, Start a new project and Today (audit IAE-08; Today since Nov 7, 2026)", async () => {
     const user = userEvent.setup();
     const onNavigate = vi.fn();
     const onOpenBusiness = vi.fn();
     const onNewBusiness = vi.fn();
     const businessMenu = { businesses: [{ id: "nw", name: "Northwind Skincare", current: true }, { id: "lg", name: "Ledgerly" }], onOpenBusiness, onNewBusiness };
     render(<AppShell {...shellProps({ onNavigate, businessMenu })} />);
-    const trigger = screen.getByRole("button", { name: "Switch business: Northwind Skincare" });
+    const trigger = screen.getByRole("button", { name: "Switch project: Northwind Skincare" });
     await user.click(trigger);
     await user.click(await screen.findByRole("option", { name: /Ledgerly/ }));
     expect(onOpenBusiness).toHaveBeenCalledWith("lg");
     await user.click(trigger);
-    await user.click(await screen.findByRole("option", { name: /Create a new business/ }));
+    await user.click(await screen.findByRole("option", { name: /Start a new project/ }));
     expect(onNewBusiness).toHaveBeenCalledTimes(1);
     await user.click(trigger);
     await user.click(await screen.findByRole("option", { name: /^Today$/ }));
@@ -255,11 +255,11 @@ describe("AppShell", () => {
   it("says in words what the strip shows: the tooltip and status sentence, and a line in the tab bar while guidance is on (B2)", () => {
     const tabs = { tabs: [{ id: "a", label: "Overview" }, { id: "b", label: "Cash" }, { id: "c", label: "Runway" }], activeId: "b" };
     const { unmount } = render(<AppShell {...shellProps({ tabs, processing: { segments: NORTHWIND_SEGMENTS, active: true, cycleNumber: 3 } })} />);
-    const sentence = "Product, Formulation Lab, Distribution and Operations are working on cycle 3";
+    const sentence = "Product, Formulation Lab, Distribution and Operations are working";
     expect(screen.getByRole("status", { name: sentence })).toBeTruthy();
     // Four departments: the tab bar says the count, so the line never reaches an ellipsis at 1280 px; the strip keeps the names.
     const line = screen.getByTestId("processing-line");
-    expect(line.textContent).toBe("4 departments are working on cycle 3");
+    expect(line.textContent).toBe("4 departments are working");
     expect(line.closest("[role=tablist]")).toBeNull();
     // A FitText box: it steps down to its floor before it truncates (DESIGN §2), not a plain `truncate`.
     expect(line.hasAttribute("data-fit-box")).toBe(true);
@@ -270,7 +270,7 @@ describe("AppShell", () => {
         <AppShell {...shellProps({ tabs, processing: { segments: NORTHWIND_SEGMENTS, active: false } })} />
       </GuidanceProvider>,
     );
-    expect(screen.getByRole("status", { name: "No cycle running" })).toBeTruthy();
+    expect(screen.getByRole("status", { name: "The team is not working right now" })).toBeTruthy();
     expect(screen.queryByTestId("processing-line")).toBeNull();
   });
 
@@ -281,8 +281,8 @@ describe("AppShell", () => {
         <AppShell {...shellProps({ tabs, processing: { segments: NORTHWIND_SEGMENTS, active: false, notice: "Cycle 2 started: 6 tasks ready to build" } })} />
       </GuidanceProvider>,
     );
-    // Never "No cycle running" over a press that was answered.
-    expect(screen.queryByRole("status", { name: "No cycle running" })).toBeNull();
+    // Never "The team is not working right now" over a press that was answered.
+    expect(screen.queryByRole("status", { name: "The team is not working right now" })).toBeNull();
     expect(screen.getByRole("status", { name: "Cycle 2 started: 6 tasks ready to build" }).hasAttribute("data-notice")).toBe(true);
     const line = screen.getByTestId("processing-line");
     expect(line.textContent).toBe("Cycle 2 started: 6 tasks ready to build");
@@ -297,12 +297,12 @@ describe("AppShell", () => {
 
   it("words the tab bar's processing line: the sentence for one or two departments, a count from three (review F45)", () => {
     const seg = (label: string, active: boolean) => ({ id: label, label, dept: "dept-1" as const, active });
-    expect(processingLineText([seg("Product", true), seg("Finance", true), seg("Legal", false)], true, 12)).toBe("Product and Finance are working on cycle 12");
+    expect(processingLineText([seg("Product", true), seg("Finance", true), seg("Legal", false)], true, 12)).toBe("Product and Finance are working");
     expect(processingLineText([seg("Product", true)], true, null)).toBe("Product is working");
     expect(processingLineText([seg("Product", true), seg("Development", true), seg("Distribution", true), seg("Finance", true)], true, 12)).toBe(
-      "4 departments are working on cycle 12",
+      "4 departments are working",
     );
-    expect(processingLineText([seg("Product", true), seg("Development", true), seg("Distribution", true)], false, 12)).toBe("No cycle running");
+    expect(processingLineText([seg("Product", true), seg("Development", true), seg("Distribution", true)], false, 12)).toBe("The team is not working right now");
     expect(PROCESSING_LINE_MIN_PX).toBe(11);
   });
 
@@ -325,7 +325,7 @@ describe("AppShell", () => {
     unmount();
     render(<AppShell {...shellProps({ continueButton: { state: { kind: "processing" }, cycleNumber: 4 } })} />);
     expect(screen.getByTestId("app-shell").getAttribute("data-coachmark-pause")).toBe("true");
-    expect(screen.getByRole("button", { name: "Pause the running cycle" }).getAttribute("data-coachmark")).toBe("continue");
+    expect(screen.getByRole("button", { name: "Pause the team" }).getAttribute("data-coachmark")).toBe("continue");
   });
 
   it("fills in sidebar chords and routes G chords to onNavigate", async () => {

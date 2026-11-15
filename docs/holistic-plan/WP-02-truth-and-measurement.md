@@ -205,7 +205,7 @@ WP-04 changes this constant when the two notes become one; nothing else needs to
 **Steps:** 1. Api tests first: mail off → the public page has `followForm: false` and `followPage` answers the existing "not accepting" refusal; mail live → unchanged. verify: fail, then pass. 2. Console: when `followAvailable` is false, the switch is disabled with the line "Following opens when email is switched on for Foundmill. Your page works without it." verify: Playwright at 390 and 1440 px. 3. Health field. verify: `apps/api` health test.
 **Done when:** no visitor can be told "Check your email to confirm." on a deployment that cannot send it.
 
-### T8: One vocabulary in the shell                                        [M] [ships alone]
+### [x] T8: One vocabulary in the shell                                        [M] [ships alone]
 
 **Why:** A2-09. CLAUDE.md: "project" until the first sale and where the stage is not known; "team"; Needs you. Only strings a first-timer meets with Builder view off; Builder view keeps the engine's words.
 

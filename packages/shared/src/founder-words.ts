@@ -283,3 +283,16 @@ export function founderTitleFallback(technical: string): string | null {
   const phrase = founderPhrase(technical);
   return phrase && isFounderTitle(phrase) ? phrase : null;
 }
+
+/** The founder's word for a cycle (WP-02 T8). Builder view keeps the engine's word. */
+export function roundWords(builder: boolean): { one: string; a: string; idle: string } {
+  return builder ? { one: "cycle", a: "a cycle", idle: "No cycle running" } : { one: "round of work", a: "a round of work", idle: "The team is not working right now" };
+}
+
+/**
+ * "project" until the first sale and where the stage is not known (CLAUDE.md, 2026-11-11). Called with no argument
+ * until a field carries the first sale (WP-08 passes it).
+ */
+export function ventureNoun(hadFirstSale?: boolean | null): "project" | "business" {
+  return hadFirstSale === true ? "business" : "project";
+}

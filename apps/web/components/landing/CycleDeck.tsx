@@ -148,7 +148,7 @@ export function CycleDeck({ onOpenJourney }: { onOpenJourney?: () => void }) {
           </span>
           <StopAllAgents onConfirm={stop} runningCount={working ? cycleTasks(state.cycle).tasks : 0} />
         </div>
-        <ProcessingStrip segments={segments} active={working} label={working ? `Cycle ${state.cycle} running` : "No cycle running"} />
+        <ProcessingStrip segments={segments} active={working} label={working ? "The team is working" : "The team is not working right now"} />
 
         <div className="grid h-125 grid-cols-[21rem_1fr_18rem]">
           <InboxColumn business={business} state={state} decisionRef={decisionRef} onDecide={decide} onOpenWin={openWin} />

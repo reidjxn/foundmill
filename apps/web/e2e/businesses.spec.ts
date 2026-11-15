@@ -22,10 +22,10 @@ async function watchShellPairs(page: Page): Promise<void> {
 test.describe("switch business and Your businesses", () => {
   test("the top bar's Switch business lists every business and opens Ledgerly's Home with no frame of Northwind", async ({ page }) => {
     await openBusiness(page);
-    const trigger = page.getByRole("button", { name: /^Switch business/ });
+    const trigger = page.getByRole("button", { name: /^Switch project/ });
     await expect(trigger).toContainText("Northwind Skincare");
     await trigger.hover();
-    await expect(page.getByRole("tooltip")).toContainText("Switch business", { timeout: LONG });
+    await expect(page.getByRole("tooltip")).toContainText("Switch project", { timeout: LONG });
 
     await watchShellPairs(page);
     const switcher = await openSwitcher(page);
@@ -33,7 +33,7 @@ test.describe("switch business and Your businesses", () => {
     // By id: the foundations spec takes charge of throwaways named "Ledgerly <suffix>", which the founder owns too.
     const ledgerly = switcher.locator(`[data-business-id="${LEDGERLY_BUSINESS_ID}"]`);
     await expect(ledgerly).toBeVisible({ timeout: LONG });
-    for (const action of ["Create a new business", "Manage businesses", "Today", "Your profile"]) await expect(switcher.getByRole("option", { name: new RegExp(`^${action}$`) })).toBeVisible();
+    for (const action of ["Start a new project", "Your projects", "Today", "Your profile"]) await expect(switcher.getByRole("option", { name: new RegExp(`^${action}$`) })).toBeVisible();
 
     await ledgerly.click();
     await page.waitForURL(new RegExp(`/b/${LEDGERLY_BUSINESS_ID}/today$`), { timeout: LONG });
@@ -57,7 +57,7 @@ test.describe("switch business and Your businesses", () => {
   test("Create a new business opens the doors, with the way back to the business it came from", async ({ page }) => {
     await openBusiness(page);
     const switcher = await openSwitcher(page);
-    await switcher.getByRole("option", { name: /^Create a new business$/ }).click();
+    await switcher.getByRole("option", { name: /^Start a new project$/ }).click();
     await page.waitForURL(/\/new$/, { timeout: LONG });
     await expect(page.getByTestId("doors")).toBeVisible({ timeout: LONG });
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Create a new business");
@@ -70,7 +70,7 @@ test.describe("switch business and Your businesses", () => {
   test("Your businesses lists every business with role, plan, mode and created date, and opens one", async ({ page }) => {
     await openBusiness(page);
     const switcher = await openSwitcher(page);
-    await switcher.getByRole("option", { name: /^Manage businesses$/ }).click();
+    await switcher.getByRole("option", { name: /^Your projects$/ }).click();
     await page.waitForURL(/\/businesses$/, { timeout: LONG });
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Your businesses");
 

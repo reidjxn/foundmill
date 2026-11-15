@@ -66,15 +66,15 @@ describe("one press of Continue (BUILD §9.4; first-time founder report, Nov 8, 
     expect(orchestratorDown({ orchestrator: { reachable: null } })).toBe(false);
     expect(orchestratorDown({ orchestrator: { reachable: true } })).toBe(false);
     expect(orchestratorDown(undefined)).toBe(false);
-    expect(ORCHESTRATOR_DOWN_CAVEAT).toMatch(/^The orchestrator is not reachable right now/);
+    expect(ORCHESTRATOR_DOWN_CAVEAT).toBe("The team cannot start right now. Pressing Continue will only write a short note.");
     expect(CONTINUE_PRESSED_NOTICE).toBe("Starting the next cycle…");
     expect(continuePressedNotice(false)).toBe("Starting the next round of work…");
     expect(continuePressedNotice(true)).toBe(CONTINUE_PRESSED_NOTICE);
   });
 
   it("the last cycle's cost rides under Continue's tooltip as an Estimate; none before the first cycle", () => {
-    expect(lastCycleCostLine({ amountMinor: 52, currency: "USD" })).toBe("Last cycle cost $0.52 · Estimate");
-    expect(lastCycleCostLine({ amountMinor: 0, currency: "USD" })).toBe("Last cycle cost $0.00 · Estimate");
+    expect(lastCycleCostLine({ amountMinor: 52, currency: "USD" })).toBe("The last round of work cost $0.52 · Estimate");
+    expect(lastCycleCostLine({ amountMinor: 0, currency: "USD" })).toBe("The last round of work cost $0.00 · Estimate");
     expect(lastCycleCostLine(null)).toBeNull();
   });
 
@@ -91,7 +91,7 @@ describe("Pause and the end of a run (Nov 7, 2026)", () => {
   it("Pause says what stopped and that Continue picks up again", () => {
     expect(describePause({ paused: true, pausedTasks: 2, runEnded: true })).toEqual({ title: "Paused", description: "2 running tasks paused. Press Continue to pick up where the team stopped.", tone: "warn" });
     expect(describePause({ paused: true, pausedTasks: 1, runEnded: false }).description).toBe("1 running task paused. Press Continue to pick up where the team stopped.");
-    expect(describePause({ paused: false, pausedTasks: 0, runEnded: true, reason: "no cycle is running; no new cycle starts on its own" })).toEqual({ title: "Paused", description: "No new cycle starts. Press Continue to pick up where the team stopped.", tone: "warn" });
+    expect(describePause({ paused: false, pausedTasks: 0, runEnded: true, reason: "no cycle is running; no new cycle starts on its own" })).toEqual({ title: "Paused", description: "No new round of work starts. Press Continue to pick up where the team stopped.", tone: "warn" });
     expect(describePause({ paused: false, pausedTasks: 0, runEnded: false, reason: "no cycle is running" })).toEqual({ title: "Nothing to pause", description: "no cycle is running", tone: "info" });
   });
 
@@ -158,8 +158,8 @@ describe("the Example frame (UX plan §12 item 5)", () => {
     expect(EXAMPLE_CHIP_TOOLTIP).toBe("Its figures are made up for the example: nothing here is real money or real customers. Nothing you do here is saved.");
   });
 
-  it("the Sample business marker: only for a visitor exploring the example; never for the demo's own members or on a founder's own business", () => {
-    expect(sampleMarker({ isDemo: true }, example)).toEqual({ label: "Sample business", tooltip: EXAMPLE_CHIP_TOOLTIP });
+  it("the Sample project marker: only for a visitor exploring the example; never for the demo's own members or on a founder's own business", () => {
+    expect(sampleMarker({ isDemo: true }, example)).toEqual({ label: "Sample project", tooltip: EXAMPLE_CHIP_TOOLTIP });
     // The demo's own owner (the seeded founder) and an invited viewer don't see it (founder, Nov 12, 2026).
     expect(sampleMarker({ isDemo: true }, owner)).toBeNull();
     expect(sampleMarker({ isDemo: true }, viewer)).toBeNull();

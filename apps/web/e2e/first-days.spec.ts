@@ -60,7 +60,7 @@ test.describe("first days", () => {
       await expect(checklist.locator("[data-first-week-item='publish_page']").getByRole("link", { name: /^Go:/ })).toHaveAttribute("href", new RegExp(`/b/${bid}/d/product/public-page$`));
       await expect(checklist).not.toContainText("Connect a bank");
       await expect(checklist.locator("[data-first-week-item='sign_off_specification']").getByRole("link", { name: /^Go:/ })).toHaveAttribute("href", new RegExp(`/b/${bid}/d/product/specification$`));
-      await expect(checklist.locator("[data-first-week-item='run_cycle']").getByRole("button", { name: "Go: Run a cycle" })).toBeVisible();
+      await expect(checklist.locator("[data-first-week-item='run_cycle']").getByRole("button", { name: "Go: Let the team work" })).toBeVisible();
       const continueButton = page.locator("[data-continue-state]").first();
       const callout = page.locator("[data-coachmark][data-tour='first-continue']");
       if (firstContinueDone) {

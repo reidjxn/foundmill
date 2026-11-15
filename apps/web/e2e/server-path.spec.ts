@@ -75,7 +75,8 @@ test.describe("the business frame", () => {
     await expect(page).toHaveTitle(/^(?:\(\d+\) )?Details · Northwind Skincare · /);
     await page.getByRole("navigation", { name: "Primary" }).locator("[data-sidebar-item='inbox']").first().click();
     await expect(page).toHaveURL(new RegExp(`${B}/inbox`), { timeout: LONG });
-    await expect(page).toHaveTitle(/^(?:\(\d+\) )?Inbox · Northwind Skincare · /);
+    // The sidebar opens Needs you (?tab=respond), titled so (WP-02 T8).
+    await expect(page).toHaveTitle(/^(?:\(\d+\) )?Needs you · Northwind Skincare · /);
     expect(await pageTitles()).toHaveLength(1);
     // A screen with charts (SVG titles above the streamed page title) loaded in full.
     await page.goto(`${B}/d/finance/overview`);
