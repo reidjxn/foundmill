@@ -7,7 +7,7 @@ export { businessCycle, fileScopesOverlap, DEFAULT_TASK_RESERVE_MINOR } from "./
 export { agentSession } from "./agentSession";
 export type { AgentSessionOutcome, AgentSessionWorkflowInput } from "./agentSession";
 export { approvalWait } from "./approvalWait";
-export { MERGE_SECOND_READ_PATCH, mergeReview } from "./mergeReview";
+export { MERGE_REVIEW_HAND_BACK_PATCH, MERGE_SECOND_READ_PATCH, mergeReview } from "./mergeReview";
 export type { ApprovalWaitInput, ApprovalWaitResult } from "./approvalWait";
 export { planExecution } from "./planExecution";
 export type { PlanExecutionInput, PlanExecutionResult } from "./planExecution";

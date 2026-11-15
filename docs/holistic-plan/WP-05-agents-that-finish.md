@@ -310,7 +310,7 @@ Steps:
 2. Build. Confirm first how a release approval's reject option carries free text today (`approvalItem`'s `decide(...)` options); if it cannot, the follow-up decision is the only path. verify: named tests.
 Done when: no rejected change sits in `review` with its dependents blocked.
 
-### T17: A reviewer's "request changes" goes back to the author once [S] [needs D2; patched]
+### [x] T17: A reviewer's "request changes" goes back to the author once [S] [needs D2; patched]
 Why: A4-12.
 Files: modify `apps/orchestrator/src/workflows/mergeReview.ts`, `activities/types.ts`, `activities/merge.ts`; tests `workflows/mergeReview.test.ts` and a replay fixture; a case in `evals/src/second-read.ts`.
 Interfaces, consumes: `reviewActs.secondReadMerge(input): Promise<MergeSecondRead>` returning `{ status: "reviewed", cached, verdict, findings, reviewerAgentId, headSha }` (`activities/second-read.ts:90`); `MERGE_SECOND_READ_PATCH`; `MERGE_AUDIT.handedBack`.

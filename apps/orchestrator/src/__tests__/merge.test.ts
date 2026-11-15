@@ -224,7 +224,10 @@ describe("assessMerge and handBack", () => {
     const blocked = (await repos.events.list(t.db, t.businessId, { type: "task.blocked", limit: 10 })).items.find((e) => (e.payload as { taskId: string }).taskId === dirty.id);
     expect(blocked).toMatchObject({ payload: { reason: "needs_update", assigneeAgentId: t.workerId, detail: handBackDetail("conflicts", dirtyInput.branch, "GitHub reports the pull request as dirty") } });
     expect((blocked!.payload as { detail: string }).detail).toMatch(/^This change clashes with newer work on the live product/);
-    expect((await auditOf(MERGE_AUDIT.handedBack))[0]).toMatchObject({ target: { id: dirty.id }, details: { why: "conflicts", approvalId: null } });
+    expect((await auditOf(MERGE_AUDIT.handedBack))[0]).toMatchObject({ target: { id: dirty.id }, details: { why: "conflicts", approvalId: null, sessionId: dirtyInput.sessionId } });
+    // The event's key is the session's, not the clock's: a retried hand-back writes no second blocked event.
+    await acts.handBack({ ...dirtyInput, prNumber: prepared[1]!.prNumber, prUrl: prepared[1]!.prUrl, approvalId: null, why: "conflicts", detail: "GitHub reports the pull request as dirty" });
+    expect((await repos.events.list(t.db, t.businessId, { type: "task.blocked", limit: 10 })).items.filter((e) => (e.payload as { taskId: string }).taskId === dirty.id)).toHaveLength(1);
     // The sweep leaves a handed-back task alone: it is blocked, not in review.
     expect((await acts.pendingMerges({ businessId: t.businessId })).map((m) => m.taskId)).not.toContain(dirty.id);
   });
@@ -244,6 +247,18 @@ describe("assessMerge and handBack", () => {
     const text = handBackDetail("founder", "agent/x", "Make the prices bigger on phones");
     expect(text).toMatch(/^The founder's instruction: “Make the prices bigger on phones”\./);
     expect(text).toContain("Bring your working copy (agent/x) up to date");
+  });
+
+  it("a review's hand-back is the instruction the second read wrote, and says so plainly when there is none (WP-05 T17)", () => {
+    const closed = `Fix it.\n\n<untrusted_content kind="code_review_findings">\n{}\n</untrusted_content>`;
+    expect(handBackDetail("review", "agent/x", closed)).toBe(closed);
+    const text = handBackDetail("review", "agent/x", null);
+    // Never sliced (security review of #185): too long, or not ending in a closed block, falls back to no findings.
+    for (const open of [`${closed.slice(0, -5)}`, `Fix it.\n\n<untrusted_content kind="code_review_findings">\n${"x".repeat(2000)}\n</untrusted_content>`, "The reviewer's notes."]) expect(handBackDetail("review", "agent/x", open)).toBe(text);
+    const first = text.split(". ")[0]!;
+    expect(first).toBe("Another agent read this change and asked for changes, so it went back to the agent who made it before the founder is asked");
+    expect(founderJargonHits(first).map((h) => h.term)).toEqual([]);
+    expect(text).toContain("(agent/x)");
   });
 });
 

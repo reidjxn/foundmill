@@ -11,13 +11,15 @@
  * cycle, and every outcome is on record against the approval, which the Inbox's Decided panel shows.
  *
  * Before the merge is asked for, a different agent reads the diff (`secondReadMerge`, behind
- * `patched(MERGE_SECOND_READ_PATCH)`): its findings sit with the founder's approval, and it never blocks or merges.
+ * `patched(MERGE_SECOND_READ_PATCH)`): its findings sit with the founder's approval, and it never merges. A fresh review
+ * that asks for changes sends the change back to its author once, before the founder is asked (`handBack`, why `review`,
+ * behind `patched(MERGE_REVIEW_HAND_BACK_PATCH)`; founder D2, Nov 15, 2026); after that round it never blocks.
  *
  * Started by `agentSession` once per task (`merge:<taskId>`) and by every cycle's sweep, abandoned by its parent, so it
  * outlives the session that finished the work.
  */
 import { executeChild, patched, proxyActivities, sleep } from "@temporalio/workflow";
-import type { Activities, MergeAssessment, MergeInput, MergeOutcome } from "../activities";
+import type { Activities, MergeAssessment, MergeInput, MergeOutcome, MergeSecondRead } from "../activities";
 import { approvalWait } from "./approvalWait";
 
 const acts = proxyActivities<Activities>({ startToCloseTimeout: "5 minutes", retry: { maximumAttempts: 3, initialInterval: "5 seconds" } });
@@ -32,6 +34,11 @@ const reviewActs = proxyActivities<Activities>({ startToCloseTimeout: "6 minutes
  * every new run records the marker. Never rename it: recorded histories carry it.
  */
 export const MERGE_SECOND_READ_PATCH = "merge-second-read";
+/**
+ * The patch id of the one round back to the author when a fresh review asks for changes (WP-05 T17). Never rename it:
+ * recorded histories carry it.
+ */
+export const MERGE_REVIEW_HAND_BACK_PATCH = "merge-review-hand-back";
 
 /** GitHub computes a pull request's merge state after it opens or its branch moves: how long, and how often, to look. */
 export const ASSESS_TRIES = 6;
@@ -83,11 +90,17 @@ export async function mergeReview(input: MergeInput): Promise<MergeOutcome> {
   // The commit it read goes into the merge's arguments, so the approval names the version that was reviewed.
   let reviewedSha: string | null = null;
   if (patched(MERGE_SECOND_READ_PATCH)) {
+    let review: MergeSecondRead | null = null;
     try {
-      const review = await reviewActs.secondReadMerge({ ...input, ...pr });
+      review = await reviewActs.secondReadMerge({ ...input, ...pr });
       if (review.status === "reviewed") reviewedSha = review.headSha;
     } catch {
       // No review this time: the founder decides on the tests and GitHub's checks, as before.
+    }
+    // A fresh review that asks for changes goes back to the author once before the founder is asked (WP-05 T17). A
+    // review recorded before this marker went on to ask the founder, and replays that way.
+    if (review?.status === "reviewed" && patched(MERGE_REVIEW_HAND_BACK_PATCH) && !review.cached && review.verdict === "request_changes" && review.handedBackBefore !== true) {
+      return acts.handBack({ ...input, ...pr, approvalId: null, why: "review", detail: review.handBackDetail ?? null });
     }
   }
 

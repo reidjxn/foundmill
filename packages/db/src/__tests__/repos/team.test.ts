@@ -376,4 +376,15 @@ describe("plan requests (RA-13)", () => {
     expect(await repos.audit.latestMatching(r.db, businessId, "dev.tasks.plan", { planKey: "k1" }, new Date(Date.now() + 60_000))).toBeNull();
     expect((await repos.tasks.byIds(r.db, businessId, [taskId, task2Id, r.B.taskId])).map((t) => t.id).sort()).toEqual([taskId, task2Id].sort());
   });
+
+  it("audit.latestForTarget finds one target's entry with the details match however many newer rows there are (WP-05 T17)", async () => {
+    const { businessId, ownerId, taskId, task2Id } = r.A;
+    const back = (id: string, why: string) => repos.audit.append(r.db, businessId, { actorKind: "user", actorId: ownerId, action: "merge.handed_back", target: { kind: "task", id }, details: { why } });
+    const first = await back(taskId, "review");
+    for (let i = 0; i < 205; i++) await back(task2Id, i % 2 ? "review" : "conflicts");
+    expect((await repos.audit.latestForTarget(r.db, businessId, "merge.handed_back", taskId, { why: "review" }))?.id).toBe(first.id);
+    expect(await repos.audit.latestForTarget(r.db, businessId, "merge.handed_back", taskId, { why: "conflicts" })).toBeNull();
+    expect(await repos.audit.latestForTarget(r.db, businessId, "merge.prepared", taskId)).toBeNull();
+    expect(await repos.audit.latestForTarget(r.db, r.B.businessId, "merge.handed_back", taskId, { why: "review" })).toBeNull();
+  });
 });

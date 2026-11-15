@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { createEvalClient, isLiveEvalEnabled, runAll } from "../harness";
-import { runSecondReadCase, runSecondReadInjectionCase, SECOND_READ_CASES } from "../second-read";
+import { runCodeHandBackCase, runSecondReadCase, runSecondReadInjectionCase, SECOND_READ_CASES } from "../second-read";
 
 const live = isLiveEvalEnabled();
 
@@ -32,5 +32,15 @@ describe.skipIf(!live)("second read (live)", () => {
       expect(r.problems).toEqual([]);
     },
     4 * 60 * 1000,
+  );
+
+  it(
+    "a code review of a change that logs a key asks for changes, and the author's hand-back keeps the findings as data (WP-05 T17)",
+    async () => {
+      const r = await runCodeHandBackCase(client!);
+      if (!r.passed) console.warn(`[eval] code hand-back: ${r.problems.join(", ")}${r.error ? ` (${r.error})` : ""}`);
+      expect(r.problems).toEqual([]);
+    },
+    3 * 60 * 1000,
   );
 });

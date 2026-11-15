@@ -133,6 +133,20 @@ export const auditRepo = {
     return rows[0] ?? null;
   },
 
+  /**
+   * The newest entry for `action` about one target (`target.id`) whose details hold every key of `match`, or null,
+   * however old: the one-round check of a code review's hand-back (WP-05 T17) must not lose it on a busy business.
+   */
+  async latestForTarget(db: Executor, businessId: string, action: string, targetId: string, match: Record<string, string> = {}): Promise<AuditEntry | null> {
+    const rows = await db
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.businessId, businessId), eq(auditLog.action, action), sql`${auditLog.target} @> ${JSON.stringify({ id: targetId })}::jsonb`, sql`${auditLog.details} @> ${JSON.stringify(match)}::jsonb`))
+      .orderBy(desc(auditLog.seq))
+      .limit(1);
+    return rows[0] ?? null;
+  },
+
   /** The latest entry (chain head), or null. */
   async head(db: Executor, businessId: string): Promise<AuditEntry | null> {
     const rows = await db.select().from(auditLog).where(eq(auditLog.businessId, businessId)).orderBy(desc(auditLog.seq)).limit(1);

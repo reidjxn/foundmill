@@ -5,8 +5,9 @@
  *   has one, else the Chief of Staff) reviews the branch's diff on the `codeReview` route. The diff is read through the
  *   gateway on a read-only token (`compare_refs` and `read_file`, each at most `SECOND_READ_LIMITS`), and the review is
  *   stored on record (`merge.reviewed`, against the task and the branch head), which the Inbox shows with the founder's
- *   approval (apps/api `approvalWhatFor`). It never blocks the founder's decision, never merges, and a head it already
- *   reviewed is not reviewed again.
+ *   approval (apps/api `approvalWhatFor`). It never merges, and a head it already reviewed is not reviewed again. A fresh
+ *   review that asks for changes sends the task back to its author once (WP-05 T17, founder D2, Nov 15, 2026); after
+ *   that round it never blocks the founder's decision.
  * - `secondReadDocument` (businessFoundations, once the drafts are written): a different agent from the author reads the
  *   vision, specification and roadmap the agents drafted (or the specification, the roadmap or the Policies section on
  *   their own) in at most two rounds, looks claims that need a source up on the web through the gateway where the `web`
@@ -19,6 +20,7 @@
 import {
   boundedDiff,
   buildCodeSecondReadRequest,
+  codeReviewHandBack,
   docText,
   finaliseCodeSecondRead,
   getTemplateByAgentType,
@@ -41,7 +43,7 @@ import { isUntrusted } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
 import type { OrchestratorDeps } from "../deps";
 import { postNote } from "./dispatch";
-import { resultOf } from "./merge";
+import { MERGE_AUDIT, resultOf } from "./merge";
 import type { MergeInput, MergePullRequest } from "./types";
 
 /** Audit actions of the second read. */
@@ -54,8 +56,12 @@ const CALL_TIMEOUT_MS = 60_000;
 const HISTORY = 200;
 
 export type MergeSecondRead =
-  /** `headSha`: the commit the review read, which the merge names in its arguments (null when GitHub gave none). */
-  | { status: "reviewed"; cached: boolean; verdict: string; findings: number; reviewerAgentId: string; headSha: string | null }
+  /**
+   * `headSha`: the commit the review read, which the merge names in its arguments (null when GitHub gave none). On a
+   * fresh review only (WP-05 T17): `handedBackBefore`, whether a review already sent this task back to its author, and
+   * `handBackDetail`, the author's instruction with the findings as data, when the review asked for changes.
+   */
+  | { status: "reviewed"; cached: boolean; verdict: string; findings: number; reviewerAgentId: string; headSha: string | null; handedBackBefore?: boolean; handBackDetail?: string | null }
   | { status: "skipped"; reason: string };
 
 export type DocumentSecondRead =
@@ -172,7 +178,11 @@ export function createSecondReadActivities(deps: OrchestratorDeps) {
             model: { route: res.route, mode: res.mode, costMinor: res.cost.costMinorInt, costLabel: "Estimate" },
           },
         });
-        return { status: "reviewed", cached: false, verdict: review.verdict, findings: review.findings.length, reviewerAgentId: reviewer.id, headSha };
+        // One round back to the author (founder D2, Nov 15, 2026): a task a review already sent back is not sent again.
+        const changes = review.verdict === "request_changes";
+        // Asked of the task itself, not a window of the business's newest rows, so an old hand-back is never missed.
+        const handedBackBefore = changes && (await repos.audit.latestForTarget(db, input.businessId, MERGE_AUDIT.handedBack, input.taskId, { why: "review" })) !== null;
+        return { status: "reviewed", cached: false, verdict: review.verdict, findings: review.findings.length, reviewerAgentId: reviewer.id, headSha, handedBackBefore, handBackDetail: changes ? codeReviewHandBack(review, input.branch) : null };
       } catch (err) {
         deps.log.warn({ businessId: input.businessId, taskId: input.taskId, err: (err as Error).message }, "second read: the change could not be reviewed");
         return { status: "skipped", reason: "the review could not run this time" };

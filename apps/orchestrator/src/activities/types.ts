@@ -384,8 +384,10 @@ export type MergeAsked =
 /**
  * Why a merge was not made after the pull request existed. `founder`: the founder said no with words, and the change
  * goes back to its agent with them (the api hands it back at the answer, WP-05 T16; the wording is shared here).
+ * `review`: the second read asked for changes, and the change goes back to its author once before the founder is asked
+ * (WP-05 T17).
  */
-export type MergeHoldReason = "conflicts" | "behind" | "checks_failed" | "checks_timeout" | "refused" | "founder";
+export type MergeHoldReason = "conflicts" | "behind" | "checks_failed" | "checks_timeout" | "refused" | "founder" | "review";
 
 export type MergeOutcome =
   | ({ status: "merged"; mergeCommitSha: string } & MergePullRequest)
