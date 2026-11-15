@@ -24,8 +24,8 @@ Use this whenever you change code or docs in `reidjxn/foundmill`.
 4. Run the typecheck and the lint for the package you changed (`pnpm --filter <package> typecheck`, `pnpm --filter <package> lint`).
 5. Run the unit tests for that package.
 6. If you touched a screen, run its Playwright spec. If you added a component, add a Storybook story.
-7. Update `docs/PROGRESS.md` with one line: what you did and where.
-8. If you made a judgment call (a trade-off, a substitution, a rule you decided), add it to `docs/DECISIONS.md`.
+
+Write what you did and any judgment call in your final report. The platform puts it in the pull request. Do not edit any file under `docs/` for bookkeeping.
 
 ## The pull request body
 

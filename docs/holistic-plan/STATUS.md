@@ -7,13 +7,13 @@ One row per task of docs/holistic-plan/WP-*.md. Updated before a task starts and
 | WP-00 | S1 | Prove the front door works | waiting | Desktop, read-only, then Founder for one test |
 | WP-00 | S2 | Confirm SendGrid's event webhook reaches ingest | waiting | Founder in SendGrid, Desktop records |
 | WP-00 | S3 | Record what `LIVE_CONNECTORS` and `MODEL_MODE` are, per service | waiting | Founder reads, Desktop records |
-| WP-00 | S4 | Stop redeploying everything on every push | waiting | WP-01 T4, then Desktop (deadline Dec 1, 2026) |
+| WP-00 | S4 | Stop redeploying everything on every push | half done (Nov 15) | watch paths set; Wait for CI on api and gateway is a dashboard toggle (founder) |
 | WP-00 | S5 | Open the door | waiting | Founder decides, Desktop switches |
 | WP-00 | S6 | Real web research | waiting | Desktop |
 | WP-00 | S7 | Indexing | waiting | cloud half is WP-03 T6; then Desktop and Founder |
 | WP-00 | S8 | Payments | waiting | Founder, then Desktop |
 | WP-00 | S9 | A domain for Foundmill Sites | waiting | Founder decides and buys, Desktop wires |
-| WP-00 | S10 | Supabase settings | waiting | Founder, with the CLI or dashboard |
+| WP-00 | S10 | Supabase settings | done (Nov 15) | redirect list narrowed to three; confirm-signup code is WP-03 T4 |
 | WP-00 | S11 | Skills in cloud sessions | done (in the plan branch) | optional founder step: plugins in the setup script |
 | WP-00 | S12 | Watching production | waiting | cloud half is WP-01 T2 and WP-02 T12; then Founder |
 | WP-00 | S13 | Spending backstops | waiting | Founder |
@@ -21,14 +21,14 @@ One row per task of docs/holistic-plan/WP-*.md. Updated before a task starts and
 | WP-00 | S15 | Mail reputation | waiting | Founder at Spaceship, later |
 | WP-00 | S16 | Leftovers | waiting | Desktop, on the founder's go |
 | WP-00 | S17 | Later, with the phone app | waiting | Desktop or Founder |
-| WP-01 | T1 | Split the hour into parallel lanes | pull request open (#144) | founder merge |
+| WP-01 | T1 | Split the hour into parallel lanes | merged (#144) | |
 | WP-01 | T2 | A red main opens an issue; a nightly lane exists | pull request open (#146) | founder merge; first real run after merge |
-| WP-01 | T3 | Tests load a migrated database instead of replaying 96 migrations | pull request open (stacked on #144) | founder merge; step 5 (fewer unit shards) after CI numbers |
+| WP-01 | T3 | Tests load a migrated database instead of replaying 96 migrations | pull request open (#150) | founder merge; step 5 (fewer unit shards) after CI numbers |
 | WP-01 | T4 | Watch paths per service, written out and proven | pull request open (#145) | founder merge; then WP-00 S4 |
-| WP-01 | T5 | Fewer web builds | not started |  |
-| WP-01 | T6 | One small file per change; the two logs are frozen | not started |  |
+| WP-01 | T5 | Fewer web builds | pull request open (stacked on #144) | founder merge; WP-01 founder decision 4 (no agent previews) |
+| WP-01 | T6 | One small file per change; the two logs are frozen | pull request open | the banners (#155) first |
 | WP-01 | T7 | Skipped and flaky tests are counted on every run | not started |  |
-| WP-01 | T8 | The seven stale agent pull requests | not started | founder decision or go-ahead (see the package) |
+| WP-01 | T8 | The seven stale agent pull requests | in progress | five closed; #52 and #38 updating; branch deletion is the founder's |
 | WP-02 | T1 | An approval that expires says so | not started |  |
 | WP-02 | T2 | The channel engine stops claiming launches on a real project | not started |  |
 | WP-02 | T3 | Never ask the founder to approve a call that cannot run | not started |  |
