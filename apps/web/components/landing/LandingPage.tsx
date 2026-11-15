@@ -74,10 +74,10 @@ export function LandingPage({ switches = SWITCHES_OFF, renderDay }: LandingPageP
           <div className="t-landing-small flex flex-wrap items-center gap-x-5 gap-y-1 text-secondary">
             <span>{APP_TAGLINE}</span>
             <nav aria-label="Legal" className="flex items-center gap-4">
-              <Link href={LEGAL_ROUTES.terms} className="inline-flex min-h-tap items-center hover:text-primary">
+              <Link href={LEGAL_ROUTES.terms} className="inline-flex min-h-tap items-center hover:text-primary" data-testid="landing-terms">
                 {W.footer.terms}
               </Link>
-              <Link href={LEGAL_ROUTES.privacy} className="inline-flex min-h-tap items-center hover:text-primary">
+              <Link href={LEGAL_ROUTES.privacy} className="inline-flex min-h-tap items-center hover:text-primary" data-testid="landing-privacy">
                 {W.footer.privacy}
               </Link>
               {TOUR_ENABLED ? (

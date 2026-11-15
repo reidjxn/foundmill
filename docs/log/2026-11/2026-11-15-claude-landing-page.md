@@ -23,6 +23,8 @@ supersedes: []
 Side by side, the card took the hero's 640 px column and squeezed the panel out.
 ### The tour's picker writes /tour or /?example=<id>
 Only the `/?example=` deep link is served for another business.
+### The footer keeps the earlier page's test ids
+`legal.spec.ts` finds the landing footer's Terms and Privacy links by `landing-terms` and `landing-privacy`; the new footer keeps both (CI shard 3 caught their absence).
 ### /tour joins PUBLIC_PREFIXES
 A one-line change outside the landing files, without which a stranger opening `/tour` is sent to sign-in.
 
