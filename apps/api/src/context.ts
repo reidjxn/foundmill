@@ -36,6 +36,9 @@ import type { BusinessAccess } from "./trpc";
 /** The api's pool size unless API_DB_POOL_MAX says otherwise. */
 export const API_DB_POOL_DEFAULT = 10;
 
+/** What /health reports of the migrations (WP-11 T2): `applied` and `expected` are null when nothing was checked. */
+export type SchemaState = { ready: boolean; applied: number | null; expected: number | null };
+
 export interface ApiDeps {
   env: Env;
   /** Service-role Drizzle database. User-originated queries go through `withRls` (see trpc.ts `ctx.rls`). */
@@ -72,6 +75,8 @@ export interface ApiDeps {
     db(): Promise<boolean>;
     redis(): Promise<boolean>;
     temporal(): Promise<boolean>;
+    /** Whether every migration is applied (index.ts sets it after a failed migrateOnBoot); absent means ready. */
+    schema?(): Promise<SchemaState>;
   };
   /** The outbox relay's supervisor (index.ts); absent in tests and the in-process caller. /health reports its state. */
   relay?: RelaySupervisor | null;

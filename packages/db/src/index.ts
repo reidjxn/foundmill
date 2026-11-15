@@ -17,7 +17,7 @@ export { MOCK_TOP_UP_LABEL, settleCreditCheckout, type SettleCheckoutInput, type
 export { assertBusinessAllowance, assertConcurrencyRoom, assertSeatAvailable, businessAllowance, concurrencyAllowance, includedCreditPool, OPEN_SESSION_WINDOW_HOURS, seatAllowance, type BusinessAllowance, type BusinessAllowanceOptions, type ConcurrencyAllowance, type IncludedCreditPool } from "./tiers";
 export { MIGRATIONS_DIR, MIGRATIONS_SCHEMA, MIGRATIONS_TABLE, readJournal, readMigrations } from "./migrations";
 export type { Journal, JournalEntry, MigrationFile } from "./migrations";
-export { appliedMigrationCount, DEFAULT_MIGRATION_LOCK_TIMEOUT_MS, isMigrationLockTimeout, migrateDb, MIGRATION_LOCK, MigrationLockTimeoutError, type MigrateOptions, type MigrateResult, type MigrationLockHolder } from "./migrator";
+export { appliedMigrationCount, DEFAULT_MIGRATION_LOCK_TIMEOUT_MS, isMigrationLockTimeout, migrateDb, MIGRATION_LOCK, MigrationLockTimeoutError, schemaReady, type MigrateOptions, type MigrateResult, type MigrationLockHolder } from "./migrator";
 export { DEFAULT_PGLITE_DIR, PGLITE_BOOTSTRAP_SQL, findWorkspaceRoot, isPgliteDb, isPgliteUrl, parsePgliteUrl, pgliteUrl, resolvePgliteDir } from "./pglite";
 export type { LazyPgliteClient, PgliteTarget } from "./pglite";
 export { attachAddedSkills, resolveLibrarySkill, resolveSkillFile, skillLibraryEntries, type ResolvedSkill } from "./skill-attach";
