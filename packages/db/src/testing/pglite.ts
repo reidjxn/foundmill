@@ -17,6 +17,7 @@ import { readMigrations, type MigrationFile } from "../migrations";
 import { bootPglite, rewriteForMissingVector } from "../pglite";
 import * as schema from "../schema";
 import { createRealPostgresTestDb, realPostgresUrl } from "./postgres";
+import { loadOrBuildSnapshot } from "./snapshot";
 
 export { PGLITE_BOOTSTRAP_SQL as BOOTSTRAP_SQL, rewriteForMissingVector } from "../pglite";
 
@@ -86,12 +87,15 @@ export async function createTestDb(options: CreateTestDbOptions = {}): Promise<T
   if (realUrl) return createRealPostgresTestDb(realUrl, options, unwrapDbError);
   // Same roles / auth stub / extensions as createDb("pglite:…") (src/pglite.ts); in-memory, migrations applied
   // file by file here (not through migrateDb) so a suite can pass its own list and the no-pgvector rewrite applies.
-  const booted = await bootPglite({ disableVector: options.disableVector });
+  // Without a list of its own, a suite starts from the migrated snapshot (testing/snapshot.ts, WP-01 T3) instead of
+  // replaying every migration; FM_PGLITE_SNAPSHOT=0 keeps the replay.
+  const snapshot = options.migrations === undefined && !options.disableVector && process.env.FM_PGLITE_SNAPSHOT !== "0" ? await loadOrBuildSnapshot() : null;
+  const booted = await bootPglite({ disableVector: options.disableVector, ...(snapshot ? { loadDataDir: new Blob([snapshot.bytes]) } : {}) });
   const { pg, hasVector: vector } = booted;
   const db = drizzle({ client: pg, schema });
 
-  const migrations = options.migrations ?? readMigrations();
-  const applied: string[] = [];
+  const migrations = snapshot ? [] : (options.migrations ?? readMigrations());
+  const applied: string[] = snapshot ? [...snapshot.tags] : [];
   for (const m of migrations) {
     const text = vector ? m.sql : rewriteForMissingVector(m.sql);
     try {
