@@ -9,6 +9,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+# The workflow only reads the repository (security audit, Nov 13, 2026): an explicit scope, not the repository's default.
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
