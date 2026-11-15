@@ -9,4 +9,4 @@ description: Plan a Foundmill change before writing code — read the right docs
 2. **Check for overlap with other work.** `git fetch origin --prune`, then for each recent unmerged branch: `git diff --name-only origin/main...<branch>`. If another branch changes the same files, the same migration range or the same feature, stop and agree the split with its owner before writing code.
 3. **Migrations.** Take the next free number after every open branch's migrations, not just main's.
 4. **Write the plan** (in the conversation, not a file): the files to change, the tests and evals to add, what a founder will see, and which items of the definition of done apply (`verify-done`).
-5. **Judgment calls** go to `docs/DECISIONS.md` with the date, in the same change.
+5. **Judgment calls** go in the branch's file under `docs/log/` (skill `log-entry`), in the same change.
