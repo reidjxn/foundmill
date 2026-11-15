@@ -170,7 +170,7 @@
 
 ---
 
-### T2: A red main opens an issue; a nightly lane exists  [S] [ships alone]
+### [x] T2: A red main opens an issue; a nightly lane exists  [S] [ships alone]
 
 **Why:** EH-06 (a red main went unnoticed for five hours), EH-03 item 3, WP-00 S12, the OUTLINE's "nightly production check hook for WP-02's script".
 
