@@ -1,7 +1,8 @@
 # The nightly lane (WP-01 T2). It reads the public half of production only and holds no secret. Other packages add their
-# jobs here (live evals, outcome evals: WP-05, WP-06, WP-08); each new job ends with the same "Open or update the issue"
-# step. scripts/check-production.mjs is WP-02's: exit 0 passes, anything else fails, and what it writes to the file named
-# by GITHUB_STEP_SUMMARY is the report and becomes the issue's body.
+# jobs here (live evals: WP-06, WP-08); each new job ends with the same "Open or update the issue" step. A job that needs
+# a secret gets its own workflow instead, with the same step: the outcome evals (WP-05 T6) are evals-outcomes.yml.
+# scripts/check-production.mjs is WP-02's: exit 0 passes, anything else fails, and what it writes to the file named by
+# GITHUB_STEP_SUMMARY is the report and becomes the issue's body.
 name: Nightly
 
 on:

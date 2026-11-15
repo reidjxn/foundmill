@@ -163,7 +163,7 @@ Steps:
 3. Eval `evals/src/planner.ts`: two fixtures (no destination: zero `code` tasks and at least one task; repository: code tasks with file scopes). verify: structure test in CI on the mock; live run recorded in the pull request.
 Done when: a project with no repository is planned no code task, and says why once. Needs founder decision D3 before merge.
 
-### T6: Outcome evals: a session with tools reaches a result, checked nightly [L] [ships alone; after T3]
+### [x] T6: Outcome evals: a session with tools reaches a result, checked nightly [L] [ships alone; after T3]
 Why: AR-15; `audits/a3a-agent-runtime.md` §6 gaps 1 and 2.
 Files: create `evals/src/sessions/harness.ts`, `evals/src/sessions/cases.ts`, `evals/src/__tests__/sessions.eval.test.ts`, `.github/workflows/evals-outcomes.yml`; modify `evals/src/golden/tasks.ts`.
 Interfaces, consumes: `createSessionActivities(deps).prepareSession / runAgentSession / finishSession` (`session.ts:691`); `setupOrchestratorHarness(options)` (`apps/orchestrator/src/__tests__/harness.ts:47`); `createGatewayApp(deps)` (`apps/gateway/src/app.ts`); the workflow shape of `.github/workflows/evals-typed-reads.yml` (`MODEL_MODE: live`, `secrets.ANTHROPIC_API_KEY`).

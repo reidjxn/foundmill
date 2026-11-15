@@ -1229,15 +1229,30 @@ importers:
       '@foundmill/connectors':
         specifier: workspace:*
         version: link:../packages/connectors
+      '@foundmill/db':
+        specifier: workspace:*
+        version: link:../packages/db
       '@foundmill/entity-linker':
         specifier: workspace:*
         version: link:../packages/entity-linker
+      '@foundmill/events':
+        specifier: workspace:*
+        version: link:../packages/events
+      '@foundmill/gateway':
+        specifier: workspace:*
+        version: link:../apps/gateway
       '@foundmill/models':
         specifier: workspace:*
         version: link:../packages/models
+      '@foundmill/orchestrator':
+        specifier: workspace:*
+        version: link:../apps/orchestrator
       '@foundmill/policy':
         specifier: workspace:*
         version: link:../packages/policy
+      '@foundmill/sandbox':
+        specifier: workspace:*
+        version: link:../packages/sandbox
       '@foundmill/shared':
         specifier: workspace:*
         version: link:../packages/shared
@@ -1245,6 +1260,9 @@ importers:
         specifier: 4.6.7
         version: 4.6.7
     devDependencies:
+      '@anthropic-ai/claude-agent-sdk':
+        specifier: 'catalog:'
+        version: 0.3.291(@anthropic-ai/sdk@0.131.0(zod@4.6.7))(@modelcontextprotocol/sdk@1.32.1(supports-color@8.1.1)(zod@4.6.7))(zod@4.6.7)
       tsx:
         specifier: 'catalog:'
         version: 4.23.15
