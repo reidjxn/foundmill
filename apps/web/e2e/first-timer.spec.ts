@@ -73,3 +73,20 @@ test("/tour is the earlier page, signed out, on a wide screen", async ({ page })
   await expect(page.getByTestId("landing")).toBeVisible();
   await expect(page.getByRole("radiogroup", { name: "Watch it run" })).toBeVisible();
 });
+
+test("search and share: the first-timer's title, one JSON-LD block, its own share image, and no index while sign-up is closed", async ({ page }) => {
+  await page.goto("/");
+  await expect(page).toHaveTitle("Foundmill | Start your first project with one sentence");
+  await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", /noindex/);
+  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", /^https:\/\/[^/]+\/?$/);
+  const ld = page.locator('script[type="application/ld+json"]');
+  await expect(ld).toHaveCount(1);
+  const graph = JSON.parse((await ld.textContent())!)["@graph"] as { "@type": string }[];
+  expect(graph.map((n) => n["@type"])).toEqual(["Organization", "WebSite", "SoftwareApplication"]);
+  const image = await page.locator('meta[property="og:image"]').getAttribute("content");
+  const res = await page.request.get(new URL(image!).pathname);
+  expect(res.status()).toBe(200);
+  expect(res.headers()["content-type"]).toBe("image/png");
+  // The paragraph an answer engine quotes is on the page as plain text.
+  await expect(page.getByTestId("what-foundmill-is")).toContainText("Foundmill is a web app where one person, or a few people together");
+});
