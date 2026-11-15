@@ -51,12 +51,12 @@ test.describe("screens in plain words", () => {
     await expect(page.getByTestId("connections-panel")).not.toContainText(/\b0 connections\b/);
   });
 
-  test("a live business's Home: the leaderboard tile names its board in words; the runway matches the top bar", async ({ page }) => {
+  test("a live business's Home: the status strip reads in words; the runway matches the top bar", async ({ page }) => {
     await signIn(page);
     await page.goto(`/b/${LEDGERLY_BUSINESS_ID}/home`);
     await expect(page.getByTestId("home-screen")).toBeVisible({ timeout: LONG });
     const strip = page.getByRole("region", { name: "Status" });
-    await expect(strip.getByText("Leaderboard position", { exact: true })).toBeVisible({ timeout: LONG });
+    await expect(strip.getByText("Team health", { exact: true })).toBeVisible({ timeout: LONG });
     await expect(strip).not.toContainText(SNAKE, { timeout: LONG });
     // The bar's runway chip and the tile say the same words when there is no figure.
     const barWords = page.getByTestId("kit-bar").locator("[data-runway-words]");
@@ -65,12 +65,12 @@ test.describe("screens in plain words", () => {
     await expect(page.locator("[data-department]").filter({ hasText: "Continue plans the next cycle" })).toHaveCount(0);
   });
 
-  test("sign-in: the atmosphere frame, plain words, the desktop notice", async ({ page }) => {
+  test("sign-in: the atmosphere frame, plain words, the screen-size note", async ({ page }) => {
     await page.goto("/login");
     const panel = page.getByTestId("brand-panel");
     await expect(panel).toBeVisible({ timeout: LONG });
     await expect(page.getByRole("main")).not.toContainText(/switched off|seeded/);
-    await expect(page.getByText(/Desktop only/)).toBeVisible();
+    await expect(page.getByText(/Sign-in works on any screen\. The workspace itself is built for screens 1280 px wide or more\./)).toBeVisible();
     await expect(panel.getByRole("button", { name: "Send sign-in link" })).toBeVisible();
   });
 

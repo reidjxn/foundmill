@@ -4,13 +4,13 @@
  * once the interval has passed (trigger `autopilot`), waits while an Inbox item blocks and never decides it, pauses
  * after N empty cycles, and never starts while the team is stopped or the credits are used up.
  */
-import type { Client, WorkflowHandleWithFirstExecutionRunId } from "@temporalio/client";
+import type { Client, WorkflowHandle, WorkflowHandleWithFirstExecutionRunId } from "@temporalio/client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { AUTOPILOT_DEFAULT_SETTINGS, decideAutopilot, type AutopilotCycleSummary, type AutopilotSettings } from "@foundmill/shared";
+import { AUTOPILOT_DEFAULT_SETTINGS, CONTINUE_RUN_LIMITS, decideAutopilot, decideRun, type AutopilotCycleSummary, type AutopilotFacts, type AutopilotSettings } from "@foundmill/shared";
 import type { Activities, AutopilotEvaluation } from "../../activities";
 import { FakeClock } from "../../clock";
 import { AUTOPILOT_POLL_MS, AUTOPILOT_MAX_SLEEP_MS } from "../../activities/autopilot";
-import { autopilot, autopilotRefreshSignal, businessCycle, stopSignal, type AutopilotInput, type AutopilotResult } from "../../workflows";
+import { autopilot, autopilotRefreshSignal, businessCycle, continueRunEndSignal, continueRunSignal, stopSignal, type AutopilotInput, type AutopilotResult } from "../../workflows";
 import { createTemporalRig, type TemporalRig } from "./temporal";
 
 let rig: TemporalRig;
@@ -28,6 +28,16 @@ const START = "2026-10-13T08:00:00.000Z";
 
 interface World {
   clock: FakeClock;
+  /** Autopilot is turned on (a run goes on either way). */
+  enabled: boolean;
+  vacation: boolean;
+  /** Tasks the plan starts in cycle n (overrides `tasksPerCycle`). */
+  tasksFor?: (cycleNumber: number) => number;
+  /** Finished cycles (`recent.length`) when each run was pressed: its rounds are the ones finished since. */
+  runBaseline: Map<string, number>;
+  runEnds: { runId: string; reason: string }[];
+  /** `autopilotCycleStarted` calls that named a run. */
+  runRounds: string[];
   settings: AutopilotSettings;
   blocking: number;
   stopReason: "kill_switch" | "key_revoked" | "credits_exhausted" | null;
@@ -51,6 +61,11 @@ function world(patch: Partial<World> = {}): World {
   const clock = patch.clock ?? new FakeClock(START);
   return {
     clock,
+    enabled: true,
+    vacation: false,
+    runBaseline: new Map(),
+    runEnds: [],
+    runRounds: [],
     settings: { ...AUTOPILOT_DEFAULT_SETTINGS, cadence: "every_4h" },
     blocking: 0,
     stopReason: null,
@@ -75,16 +90,17 @@ function mocks(w: World): Partial<Activities> {
   return {
     async autopilotEvaluate(input): Promise<AutopilotEvaluation> {
       w.evaluations += 1;
-      const decision = decideAutopilot({
+      const base = w.runBaseline.get(input.run?.id ?? "") ?? w.recent.length;
+      const facts: AutopilotFacts = {
         now: w.clock.nowMs(),
-        enabled: true,
+        enabled: w.enabled,
         pausedReason: w.pausedReason as never,
         since: w.since,
         settings: w.settings,
         archived: false,
         stopReason: w.stopReason,
         creditsRemainingMinor: w.credits,
-        vacation: false,
+        vacation: w.vacation,
         blockingItems: w.blocking,
         cycleOpen: w.open,
         lastCycleStartedAt: w.lastStartedAt,
@@ -93,14 +109,26 @@ function mocks(w: World): Partial<Activities> {
         spentTodayMinor: 0,
         recentCycles: w.recent,
         unrecordedFailures: input.unrecordedFailures,
-      });
+        run: input.run ? { id: input.run.id, startedAt: 0, rounds: w.recent.length - base, lastRound: w.recent.length > base ? w.recent[0]! : null, unrecordedFailures: input.run.unrecordedFailures ?? 0 } : null,
+      };
+      const decision = decideAutopilot(facts);
+      const runDecision = decideRun(facts);
+      if (runDecision) {
+        const waitMs = runDecision.action === "wait" ? Math.max(1_000, Math.min(CONTINUE_RUN_LIMITS.pollMs, runDecision.until !== null ? runDecision.until - w.clock.nowMs() : CONTINUE_RUN_LIMITS.pollMs)) : 0;
+        if (waitMs) await w.clock.advance(waitMs);
+        return { decision, waitMs: 0, cadence: w.settings.cadence, maxIdleCycles: w.settings.maxIdleCycles, cyclesToday: facts.cyclesToday, run: { decision: runDecision, waitMs } };
+      }
       let waitMs = 0;
       if (decision.action === "wait") {
         waitMs = Math.max(1_000, Math.min(AUTOPILOT_MAX_SLEEP_MS, decision.until !== null ? decision.until - w.clock.nowMs() : AUTOPILOT_POLL_MS));
         // The workflow sleeps this long (time is skipped), so the world's clock moves with it.
         await w.clock.advance(waitMs);
       }
-      return { decision, waitMs, cadence: w.settings.cadence, maxIdleCycles: w.settings.maxIdleCycles, cyclesToday: 0 };
+      return { decision, waitMs, cadence: w.settings.cadence, maxIdleCycles: w.settings.maxIdleCycles, cyclesToday: 0, run: null };
+    },
+    async autopilotRunEnded(input) {
+      w.runEnds.push({ runId: input.runId, reason: input.reason });
+      return { recorded: true, rounds: 0 };
     },
     async autopilotPause(input) {
       w.pauses.push(input.reason);
@@ -109,6 +137,7 @@ function mocks(w: World): Partial<Activities> {
     },
     async autopilotCycleStarted(input) {
       w.recorded.push({ cycleNumber: input.cycleNumber, cyclesToday: input.cyclesToday });
+      if (input.runId) w.runRounds.push(input.runId);
       return { eventId: id(900) };
     },
     async autopilotCycleFailed() {
@@ -139,7 +168,8 @@ function mocks(w: World): Partial<Activities> {
       await w.clock.advance(H);
       w.open = false;
       w.lastEndedAt = w.clock.nowMs();
-      const summary: AutopilotCycleSummary = { outcome: w.tasksPerCycle === 0 ? "completed" : "completed", tasksDispatched: w.tasksPerCycle, tasksCompleted: w.tasksPerCycle };
+      const tasks = w.tasksFor ? w.tasksFor(input.cycleNumber) : w.tasksPerCycle;
+      const summary: AutopilotCycleSummary = { outcome: "completed", tasksDispatched: tasks, tasksCompleted: tasks };
       w.recent.unshift(summary);
       void input;
       return { eventId: id(300) };
@@ -323,3 +353,169 @@ describe("autopilot workflow", () => {
     expect(lastRunId).not.toBe(firstRunId);
   });
 });
+
+/**
+ * One press of Continue as the API sends it: signal-with-start on the business's `autopilot:` workflow, with the cycle
+ * number it reserved (null: a cycle is already open). The world notes how many cycles had finished, so the mocked facts
+ * count the run's rounds from there.
+ */
+async function press(w: World, client: Client, taskQueue: string, workflowId: string, runId: string, cycleNumber: number | null, script: (handle: WorkflowHandle<typeof autopilot>) => Promise<void> = async () => undefined, args: AutopilotInput = { businessId: B }): Promise<AutopilotResult> {
+  w.runBaseline.set(runId, w.recent.length);
+  const handle = await client.workflow.signalWithStart(autopilot, { workflowId, taskQueue, args: [args], signal: continueRunSignal, signalArgs: [{ runId, cycleNumber, by: "founder" }] });
+  const result = handle.result();
+  result.catch(() => undefined);
+  await script(handle);
+  return result;
+}
+
+describe("Continue runs until done (Nov 7, 2026)", () => {
+  it("one press runs round after round until a round does nothing: the first with trigger continue, the rest autopilot, no 15-minute floor", async () => {
+    // Autopilot is off: the press alone keeps the team working. Cycles 1 and 2 get work done, cycle 3 finds nothing.
+    const w = world({ enabled: false, tasksFor: (n) => (n <= 2 ? 1 : 0) });
+    const result = await rig.run(mocks(w), (client, taskQueue) => press(w, client, taskQueue, `autopilot:${B}:run-done`, id(501), 1));
+    expect(w.cycles).toEqual([
+      { number: 1, trigger: "continue" },
+      { number: 2, trigger: "autopilot" },
+      { number: 3, trigger: "autopilot" },
+    ]);
+    // Each round starts as soon as the last one ends (a cycle takes an hour here): no 15-minute floor, no schedule.
+    expect(w.starts[1]! - w.starts[0]!).toBeLessThan(H + 15 * 60_000);
+    expect(w.starts[2]! - w.starts[1]!).toBeLessThan(H + 15 * 60_000);
+    expect(w.runEnds).toEqual([{ runId: id(501), reason: "done" }]);
+    // Only the follow-on rounds are recorded as Autopilot's starts, each with the run's id; the press's cycle is the founder's.
+    expect(w.recorded.map((r) => r.cycleNumber)).toEqual([2, 3]);
+    expect(w.runRounds).toEqual([id(501), id(501)]);
+    expect(result).toMatchObject({ outcome: "run_ended", cyclesStarted: 2 });
+  });
+
+  it("the day's cycle cap ends the run (Continue's rounds count toward it)", async () => {
+    const w = world({ enabled: false, settings: { ...AUTOPILOT_DEFAULT_SETTINGS, maxCyclesPerDay: 2 } });
+    const result = await rig.run(mocks(w), (client, taskQueue) => press(w, client, taskQueue, `autopilot:${B}:run-cap`, id(502), 1));
+    expect(w.cycles.map((c) => c.trigger)).toEqual(["continue", "autopilot"]);
+    expect(w.runEnds).toEqual([{ runId: id(502), reason: "daily_cycles" }]);
+    expect(result.outcome).toBe("run_ended");
+  });
+
+  it("Pause ends the run: the round in progress finishes and no new one starts", async () => {
+    const w = world({ enabled: false });
+    const result = await rig.run(mocks(w), (client, taskQueue) =>
+      press(w, client, taskQueue, `autopilot:${B}:run-pause`, id(503), 1, async (handle) => {
+        await until(() => w.cycles.length >= 2);
+        await handle.signal(continueRunEndSignal, { reason: "paused", runId: id(503), by: "founder" });
+      }),
+    );
+    expect(w.cycles).toHaveLength(2);
+    expect(w.runEnds).toEqual([{ runId: id(503), reason: "paused" }]);
+    expect(result.outcome).toBe("run_ended");
+  });
+
+  it("Stop all agents ends the run as stopped and pauses Autopilot as before", async () => {
+    const w = world({ enabled: false });
+    const result = await rig.run(mocks(w), (client, taskQueue) =>
+      press(w, client, taskQueue, `autopilot:${B}:run-stop`, id(504), 1, async (handle) => {
+        await until(() => w.cycles.length >= 1);
+        await handle.signal(stopSignal, { reason: "kill_switch" });
+      }),
+    );
+    expect(w.runEnds).toEqual([{ runId: id(504), reason: "stopped" }]);
+    expect(w.pauses).toEqual(["kill_switch"]);
+    expect(result.outcome).toBe("stopped");
+  });
+
+  it("a hard stop (used-up credits) ends it after the round in progress", async () => {
+    const w = world({ enabled: false });
+    const base = mocks(w);
+    const result = await rig.run(
+      {
+        ...base,
+        async completeCycle(input: Parameters<NonNullable<Activities["completeCycle"]>>[0]) {
+          w.credits = 0;
+          return base.completeCycle!(input);
+        },
+      },
+      (client, taskQueue) => press(w, client, taskQueue, `autopilot:${B}:run-credits`, id(505), 1),
+    );
+    expect(w.cycles).toHaveLength(1);
+    expect(w.runEnds).toEqual([{ runId: id(505), reason: "hard_stop" }]);
+    expect(result.outcome).toBe("run_ended");
+  });
+
+  it("a vacation that starts mid-run ends it", async () => {
+    const w = world({ enabled: false });
+    const base = mocks(w);
+    const result = await rig.run(
+      {
+        ...base,
+        async completeCycle(input: Parameters<NonNullable<Activities["completeCycle"]>>[0]) {
+          w.vacation = true;
+          return base.completeCycle!(input);
+        },
+      },
+      (client, taskQueue) => press(w, client, taskQueue, `autopilot:${B}:run-vacation`, id(506), 1),
+    );
+    expect(w.cycles).toHaveLength(1);
+    expect(w.runEnds).toEqual([{ runId: id(506), reason: "vacation" }]);
+    expect(result.outcome).toBe("run_ended");
+  });
+
+  it("with Autopilot on, the schedule takes over once the run ends", async () => {
+    // Cycle 1 (the press) gets work done, cycle 2 finds nothing: the run ends; cycle 3 is Autopilot's, 4 hours later.
+    const w = world({ tasksFor: (n) => (n === 2 ? 0 : 1) });
+    const result = await rig.run(mocks(w), (client, taskQueue) =>
+      press(w, client, taskQueue, `autopilot:${B}:run-schedule`, id(507), 1, async (handle) => {
+        await until(() => w.cycles.length >= 3);
+        await handle.signal(stopSignal, { reason: "kill_switch" });
+      }),
+    );
+    expect(w.cycles.slice(0, 3).map((c) => c.trigger)).toEqual(["continue", "autopilot", "autopilot"]);
+    expect(w.runEnds).toEqual([{ runId: id(507), reason: "done" }]);
+    // The run's second round came right after the first; Autopilot's own waited out its cadence after the run's end.
+    expect(w.starts[1]! - w.starts[0]!).toBeLessThan(H + 15 * 60_000);
+    expect(w.starts[2]! - w.starts[1]!).toBeGreaterThanOrEqual(5 * H);
+    expect(w.runRounds).toEqual([id(507)]);
+    expect(result.outcome).toBe("stopped");
+  });
+
+  it("a press while a cycle is open waits for it (every minute) and goes on after it", async () => {
+    // Another cycle is running when the press arrives (cycleNumber null); it ends with nothing done, so the run is done.
+    const w = world({ enabled: false, open: true });
+    const base = mocks(w);
+    const result = await rig.run(
+      {
+        ...base,
+        async autopilotEvaluate(input: Parameters<NonNullable<Activities["autopilotEvaluate"]>>[0]) {
+          if (w.evaluations === 3) {
+            w.open = false;
+            w.recent.unshift({ outcome: "completed", tasksDispatched: 0, tasksCompleted: 0 });
+          }
+          return base.autopilotEvaluate!(input);
+        },
+      },
+      (client, taskQueue) => press(w, client, taskQueue, `autopilot:${B}:run-open`, id(508), null),
+    );
+    // Three looks a minute apart while the cycle runs, the fourth ends the run, a fifth (no run) finds Autopilot off.
+    expect(w.evaluations).toBe(5);
+    expect(w.cycles).toHaveLength(0);
+    expect(w.runEnds).toEqual([{ runId: id(508), reason: "done" }]);
+    expect(result.outcome).toBe("run_ended");
+  });
+
+  it("the run is carried across continueAsNew", async () => {
+    const w = world({ enabled: false, tasksFor: (n) => (n <= 2 ? 1 : 0) });
+    let lastRunId: string | undefined;
+    const workflowId = `autopilot:${B}:run-asnew`;
+    const result = await rig.run(mocks(w), async (client, taskQueue) => {
+      const out = await press(w, client, taskQueue, workflowId, id(509), 1, async () => undefined, { businessId: B, maxRounds: 2 });
+      lastRunId = (await client.workflow.getHandle(workflowId).describe()).runId;
+      return out;
+    });
+    // Two rounds per execution: the press's cycle and the next ran in the first, the idle third in the next one.
+    expect(w.cycles.map((c) => c.trigger)).toEqual(["continue", "autopilot", "autopilot"]);
+    expect(w.runEnds).toEqual([{ runId: id(509), reason: "done" }]);
+    expect(result.outcome).toBe("run_ended");
+    const first = (await rig.client.workflow.getHandle(workflowId).fetchHistory()).events?.[0]?.workflowExecutionStartedEventAttributes;
+    expect(first?.continuedExecutionRunId).toBeTruthy();
+    expect(lastRunId).toBeDefined();
+  });
+});
+

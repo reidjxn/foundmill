@@ -1,11 +1,13 @@
 /**
  * Composer eval (docs/UX_AUDIT_AND_PLAN.md §7.19; voice guide §8.1): the Inbox Composer over the AC-11.3.1 corpus,
  * 100 consecutive notes from one fixed manifest and the event kinds the narrate pipeline mixes, plus grounded decisions
- * and data-change insights, written to founders of every experience. Two gates per note:
+ * and data-change insights, written to founders of every experience. Three gates per note:
  *   1. plain language (deterministic, authoritative): the replace tier of `PLAIN_LANGUAGE_TIERS` run over `body_md`,
  *      the option labels, consequences and "because"; one hit fails the note;
  *   2. a rubric scored by the grader route: the business stake first, each term defined or avoided, the recommended
- *      option carries a because.
+ *      option carries a because;
+ *   3. agent naming (deterministic, Nov 8, 2026): agents are named only by their manifest name, as markup in the body
+ *      and option lines and as plain text in the subject, never by a first name or a shortened name.
  * `runComposerCase` drives the real request through a model client (live in `pnpm evals`; the unit suite feeds it the
  * mock, whose notes are what mock-mode testers read).
  */
@@ -278,6 +280,60 @@ function graderMessages(c: ComposerEvalCase, out: ComposerOutput, hits: readonly
   ];
 }
 
+// ---------------------------------------------------------------------------------------------------------------------
+// Gate 3: agents are named only by their manifest name (One name everywhere, Nov 8, 2026)
+// ---------------------------------------------------------------------------------------------------------------------
+
+export interface AgentNamingHit {
+  field: string;
+  /** `renamed`: markup for a manifest agent with another name; `short`: a part of an agent's name standing alone;
+   *  `unlinked`: an agent named in the body or an option line outside markup. */
+  problem: "renamed" | "short" | "unlinked";
+  text: string;
+}
+
+type ManifestRow = { id: string; kind: string; name: string; aliases?: readonly string[] };
+
+/**
+ * The naming rule over everything a founder reads in a note. The body and option lines name an agent only as
+ * `[[ent:<id>|<manifest name>]]` (EntityLink then shows it under the reader's own setting); the subject is plain text
+ * and names an agent by its exact manifest name. A first name or a shortened name ("Juno" for "Juno Adeyemi") is never
+ * written, because the web swaps the stored name for the reader's choice and cannot find a made-up one.
+ */
+export function agentNamingHits(out: Pick<ComposerOutput, "subject" | "body_md" | "decision">, manifest: readonly ManifestRow[] = COMPOSER_CORPUS_MANIFEST): AgentNamingHit[] {
+  const agents = manifest.filter((m) => m.kind === "agent");
+  const byId = new Map(agents.map((a) => [a.id, a] as const));
+  // A word another entity is also called by ("Priya" the customer) is not counted as a shortened agent name.
+  const otherWords = new Set(manifest.filter((m) => m.kind !== "agent").flatMap((m) => [m.name, ...(m.aliases ?? [])].flatMap((n) => n.split(/\s+/))));
+  const word = (w: string) => new RegExp(`(?<![\\p{L}\\p{N}_])${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\p{L}\\p{N}_])`, "u");
+  const fields: Array<[string, string | undefined, boolean]> = [
+    ["subject", out.subject, true],
+    ["body_md", out.body_md, false],
+  ];
+  out.decision?.options.forEach((o, i) => {
+    fields.push([`decision.options[${i}].label`, o.label, false], [`decision.options[${i}].consequence`, o.consequence, false], [`decision.options[${i}].because`, o.because, false]);
+  });
+  const hits: AgentNamingHit[] = [];
+  for (const [field, raw, plainAllowed] of fields) {
+    if (!raw) continue;
+    for (const m of raw.matchAll(/\[\[ent:([^|\]]+)\|([^\]]*)\]\]/g)) {
+      const agent = byId.get(m[1]!);
+      if (agent && m[2]!.trim() !== agent.name) hits.push({ field, problem: "renamed", text: m[0] });
+    }
+    const outside = raw.replace(/\[\[ent:[^\]]*\]\]/g, " ");
+    for (const a of agents) {
+      let rest = outside;
+      if (word(a.name).test(rest)) {
+        if (!plainAllowed) hits.push({ field, problem: "unlinked", text: a.name });
+        rest = rest.replace(new RegExp(word(a.name).source, "gu"), " ");
+      }
+      const parts = a.name.split(/\s+/).filter((p) => p.length > 1 && !otherWords.has(p));
+      if (parts.length > 1) for (const p of parts) if (word(p).test(rest)) hits.push({ field, problem: "short", text: p });
+    }
+  }
+  return hits;
+}
+
 export interface ComposerCaseResult {
   caseId: string;
   kind: ComposerCaseKind;
@@ -285,6 +341,8 @@ export interface ComposerCaseResult {
   output: ComposerOutput | null;
   /** Replace-tier hits (gate 1); any hit fails the case. */
   hits: PlainLanguageHit[];
+  /** Agent naming hits (gate 3); any hit fails the case. */
+  namingHits: AgentNamingHit[];
   /** The recommended option carried a because. */
   recommendedHasBecause: boolean;
   grader: SkillGradeOutput | null;
@@ -307,12 +365,13 @@ export interface RunComposerCaseOptions {
 export async function runComposerCase(c: ComposerEvalCase, client: ModelClient, options: RunComposerCaseOptions = {}): Promise<ComposerCaseResult> {
   const started = Date.now();
   const threshold = options.threshold ?? COMPOSER_PASS_THRESHOLD;
-  const base = { caseId: c.id, kind: c.kind, founderExperience: c.founderExperience, output: null, hits: [] as PlainLanguageHit[], recommendedHasBecause: false, grader: null, costMinor: 0 };
+  const base = { caseId: c.id, kind: c.kind, founderExperience: c.founderExperience, output: null, hits: [] as PlainLanguageHit[], namingHits: [] as AgentNamingHit[], recommendedHasBecause: false, grader: null, costMinor: 0 };
   try {
     const result = await client.complete({ route: "inboxComposer", schema: ComposerOutput, system: composerSystemPrompt(c), messages: composerMessages(c), scope: `eval:${c.id}`, cacheSystem: true });
     const out = result.json;
     let costMinor = result.cost.costMinorInt;
     const hits = plainLanguageHits(out);
+    const namingHits = agentNamingHits(out);
     const recommended = out.decision?.options.find((o) => o.recommended);
     const recommendedHasBecause = !out.decision || (typeof recommended?.because === "string" && recommended.because.trim().length > 0);
     let grader: SkillGradeOutput | null = null;
@@ -323,8 +382,8 @@ export async function runComposerCase(c: ComposerEvalCase, client: ModelClient, 
       grader = graded.json;
       score = Math.min(graded.json.score, weightedScore(graded.json.lines, graded.json.score));
     }
-    if (hits.length > 0) score = 0;
-    return { ...base, output: out, hits, recommendedHasBecause, grader, score, passed: hits.length === 0 && recommendedHasBecause && score >= threshold, costMinor, durationMs: Date.now() - started };
+    if (hits.length > 0 || namingHits.length > 0) score = 0;
+    return { ...base, output: out, hits, namingHits, recommendedHasBecause, grader, score, passed: hits.length === 0 && namingHits.length === 0 && recommendedHasBecause && score >= threshold, costMinor, durationMs: Date.now() - started };
   } catch (err) {
     return { ...base, score: 0, passed: false, durationMs: Date.now() - started, error: err instanceof Error ? err.message : String(err) };
   }
@@ -335,6 +394,8 @@ export interface ComposerSuiteSummary {
   passed: number;
   /** Cases with a replace-tier hit (the gate: none allowed). */
   plainFailed: string[];
+  /** Cases that named an agent other than by its manifest name (gate 3: none allowed). */
+  namingFailed: string[];
   /** Cases whose recommended option had no because. */
   noBecause: string[];
   /** Cases under the rubric threshold without a plain-language hit. */
@@ -355,8 +416,9 @@ export function summariseComposer(results: readonly ComposerCaseResult[]): Compo
     total: results.length,
     passed: results.filter((r) => r.passed).length,
     plainFailed: results.filter((r) => r.hits.length > 0).map((r) => r.caseId),
+    namingFailed: results.filter((r) => r.namingHits.length > 0).map((r) => r.caseId),
     noBecause: results.filter((r) => r.output && !r.recommendedHasBecause).map((r) => r.caseId),
-    rubricFailed: results.filter((r) => r.hits.length === 0 && r.recommendedHasBecause && !r.passed).map((r) => r.caseId),
+    rubricFailed: results.filter((r) => r.hits.length === 0 && r.namingHits.length === 0 && r.recommendedHasBecause && !r.passed).map((r) => r.caseId),
     meanScore: results.length ? results.reduce((s, r) => s + r.score, 0) / results.length : 0,
     costMinor: results.reduce((s, r) => s + r.costMinor, 0),
     byKind,

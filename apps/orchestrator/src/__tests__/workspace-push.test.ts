@@ -243,6 +243,90 @@ describe("pushWorkspace", () => {
     expect(three).toEqual({ status: "moved", repo: "acme/shop", branch, headSha: "a".repeat(40) });
   });
 
+  it("rebuilds the branch on the default branch's commit when the save was made on a checkout of it (a handed-back task), expecting the branch where the task left it", async () => {
+    await repos.integrations.upsert(t.deps.db, t.businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { repo: "acme/shop", writeEnabled: true } });
+    const task = await repos.tasks.create(t.db, t.businessId, { kind: "code", title: "Handed back", goalMd: "x", assigneeAgentId: t.workerId, status: "ready" });
+    const branch = `agent/${task.id}`;
+    const { gateway, offline, readFile } = githubGateway();
+    /** A read tool's data, out of the untrusted envelope when it is in one. */
+    const unwrap = <T,>(result: unknown): T => {
+      const data = (result as { data: unknown }).data;
+      return (data && typeof data === "object" && "content" in data ? (data as { content: T }).content : (data as T));
+    };
+    const compare = async (head: string) => unwrap<{ baseSha: string; behindBy: number; aheadBy: number }>((await gateway.call("t", { connector: "github", tool: "compare_refs", args: { owner: "acme", repo: "shop", base: "HEAD", head } })).result);
+    // The repository's main as the mock serves it (deterministic per name): the commit a checkout of the default branch sees.
+    const head = await createOfflineGatewayClient().downloadArchive("t", { owner: "acme", repo: "shop", ref: "HEAD" });
+    if (!("archive" in head)) throw new Error("no archive");
+    const main = head.archive.sha;
+    expect(main).toMatch(/^[0-9a-f]{40}$/);
+    const saveOn = async (sessionId: string, ref: string, commitSha: string, files: Record<string, string>) =>
+      (await t.deps.db.transaction((tx) => repos.workspaces.save(tx as never, t.businessId, { taskId: task.id, sessionId, files: Object.entries(files).map(([path, c]) => ({ path, content: text(c), inBase: false })), base: { repo: "acme/shop", ref, commitSha }, removedPaths: [] }))).snapshot!;
+    const ctx = (sessionId: string, extra: Partial<PushContext> = {}): PushContext => ({ businessId: t.businessId, taskId: task.id, sessionId, agentId: t.workerId, branch, agentName: "Worker", holdBack: null, ...extra });
+
+    // Session 1 on a checkout of the default branch: the branch does not exist and is created there (nothing to rebuild).
+    const s1 = await openSessionRow(t, t.workerId, task.id);
+    const one = await pushWorkspace(t.deps.db, gateway, ctx(s1), await saveOn(s1, "main", main, { "src/fix.ts": "v1", "scratch.txt": "left on the old branch" }));
+    expect(one).toMatchObject({ status: "pushed", rebuilt: false, filesWritten: 2 });
+    expect(offline.calls.at(-1)!.args).toMatchObject({ rebuild: true, fromRef: main });
+    expect(offline.calls.at(-1)!.args).not.toHaveProperty("expectedHeadSha");
+    const firstSha = (one as { commitSha: string }).commitSha;
+
+    // Session 2 on a checkout of the branch itself: a commit on top, as always.
+    const s2 = await openSessionRow(t, t.workerId, task.id);
+    const two = await pushWorkspace(t.deps.db, gateway, ctx(s2, { checkout: { commitSha: firstSha, at: new Date() } }), await saveOn(s2, branch, firstSha, { "src/fix.ts": "v2" }));
+    expect(two).toMatchObject({ status: "pushed", rebuilt: false });
+    expect(offline.calls.at(-1)!.args).not.toHaveProperty("rebuild");
+    expect(offline.calls.at(-1)!.args).toMatchObject({ expectedHeadSha: firstSha });
+    const secondSha = (two as { commitSha: string }).commitSha;
+
+    // The merge hands the task back; session 3 starts from the default branch's files with the saved change on top. The
+    // save is a diff against main's commit, so the branch is rebuilt there: main's files plus the fix, and nothing the
+    // old branch alone had; the push expected the branch at the task's last push, not at main.
+    const s3 = await openSessionRow(t, t.workerId, task.id);
+    const three = await pushWorkspace(t.deps.db, gateway, ctx(s3, { checkout: { commitSha: main, at: new Date() } }), await saveOn(s3, "main", main, { "src/fix.ts": "v3 on the newest main" }));
+    expect(three).toMatchObject({ status: "pushed", rebuilt: true, filesWritten: 1 });
+    const args = offline.calls.at(-1)!.args as { rebuild?: boolean; fromRef?: string; expectedHeadSha?: string; message: string };
+    expect(args).toMatchObject({ rebuild: true, fromRef: main, expectedHeadSha: secondSha });
+    expect(args.message).toContain(`Based on main at ${main.slice(0, 7)}.`);
+    expect(await readFile("src/fix.ts", branch)).toBe("v3 on the newest main");
+    expect(await readFile("scratch.txt", branch)).toBeNull();
+    expect(describePush(three)?.text).toContain("The branch was rebuilt on the default branch's newest commit; its earlier commits are no longer its history.");
+    expect(await compare(branch)).toMatchObject({ behindBy: 0, aheadBy: 1 });
+
+    // The agent pushed to the old branch itself during the handed-back session: the rebuild still expects that head.
+    const own = await gateway.call("t", { connector: "github", tool: "commit_files", args: { owner: "acme", repo: "shop", branch, message: "agent's own", files: [{ path: "src/own.ts", content: "mine" }] } });
+    const ownSha = (own.result as { data: { sha: string } }).data.sha;
+    const s4 = await openSessionRow(t, t.workerId, task.id);
+    const four = await pushWorkspace(t.deps.db, gateway, ctx(s4, { checkout: { commitSha: main, at: new Date() }, agentPushed: { count: 1, lastSha: ownSha } }), await saveOn(s4, "main", main, { "src/fix.ts": "v4", "src/own.ts": "mine" }));
+    expect(four).toMatchObject({ status: "pushed", rebuilt: true });
+    expect(offline.calls.at(-1)!.args).toMatchObject({ rebuild: true, expectedHeadSha: ownSha });
+
+    // The branch is at a commit the record never saw (an earlier session's own push): GitHub says branch_moved, and a
+    // rebuild is retried once at the head it names, because the branch is being replaced anyway. A second refusal ends it.
+    const fourSha = (four as { commitSha: string }).commitSha;
+    const unseen = "d".repeat(40);
+    const elsewhere = "e".repeat(40);
+    let refusals = 0;
+    const once = githubGateway((req) => {
+      if (req.tool !== "commit_files" || refusals > 0) return null;
+      refusals += 1;
+      return { outcome: "allow", result: { ok: false, error: { code: "branch_moved", message: "moved", details: { branch, expectedHeadSha: fourSha, currentHeadSha: unseen } } } };
+    });
+    // The branch in this second mock world does not exist yet; the retry creates it, which is enough to see the retry.
+    const s5 = await openSessionRow(t, t.workerId, task.id);
+    const five = await pushWorkspace(t.deps.db, once.gateway, ctx(s5, { checkout: { commitSha: main, at: new Date() } }), await saveOn(s5, "main", main, { "src/fix.ts": "v5" }));
+    const commits = once.offline.calls.filter((c) => c.tool === "commit_files");
+    expect(commits).toHaveLength(2);
+    expect(commits[0]!.args).toMatchObject({ rebuild: true, expectedHeadSha: fourSha });
+    expect(commits[1]!.args).toMatchObject({ rebuild: true, expectedHeadSha: unseen });
+    expect(five).toMatchObject({ status: "pushed" });
+    const twice = githubGateway((req) => (req.tool === "commit_files" ? { outcome: "allow", result: { ok: false, error: { code: "branch_moved", message: "moved", details: { branch, expectedHeadSha: fourSha, currentHeadSha: elsewhere } } } } : null));
+    const s6 = await openSessionRow(t, t.workerId, task.id);
+    const six = await pushWorkspace(t.deps.db, twice.gateway, ctx(s6, { checkout: { commitSha: main, at: new Date() } }), await saveOn(s6, "main", main, { "src/fix.ts": "v6" }));
+    expect(twice.offline.calls.filter((c) => c.tool === "commit_files")).toHaveLength(2);
+    expect(six).toEqual({ status: "moved", repo: "acme/shop", branch, headSha: elsewhere });
+  });
+
   it("never pushes a save made without the checkout its base names, and says why on that save only", async () => {
     await repos.integrations.upsert(t.deps.db, t.businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { repo: "acme/shop", writeEnabled: true } });
     const task = await repos.tasks.create(t.db, t.businessId, { kind: "code", title: "Held", goalMd: "x", assigneeAgentId: t.workerId, status: "ready" });

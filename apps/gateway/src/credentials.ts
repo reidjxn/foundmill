@@ -12,7 +12,7 @@ import { buildAad, decryptJson, encryptJson, VaultError, type Vault } from "@fou
 import { INTEGRATION_CREDENTIAL_KIND, LEGACY_INTEGRATION_CREDENTIAL_KINDS, repos, type Db, type Integration } from "@foundmill/db";
 import type { DecryptedCredential, IntegrationRecord } from "@foundmill/connectors";
 
-/** The row kind of every integration credential (apps/api `integrations.connect` and `keys.*` store under it too). */
+/** The row kind of every integration credential (this gateway's integrations connect and apps/api `keys.*` store under it). */
 export const CREDENTIAL_KIND = INTEGRATION_CREDENTIAL_KIND;
 export const PROVISIONAL_AAD_ROW = "pending";
 

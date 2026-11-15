@@ -1,0 +1,23 @@
+# gitleaks configuration for .github/workflows/security.yml (security audit, Nov 13, 2026).
+# The default rules, plus an allowlist for what this repository holds on purpose: invented keys in tests, fixtures and
+# mocks (every connector has a mock with canned credentials), and code that reads a key from the environment. Each
+# allowlisted path was reviewed on Nov 14, 2026 (the PR that added this file lists them); nothing else is allowed, so a
+# key anywhere outside these paths fails the scan.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Invented credentials in tests, fixtures and mocks; keys read from the environment"
+paths = [
+  '''(^|/)__tests__/''',
+  '''\.test\.(ts|tsx|mjs|js)$''',
+  '''\.spec\.ts$''',
+  '''(^|/)fixtures/''',
+  '''(^|/)mock/''',
+  '''^packages/connectors/src/connectors/[a-z_]+/mock\.ts$''',
+]
+# A line that reads a key from the environment (`env.E2B_API_KEY`, `process.env.STRIPE_SECRET_KEY`) carries no secret.
+regexes = [
+  '''env\.[A-Z][A-Z0-9_]+''',
+]

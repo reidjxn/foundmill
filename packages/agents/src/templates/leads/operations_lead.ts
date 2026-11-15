@@ -44,7 +44,7 @@ export const operationsLead = defineTemplate({
     ],
   },
   tools: [
-    grant("platform", [...PLATFORM_LEAD_TOOLS, "crm.entities.search", "crm.entities.create", "crm.interactions.append", "documents.read", "documents.write", "costing.model.read", "costing.model.update"]),
+    grant("platform", [...PLATFORM_LEAD_TOOLS, "crm.entities.search"]),
     grant("quarantine", QUARANTINE_TOOLS),
     grant("google_drive", ["files.list", "files.read", "files.write"]),
     grant("gmail", ["drafts.create", "threads.read"]),

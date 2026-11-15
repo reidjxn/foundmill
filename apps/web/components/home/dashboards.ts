@@ -5,7 +5,7 @@
  */
 import type { NextStepFacts, NextStepFoundationsStatus, NextStepItem, TabItem, TrophyCard, WidgetLayout, WidgetPreset } from "@foundmill/dugout";
 import { applyGlossary } from "@foundmill/shared/glossary";
-import { TROPHIES } from "@foundmill/journey";
+import { eventTrophyDescription, TROPHIES } from "@foundmill/journey";
 import { DASHBOARD_PRESET_LIST, dashboardPresets, fromGridLayout, isDashboardPresetId, layoutsEqual, routes, toGridLayout, type DashboardPresetId } from "@foundmill/widgets";
 import { formatNumber } from "@/lib/format";
 
@@ -118,12 +118,14 @@ export function isDayOne(input: DayOneInput): boolean {
 export interface NextStepInputs {
   /** `business.get` foundationsStatus: none, pending, drafting, ready or failed. */
   foundationsStatus: string | null | undefined;
-  /** Notes in Respond that hold Continue (`inbox.list` blocking, else `business.get` blockingItems). */
+  /** Notes that need the founder: the Inbox's Needs you count (`inbox.list` counts.respond), else the hard stops (`blocking`). */
   blocking: number;
   /** Notes from the team not opened yet (`unreadNotes`). */
   unread: number;
   /** `cycle.status`: running (a paused cycle is not running for the founder), the cycle's number, the agents at work, the cycles finished. */
   cycle: { running: boolean; paused?: boolean; cycleNumber: number | null; nextCycleNumber?: number; activeAgentIds?: readonly string[]; completedCount: number } | null | undefined;
+  /** Builder view (default on for a caller that does not say): off leaves the cycle number out of the facts. */
+  builder?: boolean;
   distributionStartedAt: Date | string | null | undefined;
 }
 
@@ -150,12 +152,14 @@ export function unreadNotes(items: readonly { state: string; fromAgentId?: strin
 export function nextStepFacts(input: NextStepInputs): NextStepFacts {
   const cycle = input.cycle ?? null;
   const running = !!cycle?.running && !cycle.paused;
+  // Builder view off: the checklist says "The team is working", never a cycle number.
+  const builder = input.builder ?? true;
   return {
     foundationsStatus: foundationsForNextStep(input.foundationsStatus),
     blockingNotes: Math.max(0, input.blocking),
     unreadNotes: Math.max(0, input.unread),
     cycleRunning: running,
-    cycleNumber: (running ? cycle?.cycleNumber : null) ?? cycle?.nextCycleNumber ?? 1,
+    cycleNumber: builder ? ((running ? cycle?.cycleNumber : null) ?? cycle?.nextCycleNumber ?? 1) : null,
     agentsWorking: running ? (cycle?.activeAgentIds?.length ?? 0) : 0,
     distributionStarted: input.distributionStartedAt !== null && input.distributionStartedAt !== undefined,
     firstCycleDone: (cycle?.completedCount ?? 0) > 0,
@@ -168,6 +172,7 @@ export function withContinueAction(steps: readonly NextStepItem[], onGo: () => v
 }
 
 function describeTrophy(t: (typeof TROPHIES)[number], currency: string): string {
+  if (t.metric === "event") return eventTrophyDescription(t) ?? "";
   if (t.metric === "customers") return t.threshold === 1 ? "The first paying customer." : `${formatNumber(t.threshold)} paying customers.`;
   if (t.metric === "mrrMinor") return `Monthly recurring revenue reaches ${t.label(currency).replace(/^First /, "").replace(/ MRR$/, "")}.`;
   return "A signed contract above the enterprise threshold.";

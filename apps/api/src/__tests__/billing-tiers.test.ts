@@ -75,20 +75,16 @@ describe("a note's own cost", () => {
   });
 });
 
-describe("seats (TIERS.seats)", () => {
-  it("an invitation past the tier's seats is refused with a typed error; a larger tier has room", async () => {
+describe("people are free (TIERS.seats)", () => {
+  it("a free business adds another person without a plan change", async () => {
     const owner = hz.caller({ userId: hz.B.ownerId });
     const guest = await hz.h.createUser("tiers-guest@test.local");
-    // The fixture business already has four members; the free tier has one seat.
-    await expect(owner.team.humans.invite({ businessId: hz.B.businessId, userId: guest, role: "member" })).rejects.toMatchObject({ code: "FORBIDDEN", cause: { code: "tier_limit", details: { limit: "seats", tier: "free", allowed: 1, used: 4 } } });
-    expect(await repos.memberships.get(hz.db, hz.B.businessId, guest)).toBeNull();
-    await owner.billing.changeTier({ businessId: hz.B.businessId, tier: "scale" });
-    try {
-      const membership = await owner.team.humans.invite({ businessId: hz.B.businessId, userId: guest, role: "member" });
-      expect(membership.role).toBe("member");
-    } finally {
-      await owner.billing.changeTier({ businessId: hz.B.businessId, tier: "free" });
-    }
+    // The fixture business already has four members and is on the free plan: no limit refuses a fifth.
+    expect((await repos.businesses.get(hz.db, hz.B.businessId)).planTier).toBe("free");
+    const { link } = await owner.invitation.create({ businessId: hz.B.businessId, role: "collaborator" });
+    await hz.caller({ userId: guest }).invitation.accept({ confirmAdult: true, token: link.split("/i/")[1]! });
+    expect((await repos.memberships.get(hz.db, hz.B.businessId, guest))?.role).toBe("collaborator");
+    expect(await repos.memberships.get(hz.db, hz.B.businessId, guest)).not.toBeNull();
   });
 });
 
@@ -118,7 +114,7 @@ describe("concurrent agents (TIERS.maxConcurrentAgents)", () => {
   });
 });
 
-describe("business.setSpendCap (Settings › Mode)", () => {
+describe("business.setSpendCap (Settings › What the team can do)", () => {
   it("an admin sets and clears the business cap, audited; a member cannot", async () => {
     const admin = hz.caller({ userId: hz.B.adminId });
     const set = await admin.business.setSpendCap({ businessId: hz.B.businessId, spendCapMinor: 5_000 });

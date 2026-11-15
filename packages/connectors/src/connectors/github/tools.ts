@@ -2,8 +2,9 @@
  * GitHub App connector: repositories the installation can reach, tree/file reads (quarantined — repo
  * content is third-party text), branches, commits to working branches, pull requests. Merging is
  * `irreversible` (never spends money); deleting a repository or force-pushing over history would be permanent
- * deletion and is not offered. `commit_files` only fast-forwards an `agent/` branch of a private repository and never
- * writes `.git` or `.github` (so it cannot add or edit workflow files), a commit can always be reverted, and the
+ * deletion and is not offered. `commit_files` writes only an `agent/` branch of a private repository (fast-forward, or
+ * rebuilt on a named commit when the caller says so: an agent's branch brought up to date with the default branch) and
+ * never writes `.git` or `.github` (so it cannot add or edit workflow files), a commit can always be reverted, and the
  * default branch changes only through `merge_pr`. Code it writes can still run in CI that the repository's own
  * workflows start (scripts, local actions elsewhere, `on: create`): pushing is the founder's opt-in for that reason.
  *
@@ -58,6 +59,12 @@ export const PullRequest = z.object({
   draft: z.boolean(),
   merged: z.boolean(),
   mergeable: z.boolean().nullable(),
+  /**
+   * GitHub's merge state: `clean` (ready), `blocked` (required checks or reviews outstanding), `unstable` (a non-required
+   * check failed), `behind` (the base moved and the ruleset wants it up to date), `dirty` (conflicts), `draft`, `has_hooks`,
+   * or `unknown` while GitHub is still computing it (a pull request just opened). Null when GitHub did not say.
+   */
+  mergeableState: z.enum(["clean", "blocked", "unstable", "behind", "dirty", "draft", "has_hooks", "unknown"]).nullable(),
   head: z.object({ ref: z.string(), sha: z.string() }),
   base: z.object({ ref: z.string(), sha: z.string() }),
   url: z.url(),
@@ -121,7 +128,17 @@ export const CommitFilesInput = RepoRef.extend({
    * branch does not exist yet.
    */
   expectedHeadSha: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/, "a full commit sha").optional(),
+  /**
+   * Rebuild an existing branch on `fromRef` (required with it) instead of committing on top of its head: the commit's
+   * parent is `fromRef`, the files are the diff against it, and the branch is moved there whatever history it held. For
+   * a branch that went back to its agent to be brought up to date, whose session started from the default branch's
+   * files (the saved diff is against those, not against the branch's own commits). `expectedHeadSha` still guards the
+   * branch head: a branch at another commit is refused with `branch_moved` and nothing is written. Only an `agent/`
+   * branch, like every write of this tool.
+   */
+  rebuild: z.boolean().default(false),
 }).superRefine((input, ctx) => {
+  if (input.rebuild && !input.fromRef) ctx.addIssue({ code: "custom", path: ["fromRef"], message: "rebuild needs the commit to rebuild on (fromRef)" });
   const seen = new Set<string>();
   let total = 0;
   for (const f of input.files) {
@@ -141,6 +158,8 @@ export const CommitFilesOutput = z.object({
   created: z.boolean(),
   /** False when every file already matched the branch and nothing was deleted (no empty commits). */
   committed: z.boolean(),
+  /** The branch existed and was rebuilt on `fromRef` (`rebuild`): its earlier commits are no longer its history. */
+  rebuilt: z.boolean(),
   /** The branch head after the call. */
   sha: z.string(),
   parentSha: z.string(),
@@ -353,7 +372,7 @@ export const githubTools = [
   }),
   defineTool({
     name: "commit_files",
-    description: "Write files to an agent's working branch (agent/<name>) of a private repository as one commit: the branch is created from fromRef (default: the default branch) when missing, the files are added or replaced on top of it and the deletions removed. At most 300 files and 10 MB; nothing under .git or .github. Only changed files are uploaded; nothing changed means no commit. With expectedHeadSha, an existing branch whose head is another commit is refused (branch_moved, with the current head) and nothing is written. Never writes the default branch (merge a pull request with merge_pr) and never force-pushes.",
+    description: "Write files to an agent's working branch (agent/<name>) of a private repository as one commit: the branch is created from fromRef (default: the default branch) when missing, the files are added or replaced on top of it and the deletions removed. At most 300 files and 10 MB; nothing under .git or .github. Only changed files are uploaded; nothing changed means no commit. With expectedHeadSha, an existing branch whose head is another commit is refused (branch_moved, with the current head) and nothing is written. With rebuild (and fromRef), an existing branch is rebuilt on fromRef instead: the commit's parent is fromRef and the branch is moved there, its earlier commits left behind. Never writes the default branch (merge a pull request with merge_pr).",
     input: CommitFilesInput,
     output: CommitFilesOutput,
     hints: {},
@@ -379,8 +398,8 @@ export const githubTools = [
   }),
   defineTool({
     name: "open_pr",
-    description: "Open a pull request from head to base. Draft by default so humans see it before review requests go out.",
-    input: RepoRef.extend({ title: z.string().min(1).max(256), body: z.string().max(60_000).default(""), head: BranchName, base: BranchName, draft: z.boolean().default(true) }),
+    description: "Open a pull request from head to base (HEAD, the default, is the repository's default branch). Draft by default so humans see it before review requests go out.",
+    input: RepoRef.extend({ title: z.string().min(1).max(256), body: z.string().max(60_000).default(""), head: BranchName, base: BranchName.default("HEAD"), draft: z.boolean().default(true) }),
     output: PullRequest,
     hints: {},
     annotations: { readOnlyHint: false },
@@ -406,8 +425,15 @@ export const githubTools = [
     annotations: { readOnlyHint: true },
   }),
   defineTool({
+    name: "update_branch",
+    description: "Bring a pull request's branch up to date with its base: GitHub merges the base branch into the pull request's branch as one commit (the branch's own commits are untouched; nothing reaches the base). Refused (422) when the branch conflicts with the base, and when expectedHeadSha is given and the branch moved. Already up to date → updated: false. Spends no money.",
+    input: RepoRef.extend({ prNumber: z.number().int().positive(), expectedHeadSha: z.string().min(7).max(64).optional() }),
+    output: z.object({ updated: z.boolean(), headSha: z.string().nullable(), message: z.string() }),
+    hints: { irreversible: false, spendsMoney: false },
+  }),
+  defineTool({
     name: "merge_pr",
-    description: "Merge a pull request into its base branch. Irreversible (history on the base branch changes); merges to the default branch are a decision in Augmented mode (BUILD §9.6). Spends no money.",
+    description: "Merge a pull request into its base branch. Irreversible (history on the base branch changes); merges to the default branch are a decision in Augmented mode (BUILD §9.6). A draft is marked ready for review first. Spends no money.",
     input: RepoRef.extend({ prNumber: z.number().int().positive(), mergeMethod: z.enum(["merge", "squash", "rebase"]).default("squash"), commitTitle: z.string().max(256).optional(), commitMessage: z.string().max(10_000).optional() }),
     output: z.object({ merged: z.literal(true), sha: z.string(), prNumber: z.number().int(), message: z.string() }),
     hints: { irreversible: true, spendsMoney: false },
@@ -420,7 +446,7 @@ export const GITHUB_RATE_LIMITS = { perMinute: 80, perDay: 5_000 };
 export interface GhRepository { id: number; full_name: string; name: string; private: boolean; default_branch: string; description: string | null; html_url: string; pushed_at?: string | null; language?: string | null; owner: { login: string } }
 export interface GhTreeEntry { path?: string; type?: string; sha?: string; size?: number }
 export interface GhPullRequest {
-  number: number; title: string; body: string | null; state: string; draft?: boolean; merged?: boolean | null; mergeable?: boolean | null; merged_at?: string | null; created_at: string; html_url: string;
+  number: number; title: string; body: string | null; state: string; draft?: boolean; merged?: boolean | null; mergeable?: boolean | null; mergeable_state?: string | null; merged_at?: string | null; created_at: string; html_url: string;
   head: { ref: string; sha: string }; base: { ref: string; sha: string }; user?: { login: string } | null; additions?: number; deletions?: number; changed_files?: number; merge_commit_sha?: string | null;
 }
 
@@ -432,7 +458,7 @@ export const mapCheckRun = (c: GhCheckRun): CheckRunT => ({ name: c.name, status
 export const mapRepository =(r: GhRepository): RepositoryT => ({ id: r.id, fullName: r.full_name, owner: r.owner.login, name: r.name, private: r.private, defaultBranch: r.default_branch, description: r.description ?? null, url: r.html_url, pushedAt: r.pushed_at ?? null, language: r.language ?? null });
 
 export const mapPullRequest = (p: GhPullRequest): PullRequestT => ({
-  number: p.number, title: p.title, body: p.body ?? null, state: p.state === "closed" ? "closed" : "open", draft: p.draft ?? false, merged: Boolean(p.merged ?? p.merged_at), mergeable: p.mergeable ?? null,
+  number: p.number, title: p.title, body: p.body ?? null, state: p.state === "closed" ? "closed" : "open", draft: p.draft ?? false, merged: Boolean(p.merged ?? p.merged_at), mergeable: p.mergeable ?? null, mergeableState: mergeableStateOf(p.mergeable_state),
   head: { ref: p.head.ref, sha: p.head.sha }, base: { ref: p.base.ref, sha: p.base.sha }, url: p.html_url, author: p.user?.login ?? null, additions: p.additions ?? 0, deletions: p.deletions ?? 0, changedFiles: p.changed_files ?? 0,
   createdAt: p.created_at, mergedAt: p.merged_at ?? null, mergeCommitSha: p.merge_commit_sha ?? null,
 });
@@ -443,4 +469,10 @@ export const mapTreeEntry = (e: GhTreeEntry): z.infer<typeof TreeEntry> | null =
 };
 
 export const MAX_TREE_ENTRIES = 2_000;
-export const MAX_FILE_BYTES = 1_000_000;
+export const MAX_FILE_BYTES = 1_000_000;const MERGEABLE_STATES = new Set(["clean", "blocked", "unstable", "behind", "dirty", "draft", "has_hooks", "unknown"]);
+/** GitHub's `mergeable_state`, or null for a value this code does not know (never read as ready). */
+export function mergeableStateOf(state: string | null | undefined): z.infer<typeof PullRequest>["mergeableState"] {
+  return state && MERGEABLE_STATES.has(state) ? (state as z.infer<typeof PullRequest>["mergeableState"]) : null;
+}
+
+

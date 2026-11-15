@@ -9,7 +9,8 @@ import { TrendingUp } from "lucide-react";
 import { BarChart, LineChart, MetricTile, formatDate, formatMoney, formatNumber, useDateFormat, type BarDatum, type DateFormatPrefs, type LineSeries } from "@foundmill/dugout";
 import { useBusinessEvents, useGlossary, useToday, useWidgetData, useWidgetQuery } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
-import { monthRevenueMinor } from "../shared/cash";
+import { NOT_KNOWN_YET, monthRevenueMinor, revenueThisMonthMinor } from "../shared/cash";
+import { customersThisWeek } from "../shared/customers";
 import { WidgetFrame } from "../shared/frame";
 import { routes } from "../shared/routes";
 import { addDays, monthKey, weekKey, weekStart } from "../shared/time";
@@ -83,9 +84,10 @@ function RevenueCustomersWidget({ settings }: WidgetProps<RevenueCustomersSettin
   const weeks = useMemo(() => (ribbon.data ? customersPerWeek(ribbon.data, { from, to: today }) : []), [ribbon.data, from, today]);
   const weekSeries: LineSeries[] = useMemo(() => weekLines(weeks).map((s) => ({ ...s, label: g(s.label) })), [weeks, g]);
   const cur = finance.data?.cash.currency ?? currency;
-  const thisMonthRow = finance.data?.revenue.monthly.find((m) => m.month === monthKey(today));
-  const thisMonth = thisMonthRow ? monthRevenueMinor(thisMonthRow) : null;
+  const thisMonth = revenueThisMonthMinor(finance.data, monthKey(today));
   const last30 = (ribbon.data?.rows ?? []).filter((r) => r.departmentId === null && r.day >= addDays(today, -29)).reduce((s, r) => s + r.payments, 0);
+  // "This week" is Home's Customers this week figure itself (one number per fact): the server's count when it has one.
+  const last7 = customersThisWeek(ribbon.data, today)?.week ?? 0;
   const queries = settings.view === "revenue" ? [finance] : settings.view === "customers" ? [ribbon] : [finance, ribbon];
   const hasData = bars.some((b) => b.value > 0) || weeks.some((w) => w.customers > 0 || w.signups > 0);
   const loaded = queries.every((q) => q.data !== undefined);
@@ -100,8 +102,8 @@ function RevenueCustomersWidget({ settings }: WidgetProps<RevenueCustomersSettin
     >
       <div className="flex h-full min-h-0 flex-col">
         <div className="grid grid-cols-2 gap-px border-b border-subtle bg-subtle">
-          {settings.view !== "customers" ? <MetricTile label="Revenue this month" value={thisMonth === null ? "—" : { amountMinor: thisMonth, currency: cur }} caption="Cash basis" spark={bars.map((b) => b.value)} /> : null}
-          {settings.view !== "revenue" ? <MetricTile label={g("Customers, last 30 days")} value={ribbon.data ? last30 : null} format="integer" caption={ribbon.data ? `${formatNumber(weeks.at(-1)?.customers ?? 0, { maxDigits: 0 })} this week` : undefined} spark={weeks.map((w) => w.customers)} /> : null}
+          {settings.view !== "customers" ? <MetricTile label="Revenue this month" value={thisMonth === null ? (finance.data ? NOT_KNOWN_YET.value : null) : { amountMinor: thisMonth, currency: cur }} caption={thisMonth === null && finance.data ? NOT_KNOWN_YET.caption : "Cash basis"} spark={bars.map((b) => b.value)} /> : null}
+          {settings.view !== "revenue" ? <MetricTile label={g("Customers, last 30 days")} value={ribbon.data ? last30 : null} format="integer" caption={ribbon.data ? `${formatNumber(last7, { maxDigits: 0 })} in the last 7 days` : undefined} spark={weeks.map((w) => w.customers)} /> : null}
         </div>
         <div className={`grid min-h-0 flex-1 gap-gutter p-panel-pad ${settings.view === "both" ? "grid-cols-2" : "grid-cols-1"}`}>
           {settings.view !== "customers" && bars.length > 0 ? <BarChart data={bars} label="Revenue by month" height={140} format={(v) => formatMoney({ amountMinor: v, currency: cur }, { compact: true })} /> : null}

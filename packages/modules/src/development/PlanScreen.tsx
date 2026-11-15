@@ -7,7 +7,7 @@
  */
 import { useId, useMemo, useRef, useState } from "react";
 import { ArrowUpCircle, Bot, ChevronRight, ExternalLink, ListTree, Network, Pause, Play, Radio, Square } from "lucide-react";
-import { Avatar, Button, Chip, DataTable, EntityLink, Field, GenerateControl, KeyValueList, Panel, ProgressRing, ProvenanceChip, STRONGEST_MODEL_LABEL, TASK_STATUS_META, TaskGraph, TaskRunState, Term, Textarea, SimpleSelect, useTerm, canStartTask, taskRunInfo, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
+import { Avatar, BuilderOnly, Button, Chip, DataTable, EntityLink, useAgentPersona, Field, GenerateControl, KeyValueList, Panel, ProgressRing, ProvenanceChip, STRONGEST_MODEL_LABEL, TASK_STATUS_META, TaskGraph, TaskRunState, Term, Textarea, SimpleSelect, useTerm, canStartTask, taskRunInfo, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import type { TaskStatus } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
@@ -70,15 +70,18 @@ export const PLAN_FIT: Record<string, ColumnFit> = {
   priority: { min: 88 },
 };
 
-export function toPlanRows(tasks: readonly TaskRow[], edges: readonly { fromTask: string; toTask: string }[], agents: Map<string, AgentRow>): PlanRow[] {
-  const titles = new Map(tasks.map((t) => [t.id, t.title]));
+export function toPlanRows(tasks: readonly TaskRow[], edges: readonly { fromTask: string; toTask: string }[], agents: Map<string, AgentRow>, nameFor: (agent: AgentRow) => string = (a) => a.name): PlanRow[] {
+  // `nameFor` names the agent as the cell shows it (the persona label under the reader's preference), so sort, filter and
+  // CSV match what is shown (One name everywhere, Nov 8, 2026).
+  // Dependencies are named the way the founder reads them (0070): the founder title when there is one.
+  const titles = new Map(tasks.map((t) => [t.id, t.founderTitle ?? t.title]));
   const done = new Set(tasks.filter((t) => t.status === "done").map((t) => t.id));
   return tasks.map((t) => {
     const agent = t.assigneeAgentId ? agents.get(t.assigneeAgentId) : undefined;
     return {
       ...t,
       agent,
-      agentName: agent?.name ?? (t.assigneeAgentId ? "Agent" : "Unassigned"),
+      agentName: agent ? nameFor(agent) : t.assigneeAgentId ? "Agent" : "Unassigned",
       dependsOn: edges.filter((e) => e.toTask === t.id).map((e) => titles.get(e.fromTask) ?? e.fromTask),
       // A dependency is open while its task is not done; one the list does not hold cannot be waited on.
       waitingOn: edges.filter((e) => e.toTask === t.id && titles.has(e.fromTask) && !done.has(e.fromTask)).map((e) => titles.get(e.fromTask)!),
@@ -106,6 +109,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
   const agents = useAgents();
   const deptSlug = useDevDepartment(departmentId)?.slug ?? "development";
   const agentIndex = useAgentIndex(agents.data?.agents);
+  const persona = useAgentPersona();
   const action = useAction();
   const planner = useAction();
   // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance is on.
@@ -116,8 +120,11 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
   useBusinessEvents(() => tasks.refetch(), ["task.started", "task.completed", "task.blocked", "pr.merged", "product.signoff_decided"]);
   // Building starts when the founder has signed off the specification and the roadmap (founder, 2026-10-18).
   const stage = useBusinessStage();
+  // No orchestrator reachable (first-time founder report, Nov 8, 2026): Start is off and the banner says why, instead of
+  // "The orchestrator did not take the session" after every press.
+  const startsBlocked = stage.orchestratorDown;
 
-  const rows = useMemo(() => toPlanRows(tasks.data?.items ?? [], tasks.data?.edges ?? [], agentIndex), [tasks.data, agentIndex]);
+  const rows = useMemo(() => toPlanRows(tasks.data?.items ?? [], tasks.data?.edges ?? [], agentIndex, persona.labelFor), [tasks.data, agentIndex, persona]);
   const initialTask = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("task") : null;
   const [selectedId, setSelectedId] = useState<string | null>(initialTask);
   const selected = rows.find((r) => r.id === selectedId) ?? null;
@@ -150,8 +157,8 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
   const runTask = (path: string, task: TaskRow, extra: Record<string, unknown> = {}) => action.run(path, { taskId: task.id, ...extra }, { key: `${path}:${task.id}`, then: () => tasks.refetch() });
 
   // The Run cell reads the current handler and busy key through a ref, so the column definitions stay stable.
-  const live = useRef({ runTask, pending: action.pending });
-  live.current = { runTask, pending: action.pending };
+  const live = useRef({ runTask, pending: action.pending, startsBlocked });
+  live.current = { runTask, pending: action.pending, startsBlocked };
 
   const columns = useMemo<DataTableColumn<PlanRow>[]>(
     () => fitToGrow<PlanRow>([
@@ -163,8 +170,19 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
         meta: { locked: true },
         cell: ({ row }) => (
           <span className="flex min-w-0 items-center gap-2">
-            <span className="min-w-0 truncate text-body-strong" title={row.original.title}>
-              {row.original.title}
+            {/* The founder's title first (0070); the agents' technical title underneath, for anyone matching it to the code. */}
+            <span className="flex min-w-0 flex-col">
+              <span className="min-w-0 truncate text-body-strong" title={row.original.founderTitle ?? row.original.title}>
+                {row.original.founderTitle ?? row.original.title}
+              </span>
+              {row.original.founderTitle && row.original.founderTitle !== row.original.title ? (
+                // The agents' technical title is Builder view's.
+                <BuilderOnly>
+                  <span className="min-w-0 truncate text-small text-tertiary" title={row.original.title} data-technical-title>
+                    {row.original.title}
+                  </span>
+                </BuilderOnly>
+              ) : null}
             </span>
             {row.original.priority && row.original.priority >= 10 ? (
               <Chip tone="warn" className="shrink-0">
@@ -188,8 +206,8 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
           <TaskRunState
             status={row.original.status}
             waitingOn={row.original.waitingOn}
-            onRun={() => void live.current.runTask("dev.tasks.start", row.original)}
-            onResume={() => void live.current.runTask("dev.tasks.resume", row.original)}
+            onRun={live.current.startsBlocked ? undefined : () => void live.current.runTask("dev.tasks.start", row.original)}
+            onResume={live.current.startsBlocked ? undefined : () => void live.current.runTask("dev.tasks.resume", row.original)}
             pending={live.current.pending === `dev.tasks.start:${row.original.id}` || live.current.pending === `dev.tasks.resume:${row.original.id}`}
           />
         ),
@@ -207,8 +225,8 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
           const tile = toTileAgent(a, a.id);
           return (
             <span className="flex min-w-0 items-center gap-1.5">
-              <Avatar size={20} name={a.name} agent={{ seed: tile.seed, dept: tile.dept, personaKey: tile.personaKey }} status={a.status} />
-              <EntityLink entity={{ id: a.id, kind: "agent", name: a.name, href: agentHref(businessId, a.id) }} hideIcon hoverCard={false} className="min-w-0 truncate" />
+              <Avatar size={20} name={a.name} agent={{ seed: tile.seed, dept: tile.dept, personaKey: tile.personaKey, layer: a.layer }} status={a.status} />
+              <EntityLink entity={{ id: a.id, kind: "agent", name: a.name, href: agentHref(businessId, a.id) }} display={row.original.agentName} hideIcon hoverCard={false} className="min-w-0 truncate" />
             </span>
           );
         },
@@ -238,7 +256,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
     const over = row.status === "done";
     return [
       { id: "deps", label: "Show dependencies", icon: Network, onSelect: (r) => setSelectedId(r.id) },
-      { id: "start", label: "Start", icon: Play, disabled: !canStartTask(row.status, row.waitingOn), onSelect: (r) => void runTask("dev.tasks.start", r), separatorBefore: true },
+      { id: "start", label: "Start", icon: Play, disabled: startsBlocked || !canStartTask(row.status, row.waitingOn), onSelect: (r) => void runTask("dev.tasks.start", r), separatorBefore: true },
       { id: "pause", label: "Pause", icon: Pause, disabled: !live, onSelect: (r) => void runTask("dev.tasks.pause", r) },
       { id: "resume", label: "Resume", icon: Play, disabled: row.status !== "paused", onSelect: (r) => void runTask("dev.tasks.resume", r) },
       { id: "reassign", label: "Reassign", icon: Bot, disabled: over, onSelect: (r) => setReassign(r) },
@@ -282,6 +300,13 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
 
   return (
     <Screen name="development/plan">
+      {startsBlocked ? (
+        <Panel span={12} title="Tasks cannot start right now" help="The orchestrator is the service that runs the team's work: every cycle and every task session goes through it." data-testid="plan-orchestrator-banner">
+          <p className="text-body text-secondary">
+            The orchestrator is not reachable from this server, so no task can start and a press of Continue writes one note in its place. Start comes back by itself once it is reachable again. If you run this server yourself, start the orchestrator; otherwise, whoever runs it has to.
+          </p>
+        </Panel>
+      ) : null}
       {stage.stage === "awaiting_signoff" || stage.stage === "drafting" ? (
         <Panel span={12} title="Building starts on your sign-off" help="The specification is the written description of what the product is and does. Your sign-off is your yes on it and the roadmap, which lets the team build from them." data-testid="plan-stage-banner" data-product-stage={stage.stage}>
           <p className="text-body text-secondary">
@@ -408,7 +433,9 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
                   { label: <Term id="acceptance">Acceptance</Term>, value: selected.acceptance?.length ? `${selected.acceptance.length} criteria` : "None recorded" },
                 ]}
               />
-              {/* The plumbing (branch, file scope) behind a disclosure: the business facts above read first (UX plan §7.12). */}
+              {/* The plumbing (branch, file scope) behind a disclosure: the business facts above read first (UX plan §7.12).
+                  Builder view's: with it off there is no Technical disclosure at all. */}
+              <BuilderOnly>
               <details className="group/detail mt-2 text-small" data-testid="task-technical">
                 <summary className="flex w-fit cursor-pointer list-none items-center gap-1 rounded-sm text-secondary transition-colors duration-hover ease-out hover:text-primary [&::-webkit-details-marker]:hidden">
                   <ChevronRight size={14} aria-hidden className="transition-transform duration-overlay ease-out group-open/detail:rotate-90" />
@@ -425,8 +452,9 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
                   />
                 </div>
               </details>
+              </BuilderOnly>
               <div className="mt-3 flex flex-wrap gap-2">
-                <Button size="sm" icon={Play} disabled={!canStartTask(selected.status, selected.waitingOn)} loading={action.pending === `dev.tasks.start:${selected.id}`} onClick={() => void runTask("dev.tasks.start", selected)}>
+                <Button size="sm" icon={Play} disabled={startsBlocked || !canStartTask(selected.status, selected.waitingOn)} loading={action.pending === `dev.tasks.start:${selected.id}`} onClick={() => void runTask("dev.tasks.start", selected)}>
                   Start
                 </Button>
                 <Button size="sm" icon={ExternalLink} onClick={() => setClaudeCode(selected)}>

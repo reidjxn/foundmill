@@ -65,7 +65,7 @@ export function monthlySeries(finance: FinanceOverview | undefined, months: numb
 /**
  * The Runway tile: the figure in months with its Estimate chip and a caption in words (UX plan B9: "Months of cash
  * left at today's spending"; the formula "Cash ÷ net burn" is the provenance tooltip), or, without a figure, the shared
- * runway words every other screen uses ("No limit" when cash-flow positive, "Not known yet" with the reason) and no
+ * runway words every other screen uses ("Not running out" when cash-flow positive, "Not known yet" with the reason) and no
  * Estimate chip, since nothing has been estimated.
  */
 export function runwayTileProps(f: FinanceOverview): Pick<MetricTileProps, "label" | "value" | "unit" | "estimate" | "caption" | "provenance"> {
@@ -75,7 +75,7 @@ export function runwayTileProps(f: FinanceOverview): Pick<MetricTileProps, "labe
     const words = runwayWords(f) ?? RUNWAY_WORDS.no_bank;
     return { label: "Runway", value: words.value, caption: words.caption, provenance };
   }
-  return { label: "Runway", value: formatNumber(months, { maxDigits: 1 }), unit: "mo", estimate: "estimate", caption: f.runway.blocksContinue ? "Under 3 months of cash left: holds Continue until acknowledged" : "Months of cash left at today's spending", provenance };
+  return { label: "Runway", value: formatNumber(months, { maxDigits: 1 }), unit: "mo", estimate: "estimate", caption: months < 3 ? "Under 3 months of cash left" : "Months of cash left at today's spending", provenance };
 }
 
 /** The Net burn tile's caption in words, with the gross figure the net one is cut from (UX plan B9). */

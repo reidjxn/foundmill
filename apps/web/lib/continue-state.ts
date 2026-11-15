@@ -4,10 +4,11 @@
  * The API's `cycle.continueState` applies the same rules server-side; the shell computes it locally so the
  * button follows the stream and optimistic updates without a round trip.
  *
- * Priority: holiday › blocked › win awaiting its Customer Update (`matchday` is the Dugout state key) › processing › idle.
+ * Priority: holiday › a hard stop › processing › idle.
  * - Holiday first: on holiday the only action is "Come back" (the Chief of Staff runs cycles).
- * - Blocked beats everything else: Continue is disabled until red items are answered (AC-11.3.3).
- * - A won customer waits for its Customer Update ("Go to Journey") before the next cycle.
+ * - Only a hard stop blocks (credits used up, a revoked key; 0071): a decision waits in Needs you without stopping the team.
+ * - A won customer is good news in the Inbox; since Nov 7, 2026 it no longer turns Continue into "Go to Journey".
+ * - Processing lasts the whole run one press starts (Nov 7, 2026): between cycles too, the button keeps Pause.
  */
 import type { ContinueState } from "@foundmill/dugout";
 import { vacationUntilLabel, type InboxItemType, type InboxState } from "@foundmill/shared";
@@ -26,8 +27,11 @@ export interface ContinueInputs {
   /** First page of inbox items; used for the Customer Update rule and "jump to first red item". */
   items?: readonly ContinueInboxItem[];
   holiday?: { untilAt?: Date | string | null; untilCondition?: { text?: string } | string | null } | null;
-  /** From `cycle.status` (kept current by the stream); a paused cycle shows Continue again (it resumes). */
-  cycle?: { running: boolean; paused?: boolean } | null;
+  /**
+   * From `cycle.status` (kept current by the stream); a paused cycle shows Continue again (it resumes). `run`: a run is
+   * open, so new cycles start on their own (processing between cycles too).
+   */
+  cycle?: { running: boolean; paused?: boolean; run?: boolean } | null;
 }
 
 export function unviewedWin(items: readonly ContinueInboxItem[] | undefined): ContinueInboxItem | undefined {
@@ -83,7 +87,9 @@ export function journeyHref(businessId: string, state: { kind: string; journeyId
 export function computeContinueState(input: ContinueInputs): ContinueState {
   if (input.holiday) return { kind: "holiday", until: input.holiday.untilAt ?? null, untilLabel: holidayUntilLabel(input.holiday) };
   if (input.blocking > 0) return { kind: "blocked", count: input.blocking };
-  if (unviewedWin(input.items)) return { kind: "matchday" };
-  if (input.cycle?.running && !input.cycle.paused) return { kind: "processing" };
+  const cycle = input.cycle;
+  if (!cycle || (cycle.running && cycle.paused)) return { kind: "idle" };
+  if (cycle.run) return { kind: "processing", run: true };
+  if (cycle.running) return { kind: "processing" };
   return { kind: "idle" };
 }

@@ -66,11 +66,18 @@ function newWorld(bytesPerBusiness: number, publicRepos: ReadonlySet<string>) {
     throw notFound(`ref ${ref} in ${r.repo.full_name}`);
   };
   const prList = (fullName: string) => pulls.get(fullName) ?? pulls.set(fullName, []).get(fullName)!;
-  /** The branch a ref names (HEAD → default), or null for a commit sha. */
+  /**
+   * The branch a ref names (HEAD → default), the branch whose head a commit sha is (GitHub reads a file at a commit, so
+   * the mock does too, for the commits it still knows), or null for any other sha.
+   */
   const branchOf = (r: GhFixtureRepo, ref: string): string | null => {
     if (ref === "HEAD") return r.repo.default_branch;
     const name = ref.replace(/^refs\/heads\//, "");
-    return r.branches[name] ? name : null;
+    if (r.branches[name]) return name;
+    if (!/^[0-9a-f]{7,40}$/.test(ref)) return null;
+    const heads = Object.entries(r.branches).filter(([, sha]) => sha.startsWith(ref));
+    // The default branch first: branches cut from it and never committed to share its head and its files.
+    return heads.find(([b]) => b === r.repo.default_branch)?.[0] ?? heads.find(([b]) => trees.has(treeKey(r, b)))?.[0] ?? heads[0]?.[0] ?? null;
   };
   const ownTree = (r: GhFixtureRepo, ref: string) => {
     const branch = branchOf(r, ref);
@@ -150,12 +157,14 @@ export const MOCK_BUSINESSES = 200;
  * Written files are bounded per business (the oldest written branches are dropped first) and the least recently used
  * businesses are forgotten beyond MOCK_BUSINESSES.
  */
-export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal?: number; businesses?: number; failingBranches?: readonly string[]; publicRepos?: readonly string[]; branchesWithChangedGithub?: readonly string[]; inaccessibleRepos?: readonly string[] } = {}) {
+export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal?: number; businesses?: number; failingBranches?: readonly string[]; conflictingBranches?: readonly string[]; publicRepos?: readonly string[]; branchesWithChangedGithub?: readonly string[]; inaccessibleRepos?: readonly string[] } = {}) {
   const bytesTotal = limits.bytesTotal ?? MOCK_BYTES_TOTAL;
   const bytesPerBusiness = limits.bytesPerBusiness ?? MOCK_BYTES_PER_BUSINESS;
   const businesses = limits.businesses ?? MOCK_BUSINESSES;
   /** Branches whose mock CI fails (its `test` check concludes "failure"); every other branch passes. */
   const failingBranches = new Set(limits.failingBranches ?? []);
+  /** Branches whose pull requests conflict with the default branch (`mergeable_state: dirty`); GitHub refuses to merge them. */
+  const conflictingBranches = new Set(limits.conflictingBranches ?? []);
   /**
    * Branches whose `.github` tree differs from the default branch's (someone else pushed a workflow change there). Every
    * other branch shares the default branch's `.github`: `commit_files` refuses `.github` paths, so a commit through it
@@ -188,7 +197,8 @@ export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal
     }
   };
   const webhook = createGithubWebhook({ secret: MOCK_GITHUB_WEBHOOK_SECRET, replay: new ReplayGuard({ now: () => MOCK_NOW.getTime() }), now: () => MOCK_NOW });
-  const toPr = (p: GhPullRequest): PullRequestT => mapPullRequest(p);
+  /** A pull request as the tool returns it; the merge state follows the branch (conflicting branches are `dirty`). */
+  const toPr = (p: GhPullRequest): PullRequestT => mapPullRequest({ ...p, mergeable: p.merged || p.state !== "open" ? null : !conflictingBranches.has(p.head.ref), mergeable_state: p.merged || p.state !== "open" ? "unknown" : conflictingBranches.has(p.head.ref) ? "dirty" : p.draft ? "draft" : "clean" });
 
   const connector = buildMockConnector({
     key: GITHUB_KEY,
@@ -285,14 +295,16 @@ export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal
         files.sort((a, b) => (a.path < b.path ? -1 : 1));
         return { mergeBaseSha, baseSha, headSha, aheadBy: headSha === mergeBaseSha ? 0 : 1, behindBy: baseSha === mergeBaseSha ? 0 : 1, files, truncated: false };
       },
-      commit_files: async ({ owner, repo, branch, fromRef, message, files, deletions, expectedHeadSha }, ctx) => {
+      commit_files: async ({ owner, repo, branch, fromRef, message, files, deletions, expectedHeadSha, rebuild }, ctx) => {
         const g = world(ctx.businessId);
         const r = g.findOrCreate(owner, repo);
         if (branch === r.repo.default_branch) throw Object.assign(new Error(`commit_files never writes the default branch (${branch}); merge a pull request instead`), { status: 422 });
         if (!r.repo.private) throw Object.assign(new Error(`${owner}/${repo} is public; agents push only to private repositories`), { status: 422 });
         const existed = Boolean(r.branches[branch]);
         if (existed && expectedHeadSha && r.branches[branch] !== expectedHeadSha) throw branchMoved(branch, expectedHeadSha, r.branches[branch]!);
-        const from = existed ? branch : (fromRef ?? "HEAD");
+        // Rebuilding an existing branch: its new history starts at fromRef, as a branch created there would.
+        const rebuilt = rebuild && existed;
+        const from = existed && !rebuilt ? branch : (fromRef ?? "HEAD");
         const parentSha = g.resolveRef(r, from);
         const next = new Map(g.filesAt(r, from));
         let written = 0;
@@ -304,21 +316,32 @@ export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal
         }
         let deleted = 0;
         for (const d of deletions) if (next.delete(d)) deleted++;
-        if (!existed) (r.bases ??= {})[branch] = parentSha;
+        if (!existed || rebuilt) (r.bases ??= {})[branch] = parentSha;
+        if (rebuilt) {
+          // Built on the default branch's newest commit, the branch no longer conflicts with it and shares its `.github`.
+          conflictingBranches.delete(branch);
+          changedGithub.delete(branch);
+        }
+        /** The branch's open pull requests follow its head, as GitHub's do. */
+        const moveHead = (sha: string) => {
+          for (const p of g.prList(r.repo.full_name)) if (p.state === "open" && p.head.ref === branch) p.head.sha = sha;
+        };
         if (written + deleted === 0) {
-          if (!existed) {
+          if (!existed || rebuilt) {
             r.branches[branch] = parentSha;
             g.setTree(r, branch, next);
+            moveHead(parentSha);
           }
-          return { branch, created: !existed, committed: false, sha: parentSha, parentSha, filesWritten: 0, filesDeleted: 0, url: null };
+          return { branch, created: !existed, committed: false, rebuilt, sha: parentSha, parentSha, filesWritten: 0, filesDeleted: 0, url: null };
         }
         // One branch never outgrows the business's budget (older branches give way to it, never the reverse).
         if ([...next.values()].reduce((n, b) => n + b.byteLength, 0) > bytesPerBusiness) throw Object.assign(new Error(`${branch} would hold more than the simulated GitHub keeps for one business (${Math.round(bytesPerBusiness / (1024 * 1024))} MB)`), { status: 413 });
         const sha = stableHash(`commit:${r.repo.full_name}:${branch}:${parentSha}:${message}:${[...next].map(([p, c]) => `${p}=${blobShaOf(p, c)}`).sort().join(",")}`, 40);
         r.branches[branch] = sha;
         g.setTree(r, branch, next);
+        moveHead(sha);
         fitTotal(ctx.businessId);
-        return { branch, created: !existed, committed: true, sha, parentSha, filesWritten: written, filesDeleted: deleted, url: `${r.repo.html_url}/commit/${sha}` };
+        return { branch, created: !existed, committed: true, rebuilt, sha, parentSha, filesWritten: written, filesDeleted: deleted, url: `${r.repo.html_url}/commit/${sha}` };
       },
       run_checks: async ({ owner, repo, branch }, ctx) => {
         const g = world(ctx.businessId);
@@ -348,9 +371,10 @@ export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal
         const run: GhWorkflowRun | null = dispatched ? { status: "completed", conclusion: failing ? "failure" : "success" } : null;
         return { headSha, state: ciState(run, checks), checks };
       },
-      open_pr: async ({ owner, repo, title, body, head, base, draft }, ctx) => {
+      open_pr: async ({ owner, repo, title, body, head, base: givenBase, draft }, ctx) => {
         const g = world(ctx.businessId);
         const r = g.find(owner, repo);
+        const base = givenBase === "HEAD" ? r.repo.default_branch : givenBase;
         const list = g.prList(r.repo.full_name);
         const open = list.find((p) => p.state === "open" && p.head.ref === head && p.base.ref === base);
         if (open) return toPr(open);
@@ -373,6 +397,24 @@ export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal
         const r = g.find(owner, repo);
         return { items: g.prList(r.repo.full_name).filter((p) => state === "all" || p.state === state).sort((a, b) => b.number - a.number).slice(0, perPage).map(toPr) };
       },
+      update_branch: async ({ owner, repo, prNumber, expectedHeadSha }, ctx) => {
+        const g = world(ctx.businessId);
+        const r = g.find(owner, repo);
+        const pr = g.prList(r.repo.full_name).find((p) => p.number === prNumber);
+        if (!pr) throw notFound(`pull request #${prNumber}`);
+        if (pr.merged || pr.state !== "open") throw conflict(`pull request #${prNumber} is ${pr.merged ? "already merged" : "closed"}`);
+        if (conflictingBranches.has(pr.head.ref)) throw Object.assign(new Error(`Pull Request #${prNumber} conflicts with ${pr.base.ref}; it cannot be brought up to date by GitHub`), { status: 422 });
+        const head = r.branches[pr.head.ref];
+        if (expectedHeadSha && head && head !== expectedHeadSha) throw branchMoved(pr.head.ref, expectedHeadSha, head);
+        const baseSha = g.resolveRef(r, pr.base.ref);
+        // A branch created in this mock remembers where it left the base; one that still points there is up to date.
+        if ((r.bases?.[pr.head.ref] ?? baseSha) === baseSha) return { updated: false, headSha: head ?? null, message: "Already up to date." };
+        const sha = commitSha(r.repo.name, pr.head.ref, `update:${baseSha}`);
+        r.branches[pr.head.ref] = sha;
+        (r.bases ??= {})[pr.head.ref] = baseSha;
+        pr.head.sha = sha;
+        return { updated: true, headSha: sha, message: "Updating pull request branch." };
+      },
       merge_pr: async ({ owner, repo, prNumber, mergeMethod, commitTitle }, ctx) => {
         const g = world(ctx.businessId);
         const r = g.find(owner, repo);
@@ -380,6 +422,8 @@ export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal
         if (!pr) throw notFound(`pull request #${prNumber}`);
         if (pr.merged) throw conflict(`pull request #${prNumber} is already merged`);
         if (pr.state !== "open") throw conflict(`pull request #${prNumber} is closed`);
+        if (conflictingBranches.has(pr.head.ref)) throw Object.assign(new Error(`Pull Request #${prNumber} is not mergeable`), { status: 405 });
+        pr.draft = false; // marked ready first, as the real connector does
         const sha = commitSha(r.repo.name, pr.base.ref, prNumber);
         pr.merged = true;
         pr.state = "closed";

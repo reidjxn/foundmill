@@ -8,11 +8,11 @@ import { extractEntityIds, validateMarkup } from "@foundmill/entity-linker";
 import { MOCK_ROUTES, createModelClient, type MockGenerator } from "@foundmill/models";
 import type { EventType } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { ComposeTimeoutError, ComposerRejectedError } from "../compose";
+import { ComposeTimeoutError, ComposerRejectedError, founderJargonOf, jargonReask } from "../compose";
 import { isNamedQueryId } from "../exhibits";
 import { isDraftWorthy } from "../persist";
 import { createComposerService, narrationKey } from "../service";
-import { createComposerHarness, silentLog, type ComposerHarness } from "./harness";
+import { countInbox, createComposerHarness, silentLog, type ComposerHarness } from "./harness";
 
 let hz: ComposerHarness;
 beforeAll(async () => {
@@ -32,6 +32,13 @@ const EVENT_MIX: { type: EventType; payload: (i: number) => Record<string, unkno
   { type: "activation.reached", payload: () => ({}) },
   { type: "lead.created", payload: () => ({ customer_name: "Analytical Engines" }) },
 ];
+
+/** Every note of business A, archived ones included: a newer update archives its agent's older open one (Nov 7, 2026). */
+async function noteCount(): Promise<number> {
+  const open = await repos.inbox.list(hz.db, hz.A.businessId, { limit: 500 });
+  const archived = await repos.inbox.list(hz.db, hz.A.businessId, { limit: 500, tab: "archive" });
+  return open.items.length + archived.items.length;
+}
 
 describe("narrate — AC-11.3.1", () => {
   it("100 consecutive generated notes have 100 % valid entity links, registry-only exhibits and real source events", async () => {
@@ -103,18 +110,41 @@ describe("narrate — AC-11.3.1", () => {
     expect(validateMarkup(r.item.bodyMd, await hz.manifest(hz.A.businessId)).valid).toBe(true);
   });
 
+  it("re-asks once when a note carries engineering words, and keeps the plain rewrite (Nov 7, 2026)", async () => {
+    expect(founderJargonOf("Pull request merged", "The [[ent:00000000-0000-4000-8000-000000000001|Deploy pipeline]] ran.")).toEqual(expect.arrayContaining(["pull request", "pipeline"]));
+    expect(founderJargonOf("Pricing page is live", "Customers can now see the new prices.")).toEqual([]);
+    // The engine's numbers re-ask too (Builder view, Nov 8, 2026): a cycle number, a test tally, tokens, a PR number, an ETA.
+    expect(founderJargonOf("Cycle 3 completed", "105 tests passed on PR #41; ETA 3:45 PM after 12,400 tokens.")).toEqual(["cycle 3", "105 tests passed", "pr #41", "eta", "12,400 tokens"]);
+    expect(jargonReask(["pull request"])).toContain('"pull request"');
+    const base = MOCK_ROUTES.inboxComposer.generate;
+    const prompts: string[] = [];
+    const techy: MockGenerator = (ctx) => {
+      const out = base(ctx) as { subject: string; body_md: string };
+      prompts.push(String(ctx.messages[ctx.messages.length - 1]?.content ?? ""));
+      return ctx.messages.length === 1 ? { ...out, subject: "Pull request merged", body_md: "The pull request passed CI and was merged." } : { ...out, subject: "Pricing page is live", body_md: "Customers can now see the new prices." };
+    };
+    const service = hz.service({}, { inboxComposer: techy });
+    const event = await hz.writeEvent(hz.A.businessId, "task.completed", { title: "Jargon test" });
+    const r = await service.narrate(hz.A.businessId, [event.id]);
+    expect(r.reasked).toBe(true);
+    expect(prompts).toHaveLength(2);
+    expect(prompts[1]).toContain("The founder is not technical");
+    expect(r.item.subject).toBe("Pricing page is live");
+    expect(founderJargonOf(r.item.subject, r.item.bodyMd)).toEqual([]);
+  });
+
   it("rejects with 422 after the single re-ask when ids are still invalid, writing nothing (never render unknown ids)", async () => {
     const ghost = crypto.randomUUID();
     const base = MOCK_ROUTES.inboxComposer.generate;
     const stubborn: MockGenerator = (ctx) => ({ ...(base(ctx) as object), body_md: `Still pointing at [[ent:${ghost}|Ghost Corp]] after the re-ask, every single time.` });
     const service = hz.service({}, { inboxComposer: stubborn });
     const event = await hz.writeEvent(hz.A.businessId, "task.completed", { title: "Reject test" });
-    const itemsBefore = (await repos.inbox.list(hz.db, hz.A.businessId, { limit: 500 })).items.length;
+    const itemsBefore = (await noteCount());
     const err = await service.narrate(hz.A.businessId, [event.id]).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ComposerRejectedError);
     expect((err as ComposerRejectedError).status).toBe(422);
     expect((err as ComposerRejectedError).details).toMatchObject({ unknownIds: [ghost] });
-    expect((await repos.inbox.list(hz.db, hz.A.businessId, { limit: 500 })).items.length).toBe(itemsBefore);
+    expect((await noteCount())).toBe(itemsBefore);
     expect((await repos.events.get(hz.db, hz.A.businessId, event.id)).narrated).toBe(false);
   });
 
@@ -149,7 +179,7 @@ describe("narrate is idempotent per event set (audit CML-05)", () => {
     const service = hz.service();
     const a = await hz.writeEvent(hz.A.businessId, "task.completed", { title: "Retry me" });
     const b = await hz.writeEvent(hz.A.businessId, "pr.merged", { title: "Retry me too" });
-    const inboxBefore = (await repos.inbox.list(hz.db, hz.A.businessId, { limit: 500 })).items.length;
+    const inboxBefore = (await noteCount());
     const usageBefore = hz.usage.length;
     const first = await service.narrate(hz.A.businessId, [a.id, b.id]);
     expect(first.replayed).toBe(false);
@@ -165,7 +195,7 @@ describe("narrate is idempotent per event set (audit CML-05)", () => {
     const restarted = await hz.service().narrate(hz.A.businessId, [a.id, b.id]);
     expect(restarted).toMatchObject({ replayed: true, model: null });
     expect(restarted.item.id).toBe(first.item.id);
-    expect((await repos.inbox.list(hz.db, hz.A.businessId, { limit: 500 })).items.length).toBe(inboxBefore + 1);
+    expect((await noteCount())).toBe(inboxBefore + 1);
     expect(composerCalls(usageBefore)).toBe(calls);
     const created = await repos.events.list(hz.db, hz.A.businessId, { type: "inbox.item_created", limit: 200 });
     expect(created.items.filter((e) => (e.payload as { inboxItemId?: string }).inboxItemId === first.item.id)).toHaveLength(1);
@@ -179,21 +209,21 @@ describe("narrate is idempotent per event set (audit CML-05)", () => {
     const service = hz.service();
     const event = await hz.writeEvent(hz.A.businessId, "task.completed", { title: "Slow narration" });
     const usageBefore = hz.usage.length;
-    const inboxBefore = (await repos.inbox.list(hz.db, hz.A.businessId, { limit: 500 })).items.length;
+    const inboxBefore = (await noteCount());
     const results = await Promise.all([service.narrate(hz.A.businessId, [event.id]), service.narrate(hz.A.businessId, [event.id]), service.narrate(hz.A.businessId, [event.id])]);
     expect(new Set(results.map((r) => r.item.id)).size).toBe(1);
     expect(results.filter((r) => !r.replayed)).toHaveLength(1);
-    expect((await repos.inbox.list(hz.db, hz.A.businessId, { limit: 500 })).items.length).toBe(inboxBefore + 1);
+    expect((await noteCount())).toBe(inboxBefore + 1);
     expect(composerCalls(usageBefore)).toBe(1);
   });
 
   it("two composer instances racing on the same events write one note (the event's idempotency key decides)", async () => {
     const event = await hz.writeEvent(hz.A.businessId, "pr.merged", { title: "Two instances" });
-    const inboxBefore = (await repos.inbox.list(hz.db, hz.A.businessId, { limit: 500 })).items.length;
+    const inboxBefore = (await noteCount());
     const [x, y] = await Promise.all([hz.service().narrate(hz.A.businessId, [event.id]), hz.service().narrate(hz.A.businessId, [event.id])]);
     expect(x.item.id).toBe(y.item.id);
     expect([x.replayed, y.replayed].filter(Boolean)).toHaveLength(1);
-    expect((await repos.inbox.list(hz.db, hz.A.businessId, { limit: 500 })).items.length).toBe(inboxBefore + 1);
+    expect((await noteCount())).toBe(inboxBefore + 1);
     expect(await repos.events.byIdempotencyKey(hz.db, hz.A.businessId, narrationKey([event.id]))).toMatchObject({ type: "inbox.item_created" });
   });
 
@@ -201,58 +231,80 @@ describe("narrate is idempotent per event set (audit CML-05)", () => {
     const event = await hz.writeEvent(hz.A.businessId, "task.completed", { title: "Deadline" });
     const slow = createModelClient({ mode: "mock", logger: silentLog, mock: { latencyMs: 300 } });
     const late = createComposerService({ db: hz.db, models: slow, log: silentLog }, { debounceMs: 0, persistDrafts: false, composeDeadlineMs: 50 });
-    const inboxBefore = (await repos.inbox.list(hz.db, hz.A.businessId, { limit: 500 })).items.length;
+    const inboxBefore = (await noteCount());
     const err = await late.narrate(hz.A.businessId, [event.id]).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ComposeTimeoutError);
     expect((err as ComposeTimeoutError).status).toBe(504);
-    expect((await repos.inbox.list(hz.db, hz.A.businessId, { limit: 500 })).items.length).toBe(inboxBefore);
+    expect((await noteCount())).toBe(inboxBefore);
     expect((await repos.events.get(hz.db, hz.A.businessId, event.id)).narrated).toBe(false);
     const retry = await hz.service().narrate(hz.A.businessId, [event.id]);
     expect(retry.replayed).toBe(false);
-    expect((await repos.inbox.list(hz.db, hz.A.businessId, { limit: 500 })).items.length).toBe(inboxBefore + 1);
+    expect((await noteCount())).toBe(inboxBefore + 1);
   });
 });
 
-describe("blocks_continue type rules (BUILD §11.3 Types)", () => {
-  it("decision and customer_won block; update does not; the model's own flag is ignored", async () => {
+describe("one living warning per problem (Nov 1, 2026)", () => {
+  it("a second warning about the same task revises the open one in place; once answered, the problem coming back is a new item", async () => {
+    const service = hz.service();
+    const taskId = crypto.randomUUID();
+    const blocked = (occurrence: number, detail: string) => hz.writeEvent(hz.A.businessId, "task.blocked", { taskId, kind: "code", title: "Deploy contract", assigneeAgentId: hz.A.agentId, reason: "dependency", detail, occurrence });
+    const first = await service.narrate(hz.A.businessId, [(await blocked(1, "Waits on one change going live.")).id]);
+    expect(first.item.type).toBe("warning");
+    const before = await countInbox(hz.db, hz.A.businessId);
+
+    const second = await service.narrate(hz.A.businessId, [(await blocked(2, "Still waits on that change.")).id]);
+    expect(second.item.id).toBe(first.item.id);
+    expect(second.replayed).toBe(false);
+    expect(await countInbox(hz.db, hz.A.businessId)).toBe(before);
+    expect(second.item.state).toBe("unread");
+    expect(second.item.bodyMd).toMatch(/^\*\*Updated [A-Z][a-z]{2} \d{1,2}, \d{1,2}:\d{2} (AM|PM) UTC\*\*/);
+    expect(second.item.bodyMd).toContain("_Earlier (");
+    expect(second.item.sourceEventIds).toHaveLength(2);
+    const updated = await repos.events.list(hz.db, hz.A.businessId, { type: "inbox.item_updated", limit: 50 });
+    expect(updated.items.some((e) => (e.payload as { inboxItemId: string; change: string }).inboxItemId === first.item.id && (e.payload as { change: string }).change === "revised")).toBe(true);
+    // A third time: still the one item, and the earlier text is kept once, not nested.
+    const third = await service.narrate(hz.A.businessId, [(await blocked(3, "Third day waiting.")).id]);
+    expect(third.item.id).toBe(first.item.id);
+    expect(third.item.bodyMd.match(/_Earlier \(/g)).toHaveLength(1);
+
+    // Answered: what the founder decided stays on record; the problem coming back is a new item.
+    const options = (third.item.decision as { options?: { id: string }[] } | null)?.options ?? [];
+    await repos.inbox.decide(hz.db, hz.A.businessId, first.item.id, options[0] ? { chosenOption: options[0].id } : { freeText: "Noted" });
+    const fourth = await service.narrate(hz.A.businessId, [(await blocked(4, "Back again.")).id]);
+    expect(fourth.item.id).not.toBe(first.item.id);
+    expect(await countInbox(hz.db, hz.A.businessId)).toBe(before + 1);
+  });
+
+  it("a warning about a different task is its own item", async () => {
+    const service = hz.service();
+    const event = (taskId: string) => hz.writeEvent(hz.A.businessId, "task.blocked", { taskId, kind: "code", title: "Another task", assigneeAgentId: hz.A.agentId, reason: "credential", detail: "Needs a key.", occurrence: 1 });
+    const a = await service.narrate(hz.A.businessId, [(await event(crypto.randomUUID())).id]);
+    const b = await service.narrate(hz.A.businessId, [(await event(crypto.randomUUID())).id]);
+    expect(b.item.id).not.toBe(a.item.id);
+  });
+});
+
+describe("blocks_continue: a Composer note never holds Continue (Nov 7, 2026; 0071)", () => {
+  it("a win, a decision and an update never hold Continue, whatever flag the model claims", async () => {
     const base = MOCK_ROUTES.inboxComposer.generate;
-    const liar: MockGenerator = (ctx) => {
-      const out = base(ctx) as { type: string; blocks_continue: boolean };
-      // Claim the opposite of the rule for every type.
-      return { ...out, blocks_continue: !(out.type === "decision" || out.type === "customer_won") };
-    };
+    const liar: MockGenerator = (ctx) => ({ ...(base(ctx) as Record<string, unknown>), blocks_continue: true });
     const service = hz.service({}, { inboxComposer: liar });
     const won = await service.narrate(hz.A.businessId, [(await hz.writeEvent(hz.A.businessId, "payment.received", { amount: { amountMinor: 100, currency: "EUR" } }, [hz.A.entityId])).id]);
     expect(won.item.type).toBe("customer_won");
-    expect(won.item.blocksContinue).toBe(true);
+    expect(won.item.blocksContinue).toBe(false);
     expect((won.item.decision as { options: unknown[] }).options.length).toBeGreaterThanOrEqual(2);
     const decision = await service.narrate(hz.A.businessId, [(await hz.writeEvent(hz.A.businessId, "approval.requested", { title: "Spend" })).id]);
     expect(decision.item.type).toBe("decision");
-    expect(decision.item.blocksContinue).toBe(true);
+    expect(decision.item.blocksContinue).toBe(false);
     const update = await service.narrate(hz.A.businessId, [(await hz.writeEvent(hz.A.businessId, "pr.merged", { title: "Docs" })).id]);
     expect(update.item.type).toBe("update");
     expect(update.item.blocksContinue).toBe(false);
   });
 
-  it("a warning blocks only when runway is below three months", async () => {
+  it("a runway warning below three months says so without freezing the team", async () => {
     const service = hz.service();
-    const healthy = await service.narrate(hz.A.businessId, [(await hz.writeEvent(hz.A.businessId, "channel.threshold_breached", { channelKey: "events", metric: "cpa", value: 1200, threshold: 1000 })).id]);
-    expect(healthy.item.type).toBe("warning");
-    expect(healthy.item.blocksContinue).toBe(false);
     const red = await service.narrate(hz.A.businessId, [(await hz.writeEvent(hz.A.businessId, "runway.threshold_crossed", { runwayMonths: 2.4, thresholdMonths: 3, direction: "below" })).id]);
     expect(red.item.type).toBe("warning");
-    expect(red.item.blocksContinue).toBe(true);
-    // Business B: cash and burn from the ledger put the runway under three months → every warning blocks (AC-11.8.3).
-    const account = await repos.finance.upsertAccount(hz.db, hz.B.businessId, { provider: "mock_bank", externalId: "runway-red", name: "Ops", currency: "EUR", balanceMinor: 200_000 });
-    const now = new Date();
-    const tx = [];
-    for (let m = 1; m <= 3; m++) {
-      const bookedAt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - m, 10));
-      tx.push({ accountId: account.id, externalId: `burn-${m}`, bookedAt, amountMinor: -100_000, currency: "EUR", description: "payroll" });
-    }
-    await repos.finance.upsertTransactions(hz.db, hz.B.businessId, tx);
-    const b = await service.narrate(hz.B.businessId, [(await hz.writeEvent(hz.B.businessId, "channel.threshold_breached", { channelKey: "events", metric: "cpa", value: 10, threshold: 5 })).id]);
-    expect(b.item.type).toBe("warning");
-    expect(b.item.blocksContinue).toBe(true);
+    expect(red.item.blocksContinue).toBe(false);
   });
 });

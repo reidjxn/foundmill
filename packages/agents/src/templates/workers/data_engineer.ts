@@ -12,7 +12,7 @@ export const dataEngineer = defineTemplate({
   taskKinds: ["code"],
   route: "worker",
   description:
-    "I build the pipelines, materialized views, saved queries and metrics the product relies on, with data-quality checks and fixtures that prove the numbers. Inputs: task, metric definitions, schema, event catalog. Outputs: migrations and queries with tests against fixtures, documented metric definitions. Tools: sandbox, GitHub read, analytics read. Never does: expose cross-business data, hand-edit production data, or ship a metric without a fixture test.",
+    "I build the pipelines, materialized views, saved queries and metrics the product relies on, with data-quality checks and fixtures that prove the numbers. Inputs: task, metric definitions, schema, event catalog. Outputs: migrations and queries with tests against fixtures, documented metric definitions. Tools: sandbox, GitHub read. Never does: expose cross-business data, hand-edit production data, or ship a metric without a fixture test.",
   instructions: {
     role: "Data engineer working one task at a time in a sandbox.",
     goals: [
@@ -42,7 +42,7 @@ export const dataEngineer = defineTemplate({
       },
     ],
   },
-  tools: [grant("platform", PLATFORM_BASE_TOOLS), grant("sandbox", SANDBOX_TOOLS), grant("github", ["repos.read", "pulls.create", "pulls.read", "checks.read"]), grant("posthog", ["insights.query"]), grant("ga4", ["reports.run"])],
+  tools: [grant("platform", PLATFORM_BASE_TOOLS), grant("sandbox", SANDBOX_TOOLS), grant("github", ["repos.read", "pulls.create", "pulls.read", "checks.read"]), grant("posthog", ["insights.query"])],
   skills: withCoreSkills(["data_pipelines", "data_quality", "sql_analytics", "data_modelling", "testing"]),
   autonomy: AUTONOMY_INHERIT,
   neverDoes: ["Expose cross-business data", "Edit production data by hand", "Ship a metric without a fixture test", "Push to main"],

@@ -90,7 +90,7 @@ export const TERMS = {
     id: "mrr",
     word: "MRR",
     short: "Monthly recurring revenue: the subscription money that comes in every month.",
-    long: "Add up what every active subscriber pays per month. It only applies to businesses that charge a subscription; one-off sales are not recurring.",
+    long: "Here it is what customers paid in the last 3 full months divided by 3, an Estimate, the same figure on Finance and on the revenue milestones. It only applies to businesses that charge a subscription; a business whose customers buy once sees monthly revenue instead.",
     learn: "finance/overview",
   },
   arr: {
@@ -429,35 +429,35 @@ export const TERMS = {
     id: "hard_gate",
     word: "Hard gate",
     short: "An action no agent may ever take alone: moving money, signing, deleting for good, changing security settings.",
-    long: "Hard gates stop at you in every business mode, on vacation included. They come to the Inbox as a note that needs your go-ahead.",
+    long: "Hard gates stop at you whatever you answer in Settings › What the team can do, on vacation included. They come to the Inbox as a note that needs your go-ahead.",
     learn: "settings/mode",
   },
   policy: {
     id: "policy",
     word: "Policy",
     short: "Your limits: what agents may do on their own, what asks first and what is never allowed.",
-    long: "Set by the business mode and the spend cap, and tightened per agent in its Autonomy tab. Every action an agent takes is checked against it before it runs.",
+    long: "Set by your answers in Settings › What the team can do (how much the team does before checking with you, and the amount above which every purchase asks), and tightened per agent on its Autonomy tab. Every action an agent takes is checked against it before it runs.",
     learn: "settings/mode",
   },
   autonomy: {
     id: "autonomy",
     word: "Autonomy",
     short: "How much one agent may do without asking you, within the business's limits.",
-    long: "An agent inherits the business mode unless you give it its own setting. More autonomy means fewer notes in the Inbox; hard gates still stop at you.",
+    long: "An agent follows your answers in Settings › What the team can do unless you give it its own setting on its Autonomy tab. More autonomy means fewer notes in the Inbox; hard gates still stop at you.",
     learn: "settings/mode",
   },
   business_mode: {
     id: "business_mode",
     word: "Business mode",
-    short: "How much the team may do on its own: Augmented asks first, Assisted acts within your limits, Automated runs the day.",
-    long: "Augmented: agents prepare and you execute. Assisted: routine work runs within your limits, and new spend and contracts ask first. Automated: the Chief of Staff runs the day, you review outcomes, and hard gates still ask.",
+    short: "How much the team does before checking with you: ask first, routine work alone, or decide on its own.",
+    long: "Augmented asks before contacting anyone, spending anything or doing what can't be undone. Assisted does routine work alone and asks before spending over your amount, anything it can't undo and any contract. Automated works and decides on its own, and the Chief of Staff answers routine questions for you; spending over your amount, putting changes live and hard gates still ask.",
     learn: "settings/mode",
   },
   autopilot: {
     id: "autopilot",
     word: "Autopilot",
     short: "The business starts its own cycles on a schedule instead of waiting for you to press Continue.",
-    long: "Set in Settings › Mode with a cadence and a daily cap. It pauses itself when credits run out, when agents are stopped or after a few empty cycles, and it waits while a note holds Continue.",
+    long: "Set in Settings › What the team can do with a cadence and daily limits. It pauses itself when credits run out, when agents are stopped or after a few empty cycles, and it waits while a note holds Continue.",
     learn: "settings/mode",
   },
   vacation: {
@@ -632,12 +632,6 @@ export const TERMS = {
     short: "A first the business reached: first customer, first dollar, a signed-off specification.",
     long: "Milestones are filed by chapter on the Journey and in Milestones. The next ones are shown outlined so you can see what is coming.",
     learn: "milestones",
-  },
-  leaderboard: {
-    id: "leaderboard",
-    word: "Leaderboard",
-    short: "Where this business ranks against others of its kind on a figure such as revenue or customers.",
-    long: "Only for businesses in Live mode that chose to appear. Figures you mark private stay out of it.",
   },
   customer_update: {
     id: "customer_update",
@@ -848,8 +842,6 @@ export const PLAIN_TIER_IDS = [
   "team_health",
   // A first the business reached, the everyday meaning.
   "milestone",
-  // A ranking, the everyday meaning.
-  "leaderboard",
   // A note about a customer, said in two ordinary words; the note itself narrates what happened.
   "customer_update",
   // A form or report sent to a government office by a date, the everyday meaning ("a tax filing").

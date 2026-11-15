@@ -10,7 +10,7 @@
  */
 import { LIMITS } from "@foundmill/config";
 import { apcaLc, createRng, hexToRgb, hslToRgb, isHexColour, kitOnPrimaryDetail, rgbToHex, rgbToHsl, type Kit } from "@foundmill/dugout";
-import { ARCHETYPE_LABELS, domainCandidates, domainSlug, type Archetype, type BusinessMode, type GameMode } from "@foundmill/shared";
+import { ARCHETYPE_LABELS, BUSINESS_MODES, domainCandidates, domainSlug, recommendedSpendLineMinor, type Archetype, type BusinessMode, type GameMode } from "@foundmill/shared";
 import { DEFAULT_AGENT_STYLE, type AgentStyle } from "@foundmill/shared/personas";
 import type { LogoDraft } from "@/lib/logo";
 
@@ -241,7 +241,7 @@ export interface ModeCard<V extends string> {
 
 export const GAME_MODE_CARDS: ModeCard<GameMode>[] = [
   { value: "personal", label: "Personal", tagline: "Private. Just you and the team.", details: ["Nothing is shared outside the business", "Go live later from Settings"] },
-  { value: "live", label: "Live", tagline: "Public profile, leaderboards, communities.", details: ["Your logo and milestones appear in the network", "Numbers you mark private stay private"] },
+  { value: "live", label: "Live", tagline: "Public profile, communities.", details: ["Your logo and milestones appear in the network", "Numbers you mark private stay private"] },
 ];
 
 /**
@@ -273,12 +273,11 @@ export const BUSINESS_MODE_CARDS: ModeCard<BusinessMode>[] = [
   },
 ];
 
-/** Default spend cap per business mode, in minor units of the founder's currency (labelled an estimate in the UI). */
-export const DEFAULT_SPEND_CAP_MINOR: Record<BusinessMode, number> = {
-  augmented: 0,
-  assisted: LIMITS.approvalThresholdMinorDefault,
-  automated: LIMITS.approvalThresholdMinorDefault * 4,
-};
+/**
+ * Default spend line per business mode, in minor units of the founder's currency (labeled an estimate in the UI): the
+ * suggestion Settings › What the team can do makes too (`recommendedSpendLineMinor` in @foundmill/shared).
+ */
+export const DEFAULT_SPEND_CAP_MINOR = Object.fromEntries(BUSINESS_MODES.map((m) => [m, recommendedSpendLineMinor(m, LIMITS.approvalThresholdMinorDefault)])) as Record<BusinessMode, number>;
 
 export interface ArchetypeCard {
   value: Archetype;
@@ -312,7 +311,10 @@ export interface CommitForm {
   /** Major units as typed. */
   spendCap: string;
   currency: string;
-  /** "Run on autopilot": the business starts its own cycles (Settings › Mode can change it later). Off by default. */
+  /**
+   * "Overnight shift" (retention plan, founder 2026-11-11: on by default with a small cap): Autopilot with the daily
+   * cadence at about 2 AM in the founder's time zone, one round of work a night. Settings › What the team can do changes it.
+   */
   autopilot: boolean;
   /** "Anthropomorphic agents": the team shows human first names and AI-generated faces. Starts as the founder's account preference. */
   anthropomorphicAgents: boolean;
@@ -331,7 +333,7 @@ export function initialCommitForm(idea: { title: string; archetype: Archetype | 
     businessMode: "assisted",
     spendCap: String(DEFAULT_SPEND_CAP_MINOR.assisted / 100),
     currency,
-    autopilot: false,
+    autopilot: true,
     anthropomorphicAgents,
     agentStyle,
   };
@@ -366,7 +368,7 @@ export function isCommitValid(form: CommitForm, options: { adultOnRecord?: boole
 }
 
 /** The `idea.commit` input. */
-export function commitInput(ideaId: string, form: CommitForm) {
+export function commitInput(ideaId: string, form: CommitForm, timeZone: string | null = null) {
   const cap = parseSpendCapMinor(form.spendCap);
   return {
     ideaId,
@@ -381,6 +383,8 @@ export function commitInput(ideaId: string, form: CommitForm) {
     // Sent only when the founder ticked it for a LIVE start (the server records it once).
     ...(form.gameMode === "live" && form.adult ? { confirmAdult: true as const } : {}),
     autopilot: form.autopilot,
+    // The overnight shift's hour is the founder's 2 AM: the browser's zone travels with the choice.
+    ...(form.autopilot ? { overnight: { timeZone: timeZone ?? "UTC" } } : {}),
     // The Launch step's choice; the server also stores it as the founder's account preference.
     anthropomorphicAgents: form.anthropomorphicAgents,
     agentStyle: form.agentStyle,

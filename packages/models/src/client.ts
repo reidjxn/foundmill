@@ -44,6 +44,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { ModelAbortedError, ModelBillingError, ModelOutputError, ModelRateLimitError, ModelRequestError, ModelUnavailableError, type ModelBillingReason } from "./errors";
 import { clearPlatformBillingRefusal, notePlatformBillingRefusal } from "./billing-state";
+import { IMAGE_TOKEN_ESTIMATE, assertImagesAllowed } from "./images";
 import { parseJsonLoose } from "./json";
 import { MockModelClient, type MockModelClientOptions } from "./mock";
 import { type MeterResult, ZERO_USAGE, addUsage, estimateTokens, meter, sumMeters } from "./pricing";
@@ -188,7 +189,7 @@ export function createModelClient(opts: CreateModelClientOptions = {}): ModelCli
 }
 
 /** The request fields that shape the API call (shared by `complete` and `streamStructured`). */
-type PlanInput = Pick<CompleteRequest<unknown>, "route" | "modelOverride" | "maxTokens" | "reserveTokens" | "system" | "cacheSystem" | "effort" | "temperature"> & { schema?: z.ZodType };
+type PlanInput = Pick<CompleteRequest<unknown>, "route" | "modelOverride" | "lowCredits" | "maxTokens" | "reserveTokens" | "system" | "cacheSystem" | "effort" | "temperature"> & { schema?: z.ZodType };
 /** The request fields the retry policy and metering read. */
 type CallContext = Pick<CompleteRequest<unknown>, "route" | "signal" | "scope" | "attribution">;
 
@@ -244,6 +245,7 @@ export class LiveModelClient implements ModelClient {
   complete(req: CompleteRequest<unknown> & { schema?: undefined }): Promise<CompleteResult<unknown>>;
   async complete<T = unknown>(req: CompleteRequest<T>): Promise<CompleteResult<T>> {
     const started = Date.now();
+    assertImagesAllowed(req.route, req.messages);
     let plan = this.plan(req);
     const { resolution } = plan;
     const scope = req.scope ?? "default";
@@ -312,6 +314,7 @@ export class LiveModelClient implements ModelClient {
    * `complete()`, repairing only the failed elements where it can.
    */
   async streamStructured<T, E>(req: StreamStructuredRequest<T, E>): Promise<StreamStructuredResult<T, E>> {
+    assertImagesAllowed(req.route, req.messages);
     const plan = this.plan(req);
     const scope = req.scope ?? "default";
     return runStructuredStream(req, {
@@ -329,7 +332,7 @@ export class LiveModelClient implements ModelClient {
 
   /** Model, max_tokens, reservation, effort, speed and the request body shared by every call of one request. */
   private plan(req: PlanInput): CallPlan {
-    const resolution = resolveModel(req.route, req.modelOverride);
+    const resolution = resolveModel(req.route, req.modelOverride, { lowCredits: req.lowCredits });
     if (resolution.warning) this.opts.logger?.warn({ route: req.route, override: req.modelOverride }, resolution.warning);
     const sized = req.maxTokens ?? this.opts.defaultMaxTokens;
     const maxTokens = sized ?? resolution.maxTokens;
@@ -709,7 +712,11 @@ function buildSystem(system: CompleteRequest["system"], cache: boolean): Anthrop
   return blocks.map((text, i) => ({ type: "text", text, ...(cache && i === blocks.length - 1 ? { cache_control: { type: "ephemeral" } } : {}) }));
 }
 
-const toParam = (m: ChatMessage): Anthropic.MessageParam => ({ role: m.role, content: m.content });
+/** A message as the API takes it: images (vision routes only, checked by `assertImagesAllowed`) before the text. */
+const toParam = (m: ChatMessage): Anthropic.MessageParam =>
+  m.images?.length
+    ? { role: m.role, content: [...m.images.map((img): Anthropic.ImageBlockParam => ({ type: "image", source: { type: "base64", media_type: img.mediaType, data: img.data } })), { type: "text", text: m.content }] }
+    : { role: m.role, content: m.content };
 
 /** The same plan with a larger `max_tokens` (the truncation retry); the limiter books the new budget too. */
 function withMaxTokens(plan: CallPlan, maxTokens: number): CallPlan {
@@ -717,7 +724,18 @@ function withMaxTokens(plan: CallPlan, maxTokens: number): CallPlan {
 }
 
 /** The prompt's input tokens, estimated locally (limiter reservations, and the booking of a call stopped in flight). */
-const estimateInputTokens = (params: Pick<Anthropic.MessageCreateParamsNonStreaming, "messages" | "system">): number => estimateTokens(JSON.stringify(params.messages) + JSON.stringify(params.system ?? ""));
+const estimateInputTokens = (params: Pick<Anthropic.MessageCreateParamsNonStreaming, "messages" | "system">): number => {
+  // An image counts as a screenshot's worth of tokens, not as the length of its base64.
+  let images = 0;
+  const messages = JSON.stringify(params.messages, (key, value: unknown) => {
+    if (key === "source" && value && typeof value === "object" && (value as { type?: unknown }).type === "base64") {
+      images += 1;
+      return "<image>";
+    }
+    return value;
+  });
+  return estimateTokens(messages + JSON.stringify(params.system ?? "")) + images * IMAGE_TOKEN_ESTIMATE;
+};
 
 /** The caller stopped the call (its signal), whatever the SDK made of it. */
 const isAbort = (error: unknown, req: Pick<CallContext, "signal">): boolean => req.signal?.aborted === true || error instanceof Anthropic.APIUserAbortError;

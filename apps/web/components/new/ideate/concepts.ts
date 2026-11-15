@@ -48,6 +48,12 @@ export interface IdeaMeta {
   forked_from?: string;
   forked_to?: string;
   qa?: QaEntry[];
+  /** The founder's own description of the business, verbatim (a card they wrote with "Use my idea as written" or edited). */
+  founder_words?: string;
+  /** The brief the founder typed when the card was drafted. */
+  brief?: string;
+  /** The sample (mock) model wrote the card: every screen says so. */
+  sample?: boolean;
 }
 
 /** One Ask exchange stored on a version (`meta.qa`): the question, the answer, and the conversation when it has one. */
@@ -74,7 +80,16 @@ export function readMeta(research: { citations: unknown[] } | null | undefined):
   if (typeof found.forked_from === "string") meta.forked_from = found.forked_from;
   if (typeof found.forked_to === "string") meta.forked_to = found.forked_to;
   if (Array.isArray(found.qa)) meta.qa = found.qa.filter((q): q is QaEntry => isRecord(q) && typeof q.question === "string" && typeof q.answer === "string");
+  if (typeof found.founder_words === "string" && found.founder_words.trim()) meta.founder_words = found.founder_words;
+  if (typeof found.brief === "string" && found.brief.trim()) meta.brief = found.brief;
+  if (found.sample === true) meta.sample = true;
   return meta;
+}
+
+/** True when the card's pitch is the founder's own words (written or edited by them), as the version's meta records it. */
+export function founderWrote(idea: Pick<IdeaLike, "current" | "pitch">): boolean {
+  const meta = readMeta(idea.current?.research);
+  return Boolean(meta.founder_words) && meta.founder_words === (idea.current?.pitch ?? idea.pitch);
 }
 
 export function citationsOf(research: { citations: unknown[] } | null | undefined): Citation[] {
@@ -134,6 +149,8 @@ export function toConcept(idea: IdeaLike, opts: { verdict?: string } = {}): Conc
     archetypeLabel: idea.archetype ? ARCHETYPE_LABELS[idea.archetype] : undefined,
     version: v?.version,
     verdict: opts.verdict,
+    ...(founderWrote(idea) ? { yourWords: true } : {}),
+    ...(meta.sample ? { sample: true } : {}),
   };
 }
 
@@ -193,7 +210,9 @@ export function attributeTerm(key: string): TermDefinition | undefined {
 
 export const VERSION_ACTION_LABELS: Record<string, string> = { generated: "Generated", merged: "Merged", forked: "Variant made", edited: "Edited" };
 
-export function versionActionLabel(action: string): string {
+/** How a version came to be; a first version the founder wrote themselves reads "Written by you". */
+export function versionActionLabel(action: string, version?: Pick<IdeaVersionLike, "version" | "research">): string {
+  if (action === "edited" && version?.version === 1 && readMeta(version.research).founder_words) return "Written by you";
   return VERSION_ACTION_LABELS[action] ?? action;
 }
 
@@ -210,6 +229,13 @@ export function toggleSelection(ids: readonly string[], id: string, max = COMPAR
 export function compareHref(ids: readonly string[]): string {
   return `/new/compare?ids=${ids.map(encodeURIComponent).join(",")}`;
 }
+
+/**
+ * The label of the button that takes an idea to its setup (the Commit step): what the press does, in plain words
+ * (first-time founder report, Nov 2026: "Commit" said nothing). Choosing opens the name, logo and how-it-runs form;
+ * Take charge there starts the business, so the card never says "Start" (DECISIONS 2026-11-10).
+ */
+export const CHOOSE_IDEA_LABEL = "Choose this idea";
 
 export function commitHref(ideaId: string): string {
   return `/new/commit/${encodeURIComponent(ideaId)}`;

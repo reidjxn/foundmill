@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { QuickReplyItem } from "@foundmill/dugout";
 import { CHOICE_SUBLINE, RETRY_REPLY_ID, STREAM_CUT_MESSAGE, TAKE_A_BREAK_ID, TAKE_A_BREAK_SUBLINE, bubbleNeedsMarkdown, deskFailureOf, deskMessagesOf, deskPersonaOf, failureQuickReplies, failureReply, openFailureLine, readReplyStream, roleBesideName, samePersonaWords, sayOf, voiceAck, withChoiceSubline, withChoiceSublines, withPlanId, withSent, withoutChoices, type ConversationView, type ReplyStreamEvent } from "../logic";
-import { agentOfAskItem, askPaletteItems, askQuestion, generatePaletteItems, paletteAgents } from "../palette";
+import { agentOfAskItem, agentOfCallItem, askPaletteItems, callPaletteItems, askQuestion, generatePaletteItems, paletteAgents } from "../palette";
 
 const persona = (over: Partial<ConversationView["persona"]> = {}): ConversationView["persona"] =>
   ({
@@ -86,14 +86,16 @@ describe("the agent's own words", () => {
 
 describe("the command palette's Ask and Generate rows", () => {
   const departments = [
-    { id: "d1", name: "Retail Partnerships", slug: "retail", colourToken: "dept-3", moduleKeys: ["distribution"], lead: { id: "juno", name: "Juno", role: "Head of Retail Partnerships", avatarSeed: "j" }, squad: [{ id: "juno", name: "Juno", role: "Head of Retail Partnerships", avatarSeed: "j" }, { id: "pike", name: "Pike", role: "Wholesale analyst", avatarSeed: null }], tabs: [{ slug: "formation", position: 0 }] },
+    { id: "d1", name: "Retail Partnerships", slug: "retail", colourToken: "dept-3", moduleKeys: ["distribution"], lead: { id: "juno", name: "Juno", role: "Head of Retail Partnerships", avatarSeed: "j" }, squad: [{ id: "juno", name: "Juno", role: "Head of Retail Partnerships", avatarSeed: "j" }, { id: "pike", name: "Pike", role: "Wholesale analyst", avatarSeed: null }, { id: "linker", name: "Entity linker", role: "Linking utility", avatarSeed: null, layer: "utility" }, { id: "sorter", name: "Inbound sorter", role: "Sorting utility", avatarSeed: null, tier: "background" as const }], tabs: [{ slug: "formation", position: 0 }] },
     { id: "d2", name: "Development", slug: "development", colourToken: "dept-2", moduleKeys: ["development"], lead: { id: "eng", name: "Engineering Lead", role: "Head of Engineering", avatarSeed: "e" }, squad: [], tabs: [{ slug: "plan", position: 1 }] },
     { id: "d3", name: "Hidden", slug: "hidden", colourToken: "dept-4", moduleKeys: [], hidden: true, lead: { id: "h", name: "Hidden lead", role: null, avatarSeed: null }, squad: [], tabs: [] },
   ];
   const agents = paletteAgents(departments);
 
   it("leads with the department leads, and with the agents the query names", () => {
+    // Background helpers are never asked anything (Leads first).
     expect(agents.map((a) => a.id)).toEqual(["juno", "eng", "pike"]);
+    expect(askPaletteItems(agents, "entity linker", () => null)).not.toContainEqual(expect.objectContaining({ label: "Ask Entity linker" }));
     expect(askPaletteItems(agents, "", () => null).map((i) => i.label)).toEqual(["Ask Juno", "Ask Engineering Lead"]);
     const named = askPaletteItems(agents, "pike how are the wholesale numbers?", () => null);
     expect(named.map((i) => i.label)).toEqual(["Ask Pike"]);
@@ -129,12 +131,12 @@ describe("the command palette's Ask and Generate rows", () => {
     expect(generatePaletteItems("b1", []).map((r) => r.id)).toEqual(["generate:logos"]);
   });
 
-  it("names the department as the founder named it, never a hard-coded 'Distribution › Board' (AC-11.13.1)", () => {
+  it("names the screen by its founder area and the tab as its bar reads it, never a hard-coded department (AC-11.13.1)", () => {
     const rows = generatePaletteItems("b1", departments);
-    expect(rows.find((r) => r.id === "generate:channels")?.description).toBe("Scores every channel for this business · Retail Partnerships › Board");
-    expect(rows.find((r) => r.id === "generate:task-graph")?.description).toMatch(/· Development › Plan$/);
+    expect(rows.find((r) => r.id === "generate:channels")?.description).toBe("Scores every channel for this business · Customers › Board");
+    expect(rows.find((r) => r.id === "generate:task-graph")?.description).toMatch(/· Product › Work list$/);
     const renamed = departments.map((d) => (d.id === "d2" ? { ...d, name: "Formulation Lab", tabs: [{ slug: "plan", position: 1, title: "Roadmap plan" }] } : d));
-    expect(generatePaletteItems("b1", renamed).find((r) => r.id === "generate:task-graph")?.description).toMatch(/· Formulation Lab › Roadmap plan$/);
+    expect(generatePaletteItems("b1", renamed).find((r) => r.id === "generate:task-graph")?.description).toMatch(/· Product › Roadmap plan$/);
   });
 });
 
@@ -249,5 +251,31 @@ describe("readReplyStream (a reply streamed bubble by bubble, audit MB-1)", () =
     const cut = readReplyStream(events<string>({ type: "bubble", index: 0, text: "One." }), () => undefined);
     await expect(cut).rejects.toThrow(STREAM_CUT_MESSAGE);
     expect(deskFailureOf(new Error(STREAM_CUT_MESSAGE)).kind).toBe("offline");
+  });
+});
+
+describe("the command palette's Call rows (Team call)", () => {
+  const departments = [
+    { id: "d1", name: "Retail Partnerships", slug: "retail", colourToken: "dept-3", moduleKeys: ["distribution"], lead: { id: "juno", name: "Juno", role: "Head of Retail Partnerships", avatarSeed: "j" }, squad: [{ id: "juno", name: "Juno", role: "Head of Retail Partnerships", avatarSeed: "j" }, { id: "pike", name: "Pike", role: "Wholesale analyst", avatarSeed: null }], tabs: [] },
+  ];
+  const agents = paletteAgents(departments);
+
+  it("offers nothing until the query names an agent or says call", () => {
+    expect(callPaletteItems(agents, "", () => null)).toEqual([]);
+    expect(callPaletteItems(agents, "cash runway", () => null)).toEqual([]);
+  });
+
+  it("'call' offers the leads; a name offers that agent, as one-to-one calls carrying the agent's id", () => {
+    expect(callPaletteItems(agents, "call", () => null).map((i) => i.label)).toEqual(["Call Juno"]);
+    const named = callPaletteItems(agents, "call pike", () => null);
+    expect(named.map((i) => i.label)).toEqual(["Call Pike"]);
+    expect(named[0]).toMatchObject({ id: "call:pike", kind: "command", description: "Wholesale analyst · Retail Partnerships" });
+    expect(agentOfCallItem(named[0]!, agents)?.id).toBe("pike");
+    expect(agentOfCallItem({ id: "ask:pike" }, agents)).toBeNull();
+  });
+
+  it("with anthropomorphic agents on, calls the persona by first name", () => {
+    const withName = agents.map((a) => (a.id === "pike" ? { ...a, displayName: "Malik" } : a));
+    expect(callPaletteItems(withName, "malik", () => null).map((i) => i.label)).toEqual(["Call Malik"]);
   });
 });

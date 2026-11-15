@@ -36,6 +36,9 @@ test.describe("first days", () => {
     const status = page.getByTestId("foundations-status");
     await expect(status).toBeVisible({ timeout: LONG });
     await expect(status).toHaveAttribute("data-foundations-state", "ready", { timeout: LONG });
+    // Day one lives with the dashboards (Details); Today's tab bar leads there (founder, 2026-11-07).
+    await page.getByRole("tab", { name: "Details" }).click();
+    await page.waitForURL(new RegExp(`/b/${bid}/home`), { timeout: LONG });
 
     // The guided layer on day one (UX plan §7.8): three numbered next steps in the Day one panel above the ghosted
     // milestones, "Your first week" with nothing done yet, and the callout under Continue (which waits while the first
@@ -52,6 +55,10 @@ test.describe("first days", () => {
       const checklist = page.locator("[data-first-week-checklist]");
       await expect(checklist).toBeVisible({ timeout: LONG });
       await expect(checklist).toContainText("0 of 7 done");
+      // The page comes first (package 1.3); no item asks for a bank or Stripe.
+      await expect(checklist.locator("[data-first-week-item]").first()).toHaveAttribute("data-first-week-item", "publish_page");
+      await expect(checklist.locator("[data-first-week-item='publish_page']").getByRole("link", { name: /^Go:/ })).toHaveAttribute("href", new RegExp(`/b/${bid}/d/product/public-page$`));
+      await expect(checklist).not.toContainText("Connect a bank");
       await expect(checklist.locator("[data-first-week-item='sign_off_specification']").getByRole("link", { name: /^Go:/ })).toHaveAttribute("href", new RegExp(`/b/${bid}/d/product/specification$`));
       await expect(checklist.locator("[data-first-week-item='run_cycle']").getByRole("button", { name: "Go: Run a cycle" })).toBeVisible();
       const continueButton = page.locator("[data-continue-state]").first();
@@ -90,12 +97,12 @@ test.describe("first days", () => {
     const building = inboxRow(page, /Building starts: \d+ tasks? planned/);
     await expect(building).toBeVisible({ timeout: LONG });
     await building.click();
-    await expect(page.getByTestId("inbox-note")).toContainText("Distribution waits until you start it from Distribution › Board.", { timeout: LONG });
+    await expect(page.getByTestId("inbox-note")).toContainText("Distribution waits until you start it from Customers › Board.", { timeout: LONG });
 
     // Both sign-offs tick off on the first-week checklist. So does "Read a note from an agent": the sign-off and
     // "Building starts:" notes opened above are agents' notes. The second sign-off also starts the first cycle the way
     // Continue does, which the in-process stack finishes at once ("Run a cycle"; with Temporal it may still be running),
-    // so the count is read from the ticked rows. Nothing has started distribution or connected a bank yet.
+    // so the count is read from the ticked rows. Nothing has started distribution or published the page yet.
     if (guided) {
       await page.goto(`/b/${bid}/home`);
       const checklist = page.locator("[data-first-week-checklist]");
@@ -104,7 +111,7 @@ test.describe("first days", () => {
       await expect(checklist.locator("[data-first-week-item='sign_off_roadmap'][data-done]")).toHaveCount(1, { timeout: LONG });
       await expect(checklist.locator("[data-first-week-item='read_note'][data-done]")).toHaveCount(1, { timeout: LONG });
       await expect(checklist.locator("[data-first-week-item='start_distribution'][data-done]")).toHaveCount(0);
-      await expect(checklist.locator("[data-first-week-item='connect_bank'][data-done]")).toHaveCount(0);
+      await expect(checklist.locator("[data-first-week-item='publish_page'][data-done]")).toHaveCount(0);
       const ticked = await checklist.locator("[data-first-week-item][data-done]").count();
       await expect(checklist).toContainText(`${ticked} of 7 done`);
     }
@@ -128,13 +135,16 @@ test.describe("first days", () => {
     // Nothing waits for an answer before distribution starts: the Board's question is not asked yet.
     await page.goto(`/b/${bid}/inbox`);
     await expect(inboxRow(page, SPEC_SIGNOFF)).toBeVisible({ timeout: LONG });
-    await expect(page.getByTestId("inbox-list").locator("[data-inbox-row][data-needs-answer='true']")).toHaveCount(0);
+    // The Chief of Staff's goal proposal (Nov 7, 2026) may already wait in Needs you, and so does the Product lead's
+    // "Your project's page is ready" (package 1.3); neither is a distribution question.
+    await expect(page.getByTestId("inbox-list").locator("[data-inbox-row][data-needs-answer='true']").filter({ hasNotText: /goal/i }).filter({ hasNotText: /page is ready/i })).toHaveCount(0);
 
     // Start distribution: the Board's question (the archetype's own words) lands in the Inbox and the channels start.
     const { boardItemId } = await startDistributionFromBoard(page, bid);
     await expect(page.getByText(/^\d+ of 15 running( · \d+ starting)?$/)).toBeVisible({ timeout: LONG });
     await openBoardQuestion(page, bid, boardItemId);
-    await expect(page.getByRole("button", { name: /^Respond to \d+ items?$/ })).toBeVisible({ timeout: LONG });
+    // The Board's question waits in Needs you; it never holds Continue (Nov 7, 2026).
+    await expect(page.getByRole("button", { name: /^Continue$/ })).toBeVisible({ timeout: LONG });
     await expect(inboxRow(page, "Distribution has started")).toBeVisible({ timeout: LONG });
     await page.goto(`/b/${bid}/d/distribution/channels`);
     await expect(channels).toBeVisible({ timeout: LONG });
@@ -151,7 +161,8 @@ test.describe("first days", () => {
     await page.getByTestId("commit-link").first().click();
     await expect(page).toHaveURL(/\/new\/commit\/[0-9a-f-]+/);
     const { bid } = await takeChargeToHome(page, `Changes Asked ${Date.now().toString(36)}`);
-    await expect(page.getByTestId("foundations-status")).toHaveAttribute("data-foundations-state", "ready", { timeout: LONG });
+    // The Specification tab's sign-off banner waits for the drafting itself (Home's ready panel shows only when the visit
+    // saw the drafting, which a fast mock draft can finish before Home's first read).
     await page.goto(`/b/${bid}/d/product/specification`);
     const banner = page.getByTestId("signoff-banner");
     await expect(banner).toHaveAttribute("data-signoff-status", "pending", { timeout: LONG });
@@ -169,7 +180,7 @@ test.describe("first days", () => {
     // Approve stays available for when the revision reads right; the Product lead's revision task is on the Plan.
     await expect(banner.getByTestId("signoff-approve")).toBeVisible();
     await page.goto(`/b/${bid}/d/development/plan`);
-    await expect(page.getByRole("grid", { name: "Tasks" }).getByRole("row").filter({ hasText: /Revise the specification:/ })).toHaveCount(1, { timeout: LONG });
+    await expect(page.getByRole("grid", { name: "Tasks" }).getByRole("row").filter({ hasText: /Revise the specification from your notes/ })).toHaveCount(1, { timeout: LONG });
     // The Inbox note was answered by the tab's decision and the follow-up says so.
     await page.goto(`/b/${bid}/inbox`);
     await expect(inboxRow(page, "Changes requested: the specification")).toBeVisible({ timeout: LONG });

@@ -53,6 +53,21 @@ describe("transforms", () => {
     expect(barColumn(d)?.key).toBe("cpa_minor");
     expect(labelColumn(d)?.key).toBe("channel");
   });
+  it("channel CPA leaves out a channel on the board that cannot really act, unless it is in offline tracking or has spend to show", () => {
+    const no = { available: false };
+    const d = channelCpa(
+      {
+        channels: [
+          { channelKey: "social", enabled: true, form: null, availability: no },
+          { channelKey: "print", enabled: true, form: null, availability: no, kitMode: true },
+          { channelKey: "paid_ads", enabled: true, form: { spendMinor: 5_000, customers: 1 }, availability: no },
+          { channelKey: "seo", enabled: true, form: null, availability: { available: true } },
+        ],
+      },
+      "EUR",
+    );
+    expect(d.rows?.map((r) => r.channel).sort()).toEqual(["paid ads", "print", "seo"]);
+  });
   it("a chart with nothing to draw is an empty state, not a bar chart on a £0.00–£0.01 axis (audit OL-31)", () => {
     // Enabled channels that have not brought a customer yet have no cost per customer.
     const noCustomers = channelCpa({ channels: [{ channelKey: "seo", enabled: true, form: null }, { channelKey: "paid_ads", enabled: true, form: { spendMinor: 0, customers: 0 } }] }, "GBP");

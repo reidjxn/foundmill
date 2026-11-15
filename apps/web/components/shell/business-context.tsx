@@ -3,6 +3,7 @@
  * Business context for every page under /b/[bid]: the business row, the founder's role, departments (in order) and
  * helpers to resolve a department by slug. The layout seeds it from the server; the shell keeps it fresh.
  */
+import { isAdminRole, isOwnerRole } from "@foundmill/shared/constants";
 import { createContext, useContext, type ReactNode } from "react";
 import { accessFor, type Access } from "@/lib/access";
 import type { RouterOutputs } from "@/lib/trpc";
@@ -30,6 +31,11 @@ export function BusinessProvider({ value, children }: { value: BusinessContextVa
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
+/** The business when inside the /b/[bid] layout, else null (a section that also renders outside one). */
+export function useOptionalBusiness(): BusinessContextValue | null {
+  return useContext(Ctx);
+}
+
 export function useBusiness(): BusinessContextValue {
   const v = useContext(Ctx);
   if (!v) throw new Error("useBusiness must be used inside the /b/[bid] layout");
@@ -43,9 +49,11 @@ export function makeBusinessContext(businessId: string, data: BusinessGet, depar
     departments,
     departmentBySlug: (slug) => departments.find((d) => d.slug === slug),
     departmentById: (id) => departments.find((d) => d.id === id),
-    isAdmin: data.role === "owner" || data.role === "admin",
-    isOwner: data.role === "owner",
-    access: accessFor(data.membership),
+    isAdmin: isAdminRole(data.role),
+    // An owner's standing: an owner or a cofounder (THESIS_REVIEW 3.3).
+    isOwner: isOwnerRole(data.role),
+    // The business too: an example-source membership of a business that is not a demo is never an example.
+    access: accessFor(data.membership, data.business),
   };
 }
 

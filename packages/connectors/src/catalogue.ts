@@ -27,9 +27,26 @@ import { createStripeConnector } from "./connectors/stripe";
 import { createTinkConnector } from "./connectors/tink";
 import { createVoyageConnector } from "./connectors/voyage";
 import { createOpenaiImagesConnector } from "./connectors/openai_images";
+import { createElevenlabsConnector } from "./connectors/elevenlabs";
+import { createOnesignalConnector } from "./connectors/onesignal";
+import { createPlatformNotifyConnector } from "./connectors/platform_notify";
 import { createPlatformConnector } from "./connectors/platform";
 import { createQuarantineConnector } from "./connectors/quarantine";
 import { createWebConnector } from "./connectors/web";
+import { createPlatformMailConnector } from "./connectors/platform_mail";
+import { createOpenaiConnector } from "./connectors/openai";
+import { createGeminiConnector } from "./connectors/gemini";
+import { createPerplexityConnector } from "./connectors/perplexity";
+import { createSerpapiConnector } from "./connectors/serpapi";
+import { createFirecrawlConnector } from "./connectors/firecrawl";
+import { createElevenlabsVoiceConnector } from "./connectors/elevenlabs_voice";
+import { createRunwayConnector } from "./connectors/runway";
+import { createIndexNowConnector } from "./connectors/indexnow";
+import { createApolloConnector } from "./connectors/apollo";
+import { createVercelConnector } from "./connectors/vercel";
+import { createPosthogConnector } from "./connectors/posthog";
+import { createResendConnector } from "./connectors/resend";
+import { createBufferConnector } from "./connectors/buffer";
 
 export type ConnectorFactory = (options?: LiveConnectorOptions) => Connector;
 
@@ -38,6 +55,11 @@ export const CONNECTOR_FACTORIES: Readonly<Record<string, ConnectorFactory>> = O
   anthropic: createAnthropicConnector,
   voyage: createVoyageConnector,
   openai_images: createOpenaiImagesConnector,
+  // Speech for Team call: service-only, on the platform's ELEVENLABS_API_KEY.
+  elevenlabs: createElevenlabsConnector,
+  onesignal: createOnesignalConnector,
+  // Foundmill's own email to its users (packages 1.5 and 5.1): service-only, on the platform's SendGrid key.
+  platform_notify: createPlatformNotifyConnector,
   github: createGithubConnector,
   google_drive: createGoogleDriveConnector,
   gmail: createGmailConnector,
@@ -56,6 +78,25 @@ export const CONNECTOR_FACTORIES: Readonly<Record<string, ConnectorFactory>> = O
   shopify: createShopifyConnector,
   tink: createTinkConnector,
   plaid: createPlaidConnector,
+  // The founder's own key at each vendor, never a platform key (founder, 2026-11-12): how a project appears in other
+  // assistants' answers and in Google, what a crawler reads on a page, and telling search engines a page changed.
+  openai: createOpenaiConnector,
+  gemini: createGeminiConnector,
+  perplexity: createPerplexityConnector,
+  serpapi: createSerpapiConnector,
+  firecrawl: createFirecrawlConnector,
+  indexnow: createIndexNowConnector,
+  // Also on the founder's own key: leads, deployments, product analytics and email from the founder's own domain.
+  apollo: createApolloConnector,
+  vercel: createVercelConnector,
+  posthog: createPosthogConnector,
+  resend: createResendConnector,
+  // Generated video and voiceover for ready-to-post kits, on the founder's own keys (founder, 2026-11-13). `elevenlabs_voice`
+  // is not the platform's `elevenlabs` (Team call speech): it never reads the platform key.
+  runway: createRunwayConnector,
+  elevenlabs_voice: createElevenlabsVoiceConnector,
+  // Posts queued in the founder's own Buffer account, which publishes them on the networks the founder connected there.
+  buffer: createBufferConnector,
 });
 
 export const CONNECTOR_KEYS = Object.freeze(Object.keys(CONNECTOR_FACTORIES));
@@ -69,7 +110,18 @@ export const BUILTIN_CONNECTOR_FACTORIES = Object.freeze({
   platform: createPlatformConnector,
   web: createWebConnector,
   quarantine: createQuarantineConnector,
+  // A project's Foundmill sending address (package 1.5): the platform's own SendGrid account, nothing to connect.
+  platform_mail: createPlatformMailConnector,
 } satisfies Record<string, ConnectorFactory>);
+
+/**
+ * Connectors whose mode follows another key's switch: `platform_mail` and `platform_notify` are SendGrid underneath, so
+ * they run live exactly where `sendgrid` does (`INTEGRATIONS_MODE=live` or `LIVE_CONNECTORS` naming `sendgrid`; packages/shared `platformMailMode`).
+ */
+export const CONNECTOR_MODE_KEYS: Readonly<Record<string, string>> = Object.freeze({ platform_mail: "sendgrid", platform_notify: "sendgrid" });
+
+/** The key whose switch decides this connector's mode (itself, unless `CONNECTOR_MODE_KEYS` names another). */
+export const modeKeyOf = (connectorKey: string): string => CONNECTOR_MODE_KEYS[connectorKey] ?? connectorKey;
 
 export const BUILTIN_CONNECTOR_KEYS: readonly string[] = Object.freeze(Object.keys(BUILTIN_CONNECTOR_FACTORIES));
 

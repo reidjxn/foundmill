@@ -13,9 +13,21 @@ export type ModelMode = "mock" | "live";
 
 export type ChatRole = "user" | "assistant";
 
+/** Media types an image block may carry (Anthropic image input). */
+export const CHAT_IMAGE_MEDIA_TYPES = ["image/png", "image/jpeg", "image/webp"] as const;
+export type ChatImageMediaType = (typeof CHAT_IMAGE_MEDIA_TYPES)[number];
+
+/** An image sent with a message, base64 without a data: prefix. Only routes marked `vision` in routing.ts accept them. */
+export interface ChatImage {
+  mediaType: ChatImageMediaType;
+  data: string;
+}
+
 export interface ChatMessage {
   role: ChatRole;
   content: string;
+  /** Images sent before the text of this (user) message; the route must be a `vision` route (client throws otherwise). */
+  images?: readonly ChatImage[];
 }
 
 /** Effort hint for the live client (`output_config.effort`). Ignored in mock mode. */
@@ -52,6 +64,11 @@ export interface CompleteRequest<T = unknown> {
   cacheSystem?: boolean;
   /** Per-agent model choice (BUILD §11.10 "Model selection"); subject to the route's lock/warn rules. */
   modelOverride?: ModelKey;
+  /**
+   * The business's credits are low (credit saver): a routine route runs on its lower-cost model (`ROUTES[route].lowCredits`,
+   * routing.ts); a kept route is unchanged. Set by the credits gate (`ModelCallGate`), not by callers.
+   */
+  lowCredits?: boolean;
   /**
    * Caller scope for rate-limit isolation (BUILD §10.3: a 429 backs off the affected session only). Usually the agent
    * session id. Defaults to "default".

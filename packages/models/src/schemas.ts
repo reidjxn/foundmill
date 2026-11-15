@@ -9,6 +9,10 @@ import {
   Archetype,
   ExhibitKind,
   InboxItemType,
+  PAGE_ABOUT_MAX,
+  PAGE_FOR_WHOM_MAX,
+  PAGE_PITCH_MAX,
+  PAGE_STAGES,
   PlanActionType,
   ResearchArtifactKind,
   RoadmapHorizon,
@@ -285,6 +289,36 @@ export const CodeReviewOutput = z.object({
 export type CodeReviewOutput = z.infer<typeof CodeReviewOutput>;
 
 // ---------------------------------------------------------------------------------------------------------------------
+// Document second read (packages/agents second-read.ts): a different agent checks a long document an agent drafted
+// ---------------------------------------------------------------------------------------------------------------------
+
+export const DOCUMENT_ISSUE_KINDS = ["inconsistency", "unsupported_claim", "unlabeled_figure", "needs_source", "factual_error"] as const;
+/** What a fact-check found: `supported` needs a real (never a simulated) source; anything not looked up is `not_checked`. */
+export const DOCUMENT_CHECK_STATES = ["not_checked", "supported", "contradicted", "unverifiable"] as const;
+
+export const DocumentReviewIssue = z.object({
+  kind: z.enum(DOCUMENT_ISSUE_KINDS),
+  severity: Severity,
+  /** The section's id as the prompt gave it ("document" when the issue is about the whole). */
+  location: z.string().min(1).max(120),
+  /** The words the issue is about, copied from the document. */
+  quote: z.string().max(400),
+  detail: z.string().min(1).max(600),
+  /** The smallest change that fixes it, never a rewrite of the section. */
+  suggestion: z.string().max(400),
+  check: z.enum(DOCUMENT_CHECK_STATES),
+  /** The source ids from the prompt the check relied on. */
+  sourceIds: z.array(z.string().max(80)).max(6),
+});
+export type DocumentReviewIssue = z.infer<typeof DocumentReviewIssue>;
+
+export const DocumentReviewOutput = z.object({
+  summary: z.string().min(1).max(600),
+  issues: z.array(DocumentReviewIssue).max(20),
+});
+export type DocumentReviewOutput = z.infer<typeof DocumentReviewOutput>;
+
+// ---------------------------------------------------------------------------------------------------------------------
 // Skill grader (BUILD §12.5 "Return JSON {score, lines:[{criterion, score, reason}]}")
 // ---------------------------------------------------------------------------------------------------------------------
 
@@ -376,6 +410,117 @@ export const ClassifierOutput = z.object({
   reasons: z.array(z.string()),
 });
 export type ClassifierOutput = z.infer<typeof ClassifierOutput>;
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Founder titles (founder, 2026-11-01): a task's title in the founder's words, at most ten, no engineering terms.
+// ---------------------------------------------------------------------------------------------------------------------
+
+export const FounderTitlesOutput = z.object({
+  titles: z.array(z.object({ id: z.string().min(1), title: z.string().min(1).max(120) })),
+});
+export type FounderTitlesOutput = z.infer<typeof FounderTitlesOutput>;
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The goal (founder, 2026-11-07): the founder's "Change it" words read as a kind, a target and a date. Every word the
+// founder reads is written by packages/shared goals.ts from these fields; the model never writes the sentence.
+// ---------------------------------------------------------------------------------------------------------------------
+
+export const GoalProposalOutput = z.object({
+  /** False when the words name no change the goal can take (then nothing is replaced and the founder is asked again). */
+  changed: z.boolean(),
+  kind: z.enum(["paying_customers", "signups", "revenue_month", "custom"]),
+  /** A count, or an amount in whole units of the business's currency for revenue_month; null for custom. */
+  target: z.number().nonnegative().nullable(),
+  /** "2027-01-31": after today, at most two years ahead. */
+  due_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  /** A custom goal's outcome in a few plain words ("Launch the booking page"); null for the measured kinds. */
+  custom_words: z.string().max(120).nullable(),
+});
+export type GoalProposalOutput = z.infer<typeof GoalProposalOutput>;
+
+// ---------------------------------------------------------------------------------------------------------------------
+// A project's public page (package 1.2): the Product lead's first draft from the founder's own words. The limits are
+// the shared page schema's (packages/shared project-page.ts); packages/agents `finaliseProjectPage` checks the answer
+// against `ProjectPageDraft` and never sets `showFounders` (that is the founder's choice).
+// ---------------------------------------------------------------------------------------------------------------------
+
+export const ProjectPageOutput = z.object({
+  /** One line, 1 to 140 characters. */
+  pitch: z.string().min(1).max(PAGE_PITCH_MAX),
+  /** 1 to 1,500 characters; paragraphs split on blank lines. */
+  about: z.string().min(1).max(PAGE_ABOUT_MAX),
+  /** "Who it is for", at most 300 characters; empty unless the inputs name an audience. */
+  for_whom: z.string().max(PAGE_FOR_WHOM_MAX),
+  stage: z.enum(PAGE_STAGES),
+});
+export type ProjectPageOutput = z.infer<typeof ProjectPageOutput>;
+
+// ---------------------------------------------------------------------------------------------------------------------
+// A post the social agent drafts for the founder to share by tap (docs/NETWORK.md F3, F7; packages/agents
+// `post-draft.ts`). Words only: the link and the picture are attached by code, never by the model. packages/agents
+// checks the answer (`finalisePostDraft`) before anything is stored.
+// ---------------------------------------------------------------------------------------------------------------------
+
+export const PostDraftOutput = z.object({
+  /** The post: one or two short sentences of plain text. */
+  text: z.string().min(1).max(600),
+  /** A shorter way to say the same, or an empty string. Used only when `text` is too long for a network. */
+  short: z.string().max(300).default(""),
+});
+export type PostDraftOutput = z.infer<typeof PostDraftOutput>;
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The optional "which one is for you" quiz on a project's public page (migration 0105; packages/agents `page-quiz.ts`):
+// the team sorts the project's real customers into 2 to 4 types, each resting on customers it names by their opaque
+// ref, or says there is too little data. Every word is checked by packages/agents `finalisePageQuiz` before it is
+// stored, and the founder approves it before anything is public.
+// ---------------------------------------------------------------------------------------------------------------------
+
+export const PageQuizOutput = z.object({
+  /** `draft` when the customers split into types the records show; `too_little_data` when they do not. */
+  outcome: z.enum(["draft", "too_little_data"]),
+  /** One plain sentence: why there is too little data, or what the types were drawn from. */
+  reason: z.string().max(300).default(""),
+  types: z
+    .array(
+      z.object({
+        name: z.string().min(1).max(60),
+        summary: z.string().max(200).default(""),
+        /** The customers this type was drawn from (`c1`, `c2`, ...): at least two, all from the input. */
+        customer_refs: z.array(z.string().max(8)).max(60),
+        /** The offer that fits them: `follow`, or a purchase's ref (`p1`, ...) from the input. */
+        offer_ref: z.string().max(8),
+      }),
+    )
+    .max(4)
+    .default([]),
+  questions: z
+    .array(
+      z.object({
+        text: z.string().min(1).max(120),
+        /** Each answer points to one type by its position in `types` (0-based). */
+        answers: z.array(z.object({ text: z.string().min(1).max(80), type_index: z.number().int().min(0).max(3) })).min(2).max(4),
+      }),
+    )
+    .max(4)
+    .default([]),
+});
+export type PageQuizOutput = z.infer<typeof PageQuizOutput>;
+// The script of a showcase video (docs/THESIS_REVIEW.md §13 item 15; packages/agents `showcase-script.ts`): the house's
+// social agent writes at most three shots, one per card of the project's public story, and the post's words. The code
+// checks every word before anything is stored (`finaliseShowcaseScript`).
+// ---------------------------------------------------------------------------------------------------------------------
+
+export const ShowcaseScriptOutput = z.object({
+  /** One per card, in the order the video shows them: the card's code from the request and the words on it ("Nov 12: page live"). */
+  shots: z
+    .array(z.object({ card: z.string().min(1).max(8), caption: z.string().min(1).max(120) }))
+    .min(1)
+    .max(3),
+  /** The post that goes with the video: one or two short sentences of plain text. */
+  post: z.string().min(1).max(600),
+});
+export type ShowcaseScriptOutput = z.infer<typeof ShowcaseScriptOutput>;
 
 export const CHART_OF_ACCOUNTS = [
   "revenue",

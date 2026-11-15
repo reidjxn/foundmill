@@ -7,7 +7,7 @@
 import { useMemo } from "react";
 import { z } from "zod";
 import { Award } from "lucide-react";
-import type { ModelKey } from "@foundmill/shared";
+import { isBackgroundAgent, type ModelKey } from "@foundmill/shared";
 import { MODEL_KEYS } from "@foundmill/shared/constants";
 import { Avatar, Button, DeptChip, EntityLink, FormCells, KeyValueList, ModelChip, RATING_MAX, RatingCell, StarRating, Term, formScore, formatMoney, type FormResult } from "@foundmill/dugout";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "../data";
@@ -51,7 +51,8 @@ export function agentScore(a: TeamAgentRow, by: (typeof AGENT_PICKS)[number]): n
 }
 
 export function pickAgent(rows: readonly TeamAgentRow[], settings: AgentOfTheWeekSettings): TeamAgentRow | null {
-  const pool = rows.filter((a) => a.status !== "paused" && (!settings.departmentId || a.departmentIds.includes(settings.departmentId)));
+  // Background helpers are not the founder's team (Leads first): never the agent of the week.
+  const pool = rows.filter((a) => a.status !== "paused" && !isBackgroundAgent(a) && (!settings.departmentId || a.departmentIds.includes(settings.departmentId)));
   if (pool.length === 0) return null;
   return pool.slice().sort((x, y) => agentScore(y, settings.by) - agentScore(x, settings.by) || x.name.localeCompare(y.name))[0] ?? null;
 }

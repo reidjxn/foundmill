@@ -2,8 +2,9 @@
  * product.foundations.* / product.signoff.* / product.spec.* / product.roadmap.* / product.proposals.* /
  * product.sources.* / product.plan.* (BUILD §11.1 first open, §11.5; AC-11.5.2, AC-11.5.3; founder 2026-10-18 sign-offs).
  */
+import { INPUT_LIMITS } from "@foundmill/config";
 import { EditSpecBlockInput, UpsertRoadmapItemInput, repos, type AppliedHunk, type DbTx, type Executor, type ProposalDecisionResult } from "@foundmill/db";
-import { HUNK_DECISIONS, RESEARCH_ARTIFACT_STATUSES, SOURCE_KINDS, ValidationError, WRITE_ROLES } from "@foundmill/shared";
+import { boundedRecord, HUNK_DECISIONS, RESEARCH_ARTIFACT_STATUSES, SOURCE_KINDS, ValidationError, WRITE_ROLES } from "@foundmill/shared";
 import { z } from "zod";
 import { ensureFoundations, foundationsView, isStale, retryFoundations } from "../services/foundations";
 import { ensureResearchPlan, loadResearchView, retryResearchPlan } from "../services/product-research";
@@ -211,7 +212,7 @@ export const productRouter = router({
       }),
     ),
     /** Link two items (dependency) or a block/task to an item. */
-    link: write.input(z.object({ itemId: Id, dependsOn: Id.optional(), specBlockIds: z.array(Id).optional(), taskIds: z.array(Id).optional() })).mutation(({ ctx, input }) =>
+    link: write.input(z.object({ itemId: Id, dependsOn: Id.optional(), specBlockIds: z.array(Id).max(INPUT_LIMITS.linkedIds).optional(), taskIds: z.array(Id).max(INPUT_LIMITS.linkedIds).optional() })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
         const item = await repos.product.getRoadmapItem(tx, ctx.businessId, input.itemId);
         if (input.dependsOn) await repos.product.linkRoadmap(tx, ctx.businessId, input.dependsOn, input.itemId);
@@ -288,7 +289,7 @@ export const productRouter = router({
      * Accepting (or saving an edit of) a hunk writes it into its block or roadmap item; deciding the last pending hunk
      * settles the proposal and, when anything was accepted, publishes the next spec version (`spec.version_published`).
      */
-    decideHunk: write.input(z.object({ hunkId: Id, decision: z.enum(HUNK_DECISIONS), edited: z.record(z.string(), z.unknown()).optional() })).mutation(({ ctx, input }) =>
+    decideHunk: write.input(z.object({ hunkId: Id, decision: z.enum(HUNK_DECISIONS), edited: boundedRecord(INPUT_LIMITS.jsonObjectKeys, z.record(z.string(), z.unknown())).optional() })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
         if (input.decision === "pending") throw new ValidationError("Choose accept, reject or edited");
         const result = await repos.product.decideHunk(tx, ctx.businessId, input.hunkId, input.decision, input.edited, { decidedBy: ctx.userId });

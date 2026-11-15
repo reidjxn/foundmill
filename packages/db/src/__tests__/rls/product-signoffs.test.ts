@@ -58,7 +58,7 @@ describe("product_signoffs (0062)", () => {
     expect(latest.roadmap).toMatchObject({ kind: "roadmap", round: 1, status: "pending" });
     expect(latest.readyToSell).toBeNull();
     const item = await repos.inbox.get(h.db as never, A.businessId, latest.spec!.inboxItemId!);
-    expect(item).toMatchObject({ type: "decision", blocksContinue: true, subject: "Sign off the product specification" });
+    expect(item).toMatchObject({ type: "decision", blocksContinue: false, subject: "Sign off the product specification" });
     const again = await h.service().run((tx) => repos.productSignoffs.open(tx, A.businessId, { kind: "spec", item: note(A.agentId, "spec") }));
     expect(again.created).toBe(false);
     expect(again.signoff.id).toBe(latest.spec!.id);

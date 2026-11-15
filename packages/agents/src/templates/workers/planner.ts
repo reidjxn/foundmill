@@ -45,7 +45,7 @@ export const planner = defineTemplate({
   },
   // `tasks.update`: the planner applies a re-scope itself (file paths, acceptance criteria, the test command) instead of
   // handing a mapping to the lead and waiting (the Foundmill business's five code tasks waited three cycles, Oct 30, 2026).
-  tools: [grant("platform", [...PLATFORM_BASE_TOOLS, "tasks.update", "spec.read", "roadmap.read", "tasks.history"]), grant("sandbox", SANDBOX_TOOLS), grant("github", ["repos.read", "issues.list"])],
+  tools: [grant("platform", [...PLATFORM_BASE_TOOLS, "tasks.update", "spec.read", "roadmap.read", "tasks.history"]), grant("sandbox", SANDBOX_TOOLS), grant("github", ["repos.read"])],
   skills: withCoreSkills(["task_decomposition", "acceptance_criteria", "dependency_mapping", "estimation"]),
   autonomy: AUTONOMY_INHERIT,
   schedule: { triggers: ["spec.version_published"] },

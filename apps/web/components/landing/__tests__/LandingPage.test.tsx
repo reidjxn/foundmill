@@ -37,8 +37,11 @@ class OnScreenObserver {
 const realObserver = globalThis.IntersectionObserver;
 beforeEach(() => {
   globalThis.IntersectionObserver = OnScreenObserver as unknown as typeof IntersectionObserver;
+  // The idea box asks the api for this browser's card on mount: none here.
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 204 })));
 });
 afterEach(() => {
+  vi.unstubAllGlobals();
   globalThis.IntersectionObserver = realObserver;
   vi.useRealTimers();
   resetExampleCache();
@@ -58,17 +61,19 @@ describe("LandingPage (signed-out /)", () => {
     renderPage();
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(APP_TAGLINE);
     const starts = screen.getAllByRole("link", { name: /Start your business/ });
-    expect(starts.length).toBeGreaterThanOrEqual(3);
+    expect(starts.length).toBeGreaterThanOrEqual(2);
     for (const a of [...starts, ...screen.getAllByRole("link", { name: "Sign in" })]) expect(a.getAttribute("href")).toBe("/login");
   });
 
-  it("assures a first-timer on the hero (included credits, no card) and keeps the key assurance for You decide (A13)", () => {
+  it("assures a first-timer at the idea box (a free card, no sign-up, private) and keeps the key assurance for You decide (A13)", () => {
     renderPage();
     const hero = screen.getByRole("heading", { level: 1 }).closest("section")!;
-    // The figure is the free plan's included credits, from packages/config, in credits' own currency.
+    // The figure is the free plan's included credits, from packages/config, in credits' own currency (said once the card lands).
     expect(INCLUDED_CREDITS_ASSURANCE).toBe("Starts with $5.00 of included credits · no card");
-    expect(within(hero).getByTestId("hero-credits").textContent).toBe(INCLUDED_CREDITS_ASSURANCE);
+    expect(within(hero).getByText("Your first card is free · no sign-up")).toBeTruthy();
+    expect(within(hero).getByText("Your idea stays private until you choose to share it")).toBeTruthy();
     expect(within(hero).getByText("Nothing moves money or signs in your name without you")).toBeTruthy();
+    expect(within(hero).getByRole("textbox", { name: "Your idea, in a sentence" })).toBeTruthy();
     expect(within(hero).queryByText(/Anthropic key/)).toBeNull();
     // The key assurance sits beside "Your key, sealed", and nowhere else.
     const control = document.getElementById("control")!;
@@ -93,10 +98,10 @@ describe("LandingPage (signed-out /)", () => {
     expect(within(panel).getByText(/^Iris, Product lead, writes it from your idea and your profile\. Orla, Chief of Staff, plans the first cycle from the roadmap\.$/)).toBeTruthy();
     // Then the two sign-off notes in the Inbox, each tagged Respond, then Continue.
     const inbox = within(how).getByRole("list", { name: "Inbox" });
-    // Each row: the Product lead's portrait (its name is text too), the subject, the Respond tag.
+    // Each row: the Product lead's portrait (its name is text too), the subject, the Needs you tag.
     const rows = within(inbox).getAllByRole("listitem");
     expect(rows).toHaveLength(2);
-    rows.forEach((li, i) => expect(li.textContent).toBe(`Iris${FIRST_DAY_SIGNOFFS[i]}Respond`));
+    rows.forEach((li, i) => expect(li.textContent).toBe(`Iris${FIRST_DAY_SIGNOFFS[i]}Needs you`));
     const day = panel.parentElement!;
     expect(within(day).getByText("Continue")).toBeTruthy();
     const planned = TUTORLANE.howItWorks.firstCyclePlan.reduce((s, p) => s + p.tasks, 0);
@@ -119,12 +124,14 @@ describe("LandingPage (signed-out /)", () => {
     expect(container.querySelector("svg[data-variant]")).toBeNull();
   });
 
-  it("has every section, reachable from the section nav", () => {
+  it("has every section, the top bar carries no section nav, and the Why now pillars link to the rest", () => {
     renderPage();
-    const nav = screen.getByRole("navigation", { name: "Sections" });
-    for (const id of ["why", "how", "team", "live", "journey", "control"]) {
-      expect(within(nav).getByRole("link", { name: (_, el) => el.getAttribute("href") === `#${id}` })).toBeTruthy();
-      expect(document.getElementById(id)).toBeTruthy();
+    // A quieter first screen (founder, 2026-11-13): the wordmark, Sign in and Start your business, nothing else.
+    expect(screen.queryByRole("navigation", { name: "Sections" })).toBeNull();
+    const why = document.getElementById("why")!;
+    for (const id of ["why", "how", "team", "live", "journey", "control"]) expect(document.getElementById(id)).toBeTruthy();
+    for (const id of ["team", "live", "journey", "control"]) {
+      expect(within(why).getByRole("link", { name: (_, el) => el.getAttribute("href") === `#${id}` })).toBeTruthy();
     }
     expect(document.getElementById("channels")).toBeTruthy();
     // One team orbit is announced (the hero's); the closing one is decoration.
@@ -145,7 +152,7 @@ describe("LandingPage (signed-out /)", () => {
       vi.advanceTimersByTime(DECK_CYCLE_MS);
     });
     expect(deck.getAttribute("data-phase")).toBe("decision");
-    expect(within(deck).getByRole("button", { name: /Respond to 1 item/ })).toBeTruthy();
+    expect(within(deck).getByRole("button", { name: /1 thing needs you/ })).toBeTruthy();
     const decision = screen.getByTestId("deck-decision");
     expect(within(decision).getByText("Merge photo grading to production?")).toBeTruthy();
     // The app's words for an open decision ("Needs your answer"), never the retired "needs you".
@@ -251,10 +258,9 @@ describe("LandingPage (signed-out /)", () => {
     // The Customer Update and the Inbox note are the example business's.
     expect(screen.getByRole("region", { name: "Customer Update" })).toBeTruthy();
     expect(screen.getByRole("article", { name: "Example Inbox note" })).toBeTruthy();
-    // The Inbox note and the thesis use the app's current words, not the retired "Needs you" / "Your calls".
+    // The Inbox note and the thesis use the app's current words ("Needs your answer"), never the retired "Your calls".
     expect(within(screen.getByRole("article", { name: "Example Inbox note" })).getByText("Needs your answer")).toBeTruthy();
     expect(screen.getByRole("link", { name: /Your decisions/ }).getAttribute("href")).toBe("#control");
-    expect(screen.queryByText("Needs you")).toBeNull();
     expect(screen.queryByText(/Your calls/)).toBeNull();
     // Only milestones the example reached, each labelled as the example business's.
     expect(screen.queryByText("Not yet")).toBeNull();

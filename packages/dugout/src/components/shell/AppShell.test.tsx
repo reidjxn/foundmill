@@ -45,6 +45,84 @@ describe("AppShell", () => {
     expect(screen.queryByText("Content")).toBeNull();
   });
 
+  describe("phone mode (package 2.1)", () => {
+    it("with `phone` under 1280 px draws the phone layout: no larger-window ask, no sidebar, no floor, one @container", () => {
+      render(<AppShell {...shellProps({ viewportWidth: 390, phone: true, tabs: { tabs: [{ id: "today", label: "Today", href: "#t" }, { id: "details", label: "Details", href: "#d" }], activeId: "today" } })} />);
+      expect(screen.queryByTestId("needs-larger-window")).toBeNull();
+      const root = screen.getByTestId("app-shell");
+      expect(root.hasAttribute("data-phone")).toBe(true);
+      expect(root.className).toContain("@container");
+      expect(root.className).not.toContain("min-w-(--min-viewport)");
+      expect(screen.getByTestId("phone-bar")).toBeTruthy();
+      expect(screen.queryByTestId("kit-bar")).toBeNull();
+      expect(screen.queryByRole("navigation", { name: "Primary" })).toBeNull();
+      expect(screen.getByText("Content")).toBeTruthy();
+      expect(screen.getByRole("heading", { name: "Home" })).toBeTruthy();
+      expect(screen.getByRole("tab", { name: "Today" })).toBeTruthy();
+      // Continue and Stop all agents stay reachable, each a finger's size.
+      expect(screen.getByRole("button", { name: /Continue/ }).className).toContain("min-h-tap");
+      expect(screen.getByTestId("stop-all-trigger").className).toContain("min-h-tap");
+    });
+
+    it("leaves out the right rail on a phone", () => {
+      render(<AppShell {...shellProps({ viewportWidth: 390, phone: true, rightRail: { open: true, onOpenChange: vi.fn(), title: "Rail", children: <p>Rail body</p> } })} />);
+      expect(screen.queryByText("Rail body")).toBeNull();
+    });
+
+    it("the menu button opens the sidebar's items in a panel; choosing one navigates and closes it", async () => {
+      const onNavigate = vi.fn();
+      render(<AppShell {...shellProps({ viewportWidth: 390, phone: true, onNavigate })} />);
+      expect(screen.queryByTestId("phone-menu")).toBeNull();
+      await userEvent.click(screen.getByRole("button", { name: "Menu" }));
+      const menu = screen.getByTestId("phone-menu");
+      const names = [...menu.querySelectorAll("[data-sidebar-item]")].map((el) => el.getAttribute("data-sidebar-item"));
+      expect(names).toEqual(NORTHWIND_SIDEBAR.filter((it) => !it.disabled).map((it) => it.id));
+      for (const row of menu.querySelectorAll("[data-sidebar-item]")) expect(row.className).toContain("min-h-tap");
+      const first = NORTHWIND_SIDEBAR.find((it) => !it.disabled)!;
+      await userEvent.click(menu.querySelector(`[data-sidebar-item="${first.id}"]`)!);
+      expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({ id: first.id }));
+      expect(screen.queryByTestId("phone-menu")).toBeNull();
+    });
+
+    it("Esc closes the menu", async () => {
+      render(<AppShell {...shellProps({ viewportWidth: 390, phone: true })} />);
+      await userEvent.click(screen.getByRole("button", { name: "Menu" }));
+      expect(screen.getByTestId("phone-menu")).toBeTruthy();
+      await userEvent.keyboard("{Escape}");
+      expect(screen.queryByTestId("phone-menu")).toBeNull();
+    });
+
+    it("at 1280 px and over `phone` changes nothing: the sidebar, the kit bar and no menu button", () => {
+      render(<AppShell {...shellProps({ viewportWidth: 1280, phone: true })} />);
+      const root = screen.getByTestId("app-shell");
+      expect(root.hasAttribute("data-phone")).toBe(false);
+      expect(screen.getByRole("navigation", { name: "Primary" })).toBeTruthy();
+      expect(screen.getByTestId("kit-bar")).toBeTruthy();
+      expect(screen.queryByTestId("phone-bar")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Menu" })).toBeNull();
+    });
+
+    it("without `phone` the 1280 px floor stays: NeedsLargerWindow below it, the floor class and an @container root above it", () => {
+      const { unmount } = render(<AppShell {...shellProps({ viewportWidth: 390 })} />);
+      expect(screen.getByTestId("needs-larger-window")).toBeTruthy();
+      expect(screen.queryByTestId("phone-bar")).toBeNull();
+      unmount();
+      render(<AppShell {...shellProps({ viewportWidth: 1440 })} />);
+      const root = screen.getByTestId("app-shell");
+      expect(root.className).toContain("min-w-(--min-viewport)");
+      expect(root.className).toContain("@container");
+    });
+  });
+
+  it("passes the business's spend line and currency to the top bar's chip, which says the setting in words", () => {
+    const onModeClick = vi.fn();
+    render(<AppShell {...shellProps({ viewportWidth: 1440, spendLineMinor: 5_000, businessCurrency: "GBP", onModeClick })} />);
+    const chip = screen.getByRole("button", { name: "What the team can do: asks before spending over £50" });
+    expect(chip.querySelector("[data-chip-full]")?.textContent).toBe("Asks before spending over £50");
+    chip.click();
+    expect(onModeClick).toHaveBeenCalledOnce();
+  });
+
   it("renders the shell at 1280 px with the kit as CSS variables", () => {
     render(<AppShell {...shellProps({ viewportWidth: 1280 })} />);
     const root = screen.getByTestId("app-shell");
@@ -108,10 +186,11 @@ describe("AppShell", () => {
         })}
       />,
     );
-    // The badge sits after the name, inside the identity.
+    // The badge is a caption under the name (one column, the name first), so it takes no width from the bar.
     const name = screen.getByTestId("kitbar-business-name");
     const badge = screen.getByTestId("kitbar-business-badge");
     expect(name.parentElement).toBe(badge.parentElement);
+    expect(name.parentElement?.className).toContain("flex-col");
     expect(name.compareDocumentPosition(badge) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // The slot replaces Continue and keeps its height and minimum width.
     const slot = screen.getByTestId("kitbar-continue-slot");
@@ -135,7 +214,7 @@ describe("AppShell", () => {
     expect(mark.querySelector("path")).toBeNull();
   });
 
-  it("the logo and name are Switch business: the founder's other businesses, Create a new business and Home (audit IAE-08)", async () => {
+  it("the logo and name are Switch business: the founder's other businesses, Create a new business and Today (audit IAE-08; Today since Nov 7, 2026)", async () => {
     const user = userEvent.setup();
     const onNavigate = vi.fn();
     const onOpenBusiness = vi.fn();
@@ -150,7 +229,7 @@ describe("AppShell", () => {
     await user.click(await screen.findByRole("option", { name: /Create a new business/ }));
     expect(onNewBusiness).toHaveBeenCalledTimes(1);
     await user.click(trigger);
-    await user.click(await screen.findByRole("option", { name: /^Home$/ }));
+    await user.click(await screen.findByRole("option", { name: /^Today$/ }));
     expect(onNavigate).toHaveBeenLastCalledWith(expect.objectContaining({ id: "home" }));
   });
 
@@ -195,6 +274,27 @@ describe("AppShell", () => {
     expect(screen.queryByTestId("processing-line")).toBeNull();
   });
 
+  it("the answer to a press of Continue replaces the strip's sentence and shows in the tab bar, guidance on or off (first-time founder report, Nov 8, 2026)", () => {
+    const tabs = { tabs: [{ id: "a", label: "Overview" }], activeId: "a" };
+    render(
+      <GuidanceProvider value={{ guidance: "off" }}>
+        <AppShell {...shellProps({ tabs, processing: { segments: NORTHWIND_SEGMENTS, active: false, notice: "Cycle 2 started: 6 tasks ready to build" } })} />
+      </GuidanceProvider>,
+    );
+    // Never "No cycle running" over a press that was answered.
+    expect(screen.queryByRole("status", { name: "No cycle running" })).toBeNull();
+    expect(screen.getByRole("status", { name: "Cycle 2 started: 6 tasks ready to build" }).hasAttribute("data-notice")).toBe(true);
+    const line = screen.getByTestId("processing-line");
+    expect(line.textContent).toBe("Cycle 2 started: 6 tasks ready to build");
+    expect(line.hasAttribute("data-notice")).toBe(true);
+    expect(line.className).toMatch(/text-secondary/);
+  });
+
+  it("Continue's caveat rides on the button and under its tooltip", () => {
+    render(<AppShell {...shellProps({ continueButton: { state: { kind: "idle" }, onContinue: vi.fn(), caveat: "The orchestrator is not reachable: a press writes one note; no agent works." } })} />);
+    expect(screen.getByRole("button", { name: "Continue" }).getAttribute("data-continue-caveat")).toBe("The orchestrator is not reachable: a press writes one note; no agent works.");
+  });
+
   it("words the tab bar's processing line: the sentence for one or two departments, a count from three (review F45)", () => {
     const seg = (label: string, active: boolean) => ({ id: label, label, dept: "dept-1" as const, active });
     expect(processingLineText([seg("Product", true), seg("Finance", true), seg("Legal", false)], true, 12)).toBe("Product and Finance are working on cycle 12");
@@ -233,33 +333,43 @@ describe("AppShell", () => {
     const onNavigate = vi.fn();
     const keyed = withSidebarKeys(NORTHWIND_SIDEBAR);
     expect(keyed.find((i) => i.id === "home")?.keys).toEqual(["G", "H"]);
-    expect(keyed.find((i) => i.id === "crm")?.keys).toEqual(["G", "C"]);
-    expect(keyed.find((i) => i.id === "d-finance")?.keys).toEqual(["G", "N"]);
+    expect(keyed.find((i) => i.id === "inbox")?.keys).toEqual(["G", "I"]);
+    expect(keyed.filter((i) => i.group === "area").map((i) => i.keys?.join(" "))).toEqual(["G P", "G C", "G M", "G R", "G T"]);
+    expect(keyed.find((i) => i.id === "d-studio")?.keys).toEqual(["G", "S"]);
     expect(keyed.find((i) => i.id === "settings")?.keys).toBeUndefined();
     expect(sidebarItemForTarget(keyed, { kind: "inbox" })?.id).toBe("inbox");
-    expect(sidebarItemForTarget(keyed, { kind: "department", id: "d-team" })?.id).toBe("d-team");
+    expect(sidebarItemForTarget(keyed, { kind: "area", area: "money" })?.id).toBe("area-money");
+    expect(sidebarItemForTarget(keyed, { kind: "department", id: "d-studio" })?.id).toBe("d-studio");
     render(<AppShell {...shellProps({ onNavigate })} />);
-    expect(screen.getByRole("link", { name: "Finance" }).getAttribute("aria-keyshortcuts")).toBe("G N");
+    expect(screen.getByRole("link", { name: "Money" }).getAttribute("aria-keyshortcuts")).toBe("G M");
     document.body.focus();
-    await user.keyboard("gn");
-    expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({ id: "d-finance" }));
+    await user.keyboard("gm");
+    expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({ id: "area-money" }));
+    await user.keyboard("gs");
+    expect(onNavigate).toHaveBeenLastCalledWith(expect.objectContaining({ id: "d-studio" }));
     await user.keyboard("gi");
     expect(onNavigate).toHaveBeenLastCalledWith(expect.objectContaining({ id: "inbox" }));
     await user.click(screen.getByRole("button", { name: "Northwind Skincare: go to Home" }));
     expect(onNavigate).toHaveBeenLastCalledWith(expect.objectContaining({ id: "home" }));
   });
 
-  it("honors a department's stored letter in the sidebar, the chord and the help overlay", async () => {
+  it("honors a module-less department's stored letter, unless an area holds it, in the sidebar, the chord and the help overlay", async () => {
     const user = userEvent.setup();
     const onNavigate = vi.fn();
-    // Finance stores Q (chosen in Settings › Departments): the name would give N.
-    const sidebar = NORTHWIND_SIDEBAR.map((i) => (i.id === "d-finance" ? { ...i, shortcut: "Q" } : i));
-    expect(withSidebarKeys(sidebar).find((i) => i.id === "d-finance")?.keys).toEqual(["G", "Q"]);
+    // Studio stores Q: the name would give S. A stored M is Money's now, so it falls back to the name's letter.
+    const sidebar = NORTHWIND_SIDEBAR.map((i) => (i.id === "d-studio" ? { ...i, shortcut: "Q" } : i));
+    expect(withSidebarKeys(sidebar).find((i) => i.id === "d-studio")?.keys).toEqual(["G", "Q"]);
+    expect(withSidebarKeys(NORTHWIND_SIDEBAR.map((i) => (i.id === "d-studio" ? { ...i, shortcut: "M" } : i))).find((i) => i.id === "d-studio")?.keys).toEqual(["G", "S"]);
     render(<AppShell {...shellProps({ onNavigate, sidebar: { items: sidebar, collapsed: false, onCollapsedChange: () => {} } })} />);
-    expect(screen.getByRole("link", { name: "Finance" }).getAttribute("aria-keyshortcuts")).toBe("G Q");
+    expect(screen.getByRole("link", { name: "Studio, 1 item" }).getAttribute("aria-keyshortcuts")).toBe("G Q");
     document.body.focus();
     await user.keyboard("gq");
-    expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({ id: "d-finance" }));
+    expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({ id: "d-studio" }));
+    await user.keyboard("?");
+    const help = await screen.findByTestId("keyboard-help");
+    expect(help.textContent).toContain("Go to Customers");
+    expect(help.textContent).toContain("Go to Studio");
+    expect(help.textContent).not.toContain("Contacts");
   });
 
   it("Space continues, / opens the palette, ? opens help, Esc closes them in order", async () => {
@@ -288,11 +398,11 @@ describe("AppShell", () => {
     expect(onEscape).toHaveBeenCalledTimes(1);
   });
 
-  it("Space does nothing while Continue is blocked without a respond handler, and shows Respond · N (AC-11.3.3)", async () => {
+  it("Space does nothing while Continue is blocked without a respond handler, and shows Needs you · N (AC-11.3.3)", async () => {
     const user = userEvent.setup();
     const onContinue = vi.fn();
     render(<AppShell {...shellProps({ continueButton: { state: { kind: "blocked", count: 3 }, onContinue } })} />);
-    expect(screen.getByRole("button", { name: "Respond to 3 items" }).textContent).toContain("Respond · 3");
+    expect(screen.getByRole("button", { name: "3 things need you before the team can work" }).textContent).toContain("Needs you · 3");
     document.body.focus();
     await user.keyboard(" ");
     expect(onContinue).not.toHaveBeenCalled();
@@ -331,7 +441,7 @@ describe("AppShell", () => {
     await user.type(await screen.findByRole("combobox"), "north");
     const row = await screen.findByRole("option", { name: /Northwind Skincare/ });
     await user.click(row);
-    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: "business", label: "Northwind Skincare", href: "/b/northwind" }));
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: "business", label: "Northwind Skincare", href: "/b/northwind/today" }));
   });
 
   it("keeps the search placeholder short enough never to be cut, with the short forms for a narrow bar", () => {

@@ -1447,7 +1447,8 @@ describe("honest outcomes: a code session ends done only when it did the work (d
     const nextId = await openSessionRow(t, t.workerId, task.id);
     const next = { ...input, sessionId: nextId };
     const finishNext = await acts.finishSession(next, launch, done);
-    expect(finishNext.taskStatus).toBe("done");
+    // Done, as the run says: the session's outcome; the code task waits in review for its merge (Oct 31, 2026).
+    expect(finishNext.taskStatus).toBe(launch.branch === `agent/${task.id}` ? "review" : "done");
     expect((await repos.agents.getSession(t.db, t.businessId, nextId)).outcome).toBe("done");
   });
 
@@ -1662,7 +1663,7 @@ describe("honest outcomes: a code session ends done only when it did the work (d
     provider.files.clear();
   });
 
-  it("a code session that changes files and passes its acceptance run still ends done", async () => {
+  it("a code session that changes files and passes its acceptance run ends done, its task in review for the merge", async () => {
     const { task, sessionId, input, launch } = await freshCodeTask("Add the named paths");
     script = async function* (call) {
       await writeFile(path.join(call.options.cwd as string, "paths.ts"), "export const paths = { home: \"/\" };\n");
@@ -1673,8 +1674,10 @@ describe("honest outcomes: a code session ends done only when it did the work (d
     const tests = await readSessionEvents(t.redis, sessionId, { kinds: ["test_result"] });
     expect(tests.at(-1)?.event).toMatchObject({ acceptance: true, passed: 3, failed: 0 });
     const finish = await acts.finishSession(input, launch, result);
-    expect(finish.taskStatus).toBe("done");
-    expect((await repos.tasks.get(t.db, t.businessId, task.id)).status).toBe("done");
+    // Its work is on its own branch until merged: the task waits in review and the merge review starts with it.
+    expect(finish.taskStatus).toBe("review");
+    expect((await repos.tasks.get(t.db, t.businessId, task.id)).status).toBe("review");
+    expect(finish.merge).toMatchObject({ taskId: task.id, branch: `agent/${task.id}`, acceptance: { passing: 3, total: 3 } });
     expect(await blockedEventsOf(sessionId)).toEqual([]);
   });
 

@@ -3,11 +3,28 @@ project_id = "sdruubitufjqibsjyxlc"
 
 [auth]
 site_url = "https://foundmill.com"
+# Production's sign-in callbacks only (docs/DEPLOY.md §4). Supabase sends the sign-in code to whatever address this list
+# matches, so preview deployments (*.vercel.app) and http://localhost:3000 are never listed here: they belong in a
+# separate development Supabase project. `**` after `callback` because the callback's `next` may carry a `.` or `/`.
+# scripts/supabase-config.test.mjs holds this list to exactly these entries.
 additional_redirect_urls = [
-  "https://foundmill.com/**",
-  "https://www.foundmill.com/**",
-  "https://foundmill.vercel.app/**",
-  "https://foundmill.vercel.app/**",
-  "https://*-fm-2f083c2b.vercel.app/**",
-  "http://localhost:3000/**",
+  "https://foundmill.com/auth/callback**",
+  "https://www.foundmill.com/auth/callback**",
+  # The mobile companion app (docs/mobile): a magic link tapped on the phone opens the app on its own scheme.
+  "foundmill://auth/callback",
 ]
+
+# Google sign-in (the web's "Continue with Google") is set in the dashboard, never here: a [auth.external.google] section
+# would be pushed too and turn the provider off, or blank its client secret, on the next `supabase config push`. The
+# client secret must never be committed. Setup and the flag that shows the button: docs/DEPLOY.md §4 "Signing in with Google".
+
+[auth.email]
+# The mobile app signs in by typing the six-digit code from the email (`verifyOtp` with type "email"); the link in the
+# same message keeps working on the web. 15 minutes is enough to type a code and short enough for a link left in an inbox.
+otp_length = 6
+otp_expiry = 900
+
+# One template for every client: the link (which carries `emailRedirectTo`, docs/DEPLOY.md §2) and the code. Copy in US English.
+[auth.email.template.magic_link]
+subject = "Sign in to Foundmill"
+content_path = "./supabase/templates/magic_link.html"

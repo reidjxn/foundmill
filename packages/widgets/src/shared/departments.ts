@@ -2,7 +2,8 @@
 /** Department lookups shared by the department card, squad pulse, status strip and navigation helpers. */
 import { useMemo } from "react";
 import type { ModuleKey } from "@foundmill/shared";
-import { MODULE_KEYS, MODULE_TABS } from "@foundmill/shared/constants";
+import { MODULE_KEYS, MODULE_TABS, firstVisibleTab, tabTitleFor } from "@foundmill/shared/constants";
+import { AREA_LABELS, areaOfTab } from "@foundmill/shared/areas";
 import type { RibbonDepartment } from "@foundmill/dugout";
 import { useWidgetData, useWidgetQuery, type QueryState } from "../data";
 import { routes } from "./routes";
@@ -42,13 +43,16 @@ export function departmentForModule(rows: readonly DepartmentRow[] | undefined, 
   return orderedDepartments(rows).find((d) => d.moduleKeys.includes(moduleKey));
 }
 
-/** Href of a module tab: the department that owns the module and the tab slug (falls back to the first tab). */
-export function moduleHref(bid: string, rows: readonly DepartmentRow[] | undefined, moduleKey: ModuleKey, tabSlug?: string): string | null {
+/**
+ * Href of a module tab: the department that owns the module and the tab slug (falls back to the first tab the person
+ * sees: Builder view's tabs are skipped while it is off, the default).
+ */
+export function moduleHref(bid: string, rows: readonly DepartmentRow[] | undefined, moduleKey: ModuleKey, tabSlug?: string, builder = false): string | null {
   // A department may show only some of its module's tabs (Operations: Specialists and Plan), so a link to a tab goes to
   // the first department over the module that has it.
   const d = (tabSlug ? orderedDepartments(rows).find((x) => x.moduleKeys.includes(moduleKey) && x.tabs.some((t) => t.slug === tabSlug)) : undefined) ?? departmentForModule(rows, moduleKey);
   if (!d) return null;
-  const tab = (tabSlug && d.tabs.find((t) => t.slug === tabSlug)) || d.tabs.slice().sort((a, b) => a.position - b.position)[0];
+  const tab = (tabSlug && d.tabs.find((t) => t.slug === tabSlug)) || firstVisibleTab(d, builder);
   return tab ? routes.department(bid, d.slug, tab.slug) : null;
 }
 
@@ -63,19 +67,23 @@ export function moduleTabHref(bid: string, rows: readonly DepartmentRow[] | unde
 }
 
 /**
- * "<department> › <tab>" as the founder named them ("Team › Recruitment", "Editorial › Changes" on a Content / media
- * business): copy that points at a screen names the department that owns the module, never a hard-coded name
- * (CLAUDE.md: departments are labels over modules). Null when no visible department carries the module.
+ * "<area> › <tab>" as the founder reads them in the sidebar and the tab bar ("Customers › Leads", "Team ›
+ * Recruitment"; docs/DESIGN.md §9): copy that points at a screen names the founder area over the tab's module and the
+ * tab's own title in the department that owns the module, never a hard-coded name (CLAUDE.md: departments are labels
+ * over modules). Null when no visible department carries the module.
  */
 export function moduleTabLabel(
   rows: readonly (Pick<DepartmentRow, "name" | "position" | "moduleKeys" | "hidden"> & { tabs: readonly { slug: string; title: string }[] })[] | undefined,
   moduleKey: ModuleKey,
   tabSlug: string,
+  builder = false,
 ): string | null {
   const d = (rows ?? []).filter((x) => !x.hidden).slice().sort((a, b) => a.position - b.position || a.name.localeCompare(b.name)).find((x) => x.moduleKeys.includes(moduleKey));
   if (!d) return null;
   const title = d.tabs.find((t) => t.slug === tabSlug)?.title ?? MODULE_TABS[moduleKey].find((t) => t.slug === tabSlug)?.title ?? tabSlug;
-  return `${d.name} › ${title}`;
+  // The tab as the person reads it in the TabBar ("Working now" while Builder view is off and the title is the default).
+  const area = areaOfTab([moduleKey], tabSlug);
+  return `${area ? AREA_LABELS[area] : d.name} › ${tabTitleFor(d.moduleKeys, tabSlug, title, builder)}`;
 }
 
 /** Hook form of `moduleHref` plus a navigate callback. */

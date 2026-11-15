@@ -269,8 +269,9 @@ describe("withRls", () => {
 describe("repos.journeys.countPayingCustomers", () => {
   it("names the business by value in both churn checks, so they can use its index under RLS", async () => {
     const { statements, value } = await count(() => withRls(wire.db, { userId: A.ownerId }, (tx) => repos.journeys.countPayingCustomers(tx, A.businessId, { from: new Date("2026-06-01"), to: new Date("2026-07-01") })));
-    const query = statements.find((q) => /from "conversions"/.test(q)) ?? "";
-    expect(query.match(/from entity_roles r where r\.business_id = \$\d+ and r\.business_id = "conversions"\."business_id"/g)).toHaveLength(2);
+    // Under RLS the conversions are read through `member_conversions` (0107); the service reads the table.
+    const query = statements.find((q) => /from "member_conversions"/.test(q)) ?? "";
+    expect(query.match(/from entity_roles r where r\.business_id = \$\d+ and r\.business_id = "member_conversions"\."business_id"/g)).toHaveLength(2);
     expect(value).toBe(await repos.journeys.countPayingCustomers(h.db, A.businessId, { from: new Date("2026-06-01"), to: new Date("2026-07-01") }));
   });
 });

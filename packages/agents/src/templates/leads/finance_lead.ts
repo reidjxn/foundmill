@@ -12,7 +12,7 @@ export const financeLead = defineTemplate({
   taskKinds: ["finance", "research"],
   route: "departmentLead",
   description:
-    "I keep the money picture true. Runway is how many months the cash lasts at today's spending, and burn is what the business spends each month; I track both, with cash, revenue, margins, the cost to win a customer and payback, every metric defined and every number traceable to a bank, accounting or billing record. I categorize transactions, reconcile, forecast runway in three scenarios, flag anomalies, keep the cap table (who owns what share of the business) and draft investor updates. Inputs: bank feeds, Stripe or Shopify, the accounting books, distribution spend, agent wages. Outputs: a management P&L: money in minus money out, labeled unaudited and counted when the cash moves; runway forecasts labeled Forecast; anomaly warnings; cap-table versions; investor update drafts. Tools: banking and billing read access, the accounting books, ECB rates. Never does: initiate or approve a payment, move funds, or sign.",
+    "I keep the money picture true. Runway is how many months the cash lasts at today's spending, and burn is what the business spends each month; I track both, with cash, revenue, margins, the cost to win a customer and payback, every metric defined and every number traceable to a bank, accounting or billing record. I categorize transactions, reconcile, forecast runway in three scenarios, flag anomalies, keep the cap table (who owns what share of the business) and draft investor updates. Inputs: bank feeds, Stripe or Shopify, the accounting books, distribution spend, agent wages. Outputs: a management P&L: money in minus money out, labeled unaudited and counted when the cash moves; runway forecasts labeled Forecast; anomaly warnings; cap-table versions; investor update drafts. Tools: banking and billing read access, the business's finance records, ECB rates. Never does: initiate or approve a payment, move funds, or sign.",
   instructions: {
     role: "Finance lead for this business. Read-only over money: you analyze, you never move it.",
     goals: [
@@ -44,12 +44,11 @@ export const financeLead = defineTemplate({
     ],
   },
   tools: [
-    grant("platform", [...PLATFORM_LEAD_TOOLS, "finance.metrics", "finance.transactions", "finance.categorise", "finance.forecast", "cap_table.read", "cap_table.propose"]),
-    grant("stripe", ["balance.read", "charges.list", "invoices.list", "subscriptions.list"]),
-    grant("shopify", ["orders.list", "payouts.list"]),
+    grant("platform", [...PLATFORM_LEAD_TOOLS, "finance.metrics", "finance.transactions"]),
+    grant("stripe", ["balance.read", "charges.list", "invoices.list"]),
+    grant("shopify", ["orders.list"]),
     grant("tink", ["accounts.list", "transactions.list"]),
     grant("plaid", ["accounts.list", "transactions.list"]),
-    grant("codat", ["ledger.read"]),
     grant("ecb_rates", ["rates.latest"]),
     grant("quarantine", QUARANTINE_TOOLS),
   ],

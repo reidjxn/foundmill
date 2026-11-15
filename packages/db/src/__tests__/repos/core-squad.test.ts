@@ -185,6 +185,28 @@ describe("departments, screens, dashboards", () => {
   });
 });
 
+/**
+ * What a session runs with (apps/orchestrator `followsTemplate` / `parseGrants`): a system-written version 1, or a
+ * version with no tools, follows the template; any other version keeps its own tools.
+ */
+const runsTemplate = (v: { version: number; createdByKind: string; tools: unknown } | null) => v === null || (v.version === 1 && v.createdByKind === "system") || !Array.isArray(v.tools) || v.tools.length === 0;
+
+describe("clone keeps the grants the agent runs with", () => {
+  it("a clone of an agent whose tools were narrowed runs with the narrowed tools, not its template's", async () => {
+    const A = r.A.businessId;
+    const hired = await repos.agents.create(r.db, A, { name: "Narrowed Engineer", agentType: "backend_engineer", initialVersion: { instructions: { role: "Build" }, tools: [{ connectorKey: "github", tools: ["*"] }], createdByKind: "system" } });
+    const narrow = await repos.agents.createVersion(r.db, A, hired.id, { instructions: { role: "Build, read only" }, tools: [{ connectorKey: "github", tools: ["get_file"] }], createdByKind: "user" });
+    await repos.agents.promoteVersion(r.db, A, hired.id, narrow.id);
+    const clone = await repos.agents.clone(r.db, A, hired.id, { name: "Narrowed Engineer II" });
+    expect(runsTemplate(clone.currentVersion)).toBe(false);
+    expect(clone.currentVersion?.tools).toEqual(narrow.tools);
+    expect(clone.currentVersion?.instructions).toEqual(narrow.instructions);
+    // A source that itself follows its template gives a clone that does too.
+    const plain = await repos.agents.create(r.db, A, { name: "Plain Engineer", agentType: "backend_engineer", initialVersion: { instructions: { role: "Build" }, tools: [], createdByKind: "system" } });
+    expect(runsTemplate((await repos.agents.clone(r.db, A, plain.id, { name: "Plain Engineer II" })).currentVersion)).toBe(true);
+  });
+});
+
 describe("agents, versions, skills, training", () => {
   it("hire with an initial version, save a draft, promote, roll back, clone, release", async () => {
     const A = r.A.businessId;

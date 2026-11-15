@@ -193,7 +193,7 @@ describe("planCycle: the planner orders, it never gates", () => {
     const blocked: BusinessBrief = { ...b, openTasks: b.openTasks.map((x) => ({ ...x, blocked: true })), untaskedRoadmap: [{ id: "r1", title: "Pricing experiment", horizon: "now" }] };
     const idle = await cycleActs.planCycle({ businessId: B(), cycleNumber: 14, trigger: "continue", brief: blocked });
     expect(idle.idle).toBe(true);
-    expect(idle.summary).toContain("1 roadmap item has no tasks yet (Pricing experiment); the team plans it in the next cycles");
+    expect(idle.summary).toContain("1 roadmap item has no tasks yet (Pricing experiment); the team plans it in the next rounds of work");
     expect(idle.summary).not.toMatch(/task graph|Development › Plan/);
   });
 });

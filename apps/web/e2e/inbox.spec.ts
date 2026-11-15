@@ -1,5 +1,14 @@
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, ROADMAP_SIGNOFF, SPEC_SIGNOFF, UUID, approveBothSignoffs, approveFromInbox, dismissCoachmarks, ensureDeck, inboxRow, openBoardQuestion, openBusiness, signIn, startDistributionFromBoard, takeChargeToHome } from "./helpers";
+import { LONG, NORTHWIND_BUSINESS_ID, ROADMAP_SIGNOFF, SPEC_SIGNOFF, UUID, approveBothSignoffs, approveFromInbox, dismissCoachmarks, ensureDeck, inboxRow, openBoardQuestion, openBusiness, signIn, startDistributionFromBoard, takeChargeToHome, setBuilderView } from "./helpers";
+
+// Builder view on for this file (it opens an approval's Details); global-setup.ts starts every run with it off. Restored afterwards.
+let builderViewBefore = false;
+test.beforeAll(async ({ playwright }) => {
+  builderViewBefore = await setBuilderView(playwright, true);
+});
+test.afterAll(async ({ playwright }) => {
+  await setBuilderView(playwright, builderViewBefore);
+});
 
 /**
  * Inbox (BUILD §11.3; AC-11.3.2 refresh, AC-11.3.3 Continue follows blocking items) on the seeded Northwind Skincare,
@@ -36,7 +45,7 @@ test.describe("inbox", () => {
     await expect(page.getByTestId("reading-pane-empty")).toContainText("Pick a note on the left.");
     // Refresh says what it is (one quick note, not a cycle; UX plan B17).
     await expect(page.getByTestId("inbox-refresh")).toHaveAttribute("title", "Ask the team for one quick note (does not start a cycle)");
-    for (const tab of ["Respond", "Customers", "Updates", "Archive"]) await expect(page.getByRole("tab", { name: new RegExp(`^${tab}`) })).toBeVisible();
+    for (const tab of ["Needs you", "Customers", "Updates", "Archive"]) await expect(page.getByRole("tab", { name: new RegExp(`^${tab}`) })).toBeVisible();
   });
 
   test("J/K select the next and previous rows; the URL carries the selection; the pane shows the note anatomy", async ({ page }) => {
@@ -94,17 +103,18 @@ test.describe("inbox", () => {
     await expect(rows).toHaveCount(before + 1);
   });
 
-  test("AC-11.3.3: the two sign-off notes block Continue; 1 approves each (the second starts the build) and Continue runs a cycle step", async ({ page }) => {
-    test.setTimeout(240_000);
+  test("the two sign-off notes wait in Needs you without holding Continue; 1 approves each (the second starts the build), Continue runs a cycle step, and 1 approves the first goal", async ({ page }) => {
+    test.setTimeout(360_000);
     await signIn(page);
     const { bid } = await commitFreshBusiness(page, `Playwright Inbox ${Date.now().toString(36)}`);
-    // The foundations draft in the background (mock models); their two sign-off notes block Continue.
+    // The foundations draft in the background (mock models); their two sign-off notes wait in Needs you. Since Nov 7, 2026
+    // a decision never holds Continue: the button stays Continue and the Inbox counts what needs the founder (the two
+    // sign-offs and, since package 1.3, the Product lead's "Your project's page is ready").
     await page.goto(`/b/${bid}/inbox`);
     await expect(inboxRow(page, SPEC_SIGNOFF)).toBeVisible({ timeout: LONG });
     await expect(inboxRow(page, ROADMAP_SIGNOFF)).toBeVisible({ timeout: LONG });
-    const respond = page.getByRole("button", { name: /^Respond to \d+ items?$/ });
-    await expect(respond).toBeVisible({ timeout: LONG });
-    await expect(respond).toHaveText("Respond · 2");
+    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Needs you/ })).toContainText("3", { timeout: LONG });
+    await expect(page.getByRole("button", { name: /^Continue$/ })).toBeVisible({ timeout: LONG });
     await inboxRow(page, SPEC_SIGNOFF).click();
     const item = page.getByTestId("inbox-item");
     await expect(item).toHaveAttribute("data-type", "decision", { timeout: LONG });
@@ -138,15 +148,47 @@ test.describe("inbox", () => {
     await expect(answered).toBeVisible();
     // Decided from the DecisionBar: the desk keeps 2–4 replies but no longer offers "Go with: …" (no second decision).
     await expect(desk.locator('[data-quick-reply="go_with"]')).toHaveCount(0, { timeout: LONG });
-    await expect(page.getByRole("button", { name: "Respond to 1 item" })).toBeVisible({ timeout: LONG });
+    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Needs you/ })).toContainText("2", { timeout: LONG });
     // The second approval starts the build: Development › Plan gets the Planner's first tasks.
     await approveFromInbox(page, bid, ROADMAP_SIGNOFF);
     await expect(inboxRow(page, /Building starts:/)).toBeVisible({ timeout: LONG });
     const idle = page.getByRole("button", { name: /^Continue$/ });
     await expect(idle).toBeVisible({ timeout: LONG });
-    // One press of Continue → business.continue (an in-process cycle step without Temporal) → a toast says what happened.
+    // One press of Continue → business.continue → within a second the strip under the top bar says what the press is
+    // doing or did (first-time founder report, Nov 8, 2026: "No cycle running" never stays unchanged after a press), and
+    // a toast carries the api's one sentence: the cycle and what is ready to build, or, without an orchestrator, that no
+    // agent worked and one note stood in.
     await idle.click();
-    await expect(page.getByText(/Cycle started|One new note|Cycle resumed|already running/).first()).toBeVisible({ timeout: LONG });
+    await expect(page.locator("[data-coachmark='processing-strip'][data-notice]")).toHaveAttribute("aria-label", /Starting the next (cycle|round of work)|(cycle \d+|round of work) started|cannot run right now|(cycle \d+|round of work) resumed|already running/i, { timeout: 1_000 });
+    await expect(page.getByText(/(cycle \d+|round of work) started|cannot run right now|(cycle \d+|round of work) resumed|already running/i).first()).toBeVisible({ timeout: LONG });
+
+    // After both sign-offs and a round of work the Chief of Staff proposes the first goal (founder, 2026-11-07): Home asks
+    // `goal.ensure` once per visit, the proposal is a decision note in Needs you that never holds Continue, and one tap on
+    // the recommended option (1) approves it.
+    const goalRow = () => inboxRow(page, /Your first goal: get 10 paying customers by [A-Z][a-z]{2} \d{1,2}/);
+    await expect(async () => {
+      const ensured = page.waitForResponse((r) => /goal\.ensure/.test(r.url()), { timeout: 20_000 });
+      await page.goto(`/b/${bid}/home`);
+      await ensured;
+      await page.goto(`/b/${bid}/inbox`);
+      await expect(goalRow()).toBeVisible({ timeout: 10_000 });
+    }).toPass({ timeout: LONG * 3 });
+    await expect(page.getByRole("button", { name: /^Continue$/ })).toBeVisible({ timeout: LONG });
+    await goalRow().click();
+    const goalNote = page.getByTestId("inbox-item");
+    await expect(goalNote).toHaveAttribute("data-type", "decision", { timeout: LONG });
+    // From whoever the business's Chief of Staff is (read from the page, never a fixed name).
+    await expect(page.getByTestId("inbox-item-header").getByTestId("persona-link")).not.toHaveText("", { timeout: LONG });
+    const goalBar = page.getByTestId("decision-bar");
+    await expect(goalBar).toHaveAttribute("data-state", "open");
+    await expect(goalBar.getByRole("group", { name: "Options" }).getByRole("button")).toHaveText([/Approve this goal/, /Change it/]);
+    await expect(async () => {
+      await dismissCoachmarks(page);
+      await page.getByTestId("shell-content").focus();
+      await page.keyboard.press("1");
+      await expect(goalNote).toHaveAttribute("data-state", "answered", { timeout: 10_000 });
+    }).toPass({ timeout: LONG * 2 });
+    await expect(page.getByTestId("answered-panel")).toBeVisible({ timeout: LONG });
   });
 
   test("every note has the agent's desk; a quick reply (Alt+2) answers without using up the decision; T talks", async ({ page }) => {
@@ -395,8 +437,8 @@ test.describe("inbox", () => {
     await signIn(page);
     await page.goto(`/b/${LEDGERLY_BUSINESS_ID}/inbox?tab=all`);
     await expect(page.getByTestId("inbox-list")).toBeVisible({ timeout: LONG });
-    // The seed's pending approval has its decision item: "<agent> asks to run Foundmill › set budget".
-    const request = rowsOf(page).filter({ hasText: /asks to run .+ › set budget/ }).first();
+    // The seed's pending approval has its decision item: "<agent> needs your OK: Foundmill › set budget".
+    const request = rowsOf(page).filter({ hasText: /needs your OK: .+ › set budget/ }).first();
     await expect(request, "the seed gives Ledgerly an agent's request to approve").toBeVisible({ timeout: LONG });
     await request.click();
     const panel = page.getByTestId("approval-panel");
@@ -431,7 +473,7 @@ test.describe("inbox", () => {
     await expect(page.getByTestId("answered-panel")).toBeVisible();
   });
 
-  test("a plan waiting for the go-ahead survives a reload: it stays in Respond, its spend reads as waiting, and Review confirms it once", async ({ page }) => {
+  test("a plan waiting for the go-ahead survives a reload: it stays in Needs you, its spend reads as waiting, and Review confirms it once", async ({ page }) => {
     await signIn(page);
     test.setTimeout(300_000);
     const { bid } = await commitFreshBusiness(page, `Playwright Go-ahead ${Date.now().toString(36)}`);
@@ -485,7 +527,7 @@ test.describe("inbox", () => {
     await expect(page.getByTestId("type-pill")).not.toContainText("Needs your go-ahead");
     // A task is a task: the answered panel never sends "Open the plan" to the unrelated task list (audit FR-08).
     await expect(answered.getByRole("button", { name: "Open the plan" })).toHaveCount(0);
-    // Confirmed, it leaves Respond.
+    // Confirmed, it leaves Needs you.
     await page.reload();
     await expect(page.getByTestId("inbox-screen")).toHaveAttribute("data-tab", "respond", { timeout: LONG });
     await expect(page.locator(`[data-inbox-row="${itemId}"]`)).toHaveCount(0, { timeout: LONG });
@@ -527,7 +569,8 @@ test.describe("inbox", () => {
     const options = bar.getByRole("group", { name: "Options" }).getByRole("button");
     expect(await options.count()).toBeGreaterThanOrEqual(2);
     for (let i = 0; i < (await options.count()); i += 1) await expect(options.nth(i)).toBeEnabled();
-    await expect(page.getByRole("button", { name: /^Respond to \d+ items?$/ })).toBeVisible();
+    // A decision past its deadline still never holds Continue (Nov 7, 2026).
+    await expect(page.getByRole("button", { name: /^Continue$/ })).toBeVisible();
   });
 
   test("a double click on an option sends one decision and shows one outcome (audit RES-10)", async ({ page }) => {
@@ -553,10 +596,14 @@ test.describe("inbox", () => {
     const rows = rowsOf(page);
     const total = Math.min(await rows.count(), 12);
     for (let i = 0; i < total; i += 1) {
-      await rows.nth(i).click();
+      const row = rows.nth(i);
+      const id = await row.getAttribute("data-item-id");
+      await row.click();
+      // The reading pane shows this row's note before anything is checked: the header of the note before it is visible too.
+      await expect(page.getByTestId("inbox-item")).toHaveAttribute("data-item-id", id!, { timeout: LONG });
       await expect(page.getByTestId("inbox-item-header")).toBeVisible({ timeout: LONG });
-      const strip = page.getByTestId("status-strip");
-      if (await strip.count()) await expect(strip).not.toContainText(/\b\d{4}-\d{2}\b/);
+      // The strip can unmount on a re-render, so this counts strips showing a raw ISO month (none, whether or not one is shown).
+      await expect(page.getByTestId("status-strip").filter({ hasText: /\b\d{4}-\d{2}\b/ })).toHaveCount(0);
       if ((await page.getByTestId("inbox-item").getAttribute("data-type")) === "human_message") await expect(page.getByTestId("inbox-item-header")).not.toContainText(/\bYO\b/);
     }
   });

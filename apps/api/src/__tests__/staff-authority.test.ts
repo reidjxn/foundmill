@@ -4,11 +4,12 @@
  * - #98  an admin walled from Team cannot rewrite staff memberships, and an admin walled from any exported section
  *        cannot take it out through business.export.
  * - #107 a member cannot raise autonomy or caps, switch negotiation, give an agent new tools or promote a version that
- *        does, or answer an agent's approval nobody handed to them; caps are bounded.
+ *        does (or roll back to one), or answer an agent's approval nobody handed to them; caps are bounded.
  * - #113 agent.profile.update takes the profile's own fields only (autonomy, negotiation, model are a 400).
  * - #250 a member with Inbox write cannot confirm a plan whose spend asked the founder first.
  * - #100 journey.* follow the Distribution, Finance and CRM walls; the Ribbon keeps its shape for walled staff.
  */
+import { getTemplateByAgentType } from "@foundmill/agents";
 import { LIMITS } from "@foundmill/config";
 import { repos, type InboxItem } from "@foundmill/db";
 import { TRPCError } from "@trpc/server";
@@ -56,12 +57,12 @@ describe("#98 staff permissions hold for admins", () => {
     await walls(adminId, { team: "none" });
     try {
       const outsider = await hz.h.createUser("authority-outsider@test.local");
-      expect(await code(as(adminId).team.humans.invite({ businessId, userId: outsider, role: "member" }))).toBe("FORBIDDEN");
+      expect(await code(as(adminId).invitation.create({ businessId, role: "collaborator" }))).toBe("FORBIDDEN");
+      expect(await code(as(adminId).invitation.revoke({ businessId, invitationId: outsider }))).toBe("FORBIDDEN");
       expect(await code(as(adminId).team.humans.role({ businessId, userId: viewerId, sectionPermissions: { finance: "write" } }))).toBe("FORBIDDEN");
       expect(await code(as(adminId).team.humans.remove({ businessId, userId: viewerId }))).toBe("FORBIDDEN");
-      // Nor can it lift its own wall, by role or by invite.
+      // Nor can it lift its own wall by role (and accepting an invitation never changes an existing member).
       expect(await code(as(adminId).team.humans.role({ businessId, userId: adminId, sectionPermissions: {} }))).not.toBe("OK");
-      expect(await code(as(adminId).team.humans.invite({ businessId, userId: adminId, role: "admin" }))).not.toBe("OK");
       expect((await repos.memberships.get(hz.db, businessId, adminId))?.sectionPermissions).toEqual({ team: "none" });
       expect(await code(as(hz.A.ownerId).team.humans.role({ businessId, userId: viewerId, sectionPermissions: { finance: "read" } }))).toBe("OK");
     } finally {
@@ -70,21 +71,33 @@ describe("#98 staff permissions hold for admins", () => {
     }
   });
 
-  it("business.export leaves out the sections the admin has no access to", async () => {
-    const { businessId, adminId } = hz.A;
-    await walls(adminId, { finance: "none", billing: "none" });
+  it("business.export needs read access to every exported section: a walled admin is refused, an owner exports", async () => {
+    const { businessId, adminId, ownerId } = hz.A;
+    // Finance and CRM content is quoted in tables filed under other sections (Inbox notes, approvals, journeys), so a
+    // wall cannot be kept by leaving out whole tables: the export is refused instead (DECISIONS 2026-10-13, W15).
+    const refused: Record<string, "none">[] = [{ finance: "none" }, { crm: "none" }, { finance: "none", billing: "none" }];
+    for (const wall of refused) {
+      await walls(adminId, wall);
+      try {
+        expect(await code(as(adminId).business.export({ businessId }))).toBe("FORBIDDEN");
+        expect(await code(as(ownerId).business.export({ businessId }))).toBe("OK");
+      } finally {
+        await walls(adminId, {});
+      }
+    }
+    // Read access is enough.
+    await walls(adminId, { finance: "read", crm: "read" });
     try {
-      const result = await as(adminId).business.export({ businessId });
-      expect(result.archive.tables.transactions).toBeUndefined();
-      expect(result.archive.excluded.map((e) => e.what)).toContain("The finance section");
+      expect(await code(as(adminId).business.export({ businessId }))).toBe("OK");
     } finally {
       await walls(adminId, {});
     }
-    // A wall on billing alone does not stop an export.
+    // A wall on billing alone does not stop an export; its tables are left out and the archive says so.
     await walls(adminId, { billing: "none" });
     try {
-      const archive = await as(adminId).business.export({ businessId });
-      expect(archive.counts).toBeDefined();
+      const result = await as(adminId).business.export({ businessId });
+      expect(result.archive.tables.usage_ledger).toBeUndefined();
+      expect(result.archive.excluded.map((e) => e.what)).toContain("The billing section");
     } finally {
       await walls(adminId, {});
     }
@@ -114,6 +127,42 @@ describe("#107 a member cannot widen what an agent does on its own", () => {
     // The admin may grant; a member may not promote that version.
     const draft = await as(adminId).agent.training.saveDraft({ businessId, agentId, instructions, tools: [{ connectorKey: "stripe", tools: ["create_coupon"] }] });
     const run = await repos.training.create(hz.db, businessId, { agentId, fromVersionId: live.currentVersionId, toVersionId: draft.version.id, status: "awaiting_decision", requestedBy: adminId });
+    expect(await code(as(memberId).agent.training.promote({ businessId, runId: run.id }))).toBe("FORBIDDEN");
+    expect(await code(as(adminId).agent.training.promote({ businessId, runId: run.id }))).toBe("OK");
+  });
+
+  it("a member cannot roll an agent back to a version with tools an owner or admin took away; an owner can", async () => {
+    const { businessId, memberId, adminId, ownerId, agent2Id } = hz.A;
+    const instructions = { role: "Builds the product", goals: ["Ship the onboarding"], rules: ["Ask before spending"], playbook: ["Read the brief"], tone: "Plain", examples: [] };
+    // v1 grants a send; the admin takes it away and makes the narrower version live, so the wider one is retired.
+    const wide = await repos.agents.createVersion(hz.db, businessId, agent2Id, { instructions, tools: [{ connectorKey: "sendgrid", tools: ["send_mail", "create_contact"] }], modelKey: "sonnet", state: "draft", createdByKind: "user", createdBy: ownerId });
+    await repos.agents.promoteVersion(hz.db, businessId, agent2Id, wide.id);
+    const narrow = await as(adminId).agent.training.saveDraft({ businessId, agentId: agent2Id, instructions, tools: [{ connectorKey: "sendgrid", tools: ["create_contact"] }] });
+    const run = await repos.training.create(hz.db, businessId, { agentId: agent2Id, fromVersionId: wide.id, toVersionId: narrow.version.id, status: "awaiting_decision", requestedBy: adminId });
+    expect(await code(as(adminId).agent.training.promote({ businessId, runId: run.id }))).toBe("OK");
+    expect((await repos.agents.get(hz.db, businessId, agent2Id)).currentVersionId).toBe(narrow.version.id);
+    // The member's rollback would give the send back: refused, and the narrower version stays live.
+    expect(await code(as(memberId).agent.training.rollback({ businessId, agentId: agent2Id }))).toBe("FORBIDDEN");
+    expect((await repos.agents.get(hz.db, businessId, agent2Id)).currentVersionId).toBe(narrow.version.id);
+    // The owner may.
+    expect(await code(as(ownerId).agent.training.rollback({ businessId, agentId: agent2Id }))).toBe("OK");
+    expect((await repos.agents.get(hz.db, businessId, agent2Id)).currentVersionId).toBe(wide.id);
+  });
+
+  it("an empty tool list is the template's full set: a member can neither save nor promote one over narrower grants", async () => {
+    const { businessId, memberId, adminId, ownerId } = hz.A;
+    const template = getTemplateByAgentType("backend_engineer")!;
+    const all = template.tools.flatMap((g) => g.tools.map((t) => `${g.connectorKey}:${t}`));
+    expect(all.length).toBeGreaterThan(1);
+    const agent = await repos.agents.create(hz.db, businessId, { name: "Narrowed Engineer", agentType: "backend_engineer" });
+    const instructions = { role: "Builds the product", goals: ["Ship"], rules: ["Ask before spending"], playbook: ["Read the brief"], tone: "Plain", examples: [] };
+    const first = template.tools[0]!;
+    const narrow = await repos.agents.createVersion(hz.db, businessId, agent.id, { instructions, tools: [{ connectorKey: first.connectorKey, tools: [first.tools[0]!] }], modelKey: "sonnet", state: "draft", createdByKind: "user", createdBy: ownerId });
+    await repos.agents.promoteVersion(hz.db, businessId, agent.id, narrow.id);
+    // Sessions read an empty list as the template's tools, so saving one widens what the agent may do.
+    expect(await code(as(memberId).agent.training.saveDraft({ businessId, agentId: agent.id, instructions, tools: [] }))).toBe("FORBIDDEN");
+    const empty = await repos.agents.createVersion(hz.db, businessId, agent.id, { instructions, tools: [], modelKey: "sonnet", state: "draft", createdByKind: "user", createdBy: adminId });
+    const run = await repos.training.create(hz.db, businessId, { agentId: agent.id, fromVersionId: narrow.id, toVersionId: empty.id, status: "awaiting_decision", requestedBy: adminId });
     expect(await code(as(memberId).agent.training.promote({ businessId, runId: run.id }))).toBe("FORBIDDEN");
     expect(await code(as(adminId).agent.training.promote({ businessId, runId: run.id }))).toBe("OK");
   });

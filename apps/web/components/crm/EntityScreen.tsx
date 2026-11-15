@@ -13,6 +13,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Avatar, Button, Chip, ENTITY_KIND_ICONS, ENTITY_KIND_LABELS, EntityLink, Icon, KeyValueList, Panel, ProfileHeader, ProvenanceChip, RatingBar, StarRating, StatusPill, StatusStrip, Term, Textarea, Timeline, formatMoney, formatRelative, useToast, useFormatters, type MetricTileProps, type ProfileChip, type ProfileFact, type TabItem, type TimelineEvent } from "@foundmill/dugout";
 import type { DeptColourToken } from "@foundmill/shared";
+import { FOLLOW_PENDING_LINE, followConsentLine } from "@foundmill/shared/project-page";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { errorMessage, trpcErrorCode } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
@@ -23,7 +24,7 @@ import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { NotFoundPanel, RefreshFailedNotice, isMissing, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
 import { AddRoleDialog, DeleteRequestDialog, EditEntityDialog, ExportDialog, MergeDialog, useCrmInvalidate } from "./dialogs";
-import { ENTITY_TABS, KIND_WORD, LAWFUL_BASIS_LABEL, STAGE_TONE, VISIBILITY_WORD, activityItems, commercialSummary, documentItems, introPaths, isCustomerWin, leadScore, mergeBanner, primaryRole, relationshipStrength, containerWord, roleWord, sourceWord, stageWord, strengthRating, type EntityGet, type EntityTab, type OwnerRef } from "./logic";
+import { AMOUNTS_HIDDEN, ENTITY_TABS, KIND_WORD, LAWFUL_BASIS_LABEL, STAGE_TONE, VISIBILITY_WORD, activityItems, commercialSummary, documentItems, introPaths, isCustomerWin, leadScore, mergeBanner, moneyHidden, primaryRole, relationshipStrength, containerWord, roleWord, sourceWord, stageWord, strengthRating, type EntityGet, type EntityTab, type OwnerRef } from "./logic";
 import { RelationshipGraph } from "./RelationshipGraph";
 
 export interface EntityScreenProps {
@@ -168,6 +169,12 @@ export function EntityScreen({ entityId, tab }: EntityScreenProps) {
                     { label: "Other names", value: entity.aliases.length ? entity.aliases.join(", ") : <span className="text-tertiary">None</span> },
                     { label: "Source", value: sourceWord(entity.source) || "Unknown" },
                     { label: <Term id="lawful_basis">Lawful basis</Term>, value: entity.lawfulBasis ? LAWFUL_BASIS_LABEL[entity.lawfulBasis] ?? plainWords(entity.lawfulBasis) : entity.kind === "person" ? <Chip tone="warn">Not recorded</Chip> : <span className="text-tertiary">Only recorded for people</span> },
+                    // A follower of the public page (package 1.6, double opt-in): when they confirmed, or that they have not yet.
+                    ...(get.emailConsentAt
+                      ? [{ label: "Consent", value: <span data-testid="email-consent">{followConsentLine(formatDate(get.emailConsentAt))}</span> }]
+                      : get.emailConsentPending
+                        ? [{ label: "Consent", value: <span data-testid="email-consent">{FOLLOW_PENDING_LINE}</span> }]
+                        : []),
                     { label: "Visibility", value: VISIBILITY_WORD[entity.visibility] ?? plainWords(entity.visibility) },
                     { label: "Updated", value: formatDateTime(entity.updatedAt) },
                   ]}
@@ -334,14 +341,18 @@ function CommercialTab({ get, currency }: { get: EntityGet; currency: string }) 
   const { formatDate, formatDateTime } = useFormatters();
   const s = commercialSummary(get.conversions, currency);
   const payments = get.conversions.filter((c) => c.kind === "payment");
+  // Amounts are Finance's: a reader walled off Finance gets them as null, and the tiles say so instead of a total of 0.
+  const hidden = moneyHidden(get);
   return (
     <>
       <div className="col-span-12">
         <StatusStrip
           tiles={[
-            { label: "Lifetime value", value: { amountMinor: s.totalMinor, currency: s.currency }, provenance: { source: "Payments from this customer" } },
+            hidden
+              ? { label: "Lifetime value", value: null, caption: AMOUNTS_HIDDEN }
+              : { label: "Lifetime value", value: { amountMinor: s.totalMinor, currency: s.currency }, provenance: { source: "Payments from this customer" } },
             { label: "Payments", value: s.payments, format: "integer" },
-            { label: "Monthly", value: s.monthlyMinor === null ? null : { amountMinor: s.monthlyMinor, currency: s.currency }, estimate: "estimate", caption: "Average over active months" },
+            hidden ? { label: "Monthly", value: null, caption: AMOUNTS_HIDDEN } : { label: "Monthly", value: s.monthlyMinor === null ? null : { amountMinor: s.monthlyMinor, currency: s.currency }, estimate: "estimate", caption: "Average over active months" },
             { label: "First payment", value: s.firstPaymentAt ? formatDate(s.firstPaymentAt) : "—" },
             { label: "Last payment", value: s.lastPaymentAt ? formatDate(s.lastPaymentAt) : "—" },
           ] satisfies MetricTileProps[]}
@@ -352,7 +363,7 @@ function CommercialTab({ get, currency }: { get: EntityGet; currency: string }) 
           {payments.map((p) => (
             <li key={p.id} className="flex items-center gap-3 py-1.5 text-body">
               <span className="text-secondary">{formatDateTime(p.occurredAt)}</span>
-              <span className="ml-auto tabular-nums">{formatMoney({ amountMinor: Number(p.amountMinor), currency: p.currency })}</span>
+              <span className="ml-auto tabular-nums" data-testid="payment-amount">{p.amountMinor === null ? "—" : formatMoney({ amountMinor: Number(p.amountMinor), currency: p.currency })}</span>
             </li>
           ))}
         </ul>
@@ -449,7 +460,7 @@ function JourneyTab({ get, businessId }: { get: EntityGet; businessId: string })
           <li key={c.id} className="flex items-center gap-3 py-2 text-body">
             <StatusPill tone={c.kind === "payment" ? "good" : "info"}>{c.kind === "payment" ? "Payment" : c.kind === "activation" ? "Activation" : "Sign-up"}</StatusPill>
             <span className="text-secondary">{formatDateTime(c.occurredAt)}</span>
-            {c.kind === "payment" ? <span className="tabular-nums">{formatMoney({ amountMinor: Number(c.amountMinor), currency: c.currency })}</span> : null}
+            {c.kind === "payment" && c.amountMinor !== null ? <span className="tabular-nums">{formatMoney({ amountMinor: Number(c.amountMinor), currency: c.currency })}</span> : null}
             {/* Re-watch opens the win's own Customer Update; a win recorded without one has nothing to replay. */}
             {c.journeyId ? (
               <Button size="sm" icon={Play} className="ml-auto" onClick={() => c.journeyId && router.push(routes.journey(businessId, c.journeyId, routes.crm(businessId, get.entity.id, "journey")))} data-testid="rewatch">

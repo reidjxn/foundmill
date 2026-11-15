@@ -13,7 +13,7 @@ import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { LinkButton } from "../LinkButton";
 import { StudioFrame } from "../StudioFrame";
-import { COMPARE_MIN, commitHref, parseCompareIds, toConcept, type IdeaLike } from "../ideate/concepts";
+import { COMPARE_MIN, CHOOSE_IDEA_LABEL, commitHref, parseCompareIds, toConcept, type IdeaLike } from "../ideate/concepts";
 import { conceptErrorMessage, isConceptGone } from "../ideate/concept-errors";
 
 export interface CompareScreenProps {
@@ -88,7 +88,7 @@ function CompareBody({ ids, viewer }: { ids: string[]; viewer: { email: string |
           </Button>
           {leader ? (
             <LinkButton variant="primary" iconRight={ArrowRight} href={commitHref(leader.id)} data-testid="commit-leader">
-              Commit {leader.title}
+              Choose {leader.title}
             </LinkButton>
           ) : null}
         </>
@@ -133,7 +133,7 @@ function CompareBody({ ids, viewer }: { ids: string[]; viewer: { email: string |
                           <p className="text-small text-secondary">{r.reason}</p>
                           {idea ? (
                             <LinkButton size="sm" variant="ghost" iconRight={ArrowRight} className="mt-1 -ml-1.5" href={commitHref(idea.id)}>
-                              Commit
+                              {CHOOSE_IDEA_LABEL}
                             </LinkButton>
                           ) : null}
                         </div>

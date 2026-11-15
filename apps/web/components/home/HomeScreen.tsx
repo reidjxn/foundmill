@@ -1,6 +1,6 @@
 "use client";
 /**
- * Home (BUILD §11.2, DESIGN §9): dashboards as tabs (`dashboard.list/get/create/delete/applyPreset`), a WidgetGrid of
+ * Details, the dashboards (BUILD §11.2, DESIGN §9; "Home" until Today became the front door, founder 2026-11-07): dashboards as tabs (`dashboard.list/get/create/delete/applyPreset`), a WidgetGrid of
  * gallery widgets from @foundmill/widgets, Edit mode on `E` (add, remove, resize, per-widget settings), presets,
  * reset, share with co-founders, layout persistence with a version (AC-11.2.4), and the day-one state with ghosted
  * milestones.
@@ -34,12 +34,12 @@ import {
   TrophyCabinet,
   WidgetGrid,
   nextStepsFor,
+  useBuilderView,
   useGuided,
   useToast,
   type WidgetLayout,
   type WidgetPreset,
 } from "@foundmill/dugout";
-import { FoundationsBanner, useFoundations } from "@foundmill/modules/product/foundations";
 import { DASHBOARD_PRESET_LIST, fromGridLayout, moduleHref, prepareLayout, routes, toGridLayout, toScreenLayout, type DashboardPresetId } from "@foundmill/widgets";
 import { useToday } from "@foundmill/widgets/data";
 import { WRITE_ROLES } from "@foundmill/shared/constants";
@@ -55,8 +55,10 @@ import { useShellChrome } from "@/components/shell/chrome";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { NotFoundPanel, RefreshFailedNotice, isMissing, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
+import { FormerProjects } from "./FormerProjects";
 import { HomeAutopilot } from "./HomeAutopilot";
 import { HomeTour } from "./HomeTour";
+import { GoalEnsure, HomeBlockers, HomeFoundations } from "./lead";
 import { dashboardActions, dashboardTabs, editedElsewhere, ghostedMilestones, gridPresets, isDayOne, isOwnDashboard, nextDashboardName, nextStepFacts, pickDashboardId, resetPresetFor, sameLayout, shareHref, unreadNotes, versionConflict, withContinueAction } from "./dashboards";
 import { isGuid } from "@/lib/ids";
 
@@ -237,21 +239,25 @@ export function HomeScreen({ dashboardId: routeId }: HomeScreenProps) {
     ),
     [editable, editing, guided, row, actions.copy, actions.create, list.length, create.isPending, onCopyShared, onNew, update, businessId, invalidate],
   );
-  useShellChrome({ title: "Home", tabs: tabs.length ? { tabs, activeId: row?.id ?? dashboardId ?? "", onChange: (id) => router.push(routes.home(businessId, id)), trailing, "aria-label": "Dashboards" } : undefined }, [tabs, row?.id, dashboardId, trailing]);
+  // "Details" since Today became the front door (founder, 2026-11-07); the dashboards keep their own tabs.
+  useShellChrome({ title: "Details", tabs: tabs.length ? { tabs, activeId: row?.id ?? dashboardId ?? "", onChange: (id) => router.push(routes.home(businessId, id)), trailing, "aria-label": "Dashboards" } : undefined }, [tabs, row?.id, dashboardId, trailing]);
 
-  if (loadFailed(listQ)) return <ErrorPanel title="Home" message={errorMessage(listQ.error)} onRetry={() => void listQ.refetch()} />;
+  if (loadFailed(listQ)) return <ErrorPanel title="Details" message={errorMessage(listQ.error)} onRetry={() => void listQ.refetch()} />;
   if (loadFailed(dashboardQ) && isMissing(dashboardQ.error)) {
     return (
-      <NotFoundPanel title="Home" heading="No such dashboard" back={{ label: "Open your Home", href: routes.home(businessId) }}>
+      <NotFoundPanel title="Details" heading="No such dashboard" back={{ label: "Open your dashboards", href: routes.home(businessId) }}>
         This dashboard was deleted, or the link points to one you cannot open.
       </NotFoundPanel>
     );
   }
-  if (loadFailed(dashboardQ)) return <ErrorPanel title="Home" message={errorMessage(dashboardQ.error)} onRetry={() => void dashboardQ.refetch()} />;
+  if (loadFailed(dashboardQ)) return <ErrorPanel title="Details" message={errorMessage(dashboardQ.error)} onRetry={() => void dashboardQ.refetch()} />;
   // Foundations, Autopilot and the next step start their reads at mount instead of after the dashboard (audit WEB-3):
   // while it loads they mount out of sight, so their answers are in the cache when they take their place above the grid.
   const lead = (
     <>
+      <FormerProjects className="flex flex-col gap-gutter" />
+      <HomeBlockers />
+      <GoalEnsure />
       <HomeFoundations />
       <HomeAutopilot />
       <HomeLead businessId={businessId} currency={currency} />
@@ -429,49 +435,6 @@ function DashboardGrid({ businessId, row, live, editable, editing, onEditingChan
   );
 }
 
-/* ---------- Foundations ---------- */
-
-/**
- * The vision, specification and roadmap a new business drafts on its first open (BUILD §11.1, §11.5): drafting (the
- * vision, the sections and the roadmap items as they are written, audit P3), failed with Try again, or just ready with
- * the way to the Vision tab. Nothing once they are settled, or for a business that has none (committed before
- * foundations existed, or seeded). Ready brings the Product lead's note to the Inbox.
- */
-function HomeFoundations() {
-  const queryClient = useQueryClient();
-  const trpc = useTRPC();
-  const { businessId, data } = useBusiness();
-  // The Product Researcher's plan starts as soon as the foundations are ready (the founder's 2026-10-18 request): Home
-  // asks `product.research.ensure` once per business per visit when they already read ready, and again the moment the
-  // drafting turns ready during the visit. Idempotent on the server (one claim per business); the Research tab shows it.
-  const ensureResearch = useMutation(
-    trpc.product.research.ensure.mutationOptions({
-      retry: 1,
-      onSuccess: (view) => {
-        if (view.started) void queryClient.invalidateQueries({ queryKey: trpc.product.research.get.queryKey({ businessId }) });
-      },
-    }),
-  );
-  const ensureFor = ensureResearch.mutate;
-  const ensuredFor = useRef<string | null>(null);
-  const ensureOnce = useCallback(() => {
-    if (ensuredFor.current === businessId) return;
-    ensuredFor.current = businessId;
-    ensureFor({ businessId });
-  }, [businessId, ensureFor]);
-  const foundationsStatus = data.foundationsStatus;
-  useEffect(() => {
-    if (foundationsStatus === "ready") ensureOnce();
-  }, [ensureOnce, foundationsStatus]);
-  const foundations = useFoundations(() => {
-    void queryClient.invalidateQueries({ queryKey: trpcPathPrefix("inbox") as unknown[] });
-    void queryClient.invalidateQueries({ queryKey: trpc.business.get.queryKey({ businessId }) });
-    ensuredFor.current = null;
-    ensureOnce();
-  });
-  return <FoundationsBanner foundations={foundations} showReady detail={{ vision: true, roadmap: true }} />;
-}
-
 /* ---------- The next step and Day one ---------- */
 
 /** The top bar's Continue button (ContinueButton marks it `data-continue-state`): "Press Continue" puts the focus on it. */
@@ -506,12 +469,15 @@ function HomeLead({ businessId, currency }: { businessId: string; currency: stri
   const visionHref = moduleHref(businessId, departments, "product", "vision") ?? routes.department(businessId, "product", "vision");
   const boardHref = moduleHref(businessId, departments, "distribution", "formation") ?? routes.department(businessId, "distribution", "formation");
   const items = inboxQ.data?.items;
-  const blocking = inboxQ.data?.blocking ?? business.blockingItems ?? 0;
+  // What needs the founder: the Inbox's Needs you count (open decisions wait there without holding Continue since Nov 7,
+  // 2026), else the hard stops the shell knows.
+  const blocking = inboxQ.data?.counts?.respond ?? inboxQ.data?.blocking ?? business.blockingItems ?? 0;
+  const builder = useBuilderView();
   const steps = useMemo(() => {
     if (!cycleQ.data) return [];
-    const facts = nextStepFacts({ foundationsStatus: business.foundationsStatus, blocking, unread: unreadNotes(items), cycle: cycleQ.data, distributionStartedAt: business.distributionStartedAt });
+    const facts = nextStepFacts({ foundationsStatus: business.foundationsStatus, blocking, unread: unreadNotes(items), cycle: cycleQ.data, distributionStartedAt: business.distributionStartedAt, builder });
     return withContinueAction(nextStepsFor(facts, { vision: visionHref, inboxRespond: respondHref(businessId, items), board: boardHref }), focusContinueButton);
-  }, [cycleQ.data, business.foundationsStatus, business.distributionStartedAt, blocking, items, visionHref, boardHref, businessId]);
+  }, [cycleQ.data, business.foundationsStatus, business.distributionStartedAt, blocking, items, visionHref, boardHref, businessId, builder]);
   if (!ribbon.data || !cycleQ.data) return null;
   if (dayOne) {
     return (

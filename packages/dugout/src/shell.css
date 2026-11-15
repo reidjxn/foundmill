@@ -475,6 +475,16 @@
     display: none;
   }
 }
+/* The mode chip's short words ("Asks over £50"): only between the `chips-brief` and `chips-icon` steps. */
+@utility kitbar-chip-short {
+  display: none;
+  [data-compact~="chips-brief"] & {
+    display: inline;
+  }
+  [data-compact~="chips-icon"] & {
+    display: none;
+  }
+}
 /* The hairline between the business and the screen title. */
 @utility kitbar-divider {
   flex: none;
@@ -827,4 +837,29 @@
   color: color-mix(in oklab, var(--tone, var(--text-2)) 85%, var(--white));
   background-color: color-mix(in oklab, var(--tone, var(--white)) 9%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--tone, var(--white)) 16%, transparent);
+}
+
+/* A PageGrid with `stack`: one column while its container (the shell) is narrower than `page-wide` (phone). The doubled
+   selector outranks the span utilities (`col-span-6`) whichever order they are emitted in. */
+@utility page-grid-stack {
+  @container (width < 640px) {
+    && > * {
+      grid-column: 1 / -1;
+    }
+  }
+}
+
+/* A small inline control (an info button, a defined term, an Estimate word) keeps its look and gets a 44 px hit area
+   around it: an invisible box centred on it (phone mode, where a finger presses it). Apply with `in-data-[phone]:`. */
+@utility tap-reach {
+  position: relative;
+  &::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: max(100%, var(--tap-target));
+    height: var(--tap-target);
+    transform: translate(-50%, -50%);
+  }
 }

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, UUID, chooseTableView, commitThrowaway, openBusiness } from "./helpers";
+import { LONG, UUID, chooseTableView, commitThrowaway, openBusiness, openExplainer } from "./helpers";
 
 /**
  * The Product Researcher (BUILD §11.5 Research tab; the founder's 2026-10-18 request): the seeded Northwind reads its
@@ -27,7 +27,7 @@ test.describe("product research", () => {
     await expect(panel).toHaveAttribute("data-research-state", "ready", { timeout: LONG });
     await expect(panel).toContainText("Testing the specification with");
     // Guidance on (the product default): the plan's intro sits in the panel's body (UX plan §7.11).
-    await expect(panel.locator("[data-explainer='product/research']")).toContainText("Who we will talk to and what we will ask, before building more.");
+    await expect(await openExplainer(page, "product/research")).toContainText("Who we will talk to and what we will ask, before building more.");
     const cards = panel.getByRole("list", { name: "Research artifacts" }).getByRole("listitem");
     expect(await cards.count()).toBeGreaterThanOrEqual(3);
     // The plan sits above the sources' panels.
@@ -76,6 +76,10 @@ test.describe("product research", () => {
     // The tab opens on Simple while guidance is on (Agent, Status, Current task, Rating; UX plan §7.10), which has no
     // Role column; General carries it.
     await chooseTableView(page, "General");
+    // Leads first (Nov 8, 2026): specialists sit collapsed under their lead; open every lead to find the researcher.
+    const expanders = page.getByRole("button", { name: /^Show \d+ specialists? under / });
+    await expect(expanders.first()).toBeVisible({ timeout: LONG });
+    while ((await expanders.count()) > 0) await expanders.first().click();
     await expect(page.getByRole("row").filter({ hasText: "Product research analyst" }).first()).toBeVisible({ timeout: LONG });
     expect(page.url()).toMatch(new RegExp(`/b/${UUID}/d/team/squad`));
   });

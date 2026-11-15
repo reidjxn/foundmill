@@ -10,7 +10,7 @@
 import { useMemo, useState } from "react";
 import { z } from "zod";
 import { LayoutGrid } from "lucide-react";
-import type { AgentStatus, EntityKind, ModuleKey } from "@foundmill/shared";
+import { isBackgroundAgent, type AgentStatus, type EntityKind, type ModuleKey } from "@foundmill/shared";
 import { MODULE_KEYS } from "@foundmill/shared/constants";
 import { DepartmentCard, formatDate, formatMoney, formatNumber, useDateFormat, useWidgetInstanceLabel, type DateFormatPrefs, type DepartmentCardData, type DepartmentMetric, type DepartmentQuietLine, type HealthTone, type SquadMember } from "@foundmill/dugout";
 import { useBusinessEvents, useGlossary, useToday, useWidgetData, useWidgetQuery, type QueryState } from "../data";
@@ -74,12 +74,27 @@ const TASK_VERB: Record<string, string> = {
  * agent → "Degraded". Idle and paused agents are healthy (shared/health.ts). `tasks` null: the open tasks could not be
  * loaded, so the word comes from the team alone rather than from an empty list.
  */
-export function departmentHealth(squad: readonly SquadMember[], tasks: readonly TaskRow[] | null): { health: HealthTone; word: string } {
+export function departmentHealth(squad: readonly SquadMember[], tasks: readonly TaskRow[] | null, throughput?: { doneLast7Days: number } | null): { health: HealthTone; word: string } {
   if (squad.some((m) => m.status === "failing")) return { health: "bad", word: "Failing" };
   if (squad.some((m) => m.status === "injured")) return { health: "bad", word: "Down" };
-  if (tasks?.some((t) => t.status === "blocked")) return { health: "warn", word: "Waiting" };
+  // Work, not liveness (Nov 1, 2026: "Healthy · Quiet" over three days of nothing shipped and nine blocked tasks): a
+  // department with many blocked tasks and nothing finished this week is stalled, whatever its agents' statuses say.
+  const blocked = tasks?.filter((t) => t.status === "blocked").length ?? 0;
+  if (blocked >= STALLED_BLOCKED_TASKS && throughput && throughput.doneLast7Days === 0) return { health: "bad", word: "Stalled" };
+  if (blocked >= STALLED_BLOCKED_TASKS) return { health: "warn", word: "Stuck" };
+  if (blocked > 0) return { health: "warn", word: "Waiting" };
   if (squad.some((m) => m.status === "degraded")) return { health: "warn", word: "Degraded" };
   return { health: "good", word: "Healthy" };
+}
+
+/** Blocked tasks from which a department reads as stuck (stalled when nothing finished this week either). */
+export const STALLED_BLOCKED_TASKS = 5;
+
+/** Tasks a department finished in the last seven days, from the business-wide ended-tasks page the cards share. */
+export function doneLast7Days(done: readonly TaskRow[] | undefined, departmentId: string, today: string): number {
+  if (!done) return 0;
+  const from = Date.parse(`${addDays(today, -6)}T00:00:00.000Z`);
+  return done.filter((t) => t.departmentId === departmentId && t.status === "done" && (toMs(t.endedAt) ?? 0) >= from).length;
 }
 
 /** "Working on now" lines: one per active task, the agent as an entity mention so it links to the profile. */
@@ -90,7 +105,7 @@ export function nowLines(tasks: readonly TaskRow[], squad: readonly SquadMember[
     .slice(0, max)
     .map((t) => {
       const who = t.assigneeAgentId ? `[[ent:${t.assigneeAgentId}|${byId.get(t.assigneeAgentId) ?? "An agent"}]]` : "The team";
-      return `${who} ${TASK_VERB[t.status] ?? "is on"} ${t.title}`;
+      return `${who} ${TASK_VERB[t.status] ?? "is on"} ${t.founderTitle ?? t.title}`;
     });
 }
 
@@ -260,7 +275,7 @@ function metricFigure(i: MetricInputs): DepartmentMetric {
       // The line is the business's month-end cash (the department rows carry no money): what the runway moves with.
       const series = monthEndCash(i.finance);
       const seriesLabel = series.length ? `Cash at month end, last ${series.length} months` : undefined;
-      // The shared runway words when there is no figure ("No limit" when cash-flow positive); Estimate only on a real estimate.
+      // The shared runway words when there is no figure ("Not running out" when cash-flow positive); Estimate only on a real estimate.
       if (months === null) return { label: RUNWAY_METRIC_LABEL, value: runwayWords(i.finance)?.value ?? RUNWAY_WORDS.no_bank.value, series, seriesLabel };
       return { label: RUNWAY_METRIC_LABEL, value: `${formatNumber(months, { maxDigits: 1 })} mo`, series, seriesLabel, provenance: "estimate" };
     }
@@ -288,11 +303,15 @@ function metricFigure(i: MetricInputs): DepartmentMetric {
   }
 }
 
+/** The card's team: the department's agents without the background helpers (Leads first, 2026-11-08). */
 export function toSquad(dept: DepartmentRow, overrides: Record<string, AgentStatus>, tasks: readonly TaskRow[]): SquadMember[] {
-  return dept.squad.map((a) => ({
+  return dept.squad.filter((a) => !isBackgroundAgent(a)).map((a) => ({
     id: a.id,
     name: a.name,
     seed: a.avatarSeed || a.id,
+    personaKey: a.personaKey ?? null,
+    layer: a.layer ?? null,
+    tier: a.tier ?? null,
     status: overrides[a.id] ?? a.status,
     role: a.role,
     model: String(a.modelKey),
@@ -355,8 +374,8 @@ function DepartmentCardWidget({ settings }: WidgetProps<DepartmentCardSettings>)
     if (!dept) return null;
     const metric = headlineMetric({ key: metricKey, rows, days: lastDays(14, today), squad: toSquad(dept, overrides, taskItems), roadmap: roadmap.data, channels: channels.data, finance: finance.data, compliance: compliance.data, currency, today, error: metricError });
     const squad = toSquad(dept, overrides, taskItems);
-    const { health, word } = departmentHealth(squad, tasksFailed ? null : taskItems);
-    const leadRow = dept.lead ?? dept.squad.find((a) => a.id === dept.leadAgentId) ?? dept.squad[0] ?? null;
+    const { health, word } = departmentHealth(squad, tasksFailed ? null : taskItems, done.data ? { doneLast7Days: doneLast7Days(done.data.items, dept.id, today) } : null);
+    const leadRow = dept.lead ?? dept.squad.find((a) => a.id === dept.leadAgentId) ?? dept.squad.find((a) => !isBackgroundAgent(a)) ?? null;
     const next = taskItems.find((t) => (NEXT_TASK_STATUSES as readonly string[]).includes(t.status));
     const now = nowLines(taskItems, squad);
     const agentIds = new Set([...dept.squad.map((a) => a.id), ...(leadRow ? [leadRow.id] : [])]);
@@ -364,7 +383,8 @@ function DepartmentCardWidget({ settings }: WidgetProps<DepartmentCardSettings>)
       id: dept.id,
       name: dept.name,
       dept: dept.colourToken,
-      lead: leadRow ? { name: leadRow.name, seed: leadRow.avatarSeed || leadRow.id, status: overrides[leadRow.id] ?? leadRow.status } : { name: "No lead yet", seed: dept.id, status: "idle" },
+      // The lead carries its id, role and persona key, so the card names it as the team strip and the Agents tab do.
+      lead: leadRow ? { id: leadRow.id, name: leadRow.name, seed: leadRow.avatarSeed || leadRow.id, status: overrides[leadRow.id] ?? leadRow.status, role: leadRow.role ?? undefined, personaKey: leadRow.personaKey ?? null, layer: leadRow.layer ?? null } : { name: "No lead yet", seed: dept.id, status: "idle" },
       health,
       healthWord: word,
       squad,

@@ -44,7 +44,7 @@ describe("Your businesses › Example (§12 item 5)", () => {
     expect(panel.getByText("Northwind Skincare")).toBeTruthy();
     expect(panel.getByText("Viewer")).toBeTruthy();
     expect(panel.getByText(EXAMPLE_CHIP_TOOLTIP)).toBeTruthy();
-    expect(panel.getByRole("link", { name: "Open Northwind Skincare" }).getAttribute("href")).toBe("/b/b1/home");
+    expect(panel.getByRole("link", { name: "Open Northwind Skincare" }).getAttribute("href")).toBe("/b/b1/today");
     expect(panel.getByRole("button", { name: "Leave Northwind Skincare" })).toBeTruthy();
     // No Settings: a viewer has none, and the example is nobody's to configure.
     expect(panel.queryByRole("link", { name: /Settings/ })).toBeNull();

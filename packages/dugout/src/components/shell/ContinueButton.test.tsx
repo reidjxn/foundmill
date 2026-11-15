@@ -7,11 +7,14 @@ import type { ContinueState } from "./types";
 
 describe("ContinueButton", () => {
   it("says what pressing does, in the business's words, per state (B1)", async () => {
-    expect(continueTooltip({ kind: "idle" })).toBe("Let the team work on their next tasks. Their notes land in the Inbox.");
-    expect(continueTooltip({ kind: "blocked", count: 2 })).toBe("2 notes need your answer before the team can carry on. Press to open the first.");
-    expect(continueTooltip({ kind: "blocked", count: 1 })).toBe("1 note needs your answer before the team can carry on. Press to open the first.");
+    expect(continueTooltip({ kind: "idle" })).toBe("Let the team work until nothing is left to do. Their notes land in the Inbox.");
+    expect(continueTooltip({ kind: "blocked", count: 2 })).toBe("2 things need you before the team can work (credits used up or a key to replace). Press to open the first.");
+    expect(continueTooltip({ kind: "blocked", count: 1 })).toBe("1 thing needs you before the team can work (credits used up or a key to replace). Press to open the first.");
     expect(continueTooltip({ kind: "processing" }, 3)).toBe("The team is working · cycle 3");
     expect(continueTooltip({ kind: "processing" })).toBe("The team is working");
+    // A run (one press, Nov 7, 2026): new cycles start on their own, between cycles too.
+    expect(continueTooltip({ kind: "processing", run: true }, 5)).toBe("The team is working · cycle 5. New cycles start on their own until nothing is left to do.");
+    expect(continueTooltip({ kind: "processing", run: true })).toBe("The team is working. New cycles start on their own until nothing is left to do.");
     expect(continueTooltip({ kind: "matchday" })).toBe("A customer was won");
     expect(continueTooltip({ kind: "holiday", until: "2026-10-14" })).toBe("On vacation until Oct 14, 2026");
     const user = userEvent.setup();
@@ -27,10 +30,10 @@ describe("ContinueButton", () => {
     const short = "One round of work: the team works for a while, then reports back in the Inbox.";
     expect(cycleDefinitionSentence(short)).toBe("A cycle is one round of work: the team works for a while, then reports back in the Inbox.");
     expect(cycleDefinitionSentence("  ")).toBe("");
-    expect(continueTooltip({ kind: "idle" }, null, null, short)).toBe("Let the team work on their next tasks for one cycle. A cycle is one round of work: the team works for a while, then reports back in the Inbox.");
+    expect(continueTooltip({ kind: "idle" }, null, null, short)).toBe("Let the team work, one cycle after another, until nothing is left to do. A cycle is one round of work: the team works for a while, then reports back in the Inbox.");
     // Only idle changes; no definition, no change.
-    expect(continueTooltip({ kind: "blocked", count: 1 }, null, null, short)).toBe("1 note needs your answer before the team can carry on. Press to open the first.");
-    expect(continueTooltip({ kind: "idle" }, null, null, null)).toBe("Let the team work on their next tasks. Their notes land in the Inbox.");
+    expect(continueTooltip({ kind: "blocked", count: 1 }, null, null, short)).toBe("1 thing needs you before the team can work (credits used up or a key to replace). Press to open the first.");
+    expect(continueTooltip({ kind: "idle" }, null, null, null)).toBe("Let the team work until nothing is left to do. Their notes land in the Inbox.");
 
     const user = userEvent.setup();
     // Outside a provider guidance reads as on: the definition comes from the source map.
@@ -54,13 +57,34 @@ describe("ContinueButton", () => {
       </GuidanceProvider>,
     );
     await user.hover(screen.getByRole("button", { name: /Continue/ }));
-    expect((await screen.findAllByText("Let the team work on their next tasks. Their notes land in the Inbox.")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Let the team work until nothing is left to do. Their notes land in the Inbox.")).length).toBeGreaterThan(0);
     expect(screen.queryByText(/A cycle is/)).toBeNull();
+  });
+
+  it("a caveat says what a press can and cannot do right now, under the tooltip and on the button (first-time founder report, Nov 8, 2026)", async () => {
+    const user = userEvent.setup();
+    const caveat = "The orchestrator is not reachable: a press writes one note; no agent works.";
+    render(<ContinueButton state={{ kind: "idle" }} caveat={caveat} />);
+    const button = screen.getByRole("button", { name: "Continue" });
+    expect(button.getAttribute("data-continue-caveat")).toBe(caveat);
+    await user.hover(button);
+    expect((await screen.findAllByText(caveat)).length).toBeGreaterThan(0);
+    // The state's own sentence stays first; the caveat follows it.
+    expect(screen.getAllByText(/^Let the team work/).length).toBeGreaterThan(0);
+  });
+
+  it("a hint gives the press a price under the tooltip: what the last cycle cost, as an Estimate", async () => {
+    const user = userEvent.setup();
+    render(<ContinueButton state={{ kind: "idle" }} hint="Last cycle cost $0.52 · Estimate" />);
+    await user.hover(screen.getByRole("button", { name: "Continue" }));
+    const hint = (await screen.findAllByText("Last cycle cost $0.52 · Estimate"))[0]!;
+    expect(hint.hasAttribute("data-continue-hint")).toBe(true);
+    expect(hint.className).toContain("text-secondary");
   });
 
   it("labels every state (BUILD §5.4)", () => {
     expect(continueButtonLabel({ kind: "idle" })).toBe("Continue");
-    expect(continueButtonLabel({ kind: "blocked", count: 3 })).toBe("Respond · 3");
+    expect(continueButtonLabel({ kind: "blocked", count: 3 })).toBe("Needs you · 3");
     expect(continueButtonLabel({ kind: "processing" })).toBe("Pause");
     expect(continueButtonLabel({ kind: "matchday" })).toBe("Go to Journey");
     expect(continueButtonLabel({ kind: "holiday", until: null })).toBe("Come back");
@@ -89,9 +113,9 @@ describe("ContinueButton", () => {
     await user.keyboard(" ");
     expect(handlers.onContinue).toHaveBeenCalledTimes(2);
     rerender(<ContinueButton state={{ kind: "blocked", count: 2 }} bindSpace {...handlers} />);
-    const respond = screen.getByRole("button", { name: "Respond to 2 items" });
-    expect(respond.getAttribute("data-variant")).toBe("danger");
-    expect(respond.textContent).toContain("Respond · 2");
+    const respond = screen.getByRole("button", { name: "2 things need you before the team can work" });
+    expect(respond.getAttribute("data-variant")).toBe("default");
+    expect(respond.textContent).toContain("Needs you · 2");
     await user.keyboard(" ");
     expect(handlers.onRespond).toHaveBeenCalledTimes(1);
     rerender(<ContinueButton state={{ kind: "holiday", until: "2026-10-14" }} bindSpace {...handlers} />);
@@ -100,7 +124,7 @@ describe("ContinueButton", () => {
     expect(handlers.onComeBack).toHaveBeenCalledTimes(1);
   });
 
-  it("renders processing as a dark slab with an orbiting edge and Pause, blocked as Respond with a count capsule, Customer Update in gold", () => {
+  it("renders processing as a dark slab with an orbiting edge and Pause, blocked as amber Needs you with a count capsule, Customer Update in gold", () => {
     const { rerender } = render(<ContinueButton state={{ kind: "processing" }} />);
     const pause = screen.getByRole("button", { name: "Pause the running cycle" });
     expect(pause.getAttribute("data-continue-state")).toBe("processing");
@@ -108,13 +132,26 @@ describe("ContinueButton", () => {
     expect(pause.className).toContain("continue-skin");
     expect(pause.textContent).toBe("Pause");
     rerender(<ContinueButton state={{ kind: "blocked", count: 7 }} />);
-    const respond = screen.getByRole("button", { name: "Respond to 7 items" });
+    const respond = screen.getByRole("button", { name: "7 things need you before the team can work" });
     expect(respond.querySelector("[data-continue-count]")?.textContent).toBe("7");
-    // The separator is for assistive tech and text checks only: the eye reads "Respond [7]".
-    expect(respond.textContent).toBe("Respond · 7");
-    expect(respond.className).toContain("tone-status-bad");
+    // The separator is for assistive tech and text checks only: the eye reads "Needs you [7]".
+    expect(respond.textContent).toBe("Needs you · 7");
+    expect(respond.className).toContain("tone-status-warn");
     rerender(<ContinueButton state={{ kind: "matchday" }} />);
     expect(screen.getByRole("button", { name: "Go to Journey" }).getAttribute("data-variant")).toBe("gold");
+  });
+
+  it("keeps the orbit and Pause for a whole run, between cycles too (Nov 7, 2026)", async () => {
+    const user = userEvent.setup();
+    const onPause = vi.fn();
+    render(<ContinueButton state={{ kind: "processing", run: true }} onPause={onPause} />);
+    const pause = screen.getByRole("button", { name: "Pause the running cycle" });
+    expect(pause.className).toContain("orbit");
+    expect(pause.textContent).toBe("Pause");
+    await user.hover(pause);
+    expect((await screen.findAllByText("The team is working. New cycles start on their own until nothing is left to do.")).length).toBeGreaterThan(0);
+    await user.click(pause);
+    expect(onPause).toHaveBeenCalledTimes(1);
   });
 
   it("pulses once for 600 ms when pulseKey changes, not on mount", () => {
@@ -134,19 +171,19 @@ describe("ContinueButton", () => {
     }
   });
 
-  it("pulses once in red when it turns blocked, never on mount", () => {
+  it("pulses once when it turns blocked, never on mount", () => {
     vi.useFakeTimers();
     try {
       const { rerender } = render(<ContinueButton state={{ kind: "blocked", count: 1 }} />);
-      expect(screen.getByRole("button", { name: "Respond to 1 item" }).getAttribute("data-pulsing")).toBeNull();
+      expect(screen.getByRole("button", { name: "1 thing needs you before the team can work" }).getAttribute("data-pulsing")).toBeNull();
       rerender(<ContinueButton state={{ kind: "idle" }} />);
       expect(screen.getByRole("button", { name: "Continue" }).getAttribute("data-pulsing")).toBeNull();
       rerender(<ContinueButton state={{ kind: "blocked", count: 2 }} />);
-      const respond = screen.getByRole("button", { name: "Respond to 2 items" });
+      const respond = screen.getByRole("button", { name: "2 things need you before the team can work" });
       expect(respond.getAttribute("data-pulsing")).toBe("true");
       expect(respond.className).toContain("animate-ring-pulse");
       act(() => vi.advanceTimersByTime(CONTINUE_PULSE_MS + 1));
-      expect(screen.getByRole("button", { name: "Respond to 2 items" }).getAttribute("data-pulsing")).toBeNull();
+      expect(screen.getByRole("button", { name: "2 things need you before the team can work" }).getAttribute("data-pulsing")).toBeNull();
     } finally {
       vi.useRealTimers();
     }

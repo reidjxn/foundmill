@@ -5,6 +5,7 @@ import { ResearchPlanPanel, researchPlanState, resetResearchEnsured } from "../r
 import { ResearchScreen } from "../ResearchScreen";
 import type { ResearchResponse } from "../types";
 import { createFakeSource, renderScreen } from "./fake-source";
+import { openExplainer } from "../../explainer.testing";
 import { AGENT, BID, BLOCK, dataResponses } from "./fixtures";
 
 const departments = [{ id: "d1", name: "Product", slug: "product", colourToken: "dept-1", position: 0, moduleKeys: ["product"], lead: null, squad: [], tabs: [{ id: "t1", slug: "specification", title: "Specification", position: 1 }] }];
@@ -75,7 +76,8 @@ describe("ResearchPlanPanel", () => {
     const fake = createFakeSource({ businessId: BID, responses: { "product.research.get": ready, "business.get": { foundationsStatus: "ready" }, "department.list": departments } });
     renderScreen(fake, <ResearchPlanPanel businessId={BID} blocks={[]} onOpenBlock={() => undefined} />, { canWrite: () => true }, { guidance: "on" });
     const panel = screen.getByTestId("research-plan");
-    const explainer = panel.querySelector("[data-explainer='product/research']") as HTMLElement;
+    expect(panel.querySelector("[data-explainer='product/research']")).toBeTruthy();
+    const explainer = openExplainer("product/research");
     expect(within(explainer).getByText("Who we will talk to and what we will ask, before building more.")).toBeTruthy();
     expect(within(explainer).getByText(/Nothing is sent to anyone without your approval/)).toBeTruthy();
   });

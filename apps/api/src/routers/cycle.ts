@@ -1,5 +1,10 @@
-/** cycle.status / cycle.history / cycle.continueState — the shell's processing strip and Continue state (BUILD §5.4, §9.4). */
+/**
+ * cycle.status / cycle.history / cycle.continueState — the shell's processing strip and Continue state (BUILD §5.4, §9.4).
+ * Every read is the caller's own: under their RLS and with their walls (a reader walled off Finance, a collaborator
+ * among them, gets no cycle cost: `CycleScope.membership`).
+ */
 import { repos } from "@foundmill/db";
+import { eventAsSeenBy } from "@foundmill/shared";
 import { z } from "zod";
 import { continueStateFor, cycleContinueState, cycleStatus, reconcileCycle, type CycleStatus } from "../services/cycle";
 import { businessProcedure, router, type BusinessContext } from "../trpc";
@@ -25,13 +30,13 @@ async function reconciled(ctx: BusinessContext, status: CycleStatus): Promise<Cy
   if (after === status) return status;
   ctx.relay?.wake();
   // The reconciler reads on the service connection; what the caller sees is read as the caller, as it always was.
-  return ctx.rls((tx) => cycleStatus({ db: tx, businessId: ctx.businessId }));
+  return ctx.rls((tx) => cycleStatus({ db: tx, businessId: ctx.businessId, membership: ctx.membership }));
 }
 
 export const cycleRouter = router({
   /** The running cycle (if any), active departments/agents, the last outcome and the next cycle number. */
   status: businessProcedure.query(async ({ ctx }) => {
-    const status = await ctx.rls((tx) => cycleStatus({ db: tx, businessId: ctx.businessId }));
+    const status = await ctx.rls((tx) => cycleStatus({ db: tx, businessId: ctx.businessId, membership: ctx.membership }));
     return reconciled(ctx, status);
   }),
 
@@ -39,7 +44,7 @@ export const cycleRouter = router({
   continueState: businessProcedure.query(async ({ ctx }) => {
     // The cycle status and the three reads before it go out together, in one round trip.
     const [status, state] = await ctx.rls((tx) => {
-      const scope = { db: tx, businessId: ctx.businessId, userId: ctx.userId };
+      const scope = { db: tx, businessId: ctx.businessId, userId: ctx.userId, membership: ctx.membership };
       const read = cycleStatus(scope);
       return Promise.all([read, continueStateFor(scope, read)]);
     });
@@ -53,7 +58,8 @@ export const cycleRouter = router({
       const limit = input.limit;
       const page = await repos.events.list(tx, ctx.businessId, { type: ["cycle.started", "cycle.completed"], limit: Math.min(500, limit * 2 + 10) });
       const byId = new Map<string, { cycleId: string; cycleNumber: number | null; workflowId: string | null; trigger: string | null; startedAt: string | null; completedAt: string | null; outcome: string | null; tasksDispatched: number; tasksCompleted: number; inboxItemIds: string[]; durationMs: number | null }>();
-      for (const e of [...page.items].reverse()) {
+      // As the caller may read them: nothing here is a figure today, and a field added later follows the same walls.
+      for (const e of [...page.items].reverse().map((ev) => eventAsSeenBy(ctx.membership, ev))) {
         const p = asRecord(e.payload);
         const cycleId = typeof p.cycleId === "string" ? p.cycleId : e.id;
         const row = byId.get(cycleId) ?? { cycleId, cycleNumber: null, workflowId: null, trigger: null, startedAt: null, completedAt: null, outcome: null, tasksDispatched: 0, tasksCompleted: 0, inboxItemIds: [], durationMs: null };

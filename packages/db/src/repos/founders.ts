@@ -1,17 +1,26 @@
 /** founder_profiles — account-scoped (userId first), routers founder.profile.get/update. */
-import { RESERVED_NAME_MESSAGE, isReservedName } from "@foundmill/config";
-import { VISIBILITY, ValidationError } from "@foundmill/shared";
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { BIDI_NAME_MESSAGE, INPUT_LIMITS, RESERVED_NAME_MESSAGE, hasBidiControl, isReservedName } from "@foundmill/config";
+import { ADMIN_ROLES, boundedRecord, OWNER_ROLES, VISIBILITY, ValidationError } from "@foundmill/shared";
+import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { authUsers } from "drizzle-orm/supabase";
 import { z } from "zod";
 import { businesses, founderProfiles, memberships, type Business, type FounderProfile, type Membership } from "../schema";
 import { Currency, changes, Id, maybeOne, MinorAmount, one, parseInput, type Executor, patchSchema } from "./_shared";
+import { adultsRepo } from "./adults";
+import { membershipNotEnded } from "./memberships";
 
-const SkillRatings = z.record(z.string(), z.number().int().min(1).max(20));
+const SkillRatings = boundedRecord(INPUT_LIMITS.founderProfileList, z.record(z.string(), z.number().int().min(1).max(20)));
 
 export const FounderProfileInput = z.object({
   // Not a name that poses as the platform or its staff ("Foundmill Support"): other founders read it as who wrote to them.
-  displayName: z.string().trim().min(1).max(120).refine((n) => !isReservedName(n), RESERVED_NAME_MESSAGE),
+  // Never a bidi control either: it turns the text after it around on every page that shows the name.
+  displayName: z
+    .string()
+    .trim()
+    .min(1)
+    .max(120)
+    .refine((n) => !isReservedName(n), RESERVED_NAME_MESSAGE)
+    .refine((n) => !hasBidiControl(n), BIDI_NAME_MESSAGE),
   experience: z.string().max(4000).nullable().optional(),
   skills: SkillRatings.default({}),
   timeCommitment: z.string().max(120).nullable().optional(),
@@ -19,8 +28,8 @@ export const FounderProfileInput = z.object({
   currency: Currency.optional(),
   citizenship: z.string().max(80).nullable().optional(),
   residence: z.string().max(80).nullable().optional(),
-  targetMarkets: z.array(z.string().max(80)).default([]),
-  constraints: z.array(z.string().max(400)).default([]),
+  targetMarkets: z.array(z.string().max(80)).max(INPUT_LIMITS.founderProfileList).default([]),
+  constraints: z.array(z.string().max(400)).max(INPUT_LIMITS.founderProfileList).default([]),
   riskAppetite: z.string().max(80).nullable().optional(),
   visibility: z.enum(VISIBILITY).default("private"),
 });
@@ -32,6 +41,7 @@ export type FounderProfilePatch = z.input<typeof FounderProfilePatch>;
 /** Says why in the person's words (parseInput would only say "Invalid founder profile"); the schema holds the same rule. */
 function assertNameFree(displayName: string | undefined): void {
   if (displayName !== undefined && isReservedName(displayName)) throw new ValidationError(RESERVED_NAME_MESSAGE);
+  if (displayName !== undefined && hasBidiControl(displayName)) throw new ValidationError(BIDI_NAME_MESSAGE, { field: "displayName" });
 }
 
 export const foundersRepo = {
@@ -44,6 +54,29 @@ export const foundersRepo = {
     const rows = await db.select({ id: authUsers.id }).from(authUsers).where(sql`lower(${authUsers.email}) = lower(${e})`).limit(2);
     // Two accounts on one address (case variants) are ambiguous: the account ID is needed instead.
     return rows.length === 1 ? rows[0]!.id : null;
+  },
+
+  /**
+   * Who the notifier asks the gateway to email about one business (retention plan, 2026-11-11): its owners and admins,
+   * by account id with their walls (never an example membership: a walk around a demo gets no mail). No address: the
+   * gateway reads that itself (`emailOf`).
+   */
+  async notifyRecipients(db: Executor, businessId: string): Promise<{ userId: string; role: Membership["role"]; sectionPermissions: Membership["sectionPermissions"] }[]> {
+    return db
+      .select({ userId: memberships.userId, role: memberships.role, sectionPermissions: memberships.sectionPermissions })
+      .from(memberships)
+      .where(and(eq(memberships.businessId, businessId), inArray(memberships.role, [...ADMIN_ROLES]), ne(memberships.source, "example")));
+  },
+
+  /**
+   * The address the account signs in with, or null (no account, no address, or a malformed one). Reads auth.users, so it
+   * runs on the service connection; only the gateway asks, to email the person from Foundmill (never from a request).
+   */
+  async emailOf(db: Executor, userId: string): Promise<string | null> {
+    const id = parseInput(Id, userId, "user id");
+    const row = maybeOne(await db.select({ email: authUsers.email }).from(authUsers).where(eq(authUsers.id, id)).limit(1));
+    const email = row?.email?.trim().toLowerCase() ?? "";
+    return z.email().max(254).safeParse(email).success ? email : null;
   },
 
   async get(db: Executor, userId: string): Promise<FounderProfile | null> {
@@ -83,15 +116,24 @@ export const foundersRepo = {
    * businesses with the role held in each as `businesses.listForUser` answers them (newest first). Until 2026-10-15 these
    * were three statements on three pooled connections. Each business says whether it is held through an example
    * membership (`isExample`, 0065), so the index route and the LIVE pages never take a demo for the founder's own.
+   * `adultConfirmed`: the account's "I am 18 or older" is on record (`adults.confirmedAt` has a date; 0100), in the same
+   * statement.
    */
-  async account(db: Executor, userId: string): Promise<{ profile: FounderProfile | null; memberships: Membership[]; businesses: (Business & { role: string; isExample: boolean })[] }> {
+  async account(db: Executor, userId: string): Promise<{ profile: FounderProfile | null; memberships: Membership[]; businesses: (Business & { role: string; isExample: boolean })[]; adultConfirmed: boolean }> {
     const id = parseInput(Id, userId, "user id");
     // One row per membership (one row of nulls when there is none), each carrying the profile.
     const rows = await db
-      .select({ profile: founderProfiles, membership: memberships, business: businesses, businessOrder: sql<number>`row_number() over (order by ${businesses.createdAt} desc nulls last)`.mapWith(Number) })
+      .select({
+        profile: founderProfiles,
+        membership: memberships,
+        business: businesses,
+        businessOrder: sql<number>`row_number() over (order by ${businesses.createdAt} desc nulls last)`.mapWith(Number),
+        adultConfirmed: sql<boolean>`(${adultsRepo.confirmedAtSql(id)}) is not null`.mapWith((v: unknown) => v === true || v === "t" || v === "true"),
+      })
       .from(sql`(select ${id}::uuid as user_id) as "me"`)
       .leftJoin(founderProfiles, and(sql`${founderProfiles.userId} = "me"."user_id"`, isNull(founderProfiles.archivedAt)))
-      .leftJoin(memberships, sql`${memberships.userId} = "me"."user_id"`)
+      // A membership that has ended (0092) is not one of the person's: `memberships.listForUser` leaves it out too.
+      .leftJoin(memberships, and(sql`${memberships.userId} = "me"."user_id"`, membershipNotEnded))
       .leftJoin(businesses, and(eq(businesses.id, memberships.businessId), isNull(businesses.archivedAt)))
       .orderBy(asc(memberships.createdAt));
     const held = rows.filter((r): r is typeof r & { membership: Membership } => r.membership !== null);
@@ -102,6 +144,7 @@ export const foundersRepo = {
         .filter((r): r is typeof r & { business: Business } => r.business !== null)
         .sort((a, b) => a.businessOrder - b.businessOrder)
         .map((r) => ({ ...r.business, role: r.membership.role, isExample: r.membership.source === "example" })),
+      adultConfirmed: rows[0]?.adultConfirmed === true,
     };
   },
 
@@ -116,8 +159,8 @@ export const foundersRepo = {
       .from(memberships)
       .innerJoin(businesses, eq(businesses.id, memberships.businessId))
       .leftJoin(founderProfiles, and(eq(founderProfiles.userId, memberships.userId), isNull(founderProfiles.archivedAt)))
-      .where(and(eq(memberships.businessId, businessId), eq(memberships.role, "owner")))
-      .orderBy(sql`(${memberships.userId} = ${businesses.createdBy}) desc`, asc(memberships.createdAt), asc(memberships.id))
+      .where(and(eq(memberships.businessId, businessId), inArray(memberships.role, [...OWNER_ROLES])))
+      .orderBy(sql`(${memberships.userId} = ${businesses.createdBy} and ${memberships.role} = 'owner') desc`, asc(memberships.createdAt), asc(memberships.id))
       .limit(1);
     return rows[0]?.experience ?? null;
   },

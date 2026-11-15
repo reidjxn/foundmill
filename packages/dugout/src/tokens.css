@@ -24,6 +24,11 @@
   --ink: #05070a; /* terminals, the generation log, code */
   --white: #ffffff;
   --black: #000000;
+  /* Google's own sign-in button, light theme (developers.google.com/identity/branding-guidelines): the only place a
+     third party's colors appear. Never reuse them for anything else. */
+  --google-fill: #ffffff;
+  --google-stroke: #747775;
+  --google-text: #1f1f1f;
 
   /* ---------- Lines: alpha on white, so one set sits on every surface ---------- */
   --line-faint: rgba(255, 255, 255, 0.045); /* row dividers */
@@ -159,6 +164,11 @@
   --gutter: 16px;
   --reading-measure: 640px;
   --min-viewport: 1280px;
+
+  /* ---------- Small screens (DESIGN §2 "Small screens"): the outer product works from 390 px ---------- */
+  --phone-width: 390px; /* the narrowest width a public page supports; the console's phone preview frame */
+  --tap-target: 44px; /* the smallest touch target on a small-screen page */
+  --page-wide: 640px; /* a public page's container width at which it leaves its one-column phone layout */
 
   /* ---------- Type families ---------- */
   --font-display: "Barlow Semi Condensed", system-ui, sans-serif;

@@ -24,18 +24,19 @@ import {
   type SavedView,
 } from "@foundmill/dugout";
 import { ASSET_KINDS, CAMPAIGN_STATUSES, type CampaignStatus } from "@foundmill/shared/constants";
+import { emptyWhy } from "@foundmill/shared/empty-why";
 import { moduleTabHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import type { ModuleScreenProps } from "../registry";
-import { APPROVAL_WORDS, CAMPAIGN_STATUS_WORDS, assetCounts, canTransition, launchBlocked, resumeStatus } from "./channel-data";
+import { APPROVAL_WORDS, CAMPAIGN_STATUS_WORDS, assetCounts, canTransition, channelShown, launchBlocked, resumeStatus } from "./channel-data";
 import { CampaignDialog, EndCampaignDialog } from "./CampaignDialogs";
 import { ASSET_KIND_WORD } from "./channel-data";
 import { DateText } from "../dates";
 import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
 import { InlineError, SIMPLE_VIEW_ID, Screen, channelLabel, fitTableHeight, searchParam, useAction, useDefaultViewId } from "./shared";
-import type { AgentRow, AssetRow, CampaignRow, ChannelsListResponse, Page } from "./types";
+import type { AgentRow, AgentsListResponse, AssetRow, CampaignRow, ChannelsListResponse, Page } from "./types";
 
 export interface CampaignTableRow extends CampaignRow {
   channelLabel: string;
@@ -118,7 +119,7 @@ export function CampaignsScreen({ businessId }: ModuleScreenProps) {
   const campaigns = useWidgetQuery<Page<CampaignRow>>("distribution.campaigns.list", { limit: 200 });
   const channels = useWidgetQuery<ChannelsListResponse>("distribution.channels.list", {});
   const assets = useWidgetQuery<AssetRow[]>("distribution.assets.list", {});
-  const agents = useWidgetQuery<AgentRow[]>("team.agents.list", {});
+  const agents = useWidgetQuery<AgentsListResponse>("team.agents.list", {});
   const action = useAction();
   // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance is on.
   const defaultViewId = useDefaultViewId("all");
@@ -155,7 +156,8 @@ export function CampaignsScreen({ businessId }: ModuleScreenProps) {
   // New / Edit (null = closed; "new" = a new campaign) and the End confirmation.
   const [editing, setEditing] = useState<CampaignRow | "new" | null>(null);
   const [ending, setEnding] = useState<CampaignRow | null>(null);
-  const onBoard = useMemo(() => (channels.data?.channels ?? []).filter((c) => c.enabled && c.id), [channels.data]);
+  // A new campaign goes to a channel that is on the board and can really run (or is in offline tracking).
+  const onBoard = useMemo(() => (channels.data?.channels ?? []).filter((c) => c.enabled && c.id && channelShown(c)), [channels.data]);
   const confirmEnd = useCallback(
     async (row: CampaignRow) => {
       if (await setStatus(row, "ended")) setEnding(null);
@@ -221,7 +223,7 @@ export function CampaignsScreen({ businessId }: ModuleScreenProps) {
           rowClassName={(r) => (selected && r.id === selected.id ? "bg-white/4" : undefined)}
           height={fitTableHeight(rows.length, { minRows: 12, maxRows: 18 })}
           exportFileName="campaigns"
-          empty={{ title: "No campaigns yet", children: "Each channel on the board plans its first campaign here and asks for your approval before launch." }}
+          empty={{ title: emptyWhy("campaigns").title, children: emptyWhy("campaigns").text }}
         />
         </div>
       </Panel>
@@ -238,7 +240,7 @@ export function CampaignsScreen({ businessId }: ModuleScreenProps) {
           ) : null
         }
       >
-        {selected ? <CampaignDetail row={selected} agents={agents.data} businessId={businessId} pending={action.pending} onStatus={(s) => void setStatus(selected, s)} onEnd={() => setEnding(selected)} onEdit={() => setEditing(selected)} onDecide={decideAsset} onOpenAsset={(a) => navigate(`${moduleTabHref(businessId, departments.data, "distribution", "creative")}?asset=${a.id}`)} /> : null}
+        {selected ? <CampaignDetail row={selected} agents={agents.data?.agents} businessId={businessId} pending={action.pending} onStatus={(s) => void setStatus(selected, s)} onEnd={() => setEnding(selected)} onEdit={() => setEditing(selected)} onDecide={decideAsset} onOpenAsset={(a) => navigate(`${moduleTabHref(businessId, departments.data, "distribution", "creative")}?asset=${a.id}`)} /> : null}
       </Panel>
       <CampaignDialog
         open={editing !== null}

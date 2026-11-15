@@ -6,6 +6,7 @@
 import type { FilterChipValue, SavedView } from "@foundmill/dugout";
 import { formatMoney } from "@foundmill/dugout/lib/format";
 import type { EntityKind } from "@foundmill/shared";
+import { FOLLOW_SOURCE, FOLLOW_SOURCE_LABEL } from "@foundmill/shared/project-page";
 import type { RouterOutputs } from "@/lib/trpc";
 import { formatDate, plainWords } from "@/lib/format";
 import { chipValue, roleKey, type CrmFilterField } from "./search";
@@ -288,7 +289,7 @@ export function roleWord(role: string): string {
 export const KIND_WORD: Record<EntityKind, string> = { person: "Person", organisation: "Organization", agent: "Agent", team_member: "Staff", platform_member: "Member", community: "Community", venue: "Venue" };
 
 /** Where a record came from, in words. The agents' own records were filed under "squad" before the rename. */
-const SOURCE_WORDS: Record<string, string> = { squad: "Your team", team: "Your team", manual: "Added by hand", import: "Import", agent: "An agent", membership: "Membership", conversions: "Payments", stripe: "Stripe", hubspot: "HubSpot", affinity: "Affinity", salesforce: "Salesforce", pipedrive: "Pipedrive", attio: "Attio", gmail: "Gmail", outlook: "Outlook" };
+const SOURCE_WORDS: Record<string, string> = { [FOLLOW_SOURCE]: FOLLOW_SOURCE_LABEL, squad: "Your team", team: "Your team", manual: "Added by hand", import: "Import", agent: "An agent", membership: "Membership", conversions: "Payments", stripe: "Stripe", hubspot: "HubSpot", affinity: "Affinity", salesforce: "Salesforce", pipedrive: "Pipedrive", attio: "Attio", gmail: "Gmail", outlook: "Outlook" };
 
 export function sourceWord(source: string | null | undefined): string {
   if (!source) return "";
@@ -323,7 +324,7 @@ export function activityItems(get: Pick<EntityGet, "interactions" | "mentions" |
   }
   for (const c of get.conversions) {
     const won = isCustomerWin(c);
-    items.push({ id: `c-${c.id}`, at: toIso(c.occurredAt) ?? new Date(0).toISOString(), kind: "conversion", title: c.kind === "payment" ? (won ? "Payment" : "Repeat payment") : c.kind === "activation" ? "Activated" : "Signed up", description: c.kind === "payment" ? formatMoney({ amountMinor: Number(c.amountMinor), currency: c.currency }) : undefined, href: won && c.journeyId ? links.journey(c.journeyId) : undefined });
+    items.push({ id: `c-${c.id}`, at: toIso(c.occurredAt) ?? new Date(0).toISOString(), kind: "conversion", title: c.kind === "payment" ? (won ? "Payment" : "Repeat payment") : c.kind === "activation" ? "Activated" : "Signed up", description: c.kind === "payment" && c.amountMinor !== null ? formatMoney({ amountMinor: Number(c.amountMinor), currency: c.currency }) : undefined, href: won && c.journeyId ? links.journey(c.journeyId) : undefined });
   }
   return items.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
 }
@@ -364,6 +365,12 @@ export interface CommercialSummary {
   signedUpAt: string | null;
   activatedAt: string | null;
 }
+
+/** What the Commercial tab says where an amount would be, for a reader walled off Finance (`crm.entity.get` `moneyHidden`). */
+export const AMOUNTS_HIDDEN = "Hidden: your access does not include Finance";
+
+/** Whether this reader gets the payments without their amounts (no Finance read: a collaborator, or a member walled off it). */
+export const moneyHidden = (get: Pick<EntityGet, "moneyHidden" | "conversions">): boolean => get.moneyHidden === true || get.conversions.some((c) => c.kind === "payment" && c.amountMinor === null);
 
 /**
  * `businessCurrency` labels a history without payments. Payments in several currencies are never added together: the

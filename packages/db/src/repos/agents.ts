@@ -145,7 +145,7 @@ export interface AgentDailyActivity {
 }
 
 /** What department.list shows of an agent: the lead and the team strip. */
-export type AgentRosterRow = Pick<Agent, "id" | "name" | "role" | "status" | "modelKey" | "avatarSeed" | "departmentIds" | "personaKey">;
+export type AgentRosterRow = Pick<Agent, "id" | "name" | "role" | "status" | "modelKey" | "avatarSeed" | "departmentIds" | "personaKey" | "layer" | "agentType">;
 
 const scoped = (businessId: string, agentId: string) => and(eq(agents.businessId, businessId), eq(agents.id, agentId));
 
@@ -188,8 +188,8 @@ export async function personaContext(db: Executor, businessId: string): Promise<
        where a.persona_key is not null and a.archived_at is null and a.business_id <> ${businessId}::uuid
          and a.business_id in (
            select o.business_id from memberships o
-            where o.role = 'owner'
-              and o.user_id in (select m.user_id from memberships m where m.business_id = ${businessId}::uuid and m.role = 'owner'))`),
+            where o.role in ('owner', 'cofounder')
+              and o.user_id in (select m.user_id from memberships m where m.business_id = ${businessId}::uuid and m.role in ('owner', 'cofounder')))`),
   );
   const of = (kind: "taken" | "live" | "avoid") => rows.filter((r) => r.kind === kind).map((r) => r.key);
   return { taken: of("taken"), live: of("live"), avoid: of("avoid") };
@@ -248,7 +248,7 @@ export const agentsRepo = {
     const limit = Math.min(Math.max(Math.trunc(options.limit ?? 500), 1), 1000);
     const ks = timeKeyset<Agent>(agents.createdAt, agents.id, (r) => ({ at: r.createdAt, id: r.id }), "asc");
     return db
-      .select({ id: agents.id, name: agents.name, role: agents.role, status: agents.status, modelKey: agents.modelKey, avatarSeed: agents.avatarSeed, departmentIds: agents.departmentIds, personaKey: agents.personaKey })
+      .select({ id: agents.id, name: agents.name, role: agents.role, status: agents.status, modelKey: agents.modelKey, avatarSeed: agents.avatarSeed, departmentIds: agents.departmentIds, personaKey: agents.personaKey, layer: agents.layer, agentType: agents.agentType })
       .from(agents)
       .where(and(eq(agents.businessId, businessId), isNull(agents.archivedAt)))
       .orderBy(...ks.orderBy)
@@ -547,6 +547,16 @@ export const agentsRepo = {
     return one(await db.update(agents).set({ modelKey: m }).where(scoped(businessId, agentId)).returning(), "agent", agentId);
   },
 
+  /**
+   * 0082 — the founder's own choice of how the agent sounds on a Team call (a `SPEECH_ACCENTS` key; the api checks the
+   * key is known, this checks its shape), or null to go back to the derived default (`defaultSpeechAccents`). Only an
+   * owner or an admin may change it under RLS (trigger `fm_agents_speech_accent_guard`).
+   */
+  async setSpeechAccent(db: Executor, businessId: string, agentId: string, key: string | null): Promise<Agent> {
+    const k = parseInput(z.string().regex(/^[a-z]{2,20}$/, "a speech accent key is 2 to 20 lowercase letters").nullable(), key, "speech accent");
+    return one(await db.update(agents).set({ speechAccent: k }).where(scoped(businessId, agentId)).returning(), "agent", agentId);
+  },
+
   async setAutonomy(db: Executor, businessId: string, agentId: string, autonomy: Record<string, unknown>): Promise<Agent> {
     return agentsRepo.update(db, businessId, agentId, { autonomy: parseInput(JsonObject, autonomy, "autonomy") });
   },
@@ -593,7 +603,10 @@ export const agentsRepo = {
         schedule: source.schedule,
         wageCapMinor: source.wageCapMinor,
         currency: source.currency,
-        initialVersion: current ? { instructions: current.instructions as z.input<typeof AgentInstructions>, tools: current.tools, modelKey: current.modelKey, createdByKind: "system" } : undefined,
+        // Sessions read a system-written version 1 as "follow the template" (apps/orchestrator `followsTemplate`), so the
+        // copy is written by the system only when the source's live version follows its template too. Otherwise it is
+        // the user's, and the clone keeps the tools and instructions the source runs with (narrowed grants included).
+        initialVersion: current ? { instructions: current.instructions as z.input<typeof AgentInstructions>, tools: current.tools, modelKey: current.modelKey, createdByKind: current.version === 1 && current.createdByKind === "system" ? "system" : "user" } : undefined,
       });
     });
   },

@@ -5,7 +5,7 @@ import { CONCEPT_ATTRIBUTE_KEYS, GuidanceProvider, TooltipProvider } from "@foun
 import { TRPCClientError } from "@trpc/client";
 import { domainCandidates } from "@foundmill/shared";
 import { termsWithGlossary } from "@foundmill/shared/terms";
-import { CommitForm, HOW_IT_RUNS_REASSURANCE, WHAT_HAPPENS_NEXT, archetypeParam, commitSteps, departmentColour, importHref, includedCreditsLine, spendCapSummary, upgradeHrefOf, type CommitDomainApi, type CommitLogoApi } from "../commit/CommitScreen";
+import { CommitForm, HOW_IT_RUNS_REASSURANCE, WHAT_HAPPENS_NEXT, archetypeParam, commitSteps, departmentColour, importHref, includedCreditsLine, spendCapSummary, teamCountsLine, upgradeHrefOf, type CommitDomainApi, type CommitLogoApi } from "../commit/CommitScreen";
 import type { DomainCheck } from "../commit/naming";
 import { IMPORT_STEPS, STUDIO_STEPS } from "../StudioFrame";
 import { META_KIND, type IdeaLike } from "../ideate/concepts";
@@ -93,13 +93,15 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     expect(screen.getByTestId("logo-panel")).toBeTruthy();
     const summary = screen.getByTestId("how-it-runs-summary");
     const chips = () => Array.from(summary.querySelectorAll("[data-summary]")).map((c) => [c.getAttribute("data-summary"), c.textContent]);
+    // Labeled lines since Nov 8, 2026 (first-time founder report): the spend cap sits with who decides.
     expect(chips()).toEqual([
       ["game-mode", "Personal"],
       ["business-mode", "Assisted"],
-      ["archetype", "B2B SaaS"],
       ["spend-cap", "Asks you above €250.00"],
-      ["autopilot", "Autopilot off"],
+      ["archetype", "B2B SaaS"],
+      ["autopilot", "Overnight shift on"],
     ]);
+    for (const label of ["Where it runs", "Who decides", "Kind of business", "On a schedule"]) expect(summary.textContent).toContain(label);
     // The chips that have a definition are Terms: the dotted word opens its definition card.
     for (const [chip, term] of [
       ["archetype", "archetype"],
@@ -114,7 +116,7 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     expect(screen.queryByTestId("archetype-panel")).toBeNull();
     expect(screen.queryByTestId("business-mode-panel")).toBeNull();
     expect(screen.queryByLabelText(/Spend cap per action/)).toBeNull();
-    expect(screen.queryByRole("switch", { name: "Run on autopilot" })).toBeNull();
+    expect(screen.queryByRole("switch", { name: "Overnight shift" })).toBeNull();
     fireEvent.click(change);
     expect(change.getAttribute("aria-expanded")).toBe("true");
     expect(change.textContent).toContain("Hide");
@@ -123,16 +125,16 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     expect(screen.getByTestId("business-mode-panel")).toBeTruthy();
     expect(screen.getByLabelText(/Spend cap per action/)).toBeTruthy();
     // Every control keeps its id, and the chips follow the controls.
-    fireEvent.click(screen.getByRole("switch", { name: "Run on autopilot" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Overnight shift" }));
     fireEvent.click(screen.getByLabelText(/Automated/));
     fireEvent.click(document.querySelector<HTMLElement>('[data-option="live"] button[role="radio"]')!);
     fireEvent.change(screen.getByLabelText(/Spend cap per action/), { target: { value: "" } });
     expect(chips()).toEqual([
       ["game-mode", "Live"],
       ["business-mode", "Automated"],
-      ["archetype", "B2B SaaS"],
       ["spend-cap", "No spend cap"],
-      ["autopilot", "Autopilot on"],
+      ["archetype", "B2B SaaS"],
+      ["autopilot", "Autopilot off"],
     ]);
     fireEvent.click(change);
     expect(screen.queryByTestId("archetype-panel")).toBeNull();
@@ -236,7 +238,7 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     expect(screen.getByTestId("reassure-name").textContent).toBe("You can change this later in Settings › Business.");
     expect(screen.getByTestId("reassure-logo").textContent).toBe("You can change this later in Settings › Business.");
     expect(screen.getByTestId("reassure-archetype").textContent).toBe("You can change this later in Settings › Business.");
-    expect(screen.getByTestId("reassure-mode").textContent).toBe("You can change this later in Settings › Mode.");
+    expect(screen.getByTestId("reassure-mode").textContent).toBe("You can change this later in Settings › What the team can do.");
     cleanup();
     render(
       <GuidanceProvider value={{ guidance: "off", terms: TERMS }}>
@@ -262,20 +264,21 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     expect((screen.getByLabelText(/Spend cap per action/) as HTMLInputElement).value).toBe("75");
   });
 
-  it("offers Run on autopilot, off by default, and sends the choice with idea.commit", async () => {
+  it("offers the overnight shift, on by default, and sends the choice with idea.commit", async () => {
     const onCommit = renderForm();
-    const toggle = screen.getByRole("switch", { name: "Run on autopilot" });
-    expect(toggle.getAttribute("aria-checked")).toBe("false");
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("take-charge"));
-    });
-    expect(onCommit.mock.calls[0]![0]).toMatchObject({ autopilot: false });
-    fireEvent.click(toggle);
+    const toggle = screen.getByRole("switch", { name: "Overnight shift" });
     expect(toggle.getAttribute("aria-checked")).toBe("true");
     await act(async () => {
       fireEvent.click(screen.getByTestId("take-charge"));
     });
-    expect(onCommit.mock.calls[1]![0]).toMatchObject({ autopilot: true });
+    expect(onCommit.mock.calls[0]![0]).toMatchObject({ autopilot: true, overnight: { timeZone: expect.any(String) } });
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("take-charge"));
+    });
+    expect(onCommit.mock.calls[1]![0]).toMatchObject({ autopilot: false });
+    expect(onCommit.mock.calls[1]![0]).not.toHaveProperty("overnight");
   });
 
   it("offers Anthropomorphic agents, starting from the account preference, sends the choice with idea.commit and keeps the five chips", async () => {
@@ -516,15 +519,33 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
   it("shows the team the archetype seeds", () => {
     renderForm(vi.fn(), {
       preview: {
-        departments: [{ slug: "product", name: "Product", icon: "box", colourToken: "dept-1", moduleKeys: ["product"], budgetMinor: 0, budgetLabel: "Estimate" }],
-        agents: [{ templateKey: "chief_of_staff", name: "Chief of Staff", role: "Chief of Staff", layer: "utility", modelKey: "opus", wageCapMinor: 0, wageLabel: "Estimate" }],
+        departments: [{ slug: "product", name: "Editorial", baseName: "Product", icon: "box", colourToken: "dept-1", moduleKeys: ["product"], budgetMinor: 0, budgetLabel: "Estimate" }],
+        agents: [
+          { templateKey: "chief_of_staff", name: "Chief of Staff", role: "Chief of Staff", layer: "assistant", modelKey: "opus", wageCapMinor: 40_000, wageCurrency: "USD", wageLabel: "Estimate" },
+          { templateKey: "source_watcher", name: "Source watcher", role: "Watches the imported sources", layer: "utility", background: true, modelKey: "haiku", wageCapMinor: 5_000, wageCurrency: "USD", wageLabel: "Estimate" },
+        ],
         defaultChannels: ["seo"],
         specOutline: [],
       } as unknown as React.ComponentProps<typeof CommitForm>["preview"],
     });
     const squad = screen.getByTestId("squad-preview");
     expect(squad.textContent).toMatch(/Chief of Staff/);
-    expect(squad.textContent).toMatch(/1 agent · 1 department · 1 channel on/);
+    // A platform helper stays off the roster, as on the Team screen; the count says it is there (first-time founder report, Nov 8, 2026).
+    expect(squad.textContent).not.toMatch(/Source watcher/);
+    expect(screen.getByTestId("squad-preview-counts").textContent).toBe("1 agent · 1 department · 1 channel on · plus 1 background helper");
+    // The wage caps add up, in the credits' currency, named when the business counts in another; the helper's cap is left out.
+    expect(screen.getByTestId("squad-preview-wages").textContent).toMatch(/^Up to \$400\.00 a month in wage caps/);
+    expect(screen.getByTestId("squad-preview-wages").textContent).toMatch(/Wages are counted in US dollars, not in your EUR\./);
+    expect(screen.getByTestId("squad-preview-wages").querySelector("[data-provenance='estimate']")).toBeTruthy();
+    // An archetype's own department name is said as such, never a silent rename.
+    expect(screen.getByText(/· your Product department/)).toBeTruthy();
+    expect(screen.getByTestId("department-rename-note").textContent).toBe("A B2B SaaS business calls its Product department Editorial; it does the same work.");
+  });
+
+  it("names no channels in the team's count when none can run for a new project yet (never '0 channels on')", () => {
+    const agents = [{ templateKey: "chief_of_staff", layer: "assistant", wageCapMinor: 40_000 }];
+    expect(teamCountsLine({ agents, departments: [{}, {}], defaultChannels: [] })).toBe("1 agent · 2 departments");
+    expect(teamCountsLine({ agents, departments: [{}, {}], defaultChannels: ["seo", "geo"] })).toBe("1 agent · 2 departments · 2 channels on");
   });
 
   it("preselects the Import report's archetype over the card's and says where it came from (audit IAE-10)", () => {

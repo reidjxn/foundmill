@@ -3,13 +3,13 @@
  * Switch business (founder, 2026-10-16; audit IAE-08, WEB-13): the top bar's logo and name open a glass popover headed
  * "Switch business" with every business the founder belongs to (the current one first and checked, then A to Z, each
  * with its 24 px logo and a role and Demo chip), a filter field once there are more than a handful, then Create a new
- * business, Manage businesses, Home and Your profile. A popover with a filterable list (cmdk, as the command palette),
+ * business, Manage businesses, Today and Your profile. A popover with a filterable list (cmdk, as the command palette),
  * not a menu: a menu's typeahead fights a filter field. The tooltip and the controlled open follow StopAllAgents, since
  * Tooltip and Popover triggers both write `data-state`.
  */
 import { useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Command } from "cmdk";
-import { Building2, Check, ChevronDown, House, Plus, UserRound } from "lucide-react";
+import { Building2, Check, ChevronDown, Globe, Plus, Sun, UserRound } from "lucide-react";
 import { cn } from "../../lib/cn";
 import { BusinessLogo } from "../foundation/BusinessLogo";
 import { Button } from "../foundation/Button";
@@ -45,6 +45,8 @@ export interface KitBarBusinessMenu {
   onNewBusiness?: () => void;
   onManageBusinesses?: () => void;
   onProfile?: () => void;
+  /** Your public profile (the person's own page at /u/<handle>, package 2.3). */
+  onPublicProfile?: () => void;
   /** Pointer over, focus on or opening the switcher: the host starts loading the list and logos. */
   onIntent?: () => void;
   /** The list is loading (the current business still shows). */
@@ -91,16 +93,18 @@ const ROW_CLASS = "palette-row group/item flex min-h-row-comfortable cursor-defa
 export interface BusinessSwitcherProps {
   businessName: string;
   menu: KitBarBusinessMenu;
-  /** Picking the current business, or Home. */
+  /** Picking the current business, or Today (the business's front door since Nov 7, 2026). */
   onHome?: () => void;
   /** Open on first render (stories). */
   defaultOpen?: boolean;
   /** The trigger's content: the logo and the name. */
   children: ReactNode;
+  /** A second line in the trigger's tooltip, under "Switch business" (what the caption under the name means). */
+  tooltipLine?: string;
 }
 
 /** The top bar's logo and name as the business switcher (a chevron after the name, the tooltip "Switch business"). */
-export function BusinessSwitcher({ businessName, menu, onHome, defaultOpen = false, children }: BusinessSwitcherProps) {
+export function BusinessSwitcher({ businessName, menu, onHome, defaultOpen = false, children, tooltipLine }: BusinessSwitcherProps) {
   const [open, setOpenState] = useState(defaultOpen);
   const [tip, setTip] = useState(false);
   const [query, setQuery] = useState("");
@@ -131,7 +135,22 @@ export function BusinessSwitcher({ businessName, menu, onHome, defaultOpen = fal
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverAnchor asChild>
         <span className="flex min-w-0">
-          <Tooltip content="Switch business" side="bottom" align="start" open={tip && !open} onOpenChange={setTip}>
+          <Tooltip
+            content={
+              tooltipLine ? (
+                <span className="flex flex-col gap-0.5">
+                  <span>Switch business</span>
+                  <span className="text-secondary">{tooltipLine}</span>
+                </span>
+              ) : (
+                "Switch business"
+              )
+            }
+            side="bottom"
+            align="start"
+            open={tip && !open}
+            onOpenChange={setTip}
+          >
             <button
               ref={triggerRef}
               type="button"
@@ -239,15 +258,20 @@ export function BusinessSwitcher({ businessName, menu, onHome, defaultOpen = fal
                 <Icon icon={Building2} size="inline" className="shrink-0" /> Manage businesses
               </Command.Item>
             ) : null}
-            {onHome || menu.onProfile ? <div className={menuSeparatorClass} role="separator" /> : null}
+            {onHome || menu.onProfile || menu.onPublicProfile ? <div className={menuSeparatorClass} role="separator" /> : null}
             {onHome ? (
               <Command.Item value="action:home" onSelect={() => pick(onHome)} className={ROW_CLASS}>
-                <Icon icon={House} size="inline" className="shrink-0" /> Home
+                <Icon icon={Sun} size="inline" className="shrink-0" /> Today
               </Command.Item>
             ) : null}
             {menu.onProfile ? (
               <Command.Item value="action:profile" onSelect={() => pick(menu.onProfile)} className={ROW_CLASS}>
                 <Icon icon={UserRound} size="inline" className="shrink-0" /> Your profile
+              </Command.Item>
+            ) : null}
+            {menu.onPublicProfile ? (
+              <Command.Item value="action:public-profile" onSelect={() => pick(menu.onPublicProfile)} data-testid="switcher-public-profile" className={ROW_CLASS}>
+                <Icon icon={Globe} size="inline" className="shrink-0" /> Your public profile
               </Command.Item>
             ) : null}
           </Command.List>

@@ -35,7 +35,15 @@ test.describe("commit", () => {
     await expect(summary.locator('[data-summary="game-mode"]')).toHaveText("Personal");
     await expect(summary.locator('[data-summary="business-mode"]')).toHaveText("Assisted");
     await expect(summary.locator('[data-summary="spend-cap"]')).toHaveText(/^Asks you above /);
-    await expect(summary.locator('[data-summary="autopilot"]')).toHaveText("Autopilot off");
+    await expect(summary.locator('[data-summary="autopilot"]')).toHaveText("Overnight shift on");
+    // Labeled lines, not bare chips (first-time founder report, Nov 8, 2026): each choice says what it is about.
+    for (const label of ["Where it runs", "Who decides", "Kind of business", "On a schedule"]) await expect(summary).toContainText(label);
+    // The team the archetype seeds, with what its wage caps add up to a month (an Estimate) and no background helper listed.
+    const squad = page.getByTestId("squad-preview");
+    await expect(page.getByTestId("squad-preview-counts")).toHaveText(/^\d+ agents? · \d+ departments? · \d+ channels? on/, { timeout: LONG });
+    await expect(page.getByTestId("squad-preview-wages")).toContainText(/^Up to \$[\d,]+\.\d\d a month in wage caps/);
+    await expect(page.getByTestId("squad-preview-wages").locator("[data-provenance='estimate']")).toBeVisible();
+    await expect(squad.getByRole("list", { name: "Team" }).getByText(/Source watcher|Secrets scanner|Utility/)).toHaveCount(0);
     const change = page.getByTestId("how-it-runs-change");
     const open = (await change.getAttribute("aria-expanded")) === "true";
     // Open at once only while guidance is off (an operator's default); on, the controls wait behind Change.
@@ -69,19 +77,20 @@ test.describe("commit", () => {
     if (await adult.count()) await expect(adult).toBeVisible();
   });
 
-  test("Run on autopilot is a choice, off by default, and shows in the summary when chosen", async ({ page }) => {
+  test("The overnight shift is on by default (retention plan, Nov 11, 2026), can be turned off, and shows in the summary", async ({ page }) => {
     await openHowItRuns(page);
     const toggle = page.getByTestId("run-on-autopilot");
     const chip = page.getByTestId("how-it-runs-summary").locator('[data-summary="autopilot"]');
-    await expect(page.getByTestId("autopilot-choice")).toContainText("Run on autopilot");
+    await expect(page.getByTestId("autopilot-choice")).toContainText("Overnight shift");
+    await expect(page.getByTestId("autopilot-choice")).toContainText("about 2 AM your time");
+    await expect(toggle).toHaveAttribute("aria-checked", "true");
+    await expect(chip).toHaveText("Overnight shift on");
+    await toggle.click();
     await expect(toggle).toHaveAttribute("aria-checked", "false");
     await expect(chip).toHaveText("Autopilot off");
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-checked", "true");
-    await expect(chip).toHaveText("Autopilot on");
-    await toggle.click();
-    await expect(toggle).toHaveAttribute("aria-checked", "false");
-    await expect(chip).toHaveText("Autopilot off");
+    await expect(chip).toHaveText("Overnight shift on");
   });
 
   test("name suggestions, live domain availability and the trademark screen with its caveat", async ({ page }) => {
@@ -135,8 +144,8 @@ test.describe("commit", () => {
     // The change-it-later lines are tutoring: there while guidance is on (Settings › Preferences), gone when it is off.
     const reassure = page.getByTestId("reassure-mode");
     if (await reassure.count()) {
-      await expect(reassure).toContainText("You can change this later in Settings › Mode.");
-      await expect(page.getByTestId("reassure-how-it-runs")).toContainText("Settings › Business and Settings › Mode");
+      await expect(reassure).toContainText("You can change this later in Settings › What the team can do.");
+      await expect(page.getByTestId("reassure-how-it-runs")).toContainText("Settings › Business and Settings › What the team can do");
     } else {
       await expect(page.getByTestId("reassure-how-it-runs")).toHaveCount(0);
     }
@@ -196,16 +205,17 @@ test.describe("commit", () => {
     await expect(page.getByTestId("logo-option")).toHaveCount(4, { timeout: LONG });
     await page.getByTestId("logo-option").first().click();
     await page.getByTestId("take-charge").click();
-    // The first days are about the product (founder, 2026-10-18): Take charge lands on Home, not on a Board decision.
-    await page.waitForURL(new RegExp(`/b/${UUID}/home`), { timeout: LONG });
+    // The first days are about the product (founder, 2026-10-18): Take charge lands on Today (the front door since
+    // Nov 7, 2026), not on a Board decision.
+    await page.waitForURL(new RegExp(`/b/${UUID}/today`), { timeout: LONG });
     await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("kit-bar")).toContainText(name);
     await expect(page.getByTestId("kitbar-logo")).toHaveAttribute("data-logo", "image", { timeout: LONG });
     await expect(page.getByTestId("kitbar-logo").locator("img")).toHaveAttribute("src", /^data:image\/svg\+xml;base64,/);
-    // Home shows the foundations drafting (or already drafted: the mock model is quick).
-    await expect(page.getByTestId("home-screen")).toBeVisible({ timeout: LONG });
+    // Today shows the foundations drafting (or already drafted: the mock model is quick).
+    await expect(page.getByTestId("today-screen")).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("foundations-status")).toBeVisible({ timeout: LONG });
-    // The sidebar carries the departments the commit created.
+    // The sidebar carries the areas over the departments the commit created (each links to a department tab).
     expect(await page.locator("[data-testid=app-shell] nav a[href*='/d/']").count()).toBeGreaterThanOrEqual(1);
     const bid = /\/b\/([0-9a-f-]+)\//.exec(page.url())![1]!;
     // The Inbox has the Chief of Staff's welcome note (an Update); Continue is not "Respond" for it.
@@ -214,9 +224,9 @@ test.describe("commit", () => {
     await inboxRow(page, "Your team is drafting the product foundations").click();
     await expect(page.getByTestId("inbox-item")).toHaveAttribute("data-type", "update", { timeout: LONG });
     await expect(page.getByTestId("decision-bar")).toHaveCount(0);
-    // The spend cap per action chosen on Commit (the Assisted default, 250) is kept on the business, editable in Settings › Mode.
+    // The spend cap per action chosen on Commit (the Assisted default, 250) is kept on the business, editable in Settings › What the team can do.
     const mode = await openSettings(page, "mode", bid);
-    await expect(mode.getByTestId("spend-cap-form").getByLabel("Spend cap per action")).toHaveValue("250", { timeout: LONG });
+    await expect(mode.getByTestId("spend-cap-form").getByLabel("Amount per purchase")).toHaveValue("250", { timeout: LONG });
     // A new business starts on the free plan with this month's included credits, in US dollars.
     const billing = await openSettings(page, "billing", bid);
     await expect(billing.getByTestId("credits-balance")).toContainText("$5.00", { timeout: LONG });
@@ -230,7 +240,7 @@ test.describe("commit", () => {
       if (req.url().includes("idea.commit")) commits.push(req.url());
     });
     await page.getByTestId("take-charge").dblclick();
-    await page.waitForURL(new RegExp(`/b/${UUID}/home`), { timeout: LONG });
+    await page.waitForURL(new RegExp(`/b/${UUID}/today`), { timeout: LONG });
     // One call, never a batch of two (`idea.commit,idea.commit`).
     expect(commits).toHaveLength(1);
     expect(commits[0]).not.toContain("idea.commit,idea.commit");

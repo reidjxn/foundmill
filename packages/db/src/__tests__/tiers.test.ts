@@ -69,11 +69,19 @@ describe("businesses per owner", () => {
 });
 
 describe("seats", () => {
-  it("every membership is a seat; an invitation past the tier's seats is refused", async () => {
+  it("people are free on every plan: no limit, and adding someone is never refused", async () => {
     const business = await repos.businesses.get(r.db, r.B.businessId);
-    expect(await seatAllowance(r.db, business)).toEqual({ tier: "free", allowed: 1, used: 4 });
-    await expect(assertSeatAvailable(r.db, business)).rejects.toMatchObject({ code: "tier_limit", details: { limit: "seats", allowed: 1, used: 4 } });
+    expect(await seatAllowance(r.db, business)).toEqual({ tier: "free", allowed: null, used: 4 });
+    await expect(assertSeatAvailable(r.db, business)).resolves.toBeUndefined();
     await expect(assertSeatAvailable(r.db, { ...business, planTier: "scale" })).resolves.toBeUndefined();
+  });
+
+  it("the machinery still refuses past a limit, should one ever return", async () => {
+    const business = await repos.businesses.get(r.db, r.B.businessId);
+    const limitFor = () => 1;
+    expect(await seatAllowance(r.db, business, { limitFor })).toEqual({ tier: "free", allowed: 1, used: 4 });
+    await expect(assertSeatAvailable(r.db, business, { limitFor })).rejects.toMatchObject({ code: "tier_limit", details: { limit: "seats", allowed: 1, used: 4 } });
+    await expect(assertSeatAvailable(r.db, business, { limitFor: () => 10 })).resolves.toBeUndefined();
   });
 });
 

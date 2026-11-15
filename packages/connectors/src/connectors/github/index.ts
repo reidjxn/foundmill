@@ -303,7 +303,7 @@ export function createGithubConnector(options: LiveConnectorOptions = {}): Conne
           const created = await o.rest.git.createRef({ owner, repo, ref: `refs/heads/${branch}`, sha });
           return { branch, sha: created.data.object.sha, created: true };
         },
-        commit_files: ({ owner, repo, branch, fromRef, message, files, deletions, expectedHeadSha }, ctx) =>
+        commit_files: ({ owner, repo, branch, fromRef, message, files, deletions, expectedHeadSha, rebuild }, ctx) =>
           commitSlots.run(async () => {
             const o = await octokitFor(ctx);
             const info = (await o.rest.repos.get({ owner, repo })).data;
@@ -313,16 +313,29 @@ export function createGithubConnector(options: LiveConnectorOptions = {}): Conne
             const existing = await o.rest.git.getRef({ owner, repo, ref: `heads/${branch}` }).catch((e: { status?: number }) => (e.status === 404 ? null : Promise.reject(e)));
             // The caller's changes are based on a head the branch no longer has: nothing is written over the other commits.
             if (existing && expectedHeadSha && existing.data.object.sha !== expectedHeadSha) throw branchMoved(branch, expectedHeadSha, existing.data.object.sha);
-            const parentSha = existing ? existing.data.object.sha : await refSha(o, owner, repo, fromRef ?? info.default_branch);
+            // Rebuilding: the branch's new history starts at fromRef (the default branch's commit the agent worked from).
+            const rebuilding = rebuild && existing !== null;
+            const parentSha = existing && !rebuilding ? existing.data.object.sha : await refSha(o, owner, repo, fromRef ?? info.default_branch);
             const baseTree = (await o.rest.git.getCommit({ owner, repo, commit_sha: parentSha })).data.tree.sha;
-            // What the branch holds now, so unchanged files are not uploaded and only existing paths are deleted.
+            // What the branch (or, rebuilding, fromRef) holds now, so unchanged files are not uploaded and only existing paths are deleted.
             const current = await o.rest.git.getTree({ owner, repo, tree_sha: baseTree, recursive: "1" });
             const known = current.data.truncated ? null : new Map(current.data.tree.filter((e) => e.type === "blob" && e.path && e.sha).map((e) => [e.path!, e.sha!] as const));
             const writes = files.map((f) => ({ path: f.path, bytes: fileWriteBuffer(f) })).filter((f) => known?.get(f.path) !== gitBlobSha(f.bytes));
             const removals = known ? deletions.filter((d) => known.has(d)) : deletions;
-            const result = (sha: string, committed: boolean, url: string | null) => ({ branch, created: !existing, committed, sha, parentSha, filesWritten: committed ? writes.length : 0, filesDeleted: committed ? removals.length : 0, url });
+            const result = (sha: string, committed: boolean, url: string | null) => ({ branch, created: !existing, committed, rebuilt: rebuilding, sha, parentSha, filesWritten: committed ? writes.length : 0, filesDeleted: committed ? removals.length : 0, url });
+            /** Move an existing branch to `sha` whatever it holds (rebuilding only); `branch_moved` when it moved meanwhile and a head was expected. */
+            const moveTo = (sha: string) =>
+              o.rest.git.updateRef({ owner, repo, ref: `heads/${branch}`, sha, force: true }).catch(async (e: { status?: number }) => {
+                if (expectedHeadSha && e.status === 422) {
+                  const now = await o.rest.git.getRef({ owner, repo, ref: `heads/${branch}` }).then((r) => r.data.object.sha, () => null);
+                  if (now && now !== expectedHeadSha) throw branchMoved(branch, expectedHeadSha, now);
+                }
+                throw e;
+              });
             if (writes.length === 0 && removals.length === 0) {
               if (!existing) await o.rest.git.createRef({ owner, repo, ref: `refs/heads/${branch}`, sha: parentSha });
+              // Nothing differs from fromRef: the rebuilt branch is fromRef itself.
+              else if (rebuilding && existing.data.object.sha !== parentSha) await moveTo(parentSha);
               return result(parentSha, false, null);
             }
             // Text goes inline in the tree (one request however many files); only binary files need a blob each.
@@ -342,12 +355,15 @@ export function createGithubConnector(options: LiveConnectorOptions = {}): Conne
             const tree = await o.rest.git.createTree({ owner, repo, base_tree: baseTree, tree: entries });
             if (tree.data.sha === baseTree) {
               if (!existing) await o.rest.git.createRef({ owner, repo, ref: `refs/heads/${branch}`, sha: parentSha });
+              else if (rebuilding && existing.data.object.sha !== parentSha) await moveTo(parentSha);
               return result(parentSha, false, null);
             }
             const commit = await o.rest.git.createCommit({ owner, repo, message, tree: tree.data.sha, parents: [parentSha] });
-            // Fast-forward only: if the branch moved since it was read, GitHub refuses and nothing is overwritten (with
+            // Rebuilding: the branch is moved to the new commit whatever it held (its history is the point). Otherwise
+            // fast-forward only: if the branch moved since it was read, GitHub refuses and nothing is overwritten (with
             // expectedHeadSha the refusal is the typed branch_moved).
-            if (existing)
+            if (rebuilding) await moveTo(commit.data.sha);
+            else if (existing)
               await o.rest.git.updateRef({ owner, repo, ref: `heads/${branch}`, sha: commit.data.sha, force: false }).catch(async (e: { status?: number }) => {
                 if (expectedHeadSha && e.status === 422) {
                   const now = await o.rest.git.getRef({ owner, repo, ref: `heads/${branch}` }).then((r) => r.data.object.sha, () => null);
@@ -388,8 +404,9 @@ export function createGithubConnector(options: LiveConnectorOptions = {}): Conne
           const ci = (await o.rest.actions.listWorkflowRuns({ owner, repo, workflow_id: CI_WORKFLOW, head_sha: headSha, per_page: 1 })).data.workflow_runs[0];
           return { headSha, state: ciState(ci, checks, runs.length >= total), checks };
         },
-        open_pr: async ({ owner, repo, title, body, head, base, draft }, ctx) => {
+        open_pr: async ({ owner, repo, title, body, head, base: givenBase, draft }, ctx) => {
           const o = await octokitFor(ctx);
+          const base = givenBase === "HEAD" ? await defaultBranch(o, owner, repo) : givenBase;
           const open = await o.rest.pulls.list({ owner, repo, state: "open", head: `${owner}:${head}`, base, per_page: 1 });
           if (open.data[0]) return mapPullRequest((await o.rest.pulls.get({ owner, repo, pull_number: open.data[0].number })).data as GhPullRequest);
           const res = await o.rest.pulls.create({ owner, repo, title, body, head, base, draft });
@@ -397,8 +414,29 @@ export function createGithubConnector(options: LiveConnectorOptions = {}): Conne
         },
         get_pull_request: async ({ owner, repo, prNumber }, ctx) => mapPullRequest((await (await octokitFor(ctx)).rest.pulls.get({ owner, repo, pull_number: prNumber })).data as GhPullRequest),
         list_pull_requests: async ({ owner, repo, state, perPage }, ctx) => ({ items: ((await (await octokitFor(ctx)).rest.pulls.list({ owner, repo, state, per_page: perPage, sort: "created", direction: "desc" })).data as GhPullRequest[]).map(mapPullRequest) }),
+        update_branch: async ({ owner, repo, prNumber, expectedHeadSha }, ctx) => {
+          const o = await octokitFor(ctx);
+          const current = (await o.rest.pulls.get({ owner, repo, pull_number: prNumber })).data as GhPullRequest;
+          if (current.mergeable_state === "dirty") throw Object.assign(new Error(`Pull Request #${prNumber} conflicts with ${current.base.ref}; it cannot be brought up to date by GitHub`), { status: 422 });
+          // GitHub answers 202 and merges the base in asynchronously; the new head is read on the next look at the pull request.
+          try {
+            const res = await o.rest.pulls.updateBranch({ owner, repo, pull_number: prNumber, ...(expectedHeadSha ? { expected_head_sha: expectedHeadSha } : {}) });
+            return { updated: true, headSha: null, message: res.data.message ?? "Updating pull request branch." };
+          } catch (err) {
+            const status = (err as { status?: number }).status;
+            const message = (err as Error).message ?? "update refused";
+            if (status === 422 && /up to date/i.test(message)) return { updated: false, headSha: current.head.sha, message: "Already up to date." };
+            if (status === 422 || status === 409) throw Object.assign(new Error(`Pull Request #${prNumber} cannot be brought up to date: ${message}`), { status: 422 });
+            throw err;
+          }
+        },
         merge_pr: async ({ owner, repo, prNumber, mergeMethod, commitTitle, commitMessage }, ctx) => {
-          const res = await (await octokitFor(ctx)).rest.pulls.merge({ owner, repo, pull_number: prNumber, merge_method: mergeMethod, commit_title: commitTitle, commit_message: commitMessage });
+          const o = await octokitFor(ctx);
+          // GitHub refuses to merge a draft, and agents open theirs as drafts: the merge (already decided by policy, the
+          // founder's approval in Augmented mode) marks it ready first. Only GraphQL can.
+          const current = (await o.rest.pulls.get({ owner, repo, pull_number: prNumber })).data;
+          if (current.draft) await o.graphql("mutation($id: ID!) { markPullRequestReadyForReview(input: { pullRequestId: $id }) { pullRequest { isDraft } } }", { id: current.node_id });
+          const res = await o.rest.pulls.merge({ owner, repo, pull_number: prNumber, merge_method: mergeMethod, commit_title: commitTitle, commit_message: commitMessage });
           if (!res.data.merged) throw Object.assign(new Error(res.data.message || "merge refused"), { status: 405 });
           return { merged: true as const, sha: res.data.sha, prNumber, message: res.data.message };
         },

@@ -5,7 +5,7 @@ export const channelPrint = defineChannelTemplate({
   name: "Print Engine",
   role: "Print media specialist",
   work: ["media research", "rate cards", "print-ready artwork", "booking kits for the founder"],
-  connectors: [grant("gmail", ["drafts.create", "threads.read"]), grant("gelato", ["products.list", "quotes.read", "orders.prepare"]), grant("google_drive", ["files.list", "files.read", "files.write"])],
+  connectors: [grant("gmail", ["drafts.create", "threads.read"]), grant("google_drive", ["files.list", "files.read", "files.write"])],
   guardrails: [
     "Offline tracking: bookings and insertion orders are prepared with every material attached; the founder signs and sends; never call a booking API or sign an IO.",
     "Rate cards and circulation figures are quoted with the publisher's source and date; negotiated rates are proposals until the founder confirms.",

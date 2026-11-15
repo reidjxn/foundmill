@@ -20,7 +20,8 @@ import { prepareDb } from "./db-boot";
 import { createComposerService } from "./service";
 import { createUsageSink, creditsGate } from "./usage";
 
-export { createApp, NarrateBody, RefreshBody, CommentaryBody, ChapterTitleBody, type ComposerApp } from "./app";
+export { createApp, NarrateBody, RefreshBody, CommentaryBody, ChapterTitleBody, FounderTitlesBody, type ComposerApp } from "./app";
+export { composeFounderTitles, titleFallback, vocabularyLines, bannedWordsLine, FOUNDER_TITLES_BATCH, type FounderTitlesResult } from "./founder-titles";
 export { ComposerService, createComposerService, narrationKey, type ComposerServiceDeps, type ComposerServiceOptions, type NarrateResult } from "./service";
 export { RefreshEngine, type RefreshResult, type RefreshEngineOptions } from "./refresh";
 export { composeNote, ComposerSchema, ComposerRejectedError, ComposeTimeoutError, blocksContinueFor, composerInputs, CUSTOMER_UPDATE_OPTIONS, DEFAULT_DECISION_OPTIONS, type ComposedNote, type ComposeBrief } from "./compose";

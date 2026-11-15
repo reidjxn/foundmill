@@ -17,8 +17,8 @@ const verified = (installationId: number): GatewayIntegrationRecord => ({ status
 const gateway: ApiGatewayClient = {
   async connect(businessId, connector, input) {
     calls.push({ kind: "connect", businessId, connector, input });
-    if (input.installationId === undefined) return { status: "disconnected", scopes: [], accountLabel: null, externalAccountId: null, config: { consentUrl: `https://github.com/apps/foundmill-agents/installations/new?state=${String(input.state)}` }, expiresAt: null };
-    return verified(input.installationId as number);
+    if (input.installationId === undefined) return { mode: "live", record: { status: "disconnected", scopes: [], accountLabel: null, externalAccountId: null, config: { consentUrl: `https://github.com/apps/foundmill-agents/installations/new?state=${String(input.state)}` }, expiresAt: null }, integrationId: null, credential: null };
+    return { mode: "live", record: verified(input.installationId as number), integrationId: null, credential: null };
   },
   async health(businessId, connector) {
     calls.push({ kind: "health", businessId, connector });
@@ -35,6 +35,27 @@ const gateway: ApiGatewayClient = {
   },
   async repository(_businessId, owner, repo) {
     return { mode: "live", repository: { id: 7_700_001, fullName: `${owner}/${repo}`, private: true, defaultBranch: "main" } };
+  },
+  async sendPush() {
+    throw new Error("no push in these tests");
+  },
+  async validateKey() {
+    throw new Error("no key checks in these tests");
+  },
+  async registryLookup() {
+    throw new Error("no registry lookups in these tests");
+  },
+  async confirmFollow() {
+    throw new Error("no follow confirmations in these tests");
+  },
+  async notifyEmail() {
+    throw new Error("no notify email in these tests");
+  },
+  async synthesizeSpeech() {
+    throw new Error("no speech in these tests");
+  },
+  async transcribeSpeech() {
+    throw new Error("no speech in these tests");
   },
 };
 
@@ -87,7 +108,9 @@ describe("integrations.connect for a live GitHub App", () => {
     calls.length = 0;
     await expect(finish(ownerId, businessId, b.state)).rejects.toThrow(/started by someone else or for another business/);
     const [body, sig] = state.split(".");
-    await expect(finish(ownerId, businessId, `${body}.${sig!.slice(0, -2)}AA`)).rejects.toThrow(/not valid/);
+    // A signature with its first character changed (never the last two: they carry 10 bits, so "AA" there is the same
+    // signature once in 1,024 runs and the forged link was then, rightly, accepted).
+    await expect(finish(ownerId, businessId, `${body}.${sig![0] === "A" ? "B" : "A"}${sig!.slice(1)}`)).rejects.toThrow(/not valid/);
     await expect(finish(ownerId, businessId, `${Buffer.from(JSON.stringify({ b: businessId, u: ownerId, exp: 4102444800, n: "forgedforged" })).toString("base64url")}.${sig}`)).rejects.toThrow(/not valid/);
     const old = signInstallState(TEST_SESSION_TOKEN_SECRET, { userId: ownerId, businessId }, new Date(Date.now() - 16 * 60_000));
     await expect(finish(ownerId, businessId, old)).rejects.toThrow(/expired/);

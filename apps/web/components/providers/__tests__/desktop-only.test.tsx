@@ -1,8 +1,13 @@
 // @vitest-environment happy-dom
 import { act, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { viewport } from "../../../app/layout";
-import { DesktopOnly } from "../DesktopOnly";
+import { renderToString } from "react-dom/server";
+import { hydrateRoot } from "react-dom/client";
+import { DesktopOnly, SMALL_SCREEN_PREFIXES, WorksOnSmallScreens, worksOnSmallScreens } from "../DesktopOnly";
+
+let pathname = "/b/x/today";
+vi.mock("next/navigation", () => ({ usePathname: () => pathname }));
 
 function setWidth(width: number) {
   Object.defineProperty(window, "innerWidth", { value: width, configurable: true });
@@ -13,13 +18,16 @@ function setWidth(width: number) {
 
 describe("desktop only (audit PAS-4: a phone rendered a 390 px slice of a 1280 px page)", () => {
   const original = window.innerWidth;
-  afterEach(() => setWidth(original));
+  afterEach(() => {
+    setWidth(original);
+    pathname = "/b/x/today";
+  });
 
   it("does not force a 1280 px layout viewport: the meta keeps Next's device-width, so a phone reports its real width", () => {
     expect((viewport as { width?: unknown }).width).toBeUndefined();
   });
 
-  it("shows only NeedsLargerWindow below 1280 px, the sign-in page's notices included", () => {
+  it("shows only NeedsLargerWindow below 1280 px on a desktop route", () => {
     setWidth(390);
     render(
       <DesktopOnly>
@@ -41,5 +49,108 @@ describe("desktop only (audit PAS-4: a phone rendered a 390 px slice of a 1280 p
     setWidth(1280);
     expect(screen.getByText("Sign in")).toBeTruthy();
     expect(screen.queryByTestId("needs-larger-window")).toBeNull();
+  });
+
+  it("a project's public page and a person's public profile work from 390 px: the one list of small-screen routes, nothing else changes", () => {
+    expect(SMALL_SCREEN_PREFIXES).toEqual(["/p/", "/u/", "/m/", "/login", "/home", "/a/", "/email/pause", "/terms", "/privacy", "/", "/new/card/", "/public-profile", "/network", "/communities", "/communities/", "/profiles/", "/i/"]);
+    expect(worksOnSmallScreens("/new/card/11111111-1111-4111-8111-111111111111")).toBe(true);
+    // The landing page's hero (founder, 2026-11-13): exactly "/", never a prefix of every path.
+    expect(worksOnSmallScreens("/")).toBe(true);
+    for (const p of ["/b/x/today", "/b/x", "/new/ideate", "/onboarding", "/start"]) expect(worksOnSmallScreens(p), p).toBe(false);
+    // The Terms and the Privacy Policy (founder, 2026-11-13): exactly those two paths.
+    expect(worksOnSmallScreens("/terms")).toBe(true);
+    expect(worksOnSmallScreens("/privacy")).toBe(true);
+    for (const p of ["/terms/x", "/privacy/x", "/termsx"]) expect(worksOnSmallScreens(p), p).toBe(false);
+    // An invitation (THESIS_REVIEW 3.1) works from 390 px; nothing about waiting has a route of its own.
+    expect(worksOnSmallScreens("/i/AbC_123-xyz")).toBe(true);
+    expect(worksOnSmallScreens("/waitlist")).toBe(false);
+    // The pages an email opens (founder, 2026-11-12): the one-click answer and the pause page, and nothing beside them.
+    expect(worksOnSmallScreens("/a/AbC_123-xyz")).toBe(true);
+    expect(worksOnSmallScreens("/email/pause")).toBe(true);
+    for (const p of [
+      "/a",
+      "/a/",
+      "/email",
+      "/email/unsubscribe",
+      "/email/pause-all",
+      "/email/pauses",
+    ])
+      expect(worksOnSmallScreens(p), p).toBe(false);
+    expect(worksOnSmallScreens("/p/northwind-skincare")).toBe(true);
+    expect(worksOnSmallScreens("/u/maya-okafor")).toBe(true);
+    // A project's story hangs under its page; a milestone's card has its own prefix (docs/NETWORK.md F2, F3).
+    expect(worksOnSmallScreens("/p/northwind-skincare/story")).toBe(true);
+    expect(worksOnSmallScreens("/m/7a21e15f-87b0-4000-ac49-c98b9d627e98")).toBe(true);
+    for (const p of [
+      "/loginx",
+      "/profiles",
+      "/p",
+      "/u",
+      "/m",
+      "/milestones",
+      "/messages",
+      "/public-profile/x",
+      "/b/x/today",
+      "/b/x/milestones",
+      null,
+    ])
+      expect(worksOnSmallScreens(p), String(p)).toBe(false);
+    pathname = "/p/northwind-skincare";
+    setWidth(390);
+    render(
+      <DesktopOnly>
+        <p>Northwind</p>
+      </DesktopOnly>,
+    );
+    expect(screen.getByText("Northwind")).toBeTruthy();
+    expect(screen.queryByTestId("needs-larger-window")).toBeNull();
+  });
+
+  it("the sign-in page works from 390 px: its form, notices and Continue with Google render at every width", () => {
+    expect(worksOnSmallScreens("/login")).toBe(true);
+    expect(worksOnSmallScreens("/login/")).toBe(true);
+    pathname = "/login";
+    setWidth(390);
+    render(
+      <DesktopOnly>
+        <p>Sign in</p>
+      </DesktopOnly>,
+    );
+    expect(screen.getByText("Sign in")).toBeTruthy();
+    expect(screen.queryByTestId("needs-larger-window")).toBeNull();
+  });
+
+  it("a page that says it works on small screens (the on_waitlist panel) is kept at 390 px on any route, and only while it is there", async () => {
+    pathname = "/start";
+    setWidth(390);
+    const page = (marked: boolean) => (
+      <DesktopOnly>
+        {marked ? <WorksOnSmallScreens /> : null}
+        <p>{marked ? "You're on the list." : "Start something"}</p>
+      </DesktopOnly>
+    );
+    // As a person arrives: the server's page, then hydration before the width is measured.
+    const container = document.createElement("div");
+    container.innerHTML = renderToString(page(true));
+    document.body.appendChild(container);
+    let root!: ReturnType<typeof hydrateRoot>;
+    await act(async () => {
+      root = hydrateRoot(container, page(true));
+    });
+    expect(container.textContent).toContain("You're on the list.");
+    expect(container.querySelector('[data-testid="needs-larger-window"]')).toBeNull();
+    // A page without the mark on the same route asks for a larger window again.
+    await act(async () => {
+      root.render(page(false));
+    });
+    expect(container.querySelector('[data-testid="needs-larger-window"]')).not.toBeNull();
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("package 2.1: a project's Today and Needs you, the person's profile and the people pages work from 390 px; the rest of a project does not", () => {
+    const B = "/b/6f1d2c3b-4a5e-4f60-8a71-0b2c3d4e5f60";
+    for (const p of [`${B}/today`, `${B}/today/`, `${B}/inbox`, `${B}/inbox/4c76f0d6-2afd-4bdd-adbf-2a82479eadf3`, "/public-profile", "/network", "/communities", "/communities/c1", "/profiles/founder/u1"]) expect(worksOnSmallScreens(p), p).toBe(true);
+    for (const p of [`${B}/crm`, `${B}/settings/business`, `${B}/today/details`, `${B}/inbox/a/b`, "/b/not-a-uuid/today", "/networkx", "/profiles", "/b/"]) expect(worksOnSmallScreens(p), p).toBe(false);
   });
 });

@@ -41,7 +41,7 @@ async function ensureDeck(page: Page, minimum = 2): Promise<void> {
 }
 
 /**
- * Commits the first drafted concept as a new business. Take charge lands on Home (founder, 2026-10-18: the first days
+ * Commits the first drafted concept as a new business. Take charge lands on Today (founder, 2026-10-18: the first days
  * are about the product), where the vision, specification and roadmap draft in the background; the helper waits for
  * them so the two sign-off notes are in the Inbox when the test looks.
  */
@@ -52,10 +52,14 @@ async function commitFreshBusiness(page: Page, name: string): Promise<{ bid: str
   await expect(page.getByTestId("commit-form")).toBeVisible();
   await page.getByLabel(/Business name/).fill(name);
   await page.getByTestId("take-charge").click();
-  await page.waitForURL(new RegExp(`/b/${UUID}/home`), { timeout: LONG });
-  const bid = page.url().match(new RegExp(`/b/(${UUID})/home`))![1]!;
+  await page.waitForURL(new RegExp(`/b/${UUID}/today`), { timeout: LONG });
+  const bid = page.url().match(new RegExp(`/b/(${UUID})/today`))![1]!;
   await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
-  await expect(page.getByTestId("foundations-status")).toHaveAttribute("data-foundations-state", "ready", { timeout: LONG });
+  // The foundations banner shows "ready" only when the drafting finishes during this visit, and a quick mock draft can
+  // finish before Today's first read: wait for what the drafting leaves instead, the specification's sign-off note.
+  await expect(page.getByTestId("today-screen")).toBeVisible({ timeout: LONG });
+  await page.goto(`/b/${bid}/inbox`);
+  await expect(page.getByTestId("inbox-list").getByRole("option").filter({ hasText: "Sign off the product specification" }).first()).toBeVisible({ timeout: LONG });
   return { bid };
 }
 
@@ -149,7 +153,8 @@ async function decideByFreeText(page: Page, text: string): Promise<{ confirmed: 
 }
 
 const continueIdle = (page: Page) => page.getByRole("button", { name: /^Continue$/ });
-const respondButton = (page: Page) => page.getByRole("button", { name: /^Respond to \d+ items?$/ });
+/** The sidebar's Needs you link (the Inbox on its Needs you tab), whose badge counts what needs the founder. */
+const inboxLink = (page: Page) => page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Needs you/ });
 
 test.describe("golden path", () => {
   test.describe.configure({ mode: "serial" });
@@ -226,7 +231,7 @@ test.describe("golden path", () => {
     await expect(page.getByTestId("commit-form")).toBeVisible();
   });
 
-  test("AC-11.1.6 AC-11.1.7: Commit defaults to Assisted; Take charge creates the business and lands on Home with the welcome note", async ({ page }) => {
+  test("AC-11.1.6 AC-11.1.7: Commit defaults to Assisted; Take charge creates the business and lands on Today with the welcome note", async ({ page }) => {
     await signIn(page);
     await ensureDeck(page, 1);
     await page.getByTestId("commit-link").first().click();
@@ -239,15 +244,17 @@ test.describe("golden path", () => {
     const name = `Playwright Business ${Date.now().toString(36)}`;
     await page.getByLabel(/Business name/).fill(name);
     await page.getByTestId("take-charge").click();
-    // The first days are about the product (founder, 2026-10-18): Take charge lands on Home, not on a Board decision.
-    await page.waitForURL(new RegExp(`/b/${UUID}/home`), { timeout: LONG });
-    bid = page.url().match(new RegExp(`/b/(${UUID})/home`))![1]!;
+    // The first days are about the product (founder, 2026-10-18): Take charge lands on Today (the front door since Nov 7, 2026), not on a Board decision.
+    await page.waitForURL(new RegExp(`/b/${UUID}/today`), { timeout: LONG });
+    bid = page.url().match(new RegExp(`/b/(${UUID})/today`))![1]!;
     await expect(page.getByTestId("app-shell")).toBeVisible();
     await expect(page.getByTestId("kit-bar")).toContainText(name);
-    // The foundations draft in the mock model in moments. The Home banner shows only while a draft is in progress (or
+    // The foundations draft in the mock model in moments. The foundations banner shows only while a draft is in progress (or
     // when it turns ready during this visit), so the outcome is checked where it lands: the two sign-off notes below.
-    await expect(page.getByTestId("home-screen")).toBeVisible({ timeout: LONG });
-    // The sidebar carries the departments the commit created.
+    // Today: the goal waits for the Chief of Staff (it is proposed after the sign-offs and a round of work).
+    await expect(page.getByTestId("today-screen")).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("goal-panel")).toHaveAttribute("data-goal", "waiting", { timeout: LONG });
+    // The sidebar carries the areas over the departments the commit created (each links to a department tab).
     expect(await page.locator("[data-testid=app-shell] nav a[href*='/d/']").count()).toBeGreaterThanOrEqual(1);
     // The Inbox opens on the Chief of Staff's welcome note: an Update, with no decision to take.
     await page.goto(`/b/${bid}/inbox`);
@@ -259,15 +266,17 @@ test.describe("golden path", () => {
     await expect(page.getByTestId("decision-bar")).toHaveCount(0);
   });
 
-  test("AC-11.3.3: Continue reads Respond · 2 while the sign-off notes wait; approving both releases it and Continue runs a cycle step", async ({ page }) => {
+  test("the sign-off notes wait in Needs you without holding Continue; approving both starts the build and Continue runs a cycle step", async ({ page }) => {
     test.skip(!bid, "the Commit step did not produce a business");
     await signIn(page);
     await page.goto(`/b/${bid}/inbox`);
     await expect(inboxRow(page, SPEC_SIGNOFF)).toBeVisible({ timeout: LONG });
     await expect(inboxRow(page, ROADMAP_SIGNOFF)).toBeVisible({ timeout: LONG });
-    const respond = respondButton(page);
-    await expect(respond).toBeVisible({ timeout: LONG });
-    await expect(respond).toHaveText("Respond · 2");
+    // Since Nov 7, 2026 a decision never holds Continue: the Inbox counts them (the two sign-offs and, since package 1.3,
+    // "Your project's page is ready") and the button stays Continue.
+    await expect(inboxRow(page, "Your project's page is ready")).toBeVisible({ timeout: LONG });
+    await expect(inboxLink(page)).toContainText("3", { timeout: LONG });
+    await expect(continueIdle(page)).toBeVisible({ timeout: LONG });
 
     // The specification first: a sign-off note is a decision from the Product lead with Approve and Request changes.
     await inboxRow(page, SPEC_SIGNOFF).click();
@@ -280,16 +289,16 @@ test.describe("golden path", () => {
     await ((await recommended.count()) ? recommended : options.getByRole("button").first()).click();
     await expect(item).toHaveAttribute("data-state", "answered", { timeout: LONG });
     await expect(page.getByTestId("answered-panel")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Respond to 1 item" })).toBeVisible({ timeout: LONG });
+    await expect(inboxLink(page)).toContainText("2", { timeout: LONG });
 
-    // The roadmap: the second approval starts the build and releases Continue.
+    // The roadmap: the second approval starts the build.
     await approveFromInbox(page, bid, ROADMAP_SIGNOFF);
     await expect(inboxRow(page, /Building starts:/)).toBeVisible({ timeout: LONG });
     await expect(continueIdle(page)).toBeVisible({ timeout: LONG });
 
     // One press of Continue → business.continue (in-process cycle step without Temporal) → a toast says what happened.
     await continueIdle(page).click();
-    await expect(page.getByText(/Cycle started|One new note|Cycle resumed|already running/).first()).toBeVisible({ timeout: LONG });
+    await expect(page.getByText(/(cycle \d+|round of work) started|cannot run right now|(cycle \d+|round of work) resumed|already running/i).first()).toBeVisible({ timeout: LONG });
   });
 
   test("First days: approving both sign-offs plans the first build; distribution waits for Start distribution", async ({ page }) => {
@@ -317,12 +326,15 @@ test.describe("golden path", () => {
     await expect(channels.getByRole("row").filter({ hasText: /Starting|Running/ })).toHaveCount(0);
     await page.goto(`/b/${bid}/inbox`);
     await expect(inboxRow(page, WELCOME_NOTE)).toBeVisible({ timeout: LONG });
-    // Nothing waits for an answer: the Board's question is not asked before distribution starts.
-    await expect(page.getByTestId("inbox-list").locator("[data-inbox-row][data-needs-answer='true']")).toHaveCount(0);
+    // Nothing waits for an answer but the Chief of Staff's goal (proposed once the sign-offs and a round of work are done,
+    // founder 2026-11-07) and the Product lead's "Your project's page is ready" (package 1.3): the Board's question is not
+    // asked before distribution starts.
+    await expect(page.getByTestId("inbox-list").locator("[data-inbox-row][data-needs-answer='true']").filter({ hasNotText: /goal/i }).filter({ hasNotText: /page is ready/i })).toHaveCount(0);
     // Start distribution: the Board's question is in the Inbox, the channels start, the Board no longer waits.
     const { boardItemId } = await startDistributionFromBoard(page, bid);
     await expect(page.locator(`[data-inbox-row="${boardItemId}"]`)).toHaveAttribute("data-needs-answer", "true", { timeout: LONG });
-    await expect(respondButton(page)).toBeVisible({ timeout: LONG });
+    // The Board question waits in Needs you; Continue stays Continue (Nov 7, 2026).
+    await expect(continueIdle(page)).toBeVisible({ timeout: LONG });
     await expect(inboxRow(page, "Distribution has started")).toBeVisible({ timeout: LONG });
     await page.goto(`/b/${bid}/d/distribution/channels`);
     await expect(channels).toBeVisible({ timeout: LONG });
@@ -493,7 +505,7 @@ test.describe("seeded business (Northwind Skincare)", () => {
     await expect(page.getByTestId("crm-table-panel")).toContainText("Pennine Contract Cosmetics", { timeout: LONG });
   });
 
-  test("NeedsLargerWindow replaces the shell below 1280 px and the shell returns at 1440 px; the shell renders without React update loops", async ({ page }) => {
+  test("NeedsLargerWindow replaces a desktop-only screen below 1280 px (Needs you stays) and the shell returns at 1440 px; the shell renders without React update loops", async ({ page }) => {
     const loops: string[] = [];
     page.on("console", (msg) => {
       if (msg.type() === "error" && /Maximum update depth/.test(msg.text())) loops.push(msg.text());
@@ -502,10 +514,22 @@ test.describe("seeded business (Northwind Skincare)", () => {
     await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
     await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/inbox`);
     await expect(page.getByTestId("inbox-list").getByRole("option").first()).toBeVisible({ timeout: LONG });
+    // The Inbox (Needs you) works from 390 px since package 2.1, so it stays on screen below 1280; a desktop-only route
+    // (the CRM) is the one that asks for a larger window.
     await page.setViewportSize({ width: 1279, height: 900 });
-    await expect(page.getByTestId("needs-larger-window")).toBeVisible();
+    await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
+    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/crm`);
+    await expect(page.getByTestId("needs-larger-window")).toBeVisible({ timeout: LONG });
+    // The note replaces the shell: no shell is left in the document. For a moment after hydration one still can be, hidden:
+    // DesktopOnly drops the business layout's Suspense boundary (app/b/loading.tsx) before React has revealed it, and
+    // React's streaming runtime keeps the completed segment, a server-rendered shell in a hidden `div#S:0`, until its
+    // batched reveal runs (up to 300 ms later) and removes it. Widening inside that window showed two shells, one of them
+    // hidden. A shell that stayed past the reveal would be a real double mount, and this count would catch it.
+    await expect(page.getByTestId("app-shell")).toHaveCount(0);
     await page.setViewportSize({ width: 1440, height: 900 });
+    await expect(page.getByTestId("app-shell")).toHaveCount(1);
     await expect(page.getByTestId("app-shell")).toBeVisible();
+    await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
     // Regression guard: apps/web/components/shell/chrome.tsx once re-ran its effect after its own setChrome.
     expect(loops).toEqual([]);
   });

@@ -4,7 +4,8 @@
  *
  * Order: the agent asked for (the planner's `agent_id`), the task's own assignee, a worker of the task's department
  * whose template is staffed for the task's kind, any such worker, any worker of the department. Only usable agents
- * count: never paused, down (`injured`), failing, archived or over the wage cap. An agent already chosen for another
+ * count: never paused, down (`injured`), failing, archived or over the wage cap, and never a background helper (the
+ * utility layer; Leads first, 2026-11-08). An agent already chosen for another
  * start this cycle (`exclude`) is avoided when another usable agent fits, and taken when nobody else does.
  */
 import type { TaskKind } from "@foundmill/shared";
@@ -67,6 +68,8 @@ export function pickAssignee<A extends AssignableAgent>(task: AssignableTask, ag
   for (const a of ordered) {
     if (!a || seen.has(a.id)) continue;
     seen.add(a.id);
+    // Background helpers (the utility layer) never take tasks, even when a planner names one or a task row holds one.
+    if (a.layer === "utility") continue;
     if (agentUsable(a)) usable.push(a);
   }
   return usable.find((a) => !excluded.has(a.id)) ?? usable[0] ?? null;

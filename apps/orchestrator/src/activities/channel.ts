@@ -15,19 +15,37 @@
  * - measure (mock): the week's numbers, and for the lead channels (lead generation, content, events) one CRM record
  *   with a `lead` role per lead counted, so the Leads tab and the Attribution counts come from the same records
  *   (audit GTM-02).
+ *
+ * A channel that cannot really act does nothing (founder, 2026-11-11; packages/connectors `channelAvailability`): unless
+ * it is in offline tracking, every step of a channel that is not available for the business ends the engine with a
+ * note, ends what the engine had open and marks no campaign live. Where simulated results are allowed (a sample
+ * business, development, test) every channel is available and nothing changes.
+ *
+ * A channel the founder posts by tap (founder, 2026-11-12; `by_tap`) is available and still does nothing here: the
+ * founder presses Post in the network's own window, and no agent can. Its engine ends at its first step with a note
+ * that says so; nothing is planned, launched or measured, and no result is invented.
  */
 import { buildChannelCreativeRequest, docText, finaliseCreative, getChannelTemplate } from "@foundmill/agents";
 import { LIMITS } from "@foundmill/config";
 import { repos } from "@foundmill/db";
 import { stableHash } from "@foundmill/models";
-import { CHANNEL_KEYS, CHANNEL_META, type BusinessMode, type ChannelKey } from "@foundmill/shared";
+import { CHANNEL_KEYS, CHANNEL_META, mockResultsAllowed, type BusinessMode, type ChannelAvailability, type ChannelKey } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 import { openApprovalNote } from "./approvals";
+import { channelEngineBlocked } from "./channel-availability";
 import { requestJourneyDailyRefresh } from "../journey-refresh";
 import type { ChannelEngineState, ChannelStep, ChannelStepResult } from "./types";
 
 export const emptyChannelState = (): ChannelEngineState => ({ campaignId: null, approvalId: null, lastStep: null, weeksRun: 0, learnings: [] });
+
+/** The engine's note when it stops because the channel cannot act for this business (a log line; the Board says it in a founder's words). */
+export function channelUnavailableNote(label: string, availability: ChannelAvailability): string {
+  // Tap-to-post: the channel is available to the founder, and there is nothing in it for an agent to launch or measure.
+  if (availability.reason === "by_tap") return `${label} is posted by the founder, one press at a time (tap-to-post): no agent can publish there, so the engine is stopping; nothing planned, launched or measured`;
+  const why = availability.reason === "not_connected" ? `${availability.connectorKey ?? "its connector"} is not ${availability.connectable ? "connected for this business" : "live on this deployment"}` : "no tool publishes to it yet";
+  return `${label} is not available yet (${why}) and is not in offline tracking; engine stopping, nothing planned or launched`;
+}
 
 const isChannelKey = (v: string): v is ChannelKey => (CHANNEL_KEYS as readonly string[]).includes(v);
 
@@ -57,6 +75,13 @@ export function mockLead(seed: string): { displayName: string; email: string; co
 
 /** Average days in a month (365.25 / 12): a week is 7 / 30.4375 of a monthly budget. */
 const DAYS_PER_MONTH = 30.4375;
+
+/**
+ * Whether a channel may record invented results (impressions, leads, signups, spend) while connectors are mock: for a
+ * sample business anywhere, and for any business on a development or test stack. The rule lives in packages/shared
+ * (`channel-availability.ts`) so the api, the gateway and this engine share it; re-exported for existing imports.
+ */
+export { mockResultsAllowed };
 
 /** The weekly share of a monthly budget (minor units), what one weekly campaign may spend. */
 export function weeklyBudgetMinor(monthlyMinor: number | string | null): number {
@@ -114,6 +139,15 @@ export function createChannelActivities(deps: OrchestratorDeps) {
       if (!business.distributionStartedAt) return done("distribution has not started; engine stopping", { stop: true });
       const key = isChannelKey(input.channelKey) ? input.channelKey : (channel.channelKey as ChannelKey);
       const meta = CHANNEL_META[key];
+      // Only a channel that can really act runs (founder, 2026-11-11). Offline tracking is honest by design (the agent
+      // prepares, the founder submits), so it runs whatever the connectors are. The integrations are read only where
+      // simulated results are not allowed, so development, tests and the sample businesses are untouched.
+      const blocked = await channelEngineBlocked(deps, business, key, channel.kitMode);
+      if (blocked) {
+        // The full stop, as for a channel taken off the board: nothing the engine had open stays scheduled or live.
+        await repos.campaigns.endForChannel(db, businessId, channel.id);
+        return done(channelUnavailableNote(meta.label, blocked), { stop: true });
+      }
       const owner = channel.ownerAgentId ? await repos.agents.get(db, businessId, channel.ownerAgentId) : null;
       // The channel's agent paused (its wage cap, or by hand): nothing new is drafted or launched for it this week.
       if (owner?.status === "paused" && (input.step === "create" || input.step === "launch")) return done(`${owner.name} is paused; skipped this week's ${input.step}`);
@@ -226,6 +260,11 @@ export function createChannelActivities(deps: OrchestratorDeps) {
           const campaign = await repos.campaigns.get(db, businessId, state.campaignId);
           if (campaign.status !== "live") return done(`campaign is ${campaign.status.replace(/_/g, " ")}, not live; nothing to measure`);
           // Mock mode: deterministic numbers for the week, seeded by business + campaign + week, stored as an estimate.
+          // Only a sample business, or a development or test stack, gets them: a person's own business never reads
+          // impressions, leads or spend that nobody produced (docs/THESIS_REVIEW.md, package 0.4).
+          if (deps.env.INTEGRATIONS_MODE === "mock" && !mockResultsAllowed(deps.env.APP_ENV, business.isDemo)) {
+            return done("Nothing measured: this channel has no connection that reports results yet, so no numbers were recorded.");
+          }
           if (deps.env.INTEGRATIONS_MODE === "mock") {
             const seed = parseInt(stableHash(`${businessId}:${state.campaignId}:${input.weekIndex}`).slice(0, 8), 16);
             const day = clock.now().toISOString().slice(0, 10);
@@ -241,6 +280,15 @@ export function createChannelActivities(deps: OrchestratorDeps) {
           return done("Metrics arrive through the connector webhooks (ingest); nothing to pull here.");
         }
         case "learn": {
+          // The social channel learns from what its posts led to, counted from real outcomes (item 8): at most three
+          // lines, one per post and place, in place of a cost per customer. A quiet week adds no line, never a zero.
+          // Paid channels keep their CPA below, labeled Estimate.
+          if (key === "social") {
+            const until = clock.now();
+            const lines = await repos.postAttributions.weekSummary(db, businessId, { since: new Date(until.getTime() - 7 * 24 * 60 * 60 * 1000), until, week: input.weekIndex + 1 });
+            state.learnings.push(...lines);
+            return done(lines.length ? lines.join("\n") : "nothing came back through posts this week; nothing to learn");
+          }
           if (!state.campaignId) return done("nothing launched this week; nothing to learn");
           const ran = await repos.campaigns.get(db, businessId, state.campaignId);
           if (ran.status !== "live") return done(`campaign is ${ran.status.replace(/_/g, " ")}, not live; nothing to learn`);

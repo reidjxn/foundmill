@@ -75,6 +75,8 @@ export async function settleCreditCheckout(db: Executor, input: SettleCheckoutIn
     const business = await repos.businesses.get(tx, input.businessId, { includeArchived: true });
     await repos.usage.ensurePeriodCredits(tx, input.businessId, period, includedCreditsMinor(business.planTier));
     const balance = await repos.usage.grantCredits(tx, input.businessId, period, Number(row.amountMinor), row.currency);
+    // Bought credit lasts 12 months (founder, 2026-11-13; 0098): the lot carries it over from month to month.
+    await repos.usage.addCreditLot(tx, input.businessId, { amountMinor: Number(row.amountMinor), purchasedAt: input.paidAt, checkoutId: row.id });
     const checkout = await repos.checkouts.markPaid(tx, input.businessId, row.id, { paidAt: input.paidAt, paidEventId: input.eventId, grantedPeriod: period, creditBalanceId: balance.id });
     await repos.audit.append(tx, input.businessId, {
       actorKind: input.actor.kind,

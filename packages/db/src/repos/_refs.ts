@@ -12,6 +12,7 @@ import { ValidationError } from "@foundmill/shared";
 import { and, eq, inArray } from "drizzle-orm";
 import { agents, departments, entities, memberships, roadmapItems, specBlocks } from "../schema";
 import type { Executor } from "./_shared";
+import { membershipNotEnded } from "./memberships";
 
 type MaybeId = string | null | undefined;
 
@@ -56,7 +57,10 @@ export async function assertRoadmapItemsOwned(db: Executor, businessId: string, 
   await assertOwned(db, "a roadmap item", field, wanted, wanted.length ? db.select({ id: roadmapItems.id }).from(roadmapItems).where(and(eq(roadmapItems.businessId, businessId), inArray(roadmapItems.id, wanted))) : Promise.resolve([]));
 }
 
-/** The owner of a CRM role: an agent or department of the business, or a member of it (`ownerRef` has no foreign key at all). */
+/**
+ * The owner of a CRM role: an agent or department of the business, or a member of it whose membership has not ended
+ * (`ownerRef` has no foreign key at all; a collaborator whose access ended cannot be made an owner).
+ */
 export async function assertOwnerRef(db: Executor, businessId: string, ref: { kind: "agent" | "user" | "department"; id: string } | null | undefined): Promise<void> {
   if (!ref) return;
   if (ref.kind === "agent") return assertAgentsOwned(db, businessId, [ref.id], "ownerRef");
@@ -66,6 +70,6 @@ export async function assertOwnerRef(db: Executor, businessId: string, ref: { ki
     "a member",
     "ownerRef",
     [ref.id],
-    db.select({ id: memberships.userId }).from(memberships).where(and(eq(memberships.businessId, businessId), eq(memberships.userId, ref.id))),
+    db.select({ id: memberships.userId }).from(memberships).where(and(eq(memberships.businessId, businessId), eq(memberships.userId, ref.id), membershipNotEnded)),
   );
 }

@@ -15,8 +15,9 @@
  */
 import { ActivityFailure, ApplicationFailure, CancellationScope, ParentClosePolicy, allHandlersFinished, condition, isCancellation, patched, proxyActivities, setHandler, startChild, uuid4, workflowInfo, type ChildWorkflowHandle } from "@temporalio/workflow";
 import type { Activities, BusinessBrief, BusinessCycleInput, BusinessCycleResult, CyclePlan, CycleStart, RoadmapPlanResult } from "../activities";
-import { CYCLE_PLAN_FAILURE, DEFAULT_TASK_RESERVE_MINOR, PLAN_FAILED_MESSAGE, type PlanFailureDetails } from "../cycle-contract";
+import { CYCLE_PLAN_FAILURE, DEFAULT_TASK_RESERVE_MINOR, PLAN_FAILED_MESSAGE, cycleOutcomeSubject, cycleTallyLine, type PlanFailureDetails } from "../cycle-contract";
 import { agentSession, type AgentSessionOutcome } from "./agentSession";
+import { mergeReview } from "./mergeReview";
 import { decisionSignal, pauseSignal, resumeSignal, shoutSignal, stopSignal } from "./signals";
 
 const acts = proxyActivities<Activities>({ startToCloseTimeout: "10 minutes", retry: { maximumAttempts: 3, initialInterval: "2 seconds" } });
@@ -98,12 +99,27 @@ async function endUnplanned(input: BusinessCycleInput, brief: BusinessBrief, err
   } catch {
     inboxItemIds = [];
   }
-  await acts.completeCycle({ businessId: input.businessId, cycleId, cycleNumber: input.cycleNumber, workflowId: info.workflowId, outcome: "failed", tasksDispatched: 0, tasksCompleted: 0, tasksBlocked: 0, agentHours: 0, costMinor: 0, currency: brief.creditsCurrency, inboxItemIds, durationMs: Date.now() - startedAt });
+  await acts.completeCycle({ businessId: input.businessId, cycleId, cycleNumber: input.cycleNumber, workflowId: info.workflowId, outcome: "failed", tasksDispatched: 0, tasksCompleted: 0, tasksBlocked: 0, agentHours: 0, costMinor: 0, currency: brief.creditsCurrency, inboxItemIds, durationMs: Date.now() - startedAt, failure: { kind: failure.details?.kind ?? "error", message: failure.message } });
   return { cycleId, outcome: "failed", tasksDispatched: 0, tasksCompleted: 0, tasksBlocked: 0, inboxItemIds, costMinor: 0 };
 }
 
 /** The activity's own error rather than Temporal's "Activity task failed" wrapper. */
 const failureMessage = (err: unknown): string => (err instanceof ActivityFailure && err.cause ? err.cause.message : (err as Error).message ?? String(err));
+
+/**
+ * Since 2026-10-30 every cycle starts the merge of code tasks that passed their tests and wait in review with nothing
+ * moving them (activities/merge.ts `pendingMerges`): one `mergeReview` per task, abandoned, so it outlives the cycle. A
+ * patch, so cycles recorded before it replay unchanged.
+ */
+export const MERGE_SWEEP_PATCH = "merge-sweep";
+
+async function startPendingMerges(businessId: string): Promise<void> {
+  // The sweep never holds a cycle back: a failed read, or a review already running for a task, is left for the next cycle.
+  const pendingMerges = await acts.pendingMerges({ businessId }).catch(() => []);
+  for (const merge of pendingMerges) {
+    await startChild(mergeReview, { workflowId: `merge:${merge.taskId}`, args: [merge], parentClosePolicy: ParentClosePolicy.ABANDON }).catch(() => undefined);
+  }
+}
 
 export async function businessCycle(input: BusinessCycleInput): Promise<BusinessCycleResult> {
   const info = workflowInfo();
@@ -186,9 +202,12 @@ export async function businessCycle(input: BusinessCycleInput): Promise<Business
     }
     const timeBoxHours = input.timeBoxAgentHours ?? plan.timeBoxHours;
     await acts.startCycle({ businessId: input.businessId, cycleNumber: input.cycleNumber, workflowId: info.workflowId, trigger: input.trigger, plan, brief, cycleId });
+    if (patched(MERGE_SWEEP_PATCH)) await startPendingMerges(input.businessId);
 
     const maxConcurrent = Math.max(1, Math.min(input.maxConcurrent ?? brief.maxAgents, brief.maxAgents));
-    let budgetRemaining = brief.budgetRemainingMinor;
+    // A capped cycle (Autopilot's own spend ceiling, 0077) has the smaller of its cap and the credits left.
+    const cap = typeof input.budgetCapMinor === "number" ? Math.max(0, input.budgetCapMinor) : null;
+    let budgetRemaining = cap === null ? brief.budgetRemainingMinor : brief.budgetRemainingMinor === null ? cap : Math.min(cap, brief.budgetRemainingMinor);
     const reconcileBudget = patched(CYCLE_BUDGET_RECONCILE_PATCH);
     const pending: CycleStart[] = [...plan.starts];
     const skipped: { taskId: string; reason: string }[] = [];
@@ -231,6 +250,8 @@ export async function businessCycle(input: BusinessCycleInput): Promise<Business
         // The row is created first and carries the workflow id `session:<id>` the child is started with. The id is
         // chosen here, so a retried `openSession` finds the row it opened instead of opening a second session.
         const sessionId = uuid4();
+        // A capped cycle hands each session its reserve as the most it may spend (decided before it is opened).
+        const sessionCap = cap !== null && budgetRemaining !== null ? taskReserveMinor(s.budgetMinor, budgetRemaining, maxConcurrent - running.size) : null;
         const opened = await acts.openSession({ businessId: input.businessId, agentId: s.agentId, taskId: s.taskId, sessionId });
         if (!opened.sessionId) {
           skipped.push({ taskId: s.taskId, reason: opened.detail ?? opened.refused ?? "not dispatched" });
@@ -239,13 +260,13 @@ export async function businessCycle(input: BusinessCycleInput): Promise<Business
         }
         const handle = await startChild(agentSession, {
           workflowId: `session:${opened.sessionId}`,
-          args: [{ businessId: input.businessId, agentId: s.agentId, taskId: s.taskId, sessionId: opened.sessionId, cycleId, briefText: brief.text }],
+          args: [{ businessId: input.businessId, agentId: s.agentId, taskId: s.taskId, sessionId: opened.sessionId, cycleId, briefText: brief.text, ...(sessionCap !== null ? { spendCapMinor: sessionCap } : {}) }],
           parentClosePolicy: ParentClosePolicy.ABANDON,
         });
         const entry: Running = { start: s, sessionId: opened.sessionId, handle, done: false, outcome: null, error: null, reservedMinor: 0 };
         running.set(s.taskId, entry);
         if (budgetRemaining !== null) {
-          entry.reservedMinor = taskReserveMinor(s.budgetMinor, budgetRemaining, maxConcurrent - running.size + 1);
+          entry.reservedMinor = sessionCap ?? taskReserveMinor(s.budgetMinor, budgetRemaining, maxConcurrent - running.size + 1);
           budgetRemaining -= entry.reservedMinor;
         }
         // The stop landed while this session was being opened: the fan-out ran before the child existed, so it gets its own.
@@ -324,7 +345,8 @@ export async function businessCycle(input: BusinessCycleInput): Promise<Business
     if (outcome === "completed" && finished.some((f) => f.error) && tasksCompleted === 0) outcome = "failed";
 
     const eventIds = outcomes.flatMap((o) => o.finish?.eventIds ?? []);
-    const summary = `${plan.summary}\n\nCycle ${input.cycleNumber}: ${finished.length + running.size} session${finished.length + running.size === 1 ? "" : "s"} dispatched, ${tasksCompleted} finished, ${tasksBlocked} blocked${running.size ? `, ${running.size} still running past the time box` : ""}${skipped.length ? `; ${skipped.length} task${skipped.length === 1 ? "" : "s"} deferred` : ""}.`;
+    // Founder words (Nov 8, 2026): the note is read by everyone, so no cycle number. String arguments only: replay-safe.
+    const summary = `${plan.summary}\n\n${cycleTallyLine({ started: finished.length + running.size, finished: tasksCompleted, blocked: tasksBlocked, stillRunning: running.size, deferred: skipped.length })}`;
     let inboxItemIds: string[];
     try {
       if (plan.idle) {
@@ -332,7 +354,7 @@ export async function businessCycle(input: BusinessCycleInput): Promise<Business
         const note = await acts.noteIdleCycle({ businessId: input.businessId, cycleNumber: input.cycleNumber, summary: plan.summary });
         inboxItemIds = note.inboxItemId ? [note.inboxItemId] : [];
       } else {
-        const narrated = await acts.narrateCycle({ businessId: input.businessId, eventIds, summary, fallbackSubject: `Cycle ${input.cycleNumber} ${outcome.replace("_", " ")}` });
+        const narrated = await acts.narrateCycle({ businessId: input.businessId, eventIds, summary, fallbackSubject: cycleOutcomeSubject(outcome) });
         inboxItemIds = narrated.inboxItemIds;
       }
     } catch {

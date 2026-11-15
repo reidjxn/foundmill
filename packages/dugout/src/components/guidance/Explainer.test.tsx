@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { EXPLAINER_LABELS, Explainer } from "./Explainer";
+import { ExplainPageButton } from "./ExplainPageButton";
 import { GuidanceProvider } from "./GuidanceProvider";
+import { PageExplainProvider } from "./PageExplain";
 
 const props = {
   screenId: "home",
@@ -11,92 +13,213 @@ const props = {
   watchFor: "The runway tile turning amber.",
 };
 
-describe("Explainer", () => {
-  it("is a surface-2 strip with the three labels, a body line each, Got it and Show me an example", async () => {
-    const user = userEvent.setup();
-    const onExample = vi.fn();
-    render(<Explainer {...props} onExample={onExample} />);
-    const strip = screen.getByRole("region", { name: EXPLAINER_LABELS.purpose });
-    expect(strip.className).toContain("bg-surface-2");
-    expect(strip.className).toContain("rounded-md");
-    expect(strip.getAttribute("data-explainer")).toBe("home");
-    expect(strip.getAttribute("data-state")).toBe("open");
-    expect(strip.querySelector("svg")?.getAttribute("class")).toContain("text-kit-lift");
-    for (const label of Object.values(EXPLAINER_LABELS)) expect(screen.getByText(label).className).toContain("t-data");
-    expect(screen.getByText(props.action).className).toContain("text-body");
-    expect(screen.getByRole("button", { name: "Got it" }).getAttribute("data-variant")).toBe("ghost");
-    await user.click(screen.getByRole("button", { name: "Show me an example" }));
-    expect(onExample).toHaveBeenCalledTimes(1);
+const BUTTON = /^Explain this page/;
+
+function Page({ children, guidance }: { children?: React.ReactNode; guidance?: Parameters<typeof GuidanceProvider>[0] }) {
+  return (
+    <GuidanceProvider {...guidance}>
+      <PageExplainProvider>
+        <header>
+          <ExplainPageButton />
+        </header>
+        <main>{children}</main>
+      </PageExplainProvider>
+    </GuidanceProvider>
+  );
+}
+
+describe("Explainer with a page provider", () => {
+  it("renders nothing in place and shows no button until a screen registers", () => {
+    const { container } = render(
+      <Page>
+        <section data-testid="screen">
+          <Explainer {...props} />
+        </section>
+      </Page>,
+    );
+    expect(screen.getByTestId("screen").textContent).toBe("");
+    expect(container.querySelector("[data-explainer]")?.tagName).toBe("BUTTON");
+    expect(screen.queryByText(EXPLAINER_LABELS.purpose)).toBeNull();
+    expect(screen.queryByRole("region")).toBeNull();
   });
 
-  it("collapses to one line with a chevron after Got it, remembers the screen, and opens again from the chevron", async () => {
+  it("has no button before any Explainer registers, and none again after it unmounts", () => {
+    const { rerender } = render(<Page />);
+    expect(screen.queryByRole("button", { name: BUTTON })).toBeNull();
+    rerender(
+      <Page>
+        <Explainer {...props} />
+      </Page>,
+    );
+    expect(screen.getByRole("button", { name: BUTTON })).toBeTruthy();
+    rerender(<Page />);
+    expect(screen.queryByRole("button", { name: BUTTON })).toBeNull();
+  });
+
+  it("draws a ghost, small button with the tour anchor, and opens the three labeled lines and Close", async () => {
+    const user = userEvent.setup();
+    render(
+      <Page>
+        <Explainer {...props} />
+      </Page>,
+    );
+    const button = screen.getByRole("button", { name: BUTTON });
+    expect(button.getAttribute("data-variant")).toBe("ghost");
+    expect(button.getAttribute("data-coachmark")).toBe("explainer");
+    expect(button.getAttribute("data-explainer")).toBe("home");
+    expect(button.textContent).toContain("Explain this page");
+    expect(screen.queryByText(props.purpose)).toBeNull();
+    await user.click(button);
+    for (const label of Object.values(EXPLAINER_LABELS)) expect(screen.getByText(label).className).toContain("t-data");
+    expect(screen.getByText(props.purpose)).toBeTruthy();
+    expect(screen.getByText(props.action)).toBeTruthy();
+    expect(screen.getByText(props.watchFor)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Show me an example" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByText(props.purpose)).toBeNull());
+  });
+
+  it("offers Show me an example when given, and calls the latest handler", async () => {
+    const user = userEvent.setup();
+    const first = vi.fn();
+    const second = vi.fn();
+    const { rerender } = render(
+      <Page>
+        <Explainer {...props} onExample={first} />
+      </Page>,
+    );
+    rerender(
+      <Page>
+        <Explainer {...props} onExample={second} />
+      </Page>,
+    );
+    await user.click(screen.getByRole("button", { name: BUTTON }));
+    await user.click(screen.getByRole("button", { name: "Show me an example" }));
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledTimes(1);
+  });
+
+  it("marks the screen seen when opened, never on its own, and the unread dot goes", async () => {
+    const user = userEvent.setup();
+    const markExplainerSeen = vi.fn();
+    render(
+      <Page guidance={{ actions: { markExplainerSeen } }}>
+        <Explainer {...props} />
+      </Page>,
+    );
+    const button = screen.getByRole("button", { name: "Explain this page (new)" });
+    expect(screen.getByTestId("explain-unread-dot")).toBeTruthy();
+    expect(markExplainerSeen).not.toHaveBeenCalled();
+    expect(screen.queryByText(props.purpose)).toBeNull();
+    await user.click(button);
+    expect(markExplainerSeen).toHaveBeenCalledTimes(1);
+    expect(markExplainerSeen).toHaveBeenCalledWith("home");
+    expect(screen.queryByTestId("explain-unread-dot")).toBeNull();
+    expect(screen.getByRole("button", { name: "Explain this page" })).toBeTruthy();
+  });
+
+  it("shows no dot for a screen already seen, and does not mark it again as unread", () => {
+    render(
+      <Page guidance={{ value: { explainersSeen: { home: true } } }}>
+        <Explainer {...props} />
+      </Page>,
+    );
+    expect(screen.getByRole("button", { name: "Explain this page" })).toBeTruthy();
+    expect(screen.queryByTestId("explain-unread-dot")).toBeNull();
+  });
+
+  it("closes on Escape and gives the focus back to the button", async () => {
+    const user = userEvent.setup();
+    render(
+      <Page>
+        <Explainer {...props} />
+      </Page>,
+    );
+    const button = screen.getByRole("button", { name: BUTTON });
+    await user.click(button);
+    expect(screen.getByText(props.purpose)).toBeTruthy();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByText(props.purpose)).toBeNull());
+    expect(document.activeElement).toBe(button);
+  });
+
+  it("opens from the keyboard", async () => {
+    const user = userEvent.setup();
+    render(
+      <Page>
+        <Explainer {...props} />
+      </Page>,
+    );
+    await user.tab();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: BUTTON }));
+    await user.keyboard("{Enter}");
+    expect(screen.getByText(props.watchFor)).toBeTruthy();
+  });
+
+  it("shows nothing with guidance off, and waits for the account's answer (F28)", () => {
+    const { rerender } = render(
+      <Page guidance={{ value: { guidance: "off" } }}>
+        <Explainer {...props} />
+      </Page>,
+    );
+    expect(screen.queryByRole("button", { name: BUTTON })).toBeNull();
+    rerender(
+      <Page guidance={{ value: { loaded: false } }}>
+        <Explainer {...props} />
+      </Page>,
+    );
+    expect(screen.queryByRole("button", { name: BUTTON })).toBeNull();
+    rerender(
+      <Page guidance={{ value: { loaded: true } }}>
+        <Explainer {...props} />
+      </Page>,
+    );
+    expect(screen.getByRole("button", { name: BUTTON })).toBeTruthy();
+  });
+
+  it("with two Explainers the last mounted wins, and the one below takes over when it unmounts", () => {
+    const second = { ...props, screenId: "home/second", purpose: "The second screen." };
+    const { rerender } = render(
+      <Page>
+        <Explainer {...props} />
+        <Explainer {...second} />
+      </Page>,
+    );
+    expect(screen.getAllByRole("button", { name: BUTTON })).toHaveLength(1);
+    expect(screen.getByRole("button", { name: BUTTON }).getAttribute("data-explainer")).toBe("home/second");
+    rerender(
+      <Page>
+        <Explainer {...props} />
+      </Page>,
+    );
+    expect(screen.getByRole("button", { name: BUTTON }).getAttribute("data-explainer")).toBe("home");
+  });
+});
+
+describe("Explainer without a page provider", () => {
+  it("falls back to the same button in place, and opens the same panel", async () => {
     const user = userEvent.setup();
     const markExplainerSeen = vi.fn();
     render(
       <GuidanceProvider actions={{ markExplainerSeen }}>
-        <Explainer {...props} />
+        <Explainer {...props} className="mb-3" data-testid="inline" />
       </GuidanceProvider>,
     );
-    await user.click(screen.getByRole("button", { name: "Got it" }));
-    expect(markExplainerSeen).toHaveBeenCalledWith("home");
-    const strip = screen.getByRole("region", { name: EXPLAINER_LABELS.purpose });
-    expect(strip.getAttribute("data-state")).toBe("collapsed");
-    // The department tour's anchor stays on the strip in both states.
-    expect(strip.getAttribute("data-coachmark")).toBe("explainer");
-    expect(screen.queryByText(EXPLAINER_LABELS.action)).toBeNull();
+    expect(screen.getByTestId("inline").className).toContain("mb-3");
+    await user.click(screen.getByRole("button", { name: BUTTON }));
     expect(screen.getByText(props.purpose)).toBeTruthy();
-    const more = screen.getByRole("button", { name: "Show more about this screen" });
-    expect(more.getAttribute("aria-expanded")).toBe("false");
-    await user.click(more);
-    expect(screen.getByRole("region", { name: EXPLAINER_LABELS.purpose }).getAttribute("data-state")).toBe("open");
-    expect(screen.getByRole("region", { name: EXPLAINER_LABELS.purpose }).getAttribute("data-coachmark")).toBe("explainer");
-    expect(screen.getByText(props.watchFor)).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Show less about this screen" }));
-    expect(screen.getByRole("region", { name: EXPLAINER_LABELS.purpose }).getAttribute("data-state")).toBe("collapsed");
+    expect(markExplainerSeen).toHaveBeenCalledWith("home");
+    // No banner: nothing is a region or draws "Got it".
+    expect(screen.queryByRole("button", { name: "Got it" })).toBeNull();
+    expect(screen.queryByRole("region")).toBeNull();
   });
 
-  it("starts collapsed for a screen already seen, and is not rendered when guidance is off", () => {
-    const { rerender } = render(
-      <GuidanceProvider value={{ explainersSeen: { home: true } }}>
-        <Explainer {...props} />
-      </GuidanceProvider>,
-    );
-    expect(screen.getByRole("region", { name: EXPLAINER_LABELS.purpose }).getAttribute("data-state")).toBe("collapsed");
-    rerender(
+  it("is not rendered with guidance off", () => {
+    render(
       <GuidanceProvider value={{ guidance: "off" }}>
-        <Explainer {...props} />
+        <Explainer {...props} data-testid="inline" />
       </GuidanceProvider>,
     );
-    expect(screen.queryByRole("region")).toBeNull();
-    expect(document.body.textContent).toBe("");
-  });
-
-  it("waits for the account's answer, so an account with guidance off never sees it flash (F28)", () => {
-    const { rerender } = render(
-      <GuidanceProvider value={{ loaded: false }}>
-        <Explainer {...props} />
-      </GuidanceProvider>,
-    );
-    expect(screen.queryByRole("region")).toBeNull();
-    rerender(
-      <GuidanceProvider value={{ loaded: true }}>
-        <Explainer {...props} />
-      </GuidanceProvider>,
-    );
-    expect(screen.getByRole("region", { name: EXPLAINER_LABELS.purpose })).toBeTruthy();
-  });
-
-  it("lays its three columns out on the --explainer-col token, never an arbitrary pixel value", () => {
-    render(<Explainer {...props} />);
-    const list = screen.getByRole("region", { name: EXPLAINER_LABELS.purpose }).querySelector("dl");
-    expect(list?.className).toContain("grid-cols-explainer");
-    expect(list?.className).not.toMatch(/\[[^\]]*px/);
-  });
-
-  it("never clips: the strip is in flow, not floating", () => {
-    render(<Explainer {...props} />);
-    const strip = screen.getByRole("region", { name: EXPLAINER_LABELS.purpose });
-    expect(strip.className).not.toMatch(/\b(absolute|fixed|sticky)\b/);
-    expect(strip.className).not.toMatch(/truncate|line-clamp/);
+    expect(screen.getByTestId("inline").textContent).toBe("");
   });
 });

@@ -1,16 +1,16 @@
 "use client";
 /**
  * Agent profile (BUILD §11.10, DESIGN §9 "Agent profile"): ProfileHeader (avatar, name, role, departments, line
- * manager, model chip, status, wage, current/potential stars; "Talk to <agent>" opens the agent's desk as a sheet,
+ * manager, model chip, status, wage, current/potential stars; "Chat with <agent>" opens the agent's desk as a sheet, "Call <agent>" starts a one-to-one team call,
  * where "Take a break" pauses its running task through `dev.tasks.pause`) above the six tabs overview | training | autonomy |
  * tools | history | logs. The model chip anywhere on the screen opens ModelChangeDialog → ApplyScopeDialog →
  * `agent.model.set`. Data comes from `agent.profile.get`, polled every 5 s while a training run is active.
  */
 import { useQuery } from "@tanstack/react-query";
-import { Dumbbell, MessageCircle, UserRoundCog } from "lucide-react";
+import { Dumbbell, MessageCircle, Phone, UserRoundCog } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { Avatar, Button, EntityLink, HealthBadge, useAgentPersona, IconButton, ModelChip, ProfileHeader, StatusPill, formatMoney, useDateFormat, type ProfileChip, type ProfileFact, type TabItem } from "@foundmill/dugout";
+import { Avatar, Button, EntityLink, HealthBadge, useAgentPersona, useBuilderView, IconButton, ModelChip, ProfileHeader, StatusPill, formatMoney, useDateFormat, type ProfileChip, type ProfileFact, type TabItem } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
@@ -20,16 +20,19 @@ import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { NotFoundPanel, RefreshFailedNotice, isMissing, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
 import { useAgentDesk } from "@/components/conversation/DeskHost";
+import { useStartCall } from "@/components/calls/use-start-call";
 import { formatDate } from "@/lib/format";
 import { AutonomyTab } from "./AutonomyTab";
 import { HistoryTab } from "./HistoryTab";
 import { LineManagerDialog } from "./LineManagerDialog";
 import { LogsTab } from "./LogsTab";
+import { BuilderGate } from "@/components/screen/BuilderGate";
+import { visibleAgentTabs } from "./tabs";
 import { ModelChangeDialog } from "./ModelChangeDialog";
 import { OverviewTab } from "./OverviewTab";
 import { ToolsTab } from "./ToolsTab";
 import { TrainingTab } from "./TrainingTab";
-import { AGENT_TABS, departmentColour, humaniseKey, localPeriod, meanRating, ownerManagerLabel, profileChips, starsFor, toSkillRows, trainingFlow, wageLabel, type AgentProfile, type AgentTab } from "./logic";
+import { departmentColour, humaniseKey, localPeriod, meanRating, ownerManagerLabel, profileChips, starsFor, toSkillRows, trainingFlow, wageLabel, type AgentProfile, type AgentTab } from "./logic";
 
 export interface AgentProfileScreenProps {
   agentId: string;
@@ -47,13 +50,14 @@ export interface TabProps {
 
 export function AgentProfileScreen({ agentId, tab }: AgentProfileScreenProps) {
   const datePrefs = useDateFormat();
-  const { businessId, departments } = useBusiness();
+  const { businessId, departments, access } = useBusiness();
   const trpc = useTRPC();
   const router = useRouter();
   const [modelOpen, setModelOpen] = useState(false);
   const [managerOpen, setManagerOpen] = useState(false);
   const currency = useBusinessCurrency();
   const desk = useAgentDesk();
+  const call = useStartCall();
 
   const profileQ = useQuery(
     trpc.agent.profile.get.queryOptions(
@@ -75,7 +79,9 @@ export function AgentProfileScreen({ agentId, tab }: AgentProfileScreenProps) {
   const personaView = useAgentPersona();
   const shownName = profile ? personaView.nameFor(profile.agent) : "Agent";
 
-  const tabs = useMemo<TabItem[]>(() => AGENT_TABS.map((t) => ({ id: t.id, label: t.label, href: routes.agent(businessId, agentId, t.id) })), [businessId, agentId]);
+  // The Logs tab is Builder view's: not offered while it is off (opened by URL, the Builder view gate).
+  const builder = useBuilderView();
+  const tabs = useMemo<TabItem[]>(() => visibleAgentTabs(builder).map((t) => ({ id: t.id, label: t.label, href: routes.agent(businessId, agentId, t.id) })), [businessId, agentId, builder]);
   const teamDept = useMemo(() => departments.find((d) => d.moduleKeys.includes("team")), [departments]);
   const squadHref = teamDept ? routes.department(businessId, teamDept.slug, teamDept.tabs.slice().sort((a, b) => a.position - b.position)[0]?.slug ?? "squad") : undefined;
 
@@ -90,7 +96,7 @@ export function AgentProfileScreen({ agentId, tab }: AgentProfileScreenProps) {
 
   if (loadFailed(profileQ) && isMissing(profileQ.error)) {
     return (
-      <NotFoundPanel title="Agent profile" heading="No such agent" back={squadHref ? { label: "Back to Agents", href: squadHref } : { label: "Go to Home", href: routes.home(businessId) }}>
+      <NotFoundPanel title="Agent profile" heading="No such agent" back={squadHref ? { label: "Back to Agents", href: squadHref } : { label: "Go to Today", href: routes.today(businessId) }}>
         No agent in this business has this address: the agent was let go, or the link is wrong.
       </NotFoundPanel>
     );
@@ -172,7 +178,13 @@ export function AgentProfileScreen({ agentId, tab }: AgentProfileScreenProps) {
                   aria-haspopup="dialog"
                   data-testid="header-talk"
                 >
-                  Talk to {shownName}
+                  Chat with {shownName}
+                </Button>
+              ) : null}
+              {/* Call starts a one-to-one team call and opens it (docs/TEAM_CALL.md §6); Chat stays the desk. */}
+              {access.canWrite("team") ? (
+                <Button size="sm" icon={Phone} loading={call.pending} onClick={() => call.start({ kind: "one_to_one", agentIds: [agent.id] })} data-testid="header-call">
+                  Call {shownName}
                 </Button>
               ) : null}
             </>
@@ -185,7 +197,7 @@ export function AgentProfileScreen({ agentId, tab }: AgentProfileScreenProps) {
         {tab === "autonomy" ? <AutonomyTab {...tabProps} typeCount={typeCount} allCount={allCount} /> : null}
         {tab === "tools" ? <ToolsTab {...tabProps} /> : null}
         {tab === "history" ? <HistoryTab {...tabProps} /> : null}
-        {tab === "logs" ? <LogsTab {...tabProps} /> : null}
+        {tab === "logs" ? builder ? <LogsTab {...tabProps} /> : <BuilderGate title={shownName} open={{ label: "Overview", href: routes.agent(businessId, agentId, "overview") }} /> : null}
       </div>
       <ModelChangeDialog businessId={businessId} profile={profile} open={modelOpen && !released} onOpenChange={setModelOpen} typeCount={typeCount} allCount={allCount} />
       <LineManagerDialog businessId={businessId} profile={profile} agents={squadQ.data?.agents} open={managerOpen && !released} onOpenChange={setManagerOpen} onSaved={() => void profileQ.refetch()} />

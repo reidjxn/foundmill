@@ -4,11 +4,10 @@
  * `session:{sessionId}` that degrades to `{ queued: false, reason }`; the local task state is always updated so the
  * Training Ground reflects the intent.
  */
-import { pickAssignee } from "@foundmill/agents";
-import { FLAGS, isSimulateEnv } from "@foundmill/config";
-import { REPOSITORY_FULL_NAME, TaskListFilter, assertConcurrencyRoom, codeRepositoryOf, modelBudgetState, periodOf, repos, type Agent, type AgentSession, type DbTx, type Executor, type Task } from "@foundmill/db";
+import { FLAGS, INPUT_LIMITS, isSimulateEnv } from "@foundmill/config";
+import { REPOSITORY_FULL_NAME, TaskListFilter, codeRepositoryOf, repos, type AgentSession, type DbTx, type Executor, type Task } from "@foundmill/db";
 import { SESSION_EVENT_KINDS, sessionStreamKey } from "@foundmill/events";
-import { AppError, ForbiddenError, NotFoundError, ValidationError, connectorMode, formatMoney, hasSectionAccess, sessionSections, type TaskStatus } from "@foundmill/shared";
+import { boundedRecord, ForbiddenError, NotFoundError, ValidationError, connectorMode, hasSectionAccess, sessionSections } from "@foundmill/shared";
 import { z } from "zod";
 import { verifyCodeRepository } from "../services/code-repository";
 import { replaySession } from "../services/replay";
@@ -16,9 +15,9 @@ import { PlanInput, planKey, planTaskGraph, type PlanResult } from "../services/
 
 export { PLAN_REPEAT_WINDOW_MS, PlanInput, planKey } from "../services/task-graph";
 import { assertAgentsRunning } from "../services/stop-guard";
-import { SIGNALS, WORKFLOWS, workflowIds, type SignalName } from "../services/temporal";
+import { SIGNALS, workflowIds, type SignalName } from "../services/temporal";
 import { modelLimited } from "../services/model-limits";
-import { Id, adminProcedure, audit, emit, router, sectionAdmin, sectionRead, sectionWrite, type BusinessContext } from "../trpc";
+import { Id, adminProcedure, audit, router, sectionAdmin, sectionRead, sectionWrite, type BusinessContext } from "../trpc";
 
 const read = sectionRead("development");
 
@@ -45,7 +44,7 @@ export const SimulateInput = z.object({
   connector: z.string().trim().min(1).max(60).optional(),
   seed: z.string().max(120).optional(),
   /** Event-specific overrides (amountMinor, email, sentiment, channelKey...). */
-  params: z.record(z.string(), z.unknown()).optional(),
+  params: boundedRecord(INPUT_LIMITS.jsonObjectKeys, z.record(z.string(), z.unknown())).optional(),
 });
 
 /** Whether `dev.simulate` exists here: the flag and development/staging; production and test never (404). */
@@ -54,7 +53,8 @@ export const simulateAvailable = (appEnv: string, flag: boolean = FLAGS.devSimul
 const SHOUT_PRESETS = ["Focus on tests", "Simplify", "Ask before schema changes", "Match the design system", "Hurry up"] as const;
 
 /** Worktree branch per task (packages/sandbox `agentBranch`; mirrored here so the API does not depend on the sandbox package). */
-export const agentBranch = (taskId: string) => `agent/${taskId}`;
+export { agentBranch } from "../services/task-start";
+import { TaskStartError, agentBranch, startTaskByHand } from "../services/task-start";
 
 /**
  * A session the member may watch: besides Development (the procedure's own wall), every module of the department its
@@ -83,45 +83,7 @@ async function signalTask(ctx: BusinessContext, task: Task, signal: SignalName, 
   return ctx.temporal.signal(workflowIds.session(session.id), signal, payload);
 }
 
-/** Statuses a task may be started from by hand (Start on the Plan): never while running, in review or done. */
-export const STARTABLE_TASK_STATUSES = ["planned", "ready", "paused", "blocked", "failed", "stopped"] as const satisfies readonly TaskStatus[];
-
-/** Task start refused for the task's own state (409): already running or finished, an open dependency, its agent. */
-export class TaskStartError extends AppError {
-  constructor(message: string, details?: unknown) {
-    super("task_start_refused", message, 409, details);
-  }
-}
-
-/** The agentSession workflow was not queued (Temporal unreachable or refusing): nothing started (503). */
-export class TaskNotStartedError extends AppError {
-  constructor(message: string, details?: unknown) {
-    super("task_not_started", message, 503, details);
-  }
-}
-
-/** How a task's kind reads in the refusal when nobody on the team does that work. */
-const WORK_WORDS: Record<string, string> = { code: "code", research: "research", channel: "channel", specialist: "specialist", legal: "legal", finance: "finance", ops: "operations" };
-
-/**
- * The agent a task started by hand runs on when none is set (lead, 2026-10-24): chosen the way the cycle chooses
- * (`pickAssignee`: a usable worker of the task's department staffed for its kind, else any such worker, else any worker
- * of the department; never paused, down, failing, released or over its wage cap) and written on the task. Null when
- * nobody on the team fits.
- */
-async function autoAssign(ctx: BusinessContext, task: Task): Promise<Agent | null> {
-  // The usage ledger is service-written and read on the service db, before the RLS transaction (one connection on PGlite).
-  const wages = await repos.usage.wages(ctx.db, ctx.businessId, periodOf(new Date()));
-  const spentBy = new Map(wages.map((w) => [w.agentId, w.costMinor]));
-  return ctx.rls(async (tx) => {
-    const agents = await repos.agents.list(tx, ctx.businessId, { limit: 200 });
-    const rows = agents.items.map((a) => ({ ...a, wageRemainingMinor: a.wageCapMinor === null ? null : Number(a.wageCapMinor) - (spentBy.get(a.id) ?? 0) }));
-    const picked = pickAssignee(task, rows);
-    if (!picked) return null;
-    await repos.tasks.reassign(tx, ctx.businessId, task.id, picked.id);
-    return agents.items.find((a) => a.id === picked.id) ?? null;
-  });
-}
+export { STARTABLE_TASK_STATUSES, TaskNotStartedError, TaskStartError } from "../services/task-start";
 
 /** Plans being built on this instance, by business and request: a concurrent identical request shares the one planner call. */
 const plansInFlight = new Map<string, Promise<PlanResult>>();
@@ -168,58 +130,7 @@ export const devRouter = router({
      * The task is claimed with one conditional update, so a double click starts one session; when the workflow cannot
      * be queued the claim is undone and the session row closed (SERVICE_UNAVAILABLE), so a retry is not refused.
      */
-    start: write.input(z.object({ taskId: Id })).use(modelLimited("session")).mutation(async ({ ctx, input }) => {
-      await assertAgentsRunning(ctx, "the task");
-      const task = await ctx.rls((tx) => repos.tasks.get(tx, ctx.businessId, input.taskId));
-      if (!(STARTABLE_TASK_STATUSES as readonly TaskStatus[]).includes(task.status)) throw new TaskStartError(task.status === "running" ? "The task is already running." : `The task is ${task.status}; it cannot be started again.`, { status: task.status });
-      const [open, dependencies] = await ctx.rls((tx) => Promise.all([repos.agents.listSessions(tx, ctx.businessId, { taskId: task.id, openOnly: true, limit: 1 }), repos.tasks.openDependencies(tx, ctx.businessId, task.id)]));
-      if (open.items.length > 0) throw new TaskStartError("The task already has a session running.", { sessionId: open.items[0]!.id });
-      if (dependencies.length > 0) throw new TaskStartError(`Finish what it depends on first: ${dependencies.map((d) => `"${d.title}"`).join(", ")}.`, { dependencies: dependencies.map((d) => d.id) });
-      // Nobody chosen: the team picks, as the cycle would, and the choice is written on the task.
-      const assignee = task.assigneeAgentId ? await ctx.rls((tx) => repos.agents.get(tx, ctx.businessId, task.assigneeAgentId!)) : await autoAssign(ctx, task);
-      if (!assignee) throw new TaskStartError(`No agent on the team does ${WORK_WORDS[task.kind] ?? task.kind} work yet. Hire one or assign the task.`, { kind: task.kind });
-      if (assignee.archivedAt) throw new TaskStartError(`${assignee.name} has left the team. Reassign the task first.`);
-      if (assignee.status === "paused") throw new TaskStartError(assignee.pausedReason === "wage_cap" ? `${assignee.name} reached its wage cap for the month and is paused. Raise the cap on its profile or reassign the task.` : `${assignee.name} is paused. Resume the agents or reassign the task first.`, { pausedReason: assignee.pausedReason });
-      const spend = await repos.usage.agentSpend(ctx.db, ctx.businessId, assignee.id, periodOf(new Date()));
-      if (spend.remainingMinor !== null && spend.remainingMinor <= 0) throw new TaskStartError(`${assignee.name} reached its wage cap for the month. Raise the cap on its profile or reassign the task.`);
-      // The business's monthly model budget (0059), whoever pays the model, as the orchestrator's dispatch applies it.
-      const monthly = await modelBudgetState(ctx.db, ctx.business, new Date());
-      if (monthly.budgetMinor !== null && monthly.remainingMinor !== null && monthly.remainingMinor <= 0) {
-        const usd = (amountMinor: number) => formatMoney({ amountMinor, currency: "USD" });
-        throw new TaskStartError(`The monthly model budget is used up (${usd(monthly.spentMinor)} of ${usd(monthly.budgetMinor)}, an Estimate), so no new work starts until next month. An owner or admin can raise or remove the budget.`, { period: monthly.period, budgetMinor: monthly.budgetMinor });
-      }
-      // The plan tier's concurrent agents (BUILD §10.5), as the cycle's dispatch counts them (SEC2 S2).
-      await assertConcurrencyRoom(ctx.db, ctx.business);
-      // Exactly one start wins the task; a second (double click, another tab) finds it running and is refused.
-      const claimed = await ctx.rls((tx) => repos.tasks.claimForStart(tx, ctx.businessId, task.id, STARTABLE_TASK_STATUSES));
-      if (!claimed) throw new TaskStartError("The task was just started.");
-      // Until the workflow is queued, any failure gives the task back and closes the row: an open session nothing runs
-      // would refuse every later start (and every cycle) of the task as already running.
-      const giveBack = async (opened: AgentSession | null) => {
-        if (opened) await repos.agents.endSession(ctx.db, ctx.businessId, opened.id, { outcome: "not_started" });
-        await ctx.rls((tx) => repos.tasks.setStatus(tx, ctx.businessId, task.id, task.status, { force: true }));
-      };
-      // agent_sessions is service-written (orchestrator-owned); created on the service db, outside the RLS transaction.
-      let session: AgentSession;
-      try {
-        session = await repos.agents.createSession(ctx.db, ctx.businessId, { agentId: assignee.id, taskId: task.id, modelKey: assignee.modelKey });
-      } catch (err) {
-        await giveBack(null);
-        throw err;
-      }
-      const workflow = await ctx.temporal.start(WORKFLOWS.agentSession, { workflowId: workflowIds.session(session.id), args: [{ businessId: ctx.businessId, agentId: assignee.id, taskId: task.id, sessionId: session.id }] });
-      if (!workflow.queued) {
-        await giveBack(session);
-        throw new TaskNotStartedError("The orchestrator did not take the session, so the task did not start. Try again in a moment.", { reason: workflow.reason ?? null });
-      }
-      await ctx.rls(async (tx) => {
-        // A computed status, never over a pause (a stop that lands meanwhile wins).
-        await repos.agents.setHealthStatus(tx, ctx.businessId, assignee.id, "healthy");
-        await emit(tx, ctx, { type: "task.started", payload: { taskId: task.id, kind: task.kind, title: task.title, assigneeAgentId: assignee.id, sessionId: session.id, roadmapItemId: task.roadmapItemId, workflowId: workflowIds.session(session.id), branch: task.kind === "code" ? agentBranch(task.id) : null } });
-        await audit(tx, ctx, { action: "dev.tasks.start", target: { kind: "task", id: task.id }, details: { sessionId: session.id, from: task.status } });
-      });
-      return { session, workflow, stream: sessionStreamKey(session.id) };
-    }),
+    start: write.input(z.object({ taskId: Id })).use(modelLimited("session")).mutation(({ ctx, input }) => startTaskByHand(ctx, input.taskId)),
 
     pause: write.input(z.object({ taskId: Id })).mutation(async ({ ctx, input }) => {
       const task = await ctx.rls((tx) => repos.tasks.get(tx, ctx.businessId, input.taskId));
@@ -315,7 +226,7 @@ export const devRouter = router({
       }),
     ),
     /** The recorded events of a session (its saved recording once it finished, its `as:{sessionId}` stream while it runs, or the mock recording it was played from) plus where live frames arrive. */
-    replay: read.input(z.object({ sessionId: Id, limit: z.number().int().min(1).max(5000).optional(), after: z.string().max(64).optional(), kinds: z.array(z.enum(SESSION_EVENT_KINDS)).optional() })).query(async ({ ctx, input }) => {
+    replay: read.input(z.object({ sessionId: Id, limit: z.number().int().min(1).max(5000).optional(), after: z.string().max(64).optional(), kinds: z.array(z.enum(SESSION_EVENT_KINDS)).max(SESSION_EVENT_KINDS.length).optional() })).query(async ({ ctx, input }) => {
       const session = await ctx.rls((tx) => readableSession(tx, ctx, input.sessionId));
       const replay = await replaySession({ redis: ctx.redis, recordings: ctx.recordings, saved: () => ctx.rls((tx) => repos.recordings.get(tx, ctx.businessId, session.id)) }, session, { limit: input.limit, after: input.after, kinds: input.kinds });
       return { session, recordingRef: session.recordingRef, channel: sessionStreamKey(session.id), live: session.endedAt === null, ...replay };
@@ -437,14 +348,43 @@ export const devRouter = router({
     list: read.query(({ ctx }) =>
       ctx.rls(async (tx) => {
         const [tasks, events] = await Promise.all([repos.tasks.list(tx, ctx.businessId, { kind: "code", status: ["review", "merging", "done"], limit: 200 }), repos.events.list(tx, ctx.businessId, { type: "pr.merged", limit: 200 })]);
-        const fromGitHub: MergedPr[] = events.items.map((e) => ({ ...(e.payload as Record<string, unknown>), eventId: e.id, occurredAt: e.occurredAt, source: "github" as const }));
+        // Each merged row carries its task's founder title and agent (Builder view off reads "Gone live: <founder title>").
+        const byTask = new Map(tasks.items.map((t) => [t.id, t]));
+        const fromGitHub: MergedPr[] = events.items.map((e) => {
+          const payload = e.payload as Record<string, unknown>;
+          const task = typeof payload.taskId === "string" ? byTask.get(payload.taskId) : undefined;
+          return { ...payload, founderTitle: task?.founderTitle ?? null, agentId: task?.assigneeAgentId ?? null, eventId: e.id, occurredAt: e.occurredAt, source: "github" as const };
+        });
         const reported = new Set(fromGitHub.map((m) => m.taskId).filter((id): id is string => typeof id === "string"));
         const fromQueue: MergedPr[] = tasks.items
           .filter((t) => t.status === "done" && !reported.has(t.id))
-          .map((t) => ({ eventId: null, occurredAt: t.endedAt ?? t.updatedAt, source: "merge_queue" as const, taskId: t.id, title: t.title, branch: agentBranch(t.id), mergedBy: t.assigneeAgentId ? { kind: "agent", id: t.assigneeAgentId } : { kind: "system", id: null } }));
+          .map((t) => ({ eventId: null, occurredAt: t.endedAt ?? t.updatedAt, source: "merge_queue" as const, taskId: t.id, title: t.title, founderTitle: t.founderTitle, agentId: t.assigneeAgentId, branch: agentBranch(t.id), mergedBy: t.assigneeAgentId ? { kind: "agent", id: t.assigneeAgentId } : { kind: "system", id: null } }));
         return {
-          open: tasks.items.filter((t) => t.status !== "done").map((t) => ({ taskId: t.id, title: t.title, status: t.status, kind: t.kind, branch: agentBranch(t.id), agentId: t.assigneeAgentId })),
+          open: tasks.items.filter((t) => t.status !== "done").map((t) => ({ taskId: t.id, title: t.title, founderTitle: t.founderTitle, status: t.status, kind: t.kind, branch: agentBranch(t.id), agentId: t.assigneeAgentId })),
           merged: [...fromGitHub, ...fromQueue].sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime()),
+        };
+      }),
+    ),
+  }),
+
+  deployments: router({
+    /**
+     * The business's recent deployments, newest first, from its `deploy.succeeded` events (there is no deployment table,
+     * BUILD §8.3): what Development › Live product reads after a reload, so "Your live product" and its previews do not
+     * wait for the next live event. Each row carries its task's founder title when the deployment belongs to a task.
+     */
+    list: read.input(z.object({ limit: z.number().int().min(1).max(200).optional() })).query(({ ctx, input }) =>
+      ctx.rls(async (tx) => {
+        const events = await repos.events.list(tx, ctx.businessId, { type: "deploy.succeeded", limit: input.limit ?? 100 });
+        const taskIds = [...new Set(events.items.map((e) => (e.payload as { taskId?: unknown }).taskId).filter((id): id is string => typeof id === "string"))];
+        const tasks = taskIds.length ? await repos.tasks.list(tx, ctx.businessId, { kind: "code", limit: 500 }) : { items: [] as Task[] };
+        const byTask = new Map(tasks.items.map((t) => [t.id, t]));
+        return {
+          items: events.items.map((e) => {
+            const p = e.payload as { taskId?: string | null; environment: "preview" | "staging" | "production"; provider: string; url: string | null; commitSha: string; branch?: string | null };
+            const task = p.taskId ? byTask.get(p.taskId) : undefined;
+            return { eventId: e.id, occurredAt: e.occurredAt, taskId: p.taskId ?? null, environment: p.environment, provider: p.provider, url: p.url ?? null, commitSha: p.commitSha, branch: p.branch ?? null, title: task?.title ?? null, founderTitle: task?.founderTitle ?? null };
+          }),
         };
       }),
     ),

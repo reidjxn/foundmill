@@ -45,6 +45,12 @@ export const agents = pgTable(
      * the boot backfill (`agentsRepo.backfillPersonas`) has run.
      */
     personaKey: text("persona_key"),
+    /**
+     * 0082 — how the agent sounds on a Team call when the founder chose it (a `SPEECH_ACCENTS` key in
+     * @foundmill/shared); null = the derived default (`defaultSpeechAccents`), never stored. Only an owner or an admin
+     * sets it (trigger `fm_agents_speech_accent_guard`).
+     */
+    speechAccent: text("speech_accent"),
     ...timestampsWithArchive(),
   },
   (t) => [
@@ -300,6 +306,8 @@ export const tasks = pgTable(
     businessId: businessId(),
     kind: text("kind", { enum: TASK_KINDS }).notNull(),
     title: text("title").notNull(),
+    /** The title in the founder's words (0070), written by the Composer; null until then, and every founder-facing surface falls back to `title`. */
+    founderTitle: text("founder_title"),
     goalMd: text("goal_md").notNull().default(""),
     acceptance: jsonb("acceptance").$type<unknown[]>().notNull().default(emptyList),
     fileScope: text("file_scope").array().notNull().default(emptyArray),

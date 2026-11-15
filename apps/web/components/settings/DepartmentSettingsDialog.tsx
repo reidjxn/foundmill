@@ -12,6 +12,7 @@ import { Avatar, Button, Chip, DeptChip, Dialog, DialogBody, DialogContent, Dial
 import { AGENT_GATED_DECISIONS, DECISION_DESCRIPTIONS, DECISION_LABELS } from "@foundmill/modules/team/decisions";
 import { DECISION_TYPES, DEPT_COLOUR_TOKENS, type DecisionType, type DeptColourToken } from "@foundmill/shared/constants";
 import { routes } from "@foundmill/widgets/shared/routes";
+import { isBackgroundAgent } from "@foundmill/shared/team-tiers";
 import { useRouter } from "next/navigation";
 import { DEPARTMENT_ICON_NAMES, iconByName } from "@/lib/icons";
 import { plainWords } from "@/lib/format";
@@ -86,9 +87,10 @@ export function DepartmentSettingsDialog({ department, shortcut, onOpenChange, o
   const members = useMemo(() => department?.squad ?? [], [department]);
   const leadOptions: SelectOption[] = useMemo(() => {
     const inDept = new Set(members.map((m) => m.id));
-    const sorted = [...agents].sort((a, b) => Number(inDept.has(b.id)) - Number(inDept.has(a.id)) || a.name.localeCompare(b.name));
+    // Background helpers never lead (Leads first); the current lead stays listed whatever it is.
+    const sorted = agents.filter((a) => !isBackgroundAgent(a) || a.id === department?.leadAgentId).sort((a, b) => Number(inDept.has(b.id)) - Number(inDept.has(a.id)) || a.name.localeCompare(b.name));
     return [{ value: NO_LEAD, label: "No lead yet" }, ...sorted.map((a) => ({ value: a.id, label: inDept.has(a.id) ? `${a.name} · ${a.role || plainWords(a.agentType)}` : `${a.name} · joins from ${a.departments.map((d) => d.name).join(", ") || "no department"}`, textValue: a.name }))];
-  }, [agents, members]);
+  }, [agents, members, department?.leadAgentId]);
   const handlers = useMemo(() => {
     const rows = respQ.data?.perDepartment.find((p) => p.departmentId === department?.id)?.rows ?? [];
     return new Map(rows.map((r) => [r.decisionType, r.handler] as const));
@@ -117,7 +119,8 @@ export function DepartmentSettingsDialog({ department, shortcut, onOpenChange, o
   const handlerOptions = (t: DecisionType): SelectOption[] => {
     const current = handlers.get(t);
     const options: SelectOption[] = [{ value: FOUNDER, label: "You (the founder)" }];
-    if (!AGENT_GATED_DECISIONS.includes(t)) for (const a of agents) options.push({ value: `agent:${a.id}`, label: a.name });
+    // Background helpers never decide for the founder (Leads first); the current handler stays listed whatever it is.
+    if (!AGENT_GATED_DECISIONS.includes(t)) for (const a of agents) if (!isBackgroundAgent(a) || (current?.kind === "agent" && current.id === a.id)) options.push({ value: `agent:${a.id}`, label: a.name });
     if (current?.kind === "user") options.push({ value: `user:${current.id ?? ""}`, label: "A staff member (set in Team › Responsibilities)" });
     return options;
   };
@@ -169,7 +172,7 @@ export function DepartmentSettingsDialog({ department, shortcut, onOpenChange, o
                 </Field>
               </div>
               <p className="text-small text-secondary" data-testid="dept-shortcut">
-                Shortcut: {shortcut ? <Chip tone="neutral">{shortcut}</Chip> : "none while the department is hidden"}. The letter comes from the name, so renaming the department can change it.
+                Shortcut: {shortcut ? <Chip tone="neutral">{shortcut}</Chip> : "none while the department is hidden"}. A department opens with its area's letter; one with no modules takes a letter from its name.
               </p>
             </section>
 

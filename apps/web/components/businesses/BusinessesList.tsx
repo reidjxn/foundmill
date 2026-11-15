@@ -4,6 +4,7 @@
  * with its 32 px logo, name, role, Demo and Last opened chips, a facts line ("Pro plan · Assisted · Personal · Created
  * Oct 7, 2026"), Agents stopped while the team is stopped, Settings for owners and admins, and Open. Presentational.
  */
+import { isAdminRole } from "@foundmill/shared/constants";
 import { ArrowRight, Building2, Plus, Settings } from "lucide-react";
 import { BUSINESS_MODE_INFO, BusinessLogo, Chip, Panel, StatusPill, type DateFormatPrefs } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -58,12 +59,12 @@ export function BusinessesList({ rows, logos, lastBusinessId, prefs, loading, er
               <p className="text-small text-secondary">{businessFacts(b, prefs)}</p>
             </div>
             {b.agentsStopped ? <StatusPill tone="warn">Agents stopped</StatusPill> : null}
-            {b.role === "owner" || b.role === "admin" ? (
+            {isAdminRole(b.role) ? (
               <LinkButton size="sm" variant="ghost" icon={Settings} href={routes.settings(b.id, "business")} aria-label={`Settings of ${b.name}`}>
                 Settings
               </LinkButton>
             ) : null}
-            <LinkButton size="sm" variant="default" iconRight={ArrowRight} href={routes.home(b.id)} onClick={() => rememberLastBusiness(b.id)} aria-label={`Open ${b.name}`}>
+            <LinkButton size="sm" variant="default" iconRight={ArrowRight} href={routes.today(b.id)} onClick={() => rememberLastBusiness(b.id)} aria-label={`Open ${b.name}`}>
               Open
             </LinkButton>
           </li>

@@ -58,8 +58,9 @@ describe("a failed cycle is closed and announced once (audit O-07)", () => {
     const ev = await repos.events.byIdempotencyKey(t.db, t.businessId, cycleEventKey("completed", cycleId));
     expect(ev?.payload).toMatchObject({ cycleId, outcome: "failed", workflowId: input.workflowId });
     const item = await repos.inbox.get(t.db, t.businessId, a.inboxItemId!);
-    expect(item.subject).toBe("Cycle 2 did not finish");
+    expect(item.subject).toBe("The team's last round of work did not finish");
     expect(item.bodyMd).toContain("The planner is unavailable");
+    expect(item.bodyMd).toMatch(/^The round of work stopped because of an error/);
     expect(item.blocksContinue).toBe(false);
     const late = await acts.completeCycle({ businessId: t.businessId, cycleId, cycleNumber: 2, workflowId: input.workflowId, outcome: "completed", tasksDispatched: 0, tasksCompleted: 0, tasksBlocked: 0, agentHours: 0, costMinor: 0, currency: "USD", inboxItemIds: [], durationMs: 5 });
     expect(late.eventId).toBe(a.eventId);
@@ -84,7 +85,7 @@ describe("a cycle with nothing to start (audit OL-10, SOAK-04)", () => {
       expect(planned.starts).toEqual([]);
       expect(planned.costMinor).toBe(0);
       expect(modelCalls).toBe(0);
-      expect(planned.summary).toMatch(/1 roadmap item has no tasks yet \(Pricing experiment\); the team plans it in the next cycles/);
+      expect(planned.summary).toMatch(/1 roadmap item has no tasks yet \(Pricing experiment\); the team plans it in the next rounds of work/);
       expect(planned.summary).not.toMatch(/task graph|Development › Plan/);
       expect(planned.summary).not.toMatch(/everything open is blocked/i);
 
@@ -228,10 +229,10 @@ describe("the cycle summary leads with what really starts (Foundmill cycle 12)",
 
   it("never repeats starts the planner described but did not schedule", () => {
     const text = factualSummary(brief, "Four agents start: the Planner drafts a task graph.", [], [{ taskId: "t1", reason: "conflicting dependency data" }, { taskId: "t2", reason: "waits on earlier tasks" }]);
-    expect(text).toMatch(/^Nothing started this cycle\./);
+    expect(text).toMatch(/^Nothing started in this round of work./);
     expect(text).not.toMatch(/Four agents start/);
     expect(text).toContain("Resolve neighbors: conflicting dependency data");
-    expect(text).toContain("the team plans it in the next cycles");
+    expect(text).toContain("the team plans it in the next rounds of work");
     expect(text).not.toMatch(/task graph/);
     expect(text).toContain("First live engineering loop on Foundmill");
   });

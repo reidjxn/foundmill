@@ -26,6 +26,11 @@ import {
   parseBudgetMinor,
   profilePatch,
   profileSummary,
+  homeWords,
+  placeAndMarketsWords,
+  partialCountry,
+  partialCountryMessage,
+  budgetWords,
   removeChip,
   sectionStatus,
   toggleChip,
@@ -55,6 +60,28 @@ function firstPass(): ProfileForm {
     residence: "United Kingdom",
   };
 }
+
+describe("the summary names the place and the markets (first-time founder report: \"Nordics\" for a founder in the United Kingdom)", () => {
+  it("a UK founder reads as based in the United Kingdom, whatever markets they aim at", () => {
+    expect(profileSummary(firstPass())).toBe("First-time founder · evenings and weekends · based in the United Kingdom · markets: UK");
+    expect(profileSummary({ ...firstPass(), targetMarkets: ["Nordics"] })).toBe("First-time founder · evenings and weekends · based in the United Kingdom · markets: Nordics");
+    expect(profileSummary({ ...firstPass(), residence: "uk" })).toContain("based in the United Kingdom");
+  });
+
+  it("a founder in Sweden lives in Sweden; the Nordics are the market derived from it", () => {
+    expect(profileSummary({ ...firstPass(), residence: "Sweden" })).toBe("First-time founder · evenings and weekends · based in Sweden · markets: Nordics");
+    expect(homeWords("Sweden")).toBe("Sweden");
+    expect(homeWords("SE")).toBe("Sweden");
+  });
+
+  it("mixed markets keep the founder's own order, at most three, and an unknown home reads as typed", () => {
+    expect(placeAndMarketsWords("United Kingdom", ["UK", "Nordics", "US", "DACH"])).toEqual(["based in the United Kingdom", "markets: UK, Nordics, US, …"]);
+    expect(placeAndMarketsWords("Atlantis", ["Global"])).toEqual(["based in Atlantis", "markets: Global"]);
+    expect(placeAndMarketsWords("", [])).toEqual([]);
+    expect(homeWords("United States")).toBe("the United States");
+    expect(homeWords("Germany")).toBe("Germany");
+  });
+});
 
 describe("founder profile form (BUILD §11.1, AC-11.1.1)", () => {
   it("derives a display name from the email", () => {
@@ -150,7 +177,7 @@ describe("founder profile form (BUILD §11.1, AC-11.1.1)", () => {
     const form: ProfileForm = { ...filled(), budget: "abc", noBudget: true };
     expect(validateProfileForm(form).budget).toBeUndefined();
     expect(profilePatch(form).budgetMinor).toBeNull();
-    expect(profileSummary(form)).toBe("First-time founder · full time · EU, UK");
+    expect(profileSummary(form)).toBe("First-time founder · full time · markets: EU, UK");
     expect(emptyProfileForm().noBudget).toBe(false);
   });
 
@@ -212,7 +239,7 @@ describe("founder profile form (BUILD §11.1, AC-11.1.1)", () => {
     expect(effectiveTargetMarkets({ targetMarkets: [], residence: "" })).toEqual([]);
     expect(profilePatch(firstPass()).targetMarkets).toEqual(["UK"]);
     expect(profilePatch({ ...firstPass(), residence: "" }).targetMarkets).toEqual([]);
-    expect(profileSummary(firstPass())).toBe("First-time founder · evenings and weekends · UK");
+    expect(profileSummary(firstPass())).toBe("First-time founder · evenings and weekends · based in the United Kingdom · markets: UK");
   });
 
   it("chips de-duplicate case-insensitively, trim, cap and toggle", () => {
@@ -273,7 +300,7 @@ describe("founder profile form (BUILD §11.1, AC-11.1.1)", () => {
     );
     // A refused answer in the section unticks it.
     expect(sectionStatus({ ...filled(), budget: "abc" }).detail).toBe(false);
-    expect(profileSummary(filled())).toBe("First-time founder · full time · EUR 25,000 · EU, UK");
+    expect(profileSummary(filled())).toBe("First-time founder · full time · €25,000 · markets: EU, UK");
   });
 
   it("opens Add detail by default for an Exited founder or an Operator, under one browser key per account", () => {
@@ -368,13 +395,13 @@ describe("the example founder (UX plan §6.2 ExampleToggle, Phase 3)", () => {
       budget: "5000",
       noBudget: false,
       targetMarkets: ["UK", "Ireland"],
-      constraints: ["Keep my day job for now", "No physical inventory"],
+      constraints: ["Fits around what I already do", "No physical inventory"],
       riskAppetite: "low",
     });
     // The constraints are the suggestion chips' own words, so they read the same as the ones a founder can pick.
-    expect(filled.constraints.every((c) => (["Bootstrapped, no outside funding", "Remote only", "No physical inventory", "B2B only", "Must be profitable within a year", "Keep my day job for now", "No regulated industries", "English-speaking markets only"] as string[]).includes(c))).toBe(true);
+    expect(filled.constraints.every((c) => (["Bootstrapped, no outside funding", "Remote only", "No physical inventory", "B2B only", "Must be profitable within a year", "Fits around what I already do", "No regulated industries", "English-speaking markets only"] as string[]).includes(c))).toBe(true);
     expect(isProfileValid(filled)).toBe(true);
-    expect(profileSummary(filled)).toBe("First-time founder · evenings and weekends · GBP 5,000 · UK, Ireland");
+    expect(profileSummary(filled)).toBe("First-time founder · evenings and weekends · £5,000 · based in the United Kingdom · markets: UK, Ireland");
     expect(profilePatch(filled).budgetMinor).toBe(500_000);
     // Its own copies: changing the filled form never changes the example.
     filled.constraints.push("x");
@@ -403,5 +430,24 @@ describe("the example founder (UX plan §6.2 ExampleToggle, Phase 3)", () => {
     // The budget and "I have no budget yet" are one answer: picking "no budget" over the example keeps that choice.
     const noBudget = clearExampleProfile({ ...filled, budget: "", noBudget: true }, before);
     expect(noBudget).toMatchObject({ budget: "", noBudget: true });
+  });
+});
+
+describe("a country picked only part of the way (first-time founder report, Nov 8, 2026)", () => {
+  it("'United' is the start of several countries, not one: the section asks the founder to finish picking and stays unticked", () => {
+    expect(partialCountry("United")).toEqual(expect.arrayContaining(["United Kingdom", "United States"]));
+    expect(partialCountryMessage(partialCountry("United"))).toMatch(/^Finish picking the country: (United [A-Za-z ]+, )*United Kingdom or United States\.$/);
+    const form = { ...firstPass(), residence: "United" };
+    expect(validateProfileForm(form).residence).toMatch(/Finish picking the country/);
+    expect(sectionStatus(form).place).toBe(false);
+  });
+  it("a full country, a short form and a name the list does not hold all pass", () => {
+    for (const value of ["United Kingdom", "UK", "united states", "Nigeria", ""]) expect(partialCountry(value), value).toEqual([]);
+    expect(validateProfileForm({ ...firstPass(), residence: "Nigeria", citizenship: "UK" })).not.toHaveProperty("residence");
+  });
+  it("money in the profile line reads with its symbol, never its code", () => {
+    expect(budgetWords(150_000, "GBP")).toBe("£1,500");
+    expect(budgetWords(2_500_000, "EUR")).toBe("€25,000");
+    expect(budgetWords(500_000, "USD")).toBe("$5,000");
   });
 });

@@ -3,6 +3,9 @@
  * Distribution › Channels (BUILD §11.7): a DataTable of the 15 channels — line, fit, potential stars, cost-per-customer
  * range (Estimate), budget, status and the offline-tracking chip — with saved views and right-click verbs
  * (open profile, move on/off the Board, pause/resume, set budget).
+ *
+ * The table lists only channels that can really act for this business (founder, 2026-11-11), plus one the founder put
+ * on the board in offline tracking; the others are under "Not available yet" in Builder view only.
  */
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { ArrowDownToLine, ArrowUpToLine, Coins, ExternalLink, Pause, Play, ThumbsUp } from "lucide-react";
@@ -34,6 +37,8 @@ import {
   type SavedView,
 } from "@foundmill/dugout";
 import { CHANNEL_LINES, CHANNEL_WINDOW_DAYS, type ChannelKey } from "@foundmill/shared/constants";
+import { emptyWhy } from "@foundmill/shared/empty-why";
+import { routes } from "@foundmill/widgets/shared/routes";
 import { addDays } from "@foundmill/widgets/shared/time";
 import { moduleHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { useBusinessEvents, useToday, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
@@ -41,7 +46,8 @@ import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import { usePinToHomeMenu } from "@foundmill/widgets/shared/pin";
 import type { ModuleScreenProps } from "../registry";
 import { useBusinessStage } from "../stage";
-import { buildChannelViews, channelStatus, CHANNEL_STATUS_WORDS, resumeStatus, statusHint, type ChannelView } from "./channel-data";
+import { buildChannelViews, channelStatus, CHANNEL_STATUS_WORDS, resumeStatus, splitByAvailability, statusHint, type ChannelView } from "./channel-data";
+import { NotAvailableChannels } from "./NotAvailableChannels";
 import { METRICS_WINDOW_DAYS } from "./FormationScreen";
 import { localScores, RESCORE_DEBOUNCE_MS, useDebouncedRun } from "./rescore";
 import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
@@ -224,9 +230,11 @@ export function ChannelsScreen({ businessId, rescoreDelayMs = RESCORE_DEBOUNCE_M
 
   // Toggled since the Strategist last scored: local scores until its re-score lands (rescore.ts).
   const [provisional, setProvisional] = useState(false);
-  const rows = useMemo(() => {
-    const built = buildChannelViews({ channels: channels.data?.channels, campaigns: campaigns.data?.items, metrics: metrics.data, recommendation, currency, today });
-    return provisional ? localScores(built) : built;
+  // Only channels that can really act are rows; the rest wait in Builder view's "Not available yet" list.
+  const { rows, unavailable } = useMemo(() => {
+    const built = buildChannelViews({ channels: channels.data?.channels, campaigns: campaigns.data?.items, metrics: metrics.data, recommendation, currency, today, availability: channels.data?.availability });
+    const split = splitByAvailability(built);
+    return { rows: provisional ? localScores(split.shown) : split.shown, unavailable: split.unavailable };
   }, [channels.data, campaigns.data, metrics.data, recommendation, currency, today, provisional]);
   // Before the founder has started distribution (founder, 2026-10-18) every channel on the board reads "Waiting for the product".
   const stage = useBusinessStage();
@@ -291,6 +299,9 @@ export function ChannelsScreen({ businessId, rescoreDelayMs = RESCORE_DEBOUNCE_M
   );
 
   const scored = rows.filter((r) => r.scored).length;
+  // No channel can run on its own: the table says what opens first instead of offering a recommendation nothing can follow.
+  const nothingToShow = !!channels.data && rows.length === 0;
+  const none = emptyWhy("channel_board");
   return (
     <Screen name="distribution/channels">
       <Panel
@@ -308,12 +319,14 @@ export function ChannelsScreen({ businessId, rescoreDelayMs = RESCORE_DEBOUNCE_M
                 Scores are being refreshed
               </Chip>
             ) : null}
-            <Button size="sm" variant="ghost" loading={action.pending === "recommend"} onClick={rescoreNow}>
-              {scored === 0 ? "Get recommendation" : "Score again"}
-            </Button>
+            {nothingToShow ? null : (
+              <Button size="sm" variant="ghost" loading={action.pending === "recommend"} onClick={rescoreNow}>
+                {scored === 0 ? "Get recommendation" : "Score again"}
+              </Button>
+            )}
           </>
         }
-        meta={`${rows.filter((r) => r.enabled).length} on the board · ${scored} of 15 scored`}
+        meta={nothingToShow ? undefined : `${rows.filter((r) => r.enabled).length} on the board · ${scored} of ${rows.length} scored`}
         footer={
           <span className="inline-flex flex-wrap items-center gap-1.5">
             <RecommendedMark /> marks the <Term id="distribution_strategist">Distribution Strategist</Term>'s picks. <Term id="acquisition_cost">Cost per customer</Term> is an <Term id="estimate" always>Estimate</Term> until the channel's own sales reports confirm it. Potential is the strategist's rating of how much a channel could bring in. Use the … button or right-click a channel to move it on or off the board, pause it or set its budget.
@@ -335,10 +348,11 @@ export function ChannelsScreen({ businessId, rescoreDelayMs = RESCORE_DEBOUNCE_M
           rowClassName={(r) => (r.channelKey === highlight ? "bg-white/4" : undefined)}
           height={fitTableHeight(rows.length, { maxRows: 16 })}
           exportFileName="channels"
-          empty={{ title: "No channels scored yet", children: "Ask the Distribution Strategist for a recommendation.", action: { label: "Get recommendation", onClick: rescoreNow } }}
+          empty={nothingToShow ? { title: none.title, children: channels.data?.noChannel ?? none.text } : { title: "No channels scored yet", children: "Ask the Distribution Strategist for a recommendation.", action: { label: "Get recommendation", onClick: rescoreNow } }}
         />
         </div>
       </Panel>
+      <NotAvailableChannels views={unavailable} pending={action.pending} onToggle={(v, enabled) => void toggle(v, enabled)} onOpenIntegrations={() => navigate(routes.settings(businessId, "integrations"))} />
       <BudgetDialog row={budgetFor} action={action} onClose={() => setBudgetFor(null)} onSaved={() => channels.refetch()} />
     </Screen>
   );

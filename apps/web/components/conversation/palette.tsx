@@ -5,8 +5,10 @@
  */
 import type { ReactNode } from "react";
 import type { PaletteItem } from "@foundmill/dugout";
-import type { DeptColourToken } from "@foundmill/shared";
-import { MODULE_TABS, type ModuleKey } from "@foundmill/shared/constants";
+import type { AgentTier, DeptColourToken } from "@foundmill/shared";
+import { isBackgroundAgent } from "@foundmill/shared/team-tiers";
+import { MODULE_TABS, isBuilderOnlyTab, tabTitleFor, type ModuleKey } from "@foundmill/shared/constants";
+import { AREA_LABELS, areaOfTab } from "@foundmill/shared/areas";
 import { routes } from "@foundmill/widgets/shared/routes";
 
 export interface PaletteAgent {
@@ -30,20 +32,20 @@ interface DepartmentForPalette {
   colourToken: string;
   hidden?: boolean;
   moduleKeys: readonly string[];
-  lead?: { id: string; name: string; role: string | null; avatarSeed: string | null; personaKey?: string | null } | null;
-  squad: readonly { id: string; name: string; role: string | null; avatarSeed: string | null; personaKey?: string | null }[];
+  lead?: { id: string; name: string; role: string | null; avatarSeed: string | null; personaKey?: string | null; layer?: string | null; tier?: AgentTier | null } | null;
+  squad: readonly { id: string; name: string; role: string | null; avatarSeed: string | null; personaKey?: string | null; layer?: string | null; tier?: AgentTier | null }[];
   tabs: readonly { slug: string; position: number; title?: string }[];
 }
 
-/** Every agent of the visible departments once, leads first. */
+/** Every agent of the visible departments once, leads first. Background helpers are never asked anything (Leads first). */
 export function paletteAgents(departments: readonly DepartmentForPalette[]): PaletteAgent[] {
   const out = new Map<string, PaletteAgent>();
   const visible = departments.filter((d) => !d.hidden);
   for (const d of visible) {
-    if (d.lead && !out.has(d.lead.id)) out.set(d.lead.id, { id: d.lead.id, name: d.lead.name, role: d.lead.role, avatarSeed: d.lead.avatarSeed || d.lead.id, personaKey: d.lead.personaKey ?? null, dept: d.colourToken as DeptColourToken, departmentName: d.name, lead: true });
+    if (d.lead && !out.has(d.lead.id) && !isBackgroundAgent(d.lead)) out.set(d.lead.id, { id: d.lead.id, name: d.lead.name, role: d.lead.role, avatarSeed: d.lead.avatarSeed || d.lead.id, personaKey: d.lead.personaKey ?? null, dept: d.colourToken as DeptColourToken, departmentName: d.name, lead: true });
   }
   for (const d of visible) {
-    for (const a of d.squad) if (!out.has(a.id)) out.set(a.id, { id: a.id, name: a.name, role: a.role, avatarSeed: a.avatarSeed || a.id, personaKey: a.personaKey ?? null, dept: d.colourToken as DeptColourToken, departmentName: d.name, lead: false });
+    for (const a of d.squad) if (!out.has(a.id) && !isBackgroundAgent(a)) out.set(a.id, { id: a.id, name: a.name, role: a.role, avatarSeed: a.avatarSeed || a.id, personaKey: a.personaKey ?? null, dept: d.colourToken as DeptColourToken, departmentName: d.name, lead: false });
   }
   return [...out.values()];
 }
@@ -67,6 +69,32 @@ export function askPaletteItems(agents: readonly PaletteAgent[], text: string, a
     avatar: avatar(a),
     dept: a.dept,
   }));
+}
+
+/**
+ * The "Call <agent>" rows (docs/TEAM_CALL.md §6): shown once the query names an agent or says "call", at most `max`;
+ * choosing one starts a one-to-one call with that agent. The id carries the agent: `call:<agentId>`.
+ */
+export function callPaletteItems(agents: readonly PaletteAgent[], text: string, avatar: (a: PaletteAgent) => ReactNode, max = 3): PaletteItem[] {
+  const q = words(text);
+  if (q.length === 0) return [];
+  const asksToCall = q.some((w) => "call".startsWith(w) || w === "phone" || w === "ring");
+  const named = agents.filter((a) => q.some((w) => words(`${a.name} ${a.displayName ?? ""} ${a.role ?? ""}`).some((x) => x.startsWith(w))));
+  const pick = (named.length > 0 ? named : asksToCall ? agents.filter((a) => a.lead) : []).slice(0, max);
+  return pick.map((a) => ({
+    id: `call:${a.id}`,
+    kind: "command" as const,
+    label: `Call ${a.displayName ?? a.name}`,
+    description: [a.role && a.role !== a.name ? a.role : null, a.departmentName].filter(Boolean).join(" · "),
+    keywords: [a.name, a.displayName ?? "", a.role ?? "", a.departmentName, "call", "phone", "talk"],
+    avatar: avatar(a),
+    dept: a.dept,
+  }));
+}
+
+/** The agent behind a Call row. */
+export function agentOfCallItem(item: Pick<PaletteItem, "id">, agents: readonly PaletteAgent[]): PaletteAgent | null {
+  return item.id.startsWith("call:") ? (agents.find((a) => a.id === item.id.slice(5)) ?? null) : null;
 }
 
 /**
@@ -97,24 +125,28 @@ export function agentOfAskItem(item: Pick<PaletteItem, "id">, agents: readonly P
 }
 
 /**
- * A module tab as the founder named it: the href and "<department> › <tab>" from the department that owns the module
- * ("Retail Partnerships › Board" once Distribution is renamed), never a hard-coded department name.
+ * A module tab as the founder reads it: the href (the department that owns the module, never a hard-coded slug) and
+ * "<area> › <tab>" ("Customers › Board"), the area the sidebar shows over the tab's module (docs/DESIGN.md §9). A
+ * department with no area keeps its own name.
  */
-function moduleTab(businessId: string, departments: readonly DepartmentForPalette[], moduleKey: ModuleKey, tabSlug: string): { href: string; where: string } | null {
+function moduleTab(businessId: string, departments: readonly DepartmentForPalette[], moduleKey: ModuleKey, tabSlug: string, builder: boolean): { href: string; where: string } | null {
   const d = departments.find((x) => !x.hidden && x.moduleKeys.includes(moduleKey));
   if (!d) return null;
+  // A Builder view tab is not offered while the switch is off (shared registry, as the TabBar and the sidebar).
+  if (!builder && isBuilderOnlyTab(d.moduleKeys, tabSlug)) return null;
   const tab = d.tabs.find((t) => t.slug === tabSlug);
   if (!tab) return null;
   const title = tab.title ?? MODULE_TABS[moduleKey].find((t) => t.slug === tabSlug)?.title ?? tabSlug;
-  return { href: routes.department(businessId, d.slug, tab.slug), where: `${d.name} › ${title}` };
+  const area = areaOfTab(d.moduleKeys, tabSlug);
+  return { href: routes.department(businessId, d.slug, tab.slug), where: `${area ? AREA_LABELS[area] : d.name} › ${tabTitleFor(d.moduleKeys, tabSlug, title, builder)}` };
 }
 
 /** The Generate rows: where a real model call drafts something, each opening the surface with its generate control. */
-export function generatePaletteItems(businessId: string, departments: readonly DepartmentForPalette[]): PaletteItem[] {
+export function generatePaletteItems(businessId: string, departments: readonly DepartmentForPalette[], builder = false): PaletteItem[] {
   const rows: PaletteItem[] = [{ id: "generate:logos", kind: "generate", label: "Generate logos", description: "Four marks from the logo designer · Settings › Business", keywords: ["logo", "mark", "brand", "draft"], href: routes.settings(businessId, "business") }];
-  const plan = moduleTab(businessId, departments, "development", "plan");
+  const plan = moduleTab(businessId, departments, "development", "plan", builder);
   if (plan) rows.push({ id: "generate:task-graph", kind: "generate", label: "Plan the tasks for a goal", description: `The Planner breaks a roadmap item or a goal into tasks · ${plan.where}`, keywords: ["plan", "tasks", "planner", "draft"], href: plan.href });
-  const board = moduleTab(businessId, departments, "distribution", "formation");
+  const board = moduleTab(businessId, departments, "distribution", "formation", builder);
   if (board) rows.push({ id: "generate:channels", kind: "generate", label: "Recommend channels", description: `Scores every channel for this business · ${board.where}`, keywords: ["channels", "distribution", "recommend", "board"], href: board.href });
   return rows;
 }

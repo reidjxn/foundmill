@@ -83,6 +83,44 @@ describe("journal", () => {
       "0067_anthropomorphic_agents",
       "0068_workspace_checkout_base",
       "0069_agent_styles",
+      "0070_task_founder_titles",
+      "0071_inbox_only_hard_stops_hold",
+      "0072_goals",
+      "0073_builder_view",
+      "0074_demo_roll_forward",
+      "0075_founder_devices",
+      "0076_drop_leaderboards",
+      "0077_project_pages",
+      "0078_project_mail",
+      "0079_page_followers",
+      "0080_person_profiles",
+      "0081_public_page_grants",
+      "0082_team_calls",
+      "0083_founder_return",
+      "0084_autopilot_own_limits",
+      "0085_account_events",
+      "0086_idea_drafts",
+      "0087_client_grants",
+      "0088_attributions",
+      "0089_public_milestones",
+      "0090_page_dates_recorded",
+      "0091_invitations",
+      "0092_people_roles",
+      "0093_admission_cutover",
+      "0094_collaborator_reads",
+      "0095_collaborator_money_legal",
+      "0096_membership_grant_guards",
+      "0097_founder_departures",
+      "0098_credit_lots",
+      "0099_events_collaborator_walls",
+      "0100_adult_confirmations",
+      "0101_project_postal_address",
+      "0102_post_media",
+      "0103_showcase_videos",
+      "0104_funding_source",
+      "0105_page_quizzes",
+      "0106_post_attributions",
+      "0107_collaborator_finance_fields",
     ]);
     // strictly increasing `when` so drizzle applies them in order
     const whens = ours.map((m) => m.when);
@@ -182,7 +220,7 @@ describe("structural invariants", () => {
   });
   it("the views exist with the expected shape", async () => {
     const v = (await rows<{ table_name: string }>(sql`select table_name from information_schema.views where table_schema = 'public' order by 1`)).rows.map((x) => x.table_name);
-    expect(v).toEqual(["journey_daily", "public_profiles"]);
+    expect(v).toEqual(["journey_daily", "member_conversions", "public_page_quizzes", "public_person_profiles", "public_profiles", "public_project_milestones", "public_project_pages"]);
     const mv = (await rows<{ matviewname: string }>(sql`select matviewname from pg_matviews`)).rows.map((x) => x.matviewname);
     expect(mv).toEqual(["journey_daily_mv"]);
   });
@@ -197,7 +235,7 @@ describe("Drizzle schema mirrors the SQL", () => {
     const ours = drizzleTables.map((t) => getTableName(t)).sort();
     expect(ours).toEqual(sqlTables);
     expect(new Set(ours).size).toBe(ours.length);
-    expect(drizzleViews).toHaveLength(3);
+    expect(drizzleViews).toHaveLength(8);
   });
 
   it("every Drizzle column exists in SQL with the same name and nullability, and vice versa", async () => {

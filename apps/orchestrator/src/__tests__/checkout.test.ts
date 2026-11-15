@@ -12,7 +12,7 @@ import { makeToolContext } from "@foundmill/connectors/testing/contract-suite";
 import { isUntrusted } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { CHECKOUT_BUSY_RETRIES, CHECKOUT_BUSY_WAIT_MS, CHECKOUT_LIMITS, checkoutMissingNote, checkoutRepository, defaultBranchChanges, describeCheckout, disposeCheckout, extractArchive, isTestFile, isTestRunnerConfig, packageTestSettings, testSetupChanges, testSetupReviewReason } from "../activities/checkout";
+import { CHECKOUT_BUSY_RETRIES, CHECKOUT_BUSY_WAIT_MS, CHECKOUT_LIMITS, checkoutMissingNote, checkoutRepository, defaultBranchChanges, describeCheckout, disposeCheckout, extractArchive, isTestFile, isTestRunnerConfig, packageTestSettings, startsFromDefaultBranch, testSetupChanges, testSetupReviewReason, updateConflicts, updateNote } from "../activities/checkout";
 import { pushWorkspace } from "../activities/workspace-push";
 import { restoreWorkspace, saveWorkspace } from "../activities/workspace-store";
 import { readWorkspaceChanges, removeSandboxLinksCommand, syncCheckoutToSandbox } from "../activities/workspace-sync";
@@ -436,6 +436,36 @@ describe("saving and pushing a checkout: only the diff", () => {
     expect(byPath.get("notes.md")).toBe("# Notes\nlive key: [redacted:value.stripe_secret]\nfixture key: [redacted:value.stripe_secret]\n");
     // .env itself is never saved.
     expect(saved.leftOut).toEqual([]);
+  });
+});
+
+describe("a branch the default branch moved past starts from the default branch", () => {
+  it("updateConflicts reads how far behind the branch is, and the session starts from the default branch when it is behind or handed back", async () => {
+    await repos.integrations.upsert(t.deps.db, t.businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { repo: "acme/shop", writeEnabled: true } });
+    const { github, gateway, ctx } = githubGateway();
+    const task = await repos.tasks.create(t.db, t.businessId, { kind: "code", title: "Behind", goalMd: "x", assigneeAgentId: t.workerId, status: "ready" });
+    const branch = `agent/${task.id}`;
+    const input = { businessId: t.businessId, agentId: t.workerId, sessionId: await openSessionRow(t, t.workerId, task.id), taskId: task.id };
+    // No branch yet: nothing to compare, and a new task starts as before.
+    expect(await updateConflicts({ db: t.deps.db, gateway }, input, branch)).toBeNull();
+    expect(startsFromDefaultBranch(false, null)).toBe(false);
+    expect(startsFromDefaultBranch(true, null)).toBe(true);
+    // The branch is cut from main and main stays: current.
+    await github.callTool("commit_files", { owner: "acme", repo: "shop", branch, message: "mine", files: [{ path: "src/mine.ts", content: "1" }] }, ctx);
+    // (The mock's compare is two-dot, so its changed-file lists are not asserted here; the count behind is.)
+    const current = await updateConflicts({ db: t.deps.db, gateway }, input, branch);
+    expect(current).toMatchObject({ behindBy: 0 });
+    expect(startsFromDefaultBranch(false, current)).toBe(false);
+    // Main moves on (another branch's pull request is merged): the branch is behind, and the session starts from main.
+    await github.callTool("commit_files", { owner: "acme", repo: "shop", branch: "agent/other", message: "theirs", files: [{ path: "src/theirs.ts", content: "2" }] }, ctx);
+    const pr = await github.callTool("open_pr", { owner: "acme", repo: "shop", title: "Theirs", body: "", head: "agent/other", base: "HEAD", draft: false }, ctx);
+    const number = ((isUntrusted(pr.data) ? pr.data.content : pr.data) as { number: number }).number;
+    expect((await github.callTool("merge_pr", { owner: "acme", repo: "shop", prNumber: number, mergeMethod: "squash" }, ctx)).ok).toBe(true);
+    const behind = await updateConflicts({ db: t.deps.db, gateway }, input, branch);
+    expect(behind).toMatchObject({ behindBy: 1 });
+    expect(startsFromDefaultBranch(false, behind)).toBe(true);
+    expect(updateNote(branch, behind)).toContain("The default branch has 1 commit this branch did not have.");
+    expect(updateNote(branch, null)).not.toContain("did not have");
   });
 });
 

@@ -37,7 +37,9 @@ describe("inbox.decide (BUILD §11.3, AC-11.3.3/4/5)", () => {
     const owner = hz.caller({ userId: hz.A.ownerId });
     const item = await decisionItem("Where should the first customer come from?");
     const before = await owner.inbox.list({ businessId: hz.A.businessId, tab: "respond" });
-    expect(before.blocking).toBeGreaterThan(0);
+    // It waits in Needs you; a decision never holds Continue (0071, Nov 7, 2026).
+    expect(before.items.map((i) => i.id)).toContain(item.id);
+    expect(before.items.find((i) => i.id === item.id)?.blocksContinue).toBe(false);
 
     const result = await owner.inbox.decide({ businessId: hz.A.businessId, itemId: item.id, chosenOption: "outbound" });
     expect(result.item.state).toBe("answered");
@@ -54,7 +56,7 @@ describe("inbox.decide (BUILD §11.3, AC-11.3.3/4/5)", () => {
     expect(audit.items.some((a) => (a.target as { id: string }).id === item.id && a.actorId === hz.A.ownerId)).toBe(true);
 
     const after = await owner.inbox.list({ businessId: hz.A.businessId, tab: "respond" });
-    expect(after.blocking).toBe(before.blocking! - 1);
+    expect(after.blocking).toBe(before.blocking);
     const detail = await owner.inbox.get({ businessId: hz.A.businessId, itemId: item.id });
     expect(detail.plan?.id).toBe(result.plan.id);
     expect(detail.decisions).toHaveLength(1);
@@ -198,8 +200,9 @@ describe("inbox.decide (BUILD §11.3, AC-11.3.3/4/5)", () => {
     const first = await owner.inbox.list({ businessId: hz.A.businessId, tab: "respond", limit: 1 });
     expect(first.nextCursor).toBeTruthy();
     expect(first.counts?.respond).toBeGreaterThanOrEqual(2);
-    expect(first.blocking).toBeGreaterThanOrEqual(2);
-    expect(first.continueState).toMatchObject({ kind: "blocked" });
+    // The blocking count is the hard stops alone: open decisions are not among them (Nov 7, 2026).
+    expect(typeof first.blocking).toBe("number");
+    expect(first.continueState).toMatchObject({ kind: (first.blocking ?? 0) > 0 ? "blocked" : "idle" });
 
     const second = await owner.inbox.list({ businessId: hz.A.businessId, tab: "respond", limit: 1, cursor: first.nextCursor });
     expect(second.items).toHaveLength(1);
@@ -225,7 +228,7 @@ describe("inbox.decide (BUILD §11.3, AC-11.3.3/4/5)", () => {
     });
     const list = await owner.inbox.list({ businessId: hz.A.businessId, tab: "respond" });
     expect(list.items.map((i) => i.id)).toContain(item.id);
-    expect(list.blocking).toBeGreaterThan(0);
+    expect(list.items.find((i) => i.id === item.id)?.blocksContinue).toBe(false);
     // It can still be answered after the deadline, and that releases Continue as for any decision.
     const result = await owner.inbox.decide({ businessId: hz.A.businessId, itemId: item.id, chosenOption: "a" });
     expect(result.item.state).toBe("answered");
@@ -291,7 +294,7 @@ describe("a plan waiting for its go-ahead stays confirmable (audit OL-01, FR-08)
     const respond = await fresh.inbox.list({ businessId, tab: "respond", limit: 200 });
     expect(respond.items.find((i) => i.id === item.id)).toMatchObject({ state: "answered", awaitingConfirmation: true });
     // Continue is free all the same: the note was answered.
-    expect(respond.blocking).toBe((blockingBefore ?? 0) - 1);
+    expect(respond.blocking).toBe(blockingBefore ?? 0);
     const reopened = await fresh.inbox.get({ businessId, itemId: item.id });
     expect(reopened.item.state).toBe("answered");
     expect(reopened.plan).toMatchObject({ id: decided.plan.id, status: "pending_confirmation" });

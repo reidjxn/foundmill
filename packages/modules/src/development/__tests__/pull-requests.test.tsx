@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { PullRequestsScreen, previewFromEvent, toMergedRows, toOpenRows } from "../PullRequestsScreen";
 import { BUSINESS_ID, createFakeSource, renderScreen } from "./fake-source";
+import { openExplainer } from "../../explainer.testing";
 import { AGENT_PIKE, TASK_BUNDLE, TASK_DONE, TASK_INDEX, agents, agentsResponse, emptyPrsResponse, mergedPrs, openPrs, prsResponse } from "./fixtures";
 
 const props = { businessId: BUSINESS_ID, departmentId: "d-dev" };
@@ -14,7 +15,7 @@ describe("PullRequestsScreen", () => {
     const fake = createFakeSource({ responses: responses() });
     renderScreen(fake, <PullRequestsScreen {...props} />, {}, { guidance: "on" });
     const open = await screen.findByRole("grid", { name: "Open pull requests" });
-    const explainer = document.querySelector("[data-explainer='development/pull-requests']") as HTMLElement;
+    const explainer = openExplainer("development/pull-requests");
     expect(within(explainer).getByText("A bundle of finished code waiting for review.")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: /^View: Simple/ })).toHaveLength(2);
     expect(within(open).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Pull request", "Merge queue", "Agent", "Preview", "Actions"]);
@@ -103,6 +104,10 @@ describe("row builders", () => {
     const rows = toOpenRows(openPrs, new Map(agents.map((a) => [a.id, a])), new Map([[TASK_BUNDLE, "https://p.example"]]));
     expect(rows.find((r) => r.taskId === TASK_BUNDLE)).toMatchObject({ agentName: "Juno", queue: "In merge queue", previewUrl: "https://p.example" });
     expect(rows.find((r) => r.taskId === TASK_INDEX)).toMatchObject({ agentName: "Pike", queue: "In review", previewUrl: null });
+    // The founder's title is the row's title (0070); the technical one stays on the row for the developer's dialog.
+    const titled = toOpenRows([{ ...openPrs[0]!, founderTitle: "Put the usage export live" }], new Map(), new Map());
+    expect(titled[0]).toMatchObject({ title: "Put the usage export live", founderTitle: "Put the usage export live" });
+    expect(toOpenRows([{ ...openPrs[0]!, founderTitle: null }], new Map(), new Map())[0]!.title).toBe(openPrs[0]!.title);
   });
   it("toMergedRows labels PRs and who merged them", () => {
     const rows = toMergedRows([...mergedPrs, { eventId: "e2", occurredAt: "2026-10-05T10:00:00Z", taskId: TASK_DONE, mergedBy: { kind: "user", id: "u-1" } }]);
@@ -113,6 +118,8 @@ describe("row builders", () => {
     const rows = toMergedRows([{ eventId: null, source: "merge_queue", occurredAt: "2026-10-05T10:00:00Z", taskId: TASK_DONE, title: "Sitemap", branch: `agent/${TASK_DONE}`, mergedBy: { kind: "agent", id: AGENT_PIKE } }], new Map(agents.map((a) => [a.id, a])));
     expect(rows[0]).toMatchObject({ id: `task:${TASK_DONE}`, prLabel: "—", mergedByName: "Pike", title: "Sitemap" });
     expect(toMergedRows([{ eventId: null, source: "merge_queue", occurredAt: "2026-10-05T10:00:00Z", taskId: TASK_DONE, mergedBy: { kind: "agent", id: "unknown" } }])[0]!.mergedByName).toBe("An agent");
+    // A merge found on GitHub (made by hand there) is said so, never "Webhook".
+    expect(toMergedRows([{ eventId: "e3", source: "github", occurredAt: "2026-10-05T10:00:00Z", taskId: TASK_DONE, prNumber: 44, mergedBy: { kind: "webhook", id: "github" } }])[0]).toMatchObject({ mergedByName: "Merged on GitHub", prLabel: "#44" });
   });
   it("toOpenRows never lists a non-code task as a pull request (TPD-13)", () => {
     const rows = toOpenRows([...openPrs, { taskId: "f-1", title: "Q3 investor update", status: "review", branch: "agent/f-1", agentId: null, kind: "finance" }], new Map(), new Map());
@@ -123,5 +130,32 @@ describe("row builders", () => {
     expect(previewFromEvent({ type: "deploy.succeeded", payload: { environment: "production", url: "https://x" } })).toBeNull();
     expect(previewFromEvent({ type: "deploy.succeeded", payload: { environment: "preview", url: "https://x", branch: "agent/t" } })).toEqual({ branch: "agent/t", taskId: null, url: "https://x" });
     expect(previewFromEvent({ type: "task.started", payload: {} })).toBeNull();
+  });
+});
+
+describe("what exists now (first-time founder report, Nov 8, 2026)", () => {
+  it("with no repository connected, a queue merge reads 'No artifact yet' and the panel says nothing was pushed anywhere", async () => {
+    const queued = { eventId: null, source: "merge_queue" as const, occurredAt: "2026-10-07T09:00:00Z", taskId: TASK_BUNDLE, title: "Gift wrap option at checkout", branch: `agent/${TASK_BUNDLE}`, mergedBy: { kind: "agent", id: AGENT_PIKE } };
+    renderScreen(createFakeSource({ responses: { ...responses(), "dev.prs.list": { open: [], merged: [queued] }, "dev.repository": { connected: false, status: null, repository: null, simulated: true } } }), <PullRequestsScreen {...props} />);
+    const merged = await screen.findByRole("grid", { name: "Merged pull requests" });
+    const row = within(merged).getByText("Gift wrap option at checkout").closest("[role='row']") as HTMLElement;
+    expect(within(row).getByTestId("no-artifact").textContent).toBe("No artifact yet");
+    expect(screen.getByTestId("merged-counts").textContent).toBe("1 merged · nothing pushed yet");
+    const panel = screen.getByTestId("what-exists-now");
+    expect(panel.getAttribute("data-tone")).toBe("warn");
+    expect(panel.textContent).toContain("No GitHub repository is connected, so the 1 finished change below was never pushed anywhere");
+    expect(panel.textContent).toContain("Connect GitHub in Settings › Integrations");
+  });
+
+  it("with a repository connected, merged rows keep their word and the panel names where the code is", async () => {
+    renderScreen(createFakeSource({ responses: { ...responses(), "dev.repository": { connected: true, status: "connected", repository: { owner: "acme", name: "shop", url: "https://github.com/acme/shop" }, simulated: false } } }), <PullRequestsScreen {...props} />);
+    await screen.findByRole("grid", { name: "Merged pull requests" });
+    expect(screen.queryByTestId("no-artifact")).toBeNull();
+    const panel = screen.getByTestId("what-exists-now");
+    expect(panel.getAttribute("data-tone")).toBe("good");
+    expect(panel.textContent).toContain("The code is pushed to acme/shop.");
+    // Unknown (still loading) says nothing rather than guessing.
+    renderScreen(createFakeSource({ responses: responses() }), <PullRequestsScreen {...props} />);
+    expect(screen.getAllByTestId("what-exists-now")).toHaveLength(1);
   });
 });

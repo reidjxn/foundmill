@@ -12,10 +12,13 @@ import { createVault, type Vault } from "@foundmill/shared/crypto";
 import { drainHttpServer, onShutdown } from "@foundmill/shared/shutdown";
 import { installTelemetry } from "@foundmill/shared/telemetry";
 import { closeDb, createServiceDb, keepPoolWarm, repos, watchPoolOrExit, type Db, type PoolWarmer, type PoolWatchdog } from "@foundmill/db";
-import { createDefaultRegistry, platformSecretsFromEnv, type ConnectorRegistry } from "@foundmill/connectors";
+import { createDefaultRegistry, createElevenlabsSpeechStreamer, platformSecretsFromEnv, type ConnectorRegistry } from "@foundmill/connectors";
 import { createModelClient, effectiveModelMode, type ModelClient } from "@foundmill/models";
 import { createGatewayApp, type GatewayApp } from "./app";
 import { createGatewayBuiltins, gatewayUsageSink } from "./builtins";
+import { platformMailConfig } from "./platform-mail";
+import type { RepositoryFiles } from "./platform-host";
+import { createRepositoryFiles } from "./repository-files";
 import { gatewayConfig, type GatewayConfig } from "./config";
 import { prepareDb, type DbReadiness } from "./db-boot";
 import { type GatewayDeps, type GatewayLogger } from "./pipeline";
@@ -72,6 +75,8 @@ export interface BuiltGateway {
 export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
   const env = options.env ?? loadEnv();
   const config = gatewayConfig(env);
+  // Throws (the gateway does not start) with the domain set outside development and test and no 32+ character secret.
+  const platformMail = platformMailConfig(env);
   const log = options.log ?? (createLogger("gateway", env.LOG_LEVEL) as unknown as GatewayLogger);
   const db = options.db ?? createServiceDb();
 
@@ -87,9 +92,13 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
 
   const secrets = platformSecretsFromEnv(env);
   let registry = options.registry;
+  // The skill tools read the business's repository through this gateway's own pipeline, built further down.
+  let repositoryFiles: RepositoryFiles | null = null;
   if (!registry) {
     registry = createDefaultRegistry({
       secrets,
+      // IndexNow for a project's Foundmill-hosted page: the key file lives under this origin (`/p/<slug>/<key>.txt`).
+      hostedPagesOrigin: env.APP_URL,
       isSuppressed: (businessId, email) => repos.channels.isSuppressed(db, businessId, { emailHash: hashRecipient("email", email) }),
     });
     // The task board, typed messages, web reads and the quarantined reader are served here like any connector (BUILD §9.9).
@@ -97,7 +106,7 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
     // Every model call made here (the quarantined reader) is booked to the business that asked, like any other service's.
     const onUsage = gatewayUsageSink(db, log);
     const models = options.models ?? createModelClient({ mode, apiKey: env.ANTHROPIC_API_KEY, logger: log, onUsage });
-    for (const connector of createGatewayBuiltins({ db, vault, models, mode, log, onUsage, live: { secrets } })) registry.register(connector);
+    for (const connector of createGatewayBuiltins({ db, vault, models, mode, log, onUsage, live: { secrets }, repository: () => repositoryFiles })) registry.register(connector);
   }
 
   let rateLimitStoreKind: "memory" | "redis" = "memory";
@@ -125,7 +134,8 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
   // Recipients first seen in untrusted content are one register per business, shared by every session and replica (Redis).
   const recipients: UntrustedRegister = options.recipients ?? (redisClient ? new RedisUntrustedRegister(redisClient, { onFallback: (e) => log.warn({ err: e }, "the untrusted-recipient register fell back to this process's memory") }) : new UntrustedRecipientRegistry());
   const reader: UntrustedReader = options.reader ?? createUntrustedReader(createReaderModelClient(env, db, log));
-  const deps: GatewayDeps = { db, registry, vault, mode: config.integrationsMode, liveConnectors: config.liveConnectors, rateLimits, recipients, reader, log };
+  const deps: GatewayDeps = { db, registry, vault, mode: config.integrationsMode, liveConnectors: config.liveConnectors, appEnv: config.appEnv, rateLimits, recipients, reader, log, platformMail, turnstile: { secret: env.TURNSTILE_SECRET_KEY ?? null }, speechStreamer: createElevenlabsSpeechStreamer({ secrets }) };
+  repositoryFiles = createRepositoryFiles(deps);
   // Until prepare() has run the database is assumed reachable (tests build the graph over an already-migrated PGlite).
   let readiness: DbReadiness | null = null;
   const app = createGatewayApp(deps, {

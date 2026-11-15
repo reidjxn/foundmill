@@ -15,7 +15,7 @@ import { buildManifest, checkComposerText, type ManifestEntityInput } from "@fou
 import { ComposerOutput, type ModelClient } from "@foundmill/models";
 import { APP_NAME, LIMITS } from "@foundmill/config";
 import { clubRulesPrompt, prompts } from "@foundmill/agents";
-import { AppError, futureDeadline, type EntityKind } from "@foundmill/shared";
+import { AppError, founderTitleFallback, futureDeadline, type EntityKind } from "@foundmill/shared";
 import type { ApiLogger } from "./log";
 import { noteModelCall } from "./model-calls";
 
@@ -42,6 +42,12 @@ export interface ComposerClient {
    * about at most once per `CHAPTER_TITLE_RETRY_MS` by this process, whatever the answer.
    */
   requestChapterTitle(businessId: string, chapterId: string): void;
+  /**
+   * Ask the composer for founder titles (0070) for the business's open tasks without one, or exactly `taskIds`. Fire and
+   * forget: the screens show the technical title until then. When the service is away and the fallback is allowed, the
+   * deterministic rewrite of @foundmill/shared stands in for the tasks it can title.
+   */
+  requestFounderTitles(businessId: string, taskIds?: readonly string[]): void;
 }
 
 /** How long before an unanswered (or unstored) chapter title is asked for again. */
@@ -160,6 +166,19 @@ export function createComposerClient(opts: CreateComposerClientOptions): Compose
       chapterTitleAskedAt.set(key, now);
       void post("/v1/chapter-title", { businessId, quarter: chapterId }).catch((err: unknown) => opts.log.debug({ err: (err as Error).message, businessId, chapterId }, "chapter title not composed; the provisional title stays"));
     },
+    requestFounderTitles(businessId, taskIds) {
+      void post("/v1/founder-titles", { businessId, ...(taskIds?.length ? { taskIds: [...taskIds] } : {}) }).catch(async (err: unknown) => {
+        if (!opts.allowFallback) {
+          opts.log.debug({ err: (err as Error).message, businessId }, "founder titles not composed; the technical titles stay");
+          return;
+        }
+        const written = await founderTitlesLocally(opts.db, businessId, taskIds).catch((e: unknown) => {
+          opts.log.debug({ err: (e as Error).message, businessId }, "founder titles: the rewrite could not be written");
+          return 0;
+        });
+        opts.log.debug({ err: (err as Error).message, businessId, written }, "composer unreachable; founder titles from the deterministic rewrite");
+      });
+    },
     narrate: (businessId, eventIds, o = {}) =>
       run("/v1/narrate", { businessId, eventIds }, businessId, () => composeLocallyWithSlot(opts.db, opts.models, businessId, { eventIds, actorUserId: o.actorUserId ?? null })),
     async reachable() {
@@ -173,6 +192,27 @@ export function createComposerClient(opts: CreateComposerClientOptions): Compose
       }
     },
   };
+}
+
+/** The open statuses whose tasks a founder still meets (the composer's own list, apps/composer founder-titles.ts). */
+const FOUNDER_TITLE_STATUSES = ["planned", "ready", "running", "paused", "blocked", "review", "merging"] as const;
+
+/**
+ * Founder titles without the composer (0070): the deterministic rewrite of @foundmill/shared for each open task without
+ * one (or each of `taskIds`), written when it passes the title rules. What it cannot title keeps the technical title until
+ * the composer is back. Returns how many were written.
+ */
+export async function founderTitlesLocally(db: Db, businessId: string, taskIds?: readonly string[]): Promise<number> {
+  const tasks = taskIds?.length ? await repos.tasks.byIds(db, businessId, taskIds) : (await repos.tasks.list(db, businessId, { status: [...FOUNDER_TITLE_STATUSES], founderTitleMissing: true, limit: 40 })).items;
+  let written = 0;
+  for (const task of tasks) {
+    if (task.founderTitle) continue;
+    const title = founderTitleFallback(task.title) ?? founderTitleFallback(task.goalMd.split(/(?<=[.!?])\s|\n/)[0] ?? "");
+    if (!title) continue;
+    await repos.tasks.update(db, businessId, task.id, { founderTitle: title });
+    written += 1;
+  }
+  return written;
 }
 
 /** Named queries the composer may reference as exhibits (AC-11.3.6: charts only reference named queries). */
@@ -244,7 +284,7 @@ export function localNextBestDecisions(s: LocalDecisionState): LocalDecision[] {
       title: "Blocked tasks need a call",
       facts: { blocked_tasks: n("blocked"), running_tasks: n("running") },
       options: [
-        option({ id: "review", label: "Review the blocked tasks now", recommended: true, consequence: "You answer each stuck task now and the team picks the work back up this cycle.", cost_minor: 0, reversible: true, because: "Recommended because a few answers from you unblock the most work, and nothing is spent." }),
+        option({ id: "review", label: "Review the blocked tasks now", recommended: true, consequence: "You answer each stuck task now and the team picks the work back up in this round of work.", cost_minor: 0, reversible: true, because: "Recommended because a few answers from you unblock the most work, and nothing is spent." }),
         option({ id: "reassign", label: "Reassign them to the department lead", recommended: false, consequence: "The lead sorts them out and only brings you the ones that need your signature or money.", cost_minor: 0, reversible: true, because: "Recommended because it keeps the small calls off your desk." }),
         option({ id: "park", label: "Park them until the next cycle", recommended: false, consequence: "Those tasks wait until the next cycle, and so does anything that depends on them.", cost_minor: 0, reversible: true, because: "Recommended because nothing is lost by waiting one cycle." }),
       ],
@@ -395,7 +435,8 @@ async function composeLocallyWithSlot(db: Db, models: ModelClient, businessId: s
     status_strip: out.status_strip.slice(0, 4),
     exhibit: NAMED_QUERIES.some((q) => q.id === out.exhibit.spec_ref) ? out.exhibit : { kind: "none" as const, spec_ref: null },
     decision: withSaneDeadline(out.type === "decision" || out.type === "customer_won" ? (out.decision ?? defaultDecision()) : out.decision, grounded),
-    blocks_continue: out.type === "decision" || out.type === "customer_won" ? true : out.blocks_continue,
+    // A Composer note never holds Continue (Nov 7, 2026; 0071): only the platform's hard stops do.
+    blocks_continue: false,
     source_event_ids: eventIds,
     entity_ids: entityIds,
   };

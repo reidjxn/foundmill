@@ -55,6 +55,15 @@ export interface AutopilotSettings {
   spendCeilingMinor: number | null;
   /** Failed or empty cycles in a row that pause Autopilot. */
   maxIdleCycles: number;
+  /**
+   * Autopilot's own limits (founder, 2026-11-12: "split the limits"), apart from the shared daily ones above, which also
+   * bound Continue: how many cycles Autopilot itself may start a UTC day, and what those cycles may spend (USD cents, an
+   * Estimate). They count only the cycles Autopilot starts on its schedule, never a press of Continue or the rounds of
+   * its run. Null: no limit of its own. The spend ceiling is also the budget the cycle is given, so it holds while the
+   * cycle runs, not only at its start.
+   */
+  ownMaxCyclesPerDay: number | null;
+  ownSpendCeilingMinor: number | null;
 }
 
 export const AUTOPILOT_DEFAULT_SETTINGS: AutopilotSettings = {
@@ -63,6 +72,8 @@ export const AUTOPILOT_DEFAULT_SETTINGS: AutopilotSettings = {
   maxCyclesPerDay: AUTOPILOT_LIMITS.maxCyclesPerDay.default,
   spendCeilingMinor: null,
   maxIdleCycles: AUTOPILOT_LIMITS.maxIdleCycles.default,
+  ownMaxCyclesPerDay: null,
+  ownSpendCeilingMinor: null,
 };
 
 /** Why Autopilot is holding off for now (it stays on). */
@@ -145,13 +156,111 @@ export interface AutopilotFacts {
   cycleOpen: boolean;
   lastCycleStartedAt: number | null;
   lastCycleEndedAt: number | null;
-  /** Autopilot cycles started today (UTC). */
+  /**
+   * Cycles started today (UTC) that count toward the daily cap: Autopilot's and the founder's Continue presses with the
+   * rounds a press runs (triggers `autopilot` and `continue`; one set of limits since Nov 7, 2026). A vacation's cycles
+   * and wake-ups do not count.
+   */
   cyclesToday: number;
   /** Model spend today in USD cents (an Estimate). */
   spentTodayMinor: number;
+  /** Cycles Autopilot itself started today (UTC): its schedule's, not a Continue run's rounds. Absent: 0. */
+  ownCyclesToday?: number;
+  /** What those cycles cost today, USD cents (an Estimate). Absent: 0. */
+  ownSpentTodayMinor?: number;
   /** Finished cycles since `since`, newest first (plus failures that wrote no cycle: `unrecordedFailures`). */
   recentCycles: readonly AutopilotCycleSummary[];
   unrecordedFailures?: number;
+  /** The run one press of Continue started, while it lasts (`decideRun`); null or absent: no run. */
+  run?: ContinueRunFacts | null;
+}
+
+/**
+ * Continue runs until done (founder, Nov 7, 2026): one press starts a run, and the `autopilot:<businessId>` workflow
+ * starts round after round (cycle after cycle) until the run ends. The run is derived from the event log
+ * (`cycle.run_started` / `cycle.run_ended`), never stored on the business row.
+ */
+export const CONTINUE_RUN_END_REASONS = ["done", "hard_stop", "paused", "stopped", "vacation", "daily_cycles", "daily_spend", "archived", "lost"] as const;
+export type ContinueRunEndReason = (typeof CONTINUE_RUN_END_REASONS)[number];
+
+/** The sentence a press that started a run adds (Nov 7, 2026): new cycles keep starting on their own. */
+export const RUN_UNTIL_DONE = "New cycles start on their own until nothing is left to do, or until you pause.";
+
+export const CONTINUE_RUN_LIMITS = {
+  /** No two rounds of a run start closer than this (stops a hot loop of empty rounds); no 15-minute floor. */
+  minGapMs: 60 * 1000,
+  /** How often a run looks again while another cycle is open. */
+  pollMs: 60 * 1000,
+  /** A run with no end recorded this long after its start is a lost one, like a stale cycle. */
+  staleMs: 36 * HOUR_MS,
+} as const;
+
+export interface ContinueRunFacts {
+  id: string;
+  /** Epoch ms. */
+  startedAt: number;
+  /** Rounds of this run that finished (cycles completed at or after `startedAt`). */
+  rounds: number;
+  /** The newest finished round of this run; null before the first one ends. */
+  lastRound: AutopilotCycleSummary | null;
+  /** Rounds of this run that failed before writing a cycle (the workflow counts them). */
+  unrecordedFailures?: number;
+}
+
+export type ContinueRunDecision =
+  | { action: "end"; reason: ContinueRunEndReason }
+  /** `cycle_running`: another cycle is open (the run's own first round included); `gap`: the 1-minute gap between rounds. */
+  | { action: "wait"; why: "cycle_running" | "gap"; until: number | null }
+  | { action: "start" };
+
+/**
+ * What a run does now, pure; null when there is no run. Called before `decideAutopilot` (whether or not Autopilot is
+ * on), and once a run ends the scheduled decision applies again unchanged. Order: the business is archived; a hard stop
+ * (the stop flag, used-up credits, an Inbox item that blocks Continue); a vacation; another cycle still running; the
+ * last round did nothing (decisions waiting in Needs you never hold a run: a round that only waited on them is idle,
+ * rule 0071); the day's cycle cap and spend ceiling (the same limits as Autopilot's); the 1-minute gap; then start.
+ */
+export function decideRun(f: AutopilotFacts): ContinueRunDecision | null {
+  const run = f.run;
+  if (!run) return null;
+  if (f.archived) return { action: "end", reason: "archived" };
+  if (f.stopReason || (f.creditsRemainingMinor !== null && f.creditsRemainingMinor <= 0) || f.blockingItems > 0) return { action: "end", reason: "hard_stop" };
+  if (f.vacation) return { action: "end", reason: "vacation" };
+  if (f.cycleOpen) return { action: "wait", why: "cycle_running", until: null };
+  if (run.lastRound?.outcome === "stopped") return { action: "end", reason: "stopped" };
+  if ((run.lastRound && isIdleCycle(run.lastRound)) || (run.unrecordedFailures ?? 0) > 0) return { action: "end", reason: "done" };
+  if (f.cyclesToday >= f.settings.maxCyclesPerDay) return { action: "end", reason: "daily_cycles" };
+  const ceiling = effectiveSpendCeiling(f.settings, f.spentTodayMinor, f.creditsRemainingMinor);
+  if (ceiling !== null && f.spentTodayMinor >= ceiling) return { action: "end", reason: "daily_spend" };
+  const gapUntil = f.lastCycleStartedAt === null ? null : f.lastCycleStartedAt + CONTINUE_RUN_LIMITS.minGapMs;
+  if (gapUntil !== null && gapUntil > f.now) return { action: "wait", why: "gap", until: gapUntil };
+  return { action: "start" };
+}
+
+/**
+ * What the founder reads when a run ends on its own (a toast in the shell; the daily limits also leave a note in the
+ * Inbox). Null for the ends the founder caused or already hears about elsewhere: Pause, Stop all agents, an archived
+ * business. The same words for every member watching the business.
+ */
+export function continueRunEndedMessage(reason: ContinueRunEndReason, maxCyclesPerDay?: number | null): { title: string; description: string; tone: "info" | "good" | "warn" } | null {
+  switch (reason) {
+    case "done":
+      return { title: "The team has done all it can for now", description: "Anything waiting for you is in the Inbox's Needs you tab.", tone: "good" };
+    case "daily_cycles":
+      return { title: typeof maxCyclesPerDay === "number" ? `Today's limit of ${maxCyclesPerDay} cycle${maxCyclesPerDay === 1 ? "" : "s"} is reached` : "Today's cycle limit is reached", description: "No more cycles start on their own today. Raise the limit in Settings › What the team can do, or press Continue for one more.", tone: "warn" };
+    case "daily_spend":
+      return { title: "Today's spend ceiling is reached (Estimate)", description: "No more cycles start on their own today. Raise the ceiling in Settings › What the team can do, or press Continue for one more.", tone: "warn" };
+    case "hard_stop":
+      return { title: "The team stopped working", description: "Something needs you before the team can carry on. Open the Inbox's Needs you tab.", tone: "warn" };
+    case "vacation":
+      return { title: "You are on vacation", description: "The Chief of Staff runs the cycles until you come back.", tone: "info" };
+    case "lost":
+      return { title: "New cycles stopped starting", description: "Press Continue to keep the team working.", tone: "warn" };
+    case "paused":
+    case "stopped":
+    case "archived":
+      return null;
+  }
 }
 
 export type AutopilotDecision =
@@ -181,7 +290,7 @@ export function pauseNote(reason: AutopilotPauseReason, idleCycles: number = AUT
 
 /**
  * The chip's word while a note holds Continue: the one "needs you" family the product uses (UX plan §5.5, "answer").
- * Shown by the Home chip, Settings › Mode and the department cards.
+ * Shown by the Home chip, Settings › What the team can do and the department cards.
  */
 export const AUTOPILOT_NEEDS_ANSWER_LABEL = "Needs your answer";
 
@@ -196,6 +305,16 @@ export function effectiveSpendCeiling(settings: Pick<AutopilotSettings, "spendCe
   const credits = creditsRemainingMinor === null ? null : spentTodayMinor + Math.max(0, creditsRemainingMinor);
   if (settings.spendCeilingMinor === null) return credits;
   return credits === null ? settings.spendCeilingMinor : Math.min(settings.spendCeilingMinor, credits);
+}
+
+/**
+ * The budget a cycle Autopilot starts on its own is given (USD cents, an Estimate): what is left of its own spend
+ * ceiling today. Null: no ceiling of its own (the cycle has the credits, as any cycle does).
+ */
+export function autopilotCycleBudgetMinor(f: Pick<AutopilotFacts, "settings" | "ownSpentTodayMinor">): number | null {
+  const ceiling = f.settings.ownSpendCeilingMinor;
+  if (ceiling === null || ceiling === undefined) return null;
+  return Math.max(0, ceiling - (f.ownSpentTodayMinor ?? 0));
 }
 
 /**
@@ -219,6 +338,10 @@ export function decideAutopilot(f: AutopilotFacts): AutopilotDecision {
   if (f.cyclesToday >= f.settings.maxCyclesPerDay) return { action: "wait", why: "daily_cycles", note: `Today's limit of ${f.settings.maxCyclesPerDay} cycle${f.settings.maxCyclesPerDay === 1 ? "" : "s"} is reached; Autopilot continues tomorrow (UTC).`, nextAt: Math.max(nextAt, tomorrow), until: tomorrow };
   const ceiling = effectiveSpendCeiling(f.settings, f.spentTodayMinor, f.creditsRemainingMinor);
   if (ceiling !== null && f.spentTodayMinor >= ceiling) return { action: "wait", why: "daily_spend", note: "Today's spend ceiling is reached (Estimate); Autopilot continues tomorrow (UTC).", nextAt: Math.max(nextAt, tomorrow), until: tomorrow };
+  // Autopilot's own limits: only the cycles it starts itself count (a press of Continue never uses them up).
+  const own = f.settings.ownMaxCyclesPerDay;
+  if (own !== null && own !== undefined && (f.ownCyclesToday ?? 0) >= own) return { action: "wait", why: "daily_cycles", note: `Autopilot's own limit of ${own} cycle${own === 1 ? "" : "s"} a day is reached; it continues tomorrow (UTC). Continue still works.`, nextAt: Math.max(nextAt, tomorrow), until: tomorrow };
+  if (autopilotCycleBudgetMinor(f) === 0) return { action: "wait", why: "daily_spend", note: "Autopilot's own spend for today is reached (Estimate); it continues tomorrow (UTC). Continue still works.", nextAt: Math.max(nextAt, tomorrow), until: tomorrow };
   if (nextAt > f.now) return { action: "wait", why: "schedule", note: "The next cycle is planned.", nextAt, until: nextAt };
   return { action: "start", nextAt };
 }
@@ -246,7 +369,7 @@ const PAUSE_SHORT: Record<AutopilotPauseReason, string> = {
 export function autopilotView(d: AutopilotDecision): AutopilotView {
   switch (d.action) {
     case "off":
-      return { state: "off", label: "Off", detail: "Cycles start when you press Continue.", nextAt: null };
+      return { state: "off", label: "Off", detail: "Continue keeps the team working until nothing is left. Turn Autopilot on to start work on a schedule.", nextAt: null };
     case "end":
       return { state: "off", label: "Off", detail: d.note, nextAt: null };
     case "paused":
@@ -260,5 +383,29 @@ export function autopilotView(d: AutopilotDecision): AutopilotView {
       return { state: "on", label: "On", detail: d.why === "cycle_running" ? d.note : "Autopilot is running the business.", nextAt: d.nextAt };
     case "start":
       return { state: "on", label: "On", detail: "A cycle is about to start.", nextAt: d.nextAt };
+  }
+}
+
+/**
+ * The overnight shift (retention plan, founder 2026-11-11: "on by default with a small cap"): Commit turns Autopilot on
+ * with the daily cadence at about 2 AM in the founder's time zone, so there is news every morning. The cap is one round
+ * of work a night with a budget of $0.15 (an Estimate; about $4.50 a month, inside the free tier's $5): Autopilot's own limits (one cycle a day, its own spend ceiling,
+ * which is also that cycle's budget), apart from Continue's (founder, 2026-11-12); every Autopilot guard rail still holds (used-up credits,
+ * failed or empty nights in a row, a hard stop, a vacation) and it never answers a note. Settings › What the team can do
+ * changes or turns it off.
+ */
+export const OVERNIGHT_SHIFT = { localHour: 2, cadence: "daily" as AutopilotCadence, ownMaxCyclesPerDay: 1, ownSpendCeilingMinor: 15 } as const;
+
+/** The UTC hour that is `localHour` in `timeZone` on the day of `now` (UTC when the zone is unknown). */
+export function overnightUtcHour(timeZone: string | null | undefined, now: Date = new Date(), localHour: number = OVERNIGHT_SHIFT.localHour): number {
+  if (!timeZone) return localHour;
+  try {
+    // The zone's wall clock read back as if it were UTC: the difference is the zone's offset at that moment.
+    const wall = new Date(now.toLocaleString("en-US", { timeZone }) + " UTC");
+    const offsetHours = Math.round((wall.getTime() - Math.floor(now.getTime() / 60_000) * 60_000) / 3_600_000);
+    if (!Number.isFinite(offsetHours)) return localHour;
+    return (((localHour - offsetHours) % 24) + 24) % 24;
+  } catch {
+    return localHour;
   }
 }

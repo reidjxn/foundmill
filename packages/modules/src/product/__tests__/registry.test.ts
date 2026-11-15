@@ -18,6 +18,6 @@ describe("product module registration", () => {
 
   it("gives the Roadmap tab its board and timeline sub-views and no other tab any", () => {
     expect(getModuleScreen("product", "roadmap")?.subViews?.map((v) => v.slug)).toEqual(["board", "timeline"]);
-    for (const slug of ["vision", "specification", "changes", "sources", "research"]) expect(getModuleScreen("product", slug)?.subViews).toBeUndefined();
+    for (const slug of ["vision", "specification", "public-page", "changes", "sources", "research"]) expect(getModuleScreen("product", slug)?.subViews).toBeUndefined();
   });
 });

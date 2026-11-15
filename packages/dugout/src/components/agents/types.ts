@@ -5,7 +5,7 @@
  * Session events are a structural mirror of `@foundmill/events` `SessionEvent` (dugout has no dependency on the
  * events package, see docs/NEEDED_DEPS.md): the orchestrator's events are assignable to `AgentSessionEvent` unchanged.
  */
-import type { Money, AgentStatus, ChannelKey, ChannelLine, DeptColourToken, ModelKey, SkillGroup, TaskKind, TaskPhase, TaskStatus } from "@foundmill/shared";
+import type { Money, AgentStatus, AgentTier, ChannelKey, ChannelLine, DeptColourToken, ModelKey, SkillGroup, TaskKind, TaskPhase, TaskStatus } from "@foundmill/shared";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Session events (as:{sessionId} stream)
@@ -359,6 +359,11 @@ export interface ChannelTokenData {
    * the channel's default; absent means the default (`CHANNEL_META[key].kitModeByDefault`).
    */
   kitMode?: boolean;
+  /**
+   * The founder posts this channel themselves, one press at a time (tap-to-post): on the board it is never counted as
+   * running, its line to the hub is still, and its name says "you post it".
+   */
+  founderPosts?: boolean;
   results?: Array<{ label: string; value: string }>;
 }
 
@@ -396,6 +401,12 @@ export interface SquadRow {
   latestUpdate: { at: string; text: string } | null;
   /** Down: when it should be back. */
   expectedReturnAt?: string | null;
+  /** Leads first: the agent's tier (`chief`, `lead`, `specialist`). */
+  tier?: AgentTier;
+  /** A lead's (or the Chief of Staff's) specialists, nested under its row (DataTable `getSubRows`). */
+  reports?: SquadRow[];
+  /** Who it reports to, in words, for the CSV's "Reports to" column. */
+  reportsTo?: string;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

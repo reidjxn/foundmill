@@ -27,13 +27,14 @@ describe("describeRequest", () => {
   });
 
   it("falls back to '<Agent> wants to <tool label>', naming the service when there is one, and 'The team' without an agent", () => {
-    expect(describeRequest({ ...base, tool: "run_migration", connectorKey: "github", action: "GitHub › run migration" })).toBe("Priya wants to run migration on GitHub");
+    expect(describeRequest({ ...base, tool: "run_migration", connectorKey: "github", action: "GitHub › run migration" })).toBe("Priya wants to run a change to the data layout on GitHub");
     expect(describeRequest({ ...base, agent: null, tool: "create_payout", connectorKey: "stripe", action: "Stripe › create payout", amount: { amountMinor: 20_000, currency: "GBP" } })).toBe("The team wants to create payout on Stripe (£200.00)");
-    expect(describeRequest({ ...base, tool: "merge_pull_request", connectorKey: "github", action: "GitHub › merge pull request", args: json({ number: 148 }) })).toBe("Priya wants to merge pull request #148");
+    expect(describeRequest({ ...base, tool: "merge_pr", connectorKey: "github", action: "GitHub › merge pr", args: json({ prNumber: 148 }) })).toBe("Priya wants to put a finished change live");
+    expect(describeRequest({ ...base, tool: "merge_pull_request", connectorKey: "github", action: "GitHub › merge pull request", args: json({ number: 148 }) })).toBe("Priya wants to put a finished change live");
     expect(describeRequest({ ...base, tool: "enable_channel", action: "Ledgerly › enable channel", args: json({ channel: "tiktok" }) })).toBe("Priya wants to turn on TikTok");
     // An older approval without a tool key reads it from the action; no tool at all reads the action as the api named it.
     expect(toolKeyOf({ tool: null, action: "GitHub › run migration" })).toBe("run_migration");
-    expect(describeRequest({ ...base, tool: null, action: "GitHub › run migration", connectorKey: "github" })).toBe("Priya wants to run migration on GitHub");
+    expect(describeRequest({ ...base, tool: null, action: "GitHub › run migration", connectorKey: "github" })).toBe("Priya wants to run a change to the data layout on GitHub");
     expect(describeRequest({ ...base, tool: null, action: "Something odd" })).toBe("Priya wants to run Something odd");
   });
 

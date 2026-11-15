@@ -28,17 +28,20 @@ import {
   type RowAction,
   type SavedView,
   type TermDefinition,
+  useFormatters,
 } from "@foundmill/dugout";
+import { followConsentLine } from "@foundmill/shared/project-page";
 import { moduleHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
+import { emptyWhy } from "@foundmill/shared/empty-why";
 import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import type { ModuleScreenProps } from "../registry";
 import { LAWFUL_BASES, lawfulBasisLabel, suppressionOf } from "./channel-data";
 import { RelativeDateText } from "../dates";
 import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
 import { InlineError, SIMPLE_VIEW_ID, Screen, fitTableHeight, plainWords, sourceLabel, useAction, useDefaultViewId } from "./shared";
-import type { AgentRow, LeadRow, Page } from "./types";
+import type { AgentRow, AgentsListResponse, LeadRow, Page } from "./types";
 
 export const LEAD_VIEWS: SavedView[] = [
   // Simple (UX plan §7.10): who the lead is, where they stand and whether we may contact them.
@@ -73,6 +76,12 @@ export const LAWFUL_BASIS_DEFINITION = "Your legal reason for contacting someone
 /** The Term's own definition where the map does not reach (stories, tests): the same sentence, under the shared id. */
 export const LAWFUL_BASIS_TERM: TermDefinition = { id: "lawful_basis", word: "Lawful basis", short: LAWFUL_BASIS_DEFINITION };
 
+/** "Agreed to email on Oct 7, 2026" in the person's own date format: a follower of the public page (package 1.6). */
+export function ConsentLine({ at }: { at: string | Date }) {
+  const { formatDate } = useFormatters();
+  return <>{followConsentLine(formatDate(at))}</>;
+}
+
 export function leadColumns(businessId: string, agents: readonly AgentRow[] | undefined, sizes: Record<LeadColumnId, number> = fitColumns<LeadColumnId>(null, LEAD_FIT, [])): DataTableColumn<LeadRow>[] {
   const agentName = (id: string) => agents?.find((a) => a.id === id)?.name ?? "Agent";
   return [
@@ -94,7 +103,17 @@ export function leadColumns(businessId: string, agents: readonly AgentRow[] | un
       header: "Lawful basis",
       size: sizes.lawfulBasis,
       cell: ({ row }) => (
-        <Tooltip content={LAWFUL_BASIS_DEFINITION}>
+        <Tooltip
+          content={
+            row.original.emailConsentAt ? (
+              <span data-consent-note="">
+                <ConsentLine at={row.original.emailConsentAt} />. {LAWFUL_BASIS_DEFINITION}
+              </span>
+            ) : (
+              LAWFUL_BASIS_DEFINITION
+            )
+          }
+        >
           {row.original.lawfulBasis ? (
             <Chip tone="good" icon={ScrollText} className="whitespace-nowrap">
               {lawfulBasisLabel(row.original.lawfulBasis)}
@@ -150,7 +169,7 @@ export function LeadsScreen({ businessId }: ModuleScreenProps) {
   const departments = useDepartments();
   const boardHref = moduleHref(businessId, departments.data, "distribution", "formation");
   const leads = useWidgetQuery<Page<LeadRow>>("crm.roles.byRole", { role: "lead", limit: 500 });
-  const agents = useWidgetQuery<AgentRow[]>("team.agents.list", {});
+  const agents = useWidgetQuery<AgentsListResponse>("team.agents.list", {});
   const action = useAction();
   // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance is on.
   const defaultViewId = useDefaultViewId("all");
@@ -160,7 +179,7 @@ export function LeadsScreen({ businessId }: ModuleScreenProps) {
   useBusinessEvents(() => leads.refetch(), ["lead.created", "lead.replied"]);
 
   const rows = useMemo(() => leads.data?.items ?? [], [leads.data]);
-  const columns = useMemo(() => fitToGrow(leadColumns(businessId, agents.data), LEAD_FIT), [businessId, agents.data]);
+  const columns = useMemo(() => fitToGrow(leadColumns(businessId, agents.data?.agents), LEAD_FIT), [businessId, agents.data]);
   const openProfile = useCallback((r: LeadRow) => navigate(routes.crm(businessId, r.id)), [businessId, navigate]);
 
   const endRole = useCallback(
@@ -211,7 +230,7 @@ export function LeadsScreen({ businessId }: ModuleScreenProps) {
           onRowOpen={openProfile}
           height={fitTableHeight(rows.length, { minRows: 12, maxRows: 18 })}
           exportFileName="leads"
-          empty={{ title: "No leads yet", children: "Qualified leads arrive here with their lawful basis once Lead generation runs on the board.", action: boardHref ? { label: "Open Lead generation", icon: ArrowUpToLine, onClick: () => navigate(`${boardHref}?channel=lead_generation`) } : undefined }}
+          empty={{ title: emptyWhy("leads").title, children: emptyWhy("leads").text, action: boardHref ? { label: "Open Lead generation", icon: ArrowUpToLine, onClick: () => navigate(`${boardHref}?channel=lead_generation`) } : undefined }}
         />
         </div>
       </Panel>

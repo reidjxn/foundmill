@@ -3,7 +3,7 @@
  * runs two tasks with overlapping file scopes at once (AC-11.6.2), narrates and completes; stop ends it early.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { Activities, BusinessBrief, CyclePlan, CycleStart, RoadmapPlanResult, SessionLaunch, SessionResult } from "../../activities";
+import type { Activities, BusinessBrief, CyclePlan, CycleStart, MergeInput, RoadmapPlanResult, SessionLaunch, SessionResult } from "../../activities";
 import { ApplicationFailure } from "@temporalio/common";
 import { CYCLE_PLAN_FAILURE, PLAN_FAILED_MESSAGE } from "../../cycle-contract";
 import { businessCycle, fileScopesOverlap, pauseSignal, resumeSignal, stopSignal } from "../../workflows";
@@ -69,6 +69,7 @@ interface Calls {
   maxConcurrent: number;
   overlapSeen: boolean;
   narrated: string[][];
+  narrateInputs: { summary: string; fallbackSubject?: string }[];
   completed: Record<string, unknown>[];
   failed: Record<string, unknown>[];
   startInputs: Record<string, unknown>[];
@@ -85,13 +86,15 @@ interface Calls {
   briefs: number;
   /** Every followUpStarts input as received. */
   followUps: { exclude: string[]; busyAgentIds?: string[]; limit?: number }[];
+  /** Tasks whose merge review the cycle started (`prepareMerge` is its first step). */
+  merges: string[];
 }
 
 /** Each test's sessions get their own ids: children an earlier test abandoned may still run under theirs. */
 let rigRun = 0;
 
-function mockActivities(opts: { holdSessions?: boolean; holdOpen?: boolean; stoppedBrief?: boolean; refuseAfter?: number; planned?: number; planError?: () => Error; budgetMinor?: number; idle?: boolean; planFails?: boolean; openFailsOnce?: boolean; startFailsOnce?: boolean; untaskedNow?: boolean; roadmapResult?: RoadmapPlanResult; followUp?: CycleStart } = {}): { acts: Partial<Activities>; calls: Calls; release: () => void; releaseOpen: () => void } {
-  const calls: Calls = { opened: [], sessionIds: [], openInputs: [], running: new Set(), maxConcurrent: 0, overlapSeen: false, narrated: [], completed: [], started: 0, opening: false, plans: 0, startedPlans: [], planFailures: [], failed: [], startInputs: [], idleNotes: [], roadmapPlanned: [], roadmapPlans: 0, briefs: 0, followUps: [] };
+function mockActivities(opts: { holdSessions?: boolean; holdOpen?: boolean; stoppedBrief?: boolean; refuseAfter?: number; planned?: number; planError?: () => Error; budgetMinor?: number; idle?: boolean; planFails?: boolean; openFailsOnce?: boolean; startFailsOnce?: boolean; untaskedNow?: boolean; roadmapResult?: RoadmapPlanResult; followUp?: CycleStart; merges?: MergeInput[] } = {}): { acts: Partial<Activities>; calls: Calls; release: () => void; releaseOpen: () => void } {
+  const calls: Calls = { opened: [], sessionIds: [], openInputs: [], running: new Set(), maxConcurrent: 0, overlapSeen: false, narrated: [], narrateInputs: [], completed: [], started: 0, opening: false, plans: 0, startedPlans: [], planFailures: [], failed: [], startInputs: [], idleNotes: [], roadmapPlanned: [], roadmapPlans: 0, briefs: 0, followUps: [], merges: [] };
   const run = String((rigRun += 1)).padStart(4, "0");
   const scopes = new Map(tasks.map((t) => [t.id, t.fileScope]));
   let release = () => {};
@@ -101,6 +104,13 @@ function mockActivities(opts: { holdSessions?: boolean; holdOpen?: boolean; stop
   let releaseOpen = () => {};
   const openHeld = new Promise<void>((r) => (releaseOpen = r));
   const acts: Partial<Activities> = {
+    async pendingMerges() {
+      return opts.merges ?? [];
+    },
+    async prepareMerge(input) {
+      calls.merges.push(input.taskId);
+      return { status: "skipped", reason: "test" };
+    },
     async loadBrief() {
       calls.briefs += 1;
       return { ...brief(), agentsStopped: opts.stoppedBrief ?? false, budgetRemainingMinor: opts.budgetMinor ?? null, ...(opts.untaskedNow ? { untaskedRoadmap: [{ id: id(300), title: "Repository context for code sessions", horizon: "now" }] } : {}) };
@@ -166,8 +176,9 @@ function mockActivities(opts: { holdSessions?: boolean; holdOpen?: boolean; stop
     async finishSession() {
       return { taskStatus: "done", eventIds: [id(777)], healthChanged: false };
     },
-    async narrateCycle({ eventIds }) {
+    async narrateCycle({ eventIds, summary, fallbackSubject }) {
       calls.narrated.push(eventIds);
+      calls.narrateInputs.push({ summary, fallbackSubject });
       return { inboxItemIds: [id(555)], viaComposer: false };
     },
     async completeCycle(input) {
@@ -217,7 +228,23 @@ describe("businessCycle workflow", () => {
     expect(m.calls.overlapSeen).toBe(false);
     expect(m.calls.maxConcurrent).toBeLessThanOrEqual(3);
     expect(m.calls.narrated[0]).toEqual([id(777), id(777), id(777), id(777)]);
+    // The note everyone reads is in founder words: no cycle number, no "sessions dispatched" (Nov 8, 2026).
+    expect(m.calls.narrateInputs[0]).toEqual({ summary: "Ship the API and the web\n\nThis round of work: 4 tasks started, 4 finished, 0 blocked.", fallbackSubject: "The team finished a round of work" });
     expect(m.calls.completed[0]).toMatchObject({ cycleId: result.cycleId, outcome: "completed", tasksDispatched: 4, tasksCompleted: 4, inboxItemIds: [id(555)], currency: "USD" });
+  });
+
+  it("starts the merge review of each code task that waits in review with nothing moving it, once per task, outliving the cycle", async () => {
+    const waiting: MergeInput = { businessId: B, taskId: id(901), agentId: id(902), sessionId: id(903), branch: `agent/${id(901)}`, acceptance: { passing: 145, total: 145 }, summary: "Hydration fix" };
+    const m = mockActivities({ merges: [waiting] });
+    const result = await rig.run(m.acts, async (client, taskQueue) => {
+      const cycle = await client.workflow.execute(businessCycle, { workflowId: `cycle:${B}:2`, taskQueue, args: [{ businessId: B, cycleNumber: 2, trigger: "continue" }] });
+      return { cycle, review: await client.workflow.getHandle(`merge:${id(901)}`).result() };
+    });
+    expect(result.cycle.outcome).toBe("completed");
+    expect(result.review).toEqual({ status: "skipped", reason: "test" });
+    expect(m.calls.merges).toEqual([id(901)]);
+    // The planned work is unaffected: every task still dispatched.
+    expect(result.cycle.tasksDispatched).toBe(4);
   });
 
   it("stop ends the cycle early and fans the stop out to the running sessions", async () => {
@@ -359,8 +386,37 @@ describe("businessCycle workflow", () => {
     expect(result.tasksDispatched).toBe(3);
   });
 
+  it("a capped cycle (Autopilot's own spend, 0077) starts work only within its cap, and hands each session its share", async () => {
+    // Plenty of credits, but a cap of 10 cents: the reserves stop new starts at the cap.
+    const m = mockActivities({ budgetMinor: 100_000 });
+    const caps: (number | null | undefined)[] = [];
+    m.acts.runAgentSession = async (input) => {
+      caps.push(input.spendCapMinor);
+      await new Promise((r) => setTimeout(r, 100));
+      return { ...done(), costMinor: input.spendCapMinor ?? 5 };
+    };
+    const result = await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(businessCycle, { workflowId: `cycle:${B}:73`, taskQueue, args: [{ businessId: B, cycleNumber: 73, trigger: "autopilot", budgetCapMinor: 10 }] }));
+    expect(caps.length).toBeGreaterThan(0);
+    expect(caps.every((c) => typeof c === "number" && c > 0)).toBe(true);
+    // What the sessions were allowed to spend never adds up past the cap.
+    expect(caps.reduce<number>((n, c) => n + (c ?? 0), 0)).toBeLessThanOrEqual(10);
+    expect(result.tasksDispatched).toBeLessThan(tasks.length + 1);
+  });
+
+  it("an uncapped cycle hands sessions no cap of its own", async () => {
+    const m = mockActivities({ budgetMinor: 100_000 });
+    const caps: (number | null | undefined)[] = [];
+    m.acts.runAgentSession = async (input) => {
+      caps.push(input.spendCapMinor);
+      await new Promise((r) => setTimeout(r, 50));
+      return done();
+    };
+    await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(businessCycle, { workflowId: `cycle:${B}:74`, taskQueue, args: [{ businessId: B, cycleNumber: 74, trigger: "continue" }] }));
+    expect(caps.every((c) => c === undefined)).toBe(true);
+  });
+
   it("a plan the model account cannot pay for ends the cycle failed at once, with the reason in the Inbox (audit BILL-06)", async () => {
-    const billing = "This cycle's plan could not run: the model account that runs Foundmill is out of credit. Our team has been alerted, and nothing was charged to your credits. Try again later.";
+    const billing = "This round's plan could not run: the model account that runs Foundmill is out of credit. Our team has been alerted, and nothing was charged to your credits. Try again later.";
     const m = mockActivities({ planError: () => ApplicationFailure.create({ type: CYCLE_PLAN_FAILURE, message: billing, nonRetryable: true, details: [{ kind: "billing", billedTo: "credits", reason: "credit_balance" }] }) });
     const result = await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(businessCycle, { workflowId: `cycle:${B}:6`, taskQueue, args: [{ businessId: B, cycleNumber: 6, trigger: "continue" }] }));
     expect(result).toMatchObject({ outcome: "failed", tasksDispatched: 0, costMinor: 0, inboxItemIds: [id(556)] });

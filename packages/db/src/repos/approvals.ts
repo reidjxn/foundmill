@@ -10,10 +10,11 @@
  * session on the task when the first one had ended before the founder answered.
  */
 import { DECISION_TYPES, ValidationError, type DecisionType } from "@foundmill/shared";
-import { and, asc, desc, eq, inArray, isNull, isNotNull, max, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, isNotNull, max, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { agentSessions, agents, APPROVAL_BY_KINDS, APPROVAL_OUTCOMES, approvals, departments, memberships, tasks, type Approval, type APPROVAL_HANDLER_KINDS } from "../schema";
 import { Currency, DateRange, Id, JsonObject, MinorAmount, one, PageInput, parseInput, timeKeyset, timeRange, toPage, type Executor, type Page } from "./_shared";
+import { membershipNotEnded } from "./memberships";
 
 export const CreateApprovalInput = z.object({
   planActionId: Id.nullable().optional(),
@@ -160,7 +161,8 @@ export async function routeApproval(db: Executor, businessId: string, input: { a
   }
   if (handler.kind === "founder" || !handler.id) return none;
   if (handler.kind === "user") {
-    const member = await db.select({ id: memberships.id }).from(memberships).where(and(eq(memberships.businessId, businessId), eq(memberships.userId, handler.id))).limit(1);
+    // A person whose membership has ended (0092) is no longer one of the project's people: the founder answers it.
+    const member = await db.select({ id: memberships.id }).from(memberships).where(and(eq(memberships.businessId, businessId), eq(memberships.userId, handler.id), membershipNotEnded)).limit(1);
     return member.length ? { ...none, handlerKind: "user", handlerId: handler.id } : none;
   }
   const agent = (await db.select({ id: agents.id, status: agents.status, archivedAt: agents.archivedAt }).from(agents).where(and(eq(agents.businessId, businessId), eq(agents.id, handler.id))).limit(1))[0];
@@ -273,6 +275,14 @@ export const approvalsRepo = {
     return rows[0] ?? null;
   },
 
+  /**
+   * Every approval one Inbox item asks about, oldest first: one for most notes, several when same-kind requests were
+   * batched into one decision (first-time founder report, Nov 8, 2026: "5 channels want to launch their first campaign").
+   */
+  async listForInboxItem(db: Executor, businessId: string, inboxItemId: string): Promise<Approval[]> {
+    return db.select().from(approvals).where(and(eq(approvals.businessId, businessId), eq(approvals.inboxItemId, inboxItemId))).orderBy(asc(approvals.requestedAt));
+  },
+
   /** Records the Inbox item that asks the founder about this approval. */
   async linkInboxItem(db: Executor, businessId: string, approvalId: string, inboxItemId: string): Promise<Approval> {
     return one(await db.update(approvals).set({ inboxItemId, updatedAt: new Date() }).where(scoped(businessId, approvalId)).returning(), "approval", approvalId);
@@ -337,7 +347,9 @@ export const approvalsRepo = {
    * Uses a granted approval for one call (0030): the approval the founder granted for this session's task (or this very
    * session), agent, connector, tool and arguments, covering at least the call's amount in the same currency, that no
    * call has used. Marked used by `sessionId` under a condition on `used_at`, so two calls can never both run under one
-   * approval. Null when there is none (the call asks as usual).
+   * approval. Null when there is none (the call asks as usual). An approval an agent decided (Team › Responsibilities)
+   * never counts: it covered the one call that opened it (`useDecided`), and a retry asks again under the routing as it
+   * is now, so a delegation the founder has withdrawn decides nothing more.
    */
   async useGranted(db: Executor, businessId: string, input: UseGrantedInput): Promise<Approval | null> {
     const v = parseInput(UseGrantedInput, input, "gated call");
@@ -351,6 +363,7 @@ export const approvalsRepo = {
         and(
           eq(approvals.businessId, businessId),
           eq(approvals.outcome, "approved"),
+          or(isNull(approvals.byKind), ne(approvals.byKind, "agent")),
           isNull(approvals.usedAt),
           eq(approvals.agentId, v.agentId),
           eq(approvals.connectorKey, v.connectorKey),
@@ -372,6 +385,35 @@ export const approvalsRepo = {
       if (used[0]) return used[0];
     }
     return null;
+  },
+
+  /**
+   * Uses the approval an agent just decided for the call that opened it (Team › Responsibilities): marked used by
+   * `sessionId` at once, so the decision covers that one call and no later identical call can run under it once the
+   * delegation is withdrawn. Null when it is not an approved, unused approval.
+   */
+  async useDecided(db: Executor, businessId: string, approvalId: string, sessionId: string | null): Promise<Approval | null> {
+    const used = await db
+      .update(approvals)
+      .set({ usedAt: new Date(), usedBySessionId: sessionId, updatedAt: new Date() })
+      .where(and(scoped(businessId, approvalId), eq(approvals.outcome, "approved"), isNull(approvals.usedAt)))
+      .returning();
+    return used[0] ?? null;
+  },
+
+  /**
+   * Gives back an approval `useGranted` or `useDecided` took for a call that never ran: the vendor refused it outright (GitHub's 405
+   * "not mergeable", a 409 or 422), or the gateway stopped it before the vendor saw it. Only the session that used it
+   * can give it back, and only while it is still marked used by that session. Until Nov 6, 2026 a merge the founder
+   * approved that GitHub refused for a moment spent the approval, and the retry put the same question in the Inbox again.
+   */
+  async releaseUse(db: Executor, businessId: string, approvalId: string, sessionId: string | null): Promise<boolean> {
+    const released = await db
+      .update(approvals)
+      .set({ usedAt: null, usedBySessionId: null, updatedAt: new Date() })
+      .where(and(scoped(businessId, approvalId), sql`${approvals.usedAt} is not null`, sessionId ? eq(approvals.usedBySessionId, sessionId) : isNull(approvals.usedBySessionId)))
+      .returning({ id: approvals.id });
+    return released.length > 0;
   },
 
   /**

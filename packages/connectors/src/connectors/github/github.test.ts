@@ -85,6 +85,10 @@ describe("github mock: merge flow and simulation", () => {
     expect(fresh.data).toMatchObject({ created: true, committed: true, url: expect.stringContaining("https://github.com/acme/new-shop/commit/") });
     // The PR flow works on top of the pushed branch.
     expect((await mock.callTool("open_pr", { owner: "acme", repo: "new-shop", title: "Agent work", head: "agent/t9", base: "main" }, ctx)).ok).toBe(true);
+    // Without a base, the pull request targets the repository's default branch (the merge step never names it).
+    const defaulted = await mock.callTool("open_pr", { owner: "acme", repo: "new-shop", title: "Agent work", head: "agent/t9" }, ctx);
+    expect(defaulted.ok).toBe(true);
+    expect((isUntrusted(defaulted.data) ? defaulted.data.content : defaulted.data) as { base: { ref: string } }).toMatchObject({ base: { ref: "main" } });
     expect(mock.policyHints.commit_files).toEqual({});
   });
   it("compare_refs names the commit a branch left the default branch at and the branch's own changes, with nothing for the default branch itself", async () => {
@@ -527,7 +531,7 @@ function fakeGitApi(owner: string, repo: string, files: Record<string, string>, 
   };
   /** The files a branch holds, as text. */
   const read = (branch: string) => Object.fromEntries([...trees.get(commits.get(refs.get(branch)!)!.tree)!].map(([p, sha]) => [p, blobs.get(sha)!.toString(p.endsWith(".png") ? "base64" : "utf8")]));
-  return { fetch, log, refs, commits, read };
+  return { fetch, log, refs, commits, trees, blobs, putTree, putCommit, read };
 }
 
 describe("commit_files limits", () => {
@@ -649,6 +653,43 @@ describe("github live: commit_files against the Git Data API", () => {
     expect((await commit({ branch: "agent/t1", message: "on time", files: [{ path: "src/a.ts", content: "v3" }], expectedHeadSha: head })).data).toMatchObject({ committed: true, parentSha: head });
     // No branch yet: created from the default branch, the expected head notwithstanding.
     expect((await commit({ branch: "agent/t2", files: [{ path: "src/a.ts", content: "v9" }], expectedHeadSha: stale })).data).toMatchObject({ created: true, committed: true });
+  });
+
+  it("rebuilds an existing branch on fromRef when asked: the commit's parent is fromRef, the ref is moved there (forced), and the old commits are left behind", async () => {
+    const { api, commit } = setup();
+    await commit({ branch: "agent/t1", files: [{ path: "src/a.ts", content: "v2" }, { path: "stale.txt", content: "old branch only" }] });
+    const oldHead = api.refs.get("agent/t1")!;
+    // The default branch moves on meanwhile.
+    const movedTree = new Map([...api.trees.get(api.commits.get(api.refs.get("main")!)!.tree)!]);
+    const newBlob = Buffer.from("export const b = 2;\n");
+    api.blobs.set(gitBlobSha(newBlob), newBlob);
+    movedTree.set("src/b.ts", gitBlobSha(newBlob));
+    const mainSha = api.putCommit(api.putTree(movedTree), [api.refs.get("main")!], "main moved");
+    api.refs.set("main", mainSha);
+
+    // A head the caller did not see is refused before anything is written, rebuild or not.
+    const writes = api.log.length;
+    expect((await commit({ branch: "agent/t1", rebuild: true, fromRef: mainSha, expectedHeadSha: "f".repeat(40), files: [{ path: "src/a.ts", content: "v3" }] })).error?.code).toBe(BRANCH_MOVED);
+    expect(api.log.slice(writes).filter((l) => l.method !== "GET")).toEqual([]);
+
+    const r = await commit({ branch: "agent/t1", message: "rebuilt", rebuild: true, fromRef: mainSha, expectedHeadSha: oldHead, files: [{ path: "src/a.ts", content: "v3" }] });
+    expect(r.ok, JSON.stringify(r.error)).toBe(true);
+    expect(r.data).toMatchObject({ created: false, committed: true, rebuilt: true, parentSha: mainSha, filesWritten: 1 });
+    const head = api.refs.get("agent/t1")!;
+    expect(head).not.toBe(oldHead);
+    expect(api.commits.get(head)).toMatchObject({ message: "rebuilt", parents: [mainSha] });
+    // Main's newest files, the agent's change, and nothing the old branch alone had.
+    expect(api.read("agent/t1")).toEqual({ "README.md": "# Shop\n", "src/a.ts": "v3", "src/same.ts": "same\n", "old.txt": "old\n", "src/b.ts": "export const b = 2;\n" });
+    // The branch was created with POST refs; the rebuild is the only ref update, and the only forced one.
+    const patches = api.log.filter((l) => l.method === "PATCH").map((l) => (l.body as { force?: boolean }).force);
+    expect(patches).toEqual([true]);
+
+    // Nothing differs from fromRef: the branch is moved to fromRef itself, with no commit.
+    const same = await commit({ branch: "agent/t1", message: "again", rebuild: true, fromRef: mainSha, files: [{ path: "src/a.ts", content: "export const a = 1;\n" }] });
+    expect(same.data).toMatchObject({ committed: false, rebuilt: true, sha: mainSha, filesWritten: 0 });
+    expect(api.refs.get("agent/t1")).toBe(mainSha);
+    // Without fromRef a rebuild is not a valid call.
+    expect((await commit({ branch: "agent/t1", rebuild: true, files: [{ path: "src/a.ts", content: "v4" }] })).error?.code).toBe("invalid_args");
   });
 
   it("surfaces a branch that moved meanwhile as an error instead of overwriting it", async () => {
@@ -1025,5 +1066,47 @@ describe("commit_files expectedHeadSha", () => {
     // A branch that does not exist yet is created whatever the expected head says.
     expect((await mock.callTool("commit_files", { ...repo, branch: "agent/t2", message: "new", files: [{ path: "a.ts", content: "a" }], expectedHeadSha: stale }, ctx)).data).toMatchObject({ created: true, committed: true });
     expect((await mock.callTool("commit_files", { ...repo, message: "x", files: [], expectedHeadSha: "abc123" }, ctx)).error?.code).toBe("invalid_args");
+  });
+});
+
+describe("commit_files rebuild", () => {
+  it("mock: rebuilds an existing branch on fromRef (its old commits left behind), moves its pull request's head, clears its conflict; a new branch is simply created", async () => {
+    const mock = createGithubMock({ conflictingBranches: ["agent/t1"] });
+    const ctx = makeToolContext(mock);
+    const repo = { owner: MOCK_OWNER, repo: "northwind-site" };
+    const branch = "agent/t1";
+    // The branch as the agent first left it: one commit on an older main, then the base moves on.
+    const first = await mock.callTool("commit_files", { ...repo, branch, message: "one", files: [{ path: "src/fix.ts", content: "fix v1\n" }, { path: "stale.txt", content: "from the old branch\n" }] }, ctx);
+    const oldHead = (first.data as { sha: string }).sha;
+    const pr = await mock.callTool("open_pr", { ...repo, title: "Fix", body: "", head: branch, base: "HEAD", draft: false }, ctx);
+    const prNumber = (isUntrusted(pr.data) ? pr.data.content : pr.data) as { number: number; mergeableState: string };
+    expect(prNumber.mergeableState).toBe("dirty");
+    const main = await mock.callTool("compare_refs", { ...repo, base: "HEAD", head: branch }, ctx);
+    const mainSha = (isUntrusted(main.data) ? main.data.content : main.data) as { baseSha: string };
+
+    // Without fromRef the rebuild is refused before anything is written.
+    expect((await mock.callTool("commit_files", { ...repo, branch, message: "x", rebuild: true, files: [{ path: "src/fix.ts", content: "v2" }] }, ctx)).error?.code).toBe("invalid_args");
+    // A head the caller did not see is still refused.
+    expect((await mock.callTool("commit_files", { ...repo, branch, message: "x", rebuild: true, fromRef: mainSha.baseSha, expectedHeadSha: "f".repeat(40), files: [{ path: "src/fix.ts", content: "v2" }] }, ctx)).error?.code).toBe(BRANCH_MOVED);
+
+    // The rebuild: parented on main's commit, the branch holds main's files plus the diff, not the old branch's extras.
+    const rebuilt = await mock.callTool("commit_files", { ...repo, branch, message: "two", rebuild: true, fromRef: mainSha.baseSha, expectedHeadSha: oldHead, files: [{ path: "src/fix.ts", content: "fix v2\n" }] }, ctx);
+    expect(rebuilt.data).toMatchObject({ created: false, committed: true, rebuilt: true, parentSha: mainSha.baseSha, filesWritten: 1 });
+    const newHead = (rebuilt.data as { sha: string }).sha;
+    expect(newHead).not.toBe(oldHead);
+    const stale = await mock.callTool("read_file", { ...repo, path: "stale.txt", ref: branch }, ctx);
+    expect(stale.ok).toBe(false);
+    const compared = await mock.callTool("compare_refs", { ...repo, base: "HEAD", head: branch }, ctx);
+    expect(isUntrusted(compared.data) && compared.data.content).toMatchObject({ behindBy: 0, aheadBy: 1, files: [{ path: "src/fix.ts", status: "added" }] });
+    const after = await mock.callTool("get_pull_request", { ...repo, prNumber: prNumber.number }, ctx);
+    expect(isUntrusted(after.data) && after.data.content).toMatchObject({ head: { sha: newHead }, mergeableState: "clean" });
+
+    // Nothing differs from fromRef: the branch becomes fromRef itself, no commit.
+    const none = await mock.callTool("commit_files", { ...repo, branch, message: "three", rebuild: true, fromRef: mainSha.baseSha, files: [] }, ctx);
+    expect(none.data).toMatchObject({ committed: false, rebuilt: true, sha: mainSha.baseSha });
+    // A branch that does not exist yet: created from fromRef, nothing to rebuild.
+    expect((await mock.callTool("commit_files", { ...repo, branch: "agent/t2", message: "new", rebuild: true, fromRef: mainSha.baseSha, files: [{ path: "a.ts", content: "a" }] }, ctx)).data).toMatchObject({ created: true, rebuilt: false, committed: true });
+    // Without rebuild, a commit still goes on top of the branch as before.
+    expect((await mock.callTool("commit_files", { ...repo, branch: "agent/t2", message: "more", files: [{ path: "b.ts", content: "b" }] }, ctx)).data).toMatchObject({ created: false, rebuilt: false, committed: true });
   });
 });

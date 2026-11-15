@@ -235,11 +235,11 @@ export function ResearchPlanPanel({ businessId, blocks, onOpenBlock, span = 12, 
                   {taskCount} research task{taskCount === 1 ? "" : "s"} for the next cycles (recruiting, the page, the survey), each ending with your approval before anyone is contacted.
                 </span>
                 <Button size="sm" variant="ghost" onClick={() => navigate(planHref)}>
-                  Open Development › Plan
+                  Open Product › Work list
                 </Button>
               </>
             ) : (
-              <span>The follow-up work (recruiting, the page, the survey) runs as research tasks in the next cycles.</span>
+              <span>The follow-up work (recruiting, the page, the survey) runs as research tasks in the next rounds of work.</span>
             )}
           </p>
         </div>

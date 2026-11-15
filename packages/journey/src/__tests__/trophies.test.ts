@@ -1,18 +1,42 @@
 import { describe, expect, it } from "vitest";
-import { customerTrophyFor, detectTrophies, ENTERPRISE_CONTRACT_MIN_MINOR, enterpriseContractMinMinor, formatThreshold, isEnterpriseContract, isTrophyKey, thresholdFor, TROPHIES, TROPHY_BY_KEY, type TrophyCounters } from "../trophies";
+import { customerTrophyFor, detectTrophies, eventTrophyDescription, EVENT_TROPHIES, ENTERPRISE_CONTRACT_MIN_MINOR, enterpriseContractMinMinor, formatThreshold, isEnterpriseContract, isTrophyKey, thresholdFor, TROPHIES, TROPHY_BY_KEY, type TrophyCounters } from "../trophies";
 import { Milestone, TROPHY_KEYS } from "../types";
 
 const at = "2025-04-01T10:00:00.000Z";
 const counters = (over: Partial<TrophyCounters> = {}): TrophyCounters => ({ customers: 0, mrrMinor: 0, enterpriseContracts: 0, ...over });
 
 describe("trophy cabinet", () => {
-  it("defines exactly the eight trophies of BUILD §11.4", () => {
+  it("defines the two early milestones first, then exactly the eight trophies of BUILD §11.4", () => {
     expect(TROPHIES.map((t) => t.key)).toEqual([...TROPHY_KEYS]);
+    expect(TROPHIES.map((t) => t.key)).toEqual(["page_live", "first_follower", "customer_1", "customer_10", "customer_100", "customer_1000", "mrr_1k", "mrr_10k", "mrr_100k", "first_enterprise_contract"]);
+    expect(TROPHIES.filter((t) => t.metric !== "event")).toHaveLength(8);
     expect(TROPHIES.filter((t) => t.metric === "customers").map((t) => t.threshold)).toEqual([1, 10, 100, 1000]);
     expect(TROPHIES.filter((t) => t.metric === "mrrMinor").map((t) => t.threshold)).toEqual([100_000, 1_000_000, 10_000_000]);
     expect(TROPHY_BY_KEY.first_enterprise_contract.threshold).toBe(1);
     expect(isTrophyKey("mrr_1k")).toBe(true);
     expect(isTrophyKey("mrr_1m")).toBe(false);
+  });
+
+  it("the early milestones are one recorded event each: named plainly, never fired from a counter", () => {
+    expect(EVENT_TROPHIES.map((t) => [t.key, t.label("USD"), t.kind])).toEqual([
+      ["page_live", "Page live", "trophy"],
+      ["first_follower", "First follower", "trophy"],
+    ]);
+    // The same words in any money, and a line of their own for the founders.
+    for (const t of EVENT_TROPHIES) {
+      expect(t.label("JPY", false)).toBe(t.label("USD", true));
+      expect(eventTrophyDescription(t)).toMatch(/\.$/);
+    }
+    expect(eventTrophyDescription(TROPHY_BY_KEY.customer_1)).toBeNull();
+    expect(isTrophyKey("page_live")).toBe(true);
+    expect(isTrophyKey("first_follower")).toBe(true);
+    expect(isTrophyKey("first_reply")).toBe(false);
+    // However far every counter moves, no early milestone comes out of it.
+    const out = detectTrophies({ before: counters(), after: counters({ customers: 5000, mrrMinor: 100_000_000, enterpriseContracts: 9 }), at, currency: "EUR" });
+    expect(out.map((m) => m.trophyKey)).not.toContain("page_live");
+    expect(out.map((m) => m.trophyKey)).not.toContain("first_follower");
+    expect(out).toHaveLength(8);
+    expect(customerTrophyFor(1)?.key).toBe("customer_1");
   });
 
   it.each([
@@ -61,6 +85,17 @@ describe("trophy cabinet", () => {
     expect(m!.ref).toEqual({ trophyKey: "mrr_1k", metric: "mrrMinor", threshold: 100_000, value: 100_000, conversionId: "abc" });
     expect(m!.businessId).toBe("b0000000-0000-0000-0000-000000000001");
     expect(formatThreshold(10_000_000, "GBP")).toBe("£100K");
+  });
+
+  it("names a revenue trophy as Finance names its monthly figure: MRR only when revenue recurs", () => {
+    const mrr10k = TROPHY_BY_KEY.mrr_10k;
+    expect(mrr10k.label("GBP")).toBe("First £10K MRR");
+    expect(mrr10k.label("GBP", true)).toBe("First £10K MRR");
+    expect(mrr10k.label("GBP", null)).toBe("First £10K MRR");
+    expect(mrr10k.label("GBP", false)).toBe("First £10K monthly revenue");
+    const [m] = detectTrophies({ before: counters(), after: counters({ mrrMinor: 100_000 }), at, currency: "GBP", recurring: false });
+    expect(m!.label).toBe("First £1K monthly revenue");
+    expect(TROPHY_BY_KEY.customer_10.label("GBP", false)).toBe("10th customer");
   });
 
   it("revenue thresholds scale from major units of the business's currency, so the label and the award agree (JM-14)", () => {

@@ -127,11 +127,13 @@ describe("sendgrid live (canned responses)", () => {
       }),
       now: () => MOCK_NOW,
     });
-    const ctx = makeToolContext(connector, { mode: "live" });
+    const ctx = makeToolContext(connector, { mode: "live", credential: { kind: "api_key", secret: "SG.founder-own" } });
     const r = await connector.callTool("send_mail", { ...base, kind: "marketing", unsubscribeUrl: "https://northwindskincare.com/u/abc", customArgs: { campaignId: "c1" } }, ctx);
     expect(r.ok, JSON.stringify(r.error)).toBe(true);
     expect(r.data).toMatchObject({ messageId: "abc123", accepted: ["anna.lind@example.com"] });
-    expect(calls.every((a) => a === "Bearer SG.platform")).toBe(true);
+    // The founder's own key, never the platform's (which belongs to platform_mail alone).
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls.every((a) => a === "Bearer SG.founder-own")).toBe(true);
     expect(mailBody).toMatchObject({ from: { email: MOCK_SENDER_EMAIL }, personalizations: [{ to: [{ email: "anna.lind@example.com" }], custom_args: { campaignId: "c1" } }], headers: { "List-Unsubscribe": "<https://northwindskincare.com/u/abc>" } });
     const blocked = await connector.callTool("send_mail", { ...base, kind: "transactional", to: [{ email: "blocked@example.com" }] }, ctx);
     expect(blocked.error?.code).toBe("recipient_suppressed");
@@ -139,6 +141,17 @@ describe("sendgrid live (canned responses)", () => {
     expect((stats.data as { rows: unknown[] }).rows).toHaveLength(7);
     expect(await connector.webhooks![0]!.verify(signedEventRequest(TEST_BUSINESS_ID, [sgEvent("unsubscribe", "x@example.com")]))).toBe(true);
   });
+  it("never falls back to the platform's SENDGRID_API_KEY: no founder key, no call; the health check uses the founder's key", async () => {
+    const calls: string[] = [];
+    const connector = createSendgridConnector({ secrets: { sendgridApiKey: "SG.platform" }, fetch: routedFetch({ "GET https://api.sendgrid.com/v3/verified_senders": (req) => (calls.push(req.headers.get("authorization") ?? ""), jsonResponse({ results: SG_VERIFIED_SENDERS })) }), now: () => MOCK_NOW });
+    await expect(connector.callTool("list_verified_senders", {}, makeToolContext(connector, { mode: "live" }))).rejects.toMatchObject({ code: "connector_unconfigured" });
+    const integration = makeToolContext(connector, { mode: "live" }).integration;
+    expect(await connector.healthcheck(integration)).toMatchObject({ ok: false, status: "disconnected" });
+    expect(calls).toEqual([]);
+    expect(await connector.healthcheck(integration, { kind: "api_key", secret: "SG.founder-own" })).toMatchObject({ ok: true, status: "connected" });
+    expect(calls).toEqual(["Bearer SG.founder-own"]);
+  });
+
   it("throws ConfigError without a key and refuses inbound parse without a token", async () => {
     const c = createSendgridConnector({ secrets: {} });
     await expect(c.callTool("list_verified_senders", {}, makeToolContext(c, { mode: "live" }))).rejects.toMatchObject({ code: "connector_unconfigured" });

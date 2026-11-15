@@ -67,7 +67,7 @@ describe("session replays follow the session's sections", () => {
 });
 
 describe("staff changes reach apps/stream", () => {
-  it("team.humans.invite, .role and .remove each publish membership.changed for the person, through the outbox", async () => {
+  it("invitation.accept, team.humans.role and .remove each publish membership.changed for the person, through the outbox", async () => {
     const businessId = hz.A.businessId;
     const owner = hz.caller({ userId: hz.A.ownerId });
     const changes = async (userId: string) =>
@@ -79,7 +79,8 @@ describe("staff changes reach apps/stream", () => {
     // A newcomer takes a seat: on a plan with seats to spare.
     await owner.billing.changeTier({ businessId, tier: "scale" });
     try {
-      await owner.team.humans.invite({ businessId, userId: newcomer, role: "member" });
+      const { link } = await owner.invitation.create({ businessId, role: "collaborator" });
+      await hz.caller({ userId: newcomer }).invitation.accept({ confirmAdult: true, token: link.split("/i/")[1]! });
     } finally {
       await owner.billing.changeTier({ businessId, tier: "free" });
     }

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, openBusiness } from "./helpers";
+import { LONG, NORTHWIND_BUSINESS_ID, openBusiness, openExplainer } from "./helpers";
 
 /**
  * Finance and Legal fixes (audit W03), on the seeded Northwind Skincare: typing in the Runway drivers keeps what was
@@ -51,6 +51,10 @@ test.describe("finance fixes", () => {
   });
 
   test("cash: the This month view lists this month's transactions", async ({ page }) => {
+    // The seed books its first transactions of a month on the 3rd, so on the 1st and 2nd "this month" is rightly empty
+    // (Nov 1, 2026). The browser's "this month" is pinned to the 20th of last month, which the seed always covers.
+    const now = new Date();
+    await page.clock.setFixedTime(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 20, 12)));
     await openTab(page, "finance", "cash");
     // The table opens on whichever view is current (Simple while guidance is on, UX plan §7.10); pick This month from it.
     await page.getByRole("button", { name: /^View: / }).click();
@@ -80,7 +84,7 @@ test.describe("finance fixes", () => {
     // Guidance on (the product default): the tab's intro says who owns what, inside the Holders panel (UX plan §7.14),
     // and SAFE is a defined word wherever the screen first says it.
     const holders = page.getByRole("region", { name: "Holders" });
-    await expect(holders.locator("[data-explainer='finance/cap-table']")).toContainText("Who owns what share of the company.");
+    await expect(await openExplainer(page, "finance/cap-table")).toContainText("Who owns what share of the company.");
     await expect(page.locator("[data-term='safe']").first()).toBeVisible();
     for (const row of await page.getByRole("grid", { name: "Holders" }).getByRole("row").all()) {
       const cells = (await row.innerText()).toLowerCase();

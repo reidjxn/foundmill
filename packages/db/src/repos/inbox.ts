@@ -10,7 +10,7 @@
 import { ENTITY_MARKUP_RE, EXHIBIT_KINDS, INBOX_ITEM_TYPES, INBOX_STATES, OptionAction, ValidationError, applyGlossary, type InboxItemType, type InboxState } from "@foundmill/shared";
 import { and, asc, desc, eq, getTableColumns, inArray, isNotNull, isNull, notInArray, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
-import { agents, businesses, composerBuffer, DECIDED_BY_KINDS, decisions, entities, events, inboxItemReads, inboxItems, memberships, plans, type ComposerBufferRow, type Decision, type InboxItem } from "../schema";
+import { agents, businesses, composerBuffer, DECIDED_BY_KINDS, decisions, entities, events, inboxItemReads, inboxItems, memberships, plans, tasks, type ComposerBufferRow, type Decision, type InboxItem } from "../schema";
 import { Currency, Id, MinorAmount, one, PageInput, parseInput, timeKeyset, toPage, type Executor, type Page } from "./_shared";
 
 // --- Composer output schema (BUILD §11.3) ------------------------------------------------------------------------------
@@ -136,8 +136,29 @@ export function inBusinessWords(v: ParsedComposerItem, glossary: Record<string, 
 export const INBOX_TABS = ["all", "respond", "customers", "updates", "messages", "archive"] as const;
 export type InboxTab = (typeof INBOX_TABS)[number];
 
-/** Types that ask the founder for something; they sit in Respond until answered. */
-export const RESPOND_TYPES: readonly InboxItemType[] = ["decision", "customer_won", "warning"];
+/**
+ * Types that ask the founder for something; they sit in Respond (shown as "Needs you") until answered. A warning sits
+ * there only when it carries a decision or holds Continue (a hard stop): fifteen "no action needed" warnings in Respond
+ * trained the founder to ignore the tab (Nov 1, 2026), so the rest read as updates. A customer win is good news, not a
+ * question: it has its own Customers tab and left Respond on Nov 7, 2026.
+ */
+export const RESPOND_TYPES: readonly InboxItemType[] = ["decision"];
+
+/**
+ * Only a hard stop holds Continue (0071, founder, Nov 7, 2026): a warning the team cannot work past until the founder
+ * acts (credits used up, a revoked key). A decision waits for its answer without stopping the team, since the work that
+ * needs it is held on its own; a customer win never holds anything.
+ */
+export function holdsContinue(type: InboxItemType, requested: boolean): boolean {
+  return requested && type === "warning";
+}
+
+/** The task ids an event names (`taskId`, `blockedByTaskId`, `taskIds`), for closing the notes it sourced. */
+function noteTaskIds(payload: unknown): string[] {
+  const p = (payload ?? {}) as { taskId?: unknown; blockedByTaskId?: unknown; taskIds?: unknown };
+  const ids = [p.taskId, p.blockedByTaskId, ...(Array.isArray(p.taskIds) ? p.taskIds : [])];
+  return ids.filter((id): id is string => typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id));
+}
 
 /**
  * The item's plan waits for the founder's go-ahead ("Here is what will happen", `plan.confirm`): it was answered, so
@@ -156,19 +177,29 @@ function stateFor(viewerId?: string | null): SQL<InboxState> {
   return sql<InboxState>`case when "inbox_items"."state" = 'unread' and exists (select 1 from "inbox_item_reads" "r" where "r"."inbox_item_id" = "inbox_items"."id" and "r"."user_id" = ${viewerId}::uuid) then 'read' else "inbox_items"."state" end`;
 }
 
+/**
+ * Whose notes a read may see (0103 `for_user_id`): with a viewer, the notes for everyone and the viewer's own; without
+ * one (the orchestrator, the composer, the push notifier on the privileged connection, which RLS does not narrow), the
+ * notes for everyone only. A founder's own showcase ask is never read for, or shown to, anyone else.
+ */
+export function inboxAudience(viewerId?: string | null) {
+  return viewerId ? or(isNull(inboxItems.forUserId), eq(inboxItems.forUserId, viewerId)) : isNull(inboxItems.forUserId);
+}
+
 function tabCondition(tab: InboxTab) {
   switch (tab) {
     case "all":
       return sql`${inboxItems.state} <> 'archived'`;
     case "respond":
       return or(
-        and(inArray(inboxItems.state, ["unread", "read"]), or(eq(inboxItems.blocksContinue, true), inArray(inboxItems.type, [...RESPOND_TYPES]))),
+        and(inArray(inboxItems.state, ["unread", "read"]), or(eq(inboxItems.blocksContinue, true), inArray(inboxItems.type, [...RESPOND_TYPES]), and(eq(inboxItems.type, "warning"), isNotNull(inboxItems.decision)))),
         and(eq(inboxItems.state, "answered"), awaitingConfirmation),
       );
     case "customers":
       return and(sql`${inboxItems.state} <> 'archived'`, eq(inboxItems.type, "customer_won"));
     case "updates":
-      return and(sql`${inboxItems.state} <> 'archived'`, inArray(inboxItems.type, ["update", "milestone", "report"]));
+      // A warning with nothing to decide and nothing holding Continue is news, not a request.
+      return and(sql`${inboxItems.state} <> 'archived'`, or(inArray(inboxItems.type, ["update", "milestone", "report"]), and(eq(inboxItems.type, "warning"), isNull(inboxItems.decision), eq(inboxItems.blocksContinue, false))));
     case "messages":
       return and(sql`${inboxItems.state} <> 'archived'`, eq(inboxItems.type, "human_message"));
     case "archive":
@@ -178,8 +209,8 @@ function tabCondition(tab: InboxTab) {
 
 export const InboxListFilter = PageInput.extend({
   tab: z.enum(INBOX_TABS).default("all"),
-  state: z.union([z.enum(INBOX_STATES), z.array(z.enum(INBOX_STATES))]).optional(),
-  type: z.union([z.enum(INBOX_ITEM_TYPES), z.array(z.enum(INBOX_ITEM_TYPES))]).optional(),
+  state: z.union([z.enum(INBOX_STATES), z.array(z.enum(INBOX_STATES)).max(INBOX_STATES.length)]).optional(),
+  type: z.union([z.enum(INBOX_ITEM_TYPES), z.array(z.enum(INBOX_ITEM_TYPES)).max(INBOX_ITEM_TYPES.length)]).optional(),
   fromAgentId: Id.optional(),
   blocking: z.boolean().optional(),
 });
@@ -240,6 +271,7 @@ export const inboxRepo = {
         and(
           eq(inboxItems.businessId, businessId),
           isNull(inboxItems.archivedAt),
+          inboxAudience(viewerId),
           tabCondition(f.tab),
           states?.length ? inArray(state, states) : undefined,
           types?.length ? inArray(inboxItems.type, types) : undefined,
@@ -269,14 +301,14 @@ export const inboxRepo = {
     const rows = await db
       .select({ n: sql<number>`count(*)::int` })
       .from(inboxItems)
-      .where(and(eq(inboxItems.businessId, businessId), eq(inboxItems.blocksContinue, true), inArray(inboxItems.state, ["unread", "read"]), isNull(inboxItems.archivedAt)));
+      .where(and(eq(inboxItems.businessId, businessId), eq(inboxItems.blocksContinue, true), inArray(inboxItems.state, ["unread", "read"]), isNull(inboxItems.archivedAt), isNull(inboxItems.forUserId)));
     return Number(rows[0]?.n ?? 0);
   },
 
   /** Items per tab, in one statement (a `count(*) filter (where …)` per tab) rather than one query per tab. */
-  async countByTab(db: Executor, businessId: string): Promise<Record<InboxTab, number>> {
+  async countByTab(db: Executor, businessId: string, viewerId?: string | null): Promise<Record<InboxTab, number>> {
     const counts = Object.fromEntries(INBOX_TABS.map((tab) => [tab, sql<number>`count(*) filter (where ${tabCondition(tab) ?? sql`true`})::int`]));
-    const rows = await db.select(counts).from(inboxItems).where(and(eq(inboxItems.businessId, businessId), isNull(inboxItems.archivedAt)));
+    const rows = await db.select(counts).from(inboxItems).where(and(eq(inboxItems.businessId, businessId), isNull(inboxItems.archivedAt), inboxAudience(viewerId)));
     const row: Record<string, unknown> = rows[0] ?? {};
     return Object.fromEntries(INBOX_TABS.map((tab) => [tab, Number(row[tab] ?? 0)])) as Record<InboxTab, number>;
   },
@@ -290,7 +322,7 @@ export const inboxRepo = {
     const o = parseInput(CreateItemOptions, options, "inbox item options");
     await assertOwnedIds(db, businessId, parsed);
     const v = parsed.type === "human_message" ? parsed : inBusinessWords(parsed, await businessGlossary(db, businessId));
-    return one(
+    const created = one(
       await db
         .insert(inboxItems)
         .values({
@@ -303,7 +335,7 @@ export const inboxRepo = {
           statusStrip: v.status_strip,
           exhibit: v.exhibit,
           decision: v.decision,
-          blocksContinue: v.blocks_continue,
+          blocksContinue: holdsContinue(v.type, v.blocks_continue),
           sourceEventIds: v.source_event_ids,
           entityIds: v.entity_ids,
           state: o.state,
@@ -313,6 +345,9 @@ export const inboxRepo = {
         .returning(),
       "inbox item",
     );
+    // One current update per agent: the newer replaces the older open ones (Nov 7, 2026).
+    if (created.type === "update" && created.fromAgentId && created.decision === null && created.state !== "archived") await inboxRepo.supersedeUpdates(db, businessId, { fromAgentId: created.fromAgentId, keepId: created.id });
+    return created;
   },
 
   /** A human-to-human (or human-to-agent) message in the Messages tab. */
@@ -328,18 +363,47 @@ export const inboxRepo = {
    */
   /**
    * True once a founder opened a note an agent wrote: the first-week checklist's "read a note from an agent"
-   * (docs/UX_AUDIT_AND_PLAN.md §6.2). Only a read receipt (0048) by an owner or admin of the business counts, never an
+   * (docs/UX_AUDIT_AND_PLAN.md §6.2). Only a read receipt (0048) by an owner, a cofounder or an admin of the business counts, never an
    * example viewer's. A note's state does not: a sign-off approved from the Product tab answers its note unopened, and
    * the Chief of Staff reads and answers notes on vacation (review F38). One id at most is loaded.
    */
   async anyAgentNoteOpened(db: Executor, businessId: string): Promise<boolean> {
-    const openedByFounder = sql`exists (select 1 from ${inboxItemReads} join ${memberships} on ${memberships.businessId} = ${inboxItemReads.businessId} and ${memberships.userId} = ${inboxItemReads.userId} where ${inboxItemReads.inboxItemId} = ${inboxItems.id} and ${memberships.role} in ('owner', 'admin') and ${memberships.source} <> 'example')`;
+    const openedByFounder = sql`exists (select 1 from ${inboxItemReads} join ${memberships} on ${memberships.businessId} = ${inboxItemReads.businessId} and ${memberships.userId} = ${inboxItemReads.userId} where ${inboxItemReads.inboxItemId} = ${inboxItems.id} and ${memberships.role} in ('owner', 'cofounder', 'admin') and ${memberships.source} <> 'example')`;
     const rows = await db
       .select({ id: inboxItems.id })
       .from(inboxItems)
       .where(and(eq(inboxItems.businessId, businessId), isNotNull(inboxItems.fromAgentId), openedByFounder))
       .limit(1);
     return rows.length > 0;
+  },
+
+  /**
+   * Revises a note in place (the Chief of Staff updating a warning about a problem it already told the founder about):
+   * the replacement's subject, body, decision and flags (validated and in the business's words like a new note), its
+   * source events and entities appended, and the note unread again so it surfaces once more as one item, never a second
+   * copy. Only an open note (unread or read) is revised, and it keeps its type.
+   */
+  async revise(db: Executor, businessId: string, itemId: string, replacement: ComposerItem): Promise<InboxItem> {
+    const item = await inboxRepo.get(db, businessId, itemId);
+    if (item.state !== "unread" && item.state !== "read") throw new ValidationError("Only an open note can be revised", { itemId, state: item.state });
+    const parsed = parseInput(ComposerItem, withPlainOptionLines(replacement), "composer item");
+    if (parsed.type !== item.type) throw new ValidationError("A note keeps its type when revised", { itemId, type: item.type, replacement: parsed.type });
+    await assertOwnedIds(db, businessId, parsed);
+    const v = inBusinessWords(parsed, await businessGlossary(db, businessId));
+    const sourceEventIds = [...new Set([...item.sourceEventIds, ...v.source_event_ids])];
+    const entityIds = [...new Set([...item.entityIds, ...v.entity_ids])];
+    const updated = one(
+      await db
+        .update(inboxItems)
+        .set({ subject: v.subject, bodyMd: v.body_md, statusStrip: v.status_strip, exhibit: v.exhibit, decision: v.decision, blocksContinue: holdsContinue(item.type, v.blocks_continue), sourceEventIds, entityIds, state: "unread", updatedAt: new Date() })
+        .where(scoped(businessId, itemId))
+        .returning(),
+      "inbox item",
+      itemId,
+    );
+    // Everyone reads it afresh: the receipts of the earlier version no longer count.
+    await db.delete(inboxItemReads).where(and(eq(inboxItemReads.businessId, businessId), eq(inboxItemReads.inboxItemId, itemId)));
+    return updated;
   },
 
   async markRead(db: Executor, businessId: string, itemId: string, userId?: string | null): Promise<InboxItem> {
@@ -363,10 +427,63 @@ export const inboxRepo = {
     const item = await inboxRepo.get(db, businessId, itemId);
     const choices = (item.decision as { options?: unknown[] } | null)?.options;
     // `force`: the system closing a request that was settled some other way (an expired approval), not the founder.
-    if (!options.force && item.blocksContinue && (item.state === "unread" || item.state === "read") && Array.isArray(choices) && choices.length > 0) {
+    // A question waits for its answer: an open decision with options (or a hard stop) is never archived by hand, whether or
+    // not it holds Continue (since Nov 7, 2026 a decision no longer does).
+    if (!options.force && (item.blocksContinue || item.type === "decision") && (item.state === "unread" || item.state === "read") && Array.isArray(choices) && choices.length > 0) {
       throw new ValidationError("This decision is waiting for your answer. Choose an option or write what to do; it can be archived once it is answered.", { itemId, state: item.state });
     }
     return one(await db.update(inboxItems).set({ state: "archived" }).where(scoped(businessId, itemId)).returning(), "inbox item", itemId);
+  },
+
+  /**
+   * A newer update from an agent replaces its older open ones (founder, Nov 7, 2026: "the updates I receive should be
+   * much, much more simplified"): the Inbox keeps one current update per agent instead of a stream, and the older ones go
+   * to Archive, where they stay readable. Only plain updates are touched: never a decision, a warning, a win, a
+   * milestone or a report. Returns how many were archived.
+   */
+  async supersedeUpdates(db: Executor, businessId: string, input: { fromAgentId: string; keepId: string }): Promise<number> {
+    const rows = await db
+      .update(inboxItems)
+      .set({ state: "archived", updatedAt: new Date() })
+      .where(and(eq(inboxItems.businessId, businessId), eq(inboxItems.fromAgentId, input.fromAgentId), eq(inboxItems.type, "update"), isNull(inboxItems.decision), inArray(inboxItems.state, ["unread", "read"]), isNull(inboxItems.archivedAt), sql`${inboxItems.id} <> ${input.keepId}`))
+      .returning({ id: inboxItems.id });
+    return rows.length;
+  },
+
+  /**
+   * Closes notes that only informed and are no longer current (founder, Nov 7, 2026: warnings from Oct 31 about problems
+   * long fixed still sat unread): an open update, report or question-less warning is archived when every task its source
+   * events name has finished, stopped or failed, or when nobody touched it for `olderThan`. A decision, a hard stop, a win
+   * and a milestone are never closed here. Returns the ids archived.
+   */
+  async archiveSettled(db: Executor, businessId: string, input: { olderThan: Date; limit?: number }): Promise<string[]> {
+    const informOnly = and(
+      eq(inboxItems.businessId, businessId),
+      inArray(inboxItems.state, ["unread", "read"]),
+      isNull(inboxItems.archivedAt),
+      eq(inboxItems.blocksContinue, false),
+      or(inArray(inboxItems.type, ["update", "report"]), and(eq(inboxItems.type, "warning"), isNull(inboxItems.decision))),
+    );
+    const open = await db.select({ id: inboxItems.id, updatedAt: inboxItems.updatedAt, sourceEventIds: inboxItems.sourceEventIds }).from(inboxItems).where(informOnly).orderBy(asc(inboxItems.createdAt)).limit(input.limit ?? 500);
+    if (open.length === 0) return [];
+    const eventIds = [...new Set(open.flatMap((n) => n.sourceEventIds))];
+    const sources = eventIds.length > 0 ? await db.select({ id: events.id, payload: events.payload }).from(events).where(and(eq(events.businessId, businessId), inArray(events.id, eventIds))) : [];
+    const taskIdsOf = new Map(sources.map((e) => [e.id, noteTaskIds(e.payload)]));
+    const allTaskIds = [...new Set([...taskIdsOf.values()].flat())];
+    const live = allTaskIds.length > 0 ? await db.select({ id: tasks.id, status: tasks.status, archivedAt: tasks.archivedAt }).from(tasks).where(and(eq(tasks.businessId, businessId), inArray(tasks.id, allTaskIds))) : [];
+    const settledTask = new Set(live.filter((t) => t.archivedAt !== null || t.status === "done" || t.status === "stopped" || t.status === "failed").map((t) => t.id));
+    const close = open.filter((n) => {
+      if (n.updatedAt < input.olderThan) return true;
+      const ids = [...new Set(n.sourceEventIds.flatMap((e) => taskIdsOf.get(e) ?? []))];
+      return ids.length > 0 && ids.every((id) => settledTask.has(id));
+    });
+    if (close.length === 0) return [];
+    const rows = await db
+      .update(inboxItems)
+      .set({ state: "archived", updatedAt: new Date() })
+      .where(and(informOnly, inArray(inboxItems.id, close.map((n) => n.id))))
+      .returning({ id: inboxItems.id });
+    return rows.map((r) => r.id);
   },
 
   /**

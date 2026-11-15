@@ -17,20 +17,26 @@ test.describe("settings, plain words", () => {
     await openBusiness(page);
   });
 
-  test("Members: the account id is one short line, roles are words, no developer notes", async ({ page }) => {
+  test("People: each person on one line with their role in words, no developer notes, and an invitation instead of the silent add", async ({ page }) => {
     const screen = await openSettings(page, "members");
     const list = screen.getByTestId("member-list");
     await expect(list).toBeVisible({ timeout: LONG });
-    await expect(list).toContainText(/Account [0-9a-f]{8}…[0-9a-f]{4}/);
+    await expect(list).toContainText(/(Owner|Cofounder|Admin|Member|Collaborator|Viewer|Advisor) · since [A-Z][a-z]{2} \d{1,2}, \d{4}/);
     await expect(screen).not.toContainText(/auth build|owner:|admin:/);
     await expect(list.getByRole("combobox").first()).toContainText(/^(Owner|Admin|Member|Viewer|Advisor)$/);
     // The founder's own row reads as a name with a "You" chip, never "You You".
     await expect(list).not.toContainText(/\bYou\s*You\b/);
-    // A co-founder is added by account ID or sign-in email; Add member waits for one of them (WEB-12).
-    await expect(screen.getByTestId("add-member")).toBeDisabled();
+    // Someone joins through an invitation they accept (THESIS 3.1): no "Add member" by account ID or sign-in email.
+    await expect(screen.getByTestId("add-member")).toHaveCount(0);
+    await expect(screen.getByTestId("invite-create")).toBeVisible();
+    // A cofounder invitation (the owner's default) names the person's address; a collaborator's may be a bare link.
+    const invite = screen.getByTestId("invite-someone");
+    await expect(invite.getByText("Their email")).toBeVisible();
+    await invite.getByLabel("Collaborator").check();
+    await expect(invite.getByText("Email it to (optional)")).toBeVisible();
   });
 
-  test("Members: removing someone asks first (MLSL-40)", async ({ page }) => {
+  test("People: removing someone asks first (MLSL-40)", async ({ page }) => {
     const screen = await openSettings(page, "members");
     const list = screen.getByTestId("member-list");
     await expect(list).toBeVisible({ timeout: LONG });
@@ -54,8 +60,9 @@ test.describe("settings, plain words", () => {
     await expect(screen.getByTestId("account-id-copy")).toBeVisible();
   });
 
-  test("Mode: the choice is named in words, with no notes about what comes later", async ({ page }) => {
-    const screen = await openSettings(page, "mode");
+  test("Business: Personal or live is named in words, with no notes about what comes later", async ({ page }) => {
+    // It moved here from the old Settings › Mode (founder, 2026-11-07).
+    const screen = await openSettings(page, "business");
     const modeSwitch = screen.getByTestId("switch-game-mode");
     await expect(modeSwitch).toBeVisible({ timeout: LONG });
     await expect(screen).toContainText("Personal or live");
@@ -83,20 +90,25 @@ test.describe("settings, plain words", () => {
     await expect(dialog).toBeHidden();
   });
 
-  test("Mode: each business mode card carries one concrete day, the words are defined on first use, and Autopilot says what it never does (UX plan §7.17)", async ({ page }) => {
+  test("What the team can do: plain answers with one concrete day each, the words defined on first use, and Autopilot says what it never does (UX plan §7.17)", async ({ page }) => {
     const screen = await openSettings(page, "mode");
-    await expect(screen.getByRole("radio", { name: "Assisted" })).toBeVisible({ timeout: LONG });
-    // The three cards: the business thing, then the example line Commit shows, never "counterparties".
+    await expect(screen.getByRole("radio", { name: /^Routine work alone; ask before big or permanent steps/ })).toBeVisible({ timeout: LONG });
+    // The three answers: the business thing, then the example line Commit shows, never "counterparties".
     const examples = screen.locator("[data-mode-example]");
     await expect(examples).toHaveCount(3);
     await expect(examples.first()).toContainText(/^Example: /);
     await expect(screen).not.toContainText(/counterpart/i);
-    // Defined terms sit where a founder first meets them: the panel titles and the hard-gates line (a dotted word with
-    // guidance on, plain text with it off; `data-term` marks both).
-    for (const id of ["business_mode", "hard_gate", "autopilot", "vacation"]) await expect(screen.locator(`[data-term="${id}"]`).first()).toBeVisible();
+    // No plumbing words reach the founder (DESIGN §10, the voice 3), and the old wrong copy is gone.
+    await expect(screen).not.toContainText(/\b(hard gates?|policy|policies|caps?)\b/i);
+    await expect(screen).not.toContainText(/new people|Empty means no/);
+    // Defined terms sit where a founder first meets them (a dotted word with guidance on, plain text with it off;
+    // `data-term` marks both).
+    for (const id of ["autonomy", "chief_of_staff", "autopilot", "vacation"]) await expect(screen.locator(`[data-term="${id}"]`).first()).toBeVisible();
     const autopilot = screen.getByTestId("autopilot-section");
     await expect(autopilot.getByTestId("autopilot-help")).toHaveText("Autopilot presses Continue for you on a schedule. It never answers notes for you.", { timeout: LONG });
     await expect(autopilot.getByTestId("autopilot-switch")).toHaveAttribute("aria-describedby", "autopilot-help");
+    // Continue runs until done (Nov 7, 2026) and the daily limits here bound it too.
+    await expect(autopilot.getByText("Continue keeps the team working, one cycle after another, until nothing is left to do. The daily limits below apply to those cycles too.")).toBeVisible();
     // Vacation carries its consequence under the button.
     await expect(screen.getByTestId("vacation-consequence")).toContainText("Reversible");
   });
@@ -221,7 +233,7 @@ test.describe("settings, plain words", () => {
     await expect(glossary.getByRole("heading", { name: "Your words" })).toBeVisible();
     await expect(glossary.getByTestId("your-words-lede")).toHaveText("Rename the product's nouns to yours (clients instead of customers).");
     await expect(glossary).not.toContainText(/Glossary/);
-    await expect(page).toHaveTitle(/^Your words · Settings · /);
+    await expect(page).toHaveTitle(/^(?:\(\d+\) )?Your words · Settings · /);
     const terms = await glossary.getByLabel("Default word").evaluateAll((els) => els.map((e) => (e as HTMLInputElement).value));
     expect(terms.filter((t) => /^(squad|club|crest|shout)$/i.test(t))).toEqual([]);
     const departments = await openSettings(page, "departments");

@@ -108,14 +108,17 @@ describe("inbox tabs, blocking count and decide", () => {
     await repos.inbox.createHumanMessage(r.db, r.A.businessId, { fromUserId: r.A.ownerId, subject: "Hello", bodyMd: "Hi team" });
     const archived = await repos.inbox.createItem(r.db, r.A.businessId, note({ subject: "Old" }));
     await repos.inbox.archive(r.db, r.A.businessId, archived.id);
+    // The agent's current update (a newer update archives the older open ones, Nov 7, 2026).
+    await repos.inbox.createItem(r.db, r.A.businessId, note({ subject: "Progress this week" }));
     // Noise in business B that must never show up.
     await repos.inbox.createItem(r.db, r.B.businessId, { ...decisionNote(), from_agent_id: r.B.agentId });
   });
 
   it("filters by tab", async () => {
     const respond = await repos.inbox.list(r.db, r.A.businessId, { tab: "respond" });
-    // The RLS fixture seeds one decision item too (not blocking, but a decision sits in Respond until answered).
-    expect(respond.items.map((i) => i.type).sort()).toEqual(["customer_won", "decision", "decision"]);
+    // The RLS fixture seeds one decision item too (a decision sits in Respond, shown as Needs you, until answered). A win is
+    // good news in Customers, never a question (Nov 7, 2026).
+    expect(respond.items.map((i) => i.type).sort()).toEqual(["decision", "decision"]);
     const customers = await repos.inbox.list(r.db, r.A.businessId, { tab: "customers" });
     expect(customers.items.every((i) => i.type === "customer_won")).toBe(true);
     const updates = await repos.inbox.list(r.db, r.A.businessId, { tab: "updates" });
@@ -124,13 +127,37 @@ describe("inbox tabs, blocking count and decide", () => {
     expect(messages.items).toHaveLength(1);
     expect(messages.items[0]!.fromUserId).toBe(r.A.ownerId);
     const archive = await repos.inbox.list(r.db, r.A.businessId, { tab: "archive" });
-    expect(archive.items.map((i) => i.subject)).toEqual(["Old"]);
+    // "Old" archived by hand, plus the agent's earlier updates that a newer one replaced.
+    expect(archive.items.map((i) => i.subject)).toContain("Old");
+    expect(archive.items.every((i) => i.state === "archived")).toBe(true);
     const all = await repos.inbox.list(r.db, r.A.businessId, { tab: "all" });
     expect(all.items.some((i) => i.state === "archived")).toBe(false);
     expect(all.items.every((i) => i.businessId === r.A.businessId)).toBe(true);
     const counts = await repos.inbox.countByTab(r.db, r.A.businessId);
-    expect(counts.respond).toBe(3);
-    expect(counts.archive).toBe(1);
+    expect(counts.respond).toBe(2);
+    expect(counts.archive).toBe(archive.items.length);
+  });
+
+  it("a warning sits in Respond only when it asks something or holds Continue; the rest are updates (Nov 1, 2026)", async () => {
+    const ids = (page: { items: { id: string }[] }) => page.items.map((i) => i.id);
+    const plain = await repos.inbox.createItem(r.db, r.A.businessId, note({ type: "warning", subject: "Engineering is stalled" }));
+    const asking = await repos.inbox.createItem(r.db, r.A.businessId, { ...decisionNote(), type: "warning", subject: "Engineering is stalled: what next?", blocks_continue: false });
+    const respond = ids(await repos.inbox.list(r.db, r.A.businessId, { tab: "respond", limit: 100 }));
+    expect(respond).toContain(asking.id);
+    expect(respond).not.toContain(plain.id);
+    const updates = ids(await repos.inbox.list(r.db, r.A.businessId, { tab: "updates", limit: 100 }));
+    expect(updates).toContain(plain.id);
+    expect(updates).not.toContain(asking.id);
+
+    // Revised in place: new words, the new source event appended, unread again, the same id; the type never changes and
+    // only an open note is revised.
+    const revised = await repos.inbox.revise(r.db, r.A.businessId, plain.id, note({ type: "warning", subject: "Engineering is still stalled", body_md: "Nine tasks wait on one change.", source_event_ids: [r.A.eventIds[0]!] }));
+    expect(revised).toMatchObject({ id: plain.id, subject: "Engineering is still stalled", bodyMd: "Nine tasks wait on one change.", state: "unread", sourceEventIds: [r.A.eventIds[0]] });
+    await expect(repos.inbox.revise(r.db, r.A.businessId, plain.id, note({ type: "update" }))).rejects.toThrow(/keeps its type/);
+    await expect(repos.inbox.revise(r.db, r.B.businessId, plain.id, note({ type: "warning", from_agent_id: r.B.agentId }))).rejects.toThrow(/not found/);
+    await repos.inbox.archive(r.db, r.A.businessId, plain.id);
+    await expect(repos.inbox.revise(r.db, r.A.businessId, plain.id, note({ type: "warning" }))).rejects.toThrow(/open note/);
+    await repos.inbox.decide(r.db, r.A.businessId, asking.id, { chosenOption: "a" });
   });
 
   it("filters by state/type and the service role is still scoped to the business", async () => {
@@ -139,14 +166,19 @@ describe("inbox tabs, blocking count and decide", () => {
     expect(decisions.items.every((i) => i.businessId === r.A.businessId)).toBe(true);
   });
 
-  it("countBlocking counts unanswered blockers (AC-11.3.3) and decide releases one", async () => {
-    expect(await repos.inbox.countBlocking(r.db, r.A.businessId)).toBe(2);
+  it("countBlocking counts only hard stops (0071), and decide answers a decision", async () => {
+    // Neither the open decision nor the win holds Continue; a hard-stop warning does.
+    expect(await repos.inbox.countBlocking(r.db, r.A.businessId)).toBe(0);
+    const stop = await repos.inbox.createItem(r.db, r.A.businessId, note({ type: "warning", subject: "Credits used up", blocks_continue: true }));
+    expect(await repos.inbox.countBlocking(r.db, r.A.businessId)).toBe(1);
     await expect(repos.inbox.decide(r.db, r.A.businessId, decisionId, { chosenOption: "zzz" })).rejects.toThrow(/not one of the item's options/);
     const { item, decision } = await repos.inbox.decide(r.db, r.A.businessId, decisionId, { chosenOption: "a", decidedBy: r.A.ownerId });
     expect(item.state).toBe("answered");
     expect(item.blocksContinue).toBe(false);
     expect(decision.chosenOption).toBe("a");
     expect(await repos.inbox.countBlocking(r.db, r.A.businessId)).toBe(1);
+    await repos.inbox.archive(r.db, r.A.businessId, stop.id, { force: true });
+    expect(await repos.inbox.countBlocking(r.db, r.A.businessId)).toBe(0);
     await expect(repos.inbox.decide(r.db, r.A.businessId, decisionId, { chosenOption: "a" })).rejects.toThrow(/already answered/);
     expect(await repos.inbox.decisionsFor(r.db, r.A.businessId, decisionId)).toHaveLength(1);
   });
@@ -159,8 +191,8 @@ describe("inbox tabs, blocking count and decide", () => {
 
     expect(await inRespond(r.db, r.A.businessId)).toContain(decisionId);
     expect((await repos.inbox.countByTab(r.db, r.A.businessId)).respond).toBe(respondBefore + 1);
-    // Continue stays free: the item was answered.
-    expect(await repos.inbox.countBlocking(r.db, r.A.businessId)).toBe(1);
+    // Continue stays free: the item was answered, and nothing else is a hard stop.
+    expect(await repos.inbox.countBlocking(r.db, r.A.businessId)).toBe(0);
     const update = (await repos.inbox.list(r.db, r.A.businessId, { tab: "updates", limit: 1 })).items[0]!;
     expect(await repos.plans.awaitingConfirmation(r.db, r.A.businessId, [decisionId, update.id])).toEqual(new Set([decisionId]));
     expect((await repos.plans.awaitingConfirmation(r.db, r.A.businessId)).has(decisionId)).toBe(true);

@@ -7,12 +7,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ToastProvider, TooltipProvider, useFormatters, useGuidance, type DateFormatPrefs } from "@foundmill/dugout";
+import { ToastProvider, TooltipProvider, useBuilderView, useFormatters, useGuidance, type DateFormatPrefs } from "@foundmill/dugout";
 import { AGENT_STYLE_META, type AgentStyle } from "@foundmill/shared/personas";
 import type * as SharedModule from "../shared";
 
-type Guidance = { guidance: "on" | "off"; textSize: "standard" | "comfortable"; explainersSeen: Record<string, true>; toursDone: Record<string, true>; checklistDismissedAt: string | null; anthropomorphicAgents: boolean; agentStyle?: AgentStyle };
-type Change = Partial<DateFormatPrefs> & Partial<{ guidance: Guidance["guidance"]; textSize: Guidance["textSize"]; explainersSeen: Record<string, true>; toursDone: Record<string, true>; checklistDismissed: boolean; anthropomorphicAgents: boolean; agentStyle: AgentStyle; reset: true }>;
+type Guidance = { guidance: "on" | "off"; textSize: "standard" | "comfortable"; explainersSeen: Record<string, true>; toursDone: Record<string, true>; checklistDismissedAt: string | null; anthropomorphicAgents: boolean; agentStyle?: AgentStyle; builderView?: boolean };
+type Change = Partial<DateFormatPrefs> & Partial<{ guidance: Guidance["guidance"]; textSize: Guidance["textSize"]; explainersSeen: Record<string, true>; toursDone: Record<string, true>; checklistDismissed: boolean; anthropomorphicAgents: boolean; agentStyle: AgentStyle; builderView: boolean; reset: true; email: Record<string, boolean> }>;
 
 const BUSINESS = "b1e5e5e5-0000-4000-8000-000000000001";
 const PREFS_KEY = [["founder", "preferences", "get"], { type: "query" }];
@@ -21,20 +21,25 @@ const guidanceDefaults = (): Guidance => ({ guidance: "on", textSize: "standard"
 
 let stored: DateFormatPrefs = { date: "us", time: "12h" };
 let guidanceStored: Guidance = guidanceDefaults();
+let emailStored: Record<string, boolean> = { decision_waiting: true };
+const NOTIFICATIONS_KEY = [["founder", "preferences", "notifications"], { type: "query" }];
+const notificationsView = () => ({ notifications: { decision: true }, hideAmountsOnLockScreen: false, email: { ...emailStored } });
 async function serverUpdate(change: Change) {
-  const { date, time, guidance, textSize, explainersSeen, toursDone, checklistDismissed, anthropomorphicAgents, agentStyle, reset } = change;
+  const { date, time, guidance, textSize, explainersSeen, toursDone, checklistDismissed, anthropomorphicAgents, agentStyle, builderView, reset, email } = change;
+  if (email) emailStored = { ...emailStored, ...email };
   stored = { ...stored, ...(date ? { date } : {}), ...(time ? { time } : {}) };
   const next: Guidance = { ...guidanceStored, explainersSeen: { ...guidanceStored.explainersSeen }, toursDone: { ...guidanceStored.toursDone } };
   if (guidance) next.guidance = guidance;
   if (textSize) next.textSize = textSize;
   if (anthropomorphicAgents !== undefined) next.anthropomorphicAgents = anthropomorphicAgents;
   if (agentStyle) next.agentStyle = agentStyle;
+  if (builderView !== undefined) next.builderView = builderView;
   if (reset) Object.assign(next, { explainersSeen: {}, toursDone: {}, checklistDismissedAt: null });
   for (const id of Object.keys(explainersSeen ?? {})) next.explainersSeen[id] = true;
   for (const id of Object.keys(toursDone ?? {})) next.toursDone[id] = true;
   if (checklistDismissed !== undefined) next.checklistDismissedAt = checklistDismissed ? "2026-10-20T15:45:00.000Z" : null;
   guidanceStored = next;
-  return { ...stored, ...guidanceStored };
+  return { ...stored, ...guidanceStored, ...notificationsView() };
 }
 const update = vi.fn(serverUpdate);
 /** Holds the next request open until the returned function is called, so the optimistic state can be observed. */
@@ -49,6 +54,7 @@ function holdNextUpdate(): () => void {
 const saved = vi.fn();
 const failed = vi.fn();
 
+const callSharing = vi.hoisted(() => ({ share: false }));
 vi.mock("next/navigation", () => ({ usePathname: () => `/b/${BUSINESS}/settings/preferences`, useParams: () => ({ bid: BUSINESS }) }));
 vi.mock("@/lib/trpc-react", () => ({
   useTRPC: () => ({
@@ -57,6 +63,12 @@ vi.mock("@/lib/trpc-react", () => ({
       profile: {
         get: {
           queryOptions: (_input: unknown, opts: Record<string, unknown>) => ({ queryKey: [["founder", "profile", "get"], { type: "query" }], queryFn: async () => ({ userId: "5a1e0000-0000-4000-8000-00000000fe01", profile: null, complete: true, email: "reid@northwind.example", memberships: [] }), ...opts }),
+        },
+      },
+      // Your public profile (package 2.3): the section says whether it is public and links to where it is edited.
+      publicProfile: {
+        get: {
+          queryOptions: (_input: unknown, opts: Record<string, unknown>) => ({ queryKey: [["founder", "publicProfile", "get"], { type: "query" }], queryFn: async () => ({ handle: "reid", url: "http://localhost:3000/u/reid", saved: true, displayName: "Reid", public: true, publishedAt: new Date(2026, 9, 7, 12), projects: [], content: { headline: "", about: "", strengths: [], wantsToLearn: [], lookingFor: "on_my_own", place: "" } }), ...opts }),
         },
       },
       preferences: {
@@ -68,27 +80,64 @@ vi.mock("@/lib/trpc-react", () => ({
           queryKey: () => GUIDANCE_KEY,
           queryOptions: (_input: unknown, opts: Record<string, unknown>) => ({ queryKey: GUIDANCE_KEY, queryFn: async () => guidanceStored, ...opts }),
         },
+        notifications: {
+          queryKey: () => NOTIFICATIONS_KEY,
+          queryOptions: (_input: unknown, opts: Record<string, unknown>) => ({ queryKey: NOTIFICATIONS_KEY, queryFn: async () => notificationsView(), ...opts }),
+        },
         update: {
           mutationKey: () => [["founder", "preferences", "update"]],
           mutationOptions: (opts: Record<string, unknown>) => ({ mutationKey: [["founder", "preferences", "update"]], mutationFn: (change: Change) => update(change), ...opts }),
         },
       },
+      // Settings › Preferences › Email (retention plan, 2026-11-11): the account's email switches and latest emails.
+      email: {
+        get: {
+          queryKey: () => [["founder", "email", "get"], { type: "query" }],
+          queryOptions: () => ({ queryKey: [["founder", "email", "get"], { type: "query" }], queryFn: async () => ({ email: { decision_waiting: true, win: true, milestone: true, run_finished: true, credits: true, daily_brief: true, weekly_review: true }, briefHour: 8, timeZone: null, browserNotifications: false, emailsPausedAt: null }) }),
+        },
+        recent: { queryOptions: (input: unknown) => ({ queryKey: [["founder", "email", "recent"], { input, type: "query" }], queryFn: async () => [] }) },
+        update: { mutationOptions: (opts: Record<string, unknown>) => ({ mutationKey: [["founder", "email", "update"]], mutationFn: async () => ({}), ...opts }) },
+      },
     },
     business: { get: { queryKey: (input: { businessId: string }) => [["business", "get"], { input, type: "query" }] } },
+    // Team call: whether the person's one-to-one calls are shared with the project (off by default).
+    teamCall: {
+      pathKey: () => [["teamCall"]],
+      sharing: {
+        get: { queryOptions: (_input: unknown, opts: Record<string, unknown>) => ({ queryKey: [["teamCall", "sharing", "get"], { type: "query" }], queryFn: async () => ({ share: callSharing.share }), ...opts }) },
+        set: { mutationOptions: (opts: Record<string, unknown>) => ({ mutationKey: [["teamCall", "sharing", "set"]], mutationFn: async (input: { share: boolean }) => ((callSharing.share = input.share), { share: input.share, calls: 0 }), ...opts }) },
+      },
+    },
   }),
 }));
+
+describe("Calls", () => {
+  it("keeps one-to-one calls private by default and shares them at once when switched on", async () => {
+    callSharing.share = false;
+    mount();
+    const sw = await screen.findByTestId("call-sharing-switch");
+    await waitFor(() => expect((sw as HTMLButtonElement).disabled).toBe(false));
+    expect(sw.getAttribute("aria-checked")).toBe("false");
+    expect(screen.getByTestId("call-sharing-panel").textContent).toContain("only you can see your calls with one agent");
+    fireEvent.click(sw);
+    await waitFor(() => expect(callSharing.share).toBe(true));
+    await waitFor(() => expect(saved).toHaveBeenCalledWith("One-to-one calls shared", expect.any(String)));
+  });
+});
 vi.mock("../shared", async (importOriginal) => ({ ...(await importOriginal<typeof SharedModule>()), useSettingsToast: () => ({ saved, failed, info: vi.fn() }) }));
 
 import { DateFormatHost } from "@/components/providers/DateFormatHost";
 import { GuidanceHost } from "@/components/providers/GuidanceHost";
-import { ANTHROPOMORPHIC_EXPLAINER, PreferencesTab, anthropomorphicSavedLine, guidanceSavedLine, preferenceChange, resettable, savedLine } from "../PreferencesTab";
+import { ANTHROPOMORPHIC_EXPLAINER, BUILDER_VIEW_HINT, builderViewSavedLine, PreferencesTab, anthropomorphicSavedLine, guidanceSavedLine, preferenceChange, resettable, savedLine } from "../PreferencesTab";
 
 /** Somewhere else on the page (the top bar, the Inbox): it must follow the choice without a reload. */
 function Elsewhere() {
   const { formatDate, formatTime } = useFormatters();
   const { guidance, textSize } = useGuidance();
+  const builder = useBuilderView();
   return (
     <>
+      <p data-testid="elsewhere-builder">{builder ? "on" : "off"}</p>
       <p data-testid="elsewhere">{`${formatDate(new Date(2026, 9, 7, 15, 45))} ${formatTime(new Date(2026, 9, 7, 15, 45))}`}</p>
       <p data-testid="elsewhere-guidance">{`${guidance} ${textSize}`}</p>
     </>
@@ -115,6 +164,7 @@ function mount() {
 afterEach(() => {
   stored = { date: "us", time: "12h" };
   guidanceStored = guidanceDefaults();
+  emailStored = { decision_waiting: true };
   update.mockClear();
   saved.mockClear();
   failed.mockClear();
@@ -211,6 +261,94 @@ describe("Anthropomorphic agents switch", () => {
     expect(anthropomorphicSavedLine(true).title).toBe("Anthropomorphic agents on: Humans");
     expect(anthropomorphicSavedLine(false, "fantasy").title).toBe("Anthropomorphic agents off");
     expect(anthropomorphicSavedLine(false).description).toContain("by role");
+  });
+});
+
+describe("Builder view switch", () => {
+  it("is off by default and says what it shows, in plain words", async () => {
+    mount();
+    const sw = await screen.findByTestId("builder-view-switch");
+    expect(sw.getAttribute("aria-checked")).toBe("false");
+    expect(screen.getByLabelText("Builder view", { selector: "button" })).toBe(sw);
+    expect(screen.getByTestId("builder-view-panel").textContent).toContain(BUILDER_VIEW_HINT);
+    expect(BUILDER_VIEW_HINT).toBe(
+      "Shows how the platform runs the team: round numbers, AI usage in tokens, agents' live screens, test counts, finished code changes and previews, and the team's ratings, health and reporting lines. For operators and anyone building software with the team.",
+    );
+    expect(screen.getByTestId("elsewhere-builder").textContent).toBe("off");
+  });
+
+  it("saves at once, says so in every business, and the design system elsewhere follows", async () => {
+    mount();
+    fireEvent.click(await screen.findByTestId("builder-view-switch"));
+    await waitFor(() => expect(update).toHaveBeenCalledWith({ builderView: true }));
+    await waitFor(() => expect(screen.getByTestId("elsewhere-builder").textContent).toBe("on"));
+    await waitFor(() => expect(saved).toHaveBeenCalledTimes(1));
+    expect(saved.mock.calls[0]).toEqual(["Builder view on", "How the platform runs the team now shows, in every business."]);
+    fireEvent.click(screen.getByTestId("builder-view-switch"));
+    await waitFor(() => expect(update).toHaveBeenLastCalledWith({ builderView: false }));
+    await waitFor(() => expect(saved).toHaveBeenCalledTimes(2));
+    expect(saved.mock.calls[1]?.[0]).toBe("Builder view off");
+    expect(screen.getByTestId("elsewhere-builder").textContent).toBe("off");
+  });
+
+  it("words the toasts", () => {
+    expect(builderViewSavedLine(true)).toEqual({ title: "Builder view on", description: "How the platform runs the team now shows, in every business." });
+    expect(builderViewSavedLine(false)).toEqual({ title: "Builder view off", description: "The technical details are hidden again, in every business." });
+  });
+});
+
+describe("Email switches", () => {
+  it("are on by default, one per kind, say what they send in plain words, and save at once with a toast", async () => {
+    mount();
+    const sw = await screen.findByTestId("email-decision-waiting-switch");
+    await waitFor(() => expect(sw.getAttribute("aria-checked")).toBe("true"));
+    expect(screen.getByLabelText("Something waits for my answer", { selector: "button" })).toBe(sw);
+    const panel = screen.getByTestId("email-notifications-panel");
+    expect(panel.textContent).toContain("at most three a day in all and one a day for each project. The morning brief and the weekly review don't count.");
+    for (const id of ["email-win-switch", "email-milestone-switch", "email-run-finished-switch", "email-credits-switch", "email-daily-brief-switch", "email-weekly-review-switch"]) expect(screen.getByTestId(id).getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(sw);
+    await waitFor(() => expect(update).toHaveBeenCalledWith({ email: { decision_waiting: false } }));
+    await waitFor(() => expect(saved).toHaveBeenCalledTimes(1));
+    expect(saved.mock.calls[0]).toEqual(["Email off", "No more “Something waits for my answer” emails. Turn them on again any time from here."]);
+    expect(sw.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(sw);
+    await waitFor(() => expect(update).toHaveBeenLastCalledWith({ email: { decision_waiting: true } }));
+    await waitFor(() => expect(saved).toHaveBeenCalledTimes(2));
+    expect(saved.mock.calls[1]?.[0]).toBe("Email on");
+    expect(sw.getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("turns one kind off without touching the others", async () => {
+    mount();
+    const brief = await screen.findByTestId("email-daily-brief-switch");
+    await waitFor(() => expect(brief.getAttribute("aria-checked")).toBe("true"));
+    fireEvent.click(brief);
+    await waitFor(() => expect(update).toHaveBeenCalledWith({ email: { daily_brief: false } }));
+    await waitFor(() => expect(brief.getAttribute("aria-checked")).toBe("false"));
+    expect(screen.getByTestId("email-decision-waiting-switch").getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("goes back to what is stored when the save fails", async () => {
+    update.mockImplementationOnce(async () => {
+      throw new Error("Network down");
+    });
+    mount();
+    const sw = await screen.findByTestId("email-decision-waiting-switch");
+    await waitFor(() => expect(sw.getAttribute("aria-checked")).toBe("true"));
+    fireEvent.click(sw);
+    await waitFor(() => expect(failed).toHaveBeenCalledTimes(1));
+    expect(sw.getAttribute("aria-checked")).toBe("true");
+  });
+});
+
+describe("Your public profile", () => {
+  it("says whether it is public and links to where it is edited, asking nothing about people", async () => {
+    mount();
+    const panel = await screen.findByTestId("public-profile-panel");
+    expect(panel.textContent).toContain("A page about you at its own address, with no project needed.");
+    await waitFor(() => expect(screen.getByTestId("public-profile-panel-state").textContent).toBe("Public since Oct 7, 2026"));
+    expect(screen.getByTestId("public-profile-edit").getAttribute("href")).toBe("/public-profile");
+    for (const word of ["cofounder", "alone", "people"]) expect(panel.textContent?.toLowerCase(), word).not.toContain(word);
   });
 });
 
@@ -349,7 +487,7 @@ describe("helpers", () => {
     expect(guidanceSavedLine({ guidance: "off", textSize: "standard" }, "guidance")).toEqual({ title: "Guidance off", description: "Consequences, provenance and Estimate labels still show. Turn it on again any time from here." });
     expect(guidanceSavedLine({ guidance: "on", textSize: "comfortable" }, "textSize").title).toBe("Comfortable text");
     expect(guidanceSavedLine({ guidance: "on", textSize: "standard" }, "textSize").title).toBe("Standard text");
-    expect(guidanceSavedLine({ guidance: "on", textSize: "standard" }, "reset")).toEqual({ title: "Starting over", description: "The intros, the first-week checklist and the tours show again." });
+    expect(guidanceSavedLine({ guidance: "on", textSize: "standard" }, "reset")).toEqual({ title: "Starting over", description: "The unread dots on Explain this page, the first-week checklist and the tours show again." });
     for (const line of [guidanceSavedLine({ guidance: "on", textSize: "standard" }, "guidance"), guidanceSavedLine({ guidance: "on", textSize: "standard" }, "reset")]) {
       expect(line.title).not.toMatch(/!/);
       expect(line.description).not.toMatch(/!/);

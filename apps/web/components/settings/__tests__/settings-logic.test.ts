@@ -1,17 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { PRICE_TBA_LABEL } from "@foundmill/config";
+import { LIMITS, PRICE_TBA_LABEL } from "@foundmill/config";
 import { consequenceText } from "@foundmill/dugout";
 import { BUSINESS_MODES } from "@foundmill/shared/constants";
 import { SETTINGS_TABS } from "@/lib/search";
 import { BUSINESS_MODE_CARDS } from "@/components/new/commit/naming";
-import { AUTOPILOT_HELP } from "../AutopilotSection";
+import { AUTOPILOT_CONTINUE_NOTE, AUTOPILOT_HELP } from "../AutopilotSection";
 import { checkoutNotice, includedCreditsFact, periodLabel, tierFacts, tierPriceLabel } from "../BillingTab";
 import { timeZoneOptions } from "../BusinessTab";
 import { glossaryRows, rowsToGlossary } from "../GlossaryTab";
 import { connectorDetail, formatSimulateResult, MANAGED_ON_KEYS_TAB, simulateInput, simulateRefusalMessage, SIMULATIONS } from "../IntegrationsTab";
 import { REVOKE_CONSEQUENCE } from "../KeysTab";
 import { KEY_STATUS_WORDS, keyStatus } from "../key-status";
-import { businessModeExample, GAME_MODE_CONSEQUENCE, GAME_MODE_REVIEW, VACATION_CONSEQUENCE } from "../ModeTab";
+import { GAME_MODE_CONSEQUENCE, GAME_MODE_REVIEW } from "../PersonalOrLiveSection";
+import { businessModeExample, VACATION_CONSEQUENCE } from "../TeamCanDoTab";
+import { AGENT_LIMIT_MINOR, amountField, answerHandler, answerState, hasOwnAnswer, parseSpendLineDraft, spendLineDraftOf, spendLineSavedTitle } from "../team-can-do-logic";
 
 describe("settings logic", () => {
   it("renders Price to be announced for TBD tiers and Free for the free tier", () => {
@@ -22,7 +24,7 @@ describe("settings logic", () => {
 
   it("states each tier's limits and its monthly model credits in US dollars", () => {
     // No business limit on any plan for now (founder, 2026-10-16); the included credits still cover the plan's pool.
-    expect(tierFacts("free")).toEqual(["Unlimited businesses", "4 agents at once", "1 seat", "$5.00 of model credits a month, for 1 business", "Then credits or your key"]);
+    expect(tierFacts("free")).toEqual(["Unlimited businesses", "4 agents at once", "As many people as you like", "$5.00 of model credits a month, for 1 business", "Then credits or your key"]);
     expect(includedCreditsFact("pro")).toBe("Monthly credits to be announced (at least $5.00), for 3 businesses");
     expect(includedCreditsFact("scale")).toBe("Monthly credits to be announced (at least $5.00), for every business");
     expect(tierFacts("scale")[0]).toBe("Unlimited businesses");
@@ -81,6 +83,11 @@ describe("settings logic", () => {
     expect(SETTINGS_TABS.map((t): string => t.label)).not.toContain("Glossary");
   });
 
+  it("the Settings list calls the mode tab What the team can do and keeps its slug (founder, 2026-11-07)", () => {
+    expect(SETTINGS_TABS.find((t) => t.slug === "mode")?.label).toBe("What the team can do");
+    expect(SETTINGS_TABS.map((t): string => t.label)).not.toContain("Mode");
+  });
+
   it("the Keys entry's chip reads the business row: connected on its own key, revoked while stopped for a revoked key, else none", () => {
     expect(keyStatus({ modelBilling: "byok", agentsStoppedAt: null, agentsStoppedReason: null })).toBe("connected");
     expect(keyStatus({ modelBilling: "credits", agentsStoppedAt: null, agentsStoppedReason: null })).toBe("none");
@@ -99,12 +106,52 @@ describe("settings logic", () => {
       expect(example, mode).not.toMatch(/counterpart/i);
     }
     expect(AUTOPILOT_HELP).toBe("Autopilot presses Continue for you on a schedule. It never answers notes for you.");
+    // Continue runs until done and shares the daily limits (Nov 7, 2026).
+    expect(AUTOPILOT_CONTINUE_NOTE).toBe("Continue keeps the team working, one cycle after another, until nothing is left to do. The daily limits below apply to those cycles too.");
+  });
+
+  it("What the team can do: the spend line's draft and parsing follow the currency's own minor unit", () => {
+    expect(AGENT_LIMIT_MINOR).toBe(LIMITS.approvalThresholdMinorDefault);
+    expect(spendLineDraftOf(null, "GBP", 25_000)).toEqual({ kind: "agent", amount: "250" });
+    expect(spendLineDraftOf(0, "GBP", 25_000)).toEqual({ kind: "always", amount: "250" });
+    expect(spendLineDraftOf(5_050, "GBP", 25_000)).toEqual({ kind: "amount", amount: "50.50" });
+    expect(amountField(5_000, "JPY")).toBe("5000");
+    expect(parseSpendLineDraft({ kind: "amount", amount: "5,000" }, "JPY")).toEqual({ ok: true, minor: 5_000 });
+    expect(parseSpendLineDraft({ kind: "amount", amount: "50" }, "GBP")).toEqual({ ok: true, minor: 5_000 });
+    expect(parseSpendLineDraft({ kind: "amount", amount: "" }, "GBP")).toEqual({ ok: false, error: "Enter an amount, like 250." });
+    expect(parseSpendLineDraft({ kind: "amount", amount: "lots" }, "GBP")).toEqual({ ok: false, error: "Use a number, like 250." });
+    expect(parseSpendLineDraft({ kind: "amount", amount: "0" }, "GBP")).toEqual({ ok: false, error: "Use an amount above 0, or choose Always ask." });
+    expect(parseSpendLineDraft({ kind: "always", amount: "lots" }, "GBP")).toEqual({ ok: true, minor: 0 });
+    expect(parseSpendLineDraft({ kind: "agent", amount: "" }, "GBP")).toEqual({ ok: true, minor: null });
+    expect([spendLineSavedTitle(null), spendLineSavedTitle(0), spendLineSavedTitle(5_000)]).toEqual(["Each agent's own limit applies", "Every purchase asks you now", "Amount saved"]);
+  });
+
+  it("What the team can do: who answers reads the matrix, and an agent's own setting is one the policies would apply", () => {
+    const rows = [
+      { decisionType: "publish_content" as const, handler: { kind: "agent" as const, id: "chief" }, uniform: true },
+      { decisionType: "message_customers" as const, handler: { kind: "user" as const, id: "u1" }, uniform: true },
+      { decisionType: "hire_agents" as const, handler: { kind: "founder" as const, id: null }, uniform: false },
+    ];
+    expect(answerState(rows, "publish_content", "chief")).toEqual({ kind: "choice", value: "chief" });
+    expect(answerState(rows, "publish_content", "another")).toEqual({ kind: "elsewhere", reason: "someone_else" });
+    expect(answerState(rows, "message_customers", "chief")).toEqual({ kind: "elsewhere", reason: "someone_else" });
+    expect(answerState(rows, "hire_agents", "chief")).toEqual({ kind: "elsewhere", reason: "differs" });
+    expect(answerState(undefined, "publish_content", null)).toEqual({ kind: "choice", value: "founder" });
+    expect(answerHandler("chief", "c1")).toEqual({ kind: "agent", id: "c1" });
+    expect(answerHandler("founder", "c1")).toEqual({ kind: "founder", id: null });
+    expect(hasOwnAnswer({ mode: "inherit", approvalThresholdMinor: LIMITS.approvalThresholdMinorDefault }, "assisted")).toBe(false);
+    expect(hasOwnAnswer({ mode: "higher" }, "assisted")).toBe(true);
+    // One step higher than Automated is Automated: no setting of its own.
+    expect(hasOwnAnswer({ mode: "higher" }, "automated")).toBe(false);
+    expect(hasOwnAnswer({ mode: "lower" }, "augmented")).toBe(false);
+    expect(hasOwnAnswer({ mode: "inherit", approvalThresholdMinor: 0 }, "assisted")).toBe(true);
+    expect(hasOwnAnswer(null, "assisted")).toBe(false);
   });
 
   it("going live, going on vacation and revoking the key each carry a consequence line that can be undone", () => {
     expect(consequenceText(GAME_MODE_CONSEQUENCE.live)).toMatch(/visible on the network.* · Reversible$/);
     expect(consequenceText(GAME_MODE_CONSEQUENCE.personal)).toMatch(/nothing is deleted\. · Reversible$/);
-    expect(consequenceText(VACATION_CONSEQUENCE)).toMatch(/hard gates still wait for you.* · Reversible$/);
+    expect(consequenceText(VACATION_CONSEQUENCE)).toMatch(/what always comes to you still waits.* · Reversible$/);
     expect(consequenceText(REVOKE_CONSEQUENCE)).toBe("Every agent stops until a new key is stored. · No cost · Reversible");
   });
 

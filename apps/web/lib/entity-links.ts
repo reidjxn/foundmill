@@ -36,6 +36,8 @@ export interface AgentSummary {
   avatarSeed?: string | number | null;
   /** `agents.persona_key`: the first name and face shown when anthropomorphic agents are on. */
   personaKey?: string | null;
+  /** `utility`: a background helper, which keeps its role name with anthropomorphic agents on. */
+  layer?: string | null;
   departmentName?: string | null;
   dept?: DeptColourToken | null;
 }
@@ -68,6 +70,7 @@ export function agentDetails(businessId: string, agent: AgentSummary): EntityDet
     href: routes.agent(businessId, agent.id),
     ...(agent.avatarSeed !== undefined && agent.avatarSeed !== null && agent.dept ? { portrait: { type: "agent" as const, seed: agent.avatarSeed, dept: agent.dept, personaKey: agent.personaKey ?? null } } : {}),
     personaKey: agent.personaKey ?? null,
+    layer: agent.layer ?? null,
     role: agent.role ?? null,
     subtitle: agent.role ?? undefined,
     chips: agent.departmentName ? [{ label: agent.departmentName }] : undefined,

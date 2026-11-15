@@ -4,8 +4,9 @@ import { EVENT_TYPES } from "@foundmill/shared/constants";
 import { EMPTY_CYCLE, cycleFromSnapshot } from "@/lib/cycle";
 import { trpcPathPrefix, trpcQueryKey } from "@/lib/trpc";
 import { SAFETY_POLL_MS } from "@/lib/stream-status";
-import { EXAMPLE_CHIP_TOOLTIP, EXAMPLE_READ_ONLY_REASON, accessFor, readOnlyReason } from "@/lib/access";
-import { EXAMPLE_START_CALLOUT, FIRST_CONTINUE_CALLOUT, START_YOUR_OWN_HREF, INVALIDATE_ON_EVENT, cycleReducer, describeContinue, exampleFrame, shellPollIntervals, wantsFirstContinueCallout } from "../BusinessShell";
+import { EXAMPLE_CHIP_TOOLTIP, EXAMPLE_READ_ONLY_REASON, FULL_ACCESS, SAMPLE_BUSINESS_LINE, accessFor, readOnlyReason, sampleMarker } from "@/lib/access";
+import { makeBusinessContext } from "../business-context";
+import { CONTINUE_PRESSED_NOTICE, continuePressedNotice, EXAMPLE_START_CALLOUT, FIRST_CONTINUE_CALLOUT, ORCHESTRATOR_DOWN_CAVEAT, RUN_UNTIL_DONE, START_YOUR_OWN_HREF, INVALIDATE_ON_EVENT, cycleReducer, describeContinue, describePause, describeRunEnded, exampleFrame, lastCycleCostLine, orchestratorDown, shellConnection, shellPollIntervals, wantsFirstContinueCallout } from "../BusinessShell";
 
 type ContinueResult = Parameters<typeof describeContinue>[0];
 
@@ -26,20 +27,88 @@ const status = (over: Partial<ContinueResult["status"]> = {}): ContinueResult["s
   completedCount: 0,
   lastCompletedAt: null,
   lastOutcome: null,
+  lastFailure: null,
+  lastCost: null,
   nextCycleNumber: 1,
   mode: null,
+  run: null,
   ...over,
 });
 
-const result = (over: Partial<ContinueResult>): ContinueResult => ({ action: "started", mode: "temporal", workflow: null, item: null, status: status(), continueState: { kind: "processing" }, ...over });
+type Summary = ContinueResult["summary"];
+const summary = (over: Partial<Summary> = {}): Summary => ({ kind: "started", headline: "Cycle 2 started: 6 tasks ready to build", plainHeadline: "The next round of work started: 6 tasks ready to build", detail: `The team is at work. What they finish and what they need from you come back as notes in the Inbox. ${RUN_UNTIL_DONE}`, readyTasks: 6, stage: "building", orchestrator: true, ...over });
+// A cast: the answer is a union (the note of an in-process step comes back as the person may read it), and a Partial of a union spreads into neither member.
+const result = (over: Partial<ContinueResult>): ContinueResult => ({ action: "started", mode: "temporal", workflow: null, item: null, status: status(), continueState: { kind: "processing" }, run: null, summary: summary(), ...over }) as ContinueResult;
+const RUN = { id: "22222222-2222-4222-8222-222222222222", startedAt: "2026-11-07T10:00:00.000Z", rounds: 0 };
 
-describe("one press of Continue (BUILD §9.4)", () => {
-  it("names what happened: started on Temporal, one local note, resumed, already running", () => {
-    expect(describeContinue(result({}))).toMatchObject({ title: "Cycle started", itemId: null });
+describe("one press of Continue (BUILD §9.4; first-time founder report, Nov 8, 2026: the api's one sentence is the toast)", () => {
+  it("the toast is the api's sentence: the cycle and what is ready, nothing ready and why, resumed, already running; cycle numbers only in Builder view", () => {
+    // Builder view off (the founder's default): the plain line, no cycle number.
+    expect(describeContinue(result({}))).toEqual({ title: "The next round of work started: 6 tasks ready to build", description: summary().detail, tone: "info", itemId: null });
+    expect(describeContinue(result({}), true).title).toBe("Cycle 2 started: 6 tasks ready to build");
+    expect(describeContinue(result({ summary: summary({ kind: "nothing_ready", headline: "Cycle 1 started: nothing is ready to build yet", plainHeadline: "The next round of work started: nothing is ready to build yet", detail: "The specification and the roadmap are waiting for your sign-off in the Inbox.", readyTasks: 0, stage: "awaiting_signoff" }) }), true)).toMatchObject({ title: "Cycle 1 started: nothing is ready to build yet", tone: "info" });
+    expect(describeContinue(result({ action: "resumed", summary: summary({ kind: "resumed", headline: "Cycle 4 resumed", plainHeadline: "The round of work resumed", detail: "2 tasks pick up where they stopped." }) }))).toMatchObject({ title: "The round of work resumed", tone: "good", itemId: null });
+    expect(describeContinue(result({ action: "already_running", summary: summary({ kind: "already_running", headline: "Cycle 5 is already running", plainHeadline: "A round of work is already running", detail: "The team is still working." }) }), true)).toMatchObject({ title: "Cycle 5 is already running", tone: "info" });
+  });
+
+  it("no orchestrator: a warning that says no agent worked, with the note that stood in to open", () => {
     const item = { id: "11111111-1111-4111-8111-111111111111", subject: "Three decisions for the Board" } as unknown as NonNullable<ContinueResult["item"]>;
-    expect(describeContinue(result({ mode: "local", item }))).toMatchObject({ title: "One new note", description: "Three decisions for the Board", itemId: item.id });
-    expect(describeContinue(result({ action: "resumed" }))).toMatchObject({ title: "Cycle resumed", tone: "good" });
-    expect(describeContinue(result({ action: "already_running" }))).toMatchObject({ title: "A cycle is already running" });
+    const local = result({ mode: "local", item: item as never, summary: summary({ kind: "orchestrator_unreachable", headline: "The team cannot run right now: the orchestrator is not reachable", plainHeadline: "The team cannot run right now: the orchestrator is not reachable", detail: "No agent worked. One note was written from what the business already knows: “Three decisions for the Board”.", orchestrator: false }) });
+    expect(describeContinue(local)).toEqual({ title: "The team cannot run right now: the orchestrator is not reachable", description: "No agent worked. One note was written from what the business already knows: “Three decisions for the Board”.", tone: "warn", itemId: item.id });
+    // The e2e specs' toast regex matches every headline the api writes, Builder view on or off.
+    for (const t of ["Cycle 2 started: 6 tasks ready to build", "The next round of work started: 6 tasks ready to build", "The next round of work started: nothing is ready to build yet", "The team cannot run right now: the orchestrator is not reachable", "Cycle 4 resumed", "The round of work resumed", "A round of work is already running"]) expect(t).toMatch(/(cycle \d+|round of work) started|cannot run right now|(cycle \d+|round of work) resumed|already running/i);
+    expect(RUN_UNTIL_DONE).toBe("New cycles start on their own until nothing is left to do, or until you pause.");
+    expect(RUN).toBeTruthy();
+  });
+
+  it("the orchestrator's caveat shows only on a known 'not reachable', never on unknown", () => {
+    expect(orchestratorDown({ orchestrator: { reachable: false } })).toBe(true);
+    expect(orchestratorDown({ orchestrator: { reachable: null } })).toBe(false);
+    expect(orchestratorDown({ orchestrator: { reachable: true } })).toBe(false);
+    expect(orchestratorDown(undefined)).toBe(false);
+    expect(ORCHESTRATOR_DOWN_CAVEAT).toMatch(/^The orchestrator is not reachable right now/);
+    expect(CONTINUE_PRESSED_NOTICE).toBe("Starting the next cycle…");
+    expect(continuePressedNotice(false)).toBe("Starting the next round of work…");
+    expect(continuePressedNotice(true)).toBe(CONTINUE_PRESSED_NOTICE);
+  });
+
+  it("the last cycle's cost rides under Continue's tooltip as an Estimate; none before the first cycle", () => {
+    expect(lastCycleCostLine({ amountMinor: 52, currency: "USD" })).toBe("Last cycle cost $0.52 · Estimate");
+    expect(lastCycleCostLine({ amountMinor: 0, currency: "USD" })).toBe("Last cycle cost $0.00 · Estimate");
+    expect(lastCycleCostLine(null)).toBeNull();
+  });
+
+  it("the connection chip reads 'Live updates off' for everyone when the stream was never live this page", () => {
+    expect(shellConnection("off", false)).toMatchObject({ state: "off" });
+    expect(shellConnection("off", true)).toMatchObject({ state: "off" });
+    expect(shellConnection("reconnecting", false)).toMatchObject({ state: "late" });
+    expect(shellConnection("reconnecting", true)).toMatchObject({ state: "reconnecting" });
+    expect(shellConnection(null, true)).toBeNull();
+  });
+});
+
+describe("Pause and the end of a run (Nov 7, 2026)", () => {
+  it("Pause says what stopped and that Continue picks up again", () => {
+    expect(describePause({ paused: true, pausedTasks: 2, runEnded: true })).toEqual({ title: "Paused", description: "2 running tasks paused. Press Continue to pick up where the team stopped.", tone: "warn" });
+    expect(describePause({ paused: true, pausedTasks: 1, runEnded: false }).description).toBe("1 running task paused. Press Continue to pick up where the team stopped.");
+    expect(describePause({ paused: false, pausedTasks: 0, runEnded: true, reason: "no cycle is running; no new cycle starts on its own" })).toEqual({ title: "Paused", description: "No new cycle starts. Press Continue to pick up where the team stopped.", tone: "warn" });
+    expect(describePause({ paused: false, pausedTasks: 0, runEnded: false, reason: "no cycle is running" })).toEqual({ title: "Nothing to pause", description: "no cycle is running", tone: "info" });
+  });
+
+  it("a run's end on the stream: the team is done, a day's limit with its number; nothing for Pause, a stop or another event", () => {
+    const ended = (payload: Record<string, unknown>) => ({ type: "cycle.run_ended", payload });
+    expect(describeRunEnded(ended({ reason: "done" }))).toEqual({ title: "The team has done all it can for now", description: "Anything waiting for you is in the Inbox's Needs you tab.", tone: "good" });
+    expect(describeRunEnded(ended({ reason: "daily_cycles", maxCyclesPerDay: 6 }))).toMatchObject({ title: "Today's limit of 6 cycles is reached", description: "No more cycles start on their own today. Raise the limit in Settings › What the team can do, or press Continue for one more." });
+    expect(describeRunEnded(ended({ reason: "daily_spend" }))!.title).toBe("Today's spend ceiling is reached (Estimate)");
+    expect(describeRunEnded(ended({ reason: "paused" }))).toBeNull();
+    expect(describeRunEnded(ended({ reason: "stopped" }))).toBeNull();
+    expect(describeRunEnded(ended({ reason: "nonsense" }))).toBeNull();
+    expect(describeRunEnded({ type: "cycle.completed", payload: { reason: "done" } })).toBeNull();
+  });
+
+  it("the run's events refresh the cycle status and the Autopilot chip", () => {
+    expect(INVALIDATE_ON_EVENT["cycle.run_started"]).toEqual(["cycle", "business.autopilot"]);
+    expect(INVALIDATE_ON_EVENT["cycle.run_ended"]).toEqual(["cycle", "business.autopilot"]);
   });
 });
 
@@ -86,7 +155,32 @@ describe("the Example frame (UX plan §12 item 5)", () => {
     expect(EXAMPLE_START_CALLOUT.tourId).not.toBe(FIRST_CONTINUE_CALLOUT.tourId);
     // "Start your own" (in Continue's slot) opens the three doors.
     expect(START_YOUR_OWN_HREF).toBe("/new");
-    expect(EXAMPLE_CHIP_TOOLTIP).toBe("A seeded example business. Nothing you do here is saved.");
+    expect(EXAMPLE_CHIP_TOOLTIP).toBe("Its figures are made up for the example: nothing here is real money or real customers. Nothing you do here is saved.");
+  });
+
+  it("the Sample business marker: only for a visitor exploring the example; never for the demo's own members or on a founder's own business", () => {
+    expect(sampleMarker({ isDemo: true }, example)).toEqual({ label: "Sample business", tooltip: EXAMPLE_CHIP_TOOLTIP });
+    // The demo's own owner (the seeded founder) and an invited viewer don't see it (founder, Nov 12, 2026).
+    expect(sampleMarker({ isDemo: true }, owner)).toBeNull();
+    expect(sampleMarker({ isDemo: true }, viewer)).toBeNull();
+    expect(SAMPLE_BUSINESS_LINE).toBe("Its figures are made up for the example: nothing here is real money or real customers.");
+    // A founder's own business, before or after the membership loads.
+    const own = accessFor({ role: "owner", sectionPermissions: {}, source: "founder" }, { isDemo: false });
+    expect(sampleMarker({ isDemo: false }, own)).toBeNull();
+    expect(sampleMarker({ isDemo: false }, FULL_ACCESS)).toBeNull();
+    expect(sampleMarker({}, FULL_ACCESS)).toBeNull();
+    expect(sampleMarker(null, FULL_ACCESS)).toBeNull();
+    // An example-source viewer row on a business that is not a demo (or not loaded yet): never the marker.
+    const stray = { role: "viewer", sectionPermissions: {}, source: "example" } as const;
+    for (const business of [{ isDemo: false }, {}, null]) {
+      expect(sampleMarker(business, accessFor(stray, business)), JSON.stringify(business)).toBeNull();
+      expect(sampleMarker(business, { isExample: true }), JSON.stringify(business)).toBeNull();
+    }
+    // The shell's own context reads the business with the membership: such a row is not an example there either.
+    const data = { role: "viewer", membership: stray, business: { isDemo: false, currency: "GBP" } } as unknown as Parameters<typeof makeBusinessContext>[1];
+    const ctx = makeBusinessContext("b1", data, []);
+    expect(ctx.access.isExample).toBe(false);
+    expect(sampleMarker(data.business, ctx.access)).toBeNull();
   });
 
   it("every refused write keeps the viewer wording, extended for the example", () => {
@@ -112,7 +206,7 @@ describe("staff changes on the stream (security review S1)", () => {
 
 describe("the first days on the stream (founder, 2026-10-18)", () => {
   it("a sign-off decision refetches the business, the Product tabs' sign-offs, the Inbox and the Plan; a distribution start the Board", () => {
-    expect(INVALIDATE_ON_EVENT["product.signoff_decided"]).toEqual(["business", "product.signoff", "inbox", "dev"]);
+    expect(INVALIDATE_ON_EVENT["product.signoff_decided"]).toEqual(["business", "product.signoff", "inbox", "dev", "today"]);
     expect(INVALIDATE_ON_EVENT["distribution.started"]).toEqual(["business", "distribution", "inbox"]);
   });
 });
@@ -132,13 +226,22 @@ describe("foundations progress on the stream (audit P3)", () => {
 
 describe("changes another member makes reach an open Inbox (audit RUI-09)", () => {
   it("an archive or a plan confirmation (inbox.item_updated) refetches the list, the reading pane and the plan", async () => {
-    expect(INVALIDATE_ON_EVENT["inbox.item_updated"]).toEqual(["inbox", "plan"]);
+    expect(INVALIDATE_ON_EVENT["inbox.item_updated"]).toEqual(["inbox", "plan", "today"]);
     const qc = new QueryClient();
     const BID = "00000000-0000-4000-8000-000000000001";
     const pane = trpcQueryKey("inbox.get", { businessId: BID, itemId: "00000000-0000-4000-8000-000000000002" }) as unknown[];
     qc.setQueryData(pane, { item: { state: "unread" } });
     await Promise.all(INVALIDATE_ON_EVENT["inbox.item_updated"]!.map((r) => qc.invalidateQueries({ queryKey: trpcPathPrefix(r) as unknown[] })));
     expect(qc.getQueryState(pane)?.isInvalidated).toBe(true);
+  });
+
+  it("Today refetches on what changes it: a note, an answer, a round of work, a customer and the goal (founder, 2026-11-07)", () => {
+    for (const type of ["inbox.item_created", "inbox.item_updated", "decision.made", "cycle.completed", "customer.converted", "goal.proposed", "goal.approved", "goal.change_requested", "goal.achieved"]) expect(INVALIDATE_ON_EVENT[type], type).toContain("today");
+  });
+
+  it("a team call started or ended refetches the calls list; an ended one has filed actions, so the Inbox, plans, tasks, roadmap and Today follow", () => {
+    expect(INVALIDATE_ON_EVENT["team_call.started"]).toEqual(["teamCall"]);
+    expect(INVALIDATE_ON_EVENT["team_call.ended"]).toEqual(expect.arrayContaining(["teamCall", "inbox", "plan", "dev", "product", "today"]));
   });
 
   it("maps only events the catalogue declares (a typo would never fire)", () => {

@@ -42,6 +42,9 @@ function recordingComposer(): ComposerClient & { narrated: string[][]; commented
     async chapterTitle() {
       return { title: "" };
     },
+    async founderTitles() {
+      return { written: 0, skipped: 0 };
+    },
   };
 }
 

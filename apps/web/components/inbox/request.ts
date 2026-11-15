@@ -4,7 +4,7 @@
  * arguments. The tool name and the raw arguments stay available behind "Details"; nothing here needs a model call.
  */
 import { formatMoney } from "@foundmill/dugout";
-import type { Money } from "@foundmill/shared";
+import { founderWords, type Money } from "@foundmill/shared";
 
 /** The slice of `inbox.get`'s `approval` the sentence reads. */
 export interface RequestLike {
@@ -31,6 +31,14 @@ const BRANDS: Record<string, string> = {
   e2b: "E2B",
   ecb_rates: "ECB rates",
   cloudflare_dns: "Cloudflare DNS",
+  openai: "OpenAI",
+  gemini: "Google Gemini",
+  serpapi: "SerpApi",
+  indexnow: "IndexNow",
+  posthog: "PostHog",
+  runway: "Runway",
+  elevenlabs_voice: "ElevenLabs",
+  buffer: "Buffer",
   dropbox_sign: "Dropbox Sign",
   google_drive: "Google Drive",
   google_calendar: "Google Calendar",
@@ -70,8 +78,8 @@ export function keyWords(key: string): string {
   return words.map((w) => (branded && w === "ads" ? "Ads" : w)).join(" ");
 }
 
-/** "run_migration" → "run migration". */
-export const toolWords = (tool: string): string => tool.replace(/[_.]+/g, " ").trim();
+/** "run_migration" → "run a change to the data layout": the tool's words in the founder's (the shared map, as the api's subject). */
+export const toolWords = (tool: string): string => founderWords(tool.replace(/[_.]+/g, " ").trim());
 
 /** The arguments as an object when the api sent them as JSON text; an empty object for a summary line or nothing. */
 export function parseArgs(args: string | null | undefined): Record<string, unknown> {
@@ -174,11 +182,10 @@ export function describeRequest(r: RequestLike): string {
       const template = str(p, "template", "templateKey", "role");
       return `${who} wants to hire ${template ? `a ${keyWords(template)} agent` : "an agent"}`;
     }
-    case "merge_pull_request": {
-      const n = str(p, "number", "pull_number", "pr", "pullRequest");
-      // plain-allow: ApprovalPanel defines "pull request" in its help tip when the request is a merge.
-      return `${who} wants to merge ${n ? `pull request #${n.replace(/^#/, "")}` : "a pull request"}${service && service !== "GitHub" ? ` on ${service}` : ""}`;
-    }
+    case "merge_pr":
+    case "merge_pull_request":
+      // A release, in the founder's words (decision 2026-11-01): the pull request's number is a developer detail.
+      return `${who} wants to put a finished change live`;
     default: {
       if (!tool) return `${who} wants to run ${r.action}`;
       const label = toolWords(tool);

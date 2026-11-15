@@ -1,11 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, signIn } from "./helpers";
+import { LONG, NORTHWIND_BUSINESS_ID, settled, signIn } from "./helpers";
 
 /**
- * The LIVE pages (BUILD §6.2, §11.14): /network, /communities[/id] and /leaderboards[/boardId], opened from the sidebar of
+ * The LIVE pages (BUILD §6.2, §11.14): /network and /communities[/id], opened from the sidebar of
  * the seeded Ledgerly (the LIVE business; Northwind is Personal and has no LIVE block). They sit outside /b/[bid], so
- * the shell takes its business from the one the founder last opened. The demo seed gives Ledgerly a community with posts
- * and a board it leads; it gives the founder no connections or messages, so the Network lists show their empty states.
+ * the shell takes its business from the one the founder last opened. The demo seed gives Ledgerly a community with posts;
+ * it gives the founder no connections or messages, so the Network lists show their empty states.
  * Stack and commands: e2e/README.md.
  */
 const LEDGERLY_BUSINESS_ID = "b1e5e5e5-0000-4000-8000-000000000002";
@@ -56,9 +56,13 @@ test.describe("live pages from the sidebar", () => {
 
   test("Network: Find on Foundmill searches public profiles by name; the demo business is never listed", async ({ page }) => {
     await page.goto("/network");
+    // Typed only once the screen is hydrated: text typed into the server-rendered input is lost when React takes the
+    // controlled input over (the flake on PR #74: the field stayed empty, so the search never ran; helpers `settled`).
+    await settled(page);
     const panel = page.getByTestId("people-search");
     await expect(panel).toBeVisible({ timeout: LONG });
     await panel.getByTestId("people-search-input").fill("Ledgerly");
+    await expect(panel.getByTestId("people-search-input")).toHaveValue("Ledgerly");
     // Ledgerly is the seeded demo (synthetic numbers): LIVE for its owners, but never listed for anyone else (0044).
     await expect(panel.getByTestId("people-search-empty")).toContainText("No public profile matches", { timeout: LONG });
     await expect(panel.getByTestId("people-search-results")).toHaveCount(0);
@@ -66,6 +70,7 @@ test.describe("live pages from the sidebar", () => {
 
   test("Network: the profile visibility control offers the four levels and saves a change (then restores it)", async ({ page }) => {
     await page.goto("/network");
+    await settled(page);
     const panel = page.getByTestId("visibility-panel");
     await expect(panel).toBeVisible({ timeout: LONG });
     const radios = panel.getByRole("radio");
@@ -176,6 +181,7 @@ test.describe("live pages from the sidebar", () => {
 
   test("Communities: Start a community opens its form (name, kind, who can join)", async ({ page }) => {
     await page.goto("/communities");
+    await settled(page);
     await expect(page.getByTestId("communities-screen")).toBeVisible({ timeout: LONG });
     await page.getByTestId("community-create").click();
     const dialog = page.getByTestId("create-community-dialog");
@@ -188,38 +194,6 @@ test.describe("live pages from the sidebar", () => {
     // Cancel: the run leaves no community behind (creating is limited per founder per day).
     await dialog.getByRole("button", { name: "Cancel" }).click();
     await expect(dialog).toHaveCount(0);
-  });
-
-  test("Leaderboards: lists the boards with the business's position and opens one with its entries", async ({ page }) => {
-    await nav(page).getByRole("link", { name: "Leaderboards" }).click();
-    await expect(page).toHaveURL(/\/leaderboards$/, { timeout: LONG });
-    await expect(page.getByTestId("leaderboards-screen")).toBeVisible({ timeout: LONG });
-    await expect(nav(page).getByRole("link", { name: "Leaderboards" })).toHaveAttribute("aria-current", "page");
-    const grid = page.getByRole("grid", { name: "Leaderboards" });
-    const growth = grid.getByRole("row", { name: /Growth/ });
-    await expect(growth).toBeVisible({ timeout: LONG });
-    // The seeded Ledgerly leads its growth board; the positions panel and the row both say so.
-    await expect(growth).toContainText("#1");
-    await expect(page.getByTestId("positions-panel").getByTestId("position-row").first()).toContainText("#1", { timeout: LONG });
-    await expect(page.getByTestId("leaderboards-panel")).toContainText("Numbers a founder types in never rank");
-
-    await growth.dblclick();
-    await expect(page).toHaveURL(/\/leaderboards\/[0-9a-f-]{36}$/, { timeout: LONG });
-    const board = page.getByTestId("leaderboard-screen");
-    await expect(board).toBeVisible({ timeout: LONG });
-    await expect(page.getByTestId("kit-bar")).toContainText("Ledgerly");
-    const entries = page.getByRole("grid", { name: /entries$/ });
-    await expect(entries).toBeVisible({ timeout: LONG });
-    await expect(entries.getByRole("columnheader", { name: /Position/ })).toBeVisible();
-    await expect(entries.getByRole("columnheader", { name: /Movement/ })).toBeVisible();
-    await expect(entries.getByRole("columnheader", { name: /Business/ })).toBeVisible();
-    await expect(entries.getByRole("columnheader", { name: /Form/ })).toBeVisible();
-    const mine = entries.getByRole("row", { name: /Ledgerly/ });
-    await expect(mine).toBeVisible({ timeout: LONG });
-    await expect(mine).toContainText("You");
-    await expect(mine).toContainText("#1");
-    await expect(mine.getByRole("img", { name: "Ledgerly logo" })).toBeVisible();
-    await expect(page.getByTestId("leaderboard-entries")).toContainText("Verified integration metrics only");
   });
 });
 
@@ -235,7 +209,7 @@ test.describe("live pages and the current business", () => {
     await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/home`);
     await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
     await page.waitForLoadState("networkidle", { timeout: LONG });
-    for (const path of ["/network", "/communities", "/leaderboards"]) {
+    for (const path of ["/network", "/communities"]) {
       await page.goto(path);
       await expect(page.getByTestId("kit-bar")).toContainText("Northwind Skincare", { timeout: LONG });
       await expect(page.getByTestId("personal-notice")).toContainText("Personal business", { timeout: LONG });
@@ -245,14 +219,12 @@ test.describe("live pages and the current business", () => {
     // LIVE block, and the page is still a page, not a 404.
     await expect(nav(page).getByRole("link", { name: /^Network/ })).toBeVisible();
     await expect(nav(page).getByRole("link", { name: "Communities" })).toHaveCount(0);
-    await expect(nav(page).getByRole("link", { name: "Leaderboards" })).toHaveCount(0);
-    await expect(page.getByTestId("leaderboards-screen")).toBeVisible();
-    await expect(page.getByTestId("positions-panel")).toContainText("Personal business");
+    await expect(page.getByTestId("communities-screen")).toBeVisible();
   });
 
   test("the LIVE pages are for signed-in founders: signed out, each goes to /login with the page as next", async ({ page }) => {
     await page.context().clearCookies();
-    for (const path of ["/network", "/communities", "/leaderboards"]) {
+    for (const path of ["/network", "/communities"]) {
       await page.goto(path);
       await expect(page).toHaveURL(new RegExp(`/login\\?next=${encodeURIComponent(path)}$`));
     }

@@ -56,13 +56,19 @@ test.describe("keyboard and screen readers", () => {
     await expect(visible).toBeFocused();
   });
 
-  test("each department's shortcut is its own: the picker names the letter and what a choice swaps with", async ({ page }) => {
+  test("the G chords follow the areas: the sidebar names them and the help overlay lists them, with no department letters", async ({ page }) => {
     await openBusiness(page, "settings/departments");
     const list = settingsScreen(page).getByTestId("department-list");
     await expect(list).toBeVisible({ timeout: LONG });
-    const pickers = list.getByRole("combobox", { name: /^Shortcut for / });
-    expect(await pickers.count()).toBeGreaterThan(1);
-    await expect(pickers.first()).toHaveAttribute("data-shortcut", /^[A-Z]$/);
+    await expect(list.getByRole("combobox", { name: /^Shortcut for / })).toHaveCount(0);
+    const nav = page.getByRole("navigation", { name: "Primary" });
+    const chords = await nav.locator("[data-sidebar-item^='area-']").evaluateAll((els) => els.map((el) => el.getAttribute("aria-keyshortcuts")));
+    expect(chords).toEqual(["G P", "G C", "G M", "G R", "G T"]);
+    await nav.getByRole("button", { name: "Keyboard shortcuts" }).click();
+    const help = page.getByTestId("keyboard-help");
+    for (const label of ["Go to Today", "Go to Needs you", "Go to Plan", "Go to Customers", "Go to Money", "Go to Product", "Go to Team"]) await expect(help).toContainText(label);
+    await expect(help).not.toContainText("Go to Formulation Lab");
+    await page.keyboard.press("Escape");
   });
 
   test("the tab bar's tablist holds only tabs; the sub-view caret is a 24 px button beside it", async ({ page }) => {
@@ -176,16 +182,17 @@ test.describe("keyboard and screen readers", () => {
     await expect(primary).toHaveCSS("color", "rgb(255, 255, 255)");
   });
 
-  test("on vacation the top bar and Settings › Mode show the mode in force, Automated", async ({ page }) => {
+  test("on vacation the top bar and Settings › What the team can do say the team decides on its own", async ({ page }) => {
     await signIn(page);
     await page.goto(`/b/${LEDGERLY_BUSINESS_ID}/settings/mode`);
     await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
     await settled(page);
-    const chip = page.getByRole("button", { name: /^Business mode: Automated, on vacation/ });
+    const chip = page.getByRole("button", { name: /^What the team can do: decides alone, .*, on vacation/ });
     await expect(chip).toBeVisible({ timeout: LONG });
-    // The chip's word stays one word; its second phrase is a separate span the top bar may hide (KitBarFit).
-    await expect(chip.locator(".kitbar-chip-word").first()).toHaveText("Automated");
-    await expect(settingsScreen(page).getByTestId("mode-in-force")).toContainText("Automated while on vacation");
+    await expect(chip).toHaveAttribute("data-mode", "automated");
+    // The whole phrase and its short form are separate spans the top bar steps between (KitBarFit).
+    await expect(chip.locator("[data-chip-full]")).toHaveText(/^Decides alone, asks /);
+    await expect(settingsScreen(page).getByTestId("mode-in-force")).toContainText("On vacation: the team decides on its own");
   });
 
   test("the sidebar's \"?\" cap is a named button that opens the keyboard shortcuts and gives focus back on Esc (B15)", async ({ page }) => {

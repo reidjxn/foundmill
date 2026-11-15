@@ -8,7 +8,7 @@
  * tried again next cycle. Idempotent: an item that has tasks by the time it is reached (a retried activity, the
  * founder's own "Plan something sooner" meanwhile) is skipped, under the same per-business planning lock the api takes.
  */
-import { PLANNER_SYSTEM_PROMPT } from "@foundmill/agents";
+import { dropPlatformDuties, PLANNER_SYSTEM_PROMPT } from "@foundmill/agents";
 import { LIMITS } from "@foundmill/config";
 import { repos, roadmapItemDepartmentId } from "@foundmill/db";
 import { TaskGraphOutput } from "@foundmill/models";
@@ -74,12 +74,15 @@ export function createRoadmapPlanActivities(deps: OrchestratorDeps) {
             // instance meanwhile is seen, not written twice.
             await repos.tasks.lockPlanning(tx, businessId);
             if ((await repos.tasks.list(tx, businessId, { roadmapItemId: item.id, limit: 1 })).items.length > 0) return null;
-            const tasks = await repos.tasks.writePlannedGraph(tx, businessId, { tasks: answer.json.tasks, roadmapItemId: item.id, departmentId: roadmapItemDepartmentId(item) });
+            // What the platform does around every code task (CI, the pull request, bringing the branch up to date, the
+            // merge) is never a task: no agent has a tool for it, and a task planned for it only blocks.
+            const { kept, dropped } = dropPlatformDuties(answer.json.tasks);
+            const tasks = await repos.tasks.writePlannedGraph(tx, businessId, { tasks: kept, roadmapItemId: item.id, departmentId: roadmapItemDepartmentId(item) });
             await repos.audit.append(tx, businessId, {
               actorKind: "system",
               action: ROADMAP_PLAN_AUDIT_ACTION,
               target: { kind: "roadmap_item", id: item.id },
-              details: { cycleNumber: input.cycleNumber, title: item.title, tasks: tasks.length, taskIds: tasks.map((t) => t.id), costMinor, model: answer.modelKey },
+              details: { cycleNumber: input.cycleNumber, title: item.title, tasks: tasks.length, taskIds: tasks.map((t) => t.id), costMinor, model: answer.modelKey, ...(dropped.length ? { platformDuties: dropped.map((d) => ({ title: d.task.title.slice(0, 200), reason: d.reason })) } : {}) },
             });
             return tasks;
           });

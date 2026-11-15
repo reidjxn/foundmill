@@ -2,7 +2,8 @@
  * @foundmill/api — Hono + tRPC (docs/ARCHITECTURE.md §13).
  *
  * Boot: load env → build deps → shutdown handlers → fetch Supabase's signing keys (and every 5 minutes after, auth.ts
- * `keepKeysFresh`) → log every private service address still on localhost in staging or production → run migrations in
+ * `keepKeysFresh`) → with SIGNUP_ALLOWLIST, read Supabase's "Confirm email" setting (and every 10 minutes after, never
+ * awaited: services/confirm-email.ts) → log every private service address still on localhost in staging or production → run migrations in
  * one transaction under pg_advisory_xact_lock(7461, 1) (idempotent; exit 1 when the lock is not granted within
  * MIGRATION_LOCK_TIMEOUT_MS; keep serving if the db is down) → open the database pool's connections and keep them open
  * (a `select 1` per connection every minute, packages/db `keepPoolWarm`) → supervise the outbox relay
@@ -22,9 +23,14 @@ import { createApp } from "./app";
 import type { KeyRefresher } from "./auth";
 import { createApiDeps, type ApiDeps } from "./context";
 import type { ApiRedis } from "./services/redis";
+import { createPushNotifier, type PushNotifier } from "./services/push/notifier";
 import { superviseOutboxRelay, type RelaySupervisor } from "./services/relay";
 import { monitorWorker, type WorkerMonitor } from "./services/worker-health";
 import { seedOnBoot } from "./services/seed-on-boot";
+import { startIdeaBoxSweep } from "./services/idea-box";
+import { startShowcaseSweep } from "./services/showcase";
+import { DEMO_ROLL_BOOT_WAIT_MS, demoRollForwardEnabled, startDemoRollForward } from "./services/demo-roll-forward";
+import { notifyEmailEnabled, startNotifyEmail } from "./services/push/email-pass";
 import { backfillPersonasOnBoot } from "./services/persona-backfill";
 import { startWorkflowReconciler } from "./services/workflow-reconcile";
 
@@ -79,6 +85,9 @@ export async function migrateOnBoot(deps: ApiDeps, options: MigrateOnBootOptions
  */
 export const WARM_CONNECTIONS = 8;
 
+/** How long the persona backfill and the idea box sweep wait for the demo seed at boot before starting anyway. */
+export const BOOT_WORK_WAIT_MS = 60_000;
+
 /** Service addresses the api calls over the private network; each defaults to localhost, which is wrong once deployed. */
 const PRIVATE_URLS = ["INGEST_URL", "GATEWAY_URL", "COMPOSER_URL"] as const;
 
@@ -126,12 +135,19 @@ export async function main(): Promise<void> {
   const deps = createApiDeps({ env });
   let server: ReturnType<typeof serve> | null = null;
   let relay: RelaySupervisor | null = null;
+  let pushNotifier: PushNotifier | null = null;
   let reconciler: { stop(): void } | null = null;
+  let demoRoller: { stop(): void } | null = null;
+  let ideaSweep: { stop(): Promise<void> } | null = null;
+  let showcaseSweep: { stop(): Promise<void> } | null = null;
+  let notifyEmail: { stop(): Promise<void> } | null = null;
   let workerMonitor: WorkerMonitor | null = null;
   let warmer: PoolWarmer | null = null;
   let watchdog: PoolWatchdog | null = null;
   // Fetched now and refreshed in the background: no request waits for Supabase's signing keys.
   const keys: KeyRefresher | null = deps.auth.keepKeysFresh?.({ onError: (err) => deps.log.warn({ err: (err as Error)?.message }, "fetching Supabase's signing keys failed; retrying in 5 minutes (a token with an unknown key fetches them at once)") }) ?? null;
+  // With SIGNUP_ALLOWLIST: is Supabase's "Confirm email" on? Read in the background; boot never waits for it.
+  const confirmEmail = deps.confirmEmail?.start() ?? null;
   // Installed before the migration: a SIGTERM during boot still closes the pool (the migration transaction rolls back).
   const lifecycle = onShutdown({
     service: "api",
@@ -148,10 +164,16 @@ export async function main(): Promise<void> {
         },
       },
       { name: "stop workflow reconciler", run: () => reconciler?.stop() },
+      { name: "stop sample roll-forward", run: () => demoRoller?.stop() },
+      { name: "stop idea box sweep", run: async () => ideaSweep?.stop() },
+      { name: "stop showcase sweep", run: async () => showcaseSweep?.stop() },
       { name: "stop key refresh", run: () => keys?.stop() },
+      { name: "stop confirm-email check", run: () => confirmEmail?.stop() },
       { name: "stop pool warmer", run: () => warmer?.stop() },
       { name: "stop pool watchdog", run: () => watchdog?.stop() },
       { name: "stop outbox relay", run: () => relay?.stop() },
+      { name: "stop push notifier", run: () => pushNotifier?.stop() },
+      { name: "stop notify email", run: () => notifyEmail?.stop() },
       { name: "stop worker monitor", run: () => workerMonitor?.stop() },
       { name: "close temporal", run: () => deps.temporal.close() },
       {
@@ -173,22 +195,55 @@ export async function main(): Promise<void> {
   // A pool that stops answering while the database answers outside it exits the process, and Railway restarts it with a
   // fresh pool (DECISIONS 2026-10-19 "The api's pool wedged for four hours"); its state is reported on /health.
   watchdog = watchPoolOrExit({ db: deps.db, url: env.DATABASE_URL ?? null, log: deps.log, service: "api", exit: (code) => void flushLog(deps.log as Parameters<typeof flushLog>[0]).finally(() => process.exit(code)) });
-  // The relay's state is reported on /health, so the supervisor exists before the app does.
-  relay = superviseOutboxRelay(deps);
+  // The relay's state is reported on /health, so the supervisor exists before the app does. Every batch it publishes is
+  // also handed to the push notifier (the mobile app's phones, services/push), which never slows the relay down.
+  pushNotifier = createPushNotifier(deps);
+  relay = superviseOutboxRelay(deps, { onPublished: (events) => pushNotifier?.onPublished(events) });
   const app = createApp({ ...deps, relay, poolWatchdog: watchdog });
   const port = servicePort(env, "API_PORT");
 
   server = await listen(app, port, deps);
-  // Agents hired before 0067 get their persona keys (idempotent; failures are logged and never block).
-  if (migrated) void backfillPersonasOnBoot(deps);
   // The demo seed may add a running vacation: the reconciler below runs after it.
   const seeded = migrated ? seedOnBoot(deps).catch(() => undefined) : Promise.resolve();
+  // Boot's one-off database work runs one after another, not all at once beside the pool warmer (Nov 13, 2026: with
+  // the idea box sweep added, every fresh boot's seed query hung for the life of the process, the pool saturated at
+  // boot). The seed goes first; the persona backfill and the idea box sweep wait for it, at most BOOT_WORK_WAIT_MS, so a
+  // seed that never answers is reported and never holds them back.
+  const seedSettled = Promise.race([
+    seeded.then(() => true),
+    new Promise<false>((resolve) => setTimeout(() => resolve(false), BOOT_WORK_WAIT_MS).unref?.()),
+  ]).then((settled) => {
+    if (!settled && migrated && !lifecycle.stopping) deps.log.warn({ waitedMs: BOOT_WORK_WAIT_MS }, "SEED_ON_BOOT: the seed has not finished; starting the rest of boot's database work anyway");
+  });
+  const bootWork = seedSettled
+    // Agents hired before 0067 get their persona keys (idempotent; failures are logged and never block).
+    .then(() => (migrated && !lifecycle.stopping ? backfillPersonasOnBoot(deps) : undefined))
+    .catch(() => undefined);
+  // The sample businesses roll forward with the calendar (DECISIONS 2026-11-10), after the seed and every hour after;
+  // DEMO_ROLL_FORWARD=off turns it off. The reconciler below waits for the boot roll at most DEMO_ROLL_BOOT_WAIT_MS (a
+  // seeded vacation's workflow then starts from its moved dates), never longer: real founders' workflows never queue
+  // behind the sample.
+  const rolled = seeded.then(() => {
+    if (lifecycle.stopping || !migrated || !demoRollForwardEnabled(env)) return;
+    const roller = startDemoRollForward(deps);
+    demoRoller = roller;
+    return Promise.race([roller.done, new Promise<void>((resolve) => setTimeout(resolve, DEMO_ROLL_BOOT_WAIT_MS).unref?.())]);
+  });
+  // The idea box's unclaimed cards are deleted after 7 days (90 on the waitlist), at boot and every hour (docs/IDEA_BOX.md).
+  void bootWork.then(() => {
+    if (migrated && !lifecycle.stopping) ideaSweep = startIdeaBoxSweep(deps);
+    // Showcase videos (0103): asks that ran out, approvals that lapsed, clips to follow, founders who changed.
+    if (migrated && !lifecycle.stopping) showcaseSweep = startShowcaseSweep(deps);
+  });
+  // Email from Foundmill to a person (packages 1.5 and 5.1): a note that waited a day for their answer, at boot and every
+  // hour; only with PLATFORM_MAIL_DOMAIN set, and NOTIFY_EMAIL=off turns it off. The gateway sends and counts.
+  if (migrated && notifyEmailEnabled(env)) notifyEmail = startNotifyEmail(deps);
   // Every minute: is the orchestrator taking the work waiting on its task queues? An error line when it stops (SOAK-06).
   workerMonitor = monitorWorker({ temporal: deps.temporal, log: deps.log, taskQueue: env.TEMPORAL_TASK_QUEUE });
   if (env.APP_ENV === "development") void deps.temporal.reachable().then((ok) => !ok && deps.log.warn({ address: env.TEMPORAL_ADDRESS }, "Temporal is unreachable: start it with `temporal server start-dev` (workflows will report queued: false until then)"));
 
   // Long-lived workflows (vacations, Automated mode) for rows that have none: started at boot and every few minutes.
-  void seeded.then(() => {
+  void rolled.then(() => {
     if (!lifecycle.stopping) reconciler = startWorkflowReconciler(deps);
   });
 }

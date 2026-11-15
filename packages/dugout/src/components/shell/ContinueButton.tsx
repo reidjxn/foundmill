@@ -26,7 +26,7 @@ export interface ContinueHandlers {
   onContinue?: () => void;
   /** blocked: jump to the first red item. */
   onRespond?: () => void;
-  /** processing: pause the running cycle. */
+  /** processing: pause the running cycle (and end the run: no new cycle starts on its own). */
   onPause?: () => void;
   /** matchday (a Customer Update is ready): open the Journey. */
   onGoToJourney?: () => void;
@@ -48,6 +48,17 @@ export interface ContinueButtonProps extends ContinueHandlers {
    * refuses presses but keeps keyboard focus, unlike `disabled`, so the founder does not lose their place.
    */
   pending?: boolean;
+  /**
+   * A sentence the tooltip adds after the state's own (first-time founder report, Nov 8, 2026): what a press can and
+   * cannot do right now, e.g. "The orchestrator is not reachable: a press writes one note; no agent works." Also on the
+   * button as `data-continue-caveat`, so a screen can read it.
+   */
+  caveat?: string | null;
+  /**
+   * A quiet line after the state's sentence: what the last cycle cost, as an Estimate ("Last cycle cost $0.52 ·
+   * Estimate"), so a press has a price before it is made (first-time founder report, Nov 8, 2026).
+   */
+  hint?: string | null;
   size?: ButtonSize;
   className?: string;
 }
@@ -58,7 +69,7 @@ export function continueButtonLabel(state: ContinueState): string {
     case "idle":
       return "Continue";
     case "blocked":
-      return `Respond · ${state.count}`;
+      return `Needs you · ${state.count}`;
     case "processing":
       return state.label ?? "Pause";
     case "matchday":
@@ -105,8 +116,9 @@ export function cycleDefinitionSentence(short: string): string {
 
 /**
  * The tooltip's sentence per state (docs/UX_AUDIT_AND_PLAN.md §7.7, B1): what pressing does, in the business's words.
- * Idle says the loop once; blocked counts the notes and says what the press opens; processing names the cycle; the
- * Customer Update and vacation states keep their words. Exported for tests.
+ * Idle says the loop once (since Nov 7, 2026 one press keeps the team working until nothing is left); blocked counts the
+ * notes and says what the press opens; processing names the cycle, and during a run says new cycles start on their own;
+ * the Customer Update and vacation states keep their words. Exported for tests.
  *
  * `cycleDefinition` (the definitions map's `cycle.short`, passed while guidance is on): the idle sentence names the
  * cycle and defines it in words. A tooltip is a label and cannot hold the Term's button, so the definition is a
@@ -116,12 +128,14 @@ export function continueTooltip(state: ContinueState, cycleNumber?: number | nul
   switch (state.kind) {
     case "idle": {
       const defined = cycleDefinition ? cycleDefinitionSentence(cycleDefinition) : "";
-      return defined ? `Let the team work on their next tasks for one cycle. ${defined}` : "Let the team work on their next tasks. Their notes land in the Inbox.";
+      return defined ? `Let the team work, one cycle after another, until nothing is left to do. ${defined}` : "Let the team work until nothing is left to do. Their notes land in the Inbox.";
     }
     case "blocked":
-      return `${state.count} ${state.count === 1 ? "note needs" : "notes need"} your answer before the team can carry on. Press to open the first.`;
-    case "processing":
-      return typeof cycleNumber === "number" && cycleNumber > 0 ? `The team is working · cycle ${cycleNumber}` : "The team is working";
+      return `${state.count} ${state.count === 1 ? "thing needs" : "things need"} you before the team can work (credits used up or a key to replace). Press to open the first.`;
+    case "processing": {
+      const working = typeof cycleNumber === "number" && cycleNumber > 0 ? `The team is working · cycle ${cycleNumber}` : "The team is working";
+      return state.run ? `${working}. New cycles start on their own until nothing is left to do.` : working;
+    }
     case "matchday":
       return "A customer was won";
     case "holiday":
@@ -146,13 +160,13 @@ export function continueButtonAction(state: ContinueState, handlers: ContinueHan
 }
 
 /**
- * The Continue button (BUILD §5.4, DESIGN §7). At rest the brand primary with its light (Play, "Continue"). Blocked is
- * a solid red with ink text "Respond" and the count in a capsule, a 4 px red halo, and one 600 ms ring pulse when it
- * turns blocked. Processing is a dark slab with a light arc orbiting its edge and "Pause". A Customer Update is gold.
+ * The Continue button (BUILD §5.4, DESIGN §7). At rest the brand primary with its light (Play, "Continue"). Blocked
+ * (only a hard stop since Nov 7, 2026: credits used up, a revoked key) is amber "Needs you" with the count in a capsule
+ * and one 600 ms ring pulse when it turns blocked; open decisions never block it. Processing is a dark slab with a light arc orbiting its edge and "Pause", for the whole run one press of Continue starts (between its cycles too). A Customer Update is gold.
  * Vacation is neutral with the caption and "Come back". It keeps one width through its states, so the bar never jumps.
  */
 export const ContinueButton = forwardRef<HTMLButtonElement, ContinueButtonProps>(function ContinueButton(
-  { state, cycleNumber, pulseKey, bindSpace = false, disabled, pending = false, size = "md", className, ...handlers },
+  { state, cycleNumber, pulseKey, bindSpace = false, disabled, pending = false, caveat = null, hint = null, size = "md", className, ...handlers },
   ref,
 ) {
   const reduced = usePrefersReducedMotion();
@@ -228,6 +242,7 @@ export const ContinueButton = forwardRef<HTMLButtonElement, ContinueButtonProps>
     loading: pending,
     onClick: action,
     "data-continue-state": state.kind,
+    "data-continue-caveat": caveat || undefined,
     "data-pulsing": pulsing || undefined,
     "aria-keyshortcuts": "Space",
     // The first-time callout (Coachmark, next wave) anchors here.
@@ -248,14 +263,16 @@ export const ContinueButton = forwardRef<HTMLButtonElement, ContinueButtonProps>
       break;
     case "blocked":
       button = (
+        // Only a hard stop (credits used up, a revoked key) gets here since Nov 7, 2026: amber, never the red "Respond"
+        // that every open decision and customer win used to turn Continue into.
         <Button
           {...common}
-          variant="danger"
+          variant="default"
           icon={CircleAlert}
-          className={cn(skin, "tone-status-bad font-semibold", pulseClass, className)}
-          aria-label={`Respond to ${state.count} ${state.count === 1 ? "item" : "items"}`}
+          className={cn(skin, "tone-status-warn text-status-warn font-semibold", pulseClass, className)}
+          aria-label={`${state.count} ${state.count === 1 ? "thing needs" : "things need"} you before the team can work`}
         >
-          <span>Respond</span>
+          <span>Needs you</span>
           <span className="sr-only"> · </span>
           <span className="continue-count" data-continue-count>
             {state.count > 99 ? "99+" : state.count}
@@ -308,10 +325,14 @@ export const ContinueButton = forwardRef<HTMLButtonElement, ContinueButtonProps>
   return (
     <Tooltip
       content={
-        <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-1">
-          <span>{continueTooltip(state, cycleNumber, datePrefs, cycleDefinition)}</span>
-          {/* A control hint, like the search's ⌘K: it stays whatever the guidance setting. */}
-          <Kbd>Space</Kbd>
+        <span className="flex max-w-80 flex-col gap-1">
+          <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-1">
+            <span>{continueTooltip(state, cycleNumber, datePrefs, cycleDefinition)}</span>
+            {/* A control hint, like the search's ⌘K: it stays whatever the guidance setting. */}
+            <Kbd>Space</Kbd>
+          </span>
+          {caveat ? <span className="text-status-warn">{caveat}</span> : null}
+          {hint ? <span className="text-secondary" data-continue-hint="">{hint}</span> : null}
         </span>
       }
       side="bottom"

@@ -15,6 +15,13 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 
 afterEach(() => vi.useRealTimers());
 
+/** Every note, archived ones included: a newer update archives its agent's older open one (Nov 7, 2026). */
+async function allNotes(h: { db: Parameters<typeof repos.inbox.list>[0]; businessId: string }): Promise<number> {
+  const open = await repos.inbox.list(h.db, h.businessId, { limit: 500 });
+  const archived = await repos.inbox.list(h.db, h.businessId, { limit: 500, tab: "archive" });
+  return open.items.length + archived.items.length;
+}
+
 describe("composer client", () => {
   it("waits past the old 20 s for a narration (default LIMITS.composerClientTimeoutMs) and reports a replayed answer", async () => {
     vi.useFakeTimers();
@@ -47,6 +54,19 @@ describe("composer client", () => {
     expect(err).not.toBeInstanceOf(ComposerUnavailableError);
     expect(err).toMatchObject({ code: "composer_rejected", status: 422, details: { unknownIds: ["x"] } });
   });
+
+  it("asks for founder titles (0070) and reads back how many were written and skipped", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    const client = createComposerClient({
+      baseUrl: "http://composer.test",
+      fetch: async (url, init) => {
+        calls.push({ url: String(url), body: JSON.parse(String(init?.body)) });
+        return json({ written: [{ taskId: "t1", title: "Fix a display bug in the dashboard page", source: "model" }], skipped: [{ taskId: "t2", reason: "too_long" }], cost: { amountMinor: 1, label: "Estimate" } });
+      },
+    });
+    await expect(client.founderTitles({ businessId: "b" })).resolves.toEqual({ written: 1, skipped: 1 });
+    expect(calls).toEqual([{ url: "http://composer.test/v1/founder-titles", body: { businessId: "b" } }]);
+  });
 });
 
 describe("narrateCycle and the journey commentary", () => {
@@ -56,7 +76,7 @@ describe("narrateCycle and the journey commentary", () => {
   }, 120_000);
   afterAll(() => t?.close());
 
-  const failing = (err: Error): ComposerClient => ({ baseUrl: "http://composer.test", narrate: () => Promise.reject(err), commentary: () => Promise.reject(err), chapterTitle: () => Promise.reject(err) });
+  const failing = (err: Error): ComposerClient => ({ baseUrl: "http://composer.test", narrate: () => Promise.reject(err), commentary: () => Promise.reject(err), chapterTitle: () => Promise.reject(err), founderTitles: () => Promise.reject(err) });
   const input = () => ({ businessId: t.businessId, eventIds: [t.fixture.eventIds[0]!], summary: "Cycle 1: done." });
 
   const staging = () => ({ ...t.deps, env: { ...t.deps.env, APP_ENV: "staging" as const } });
@@ -107,13 +127,13 @@ describe("narrateCycle and the journey commentary", () => {
   });
 
   it("in development a 4xx ends in the plain cycle update without an outage notice; an outage's plain update says so", async () => {
-    const before = (await repos.inbox.list(t.db, t.businessId, { limit: 500 })).items.length;
+    const before = (await allNotes(t));
     const out = await createCycleActivities({ ...t.deps, composer: failing(new ComposerRequestError("validation", "Invalid request body", 400)) }).narrateCycle(input());
     expect(out.viaComposer).toBe(false);
     expect(out.inboxItemIds).toHaveLength(1);
     expect(await itemBody(out.inboxItemIds[0]!)).toBe("Cycle 1: done.");
     const down = await createCycleActivities({ ...t.deps, composer: failing(new ComposerUnavailableError("Composer /v1/narrate unreachable")) }).narrateCycle(input());
     expect(await itemBody(down.inboxItemIds[0]!)).toMatch(/without the Inbox Composer \(service unavailable\)/);
-    expect((await repos.inbox.list(t.db, t.businessId, { limit: 500 })).items.length).toBe(before + 2);
+    expect((await allNotes(t))).toBe(before + 2);
   });
 });

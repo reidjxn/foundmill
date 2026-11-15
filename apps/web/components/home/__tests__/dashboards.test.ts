@@ -89,7 +89,12 @@ describe("day one", () => {
 
   it("ghosts every milestone in the business currency", () => {
     const cards = ghostedMilestones("GBP");
-    expect(cards).toHaveLength(8);
+    expect(cards).toHaveLength(10);
+    // The two early ones lead, each with its own line.
+    expect(cards.slice(0, 2).map((c) => [c.key, c.label, c.description])).toEqual([
+      ["page_live", "Page live", "Your project's public page went live."],
+      ["first_follower", "First follower", "The first person confirmed that they follow your project."],
+    ]);
     expect(cards.every((c) => c.achievedAt === null)).toBe(true);
     expect(cards.find((c) => c.key === "customer_1")?.label).toBe("First customer");
     expect(cards.find((c) => c.key === "mrr_1k")?.label).toContain("MRR");

@@ -104,6 +104,11 @@ export interface CheckoutInput {
   agentId: string;
   sessionId: string;
   taskId: string;
+  /**
+   * Start from the default branch's newest files instead of the task's branch: the branch went back to its agent to be
+   * brought up to date (activities/merge.ts `handBack`), and the earlier sessions' saved files are applied on top.
+   */
+  fromDefaultBranch?: boolean;
 }
 
 /** Write `content` to a new file (0600) without following links. */
@@ -178,7 +183,7 @@ export async function checkoutRepository(deps: { db: Db; gateway: GatewayClient 
     const file = path.join(dir, "archive.tgz");
     const token = await deps.gateway.mintSessionToken({ businessId: input.businessId, agentId: input.agentId, sessionId: input.sessionId, allowedTools: [`github:${DOWNLOAD_ARCHIVE_TOOL}`], ttlSeconds: CHECKOUT_TOKEN_TTL_SECONDS });
     const sleep = options.sleep ?? realSleep;
-    let got = await fetchArchive(deps.gateway, token.token, target, `agent/${input.taskId}`, file, limits.maxArchiveBytes, sleep);
+    let got = input.fromDefaultBranch ? ({ missing: true } as const) : await fetchArchive(deps.gateway, token.token, target, `agent/${input.taskId}`, file, limits.maxArchiveBytes, sleep);
     if ("missing" in got) got = await fetchArchive(deps.gateway, token.token, target, "HEAD", file, limits.maxArchiveBytes, sleep);
     if ("missing" in got) return { status: "failed", repo: target.fullName, reason: "the repository or its default branch was not found" };
     if ("error" in got) return { status: "failed", repo: target.fullName, reason: got.error };
@@ -234,9 +239,14 @@ export type BranchChanges =
  * since it left the default branch), as the changed paths and the merge base. Null when the gateway refused or GitHub
  * could not answer (the caller falls back to an archive comparison), never a throw.
  */
-async function compareWithDefaultBranch(gateway: GatewayClient, token: string, target: { owner: string; repo: string }, branch: string): Promise<{ mergeBaseSha: string; changed: string[]; truncated: boolean } | null> {
+async function compareWithDefaultBranch(gateway: GatewayClient, token: string, target: { owner: string; repo: string }, branch: string): Promise<{ mergeBaseSha: string; changed: string[]; truncated: boolean; behindBy: number } | null> {
+  return compareRefs(gateway, token, target, "HEAD", branch);
+}
+
+/** GitHub's three-dot compare of `head` since it left `base`, as the changed paths and the merge base; null when it cannot be asked. */
+async function compareRefs(gateway: GatewayClient, token: string, target: { owner: string; repo: string }, base: string, head: string): Promise<{ mergeBaseSha: string; changed: string[]; truncated: boolean; behindBy: number } | null> {
   try {
-    const res = await gateway.call(token, { connector: "github", tool: COMPARE_REFS_TOOL, args: { owner: target.owner, repo: target.repo, base: "HEAD", head: branch } }, { timeoutMs: CHECKOUT_TIMEOUT_MS });
+    const res = await gateway.call(token, { connector: "github", tool: COMPARE_REFS_TOOL, args: { owner: target.owner, repo: target.repo, base, head } }, { timeoutMs: CHECKOUT_TIMEOUT_MS });
     if (res.outcome !== "allow") return null;
     const result = res.result as { ok?: boolean; data?: unknown } | undefined;
     if (!result?.ok || result.data === undefined) return null;
@@ -249,10 +259,59 @@ async function compareWithDefaultBranch(gateway: GatewayClient, token: string, t
       changed.add(f.path);
       if (f.previousPath) changed.add(f.previousPath);
     }
-    return { mergeBaseSha: parsed.data.mergeBaseSha, changed: [...changed].sort(), truncated: parsed.data.truncated };
+    return { mergeBaseSha: parsed.data.mergeBaseSha, changed: [...changed].sort(), truncated: parsed.data.truncated, behindBy: parsed.data.behindBy };
   } catch {
     return null;
   }
+}
+
+/** What a task's branch has to reconcile with the default branch (`updateConflicts`). */
+export interface BranchUpdate {
+  /** Files both the branch and the default branch changed since the branch left it: the likely conflicts. */
+  bothChanged: string[];
+  /** How many files the default branch changed since the branch left it. */
+  defaultChanged: number;
+  /** Commits on the default branch the branch does not have (0: the branch is current). */
+  behindBy: number;
+}
+
+/**
+ * What a task's branch has to reconcile with the default branch: how far behind it is, the files both changed since the
+ * branch left it (the likely conflicts), and how many files the default branch changed in all. GitHub's compare both
+ * ways; null when it cannot be asked or the branch does not exist. Never throws.
+ */
+export async function updateConflicts(deps: { db: Db; gateway: GatewayClient }, input: CheckoutInput, branch: string): Promise<BranchUpdate | null> {
+  const target = await repos.integrations.codeRepository(deps.db, input.businessId);
+  if (!target) return null;
+  try {
+    const token = await deps.gateway.mintSessionToken({ businessId: input.businessId, agentId: input.agentId, sessionId: input.sessionId, allowedTools: [`github:${COMPARE_REFS_TOOL}`], ttlSeconds: CHECKOUT_TOKEN_TTL_SECONDS });
+    const [ours, theirs] = await Promise.all([compareWithDefaultBranch(deps.gateway, token.token, target, branch), compareRefs(deps.gateway, token.token, target, branch, "HEAD")]);
+    if (!ours || !theirs) return null;
+    const onDefault = new Set(theirs.changed);
+    return { bothChanged: ours.changed.filter((p) => onDefault.has(p)), defaultChanged: theirs.changed.length, behindBy: ours.behindBy };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A session on a task whose branch the default branch has moved past starts from the default branch's newest files
+ * with the task's saved changes applied on top, as a handed-back task does: a session on the stale branch tests stale
+ * code (Nov 2, 2026: the api's tests failed in the sandbox on a dependency main had and the branch lacked, and a branch
+ * twelve commits behind failed main's own tests), and its push would have left the branch behind. The push then
+ * rebuilds the branch on the default branch (workspace-push.ts `rebuildsBranch`), so the pull request reads current.
+ */
+export function startsFromDefaultBranch(handedBack: boolean, update: Pick<BranchUpdate, "behindBy"> | null): boolean {
+  return handedBack || (update?.behindBy ?? 0) > 0;
+}
+
+/** The note a session that starts from the default branch begins with: what to reconcile, in the agent's terms. */
+export function updateNote(branch: string, conflicts: BranchUpdate | null): string {
+  const moved = conflicts && conflicts.behindBy > 0 ? ` The default branch has ${conflicts.behindBy} commit${conflicts.behindBy === 1 ? "" : "s"} this branch did not have.` : "";
+  const lead = `Your working directory is the default branch's newest files with the files earlier sessions saved on this task applied on top: your earlier change, re-based on the live product.${moved} Finish by pushing to ${branch} as usual.`;
+  if (!conflicts) return `${lead} GitHub could not say which files the default branch changed since; read the files you changed before and reconcile them with what is there now.`;
+  if (conflicts.bothChanged.length === 0) return `${lead} The default branch changed ${conflicts.defaultChanged} file${conflicts.defaultChanged === 1 ? "" : "s"} since, none of them yours: check that your change still fits and that every test passes.`;
+  return `${lead} Both this branch and the default branch changed these files since the branch began, so your saved versions may have overwritten newer work in them: ${conflicts.bothChanged.slice(0, 40).join(", ")}${conflicts.bothChanged.length > 40 ? ` and ${conflicts.bothChanged.length - 40} more` : ""}. Read each one from the default branch (the GitHub read tools, ref HEAD), bring the newer work back into your version, and keep every test passing.`;
 }
 
 /**

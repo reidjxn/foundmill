@@ -37,7 +37,7 @@ export type WidgetDefinition<S = Record<string, unknown>> = {
   defaultSize: WidgetSize;
   settingsSchema?: z.ZodType<S>;
   defaultSettings?: S;
-  /** LIVE-only widgets (leaderboard, community feed). */
+  /** LIVE-only widgets (the community feed). */
   liveOnly?: boolean;
   /** At most one instance per dashboard (Journey Ribbon, status strip). */
   single?: boolean;

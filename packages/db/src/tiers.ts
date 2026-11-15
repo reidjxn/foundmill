@@ -14,7 +14,7 @@
  *
  * Refusals are `TierLimitError` (code `tier_limit`), which the web turns into an upgrade prompt.
  */
-import { higherTier, tierBusinessLimit, tierIncludedCreditPlaces, TIERS, type TierKey } from "@foundmill/config";
+import { higherTier, tierBusinessLimit, tierIncludedCreditPlaces, tierSeatLimit, TIERS, type TierKey } from "@foundmill/config";
 import { TierLimitError } from "@foundmill/shared";
 import { repos } from "./repos";
 import { MAX_PAGE_SIZE, type Executor } from "./repos/_shared";
@@ -44,6 +44,8 @@ export interface BusinessAllowanceOptions {
 
 /** How many businesses `userId` owns (unarchived) against what their highest tier allows. */
 export async function businessAllowance(db: Executor, userId: string, options: BusinessAllowanceOptions = {}): Promise<BusinessAllowance> {
+  // The projects the person started (`owner`), not the ones they joined as a cofounder: people are free on every plan,
+  // so joining someone's project never uses up a person's own allowance (CLAUDE.md, founder 2026-11-11).
   const owned = (await repos.businesses.listForUser(db, userId)).filter((b) => b.role === "owner");
   let tier: TierKey = "free";
   let planBusinessId: string | null = null;
@@ -95,17 +97,25 @@ export async function includedCreditPool(db: Executor, userId: string, period: s
   return { tier, period, places: tierIncludedCreditPlaces(tier), taken };
 }
 
-/** Seats the business uses (every membership) against its tier. */
-export async function seatAllowance(db: Executor, business: { id: string; planTier: TierKey }): Promise<{ tier: TierKey; allowed: number; used: number }> {
-  const used = (await repos.memberships.list(db, business.id)).length;
-  return { tier: business.planTier, allowed: TIERS[business.planTier].seats, used };
+export interface SeatAllowanceOptions {
+  /**
+   * The people limit of a tier (default `tierSeatLimit`: unlimited on every plan, people are free). Tests pass a number
+   * to keep the refusal covered should a limit ever return.
+   */
+  limitFor?: (tier: TierKey) => number | null;
 }
 
-/** Refuses an invitation once every seat of the business's tier is taken. */
-export async function assertSeatAvailable(db: Executor, business: { id: string; planTier: TierKey }): Promise<void> {
-  const s = await seatAllowance(db, business);
-  if (s.used >= s.allowed) {
-    throw new TierLimitError(`The ${tierWord(s.tier)} plan has ${plural(s.allowed, "seat", "seats")} and all of them are taken. Move this business to a larger plan in Settings › Billing to invite someone else.`, {
+/** The people of the business (every membership) against its tier. `allowed` null: unlimited. */
+export async function seatAllowance(db: Executor, business: { id: string; planTier: TierKey }, options: SeatAllowanceOptions = {}): Promise<{ tier: TierKey; allowed: number | null; used: number }> {
+  const used = (await repos.memberships.list(db, business.id)).length;
+  return { tier: business.planTier, allowed: (options.limitFor ?? tierSeatLimit)(business.planTier), used };
+}
+
+/** Refuses adding a person once a tier's people limit is reached. No plan has one (founder, 2026-11-11). */
+export async function assertSeatAvailable(db: Executor, business: { id: string; planTier: TierKey }, options: SeatAllowanceOptions = {}): Promise<void> {
+  const s = await seatAllowance(db, business, options);
+  if (s.allowed !== null && s.used >= s.allowed) {
+    throw new TierLimitError(`The ${tierWord(s.tier)} plan has room for ${plural(s.allowed, "person", "people")} and all of them are here. Move this business to a larger plan in Settings › Billing to add someone else.`, {
       limit: "seats",
       tier: s.tier,
       allowed: s.allowed,

@@ -6,7 +6,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CircleAlert, CircleDashed, CirclePause } from "lucide-react";
 import { Avatar, EntityLink, MODEL_LABELS, useAgentPersona, PageGrid, StatusPill, agentStatusTone, cn, formatRelative, useGuided, type EntityDetails, type IconComponent, type SquadRow } from "@foundmill/dugout";
-import { type AgentStatus, type DeptColourToken, type MembershipRole } from "@foundmill/shared/constants";
+import { isOwnerRole, type AgentStatus, type DeptColourToken, type MembershipRole } from "@foundmill/shared/constants";
 import { SECTIONS } from "@foundmill/shared/permissions";
 import { moduleTabHref } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -411,7 +411,7 @@ export function toSquadRow(agent: AgentRow, currency: string): SquadRow {
 
 /* ---------- Staff ---------- */
 
-export const ROLE_LABELS: Record<MembershipRole, string> = { owner: "Owner", admin: "Admin", member: "Member", viewer: "Viewer", advisor: "Advisor" };
+export const ROLE_LABELS: Record<MembershipRole, string> = { owner: "Owner", cofounder: "Cofounder", admin: "Admin", member: "Member", collaborator: "Collaborator", viewer: "Viewer", advisor: "Advisor" };
 
 /** Sections a membership can carry per-section permissions for (`SECTIONS`, @foundmill/shared): the modules plus the fixed surfaces. */
 export const STAFF_SECTIONS: readonly string[] = SECTIONS;
@@ -496,7 +496,7 @@ export function memberEntity(businessId: string, m: MembershipRow, me?: Me | nul
     href: m.entityId ? routes.crm(businessId, m.entityId) : undefined,
     subtitle: ROLE_LABELS[m.role],
     portrait: { type: "person" },
-    chips: [{ label: ROLE_LABELS[m.role], tone: m.role === "owner" ? "kit" : "neutral" }],
+    chips: [{ label: ROLE_LABELS[m.role], tone: isOwnerRole(m.role) ? "kit" : "neutral" }],
     facts: [
       { label: "E-mail", value: m.email ?? "—" },
       { label: "Sections", value: sectionSummary(m.sectionPermissions) },

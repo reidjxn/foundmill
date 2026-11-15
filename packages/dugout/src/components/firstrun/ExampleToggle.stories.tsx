@@ -88,7 +88,7 @@ export const FormValues: Story = {
 
 /* ---------- the three uses in the product (UX plan §10 Phase 3) ---------- */
 
-const EXAMPLE_FOUNDER = { time: "evenings_weekends", budget: "5000", constraints: ["Keep my day job for now", "No physical inventory"] };
+const EXAMPLE_FOUNDER = { time: "evenings_weekends", budget: "5000", constraints: ["Fits around what I already do", "No physical inventory"] };
 
 function FounderProfileExample() {
   const [time, setTime] = useState("");

@@ -4,9 +4,11 @@ import { fireEvent, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TooltipProvider, formatMoney } from "@foundmill/dugout";
 import { TERMS } from "@foundmill/shared/terms";
-import { OverviewScreen, forecastRunway, overviewTiles } from "../OverviewScreen";
+import { OverviewScreen, estimateSentence, forecastRunway, monthRangeWords, overviewTiles } from "../OverviewScreen";
 import { NOW, createFakeSource, renderScreen } from "./fake-source";
+import { openExplainer } from "../../explainer.testing";
 import { BID, channels, dataResponses, emptyResponses, overview, overviewBlocking, pnl } from "./fixtures";
+import { ISO_24H } from "../../dates.testing";
 
 const props = { businessId: BID, departmentId: "d-fin" };
 
@@ -40,6 +42,35 @@ describe("overviewTiles", () => {
     for (const t of tiles) expect(t.provenance?.note).toBeTruthy(); // every tile carries its hover definition
   });
 
+  it("names the revenue's months and makes the monthly figure that revenue ÷ 3, in words (one fact, DECISIONS 2026-11-10)", () => {
+    const by = Object.fromEntries(overviewTiles({ overview, pnl, channels, currency: "EUR", now: NOW }).map((t) => [t.key, t]));
+    const months = monthRangeWords(["2026-07", "2026-08", "2026-09"]);
+    expect(months).toBe("Jul – Sep 2026");
+    expect(by.revenue!.caption).toBe(`${months}, 3 full months`);
+    expect(by.mrr!.caption).toBe(`a month: the ${months} revenue ÷ 3`);
+    expect((by.mrr!.value as { amountMinor: number }).amountMinor * 3).toBe((by.revenue!.value as { amountMinor: number }).amountMinor);
+    expect(monthRangeWords(["2025-11", "2025-12", "2026-01"])).toBe("Nov 2025 – Jan 2026");
+    expect(monthRangeWords(["2026-07", "2026-08", "2026-09"], ISO_24H)).toBe("2026-07 – 2026-09");
+  });
+
+  it("a business whose customers buy once has no MRR: the tiles say average monthly revenue and a yearly rate, no term", () => {
+    const oneOff = { ...overview, revenue: { ...overview.revenue, recurring: false } };
+    const by = Object.fromEntries(overviewTiles({ overview: oneOff, pnl, channels, currency: "EUR", now: NOW }).map((t) => [t.key, t]));
+    expect(by.mrr!.label).toBe("Average monthly revenue");
+    expect(by.arr!.label).toBe("Yearly revenue at this rate");
+    expect(by.mrr!.metricId).toBeUndefined();
+    expect(by.mrr!.plain).toBe("What customers paid you in a typical month of the last 3.");
+    expect(by.mrr!.provenance?.note).toMatch(/none of it is recurring/);
+    expect(by.mrr!.value).toEqual({ amountMinor: 2_000_000, currency: "EUR" });
+    expect(estimateSentence([{ key: "mrr", estimate: "estimate" }], false)).toBe("Estimate: average monthly revenue is worked out, not measured.");
+    // A subscription business (or one before its archetype is chosen) keeps MRR and its definition.
+    for (const recurring of [true, null, undefined]) {
+      const t = Object.fromEntries(overviewTiles({ overview: { ...overview, revenue: { ...overview.revenue, recurring } }, pnl, channels, currency: "EUR", now: NOW }).map((x) => [x.key, x]));
+      expect(t.mrr!.label).toBe("Monthly recurring revenue (MRR)");
+      expect(t.mrr!.metricId).toBe("mrr");
+    }
+  });
+
   it("reads the forecast runway from the Base drivers, else the first negative month of the series", () => {
     expect(forecastRunway(overview, NOW)).toBe(14.2);
     const base = overview.forecasts.base!;
@@ -55,7 +86,8 @@ describe("OverviewScreen", () => {
     renderScreen(fake, <OverviewScreen {...props} />);
     expect(screen.getByRole("region", { name: "Finance metrics" })).toBeTruthy();
     // One plain sentence above the tiles, from the same figures (UX plan §7.14, C6).
-    expect(screen.getByTestId("finance-summary").textContent).toBe("You have €150K in the bank and spend €20K more than you earn each month, so cash lasts about 8 months (Estimate).");
+    // The plain sentence lives in the Money area's opening line above the screen (Nov 9, 2026), not repeated here.
+    expect(screen.queryByTestId("finance-summary")).toBeNull();
     // Abbreviations are spelled out on first use (the defined word is plain text while guidance is off).
     expect(document.querySelector("[data-metric='mrr'] [data-metric-label]")!.textContent).toBe("Monthly recurring revenue (MRR)");
     expect(document.querySelector("[data-metric='acquisitionCost'] [data-metric-label]")!.textContent).toBe("Cost to win a customer");
@@ -68,7 +100,12 @@ describe("OverviewScreen", () => {
     expect(cash.querySelector("svg")).toBeTruthy(); // sparkline
     const runway = document.querySelector("[data-metric='runway']") as HTMLElement;
     expect(within(runway).getByText("7.5")).toBeTruthy();
-    expect(within(runway).getByText("Estimate")).toBeTruthy();
+    // "Estimate" once, in a sentence under the tiles, not a chip on each (Nov 7, 2026).
+    expect(within(runway).queryByText("Estimate")).toBeNull();
+    expect(screen.getByTestId("finance-estimate-note").textContent).toMatch(/^Estimate: .*net burn, runway, .* are worked out, not measured\.$/);
+    // Three numbers first; the rest behind More numbers.
+    expect([...screen.getByTestId("finance-headline").querySelectorAll("[data-metric]")].map((t) => t.getAttribute("data-metric"))).toEqual(["cash", "netBurn", "runway"]);
+    expect(screen.getByTestId("finance-more").querySelectorAll("[data-metric]")).toHaveLength(7);
     expect(within(runway).getByText("Forecast: 14.2 mo")).toBeTruthy();
     expect(document.querySelectorAll("[data-metric-tile]")).toHaveLength(10);
     const warning = screen.getByRole("status", { name: "Runway warning" });
@@ -84,11 +121,11 @@ describe("OverviewScreen", () => {
   it("guidance on: the intro, the defined words on the tile labels and the plain line under each figure (UX plan §7.14)", () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <OverviewScreen {...props} />, {}, { guidance: "on" });
-    const explainer = document.querySelector("[data-explainer='finance/overview']") as HTMLElement;
+    const explainer = openExplainer("finance/overview");
     expect(within(explainer).getByText("Where the money is and how long it lasts.")).toBeTruthy();
-    expect(within(explainer).getByText("Numbers marked Estimate are worked out, not measured.")).toBeTruthy();
+    expect(within(explainer).getByText("The line under the numbers says which are estimates: worked out, not measured.")).toBeTruthy();
     // The summary sentence stays above the tiles.
-    expect(screen.getByTestId("finance-summary")).toBeTruthy();
+    expect(screen.queryByTestId("finance-summary")).toBeNull();
     // Runway's label is a defined word; its plain line is the definitions map's sentence.
     const runway = document.querySelector("[data-metric='runway']") as HTMLElement;
     expect(within(runway).getByRole("button", { name: "Runway" }).className).toContain("term-link");
@@ -106,18 +143,19 @@ describe("OverviewScreen", () => {
     renderScreen(fake, <OverviewScreen {...props} />);
     const runway = document.querySelector("[data-metric='runway']") as HTMLElement;
     expect(within(runway).getByText("Cash is below zero")).toBeTruthy();
-    expect(within(runway).getByText("Estimate")).toBeTruthy();
+    expect(screen.getByTestId("finance-estimate-note").textContent).toContain("runway");
     expect(within(runway).getByText("The bank balance is negative, so there is no runway to count")).toBeTruthy();
     expect(within(runway).queryByText("-1.2")).toBeNull();
     expect(screen.queryByRole("status", { name: "Runway warning" })).toBeNull();
   });
 
-  it("turns the warning red and names the blocked Continue when runway is under 3 months (AC-11.8.3)", () => {
+  it("turns the warning red when runway is under 3 months, and never says Continue is blocked (AC-11.8.3; Nov 7, 2026)", () => {
     const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "finance.overview": overviewBlocking } });
     renderScreen(fake, <OverviewScreen {...props} />);
     const warning = screen.getByRole("status", { name: "Runway warning" });
     expect(within(warning).getByText("Runway under 3 months")).toBeTruthy();
-    expect(within(warning).getByText(/Continue is blocked until the warning in the Inbox is acknowledged/)).toBeTruthy();
+    expect(within(warning).getByText(/The finance lead has drafted options in the Inbox/)).toBeTruthy();
+    expect(warning.textContent).not.toMatch(/Continue/);
     expect(warning.className).toContain("status-bad");
   });
 

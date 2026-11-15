@@ -21,7 +21,8 @@
     "@foundmill/shared": "workspace:*",
     "@foundmill/config": "workspace:*",
     "@foundmill/entity-linker": "workspace:*",
-    "@foundmill/policy": "workspace:*"
+    "@foundmill/policy": "workspace:*",
+    "@foundmill/connectors": "workspace:*"
   },
   "devDependencies": {
     "vitest": "catalog:",

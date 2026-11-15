@@ -1,6 +1,10 @@
 import pino from "pino";
 import { reportLoggedError } from "./telemetry";
-const REDACT = ["*.apiKey", "*.api_key", "*.token", "*.secret", "*.password", "*.authorization", "req.headers.authorization", "*.ciphertext", "*.privateKey"];
+const REDACT = [
+  "*.apiKey", "*.api_key", "*.token", "*.secret", "*.password", "*.authorization", "req.headers.authorization", "*.ciphertext", "*.privateKey",
+  // A project's Foundmill sending address (package 1.5): as config fields and as the variables themselves.
+  "*.signingSecret", "*.inboundToken", "*.eventPublicKey", "*.PLATFORM_MAIL_SIGNING_SECRET", "*.PLATFORM_MAIL_INBOUND_TOKEN", "*.PLATFORM_MAIL_EVENT_PUBLIC_KEY",
+];
 
 /**
  * Deployed services write one JSON object per line whose `level` is the label ("info", "warn", "error"). Railway reads

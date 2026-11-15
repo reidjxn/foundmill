@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, within } from "@testing-library/react";
 import { VisionScreen } from "../VisionScreen";
 import { createFakeSource, renderScreen } from "./fake-source";
+import { openExplainer } from "../../explainer.testing";
 import { BID, BLOCK, dataResponses, emptyResponses } from "./fixtures";
 
 const departments = [{ id: "d1", name: "Product", slug: "product", colourToken: "dept-1", position: 0, moduleKeys: ["product"], lead: null, squad: [], tabs: [{ id: "t1", slug: "specification", title: "Specification", position: 1 }, { id: "t2", slug: "roadmap", title: "Roadmap", position: 2 }] }];
@@ -41,12 +42,14 @@ describe("VisionScreen", () => {
   it("guidance on: the department's intro sits in the first panel's body and the summary's first word is defined (UX plan §7.10)", () => {
     const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "department.list": departments } });
     renderScreen(fake, <VisionScreen businessId={BID} departmentId="d1" />, {}, { guidance: "on" });
-    const explainer = document.querySelector("[data-explainer='product/vision']") as HTMLElement;
-    expect(explainer).toBeTruthy();
+    const button = document.querySelector("[data-explainer='product/vision']") as HTMLElement;
+    expect(button).toBeTruthy();
+    // The button sits inside the panel's body (no shell here); the lines open in a popover, never a banner.
+    expect(button.closest("[data-panel-body]")).toBeTruthy();
+    expect(screen.queryByText("What this screen is for")).toBeNull();
+    const explainer = openExplainer("product/vision");
     expect(within(explainer).getByText("What your business is building.")).toBeTruthy();
     expect(within(explainer).getByText("Read the vision; sign off the specification and roadmap when they look right.")).toBeTruthy();
-    // Inside a panel's body, never floating.
-    expect(explainer.closest("[data-panel-body]")).toBeTruthy();
     const summary = screen.getByTestId("spec-summary");
     expect(summary.textContent).toBe("Specification: 5 sections · not signed off yet");
     expect(within(summary).getByRole("button", { name: "Specification" }).className).toContain("term-link");

@@ -29,6 +29,8 @@ export type CreateIdeaInput = z.input<typeof CreateIdeaInput>;
 export const AddIdeaVersionInput = z.object({
   title: z.string().trim().min(1).max(120).optional(),
   pitch: z.string().max(4000).optional(),
+  /** The kind of business, kept on the idea itself (a version has none): an edit may change it; null clears it. */
+  archetype: z.enum(ARCHETYPES).nullable().optional(),
   attributes: Attributes.optional(),
   starsCurrent: Stars.optional(),
   starsPotential: Stars.optional(),
@@ -220,7 +222,10 @@ export const ideasRepo = {
           }),
         "idea version",
       );
-      await tx.update(ideas).set({ currentVersionId: version.id, title: version.title, pitch: version.pitch }).where(eq(ideas.id, ideaId));
+      await tx
+        .update(ideas)
+        .set({ currentVersionId: version.id, title: version.title, pitch: version.pitch, ...(v.archetype !== undefined ? { archetype: v.archetype } : {}) })
+        .where(eq(ideas.id, ideaId));
       return version;
     });
   },

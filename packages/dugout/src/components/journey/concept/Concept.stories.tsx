@@ -21,6 +21,8 @@ export const AttributeDefinitions: Story = { name: "Attribute definitions on the
 /** A variant's long name wraps to two lines before anything is cut (DIRECTION #15); the version reads in words. */
 export const LongName: Story = { name: "Long variant name", args: { concept: { ...concepts[2]!, id: "concept-long", name: "Soldesk variant for makerspaces with two locations", version: 3 } }, decorators: [(S) => <div style={{ width: 340 }}><S /></div>] };
 export const Shortlisted: Story = { args: { concept: concepts[1]!, shortlisted: true, selected: true, onToggleSelect: () => {} } };
+export const YourWords: Story = { name: "In the founder's words", args: { concept: { ...concepts[1]!, id: "concept-yours", pitch: "Students at my university struggle to find short-notice part-time shifts, and cafes near campus struggle to fill last-minute gaps. A simple app that matches verified students to same-day shifts around Manchester.", yourWords: true } }, parameters: { docs: { description: { story: "A card the founder wrote (Use my idea as written) or edited: the pitch is their words, the Ideation agent only rated it, and the team builds from these words. Edit sits in the More menu on every card." } } } };
+export const Sample: Story = { name: "Sample card (mock model)", args: { concept: { ...concepts[2]!, id: "concept-sample", sample: true } }, parameters: { docs: { description: { story: "Written by the sample model (MODEL_MODE=mock): the card says so, so sample prose is never taken for the team's judgment." } } } };
 
 export const Deck: Story = {
   name: "Six cards with Compare selection",

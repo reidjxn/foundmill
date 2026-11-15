@@ -1,4 +1,4 @@
-import { defineSpecialistTemplate, grant } from "./_specialist";
+import { defineSpecialistTemplate } from "./_specialist";
 
 export const logistics = defineSpecialistTemplate({
   key: "logistics",
@@ -20,10 +20,10 @@ export const logistics = defineSpecialistTemplate({
   ],
   playbook: [
     "Classify the product (HS/TARIC/HTS) and estimate duties and import VAT per market with sources.",
-    "Request freight quotes for the relevant modes and incoterms; type them into the comparison.",
+    "Request freight quotes for the relevant modes and incoterms as email drafts the business sends (no freight quoting tool yet); type the replies into the comparison.",
     "Compare 3PLs on location, integrations, fees and SLAs; recommend one.",
     "Build the inventory plan from the forecast, lead times and safety stock; set reorder points.",
-    "Raise booking and contract requests; track shipments and update the shipment map.",
+    "Raise booking and contract requests; track shipments from carrier emails and update the shipment map.",
   ],
   examples: [
     {
@@ -31,7 +31,7 @@ export const logistics = defineSpecialistTemplate({
       output: "HS 3304.99 (UK Global Tariff checked 2026-10-05): duty 0%, import VAT 20% (Estimate £1,640). Quotes: sea LCL £1,120 / 38 days; air £3,980 / 6 days; recommend sea (fits timeline). 3PL shortlist: 2. Booking → founder decision with comparison.",
     },
   ],
-  connectors: [grant("freightos", ["quotes.search"]), grant("flexport", ["quotes.search", "shipments.track"]), grant("shipbob", ["inventory.read", "fees.read"]), grant("shippo", ["rates.read", "tracking.read"]), grant("hts_taric", ["codes.search", "duties.read"])],
+  connectors: [],
   craftSkills: ["freight_quoting", "hs_classification", "inventory_planning", "carrier_selection"],
   neverDoes: ["book freight or sign 3PL contracts", "skip dangerous-goods checks", "state duties without a tariff source", "treat forecasts as actuals"],
 });

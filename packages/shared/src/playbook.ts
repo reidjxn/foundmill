@@ -12,7 +12,15 @@
  * - `stop`: when the playbook stops on its own.
  */
 import { z } from "zod";
+import { boundedRecord } from "./bounded-record";
 import { EVENT_TYPES, PLAN_ACTION_TYPES } from "./constants";
+
+/**
+ * Most payload fields one trigger's `where` names, and most params one step carries: counted before zod reads a key
+ * (`boundedRecord`, GHSA-mrhx-c7xc-m3w5), since the playbooks api takes a flow the founder edited.
+ */
+export const PLAYBOOK_WHERE_MAX_KEYS = 50;
+export const PLAYBOOK_PARAMS_MAX_KEYS = 100;
 
 /** Plan actions a step may run (a playbook never creates playbooks, and a reply is not an action). */
 export const PLAYBOOK_STEP_ACTIONS = PLAN_ACTION_TYPES.filter((t) => t !== "create_playbook" && t !== "reply_only");
@@ -21,7 +29,7 @@ const Scalar = z.union([z.string().max(200), z.number(), z.boolean()]);
 
 export const PlaybookTrigger = z.object({
   event: z.enum(EVENT_TYPES),
-  where: z.record(z.string().min(1).max(80), Scalar).optional(),
+  where: boundedRecord(PLAYBOOK_WHERE_MAX_KEYS, z.record(z.string().min(1).max(80), Scalar)).optional(),
   condition: z.string().trim().max(300).optional(),
 });
 export type PlaybookTrigger = z.infer<typeof PlaybookTrigger>;
@@ -29,7 +37,7 @@ export type PlaybookTrigger = z.infer<typeof PlaybookTrigger>;
 export const PlaybookStep = z.object({
   action: z.object({
     type: z.enum(PLAYBOOK_STEP_ACTIONS as [string, ...string[]]),
-    params: z.record(z.string(), z.unknown()).default({}),
+    params: boundedRecord(PLAYBOOK_PARAMS_MAX_KEYS, z.record(z.string(), z.unknown())).default({}),
     agent_id: z.string().uuid().nullable().optional(),
   }),
   /** The step in the founder's words (the flow preview shows it). */

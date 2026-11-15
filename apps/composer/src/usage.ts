@@ -15,7 +15,10 @@ import type { ModelCallGate, ModelLogger, UsageEvent, UsageSink } from "@foundmi
 /** The composer's check before every model call: the business's credits must allow it (`live`: simulated credits do not count). */
 export function creditsGate(db: Db, live: boolean): ModelCallGate {
   return async ({ attribution }) => {
-    if (attribution?.businessId) await assertPlatformCredits(db, attribution.businessId, { live });
+    if (!attribution?.businessId) return undefined;
+    const check = await assertPlatformCredits(db, attribution.businessId, { live });
+    // Low credits (the credit saver): commentary moves to a lower-cost model; the Inbox note is locked to its own.
+    return check.low ? { lowCredits: true } : undefined;
   };
 }
 

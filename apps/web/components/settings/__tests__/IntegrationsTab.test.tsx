@@ -10,11 +10,17 @@ import { TooltipProvider } from "@foundmill/dugout";
 import type * as SharedModule from "../shared";
 
 const simulate = vi.fn();
+const setPostal = vi.fn();
 const toast = { saved: vi.fn(), failed: vi.fn(), info: vi.fn() };
 const invalidate = vi.fn(async () => undefined);
 
 vi.mock("@/lib/trpc-react", () => ({
   useTRPC: () => ({
+    integrations: {
+      setPostalAddress: {
+        mutationOptions: (opts: Record<string, unknown>) => ({ mutationKey: [["integrations", "setPostalAddress"]], mutationFn: (vars: unknown) => setPostal(vars), ...opts }),
+      },
+    },
     dev: {
       simulate: {
         mutationOptions: (opts: Record<string, unknown>) => ({ mutationKey: [["dev", "simulate"]], mutationFn: (vars: unknown) => simulate(vars), ...opts }),
@@ -26,7 +32,7 @@ vi.mock("@/components/shell/business-context", () => ({ useBusiness: () => ({ bu
 vi.mock("../shared", async (importOriginal) => ({ ...(await importOriginal<typeof SharedModule>()), useSettingsToast: () => toast }));
 vi.mock("../SettingsScreen", () => ({ useInvalidateRouters: () => invalidate }));
 
-import { ConnectFieldsDialog, connectInputFrom, needsConnectFields, SimulatePanel, type ConnectFieldView } from "../IntegrationsTab";
+import { ConnectFieldsDialog, connectInputFrom, needsConnectFields, PlatformMailSection, PostalAddressField, SimulatePanel, type ConnectFieldView, type PlatformMailView } from "../IntegrationsTab";
 
 const BUSINESS = "6f1d2c3b-4a5e-4f60-8a71-0b2c3d4e5f60";
 
@@ -156,5 +162,87 @@ describe("Connect with the founder's own key (live API-key connectors)", () => {
     await act(async () => rerender(dialog(sendgrid)));
     expect((document.getElementById("connect-sendgrid-apiKey") as HTMLInputElement).value).toBe("");
     expect((screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe("PlatformMailSection (Settings › Integrations › Email from your project)", () => {
+  const view = (over: Partial<PlatformMailView> = {}): PlatformMailView => ({ address: "evergreen@mail.foundmill.com", sentToday: 3, cap: 50, paused: false, live: true, ownSender: false, ...over });
+  const show = (data: PlatformMailView | null) =>
+    render(
+      <TooltipProvider>
+        <PlatformMailSection data={data} />
+      </TooltipProvider>,
+    );
+
+  it("shows the address, today's count against the cap and the line about outside contact", () => {
+    show(view());
+    expect(screen.getByText("Email from your project")).toBeTruthy();
+    expect(screen.getByTestId("platform-mail-address").textContent).toBe("evergreen@mail.foundmill.com");
+    expect(screen.getByTestId("platform-mail-count").textContent).toBe("3 of 50 sent today");
+    expect(screen.getByText("Messages to people outside the project wait for your OK unless you said otherwise in What the team can do.")).toBeTruthy();
+    expect(screen.queryByText(/simulated/i)).toBeNull();
+  });
+
+  it("says when sending is simulated, paused, or goes through the founder's own SendGrid", () => {
+    show(view({ live: false, paused: true, ownSender: true, sentToday: 1_200, cap: 2_000 }));
+    expect(screen.getByTestId("platform-mail-count").textContent).toBe("1,200 of 2,000 sent today");
+    expect(screen.getByText("Sending is simulated here: no message leaves for real.")).toBeTruthy();
+    expect(screen.getByText("Sending from this address is paused for now. Nothing is waiting on you.")).toBeTruthy();
+    expect(screen.getByText("Your own email account is connected, so the team sends from it instead.")).toBeTruthy();
+  });
+
+  it("renders no row at all when the feature is off", () => {
+    const { container } = show(null);
+    expect(container.querySelector('[data-testid="platform-mail"]')).toBeNull();
+  });
+});
+
+describe("PostalAddressField (the founders' postal address for marketing email, US CAN-SPAM)", () => {
+  const show = (value: string | null, canEdit = true) => {
+    const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+    return render(
+      <QueryClientProvider client={client}>
+        <TooltipProvider>
+          <PostalAddressField businessId={BUSINESS} value={value} canEdit={canEdit} />
+        </TooltipProvider>
+      </QueryClientProvider>,
+    );
+  };
+  beforeEach(() => {
+    setPostal.mockReset();
+    toast.saved.mockReset();
+    invalidate.mockClear();
+  });
+
+  it("says why the law asks for it, that a PO box is fine and that it stays off the public page", () => {
+    show(null);
+    const field = screen.getByTestId("postal-address");
+    expect(field.textContent).toContain("By law in the US, every marketing email must show the sender's postal address");
+    expect(field.textContent).toContain("A PO box is fine.");
+    expect(field.textContent).toContain("It is never shown on your public page");
+    expect(screen.getByTestId("postal-address-missing").textContent).toBe("Until you add it, the team cannot send marketing emails from this address.");
+  });
+
+  it("refuses what is not an address in plain words, and saves a PO box", async () => {
+    setPostal.mockResolvedValue({ address: "PO Box 1234, Springfield, IL 62701, USA", answeredNoteId: null });
+    show(null);
+    const input = screen.getByLabelText("Postal address for your emails") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "www.example.com 12" } });
+    expect(screen.getByText("Enter a postal address, not a web or email address.")).toBeTruthy();
+    expect((screen.getByTestId("postal-address-save") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(input, { target: { value: "PO Box 1234, Springfield, IL 62701, USA" } });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("postal-address-save"));
+    });
+    expect(setPostal).toHaveBeenCalledWith({ businessId: BUSINESS, address: "PO Box 1234, Springfield, IL 62701, USA" });
+    expect(toast.saved).toHaveBeenCalled();
+    expect(invalidate).toHaveBeenCalledWith(["integrations", "inbox", "today"]);
+  });
+
+  it("is read-only for a collaborator, who is told only the founders change it", () => {
+    show(null, false);
+    expect((screen.getByLabelText("Postal address for your emails") as HTMLInputElement).disabled).toBe(true);
+    expect(screen.queryByTestId("postal-address-save")).toBeNull();
+    expect(screen.getByTestId("postal-address").textContent).toContain("Only the founders can change it.");
   });
 });

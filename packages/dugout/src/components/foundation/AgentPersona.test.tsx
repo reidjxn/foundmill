@@ -44,6 +44,17 @@ describe("createAgentPersonaApi", () => {
     const api = createAgentPersonaApi({ anthropomorphic: true });
     expect(api.labelFor({ name: "Head of Growth", personaKey: "amara" })).toBe("Amara (Head of Growth)");
   });
+
+  it("keeps background helpers on their role name and face, and names agents in plain stored text (One name everywhere)", () => {
+    const api = createAgentPersonaApi({ anthropomorphic: true, portraitUrl: () => "/x" });
+    const helper = { name: "Entity Linker", role: "Entity linking utility", personaKey: "amara", layer: "utility" };
+    expect(api.nameFor(helper)).toBe("Entity Linker");
+    expect(api.labelFor(helper)).toBe("Entity Linker");
+    expect(api.hasPersona(helper)).toBe(false);
+    expect(api.portraitFor(helper)).toBeUndefined();
+    expect(api.withNames("Chief of Staff needs your OK", [cos, helper])).toBe("Malik (Chief of Staff) needs your OK");
+    expect(AGENT_PERSONA_OFF.withNames("Chief of Staff needs your OK", [cos])).toBe("Chief of Staff needs your OK");
+  });
 });
 
 describe("createAgentPersonaApi with a style", () => {

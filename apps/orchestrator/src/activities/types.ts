@@ -180,6 +180,12 @@ export interface BusinessCycleInput {
   timeBoxAgentHours?: number;
   /** Max concurrent sessions for this cycle (defaults from the brief). */
   maxConcurrent?: number;
+  /**
+   * What this cycle may spend, USD cents (an Estimate): the rest of Autopilot's own spend ceiling for the day (0084), for
+   * a cycle Autopilot starts on its own. Starts stop once it is reserved, and each session is capped at its reserve.
+   * Absent: the credits left, as for any cycle.
+   */
+  budgetCapMinor?: number | null;
 }
 
 export interface BusinessCycleResult {
@@ -204,6 +210,8 @@ export interface AgentSessionInput {
   sessionId: string;
   /** Cycle that dispatched the session, when any. */
   cycleId?: string | null;
+  /** The most the session may spend, USD cents: its share of a capped cycle's budget (`budgetCapMinor`). Absent: no such cap. */
+  spendCapMinor?: number | null;
 }
 
 export interface SessionLaunch {
@@ -211,6 +219,11 @@ export interface SessionLaunch {
   fellBackFrom: string | null;
   modelKey: ModelKey;
   modelId: string;
+  /**
+   * The credit saver moved this launch to its route's lower-cost model (`prepareSession`). Only such a launch is moved
+   * back up by a later run (`keptModelForRun`); a launch prepared before the field existed has none.
+   */
+  lowCredits?: boolean;
   /** Recording key replayed in mock mode. */
   recordingKey: string | null;
   /** `connector:tool` refs granted to the session token. */
@@ -231,7 +244,7 @@ export type SessionOutcome = "done" | "blocked" | "failed" | "stopped";
 export interface SessionResult {
   outcome: SessionOutcome;
   reason: string | null;
-  blockedReason: "awaiting_approval" | "approval_rejected" | "dependency" | "credential" | "budget" | "rate_limit" | "loop_detected" | "error" | "shout" | "stopped" | null;
+  blockedReason: "awaiting_approval" | "approval_rejected" | "dependency" | "credential" | "budget" | "rate_limit" | "loop_detected" | "error" | "shout" | "stopped" | "needs_update" | null;
   approvalId: string | null;
   progress: ProgressState;
   eventsEmitted: number;
@@ -296,7 +309,85 @@ export interface SessionFinish {
   taskStatus: TaskStatus;
   eventIds: string[];
   healthChanged: boolean;
+  /**
+   * Set when the task is a code task that passed its acceptance tests and now waits in `review`: the session workflow
+   * starts the `mergeReview` workflow with it, which opens the pull request, starts CI and asks for (or makes) the merge.
+   */
+  merge?: MergeInput | null;
 }
+
+/** What `mergeReview` needs: the task, the branch that carries its work, and what the session reported. */
+export interface MergeInput {
+  businessId: string;
+  taskId: string;
+  /** The agent whose work it is: the merge is asked for in its name (the Inbox decision names it). */
+  agentId: string;
+  /** The session that finished the work; its id scopes the gateway token. */
+  sessionId: string;
+  branch: string;
+  /** Acceptance tests the platform ran on the branch (null when nothing was there to test, such as documentation). */
+  acceptance: { passing: number; total: number } | null;
+  summary: string;
+}
+
+/** One pull request of a merge review, as the workflow carries it between activities. */
+export interface MergePullRequest {
+  prNumber: number;
+  prUrl: string | null;
+}
+
+export type MergePrepared =
+  /** The pull request exists and the repository's tests were asked for; the review goes on to GitHub's merge state. */
+  | ({ status: "ready"; checksStarted: boolean; checksNote: string | null } & MergePullRequest)
+  /** Nothing to merge: not a code task, not in review, no repository, pushing off, already merged, nothing new. */
+  | { status: "skipped"; reason: string }
+  /** The pull request could not be opened; the task stays in review. */
+  | { status: "held"; reason: string; prNumber: number | null; prUrl: string | null };
+
+/** GitHub's view of the pull request before anyone is asked. */
+export interface MergeAssessment {
+  /** `ready` (clean, or only waiting on checks), `conflicts` (dirty), `behind` (the base moved and must be brought in), `unknown` (GitHub still computing). */
+  mergeable: "ready" | "conflicts" | "behind" | "unknown";
+  /** The repository's own checks on the branch head. */
+  checks: "pending" | "success" | "failure" | "unknown";
+  detail: string | null;
+  /**
+   * Commits the default branch has that the branch lacks (GitHub's compare); null when the compare did not answer. GitHub
+   * says `behind` only under a strict ruleset, so this is how the review knows a branch's tests ran against yesterday's
+   * default branch (Nov 2, 2026: two approved branches failed CI for fixes they lacked, not for their own work).
+   */
+  behindBy?: number | null;
+}
+
+/** The branch brought up to date with the default branch (GitHub's update-branch), before the founder is asked. */
+export interface MergeBranchUpdated {
+  /** True when GitHub merged the default branch in (the head moved); false when it could not (conflicts) or had nothing to do. */
+  updated: boolean;
+  /** Why not, when `updated` is false and it was not already up to date. */
+  reason: string | null;
+  /** The repository's tests were started on the new head. */
+  checksStarted: boolean;
+}
+
+export type MergeAsked =
+  /** The founder decides (every mode, decision 2026-11-01): the approval and its pull request. */
+  | ({ status: "awaiting_approval"; approvalId: string } & MergePullRequest)
+  /** The gateway ran the merge (a decision Team › Responsibilities delegated): the task is done. */
+  | ({ status: "merged"; mergeCommitSha: string } & MergePullRequest)
+  | ({ status: "held"; reason: string } & MergePullRequest);
+
+/** Why a merge was not made after the pull request existed. */
+export type MergeHoldReason = "conflicts" | "behind" | "checks_failed" | "checks_timeout" | "refused";
+
+export type MergeOutcome =
+  | ({ status: "merged"; mergeCommitSha: string } & MergePullRequest)
+  /** The founder decided against it (or the approval expired or was withdrawn); the task stays in review. */
+  | ({ status: "not_merged"; reason: string } & MergePullRequest)
+  | { status: "skipped"; reason: string }
+  /** The merge could not be made; the task stays in review and the next cycle tries again. */
+  | { status: "held"; reason: string; prNumber: number | null; prUrl: string | null }
+  /** The branch went back to its agent (conflicts, behind, or the checks failed): the task is blocked with the instruction. */
+  | ({ status: "handed_back"; why: MergeHoldReason; reason: string } & MergePullRequest);
 
 export type { SessionCommand };
 
@@ -598,6 +689,19 @@ export interface FoundationsPlanned {
   door: "ideation" | "import";
   /** Outline sections still to write, in batches (one `draftFoundationsSections` activity each). */
   chunks: string[][];
+  usage: FoundationsStepUsage;
+}
+
+/**
+ * Step 0 (the project's public page, package 1.2) done. `written` is false when nothing was needed (a page row exists,
+ * a sample business) or the attempt is no longer current; `source` says whether the Product lead's draft or the
+ * deterministic starter was written.
+ */
+export interface ProjectPageStepDone {
+  current: boolean;
+  written: boolean;
+  source: "model" | "starter" | null;
+  inboxItemId: string | null;
   usage: FoundationsStepUsage;
 }
 

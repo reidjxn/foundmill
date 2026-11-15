@@ -16,8 +16,8 @@
  * Answering never moves money by itself: the approval lets one call run exactly as it was asked, within the amount it
  * named, and only when the agent makes it again; hard gates are never approvals of this kind.
  */
-import { APPROVAL_OPTIONS, approvalAction, approvalArgsText, approvalSection, approvalTaskTitle, repos, type Approval, type DbTx, type InboxItem, type Task } from "@foundmill/db";
-import { ForbiddenError, hasSectionAccess, ValidationError, type SectionMembership, type TaskStatus } from "@foundmill/shared";
+import { APPROVAL_OPTIONS, ASK_FOR_DETAILS_NOTE, approvalAction, approvalArgsText, approvalSection, approvalTaskTitle, approvalWhatExactly, founderReasons, integrationConnected, isReleaseApproval, repos, type Approval, type ApprovalReview, type ApprovalWhat, type ApprovalWhatContext, type Db, type DbTx, type InboxItem, type Task } from "@foundmill/db";
+import { DesignCheckResult, ForbiddenError, agentMention, hasSectionAccess, ValidationError, type SectionMembership, type TaskStatus } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
 import { continueStateFor, cycleStatus } from "./cycle";
@@ -75,7 +75,10 @@ const quoted = (title: string) => `“${title.length > 80 ? `${title.slice(0, 77
 /** A task no longer waiting on the answer: running again in another session, or finished another way. */
 const MOVED_ON: ReadonlySet<TaskStatus> = new Set<TaskStatus>(["running", "review", "merging", "done", "stopped"]);
 
-export async function recordApprovalAnswer(tx: DbTx, ctx: BusinessContext, approval: Approval, outcome: ApprovalOutcome, note: string | null): Promise<RecordedAnswer> {
+export async function recordApprovalAnswer(tx: DbTx, ctx: BusinessContext, approval: Approval, outcome: ApprovalOutcome, givenNote: string | null): Promise<RecordedAnswer> {
+  // A rejection of a request that said nothing about what it would run carries the ask for the details, so the agent
+  // reads why and asks again properly (first-time founder report, Nov 8, 2026).
+  const note = givenNote ?? (outcome === "rejected" && !isReleaseApproval(approval) && approvalWhatExactly(approval).empty ? ASK_FOR_DETAILS_NOTE : null);
   // Owners and admins, or the member Team › Responsibilities names for this kind of decision (SEC-7).
   // The handler Responsibilities named when the approval opened answers it (owners and admins can step in).
   assertCanResolveApproval(approval, { userId: ctx.userId, role: ctx.role });
@@ -92,13 +95,18 @@ export async function recordApprovalAnswer(tx: DbTx, ctx: BusinessContext, appro
   const sessionWaiting = session !== null && session.endedAt === null;
   const action = approvalAction(approval, null, ctx.business.name);
   const who = agent?.name ?? "the agent";
-  const asked = `${agent ? `${agent.name}'s` : "the"} request to run ${action}`;
+  // A release is worded as the moment it is for the founder (decision 2026-11-01), never as the call behind it.
+  const release = isReleaseApproval(approval);
+  const asked = release ? `${agent ? `${agent.name}'s` : "the"} change going live` : `${agent ? `${agent.name}'s` : "the"} request to run ${action}`;
 
   let task = approval.taskId ? await repos.tasks.get(tx, ctx.businessId, approval.taskId).catch(() => null) : null;
   let wantsCycle = false;
   let followUp: InboxItem | null = null;
   let next: string;
-  if (sessionWaiting) {
+  if (release) {
+    // The merge review (apps/orchestrator mergeReview) waits for the repository's tests and reports the outcome on the approval.
+    next = outcome === "approved" ? "It goes live once the final quality checks pass; if one fails, the work goes back to the agent." : "Nothing goes live; the work waits.";
+  } else if (sessionWaiting) {
     next = outcome === "approved" ? `${who} carries on.` : `Nothing runs; ${who} is told not to retry it.`;
   } else if (task && MOVED_ON.has(task.status)) {
     // Another session already runs the task (started by hand), or it finished another way: it is left as it is. An
@@ -134,7 +142,8 @@ async function rejectionNote(tx: DbTx, ctx: BusinessContext, approval: Approval,
     : null;
   if (!chief) return null;
   const body = [
-    `You rejected ${agent ? `**${agent.name}**'s` : "the"} request to run **${action}**${reason ? `, saying: “${reason}”` : ""}.`,
+    // The agent as markup with its stored name: each reader sees it under their own preference (One name everywhere).
+    `You rejected the request${agent && agentMention(agent) ? ` from ${agentMention(agent)}` : ""} to run **${action}**${reason ? `, saying: “${reason}”` : ""}.`,
     `${quoted(task.title)} stays blocked: the next cycles leave it alone, and nothing runs in its place. Start it again from the Plan when it should try another way.`,
   ].join("\n\n");
   const item = await repos.inbox.createItem(tx, ctx.businessId, { type: "update", from_agent_id: chief.id, subject: `${task.title} stays blocked`.slice(0, 80), body_md: body, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: null, blocks_continue: false, source_event_ids: eventId ? [eventId] : [], entity_ids: [] });
@@ -150,8 +159,10 @@ export async function deliverApprovalAnswer(ctx: BusinessContext, recorded: Reco
   const signalled: TemporalResult[] = [];
   const toSession = recorded.sessionWaiting && approval.sessionId ? await ctx.temporal.signal(workflowIds.session(approval.sessionId), SIGNALS.decision, decision) : null;
   if (toSession) signalled.push(toSession);
-  // A plan action or a channel launch waits in its own approvalWait (`approval:<id>`), not in a session.
-  if (approval.planActionId || !approval.sessionId) signalled.push(await ctx.temporal.signal(workflowIds.approval(approval.id), SIGNALS.decision, decision));
+  // A plan action or a channel launch waits in its own approvalWait (`approval:<id>`), not in a session; so does the
+  // merge review of a task whose session already ended (the review outlives the session that did the work). Told
+  // whenever no session waits for the answer: a wait that is not there is a harmless miss, reported as not queued.
+  if (approval.planActionId || !approval.sessionId || !recorded.sessionWaiting) signalled.push(await ctx.temporal.signal(workflowIds.approval(approval.id), SIGNALS.decision, decision));
   const cycle = recorded.wantsCycle ? await cycleForApprovedTask(ctx, recorded.stopped) : null;
   // The answer is stored either way; do not claim the session carries on when it could not be told.
   const summary = toSession && !toSession.queued ? `${recorded.summary} The team could not be told right now: the answer is saved and the task goes on at the next cycle.` : recorded.summary;
@@ -188,12 +199,28 @@ export async function resolveApproval(ctx: BusinessContext, input: { approvalId:
     const r = await recordApprovalAnswer(tx, ctx, approval, input.outcome, input.note?.trim() || null);
     if (approval.inboxItemId) {
       const item = await repos.inbox.get(tx, ctx.businessId, approval.inboxItemId);
-      if (item.state !== "answered" && item.state !== "archived") await repos.inbox.decide(tx, ctx.businessId, item.id, { chosenOption: input.outcome === "approved" ? APPROVAL_OPTIONS.approve : APPROVAL_OPTIONS.reject, freeText: input.note?.trim() || null, decidedByKind: "user", decidedBy: ctx.userId });
+      // A batched note (several requests, one decision) stays open while a sibling is still unanswered.
+      const siblingsOpen = (await repos.approvals.listForInboxItem(tx, ctx.businessId, item.id)).some((a) => a.id !== approval.id && a.outcome === null);
+      if (item.state !== "answered" && item.state !== "archived" && !siblingsOpen) await repos.inbox.decide(tx, ctx.businessId, item.id, { chosenOption: input.outcome === "approved" ? APPROVAL_OPTIONS.approve : APPROVAL_OPTIONS.reject, freeText: input.note?.trim() || null, decidedByKind: "user", decidedBy: ctx.userId });
     }
     await audit(tx, ctx, { action: "team.approvals.resolve", target: { kind: "approval", id: approval.id }, details: { outcome: input.outcome } });
     return r;
   });
-  return { ...recorded.approval, answer: await deliverApprovalAnswer(ctx, recorded) };
+  return { ...approvalAsSeenBy(ctx.membership, recorded.approval), answer: await deliverApprovalAnswer(ctx, recorded) };
+}
+
+/**
+ * One approval row as this person may read it, the walls of `pendingApprovals`: behind a Finance wall no amount, no
+ * currency and no figures in the reasons (nor the arguments of a call that spends), and no arguments for a reader who
+ * cannot read the section the call changes. The answer of `team.approvals.resolve` (the collaborator's walls, Nov 14,
+ * 2026: someone with write on a section may answer a request that spends, without reading Finance).
+ */
+export function approvalAsSeenBy<A extends Approval>(membership: SectionMembership, a: A): A {
+  const financeWalled = !hasSectionAccess(membership, "finance", "read");
+  const section = approvalSection(a);
+  const argsHidden = (section !== null && !hasSectionAccess(membership, section, "read")) || (financeWalled && (a.amountMinor ?? 0) > 0);
+  if (!financeWalled && !argsHidden) return a;
+  return { ...a, args: argsHidden ? {} : a.args, amountMinor: financeWalled ? null : a.amountMinor, currency: financeWalled ? null : a.currency, reasons: financeWalled ? a.reasons.map(maskFinance) : a.reasons };
 }
 
 /**
@@ -237,19 +264,161 @@ export async function pendingApprovals(tx: DbTx, ctx: Pick<BusinessContext, "bus
  * it would send and the amount), or null for any other item. A reader walled from Finance sees no amount, and one who
  * cannot read the section the call changes sees no arguments; `canAnswer` says whether Approve and Reject are theirs.
  */
+/** The merge audit rows that carry a release's outcome against its approval (apps/orchestrator/src/activities/merge.ts). */
+const MERGE_AUDIT_ACTIONS = ["merge.merged", "merge.not_merged", "merge.waiting", "merge.handed_back"];
+
+/**
+ * What happened after the founder approved (audit FR-01): the Decided panel shows the outcome, never only the answer.
+ * A release's steps are on record against the approval (`merge.*` audit rows with its id): went live, waiting for the
+ * repository's tests, did not go through (and why), or handed back to its agent. Any other call "ran" once the gateway
+ * used the approval (`usedAt`), else it waits for the agent's next session. Null until the approval is approved.
+ */
+export async function approvalExecution(tx: DbTx, businessId: string, approval: Pick<Approval, "id" | "outcome" | "usedAt" | "connectorKey" | "tool">): Promise<{ state: "ran" | "waiting" | "failed" | "handed_back"; detail: string | null; at: string | null } | null> {
+  if (approval.outcome !== "approved") return null;
+  if (isReleaseApproval(approval)) {
+    const rows = (await repos.audit.list(tx, businessId, { action: MERGE_AUDIT_ACTIONS, limit: 500 })).items.filter((a) => (a.details as { approvalId?: unknown } | null)?.approvalId === approval.id);
+    const latest = rows[0];
+    if (latest) {
+      const at = new Date(latest.createdAt).toISOString();
+      const d = latest.details as { step?: string; why?: string; reason?: string; retryable?: boolean };
+      if (latest.action === "merge.merged") return { state: "ran", detail: "It is live.", at };
+      if (latest.action === "merge.waiting") return { state: "waiting", detail: "Waiting for the final quality checks.", at };
+      if (latest.action === "merge.handed_back") return { state: "handed_back", detail: handBackWords(d.why), at };
+      if (d.step === "decision") return null;
+      return { state: "failed", detail: d.step === "checks_timeout" ? "The final quality checks did not finish in time; the team tries again in its next round of work." : d.retryable ? "The repository refused it for the moment; the team tries again in its next round of work." : "The repository refused it; the team tries again in its next round of work.", at };
+    }
+    return { state: "waiting", detail: "Waiting for the final quality checks.", at: null };
+  }
+  if (approval.usedAt) return { state: "ran", detail: "It ran once, as asked.", at: new Date(approval.usedAt).toISOString() };
+  return { state: "waiting", detail: "It runs when the agent next works on the task.", at: null };
+}
+
+/** Why a release went back to its agent, for the founder. */
+function handBackWords(why: string | undefined): string {
+  switch (why) {
+    case "conflicts":
+      return "It clashes with newer work on the live product; the agent is bringing it up to date and will ask again.";
+    case "behind":
+      return "The live product moved on since; the agent is bringing the change up to date and will ask again.";
+    case "checks_failed":
+      return "A final quality check failed on it; the agent is fixing that and will ask again.";
+    default:
+      return "It went back to the agent, who will ask again when it is ready.";
+  }
+}
+
+/** The task's latest `task.design_checked` record, or null (none yet, or one this version cannot read). */
+export async function latestDesignCheck(tx: DbTx, businessId: string, taskId: string): Promise<DesignCheckResult | null> {
+  const checked = await repos.events.list(tx, businessId, { type: "task.design_checked", limit: 100 });
+  const event = checked.items.find((e) => (e.payload as { taskId?: unknown }).taskId === taskId);
+  if (!event) return null;
+  const parsed = DesignCheckResult.safeParse((event.payload as { result?: unknown }).result);
+  return parsed.success ? parsed.data : null;
+}
+
+/** The audit row a release's second read leaves (apps/orchestrator/src/activities/second-read.ts). */
+const MERGE_REVIEWED = "merge.reviewed";
+
+/**
+ * The second read of a release's change by a different agent, newest first for its task and pull request, or null when
+ * there was none. It sits with the approval for the founder to weigh; it never decides it.
+ */
+export async function releaseReview(tx: DbTx | Db, businessId: string, approval: Pick<Approval, "taskId" | "args">): Promise<ApprovalReview | null> {
+  if (!approval.taskId) return null;
+  const args = (approval.args ?? {}) as { prNumber?: unknown; headSha?: unknown };
+  const prNumber = args.prNumber;
+  // The commit the merge was asked for (apps/orchestrator mergeArgs): the review of that commit, and no other, is current.
+  const askedSha = typeof args.headSha === "string" ? args.headSha : null;
+  const rows = (await repos.audit.list(tx, businessId, { action: MERGE_REVIEWED, limit: 200 })).items.filter((a) => (a.target as { id?: unknown } | null)?.id === approval.taskId && (prNumber === undefined || (a.details as { prNumber?: unknown } | null)?.prNumber === prNumber));
+  const shaOf = (a: (typeof rows)[number]) => (a.details as { headSha?: unknown } | null)?.headSha;
+  const matching = askedSha ? (rows.find((a) => shaOf(a) === askedSha) ?? null) : null;
+  const row = matching ?? rows[0];
+  if (!row) return null;
+  // Newest first: a later review of another commit means the branch moved after the merge was asked for; no commit on the
+  // approval (or no review of it) means nothing ties the review to what would go live.
+  const stale = !matching || rows[0] !== matching;
+  const d = row.details as { reviewerName?: unknown; verdict?: unknown; summary?: unknown; findings?: unknown; simulated?: unknown; truncated?: unknown; filesReviewed?: unknown; filesTotal?: unknown };
+  const findings = Array.isArray(d.findings) ? (d.findings as Record<string, unknown>[]).filter((f) => f && typeof f.file === "string" && typeof f.title === "string") : [];
+  return {
+    reviewerName: typeof d.reviewerName === "string" ? d.reviewerName : "Another agent",
+    verdict: typeof d.verdict === "string" ? d.verdict : "comment",
+    summary: typeof d.summary === "string" ? d.summary : "",
+    findings: findings.map((f) => ({ severity: String(f.severity ?? "normal"), file: String(f.file), line: typeof f.line === "number" ? f.line : null, title: String(f.title), suggestion: typeof f.suggestion === "string" ? f.suggestion : null })),
+    simulated: d.simulated === true,
+    // A row without the flag (or the counts) says nothing about how much was read: it is not shown as complete.
+    truncated: d.truncated !== false,
+    filesReviewed: Array.isArray(d.filesReviewed) ? d.filesReviewed.length : null,
+    filesTotal: typeof d.filesTotal === "number" ? d.filesTotal : null,
+    stale,
+  };
+}
+
+/**
+ * What exactly the call would run, with what the arguments only name loaded (a campaign and its drafts), for the reading
+ * pane's "What exactly" block (first-time founder report, Nov 8, 2026). Walled from the section the call changes, the
+ * founder's walls hide it as they hide the arguments; walled from Finance, every figure is masked.
+ */
+async function approvalWhatFor(tx: DbTx, businessId: string, approval: Approval, walls: { argsWalled: boolean; financeWalled: boolean }): Promise<ApprovalWhat | null> {
+  if (walls.argsWalled) return null;
+  const context: ApprovalWhatContext = {};
+  const args = (approval.args ?? {}) as Record<string, unknown>;
+  const campaignId = typeof args.campaignId === "string" ? args.campaignId : typeof args.campaign_id === "string" ? args.campaign_id : null;
+  if (approval.tool === "launch_campaign" && campaignId) {
+    const campaign = await repos.campaigns.get(tx, businessId, campaignId).catch(() => null);
+    if (campaign) {
+      context.campaign = { name: campaign.name, goal: campaign.goal, budgetMinor: campaign.budgetMinor === null ? null : Number(campaign.budgetMinor), currency: campaign.currency };
+      const assets = await repos.campaigns.listAssets(tx, businessId, { campaignId }).catch(() => []);
+      context.assets = assets.filter((a) => a.approvalState !== "rejected").map((a) => ({ kind: a.kind, title: a.title, body: a.body }));
+    }
+  }
+  if (isReleaseApproval(approval)) context.review = await releaseReview(tx, businessId, approval);
+  // A code change (or its release) carries the task's latest design check (item 13): what the reviewer saw and suggested.
+  if (approval.taskId && (approval.connectorKey === "github" || approval.connectorKey === "e2b")) context.designCheck = await latestDesignCheck(tx, businessId, approval.taskId);
+  const what = approvalWhatExactly(approval, context);
+  if (!walls.financeWalled) return what;
+  return { ...what, headline: what.headline ? maskFinance(what.headline) : null, rows: what.rows.map((r) => ({ ...r, value: maskFinance(r.value) })) };
+}
+
 export async function approvalView(tx: DbTx, ctx: Pick<BusinessContext, "businessId" | "business" | "membership" | "userId" | "role">, itemId: string) {
-  const approval = await repos.approvals.forInboxItem(tx, ctx.businessId, itemId);
+  const linked = await repos.approvals.listForInboxItem(tx, ctx.businessId, itemId);
+  // The note's request: the oldest of a batch (its subject counts them), the one for an ordinary note.
+  const approval = linked[0];
   if (!approval) return null;
-  const [agent, task, session] = await Promise.all([
+  const [agent, task, session, execution] = await Promise.all([
     approval.agentId ? repos.agents.get(tx, ctx.businessId, approval.agentId).catch(() => null) : Promise.resolve(null),
     approval.taskId ? repos.tasks.get(tx, ctx.businessId, approval.taskId).catch(() => null) : Promise.resolve(null),
     approval.sessionId ? repos.agents.getSession(tx, ctx.businessId, approval.sessionId).catch(() => null) : Promise.resolve(null),
+    approvalExecution(tx, ctx.businessId, approval),
   ]);
   const section = approvalSection(approval);
   const financeWalled = !hasSectionAccess(ctx.membership, "finance", "read");
   const argsWalled = section !== null && !hasSectionAccess(ctx.membership, section, "read");
   const args = argsWalled ? null : approvalArgsText(approval);
   const spends = (approval.amountMinor ?? 0) > 0 && approval.currency !== null;
+  const walls = { argsWalled, financeWalled };
+  const what = await approvalWhatFor(tx, ctx.businessId, approval, walls);
+  // A GitHub call: whether there is anywhere for it to run (null for every other call).
+  // A collaborator reads no integration (0094): for them the pane says nothing about where the call would run.
+  const githubConnected = approval.connectorKey === "github" && ctx.role !== "collaborator" ? integrationConnected(await repos.integrations.getByKey(tx, ctx.businessId, "github")) : null;
+  // A batched note: every request it covers, each with what it would run, so the pane can show one expander per channel.
+  const agents = linked.length > 1 ? new Map((await repos.agents.list(tx, ctx.businessId, { limit: 500 })).items.map((a) => [a.id, a])) : null;
+  const batch =
+    linked.length > 1
+      ? await Promise.all(
+          linked.map(async (a) => {
+            const by = a.agentId ? agents?.get(a.agentId) : null;
+            const money = (a.amountMinor ?? 0) > 0 && a.currency !== null;
+            return {
+              id: a.id,
+              outcome: a.outcome,
+              agent: by ? { id: by.id, name: by.name, role: by.role || null, personaKey: by.personaKey ?? null, layer: by.layer ?? null } : null,
+              action: approvalAction(a, null, ctx.business.name),
+              amount: money && !financeWalled ? { amountMinor: a.amountMinor!, currency: a.currency! } : null,
+              what: await approvalWhatFor(tx, ctx.businessId, a, walls),
+            };
+          }),
+        )
+      : [];
   return {
     id: approval.id,
     outcome: approval.outcome,
@@ -263,10 +432,23 @@ export async function approvalView(tx: DbTx, ctx: Pick<BusinessContext, "busines
     amountHidden: spends && financeWalled,
     // "spend above the per-decision cap (£500.00)" is a figure too.
     reasons: financeWalled ? approval.reasons.map(maskFinance) : approval.reasons,
-    agent: agent ? { id: agent.id, name: agent.name } : null,
-    task: task ? { id: task.id, title: task.title, status: task.status } : null,
+    /** Why the founder is asked, in their words (the rules' own sentences stay in `reasons` for the Details). */
+    why: founderReasons(approval.reasons),
+    // With what the web needs to name the agent under the reader's preference (One name everywhere).
+    agent: agent ? { id: agent.id, name: agent.name, role: agent.role || null, personaKey: agent.personaKey ?? null, layer: agent.layer ?? null } : null,
+    // The task in the founder's words (0070) where it has them; the technical title is the Plan's business.
+    task: task ? { id: task.id, title: task.founderTitle ?? task.title, status: task.status } : null,
     sessionWaiting: session !== null && session.endedAt === null,
+    /** A release: the founder is asked to put a finished change live. */
+    release: isReleaseApproval(approval),
+    execution,
     section,
     canAnswer: hasSectionAccess(ctx.membership, section ?? "inbox", "write") && canResolveApproval(approval, { userId: ctx.userId, role: ctx.role }),
+    /** What exactly would run (first-time founder report, Nov 8, 2026); null when the reader's walls hide the call's arguments. */
+    what,
+    /** A GitHub call with no repository connected has nowhere to run: the pane says so and points to Settings › Integrations. */
+    githubConnected,
+    /** Every request a batched note covers (empty for an ordinary note): one answer decides them all. */
+    batch,
   };
 }

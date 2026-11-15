@@ -49,6 +49,8 @@ export const STACK_ENV: Record<string, string> = {
   MODEL_MODE: "mock",
   // The LIVE pages and Go live are closed unless a deployment opens them (FLAGS.liveMode, audit VLS2-X1); the stack opens them.
   LIVE_MODE: "1",
+  // A project's Foundmill sending address runs on its mock (SendGrid is mock here), so Settings shows it (package 1.5).
+  PLATFORM_MAIL_DOMAIN: "mail.foundmill.test",
   DATABASE_URL: E2E_DATABASE_URL,
   DEV_AUTH_USER_ID: process.env.DEV_AUTH_USER_ID ?? DEMO_OWNER_USER_ID,
   API_PORT: String(API_PORT),

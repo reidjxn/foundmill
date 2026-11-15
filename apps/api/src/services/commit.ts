@@ -22,12 +22,16 @@
  * fails the commit (Settings › Preferences changes it any time).
  */
 import { randomUUID } from "node:crypto";
-import { departmentTabs, getArchetypeSeed, getTemplate, prompts } from "@foundmill/agents";
-import { initialModelBilling } from "@foundmill/config";
+import { DEPARTMENT_DEFAULTS, departmentTabs, getArchetypeSeed, getTemplate, prompts } from "@foundmill/agents";
+import { CREDITS_CURRENCY, initialModelBilling } from "@foundmill/config";
+
+/** Wage caps are model credits, counted in the credits' own currency whatever the business counts in. */
+const WAGE_CURRENCY = CREDITS_CURRENCY;
 import { assertBusinessAllowance, autopilotChangedPayload, creditsUsedUp, includedCreditsFor, periodOf, repos, type Business, type Db, type DbTx, type InboxItem } from "@foundmill/db";
 import { writeEventRow } from "./events";
-import { CHANNEL_KEYS, CHANNEL_META, CurrencyCode, DEFAULT_BUSINESS_CURRENCY, DEFAULT_BUSINESS_MODE, ValidationError, slugify, type AgentStyle, type Archetype, type BusinessMode, type GameMode, type OptionAction } from "@foundmill/shared";
+import { CHANNEL_KEYS, CHANNEL_META, CurrencyCode, DEFAULT_BUSINESS_CURRENCY, DEFAULT_BUSINESS_MODE, OVERNIGHT_SHIFT, ValidationError, isValidTimeZone, loadEnv, overnightUtcHour, slugify, type AgentStyle, type Archetype, type BusinessMode, type Env, type GameMode, type OptionAction } from "@foundmill/shared";
 import { presetLayout } from "../presets";
+import { channelRowsFor } from "./channel-availability";
 import { QUEUE_ACTION } from "./cycle";
 import { checkLogoChoice, type LogoChoice } from "./logo";
 import { hireMany, type PlannedHire } from "./squad";
@@ -55,6 +59,8 @@ export interface CommitIdeaInput {
   spendCapMinor?: number | null;
   /** "Run on autopilot" (Commit): the business starts its own cycles (0055). Off unless chosen. */
   autopilot?: boolean;
+  /** With `autopilot`: the overnight shift (daily cadence at about 2 AM in this zone; retention plan, 2026-11-11). */
+  overnight?: { timeZone: string };
   /** The Launch step's "Anthropomorphic agents" switch: written to the founder's account preferences when given (0067). */
   anthropomorphicAgents?: boolean;
   /** The Launch step's character style for them: written to the founder's account preferences when given (0069). */
@@ -147,7 +153,7 @@ export function welcomeNote(input: { agents: number; departments: number; produc
       prompts.HOUSE_RULES_FOUNDER_LINE,
       `The team is hired: ${input.agents} agents in ${input.departments} departments.`,
       `${who} is drafting the vision, the specification and the roadmap from ${from}; you will get two notes asking you to sign off each. Building starts when both are approved.`,
-      "Nothing is spent on distribution until you start it from Distribution › Board.",
+      "Nothing is spent on distribution until you start it from Customers › Board.",
     ].join("\n\n"),
   };
 }
@@ -161,7 +167,7 @@ function uniqueSlug(name: string): string {
  * `importKey` returns the key import job ids are signed with (`importJobKey(env)`); it is only called for an idea that
  * Import drafted, so a Door A commit never needs it.
  */
-export async function commitIdea(db: Db, temporal: TemporalService, userId: string, input: CommitIdeaInput, importKey: () => string, deps: { log?: Pick<ApiLogger, "warn"> } = {}): Promise<CommitIdeaResult> {
+export async function commitIdea(db: Db, temporal: TemporalService, userId: string, input: CommitIdeaInput, importKey: () => string, deps: { log?: Pick<ApiLogger, "warn">; env?: Pick<Env, "APP_ENV" | "INTEGRATIONS_MODE" | "LIVE_CONNECTORS"> } = {}): Promise<CommitIdeaResult> {
   const idea = await repos.ideas.get(db, userId, input.ideaId);
   if (idea.committedAt) return committedIdeaResult(db, userId, input.ideaId);
   // Door B: the Import job this idea was drafted from (recorded by idea.generate), verified again (signed for this
@@ -210,8 +216,9 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
     await repos.memberships.add(tx, businessId, { userId, role: "owner", source: "founder" });
     // "Run on autopilot": on from the first minute, audited like turning it on in Settings.
     if (input.autopilot) {
-      const on = await repos.autopilot.set(tx, businessId, { enabled: true });
-      await repos.audit.append(tx, businessId, { actorKind: "user", actorId: userId, action: "autopilot.turn_on", target: { kind: "business", id: businessId }, details: { enabled: true, cadence: on.business.autopilotCadence, maxCyclesPerDay: on.business.autopilotMaxCyclesPerDay, via: "commit" } });
+      const overnight = input.overnight ? { cadence: OVERNIGHT_SHIFT.cadence, dailyHour: overnightUtcHour(isValidTimeZone(input.overnight.timeZone) ? input.overnight.timeZone : null), ownMaxCyclesPerDay: OVERNIGHT_SHIFT.ownMaxCyclesPerDay, ownSpendCeilingMinor: OVERNIGHT_SHIFT.ownSpendCeilingMinor } : {};
+      const on = await repos.autopilot.set(tx, businessId, { enabled: true, ...overnight });
+      await repos.audit.append(tx, businessId, { actorKind: "user", actorId: userId, action: "autopilot.turn_on", target: { kind: "business", id: businessId }, details: { enabled: true, cadence: on.business.autopilotCadence, maxCyclesPerDay: on.business.autopilotMaxCyclesPerDay, via: input.overnight ? "commit_overnight" : "commit" } });
       await writeEventRow(tx, { businessId, type: "autopilot.changed", actor: { kind: "user", id: userId }, payload: autopilotChangedPayload(on.business, "turned_on", null) });
     }
         // This month's included credits (USD), so the first cycle already runs against a balance that pauses the team. They
@@ -288,15 +295,22 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
     });
     await repos.screens.upsertMany(tx, businessId, screens);
 
-    // Channels: all 15 exist; the archetype's starters are enabled and recommended (BUILD §11.7 formation).
+    // Channels: all 15 exist; the archetype's starters are enabled and recommended (BUILD §11.7 formation), but only
+    // those that can really act for this business (founder, 2026-11-11): a starter that is not available is neither put
+    // on the board nor recommended, and waits in Builder view's "Not available yet" list. Where simulated results are
+    // allowed (development, test) every starter is available, as before. A starter the founder posts by tap (founder,
+    // 2026-11-12) is available and is not started for them: the team runs nothing there, so it waits off the board,
+    // shown as available, until the founder puts it on.
+    const availability = await channelRowsFor(tx, { env: deps.env ?? loadEnv(), businessId, business });
+    const starts = (channelKey: (typeof CHANNEL_KEYS)[number]) => seed.defaultChannels.includes(channelKey) && availability.teamRuns.includes(channelKey);
     await repos.channels.upsertMany(
       tx,
       businessId,
       CHANNEL_KEYS.map((channelKey) => ({
         channelKey,
         line: CHANNEL_META[channelKey].line,
-        enabled: seed.defaultChannels.includes(channelKey),
-        recommended: seed.defaultChannels.includes(channelKey),
+        enabled: starts(channelKey),
+        recommended: starts(channelKey),
         kitMode: CHANNEL_META[channelKey].kitModeByDefault,
         ownerAgentId: agentIdByTemplate.get(`channel_${channelKey}`) ?? null,
         currency,
@@ -466,7 +480,7 @@ async function committedIdeaResult(db: Db, userId: string, ideaId: string): Prom
 }
 
 /** Templates the archetype hires, for the Commit screen preview. */
-export function squadPreview(archetype: Archetype) {
+export function squadPreview(archetype: Archetype, available?: ReadonlySet<(typeof CHANNEL_KEYS)[number]>) {
   const seed = getArchetypeSeed(archetype);
   const templates = new Set<string>([seed.assistantTemplateKey]);
   for (const d of seed.departments) for (const k of [d.leadTemplateKey, ...d.memberTemplateKeys]) templates.add(k);
@@ -475,12 +489,16 @@ export function squadPreview(archetype: Archetype) {
   const teamDept = seed.departments.find((d) => d.moduleKeys.includes("team"));
   const departmentOf = (key: string) => ((key === seed.assistantTemplateKey ? teamDept : undefined) ?? seed.departments.find((d) => d.leadTemplateKey === key || d.memberTemplateKeys.includes(key)))?.slug ?? null;
   return {
-    departments: seed.departments.map((d) => ({ slug: d.slug, name: d.name, icon: d.icon, colourToken: d.colourToken, moduleKeys: d.moduleKeys, budgetMinor: d.budgetMinor, budgetLabel: "Estimate" as const })),
+    // `baseName`: the department's standard name when the archetype renames it ("Editorial" is the Product department
+    // of a content business), so Commit can say so instead of renaming it unannounced (first-time founder report, Nov 8, 2026).
+    departments: seed.departments.map((d) => ({ slug: d.slug, name: d.name, baseName: DEPARTMENT_DEFAULTS[d.slug as keyof typeof DEPARTMENT_DEFAULTS]?.name ?? d.name, icon: d.icon, colourToken: d.colourToken, moduleKeys: d.moduleKeys, budgetMinor: d.budgetMinor, budgetLabel: "Estimate" as const })),
     agents: [...templates].map((key) => {
       const t = getTemplate(key);
-      return { templateKey: key, name: t.name, role: t.role, layer: t.layer, modelKey: t.modelKey, wageCapMinor: t.wageCapMinor, wageLabel: "Estimate" as const, departmentSlug: departmentOf(key) };
+      // `background`: a platform utility the Team screen keeps off the founder's lists; Commit's roster does the same.
+      return { templateKey: key, name: t.name, role: t.role, layer: t.layer, background: t.layer === "utility", modelKey: t.modelKey, wageCapMinor: t.wageCapMinor, wageCurrency: WAGE_CURRENCY, wageLabel: "Estimate" as const, departmentSlug: departmentOf(key) };
     }),
-    defaultChannels: seed.defaultChannels,
+    // Only the starters that can really act for a new project go on the board at commit (founder, 2026-11-11).
+    defaultChannels: available ? seed.defaultChannels.filter((c) => available.has(c)) : seed.defaultChannels,
     specOutline: seed.specOutline,
   };
 }

@@ -15,7 +15,7 @@ import { plainWords } from "@/lib/format";
 import { publicProfileHref } from "@/lib/public-search";
 import { errorMessage, trpcErrorCode, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
-import { useBusiness } from "@/components/shell/business-context";
+import { useOptionalBusiness } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
 import { BusinessLogo, PersonalNotice } from "./shared";
 
@@ -35,7 +35,8 @@ export function ProfileScreen({ kind, id }: { kind: "business" | "founder"; id: 
   const router = useRouter();
   const { toast } = useToast();
   const { formatDate } = useFormatters();
-  const { businessId, data } = useBusiness();
+  const ctx = useOptionalBusiness();
+  const businessId = ctx?.businessId;
   const q = useQuery(trpc.live.people.profile.queryOptions({ kind, id }, { staleTime: 30_000, retry: false }));
   const profile = q.data?.profile;
   useShellChrome({ title: profile ? profile.name : "Profile", breadcrumbs: [{ label: "Network", href: "/network" }, { label: profile?.name ?? "Profile" }] }, [profile?.name]);
@@ -74,12 +75,13 @@ export function ProfileScreen({ kind, id }: { kind: "business" | "founder"; id: 
   if (profile.kind === "business" && profile.region) facts.push({ label: "Region", value: profile.region.toUpperCase() });
   if (profile.kind === "founder") facts.push({ label: "Businesses", value: businesses.length });
 
-  const canAsk = data.business.gameMode === "live";
+  const hasBusiness = ctx !== null;
+  const canAsk = ctx?.data.business.gameMode === "live";
   let action = null;
   if (profile.kind === "founder" && !isSelf) {
     if (connection?.status === "accepted") {
       action = (
-        <Button size="sm" variant="ghost" icon={MessageSquare} onClick={() => router.push("/network")} data-testid="profile-message">
+        <Button size="sm" className="min-h-tap @page-wide:min-h-0" variant="ghost" icon={MessageSquare} onClick={() => router.push("/network")} data-testid="profile-message">
           Message in Network
         </Button>
       );
@@ -89,10 +91,10 @@ export function ProfileScreen({ kind, id }: { kind: "business" | "founder"; id: 
           {connection.direction === "incoming" ? "Asked to connect with you" : "Request sent"}
         </StatusPill>
       );
-    } else if (!connection && profile.userId) {
+    } else if (!connection && profile.userId && businessId) {
       const userId = profile.userId;
       action = (
-        <Button size="sm" icon={UserRoundPlus} disabled={!canAsk} loading={request.isPending} onClick={() => request.mutate({ businessId, toUserId: userId })} data-testid="profile-connect">
+        <Button size="sm" className="min-h-tap @page-wide:min-h-0" icon={UserRoundPlus} disabled={!canAsk} loading={request.isPending} onClick={() => request.mutate({ businessId, toUserId: userId })} data-testid="profile-connect">
           Connect
         </Button>
       );
@@ -100,23 +102,23 @@ export function ProfileScreen({ kind, id }: { kind: "business" | "founder"; id: 
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col" data-testid="profile-screen" data-kind={profile.kind}>
+    <div className="@container flex min-h-0 flex-1 flex-col" data-testid="profile-screen" data-kind={profile.kind}>
       <ProfileHeader avatar={profile.kind === "business" ? cardLogo(profile, 48) : <Avatar size={64} name={profile.name} />} name={profile.name} chips={chips} status={<StatusPill tone="info">On {APP_NAME}</StatusPill>} facts={facts} actions={action} />
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="grid grid-cols-12 gap-gutter p-gutter">
-          <PersonalNotice className="col-span-12" />
-          {profile.kind === "founder" && !isSelf && !connection && !canAsk ? (
-            <p className="col-span-12 text-small text-secondary" data-testid="profile-connect-note">
+        <div className="grid grid-cols-1 gap-gutter p-gutter @page-wide:grid-cols-12 [&_button]:min-h-tap @page-wide:[&_button]:min-h-0">
+          <PersonalNotice className="@page-wide:col-span-12" />
+          {profile.kind === "founder" && !isSelf && !connection && hasBusiness && !canAsk ? (
+            <p className="text-small @page-wide:col-span-12 text-secondary" data-testid="profile-connect-note">
               Switch to a live business to ask {profile.name} to connect: a Personal business is not on the network.
             </p>
           ) : null}
           {profile.kind === "founder" ? (
-            <Panel title="Businesses" span={8} empty={businesses.length === 0 ? { icon: Building2, children: "No live business is listed." } : undefined} data-testid="profile-businesses">
+            <Panel title="Businesses" className="@page-wide:col-span-8" empty={businesses.length === 0 ? { icon: Building2, children: "No live business is listed." } : undefined} data-testid="profile-businesses">
               <ul>
                 {businesses.map((b) => (
                   <li key={b.businessId} className="flex items-center gap-3 border-b border-subtle/50 py-2 last:border-b-0">
                     {cardLogo(b, 32)}
-                    <button type="button" className="t-body-strong min-w-0 flex-1 truncate text-left text-primary hover:underline" onClick={() => router.push(publicProfileHref(b))}>
+                    <button type="button" className="t-body-strong min-h-tap min-w-0 flex-1 truncate text-left text-primary hover:underline @page-wide:min-h-0" onClick={() => router.push(publicProfileHref(b))}>
                       {b.name}
                     </button>
                     <span className="text-small text-secondary">{b.archetype ? plainWords(b.archetype) : UNKNOWN_ARCHETYPE}</span>
@@ -125,12 +127,12 @@ export function ProfileScreen({ kind, id }: { kind: "business" | "founder"; id: 
               </ul>
             </Panel>
           ) : (
-            <Panel title="Founders" span={8} empty={founders.length === 0 ? { icon: UsersRound, children: "Its founders keep their names private." } : undefined} data-testid="profile-founders">
+            <Panel title="Founders" className="@page-wide:col-span-8" empty={founders.length === 0 ? { icon: UsersRound, children: "Its founders keep their names private." } : undefined} data-testid="profile-founders">
               <ul>
                 {founders.map((f) => (
                   <li key={f.userId ?? f.name} className="flex items-center gap-3 border-b border-subtle/50 py-2 last:border-b-0">
                     <Avatar size={32} name={f.name} />
-                    <button type="button" className="t-body-strong min-w-0 flex-1 truncate text-left text-primary hover:underline" onClick={() => router.push(publicProfileHref(f))}>
+                    <button type="button" className="t-body-strong min-h-tap min-w-0 flex-1 truncate text-left text-primary hover:underline @page-wide:min-h-0" onClick={() => router.push(publicProfileHref(f))}>
                       {f.name}
                     </button>
                     <Check aria-hidden className="size-icon-inline text-secondary" />
@@ -140,7 +142,7 @@ export function ProfileScreen({ kind, id }: { kind: "business" | "founder"; id: 
               </ul>
             </Panel>
           )}
-          <Panel title="What is public" span={4} footer="Only these fields are shown. Everything else stays in the business.">
+          <Panel title="What is public" className="@page-wide:col-span-4" footer="Only these fields are shown. Everything else stays in the business.">
             <p className="text-small text-secondary">
               {profile.kind === "founder" ? "A founder's name, when they choose to make it public, and the live businesses they run." : "A live business's name, logo, kind of business, region and when it went live, and its founders who made their name public."}
             </p>

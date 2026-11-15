@@ -19,11 +19,15 @@ import {
   CoachOutput,
   CodeReviewOutput,
   CommentaryOutput,
+  DocumentReviewOutput,
   ComposerOutput,
   CyclePlanOutput,
   DepartmentLeadOutput,
   FoundationsOutput,
   FoundationsSkeletonOutput,
+  FounderTitlesOutput,
+  GoalProposalOutput,
+  ProjectPageOutput,
   IdeationOutput,
   IdeationSlateOutput,
   LinkerOutput,
@@ -37,6 +41,7 @@ import {
   WorkerOutput,
   AgentReplyOutput,
 } from "../schemas";
+import { TeamCallTurnsOutput, TeamCallWrapUpOutput } from "../team-call-schema";
 import { JsonElementScanner } from "../stream-json";
 import { type StreamCallArgs, type StreamCallResult, runStructuredStream } from "../structured-stream";
 import type { BilledTo, CompleteRequest, CompleteResult, CompleteResultWithJson, ModelClient, ModelLogger, StreamStructuredRequest, StreamStructuredResult, TokenUsage, UsageEvent, UsageSink } from "../types";
@@ -45,10 +50,17 @@ import { generateChiefOfStaff } from "./chiefOfStaff";
 import { generateCategoriser, generateClassifier } from "./classifier";
 import { generateCoach } from "./coach";
 import { generateCodeReview } from "./codeReview";
+import { generateDocumentReview } from "./documentReview";
 import { generateDepartmentLead } from "./departmentLead";
 import { generateJurisdictionRecommendation, isJurisdictionRequest } from "./jurisdictionRecommender";
 import { generateFoundationsSkeleton, generateIdeationSlate } from "./drafts";
 import { generateFoundations } from "./foundations";
+import { generateFounderTitles } from "./founderTitle";
+import { generateGoalProposal } from "./goalProposal";
+import { generateProjectPage } from "./projectPage";
+import { generatePostDraft, isPostDraftRequest } from "./postDraft";
+import { generatePageQuiz, isPageQuizRequest } from "./pageQuiz";
+import { generateShowcaseScript, isShowcaseScriptRequest } from "./showcaseScript";
 import { generateIdeationRoute } from "./ideation";
 import { generateInboxComposer } from "./inboxComposer";
 import { type MockContext, buildMockContext, keywords } from "./inputs";
@@ -65,6 +77,10 @@ import { generateSourceProposal, generateSourceRelevance, isSourceProposalReques
 import { synthesizeFromZod } from "./synth";
 import { generateNightlyBatch, generateWorker } from "./worker";
 import { generateConversation } from "./conversation";
+import { generateDesignReview } from "./designReview";
+import { IMAGE_TOKEN_ESTIMATE, assertImagesAllowed, countImages } from "../images";
+import { DesignReviewOutput } from "../design-review-schema";
+import { generateTeamCallTurns, generateTeamCallWrapUp } from "./teamCall";
 
 export type MockGenerator = (ctx: MockContext) => unknown;
 
@@ -84,6 +100,7 @@ export const MOCK_ROUTES: Record<RouteKey, MockRouteDefinition> = {
   leadRecommendation: { route: "leadRecommendation", description: "Distribution's channel scores and Legal's country cards behind a Recommend button.", schema: DepartmentLeadOutput, generate: (ctx) => (isJurisdictionRequest(ctx) ? generateJurisdictionRecommendation(ctx) : generateDepartmentLead(ctx)) },
   planner: { route: "planner", description: "Roadmap items → ordered tasks with what counts as done, test expectations, file-scope hints and dependencies.", schema: TaskGraphOutput, generate: generatePlanner },
   codeReview: { route: "codeReview", description: "Deterministic review of a unified diff against the platform rules.", schema: CodeReviewOutput, generate: generateCodeReview },
+  documentReview: { route: "documentReview", description: "Second read of a long document: inconsistent prices or launch months, unlabeled figures about the future, claims that need a source; a claim whose only sources are simulated is never supported.", schema: DocumentReviewOutput, generate: generateDocumentReview },
   ideation: { route: "ideation", description: "6–12 concept cards with 10 attributes (1–20), evidence and ≥ 2 citations, seeded by the prompt; one card (keeping the slate item's name, business type and angle) when the schema is a single card.", schema: IdeationOutput, generate: generateIdeationRoute },
   ideationSlate: { route: "ideationSlate", description: "The 6–12 names, business types and one-line angles of an ideation set, drafted by the ideation mock for the same prompt.", schema: IdeationSlateOutput, generate: generateIdeationSlate },
   logoDesigner: { route: "logoDesigner", description: "N distinct geometric logo marks as SVG on a 100 × 100 tile, in the brand colors; never a shield, badge, star or ball.", schema: LogoDesignOutput, generate: generateLogoDesigner },
@@ -98,8 +115,14 @@ export const MOCK_ROUTES: Record<RouteKey, MockRouteDefinition> = {
   classifier: { route: "classifier", description: "Picks one of the supplied labels by keyword overlap with a confidence; scores a source against spec blocks for the Source Watcher.", schema: ClassifierOutput, generate: (ctx) => (isSourceRelevanceRequest(ctx) ? generateSourceRelevance(ctx) : generateClassifier(ctx)) },
   categoriser: { route: "categoriser", description: "Bank transactions → standard chart of accounts with the rule that fired.", schema: CategoriserOutput, generate: generateCategoriser },
   quarantinedReader: { route: "quarantinedReader", description: "Extracts only the requested fields from untrusted content; instructions inside the content are ignored.", schema: QuarantinedReaderOutput, generate: generateQuarantinedReader },
+  founderTitle: { route: "founderTitle", description: "A task's title in the founder's words: ten words at most, no engineering terms, no identifiers.", schema: FounderTitlesOutput, generate: generateFounderTitles },
   moderation: { route: "moderation", description: "Honest-agent and marketing-law pre-send check with flags and an allow/block verdict.", schema: ModerationOutput, generate: generateModeration },
   conversation: { route: "conversation", description: "A reply at the agent's desk: 1-3 bubbles in its voice quoting only figures from the inputs, a hand-off for instructions (never a claim that anything was done), 2-4 quick replies by subject.", schema: AgentReplyOutput, generate: generateConversation },
+  goalProposal: { route: "goalProposal", description: "The founder's Change it words on a proposed goal read as a kind, a target and a date (packages/shared parseGoalWords); changed false when they name neither.", schema: GoalProposalOutput, generate: generateGoalProposal },
+  projectPage: { route: "projectPage", description: "A project's public page from the founder's own words: the pitch is their first sentence, about is the idea as written, who it is for only when they name an audience, stage idea unless they say otherwise; a post for the founder to share by tap (the project's name, what happened and the page's own pitch, nothing added) when the request carries a post_request; a page quiz (2 to 4 types of customer, each resting on customers named by ref, grouped by what they bought or else by person or organization; too_little_data otherwise) when the schema asks for an outcome and questions; or a showcase video's script (one shot per card, its date and label, and a post made of them) when it carries a showcase_request.", schema: ProjectPageOutput, generate: (ctx) => (isShowcaseScriptRequest(ctx) ? generateShowcaseScript(ctx) : isPostDraftRequest(ctx) ? generatePostDraft(ctx) : isPageQuizRequest(ctx) ? generatePageQuiz(ctx) : generateProjectPage(ctx)) },
+  teamCallTurn: { route: "teamCallTurn", description: "The next spoken turns of a Team call: the participant whose role fits the founder's words answers them (the Chief of Staff or the called agent first in an opening), a second agent builds on it by mention, one agent only on a one-to-one call; hand_back alternates by round.", schema: TeamCallTurnsOutput, generate: generateTeamCallTurns },
+  designReview: { route: "designReview", description: "The design check's reviewer: the shared design lint run on each screenshot's page description (contrast, spacing, type scale, hierarchy, placeholder text, 390 px overflow and tap targets), most serious first; a screenshot without a description is listed as unreadable, never judged.", schema: DesignReviewOutput, generate: generateDesignReview },
+  teamCallWrapUp: { route: "teamCallWrapUp", description: "A Team call's summary and action items: the plan compiler's rule engine reads each founder line and keeps the actions it finds (hard gates stay the founder's step, a roadmap mention becomes a roadmap item); the summary lists what the founder raised.", schema: TeamCallWrapUpOutput, generate: generateTeamCallWrapUp },
 };
 
 export interface MockRouteInfo {
@@ -154,7 +177,9 @@ export class MockModelClient implements ModelClient {
   complete(req: CompleteRequest<unknown> & { schema?: undefined }): Promise<CompleteResult<unknown>>;
   async complete<T = unknown>(req: CompleteRequest<T>): Promise<CompleteResult<T>> {
     const started = Date.now();
-    // Like the live client: an aborted request makes no call, and one aborted during the (simulated) wait answers nothing.
+    // Like the live client: images only on a vision route, and an aborted request makes no call (one aborted during the
+    // simulated wait answers nothing).
+    assertImagesAllowed(req.route, req.messages);
     if (req.signal?.aborted) throw new ModelAbortedError();
     const out = this.produce(req);
     const latency = (this.opts.latencyMs ?? 0) + (this.opts.latencyJitterMs ? Math.round(out.rng.next() * this.opts.latencyJitterMs) : 0);
@@ -185,7 +210,8 @@ export class MockModelClient implements ModelClient {
    * before each element completes (both 0 by default, so tests and e2e see every element at once, in order).
    */
   async streamStructured<T, E>(req: StreamStructuredRequest<T, E>): Promise<StreamStructuredResult<T, E>> {
-    const resolution = resolveModel(req.route, req.modelOverride);
+    assertImagesAllowed(req.route, req.messages);
+    const resolution = resolveModel(req.route, req.modelOverride, { lowCredits: req.lowCredits });
     return runStructuredStream(req, {
       mode: "mock",
       modelId: resolution.modelId,
@@ -233,7 +259,7 @@ export class MockModelClient implements ModelClient {
     const failure = this.opts.failWith?.[req.route];
     if (failure) throw failure;
 
-    const resolution = resolveModel(req.route, req.modelOverride);
+    const resolution = resolveModel(req.route, req.modelOverride, { lowCredits: req.lowCredits });
     if (resolution.warning) this.opts.logger?.warn({ route: req.route, override: req.modelOverride }, resolution.warning);
 
     const schemaJson = req.schema ? safeJsonSchema(req.schema) : undefined;
@@ -275,9 +301,9 @@ export class MockModelClient implements ModelClient {
     return { resolution, rng, json, text, repaired, usage, cost };
   }
 
-  private async emitUsage(req: Pick<CompleteRequest, "route" | "modelOverride" | "scope" | "attribution">, usage: TokenUsage, cost: MeterResult, durationMs: number, attempt: number, streamed = false): Promise<void> {
+  private async emitUsage(req: Pick<CompleteRequest, "route" | "modelOverride" | "lowCredits" | "scope" | "attribution">, usage: TokenUsage, cost: MeterResult, durationMs: number, attempt: number, streamed = false): Promise<void> {
     if (!this.opts.onUsage) return;
-    const resolution = resolveModel(req.route, req.modelOverride);
+    const resolution = resolveModel(req.route, req.modelOverride, { lowCredits: req.lowCredits });
     const event: UsageEvent = {
       route: req.route,
       model: resolution.modelId,
@@ -301,7 +327,7 @@ export class MockModelClient implements ModelClient {
     const system = Array.isArray(req.system) ? req.system.join("\n\n") : typeof req.system === "string" ? req.system : "";
     const messagesText = req.messages.map((m) => m.content).join("\n");
     const systemTokens = estimateTokens(system);
-    let usage: TokenUsage = { inputTokens: estimateTokens(messagesText), outputTokens: estimateTokens(outputText), cacheCreationInputTokens: 0, cacheReadInputTokens: 0 };
+    let usage: TokenUsage = { inputTokens: estimateTokens(messagesText) + countImages(req.messages) * IMAGE_TOKEN_ESTIMATE, outputTokens: estimateTokens(outputText), cacheCreationInputTokens: 0, cacheReadInputTokens: 0 };
     if (system) {
       if (req.cacheSystem) {
         const key = stableHash(system);
@@ -339,6 +365,7 @@ export { CHANNEL_WAITS_REASON, generateChiefOfStaff, readTasks, scoreTask } from
 export { generateDepartmentLead } from "./departmentLead";
 export { generatePlanner } from "./planner";
 export { generateCodeReview, parseDiff } from "./codeReview";
+export { generateDocumentReview } from "./documentReview";
 export { generateSkillGrader } from "./skillGrader";
 export { generateCoach } from "./coach";
 export { generateJourneyCommentary } from "./journeyCommentary";
@@ -349,3 +376,4 @@ export { generateModeration } from "./moderation";
 export { generateWorker, generateNightlyBatch } from "./worker";
 export { generateResearchPlan, isResearchPlanRequest } from "./productResearch";
 export { generateConversation, scriptedConversationReply, SCRIPTED_INTENTS } from "./conversation";
+export { generateTeamCallTurns, generateTeamCallWrapUp, MOCK_TEAM_CALL_FALLBACK } from "./teamCall";

@@ -91,12 +91,21 @@ describe("ConceptCard", () => {
       expect(onAction).toHaveBeenLastCalledWith(action, c.id);
     }
     expect(screen.getByRole("button", { name: "More like this" })).toBeTruthy();
-    for (const action of ["merge", "discard"] as const) {
+    for (const action of ["edit", "merge", "discard"] as const) {
       expect(document.querySelector(`[data-concept-action='${action}']`)).toBeNull();
       await user.click(screen.getByRole("button", { name: `More actions for ${c.name}` }));
-      await user.click(await screen.findByRole("menuitem", { name: action === "merge" ? "Merge with another" : "Discard" }));
+      await user.click(await screen.findByRole("menuitem", { name: action === "merge" ? "Merge with another" : action === "edit" ? "Edit" : "Discard" }));
       expect(onAction).toHaveBeenLastCalledWith(action, c.id);
     }
+  });
+  it("says whose words the pitch is: the founder's own, or the sample model's, and nothing when neither applies", () => {
+    const c = concepts[0]!;
+    const { rerender } = render(<ConceptCard concept={c} />);
+    expect(document.querySelector("[data-concept-your-words]")).toBeNull();
+    expect(document.querySelector("[data-concept-sample]")).toBeNull();
+    rerender(<ConceptCard concept={{ ...c, yourWords: true, sample: true }} />);
+    expect(screen.getByText("Your words")).toBeTruthy();
+    expect(screen.getByText("Sample")).toBeTruthy();
   });
   it("defines every attribute label with its direction and says 'Version n' in words", () => {
     render(<ConceptCard concept={{ ...concepts[0]!, version: 3 }} />);

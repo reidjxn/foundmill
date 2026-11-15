@@ -4,6 +4,7 @@ import { fireEvent, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { CapTableScreen, holderRows } from "../CapTableScreen";
 import { createFakeSource, renderScreen } from "./fake-source";
+import { openExplainer } from "../../explainer.testing";
 import { BID, ENTITY, capTable, dataResponses, emptyResponses } from "./fixtures";
 
 const props = { businessId: BID, departmentId: "d-fin" };
@@ -49,7 +50,7 @@ describe("CapTableScreen", () => {
   it("guidance on: the intro says who owns what, the Holders open on the Simple view and SAFE is a defined word (UX plan §7.14)", () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <CapTableScreen {...props} />, {}, { guidance: "on" });
-    const explainer = document.querySelector("[data-explainer='finance/cap-table']") as HTMLElement;
+    const explainer = openExplainer("finance/cap-table");
     expect(within(explainer).getByText("Who owns what share of the company.")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: /^View: Simple/ })).toHaveLength(2);
     const holders = screen.getByRole("grid", { name: "Holders" });

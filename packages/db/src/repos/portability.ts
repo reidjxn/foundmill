@@ -38,6 +38,11 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   spec_blocks: t(s.specBlocks, "product"),
   spec_versions: t(s.specVersions, "product"),
   product_signoffs: t(s.productSignoffs, "product"),
+  goals: t(s.goals, "product"),
+  project_pages: t(s.projectPages, "product"),
+  // 0105: the page quiz and its anonymous counts per result (numbers only, nothing about any visitor).
+  page_quizzes: t(s.pageQuizzes, "product"),
+  page_quiz_counts: t(s.pageQuizCounts, "product"),
   change_proposals: t(s.changeProposals, "product"),
   proposal_hunks: t(s.proposalHunks, "product"),
   roadmap_items: t(s.roadmapItems, "product"),
@@ -65,10 +70,16 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   playbooks: t(s.playbooks, "team"),
   agent_threads: t(s.agentThreads, "team"),
   agent_messages: t(s.agentMessages, "team"),
+  team_calls: t(s.teamCalls, "team"),
+  team_call_turns: t(s.teamCallTurns, "team"),
+  team_call_actions: t(s.teamCallActions, "team"),
   // distribution (channels, campaigns and the customer journey)
   channels: t(s.channels, "distribution"),
   campaigns: t(s.campaigns, "distribution"),
   assets: t(s.assets, "distribution"),
+  // A post draft's media (0102): where each video and voiceover stands, never the file itself (up to 200 MB a project
+  // would ride inside one page of JSON); a ready one is saved from the share panel.
+  post_media: t(s.postMedia, "distribution", { omit: ["content"] }),
   channel_metrics: t(s.channelMetrics, "distribution"),
   suppression_list: t(s.suppressionList, "distribution"),
   visitors: t(s.visitors, "distribution"),
@@ -77,6 +88,7 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   journeys: t(s.journeys, "distribution"),
   chapter_titles: t(s.chapterTitles, "distribution"),
   milestones: t(s.milestones, "distribution"),
+  post_links: t(s.postLinks, "distribution"),
   // crm
   entities: t(s.entities, "crm"),
   entity_roles: t(s.entityRoles, "crm"),
@@ -84,6 +96,7 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   interactions: t(s.interactions, "crm"),
   mentions: t(s.mentions, "crm"),
   field_provenance: t(s.fieldProvenance, "crm"),
+  contact_consents: t(s.contactConsents, "crm"),
   merge_log: t(s.mergeLog, "crm"),
   // finance
   accounts: t(s.accounts, "finance", { omit: ["externalId"] }),
@@ -92,11 +105,18 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   forecasts: t(s.forecasts, "finance"),
   securities: t(s.securities, "finance"),
   cap_table_entries: t(s.capTableEntries, "finance"),
+  // What a shared post led to (0106): ids, the network and the kind only, never a person or an amount. It holds payment
+  // credits, so it is filed under the strictest wall of what it holds (security review, Nov 14, 2026): nobody without
+  // Finance exports a payment credit. Its follows and replies are the CRM's too, and a Finance reader of this archive
+  // reads the CRM as well (Export everything needs read access to every section).
+  post_attributions: t(s.postAttributions, "finance"),
   // billing
   usage_ledger: t(s.usageLedger, "billing"),
   credit_balances: t(s.creditBalances, "billing"),
   // Credit top-ups: what was bought and when. The Stripe session and its payment page stay out (provider plumbing).
   billing_checkouts: t(s.billingCheckouts, "billing", { omit: ["externalId", "checkoutUrl", "paidEventId"] }),
+  // Bought credits by purchase: how much is left of each and when it expires (0098).
+  credit_lots: t(s.creditLots, "billing"),
   // legal
   legal_entities: t(s.legalEntities, "legal"),
   incorporations: t(s.incorporations, "legal"),
@@ -116,6 +136,9 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   // seat of this business, so it never travels in the business's archive.
   memberships: t(s.memberships, "settings", { pick: ["id", "userId", "role", "createdAt"], rows: ne(s.memberships.source, "example") }),
   integrations: t(s.integrations, "settings", { pick: ["id", "connectorKey", "status", "authKind", "scopes", "accountLabel", "lastHealthAt", "lastError", "createdAt", "updatedAt"] }),
+  project_mail: t(s.projectMail, "settings", { pick: ["id", "localPart", "status", "dailyCap", "createdAt"] }),
+  // The founders' postal address for marketing email (0101): the business's own, so it travels with it.
+  project_postal_addresses: t(s.projectPostalAddresses, "settings", { pick: ["id", "address", "createdAt", "updatedAt"] }),
   app_installations: t(s.appInstallations, "settings", { pick: ["id", "connectorKey", "accountLabel", "verifiedAt", "createdAt"] }),
   policies: t(s.policies, "settings"),
   holiday_periods: t(s.holidayPeriods, "settings"),
@@ -132,13 +155,21 @@ export const EXPORT_EXCLUDED_TABLES: Readonly<Record<string, string>> = {
   webhooks: "Webhook endpoints and their secret references are connector plumbing, not business data.",
   events: "The internal event log; the audit log and the Inbox in this archive record what happened.",
   outbox: "The event delivery queue (internal).",
+  founder_presence: "When each person was last in the business: one person's own activity, not business data.",
+  founder_visit_days: "The days each person opened the business: one person's own activity, not business data.",
+  founder_notifications: "The emails sent to each founder: one person's own mail, readable only by them in Settings.",
+  invitations: "Links to join the project: their token hashes and the addresses they were sent to are not the business's data to carry elsewhere; the People in the archive are who joined.",
+  showcase_requests: "The house's own asks to feature other projects (only the house business has rows): about other projects, not this one's data to carry elsewhere.",
+  showcase_consents: "Each founder's own answer to a showcase ask: one person's own answer, readable only by them; nothing was posted from it.",
+  founder_departures: "When a founder's standing ended and who ended it, kept so a founder demoted or removed by someone else can still hear about and cancel a deletion; the People in the archive are who is in the project now.",
+  founder_cancel_links: "One-click links that cancel a deletion request, kept as token hashes for the emails that carry them: not the business's data to carry elsewhere.",
   composer_buffer: "Inbox notes waiting to be written (internal queue).",
   workspace_blobs: "Sandbox file snapshots; the code reaches your repository through pushes.",
   workspace_snapshots: "Sandbox file snapshots; the code reaches your repository through pushes.",
   session_recordings: "Replay copies of agent session streams (kept so a session can be replayed after its stream expires); the sessions themselves are exported.",
   posts: "LIVE network posts belong to the network, not to the business.",
   community_members: "LIVE network memberships belong to the network, not to the business.",
-  leaderboard_entries: "LIVE leaderboard rows belong to the network, not to the business.",
+  demo_sample_rows: "Which rows of a sample business are the sample's own (internal to the sample's roll-forward).",
 };
 
 /** One row as it is written to the archive: dates as ISO strings, bytes as base64, everything else as stored. */

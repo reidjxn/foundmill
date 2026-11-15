@@ -6,7 +6,7 @@
 import { decideAutopilot } from "@foundmill/shared";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { loadAutopilotFacts, STALE_CYCLE_MS, summarizeCycleEvents } from "../../autopilot";
+import { loadAutopilotFacts, openRunOf, runRoundsOf, STALE_CYCLE_MS, summarizeCycleEvents } from "../../autopilot";
 import { resumeBusinessAgents, stopBusinessAgents } from "../../controls";
 import { repos } from "../../repos";
 import { businesses } from "../../schema";
@@ -147,7 +147,7 @@ describe("summarizeCycleEvents", () => {
   it("finds the open cycle, the last start and end, today's Autopilot starts and the cycles since it was turned on", () => {
     const events = [started("c3", "2026-10-13T11:00:00Z", "autopilot"), completed("c2", "2026-10-13T09:00:00Z", "failed", 1, 0), started("c2", "2026-10-13T08:00:00Z", "autopilot"), completed("c1", "2026-10-12T20:00:00Z"), started("c1", "2026-10-12T18:00:00Z")];
     const s = summarizeCycleEvents(events, opts);
-    expect(s).toMatchObject({ open: true, autopilotStartsToday: 2 });
+    expect(s).toMatchObject({ open: true, cappedStartsToday: 2 });
     expect(s.lastStartedAt).toBe(at("2026-10-13T11:00:00Z").getTime());
     expect(s.lastEndedAt).toBe(at("2026-10-13T09:00:00Z").getTime());
     // Only the cycle that finished since `since` counts toward the streak.
@@ -159,7 +159,40 @@ describe("summarizeCycleEvents", () => {
     const old = new Date(now - STALE_CYCLE_MS - 60_000).toISOString();
     expect(summarizeCycleEvents([started("c1", old)], opts).open).toBe(false);
     expect(summarizeCycleEvents([started("c1", "2026-10-13T11:00:00Z")], opts).open).toBe(true);
-    expect(summarizeCycleEvents([], opts)).toMatchObject({ open: false, lastStartedAt: null, lastEndedAt: null, autopilotStartsToday: 0, finished: [] });
+    expect(summarizeCycleEvents([], opts)).toMatchObject({ open: false, lastStartedAt: null, lastEndedAt: null, cappedStartsToday: 0, finished: [] });
+  });
+
+  it("the daily cap counts Autopilot's cycles and Continue's (a press and its rounds), never a vacation's or a wake-up's (Nov 7, 2026)", () => {
+    const events = [started("c5", "2026-10-13T11:30:00Z", "wake"), started("c4", "2026-10-13T11:00:00Z", "holiday"), started("c3", "2026-10-13T10:00:00Z", "autopilot"), started("c2", "2026-10-13T09:00:00Z", "continue"), started("c1", "2026-10-12T23:00:00Z", "continue")];
+    expect(summarizeCycleEvents(events, opts).cappedStartsToday).toBe(2);
+  });
+});
+
+describe("the run one press of Continue starts (cycle.run_started / cycle.run_ended)", () => {
+  const at = (iso: string) => new Date(iso);
+  const now = at("2026-10-13T12:00:00.000Z").getTime();
+  const runStarted = (runId: string, iso: string, firstCycleNumber: number | null = 3) => ({ type: "cycle.run_started", occurredAt: at(iso), payload: { runId, firstCycleNumber } });
+  const runEnded = (runId: string, iso: string) => ({ type: "cycle.run_ended", occurredAt: at(iso), payload: { runId, reason: "done", rounds: 1, cost: { amountMinor: 0, currency: "USD" } } });
+  const completed = (iso: string, outcome = "completed", tasksDispatched = 2, tasksCompleted = 2, amountMinor = 10) => ({ type: "cycle.completed", occurredAt: at(iso), payload: { cycleId: iso, outcome, tasksDispatched, tasksCompleted, cost: { amountMinor, currency: "USD" } } });
+
+  it("is open from its start until an end with the same id, whatever order the two were written in", () => {
+    expect(openRunOf([], now)).toBeNull();
+    expect(openRunOf([runStarted("r1", "2026-10-13T11:00:00Z")], now)).toEqual({ runId: "r1", startedAt: at("2026-10-13T11:00:00Z").getTime(), firstCycleNumber: 3 });
+    expect(openRunOf([runEnded("r1", "2026-10-13T11:30:00Z"), runStarted("r1", "2026-10-13T11:00:00Z")], now)).toBeNull();
+    // The workflow ended the run a moment before the API recorded its start: still ended.
+    expect(openRunOf([runStarted("r1", "2026-10-13T11:00:01Z"), runEnded("r1", "2026-10-13T11:00:00Z")], now)).toBeNull();
+    // A newer run is open while an older one ended.
+    expect(openRunOf([runStarted("r2", "2026-10-13T11:40:00Z", null), runEnded("r1", "2026-10-13T11:30:00Z"), runStarted("r1", "2026-10-13T11:00:00Z")], now)).toMatchObject({ runId: "r2", firstCycleNumber: null });
+  });
+
+  it("a run that never ended 36 hours on is a lost one, not an open one", () => {
+    expect(openRunOf([runStarted("r1", new Date(now - 37 * 60 * 60 * 1000).toISOString())], now)).toBeNull();
+  });
+
+  it("its rounds are the cycles completed since it began: count, the newest one, and their cost", () => {
+    const events = [completed("2026-10-13T11:50:00Z", "completed", 0, 0, 5), completed("2026-10-13T11:20:00Z", "time_box", 3, 1, 40), completed("2026-10-13T10:00:00Z")];
+    expect(runRoundsOf(events, at("2026-10-13T11:00:00Z").getTime())).toEqual({ rounds: 2, lastRound: { outcome: "completed", tasksDispatched: 0, tasksCompleted: 0 }, cost: { amountMinor: 45, currency: "USD" } });
+    expect(runRoundsOf(events, now)).toEqual({ rounds: 0, lastRound: null, cost: { amountMinor: 0, currency: "USD" } });
   });
 });
 
@@ -171,7 +204,7 @@ describe("loadAutopilotFacts feeds the same decision the workflow makes", () => 
     expect(base).toMatchObject({ enabled: true, pausedReason: null, stopReason: null, vacation: false, archived: false });
     expect(base.blockingItems).toBe(await repos.inbox.countBlocking(r.db, A()));
     expect(base.since).toBe(new Date("2026-10-13T06:00:00.000Z").getTime());
-    expect(base.settings).toEqual({ cadence: "every_4h", dailyHour: 9, maxCyclesPerDay: 6, spendCeilingMinor: null, maxIdleCycles: 3 });
+    expect(base.settings).toEqual({ cadence: "every_4h", dailyHour: 9, maxCyclesPerDay: 6, spendCeilingMinor: null, maxIdleCycles: 3, ownMaxCyclesPerDay: null, ownSpendCeilingMinor: null });
 
     await repos.events.write(r.db, A(), { type: "cycle.started", actor: { kind: "system", id: "orchestrator" }, occurredAt: new Date("2026-10-13T10:00:00.000Z"), payload: { cycleId: "6f1d2c3b-4a5e-4f60-8a71-0b2c3d4e5f60", cycleNumber: 1, workflowId: `cycle:${A()}:1`, trigger: "autopilot", timeBoxAgentHours: 4, plannedTaskIds: [], budget: null } });
     const running = await loadAutopilotFacts(r.db, await row(A()), now);
@@ -185,6 +218,23 @@ describe("loadAutopilotFacts feeds the same decision the workflow makes", () => 
 
     // Another business is untouched.
     expect(await loadAutopilotFacts(r.db, await row(B()), now)).toMatchObject({ enabled: false, stopReason: null, cycleOpen: false, cyclesToday: 0 });
+  });
+
+  it("reads the open run from the event log, or takes the one the workflow holds (Continue runs until done)", async () => {
+    const now = new Date("2026-10-13T12:00:00.000Z");
+    const runId = "7a1d2c3b-4a5e-4f60-8a71-0b2c3d4e5f61";
+    expect((await loadAutopilotFacts(r.db, await row(A()), now)).run).toBeNull();
+    await repos.events.write(r.db, A(), { type: "cycle.run_started", actor: { kind: "user", id: r.A.ownerId }, occurredAt: new Date("2026-10-13T09:30:00.000Z"), payload: { runId, firstCycleNumber: 1 } });
+    // The cycle written by the test above (started 10:00, still open) is the run's first round: none finished yet.
+    const open = await loadAutopilotFacts(r.db, await row(A()), now);
+    expect(open.run).toEqual({ id: runId, startedAt: new Date("2026-10-13T09:30:00.000Z").getTime(), rounds: 0, lastRound: null, unrecordedFailures: 0 });
+    // The workflow's own run wins over the log; null means none.
+    expect((await loadAutopilotFacts(r.db, await row(A()), now, { run: { id: "held", startedAt: now.getTime(), unrecordedFailures: 2 } })).run).toEqual({ id: "held", startedAt: now.getTime(), rounds: 0, lastRound: null, unrecordedFailures: 2 });
+    expect((await loadAutopilotFacts(r.db, await row(A()), now, { run: null })).run).toBeNull();
+    await repos.events.write(r.db, A(), { type: "cycle.run_ended", actor: { kind: "system", id: "orchestrator" }, occurredAt: new Date("2026-10-13T11:00:00.000Z"), payload: { runId, reason: "done", rounds: 0, cost: { amountMinor: 0, currency: "USD" } } });
+    expect((await loadAutopilotFacts(r.db, await row(A()), now)).run).toBeNull();
+    // The other business never sees it.
+    expect((await loadAutopilotFacts(r.db, await row(B()), now)).run).toBeNull();
   });
 
   it("a vacation in progress is a fact", async () => {

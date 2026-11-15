@@ -10,6 +10,7 @@
  * connected yet, refused, failed) are read again by `importBusiness` once the founder has connected them.
  */
 import { repos } from "@foundmill/db";
+import { isAdminRole } from "@foundmill/shared";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { IMPORT_SOURCES, IMPORT_SOURCE_KEYS, SourceConfig, importJobKey, importStatus, readImportSourcesAgain, startImport } from "../services/import";
@@ -25,7 +26,7 @@ export const importRouter = router({
   start: protectedProcedure.input(z.object({ businessId: Id.nullable().optional(), sources: z.array(SourceConfig).min(1).max(IMPORT_SOURCE_KEYS.length), stepMs: z.number().int().min(1).max(10_000).optional() })).mutation(async ({ ctx, input }) => {
     if (input.businessId) {
       const membership = await repos.memberships.get(ctx.db, input.businessId, ctx.userId);
-      if (!membership || !["owner", "admin"].includes(membership.role)) throw new TRPCError({ code: "FORBIDDEN", message: "Only an owner or admin can import into this business" });
+      if (!membership || !isAdminRole(membership.role)) throw new TRPCError({ code: "FORBIDDEN", message: "Only an owner, a cofounder or an admin can import into this business" });
     }
     const result = await startImport({ db: ctx.db, temporal: ctx.temporal, key: importJobKey(ctx.env) }, { userId: ctx.userId, businessId: input.businessId ?? null, sources: input.sources, stepMs: input.stepMs });
     if (input.businessId) {

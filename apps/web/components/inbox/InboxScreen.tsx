@@ -8,10 +8,10 @@
  * router integrates with `usePathname`, so J/K never re-renders the server page.
  */
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
-import { Inbox as InboxIcon, RefreshCw } from "lucide-react";
+import { ChevronLeft, Inbox as InboxIcon, RefreshCw } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Button, EmptyState, Kbd, useGuided, useToast } from "@foundmill/dugout";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Button, EmptyState, Kbd, MIN_VIEWPORT_WIDTH, cn, isViewportTooSmall, useAgentPersona, useGuided, useToast, useViewportWidth } from "@foundmill/dugout";
 import type { DeptColourToken } from "@foundmill/shared";
 import { humanSender } from "@foundmill/widgets/shared/note-tags";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -28,12 +28,15 @@ import { RefreshFailedNotice, loadFailed, refreshFailed } from "@/components/she
 import { InboxList, type InboxListRow } from "./InboxList";
 import { InboxTour } from "./InboxTour";
 import { ReadingPane } from "./ReadingPane";
-import { INBOX_TAB_LABELS, OLDER_PAGE_REUSE_MS, REFRESH_DEBOUNCE_MS, agentIndex, inboxTabs, itemIdFromPath, mergeFirstPage, neighbourId, parseInboxTab, refreshGate, rowModel, type InboxTab } from "./logic";
+import { INBOX_TAB_LABELS, OLDER_PAGE_REUSE_MS, REFRESH_DEBOUNCE_MS, agentIndex, inboxTabs, inboxTourStarts, itemIdFromPath, mergeFirstPage, neighbourId, parseInboxTab, refreshGate, rowModel, type InboxTab } from "./logic";
 
 /** Fresh for minutes while the business's event channel keeps the inbox current, 10 s otherwise. */
 const INBOX_LIST_STALE = streamAwareStaleTime(10_000);
 
-/** DESIGN §9: the list is 380 px wide. */
+/**
+ * DESIGN §9: the list is 380 px wide. Below the `page-wide` container width (a phone, package 2.1) the screen shows one
+ * pane at a time: the list at full width, or the opened note with a Back control.
+ */
 export const INBOX_LIST_WIDTH = 380;
 const PAGE = 50;
 type InboxPage = RouterOutputs["inbox"]["list"];
@@ -72,6 +75,13 @@ export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
   const live = data.business.gameMode === "live";
   const tab = parseInboxTab(search.get("tab"), live);
   const selectedId = itemIdFromPath(pathname) ?? routeItemId ?? null;
+  // The tour waits for a moment with the list in front and no note open, then stays (see `inboxTourStarts`).
+  const [tourStarted, setTourStarted] = useState(false);
+  // On a phone only one pane shows at a time, so the tour's two-pane steps have nothing to point at: no tour there.
+  const onPhone = isViewportTooSmall(useViewportWidth(), MIN_VIEWPORT_WIDTH);
+  useEffect(() => {
+    if (!onPhone && inboxTourStarts(selectedId, tourStarted)) setTourStarted(true);
+  }, [selectedId, tourStarted, onPhone]);
 
   // --- list --------------------------------------------------------------------------------------------------------
   // The shell refetches the inbox on every event that adds or settles an item; polling every 30 s while the business's
@@ -117,6 +127,10 @@ export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
   });
   const pages = listQ.data?.pages;
   const agents = useMemo(() => agentIndex(departments), [departments]);
+  // Subjects are plain stored text with the agent's stored name: named here under the reader's preference, so a row says
+  // what its sender line says (One name everywhere, Nov 8, 2026).
+  const persona = useAgentPersona();
+  const roster = useMemo(() => [...agents.values()], [agents]);
   // The founder's own notes carry the founder's initials ("JR"), never the letters of "You".
   const founderQ = useQuery(trpc.founder.profile.get.queryOptions(undefined, { staleTime: 5 * 60_000 }));
   const founderName = founderQ.data?.profile?.displayName?.trim() || undefined;
@@ -131,11 +145,11 @@ export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
         const agent = item.fromAgentId ? agents.get(item.fromAgentId) : undefined;
         // The founder's own note, or someone else's (never "You" for another person).
         const sender = humanSender(item.fromUserId, viewerId);
-        out.push({ ...rowModel(item), agent: agent ? { ...agent, dept: agent.dept as DeptColourToken } : undefined, fromUser: sender === "self", fromPerson: sender === "other" });
+        out.push({ ...rowModel(item, (text) => persona.withNames(text, roster)), agent: agent ? { ...agent, dept: agent.dept as DeptColourToken } : undefined, fromUser: sender === "self", fromPerson: sender === "other" });
       }
     }
     return out;
-  }, [pages, agents, viewerId]);
+  }, [pages, agents, viewerId, persona, roster]);
   const ids = useMemo(() => rows.map((r) => r.id), [rows]);
   const counts = pages?.[0]?.counts;
   const invalidate = useCallback((routers: readonly string[]) => Promise.all(routers.map((r) => queryClient.invalidateQueries({ queryKey: trpcPathPrefix(r) as unknown[] }))), [queryClient]);
@@ -218,11 +232,18 @@ export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
 
   return (
     <div className="flex h-full min-h-0" data-testid="inbox-screen" data-tab={tab} data-selected={selectedId ?? undefined}>
-      <aside className="flex min-h-0 shrink-0 flex-col border-r border-subtle bg-panel" style={{ width: INBOX_LIST_WIDTH }} aria-label={`${INBOX_TAB_LABELS[tab]} notes`} data-testid="inbox-pane" data-coachmark="inbox-pane">
+      <aside className={cn("flex min-h-0 w-full min-w-0 flex-col bg-panel @page-wide:w-(--inbox-list-width) @page-wide:shrink-0 @page-wide:border-r @page-wide:border-subtle", selectedId && "@max-page-wide:hidden")} style={{ "--inbox-list-width": `${INBOX_LIST_WIDTH}px` } as CSSProperties} aria-label={`${INBOX_TAB_LABELS[tab]} notes`} data-testid="inbox-pane" data-coachmark="inbox-pane">
         {refreshFailed(listQ) ? <RefreshFailedNotice query={listQ} /> : null}
         <InboxList rows={rows} selectedId={selectedId} onSelect={select} onPrefetch={prefetchNote} loading={listQ.isLoading} hasMore={!!listQ.hasNextPage} loadingMore={listQ.isFetchingNextPage} onLoadMore={() => void listQ.fetchNextPage()} emptyText={emptyText} founderName={founderName} />
       </aside>
-      <section className="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Reading pane" data-testid="reading-pane" data-coachmark="reading-pane">
+      <section className={cn("flex min-h-0 min-w-0 flex-1 flex-col", !selectedId && "@max-page-wide:hidden")} aria-label="Reading pane" data-testid="reading-pane" data-coachmark="reading-pane">
+        {selectedId ? (
+          <div className="rule-under flex shrink-0 items-center px-2 @page-wide:hidden" data-testid="inbox-back-row">
+            <Button variant="ghost" icon={ChevronLeft} className="min-h-tap" onClick={() => select(null)} data-testid="inbox-back">
+              Back to the list
+            </Button>
+          </div>
+        ) : null}
         {selectedId ? (
           <ReadingPane key={selectedId} itemId={selectedId} onArchived={() => select(neighbourId(ids.filter((i) => i !== selectedId), null, "next"))} />
         ) : (
@@ -239,8 +260,9 @@ export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
           </EmptyState>
         )}
       </section>
-      {/* The first-visit tour (once per account, guidance on). */}
-      <InboxTour />
+      {/* The first-visit tour (once per account, guidance on). It starts from the list, never over a note the founder
+          opened first (first-time founder report, Nov 8, 2026); once started it stays through the notes they open. */}
+      {tourStarted ? <InboxTour /> : null}
     </div>
   );
 }

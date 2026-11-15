@@ -27,7 +27,8 @@ import { autopilotChangedPayload, periodOf, repos, resumeBusinessAgents, stopBus
 import type { AgentStopReason } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
-import { cycleStatus } from "./cycle";
+import { cycleStatus, endRun } from "./cycle";
+import { runnableChannels } from "./channel-availability";
 import { ensureChannelEngines } from "./engines";
 import { AgentsStoppedError } from "./stop-guard";
 import { WORKFLOWS, workflowIds, type SignalManyResult, type TemporalResult } from "./temporal";
@@ -138,8 +139,9 @@ async function signalStop(ctx: BusinessContext, reason: string, cancelledTrainin
   }
   for (const p of plans.items) if (p.workflowId) ids.add(p.workflowId);
   if (holiday) ids.add(workflowIds.holiday(holiday.id));
-  // Autopilot ends with the stop (it also paused in the local write above and stays paused through the resume).
-  if (ctx.business.autopilotEnabled && ctx.business.autopilotPausedReason === null) ids.add(workflowIds.autopilot(businessId));
+  // Autopilot ends with the stop (it also paused in the local write above and stays paused through the resume), and so
+  // does the run a press of Continue started, which runs on the same workflow with Autopilot off too (Nov 7, 2026).
+  if ((ctx.business.autopilotEnabled && ctx.business.autopilotPausedReason === null) || cycle.run) ids.add(workflowIds.autopilot(businessId));
   for (const runId of cancelledTraining) ids.add(workflowIds.training(runId));
 
   const signal = (list: readonly string[], ms: number) => ctx.temporal.signalMany(list, "stop", [{ reason, by: ctx.userId }], Math.max(1_000, ms));
@@ -147,6 +149,9 @@ async function signalStop(ctx: BusinessContext, reason: string, cancelledTrainin
   const again = await repos.agents.listSessions(ctx.db, businessId, { openOnly: true, limit: 500 });
   const late = again.items.map((s) => workflowIds.session(s.id)).filter((id) => !ids.has(id));
   const second = late.length ? await signal(late, budgetMs - 4_000 - (Date.now() - started)) : null;
+  // The run's end is written here as well (once per run: the workflow's own end finds it), so Continue leaves
+  // "processing" at once even when the signal never reaches a worker.
+  if (cycle.run) await endRun(ctx, cycle.run, "stopped").catch((err: unknown) => ctx.log.warn({ businessId, err: (err as Error).message }, "Stop all agents: the run's end was not recorded"));
   const unreachable = first.reason ?? second?.reason;
   const workflows: SignalManyResult = second ? { queued: first.queued || second.queued, signalled: [...first.signalled, ...second.signalled], failed: [...first.failed, ...second.failed], ...(unreachable ? { reason: unreachable } : {}) } : first;
   return { workflows, lateSessions: late.length, cycleWorkflowId: cycle.running ? cycle.workflowId : null };
@@ -194,7 +199,8 @@ export async function resumeAgents(ctx: BusinessContext): Promise<ResumeAgentsRe
   return { resumed: result.resumed, reason: result.reason, resumedAgents: result.agentIds.length, ...restarted };
 }
 
-type RestartScope = Pick<BusinessContext, "db" | "businessId" | "temporal">;
+/** `env` and `business` (every request context has them) let the restart skip channels that cannot really act. */
+type RestartScope = Pick<BusinessContext, "db" | "businessId" | "temporal"> & Partial<Pick<BusinessContext, "env" | "business">>;
 
 /**
  * What every way back (Resume agents, a new key, a top-up) starts again once the stop is lifted: the channel engines
@@ -207,10 +213,13 @@ export async function restartAfterResume(ctx: RestartScope): Promise<{ engines: 
 
 /**
  * Start again the engine of every enabled channel (deterministic ids; a running one answers "already running"): every
- * channel on the board runs its engine, whether or not one was recorded before the stop (audit GTM-01).
+ * channel on the board runs its engine, whether or not one was recorded before the stop (audit GTM-01). A channel that
+ * cannot really act and is not in offline tracking is left out (founder, 2026-11-11): its engine would stop at once.
  */
 export async function restartEngines(ctx: RestartScope): Promise<TemporalResult[]> {
-  return ensureChannelEngines(ctx, await repos.channels.list(ctx.db, ctx.businessId, { enabled: true }));
+  const enabled = await repos.channels.list(ctx.db, ctx.businessId, { enabled: true });
+  const scope = ctx.env && ctx.business ? { env: ctx.env, businessId: ctx.businessId, business: ctx.business } : null;
+  return ensureChannelEngines(ctx, scope ? await runnableChannels(ctx.db, scope, enabled) : enabled);
 }
 
 /**

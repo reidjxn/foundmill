@@ -19,6 +19,14 @@ export type PlanTier = (typeof PLAN_TIERS)[number];
 export const MODEL_BILLING = ["byok", "credits"] as const;
 export type ModelBilling = (typeof MODEL_BILLING)[number];
 
+/**
+ * Who funds a business's agent work (0104, `businesses.funding_source`): the month's credits on the platform's key, the
+ * founder's own API key (`model_billing = byok`), or the founder's own AI plan at a provider (off: `FLAGS.ownPlanFunding`,
+ * packages/config, and no provider is integrated). The first two follow `model_billing`; only `own_plan` is set directly.
+ */
+export const FUNDING_SOURCES = ["foundmill_credits", "own_api_key", "own_plan"] as const;
+export type FundingSource = (typeof FUNDING_SOURCES)[number];
+
 export const DATA_REGIONS = ["eu", "us"] as const;
 export type DataRegion = (typeof DATA_REGIONS)[number];
 
@@ -37,6 +45,17 @@ export const MODEL_COST_CURRENCY = "USD";
 
 export const ARCHETYPES = ["b2b_saas", "consumer_app", "marketplace", "dtc_physical", "hardware", "services", "content_media"] as const;
 export type Archetype = (typeof ARCHETYPES)[number];
+/**
+ * Archetypes whose customers pay on a schedule (subscriptions, retainers), as the synthetic journey models them
+ * (packages/journey synthetic.ts profiles): only these have monthly *recurring* revenue. A marketplace, a physical
+ * product or hardware sells once, so Finance names its monthly figure "Average monthly revenue" (DECISIONS 2026-11-10).
+ */
+export const RECURRING_ARCHETYPES: readonly Archetype[] = ["b2b_saas", "consumer_app", "services", "content_media"];
+/** True when the business's revenue recurs (subscriptions, retainers); null before an archetype is chosen. */
+export function revenueIsRecurring(archetype: string | null | undefined): boolean | null {
+  if (!archetype) return null;
+  return (RECURRING_ARCHETYPES as readonly string[]).includes(archetype);
+}
 export const ARCHETYPE_LABELS: Record<Archetype, string> = {
   b2b_saas: "B2B SaaS", consumer_app: "Consumer app", marketplace: "Marketplace", dtc_physical: "DTC physical product",
   hardware: "Hardware", services: "Services", content_media: "Content / media",
@@ -47,7 +66,7 @@ export type ModuleKey = (typeof MODULE_KEYS)[number];
 
 /** Default tabs per module (BUILD §6.3). Slugs are stable ids; titles are display text. */
 export const MODULE_TABS: Record<ModuleKey, readonly { slug: string; title: string }[]> = {
-  product: [{ slug: "vision", title: "Vision" }, { slug: "specification", title: "Specification" }, { slug: "roadmap", title: "Roadmap" }, { slug: "changes", title: "Changes" }, { slug: "sources", title: "Sources" }, { slug: "research", title: "Research" }],
+  product: [{ slug: "vision", title: "Vision" }, { slug: "specification", title: "Specification" }, { slug: "public-page", title: "Public page" }, { slug: "roadmap", title: "Roadmap" }, { slug: "changes", title: "Changes" }, { slug: "sources", title: "Sources" }, { slug: "research", title: "Research" }],
   development: [{ slug: "training-ground", title: "Live sessions" }, { slug: "plan", title: "Plan" }, { slug: "pull-requests", title: "Pull requests" }, { slug: "code", title: "Code" }, { slug: "environments", title: "Environments" }, { slug: "specialists", title: "Specialists" }],
   distribution: [{ slug: "formation", title: "Board" }, { slug: "channels", title: "Channels" }, { slug: "leads", title: "Leads" }, { slug: "campaigns", title: "Campaigns" }, { slug: "creative", title: "Creative" }, { slug: "attribution", title: "Attribution" }],
   finance: [{ slug: "overview", title: "Overview" }, { slug: "pnl", title: "Profit and loss" }, { slug: "cash", title: "Cash" }, { slug: "runway", title: "Runway" }, { slug: "wage-bill", title: "Payroll" }, { slug: "cap-table", title: "Cap table" }],
@@ -55,8 +74,125 @@ export const MODULE_TABS: Record<ModuleKey, readonly { slug: string; title: stri
   legal: [{ slug: "entity", title: "Entity" }, { slug: "incorporate", title: "Incorporate" }, { slug: "compliance", title: "Compliance" }, { slug: "contracts", title: "Contracts" }, { slug: "ip", title: "IP" }, { slug: "policies", title: "Policies" }, { slug: "regulatory", title: "Regulatory" }],
 };
 
-export const MEMBERSHIP_ROLES = ["owner", "admin", "member", "viewer", "advisor"] as const;
+/**
+ * Builder view (founder, 2026-11-08; docs/DESIGN.md "Builder view"): the module tabs only Builder view shows. While the
+ * switch is off they are not offered anywhere (department tabs, sidebar, search, palette, widget links); opened by URL
+ * they show "This is part of Builder view". Settings › Departments still lists them, with a "Builder view" chip.
+ */
+export const BUILDER_ONLY_TABS: Partial<Record<ModuleKey, readonly string[]>> = {
+  development: ["code"],
+  team: ["health", "hierarchy"],
+};
+
+/**
+ * The founder's names for engine tabs while Builder view is off. Applied only while the stored title is still the
+ * module's default (`MODULE_TABS`), so a founder's rename is kept; Builder view on shows the stored title.
+ */
+export const FOUNDER_TAB_TITLES: Partial<Record<ModuleKey, Readonly<Record<string, string>>>> = {
+  // "Work list", so Development's list of tasks never reads like the Plan area (docs/DESIGN.md §9, founder areas).
+  development: { "training-ground": "Working now", plan: "Work list", "pull-requests": "What changed", environments: "Live product" },
+  // The legal entity is the founder's company (Money's Company section, founder decision 2026-11-09).
+  legal: { entity: "Company" },
+};
+
+/**
+ * The tabs each module shows inline in its founder area's tab bar (docs/DESIGN.md §9 "More detail", founder
+ * 2026-11-09). The module's other tabs sit behind the bar's "More detail" menu while Builder view is off, and Builder
+ * view's own tabs (`BUILDER_ONLY_TABS`) are not offered at all then. With Builder view on every tab shows inline.
+ */
+export const DEFAULT_TABS: Readonly<Record<ModuleKey, readonly string[]>> = {
+  product: ["specification", "public-page", "roadmap"],
+  development: ["pull-requests", "environments"],
+  distribution: ["leads", "campaigns"],
+  finance: ["overview", "runway"],
+  team: ["squad", "recruitment"],
+  legal: ["entity", "compliance"],
+};
+
+/** Where a tab sits in its area's tab bar: inline ("default"), behind "More detail" ("detail"), or Builder view only. */
+export type TabTier = "default" | "detail" | "builder";
+
+/** The modules a tab check reads: a department's own, or every module when the caller does not know them. */
+const tabModules = (moduleKeys: readonly string[] | null | undefined): ModuleKey[] =>
+  (moduleKeys ?? MODULE_KEYS).filter((k): k is ModuleKey => (MODULE_KEYS as readonly string[]).includes(k));
+
+/** The module of a department's that owns a tab slug (slugs are unique across modules), or null for a founder's own tab. */
+export function tabModule(moduleKeys: readonly string[] | null | undefined, slug: string): ModuleKey | null {
+  return tabModules(moduleKeys).find((k) => MODULE_TABS[k].some((t) => t.slug === slug)) ?? null;
+}
+
+/**
+ * A tab's tier in a department over these modules: Builder view's tabs are "builder", a module's `DEFAULT_TABS` are
+ * "default" and its other tabs "detail". A slug no module of the department has (a founder's own tab) is "default".
+ */
+export function tabTier(moduleKeys: readonly string[] | null | undefined, slug: string): TabTier {
+  if (isBuilderOnlyTab(moduleKeys, slug)) return "builder";
+  const owner = tabModule(moduleKeys, slug);
+  if (!owner) return "default";
+  return DEFAULT_TABS[owner].includes(slug) ? "default" : "detail";
+}
+
+/** Whether a tab slug of a department over these modules is shown only in Builder view. */
+export function isBuilderOnlyTab(moduleKeys: readonly string[] | null | undefined, slug: string): boolean {
+  return tabModules(moduleKeys).some((k) => BUILDER_ONLY_TABS[k]?.includes(slug) ?? false);
+}
+
+/**
+ * A tab's display title: the founder's name for it while Builder view is off and the stored title is still the
+ * module's default ("Live sessions" reads "Working now"); otherwise the stored title, unchanged.
+ */
+export function tabTitleFor(moduleKeys: readonly string[] | null | undefined, slug: string, title: string, builder: boolean): string {
+  if (builder) return title;
+  for (const k of tabModules(moduleKeys)) {
+    const founder = FOUNDER_TAB_TITLES[k]?.[slug];
+    if (founder && MODULE_TABS[k].find((t) => t.slug === slug)?.title === title) return founder;
+  }
+  return title;
+}
+
+/** A department as the tab helpers read it: its modules (optional) and its tabs. */
+export interface TabbedDepartment<T extends { slug: string }> {
+  moduleKeys?: readonly string[] | null;
+  tabs: readonly T[];
+}
+
+/**
+ * The department's tabs a person sees, in position order: Builder view's tabs dropped while it is off, and titles
+ * renamed by `tabTitleFor` (a tab without a title keeps none). The one list behind the department TabBar, the sidebar,
+ * search, the palette and the widgets' links.
+ */
+export function visibleTabs<T extends { slug: string; title?: string; position?: number }>(dept: TabbedDepartment<T>, builder: boolean): T[] {
+  const sorted = dept.tabs.slice().sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+  const kept = builder ? sorted : sorted.filter((t) => !isBuilderOnlyTab(dept.moduleKeys, t.slug));
+  return kept.map((t) => (typeof t.title === "string" ? { ...t, title: tabTitleFor(dept.moduleKeys, t.slug, t.title, builder) } : t));
+}
+
+/** The first tab a person sees (where a department link goes), or undefined for a department without one. */
+export function firstVisibleTab<T extends { slug: string; title?: string; position?: number }>(dept: TabbedDepartment<T>, builder: boolean): T | undefined {
+  return visibleTabs(dept, builder)[0];
+}
+
+/**
+ * The roles of a project's people (BUILD §11.9; THESIS_REVIEW package 3.3, founder 2026-11-11 "the words for people").
+ * `cofounder` and `collaborator` are appended, so every stored role keeps its meaning:
+ *   - `owner`: the founder who started the project (Commit writes it), with every right;
+ *   - `cofounder`: equal standing, any number. Owner-equivalent wherever an owner is meant (`isOwnerRole`, and the
+ *     database's `has_role`, 0092), never told apart from an owner in what they may do;
+ *   - `collaborator`: someone trying out or helping, with limited access: read and write Product and Customers, read the
+ *     plan, nothing of Money or Settings (`COLLABORATOR_SECTIONS`, permissions.ts), and an optional end date
+ *     (`memberships.expires_at`) after which the membership opens nothing;
+ *   - `admin`, `member`, `viewer`, `advisor`: as before.
+ */
+export const MEMBERSHIP_ROLES = ["owner", "admin", "member", "viewer", "advisor", "cofounder", "collaborator"] as const;
 export type MembershipRole = (typeof MEMBERSHIP_ROLES)[number];
+/** An owner's standing: the founder who started the project and every cofounder. */
+export const OWNER_ROLES: readonly MembershipRole[] = ["owner", "cofounder"];
+/** The roles that administer a project: an owner's standing and admins. */
+export const ADMIN_ROLES: readonly MembershipRole[] = ["owner", "cofounder", "admin"];
+/** Whether `role` has an owner's standing (an owner or a cofounder). */
+export const isOwnerRole = (role: string | null | undefined): boolean => role === "owner" || role === "cofounder";
+/** Whether `role` administers the project (an owner's standing or an admin). */
+export const isAdminRole = (role: string | null | undefined): boolean => isOwnerRole(role) || role === "admin";
 /**
  * How a membership came to be (migration 0065): `invite` (team.humans.invite, the seeds' owners, every row before
  * 0065), `founder` (the owner seat Commit writes), `example` (business.example.open: a read-only walk around a seeded
@@ -64,7 +200,8 @@ export type MembershipRole = (typeof MEMBERSHIP_ROLES)[number];
  */
 export const MEMBERSHIP_SOURCES = ["invite", "founder", "example"] as const;
 export type MembershipSource = (typeof MEMBERSHIP_SOURCES)[number];
-export const WRITE_ROLES: readonly MembershipRole[] = ["owner", "admin", "member"];
+/** The roles that may change things (each still within its sections, permissions.ts). */
+export const WRITE_ROLES: readonly MembershipRole[] = ["owner", "cofounder", "admin", "member", "collaborator"];
 
 export const DEPT_COLOUR_TOKENS = ["dept-1", "dept-2", "dept-3", "dept-4", "dept-5", "dept-6", "dept-7", "dept-8"] as const;
 export type DeptColourToken = (typeof DEPT_COLOUR_TOKENS)[number];
@@ -128,7 +265,7 @@ export const PLAN_ACTION_TYPES = [
 ] as const;
 export type PlanActionType = (typeof PLAN_ACTION_TYPES)[number];
 
-export const PLAN_ORIGINS = ["option", "free_text", "playbook", "holiday"] as const;
+export const PLAN_ORIGINS = ["option", "free_text", "playbook", "holiday", "team_call"] as const;
 export type PlanOrigin = (typeof PLAN_ORIGINS)[number];
 
 export const PLAN_STATUSES = ["pending_confirmation", "executing", "done", "failed"] as const;
@@ -309,7 +446,7 @@ export type DecisionType = (typeof DECISION_TYPES)[number];
 export const EVENT_TYPES = [
   "idea.committed", "spec.proposal_created", "spec.version_published",
   "source.added", "source.scored",
-  "task.started", "task.progressed", "task.completed", "task.blocked",
+  "task.started", "task.progressed", "task.completed", "task.blocked", "task.design_checked",
   "pr.merged", "deploy.succeeded",
   "lead.created", "lead.replied", "campaign.launched", "channel.threshold_breached",
   "signup.created", "activation.reached", "payment.received", "customer.converted",
@@ -319,7 +456,7 @@ export const EVENT_TYPES = [
   "mode.changed", "holiday.started", "holiday.ended", "business.updated",
   "filing.due", "contract.signed",
   "connection.requested", "message.received", "negotiation.message",
-  "cycle.started", "cycle.completed", "inbox.item_created", "inbox.item_updated", "decision.made",
+  "cycle.started", "cycle.completed", "cycle.run_started", "cycle.run_ended", "inbox.item_created", "inbox.item_updated", "decision.made",
   "autopilot.changed", "autopilot.cycle_started",
   "foundations.progressed",
   "conversation.message_posted",
@@ -328,7 +465,25 @@ export const EVENT_TYPES = [
   "product.signoff_decided",
   "distribution.started",
   "product.research_drafted",
+  "goal.proposed", "goal.approved", "goal.change_requested", "goal.achieved",
+  "page.published", "page.unpublished", "page.followed",
   "guidance.tour_completed", "guidance.tour_skipped", "guidance.explainer_dismissed", "guidance.term_opened", "guidance.turned_off",
+  "push.sent",
+  "mail.sent",
+  "notify.email_sent",
+  "team_call.started", "team_call.ended",
+  "founder.session_started",
+  "profile.published", "profile.unpublished",
+  "signup.attributed",
+  "milestone.shown", "milestone.hidden",
+  "share.opened",
+  "referral.arrived",
+  "post.drafted",
+  "quiz.approved", "quiz.published", "quiz.unpublished",
+  "invitation.sent", "invitation.accepted", "invitation.declined",
+  "showcase.requested", "showcase.approved", "showcase.withdrawn", "showcase.asked", "showcase.settled",
+  "visit.attributed", "post.outcome_attributed",
+  "founder_notice.sent",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
@@ -354,6 +509,32 @@ export type GuidanceOffSource = (typeof GUIDANCE_OFF_SOURCES)[number];
  */
 export const PERSON_ADDRESSED_EVENT_TYPES = ["connection.requested", "message.received"] as const satisfies readonly EventType[];
 export const isPersonAddressedEvent = (type: string | null | undefined): boolean => (PERSON_ADDRESSED_EVENT_TYPES as readonly string[]).includes(type ?? "");
+
+/**
+ * Where an event belongs (founder, 2026-11-12). A `business` event is a fact about a project: it is stored in `events`,
+ * read by the project's members under their section walls and published on `ev:{businessId}`. An `account` event is a
+ * fact about one person (their profile went public; a public page or profile brought them; someone arrived through
+ * theirs; later a follow, an ask, an answer): it is stored in
+ * `account_events`, keyed by the person's account, read by that person and nobody else, and published on
+ * `ae:{userId}`. A fact about a person never goes into a business's events, where every member could read it.
+ *
+ * The event catalog (packages/events `catalogue.ts`) states the scope of every declaration; this tuple is the same
+ * fact for the packages below it (packages/db refuses these types in `repos.events.write`, apps/stream never delivers
+ * them on a business stream), and the catalog fails to compile, and to load, when the two disagree. Append only.
+ *
+ * The database holds the same list (`fm_account_event_types()`, migration `account_events`, redefined by `attributions`
+ * for the two sign-up attribution types): `account_events` takes only
+ * these types and `events` refuses them, whoever writes. A new account-scoped type therefore needs a migration that
+ * redefines that function; packages/db `rls/account-events.test.ts` fails until the two lists are the same.
+ */
+export const EVENT_SCOPES = ["business", "account"] as const;
+export type EventScope = (typeof EVENT_SCOPES)[number];
+export const ACCOUNT_EVENT_TYPES = ["profile.published", "profile.unpublished", "signup.attributed", "referral.arrived", "founder_notice.sent"] as const satisfies readonly EventType[];
+export type AccountEventType = (typeof ACCOUNT_EVENT_TYPES)[number];
+/** Every event type that belongs to a project: all of `EVENT_TYPES` but the account-scoped ones. */
+export type BusinessEventType = Exclude<EventType, AccountEventType>;
+export const isAccountEventType = (type: string | null | undefined): type is AccountEventType => (ACCOUNT_EVENT_TYPES as readonly string[]).includes(type ?? "");
+export const eventScopeOf = (type: EventType): EventScope => (isAccountEventType(type) ? "account" : "business");
 
 /** Entity mention markup written by agents: [[ent:<uuid>|Display]] */
 export const ENTITY_MARKUP_RE = /\[\[ent:([0-9a-f-]{36})\|([^\]]+)\]\]/g;
@@ -412,6 +593,98 @@ export const DEFAULT_DATE_FORMAT_PREFS: Readonly<DateFormatPrefs> = Object.freez
  */
 export const GUIDANCE_MODES = ["on", "off"] as const;
 export type GuidanceMode = (typeof GUIDANCE_MODES)[number];
+
+/**
+ * The mobile companion app (docs/mobile, founder 2026-11-08). A signed-in person's phones register for push
+ * (`founder_devices`, 0074): the platform, the push provider the app ships with and the provider's subscription id.
+ */
+export const DEVICE_PLATFORMS = ["ios", "android"] as const;
+export type DevicePlatform = (typeof DEVICE_PLATFORMS)[number];
+export const PUSH_PROVIDERS = ["onesignal"] as const;
+export type PushProvider = (typeof PUSH_PROVIDERS)[number];
+/**
+ * What a phone may be told about (Settings › Preferences › Notifications in the app; `account_preferences.notifications`,
+ * 0074): a note that needs an answer, a go-ahead request, a customer won, an agent down, a runway threshold, a run of
+ * cycles finished, the goal reached. Every kind is on until the person turns it off.
+ */
+export const NOTIFICATION_KINDS = ["decision", "approval", "customer", "agent_down", "runway", "run_finished", "goal"] as const;
+export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
+export type NotificationPrefs = Record<NotificationKind, boolean>;
+export const DEFAULT_NOTIFICATION_PREFS: Readonly<NotificationPrefs> = Object.freeze({ decision: true, approval: true, customer: true, agent_down: true, runway: true, run_finished: true, goal: true });
+/**
+ * What Foundmill may email a person about (the `email` channel beside push in `account_preferences.notifications`,
+ * docs/THESIS_REVIEW.md packages 1.5 and 5.1; the retention plan's kinds joined it, founder 2026-11-12: one sender, one
+ * preference): a note that needs their answer, a customer won, a milestone, a run they started and left finishing,
+ * used-up credits, and the morning brief and the Monday weekly review. Every kind is on until the person turns it off
+ * (Settings › Preferences, or the link in the email).
+ */
+export const EMAIL_NOTIFICATION_KINDS = ["decision_waiting", "win", "milestone", "run_finished", "credits", "daily_brief", "weekly_review", "invitation_accepted"] as const;
+export type EmailNotificationKind = (typeof EMAIL_NOTIFICATION_KINDS)[number];
+export type EmailNotificationPrefs = Record<EmailNotificationKind, boolean>;
+export const DEFAULT_EMAIL_NOTIFICATION_PREFS: Readonly<EmailNotificationPrefs> = Object.freeze({ decision_waiting: true, win: true, milestone: true, run_finished: true, credits: true, daily_brief: true, weekly_review: true, invitation_accepted: true });
+/**
+ * The kinds the daily limits count; the morning brief and the weekly review are on their own schedule (founder,
+ * 2026-11-12), and the note that someone a person invited joined is the answer to something they did, so it never uses up
+ * the three a day their own project's news has.
+ */
+export const LIMITED_EMAIL_KINDS: readonly EmailNotificationKind[] = ["decision_waiting", "win", "milestone", "run_finished", "credits"];
+/**
+ * What Foundmill may email to an address rather than to an account (`POST /v1/notify/email`, the same sender): an
+ * invitation to a project, sent to the address the inviter typed. Nobody holds a preference for it: it is one message
+ * the inviter asked for, with a "Don't send me invitations" link that stops every invitation to the address. It counts
+ * toward three a day per address, five emailed invitations a day per inviter (`INVITATION_EMAILS_PER_INVITER_PER_DAY`)
+ * and its own share of the daily ceiling (`ADDRESS_EMAIL_CEILING_SHARE`), never toward an account's own three a day.
+ */
+export const ADDRESS_EMAIL_KINDS = ["invitation"] as const;
+export type AddressEmailKind = (typeof ADDRESS_EMAIL_KINDS)[number];
+/**
+ * Account-safety notices (security review P2-3, Nov 13, 2026): Foundmill's email to the founders of a project when its
+ * founders change or its deletion is asked for or canceled. Classed apart from both lists above, like the security mail
+ * of any service: nobody holds a switch for it, the pause does not hold it, no daily limit, no project outreach room and
+ * no "Don't send me invitations" stops it; only a hard suppression of the address (a bounce or a spam report) does.
+ * Never sent to the person who did the thing.
+ */
+export const ACCOUNT_SAFETY_EMAIL_KINDS = ["founder_notice"] as const;
+export type AccountSafetyEmailKind = (typeof ACCOUNT_SAFETY_EMAIL_KINDS)[number];
+/** What a founder notice is about: a founder's role went below a founder's, a founder was removed, deletion asked for or canceled. */
+export const FOUNDER_NOTICES = ["role_changed", "removed", "deletion_requested", "deletion_canceled"] as const;
+export type FounderNotice = (typeof FOUNDER_NOTICES)[number];
+/**
+ * A former founder (security review P2-3, second review): someone whose founder's standing someone else took away
+ * (demoted or removed) within this long before a deletion request, or at any time after it, hears about that request
+ * and may cancel it until its scheduled day, from Foundmill's email or the card on their home. Counted from the request,
+ * never from the departure alone, so waiting does not wear the right away.
+ */
+export const FORMER_FOUNDER_LOOKBACK_MS = 30 * 86_400_000;
+/**
+ * The limits on founder notices and on the steps that send them (security review P2-3, second, third and final reviews):
+ *   - `perRecipientHour` / `perRecipientDay`: ordinary founder notices one person gets about one project; above either,
+ *     one "more changes" email for the window and nothing more until it ends (`folded` on the record);
+ *   - `perProjectDay`: every ordinary founder notice about one project in a UTC day (`pn:safety:project:<id>:day`), under
+ *     the platform's ceiling;
+ *   - `safetyCeilingDefault`: every ordinary founder notice together in a UTC day (`pn:safety:day`,
+ *     PLATFORM_SAFETY_DAILY_CEILING), enforced, and apart from the ceiling of every other email to people (`pn:all:day`);
+ *   - essential notices (`isEssentialFounderNotice`) skip those three and are bounded on their own:
+ *     `essentialPerRecipientDay` a day per person across every project (`pn:safety:essential:<user>:day`), and every
+ *     essential notice together under `reservedCeilingDefault` a day (`pn:safety:reserved:day`,
+ *     PLATFORM_SAFETY_RESERVED_DAILY_CEILING), a circuit breaker; past either, until the end of the UTC day, one email per
+ *     deletion that person may cancel (with its link) and one for none;
+ *   - `formerPerRequest`: beyond a request's 30-day window, the most recent people taken out that one deletion request
+ *     (or its cancel) emails; the former founders for the request itself are never capped;
+ *   - past the breaker, `perRequestPastBreakerDay` (3) emails per person a day for a deletion of their own, then the one
+ *     fold that carries the latest cancel; and a hard stop at `reservedHardFactor` (2) times the reserved ceiling, past
+ *     which an essential notice is recorded and not sent (the card on the person's home still shows a deletion they may
+ *     cancel), so the day's essential mail has a fixed ceiling whatever the number of accounts;
+ *   - `actorPerDay`: how many times one person may lower a founder's role, or ask for a deletion, in one project in a
+ *     day, and `actorPerDayAll`: both together, across every project, in a day;
+ *   - `projectRequestsPerDay` (3) and `projectLowersPerDay` (10): deletion requests, and founders' roles lowered, in one
+ *     project in a day, whoever asks (verification of the final review: per-actor limits alone let each extra account
+ *     add its own).
+ */
+export const FOUNDER_NOTICE_LIMITS = { perRecipientHour: 10, perRecipientDay: 30, perProjectDay: 500, safetyCeilingDefault: 5_000, essentialPerRecipientDay: 10, reservedCeilingDefault: 20_000, reservedHardFactor: 2, perRequestPastBreakerDay: 3, formerPerRequest: 50, actorPerDay: 5, actorPerDayAll: 10, projectRequestsPerDay: 3, projectLowersPerDay: 10 } as const;
+/** How a founder's standing ended (`founder_departures.how`, 0097): by another founder's change, by removal, or by their own. */
+export const FOUNDER_DEPARTURE_KINDS = ["demoted", "removed", "left"] as const;
+export type FounderDepartureKind = (typeof FOUNDER_DEPARTURE_KINDS)[number];
 
 /** The account's type size (`account_preferences.text_size`, 0064): comfortable grows body and small text; the structure keeps its sizes. */
 export const TEXT_SIZES = ["standard", "comfortable"] as const;

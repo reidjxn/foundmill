@@ -15,9 +15,10 @@ import { Button, Chip, ExampleFrame, ExampleToggle, Field, Input, KeyValueList, 
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import { usePinToHomeMenu } from "@foundmill/widgets/shared/pin";
+import { monthlyRevenueMinor, monthlyRevenueWindow } from "@foundmill/shared/monthly-revenue";
 import type { ModuleScreenProps } from "../registry";
 import { FORECAST_SCENARIOS, type FinanceOverview, type ForecastDrivers, type ForecastRow, type ForecastScenario, type PnlResponse } from "./types";
-import { runwayFigure, runwayWords } from "@foundmill/widgets/shared/runway";
+import { runwayFigure, runwayState, runwayWords } from "@foundmill/widgets/shared/runway";
 import { RUNWAY_BLOCK_MONTHS, driversHint, forecastStartMonth, formatMonth, monthKey, monthStart, pnlTotals, projectForecast, readDrivers, runwayTone, runwayWarnings, runwayWord, scenarioRunway, seedDrivers, type ScenarioRunway } from "./metrics";
 import { InlineError, Screen, fmtAxisMoney, fmtMoney, fmtMonths, parseAmount, toDate, useAction, useCurrency, useNow } from "./shared";
 
@@ -42,7 +43,7 @@ export function runwayText(r: ScenarioRunway): { pill: string; tone: "good" | "w
     case "months":
       return { pill: runwayWord(r.months), tone: runwayTone(r.months), figure: fmtMonths(r.months), caption: null };
     case "no_limit":
-      return { pill: "No limit", tone: "good", figure: "No limit", caption: "Cash-flow positive every month" };
+      return { pill: "Not running out", tone: "good", figure: "Not running out", caption: "You earn more than you spend every month" };
     case "beyond":
       return { pill: "Runway healthy", tone: "good", figure: `Beyond ${r.horizonMonths} months`, caption: null };
   }
@@ -117,7 +118,10 @@ export function RunwayScreen({ businessId }: ModuleScreenProps) {
   // Pin to Home (audit #394): the forecast is the gallery's Cash and runway widget.
   const pinMenu = usePinToHomeMenu({ key: "cash_runway" });
   const overview = useWidgetQuery<FinanceOverview>("finance.overview", {});
-  const range = useMemo(() => ({ from: monthStart(now, -3).toISOString(), to: monthStart(now, 0).toISOString() }), [now]);
+  const range = useMemo(() => {
+    const w = monthlyRevenueWindow(now);
+    return { from: w.from.toISOString(), to: w.to.toISOString() };
+  }, [now]);
   const pnl = useWidgetQuery<PnlResponse>("finance.pnl", range);
   const thisMonth = monthKey(now);
   const cur = overview.data?.cash.currency || currency;
@@ -125,7 +129,7 @@ export function RunwayScreen({ businessId }: ModuleScreenProps) {
   const seeds = useMemo(() => {
     const o = overview.data;
     const revenue = pnl.data ? pnlTotals(pnl.data.categories).revenueMinor : 0;
-    return { cashMinor: o?.cash.amountMinor ?? 0, mrrMinor: Math.round(revenue / 3), grossBurnMinor: o?.burn.grossBurnMinor ?? 0 };
+    return { cashMinor: o?.cash.amountMinor ?? 0, mrrMinor: monthlyRevenueMinor(revenue), grossBurnMinor: o?.burn.grossBurnMinor ?? 0 };
   }, [overview.data, pnl.data]);
   const stored = useMemo(() => latestByScenario(list.data), [list.data]);
   const storedDrivers = useMemo(() => Object.fromEntries(FORECAST_SCENARIOS.map((s) => [s, readDrivers(stored[s]?.drivers, seedDrivers(s, seeds))])) as Record<ForecastScenario, ForecastDrivers>, [stored, seeds]);
@@ -134,7 +138,7 @@ export function RunwayScreen({ businessId }: ModuleScreenProps) {
   // zero has no runway to count either ("Cash is below zero"): `runwayFigure` is null, and the words stand in.
   const unknownRunway = useMemo(() => {
     const words = runwayWords(overview.data);
-    return words && runwayFigure(overview.data) === null && words.value !== "No limit" ? words : null;
+    return words && runwayFigure(overview.data) === null && runwayState(overview.data) !== "positive" ? words : null;
   }, [overview.data]);
 
   const [drafts, setDrafts] = useState<Record<ForecastScenario, ForecastDrivers>>(storedDrivers);

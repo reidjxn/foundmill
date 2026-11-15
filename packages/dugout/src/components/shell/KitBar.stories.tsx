@@ -1,7 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { ArrowRight } from "lucide-react";
 import { Button } from "../foundation/Button";
-import { Chip } from "../foundation/Chip";
 import { SAMPLE_LOGOS } from "../foundation/logo-samples";
 import { KitBar } from "./KitBar";
 import { FIXTURE_TODAY, LEDGERLY_KIT, NORTHWIND_KIT, SWITCHER_BUSINESSES } from "./fixtures";
@@ -21,6 +20,8 @@ const meta = {
     runwayMonths: 11,
     cash: { amountMinor: 12800000, currency: "EUR" },
     businessMode: "assisted",
+    spendLineMinor: 5_000,
+    businessCurrency: "EUR",
     gameMode: "live",
     continueButton: { state: { kind: "idle" } },
     stopAll: { onConfirm: () => new Promise<void>((r) => setTimeout(r, 800)), runningCount: 7 },
@@ -40,12 +41,16 @@ export const LightBrandColour: Story = {
   name: "Light brand color → dark text",
   args: { kit: { primary: "#F5B841", secondary: "#0F1318" }, businessName: "Aurora Candles", logoSrc: null, businessMode: "augmented", gameMode: "personal", runwayMonths: 8 },
 };
-export const Ledgerly: Story = { args: { kit: LEDGERLY_KIT, businessName: "Ledgerly", logoSrc: SAMPLE_LOGOS.orbit, screenTitle: "Finance · Runway", runwayMonths: null, runwayWords: { value: "No limit", caption: "Cash-flow positive, so no limit yet" } } };
+export const Ledgerly: Story = { args: { kit: LEDGERLY_KIT, businessName: "Ledgerly", logoSrc: SAMPLE_LOGOS.orbit, screenTitle: "Finance · Runway", businessMode: "automated", spendLineMinor: null, businessCurrency: "GBP", runwayMonths: null, runwayWords: { value: "Not running out", caption: "You earn more than you spend" } } };
 /** No logo yet: the initials mark in the primary, separated from the bar by its hairline. */
-/** The Example frame: the neutral "Example" chip after the name, and "Start your own" in Continue's slot (its width kept). */
+/**
+ * The Example frame: the quiet "Sample business" caption under the name (its line joins the switcher's tooltip), and
+ * "Start your own" in Continue's slot (its width kept).
+ */
 export const ExampleFrame: Story = {
   args: {
-    businessBadge: <Chip className="shrink-0 text-kit-on-primary">Example</Chip>,
+    businessBadge: <span className="t-small truncate text-kit-on-primary opacity-80">Sample business</span>,
+    businessBadgeLine: "Its figures are made up for the example: nothing here is real money or real customers. Nothing you do here is saved.",
     continueSlot: (
       <Button variant="primary" iconRight={ArrowRight} className="h-kitbar-chip rounded-track min-w-continue-min" data-coachmark="start-your-own">
         Start your own

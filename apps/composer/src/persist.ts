@@ -7,14 +7,14 @@
 import { repos, sqlState, type ComposerItem, type Db, type Executor, type InboxItem } from "@foundmill/db";
 import { buildEvent, type WriteEventInput } from "@foundmill/events";
 import type { ModelLogger } from "@foundmill/models";
-import type { EntityKind, EventType } from "@foundmill/shared";
+import type { BusinessEventType, EntityKind } from "@foundmill/shared";
 
 /**
  * `@foundmill/events`' `writeEvent` inserts `outbox (event_id)` only while the schema's `outbox` carries a NOT NULL
  * `business_id`, so (as apps/api does) the payload is validated with the catalogue and the rows are written through
  * `repos.events.write`, which fills both tables (see openIssues in the composer report).
  */
-export async function writeEventRow<T extends EventType>(tx: Executor, input: WriteEventInput<T>, idempotencyKey?: string): Promise<string> {
+export async function writeEventRow<T extends BusinessEventType>(tx: Executor, input: WriteEventInput<T>, idempotencyKey?: string): Promise<string> {
   const event = buildEvent(input);
   const row = await repos.events.write(tx, event.businessId, {
     id: event.id,
@@ -42,6 +42,9 @@ export interface PersistInput {
   businessId: string;
   item: ComposerItem;
   eventIds: readonly string[];
+  /** The events themselves, when the caller has them: a warning about a problem an open warning already covers revises that note. */
+  events?: readonly { payload: unknown }[];
+  now?: Date;
   costMinorInt: number;
   costCurrency: string;
   /** Extra detail on the `inbox.item_created` payload is not allowed by the catalogue; this goes to the log only. */
@@ -59,6 +62,53 @@ export interface Persisted {
   narrated: number;
   /** True when a note was already written under the idempotency key: that note is returned and nothing is written. */
   replayed: boolean;
+  /** True when an open warning about the same problem was revised in place instead of a second note being written. */
+  revised?: boolean;
+}
+
+/** How far back an open warning counts as the same problem's note. */
+export const REVISE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+/** How much of the earlier text a revised note keeps under the new one. */
+const EARLIER_MAX = 700;
+
+/** The task ids the events speak of (`taskId`, `blockedByTaskId`, `taskIds`): what makes two warnings the same problem. */
+export function taskIdsOf(events: readonly { payload: unknown }[]): Set<string> {
+  const ids = new Set<string>();
+  for (const e of events) {
+    const p = e.payload as { taskId?: unknown; blockedByTaskId?: unknown; taskIds?: unknown } | null;
+    if (typeof p?.taskId === "string") ids.add(p.taskId);
+    if (typeof p?.blockedByTaskId === "string") ids.add(p.blockedByTaskId);
+    if (Array.isArray(p?.taskIds)) for (const id of p.taskIds) if (typeof id === "string") ids.add(id);
+  }
+  return ids;
+}
+
+/**
+ * The open warning this note revises, or null: from the same agent, within the window, still unanswered, whose source
+ * events speak of a task this note's events speak of too. One living item per problem (Nov 1, 2026: fifteen
+ * "Engineering stalled" warnings in three days, the same message under different headlines), updated with a dated
+ * status line instead of a new copy. An answered warning is not revised: what the founder decided stays on record, and
+ * a problem that comes back after a decision is a new item.
+ */
+export async function findSameProblem(tx: Executor, businessId: string, item: ComposerItem, events: readonly { payload: unknown }[], now: Date): Promise<InboxItem | null> {
+  if (item.type !== "warning" || !item.from_agent_id) return null;
+  const tasks = taskIdsOf(events);
+  if (tasks.size === 0) return null;
+  const since = now.getTime() - REVISE_WINDOW_MS;
+  const open = (await repos.inbox.list(tx, businessId, { type: "warning", state: ["unread", "read"], limit: 50 })).items.filter((n) => n.fromAgentId === item.from_agent_id && new Date(n.createdAt).getTime() >= since && n.sourceEventIds.length > 0);
+  for (const candidate of open) {
+    const theirs = taskIdsOf(await repos.events.byIds(tx, businessId, candidate.sourceEventIds));
+    for (const id of tasks) if (theirs.has(id)) return candidate;
+  }
+  return null;
+}
+
+/** The revised body: the new text under a dated status line, the earlier text (shortened) under it. */
+export function revisedBody(newBody: string, earlier: InboxItem, now: Date): string {
+  const when = now.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "UTC" });
+  const old = earlier.bodyMd.replace(/^\*\*Updated [^*]+\*\*\s*/, "").split("\n\n---\n\n_Earlier")[0]!.trim();
+  const kept = old.length > EARLIER_MAX ? `${old.slice(0, EARLIER_MAX - 3)}...` : old;
+  return `**Updated ${when} UTC**\n\n${newBody.trim()}\n\n---\n\n_Earlier (${new Date(earlier.createdAt).toLocaleString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}):_ ${kept}`;
 }
 
 /** The note written under an idempotency key, through its `inbox.item_created` event; null when there is none. */
@@ -77,6 +127,14 @@ export async function persistNote(db: Db, log: ModelLogger, input: PersistInput)
       if (idempotencyKey) {
         const existing = await findPersisted(tx, businessId, idempotencyKey);
         if (existing) return existing;
+      }
+      const same = input.events ? await findSameProblem(tx, businessId, input.item, input.events, input.now ?? new Date()) : null;
+      if (same) {
+        const revised = await repos.inbox.revise(tx, businessId, same.id, { ...input.item, body_md: revisedBody(input.item.body_md, same, input.now ?? new Date()), source_event_ids: [...input.eventIds] });
+        const narrated = input.eventIds.length ? await repos.events.markNarrated(tx, businessId, input.eventIds) : 0;
+        const eventId = await writeEventRow(tx, { businessId, type: "inbox.item_updated", actor: revised.fromAgentId ? { kind: "agent", id: revised.fromAgentId } : { kind: "system", id: "composer" }, entityIds: revised.entityIds, payload: { inboxItemId: revised.id, change: "revised", planId: null, followUpItemId: null } }, idempotencyKey);
+        await repos.events.markNarrated(tx, businessId, [eventId]);
+        return { item: revised, eventId, narrated, replayed: false, revised: true };
       }
       const created = await repos.inbox.createItem(tx, businessId, input.item, { costMinor: input.costMinorInt, currency: input.costCurrency });
       const narrated = input.eventIds.length ? await repos.events.markNarrated(tx, businessId, input.eventIds) : 0;
@@ -113,6 +171,7 @@ export async function persistNote(db: Db, log: ModelLogger, input: PersistInput)
     out = winner;
   }
   if (out.replayed) log.info({ businessId, inboxItemId: out.item.id, slot: input.slot, idempotencyKey }, "inbox item already written for these events; returning it");
+  else if (out.revised) log.info({ businessId, inboxItemId: out.item.id, slot: input.slot, narrated: out.narrated }, "open warning about the same problem revised in place");
   else log.info({ businessId, inboxItemId: out.item.id, type: out.item.type, slot: input.slot, narrated: out.narrated, blocksContinue: out.item.blocksContinue, costMinor: input.costMinorInt }, "inbox item written");
   return out;
 }

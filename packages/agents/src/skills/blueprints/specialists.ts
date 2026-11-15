@@ -160,13 +160,13 @@ export const SPECIALIST_BLUEPRINTS: BlueprintSet = {
   regulatory_knowledge: [
     bp(
       "Check ingredients against {regulator} for {business}",
-      "Check the fixture INCI list for {business} against the mock CosIng/annex tools for {market}: restricted substances, limits, prohibited entries, allergen labeling; record the reference and date checked for each.",
+      "Check the fixture INCI list for {business} against the official CosIng and annex sources for {market} (web research through the quarantined reader): restricted substances, limits, prohibited entries, allergen labeling; record the reference and date checked for each.",
       [
         "Each ingredient checked with reference and date.",
         "Restrictions and limits correct.",
         "Allergen labeling noted.",
       ],
-      { fixtures: { inci: "fixtures/formulation/inci_{business}.json" }, mockTools: ["cosing.mock.search", "pubchem.mock.search"], checks: [CHECK.cites()] },
+      { fixtures: { inci: "fixtures/formulation/inci_{business}.json" }, mockTools: TOOLS.web, checks: [CHECK.cites()] },
     ),
     bp(
       "Responsible person and PIF at {business}",
@@ -648,13 +648,13 @@ export const SPECIALIST_BLUEPRINTS: BlueprintSet = {
   freight_quoting: [
     bp(
       "Freight comparison for {business}",
-      "Using the mock freight tools, quote sea LCL, air and rail (where applicable) for {business}'s shipment (fixture dimensions) from {supplier} to {market}: cost, transit, incoterm implications, risks; recommend.",
+      "No freight quoting tool is available yet. For {business}'s shipment (fixture dimensions) from {supplier} to {market}, write the quote requests for sea LCL, air and rail (where applicable) as email drafts the business sends, and the comparison you will fill from the replies: cost, transit, incoterm implications, risks; say how you will recommend.",
       [
-        "Quotes typed with validity; comparison complete.",
+        "Quote requests complete (dimensions, modes, incoterms) and left as drafts; no quote is invented or reported as received.",
         "Incoterm implications correct.",
         "Recommendation reasoned against the timeline.",
       ],
-      { fixtures: { shipment: "fixtures/logistics/shipment_{business}.json" }, mockTools: ["freightos.mock.quotes", "flexport.mock.quotes"], checks: [CHECK.all("Estimate")] },
+      { fixtures: { shipment: "fixtures/logistics/shipment_{business}.json" }, mockTools: ["gmail.mock.drafts.create"], checks: [CHECK.all("Estimate")] },
     ),
     bp(
       "Dangerous goods at {business}",
@@ -680,13 +680,13 @@ export const SPECIALIST_BLUEPRINTS: BlueprintSet = {
   hs_classification: [
     bp(
       "Classify {product} for {business}",
-      "Classify {business}'s {product} using the mock tariff tools for import into {market}: HS/TARIC/HTS code with reasoning, duty rate, import VAT, any measures; cite the tariff source and date.",
+      "Classify {business}'s {product} for import into {market} from the official tariff sources (web research through the quarantined reader): HS/TARIC/HTS code with reasoning, duty rate, import VAT, any measures; cite the tariff source and date.",
       [
         "Code reasoned from the product's characteristics.",
         "Duty and VAT with sources and dates.",
         "Measures noted.",
       ],
-      { mockTools: ["hts_taric.mock.search", "hts_taric.mock.duties"], checks: [CHECK.cites()] },
+      { mockTools: TOOLS.web, checks: [CHECK.cites()] },
     ),
     bp(
       "Ambiguous classification at {business}",

@@ -34,6 +34,22 @@ export interface FounderSubmitPayload extends ByPayload {
   payload?: Record<string, unknown> | null;
 }
 
+/**
+ * Continue runs until done (Nov 7, 2026): the API's press, on the `autopilot:<businessId>` workflow (signal-with-start).
+ * `cycleNumber`: the first round to start now, the number the API reserved with its `business.continue` row; null when a
+ * cycle is already open (or paused and just resumed) and the run picks up after it.
+ */
+export interface ContinueRunPayload extends ByPayload {
+  runId: string;
+  cycleNumber: number | null;
+}
+
+/** Pause (the run ends; Continue starts a new one) or Stop all agents. `runId` absent: whatever run is open. */
+export interface ContinueRunEndPayload extends ByPayload {
+  reason: "paused" | "stopped";
+  runId?: string | null;
+}
+
 export const decisionSignal = defineSignal<[ApprovalDecision]>("decision");
 export const shoutSignal = defineSignal<[ShoutPayload]>("shout");
 export const pauseSignal = defineSignal<[CycleHoldPayload]>("pause");
@@ -43,6 +59,11 @@ export const founderSubmitSignal = defineSignal<[FounderSubmitPayload]>("founder
 export const wakeSignal = defineSignal<[WakePayload]>("wake");
 /** Autopilot: look at the guard rails again now (its settings changed, or it was turned on again). */
 export const autopilotRefreshSignal = defineSignal<[ByPayload]>("autopilotRefresh");
+
+/** Continue: start a run (rounds until nothing is left to do), or keep going after the open cycle. */
+export const continueRunSignal = defineSignal<[ContinueRunPayload]>("continueRun");
+/** End the open run (Pause). */
+export const continueRunEndSignal = defineSignal<[ContinueRunEndPayload]>("continueRunEnd");
 
 export const progressQuery = defineQuery<ProgressSnapshot>("progress");
 

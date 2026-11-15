@@ -4,7 +4,7 @@
  * summary, follow-up links from plan actions, and the replay lookup for won customers.
  */
 import type { DecisionAnswer, DecisionOption, MetricTileProps, TabItem } from "@foundmill/dugout";
-import { notePreview, type InboxItemType, type InboxState, type Money } from "@foundmill/shared";
+import { MONTHLY_REVENUE_MONTHS, monthlyRevenueMinor, monthlyRevenueWindow, notePreview, type InboxItemType, type InboxState, type Money } from "@foundmill/shared";
 import { monthRevenueMinor } from "@foundmill/widgets/shared/cash";
 import { applyGlossary } from "@foundmill/shared/glossary";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -17,7 +17,7 @@ import { formatNumber } from "@/lib/format";
 export const INBOX_TABS = ["all", "respond", "customers", "updates", "messages", "archive"] as const;
 export type InboxTab = (typeof INBOX_TABS)[number];
 
-export const INBOX_TAB_LABELS: Record<InboxTab, string> = { all: "All", respond: "Respond", customers: "Customers", updates: "Updates", messages: "Messages", archive: "Archive" };
+export const INBOX_TAB_LABELS: Record<InboxTab, string> = { all: "All", respond: "Needs you", customers: "Customers", updates: "Updates", messages: "Messages", archive: "Archive" };
 
 export function parseInboxTab(raw: string | null | undefined, live: boolean): InboxTab {
   const tab = (INBOX_TABS as readonly string[]).includes(raw ?? "") ? (raw as InboxTab) : "all";
@@ -94,12 +94,13 @@ export function rowTag(item: Pick<InboxRowInput, "type" | "state" | "blocksConti
 export function headerTag(type: InboxItemType, answered: boolean, blocksContinue: boolean, awaitingConfirmation = false): NoteTag {
   if (type === "customer_won") return { word: "Customer won", tone: "gold", icon: "win" };
   if (awaitingConfirmation) return { word: "Needs your go-ahead", tone: "warn", icon: "respond" };
-  if (!answered && (type === "decision" || blocksContinue)) return { word: "Needs your answer", tone: "bad", icon: "respond" };
+  // A question is amber, not red (Nov 7, 2026): it waits for the founder without stopping the team.
+  if (!answered && (type === "decision" || blocksContinue)) return { word: "Needs your answer", tone: "warn", icon: "respond" };
   return NOTE_TYPE_TAGS[type];
 }
 
 /** The tooltip of the "Holds Continue" chip: what the chip means for the team (UX plan B7). */
-export const HOLDS_CONTINUE_HINT = "The team waits for this answer before its next round of work";
+export const HOLDS_CONTINUE_HINT = "The team cannot work until this is sorted (only credits or a key do this)";
 
 export interface InboxRowModel {
   id: string;
@@ -116,12 +117,17 @@ export interface InboxRowModel {
   tag: NoteTag;
 }
 
-export function rowModel(item: InboxRowInput): InboxRowModel {
+/**
+ * One row as the list draws it. `names` names agents in the plain stored subject and preview under the reader's
+ * preference (`persona.withNames(text, roster)`), so the subject says what the sender line says; without it the text
+ * is shown as stored.
+ */
+export function rowModel(item: InboxRowInput, names: (text: string) => string = (t) => t): InboxRowModel {
   const answered = item.state === "answered" || item.state === "archived";
   return {
     id: item.id,
-    subject: item.subject,
-    preview: previewLine(item.bodyMd),
+    subject: names(item.subject),
+    preview: names(previewLine(item.bodyMd)),
     createdAt: item.createdAt,
     needsAnswer: item.awaitingConfirmation === true || (!answered && (item.blocksContinue || item.type === "decision" || item.type === "customer_won")),
     won: item.type === "customer_won",
@@ -330,7 +336,8 @@ export interface MetricSources {
     cash: { amountMinor: number; currency: string; asOf?: Date | string | null };
     burn: { netBurnMinor: number; grossBurnMinor: number };
     runway: { months: number | null };
-    revenue: { monthly: readonly { month: string; inflowMinor: number; netMinor: number; operatingInflowMinor?: number }[] };
+    /** `recurring` (finance.overview): MRR only when the business's revenue recurs, else "Monthly revenue" (as on Finance). */
+    revenue: { monthly: readonly { month: string; inflowMinor: number; netMinor: number; operatingInflowMinor?: number }[]; recurring?: boolean | null };
     customers30d: number;
   } | null;
   /**
@@ -355,12 +362,15 @@ function countKind(conversions: MetricSources["conversions"], kind: string, days
   return conversions.filter((c) => c.kind === kind && Date.parse(String(c.occurredAt)) >= since).length;
 }
 
-/** Months the trailing revenue and MRR cover (BUILD §11.8: "average monthly revenue over the trailing 3 months"). */
-export const TRAILING_MONTHS = 3;
+/**
+ * Months the trailing revenue and MRR cover (BUILD §11.8: "average monthly revenue over the trailing 3 months"): the one
+ * monthly-revenue window (@foundmill/shared/monthly-revenue) Finance and the revenue milestones use.
+ */
+export const TRAILING_MONTHS = MONTHLY_REVENUE_MONTHS;
 
 /** The `n` full calendar months before `now`'s month ("2026-09" for the one before "2026-10"), UTC like the ledger's month keys. */
 export function trailingMonthKeys(now: Date, n = TRAILING_MONTHS): string[] {
-  return Array.from({ length: n }, (_, i) => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (n - i), 1)).toISOString().slice(0, 7));
+  return monthlyRevenueWindow(now, n).months;
 }
 
 /**
@@ -391,6 +401,7 @@ const SOURCE_WORDS: Record<string, string> = {
   runway_forecast: "The cash forecast",
   roadmap_status: "The roadmap",
   metrics: "Business metrics",
+  pnl: "Money received, last 3 full months",
 };
 
 /** "usage_ledger" → "Model and tool usage"; free words pass through, keys are spelled out ("journey_daily" → "Journey daily"). */
@@ -489,7 +500,7 @@ function statusStripFigures(strip: readonly unknown[], sources: MetricSources): 
           return { label: "Cash", value: f ? { amountMinor: f.cash.amountMinor, currency: f.cash.currency } : null, provenance: provenance(m, "Bank balances") };
         case "runway": {
           // No figure: the shared runway words (Home, Finance and the note say the same), never a bare "—"; a balance
-          // below zero reads "Cash is below zero" with its Estimate tag, never "No limit" (widgets/shared/runway).
+          // below zero reads "Cash is below zero" with its Estimate tag, never "Not running out" (widgets/shared/runway).
           const words = runwayWords(f);
           // plain-allow: the strip's labels are wrapped in a Term where they show (ReadingPane tilesWithTerms, STRIP_TERM_IDS).
           if (words) return { label: "Runway", value: words.value, caption: words.caption, estimate: words.estimate ? "estimate" : undefined, provenance: provenance(m, "Cash ÷ net burn") };
@@ -504,9 +515,11 @@ function statusStripFigures(strip: readonly unknown[], sources: MetricSources): 
         case "revenue": {
           // The same definitions as Finance: revenue over the trailing 3 full months, MRR a third of it.
           const revenue = trailingRevenueMinor(sources, now);
-          const amountMinor = revenue === null ? null : key === "mrr" ? Math.round(revenue / TRAILING_MONTHS) : revenue;
+          const amountMinor = revenue === null ? null : key === "mrr" ? monthlyRevenueMinor(revenue, TRAILING_MONTHS) : revenue;
+          // Named as Finance names it: MRR only when the business's revenue recurs (DECISIONS 2026-11-10, 2026-11-11).
+          const monthlyLabel = f?.revenue.recurring === false ? "Monthly revenue" : "MRR";
           // plain-allow: the strip's labels are wrapped in a Term where they show (ReadingPane tilesWithTerms, STRIP_TERM_IDS).
-          return { label: key === "mrr" ? "MRR" : "Revenue", value: amountMinor === null || !f ? null : { amountMinor, currency: f.cash.currency }, estimate: key === "mrr" ? "estimate" : undefined, caption: key === "mrr" ? "per month" : `trailing ${TRAILING_MONTHS} months`, provenance: provenance(m, "Money received, last 3 full months") };
+          return { label: key === "mrr" ? monthlyLabel : "Revenue", value: amountMinor === null || !f ? null : { amountMinor, currency: f.cash.currency }, estimate: key === "mrr" ? "estimate" : undefined, caption: key === "mrr" ? "per month" : `trailing ${TRAILING_MONTHS} months`, provenance: provenance(m, "Money received, last 3 full months") };
         }
         case "customers_week":
           return { label: "Customers this week", value: countKind(sources.conversions, "payment", 7, now), format: "integer", provenance: provenance(m, "Payments, last 7 days") };
@@ -558,7 +571,7 @@ export interface DepartmentForLinks {
   tabs: readonly { slug: string; position: number }[];
 }
 
-function moduleTab(departments: readonly DepartmentForLinks[], moduleKey: string, tabSlug: string): { slug: string; tab: string } | null {
+export function moduleTab(departments: readonly DepartmentForLinks[], moduleKey: string, tabSlug: string): { slug: string; tab: string } | null {
   const d = departments.find((x) => x.moduleKeys.includes(moduleKey));
   if (!d) return null;
   const tab = d.tabs.find((t) => t.slug === tabSlug) ?? [...d.tabs].sort((a, b) => a.position - b.position)[0];
@@ -578,24 +591,47 @@ export interface ApprovalLike {
   task: { id: string; title: string } | null;
   canAnswer: boolean;
   section: string | null;
+  /** A release: the founder was asked to put a finished change live. */
+  release?: boolean;
+  /** What happened after the approval (the api's `approvalExecution`); null until approved. */
+  execution?: { state: "ran" | "waiting" | "failed" | "handed_back"; detail: string | null; at: string | null } | null;
 }
 
+export type ApprovalStatusTone = "good" | "warn" | "bad" | "neutral" | "info";
+
 /**
- * Where an agent's request stands, in words: waiting (and what Approve does from here), or how it was answered. The
- * session may still wait for the answer, or it ended while waiting, in which case Approve runs the task again on the
- * next cycle.
+ * Where an agent's request stands, in words: waiting (and what Approve does from here), or how it was answered and what
+ * came of it. An approval is never "done" on the answer alone (Nov 1, 2026: four releases were approved and none went
+ * live, while the Inbox said done): approved reads as live, waiting for the tests, did not go through, or sent back,
+ * from the outcome the api records. The session may still wait for the answer, or it ended while waiting, in which case
+ * Approve runs the task again on the next cycle.
  */
-export function approvalStatus(a: ApprovalLike): { word: string; tone: "good" | "warn" | "bad" | "neutral"; detail: string } {
+export function approvalStatus(a: ApprovalLike): { word: string; tone: ApprovalStatusTone; detail: string } {
   switch (a.outcome) {
-    case "approved":
-      return { word: "Approved", tone: "good", detail: "The call runs once, exactly as asked." };
+    case "approved": {
+      const e = a.execution ?? null;
+      if (!e) return { word: "Approved", tone: "good", detail: a.release ? "It goes live once the final quality checks pass." : "The call runs once, exactly as asked." };
+      switch (e.state) {
+        case "ran":
+          return { word: a.release ? "Live" : "Done", tone: "good", detail: e.detail ?? (a.release ? "It is live." : "It ran once, as asked.") };
+        case "waiting":
+          return { word: "Approved, waiting", tone: "info", detail: e.detail ?? "It runs when the agent next works on the task." };
+        case "handed_back":
+          return { word: "Sent back to the agent", tone: "warn", detail: e.detail ?? "The agent will ask again when it is ready." };
+        case "failed":
+          return { word: "Didn't go through", tone: "bad", detail: e.detail ?? "The team tries again in its next round of work." };
+      }
+      return { word: "Approved", tone: "good", detail: "" };
+    }
     case "rejected":
-      return { word: "Rejected", tone: "bad", detail: a.task ? "Nothing ran. The task stays blocked until you start it again." : "Nothing ran." };
+      return { word: "Rejected", tone: "bad", detail: a.task ? "Nothing ran. The task waits until you start it again." : "Nothing ran." };
     case "expired":
       return { word: "Expired", tone: "neutral", detail: "Nobody answered in time, so nothing ran." };
     default:
-      if (a.sessionWaiting) return { word: "Needs your answer", tone: "warn", detail: "The agent's session is waiting for your answer. Approve and it carries on." };
-      return { word: "Needs your answer", tone: "warn", detail: a.task ? "The session stopped waiting and freed its place. Approve and the task runs again in the team's next round of work." : "Approve and it runs once, exactly as asked." };
+      // A release waits in the background, never in a session: nothing else is held while the founder decides.
+      if (a.release) return { word: "Needs your answer", tone: "warn", detail: "Say yes and it goes live once the final quality checks pass. Nothing else waits on this." };
+      if (a.sessionWaiting) return { word: "Needs your answer", tone: "warn", detail: "The agent is waiting for your answer. Approve and it carries on." };
+      return { word: "Needs your answer", tone: "warn", detail: a.task ? "The agent stopped waiting and freed its place. Approve and the task runs again in the team's next round of work." : "Approve and it runs once, exactly as asked." };
   }
 }
 
@@ -703,7 +739,7 @@ export interface DepartmentLike {
   id: string;
   name: string;
   colourToken: string;
-  squad: readonly { id: string; name: string; role: string; avatarSeed: string; personaKey?: string | null; status?: string; modelKey?: string }[];
+  squad: readonly { id: string; name: string; role: string; avatarSeed: string; personaKey?: string | null; layer?: string | null; status?: string; modelKey?: string }[];
 }
 
 export interface AgentIndexEntry {
@@ -713,6 +749,8 @@ export interface AgentIndexEntry {
   seed: string;
   /** `agents.persona_key`: the first name and face shown when anthropomorphic agents are on. */
   personaKey?: string | null;
+  /** The agent's layer: a `utility` agent is a background helper and keeps its role name. */
+  layer?: string | null;
   dept: string;
   departmentId: string;
   departmentName: string;
@@ -726,7 +764,7 @@ export function agentIndex(departments: readonly DepartmentLike[]): Map<string, 
   for (const d of departments) {
     for (const a of d.squad) {
       if (out.has(a.id)) continue;
-      out.set(a.id, { id: a.id, name: a.name, role: a.role, seed: a.avatarSeed || a.id, personaKey: a.personaKey ?? null, dept: d.colourToken, departmentId: d.id, departmentName: d.name, status: a.status, modelKey: a.modelKey });
+      out.set(a.id, { id: a.id, name: a.name, role: a.role, seed: a.avatarSeed || a.id, personaKey: a.personaKey ?? null, layer: a.layer ?? null, dept: d.colourToken, departmentId: d.id, departmentName: d.name, status: a.status, modelKey: a.modelKey });
     }
   }
   return out;
@@ -888,4 +926,13 @@ export function planStatusLine(plan: PlanLike | null | undefined, decidedBy: str
 export function itemIdFromPath(pathname: string | null | undefined): string | null {
   const m = /\/inbox\/([^/?#]+)/.exec(pathname ?? "");
   return m?.[1] ? decodeURIComponent(m[1]) : null;
+}
+
+/**
+ * Whether the first-visit tour starts now (first-time founder report, Nov 8, 2026: the tour's first card sat over the
+ * note the founder had opened). It starts the first time the Inbox is in front with no note selected; once started it
+ * stays through the notes they open, so a note never unmounts a tour in progress.
+ */
+export function inboxTourStarts(selectedId: string | null, started: boolean): boolean {
+  return started || selectedId === null;
 }

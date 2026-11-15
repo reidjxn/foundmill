@@ -9,8 +9,10 @@ import { BUSINESS_SETTINGS_FIELDS, businessStreamKey } from "@foundmill/events";
 import { PRICING_CURRENCY } from "@foundmill/models";
 import { AppError, AUTOPILOT_CADENCES, AUTOPILOT_LIMITS, BUSINESS_MODES, ConflictError, CurrencyCode, DECISION_TYPES, EVENT_TYPES, GAME_MODES, isValidTimeZone } from "@foundmill/shared";
 import { z } from "zod";
+import { areaWordsFor } from "../services/area-words";
 import { autopilotStatus, ensureAutopilot, setAutopilot } from "../services/autopilot";
 import { pauseCycle, resumeCycle, startCycle } from "../services/cycle";
+import { afterPeopleChange } from "../services/showcase";
 import { assertAgentsRunning, resumeAgents, stopAllAgents } from "../services/killswitch";
 import { requireAdultToGoLive } from "../services/live";
 import { archiveBusiness, cancelDeletion, deletionState, exportBusiness, requestDeletion, restoreBusiness } from "../services/lifecycle";
@@ -86,46 +88,50 @@ const AutopilotSettingsInput = z.object({
   /** USD cents of model spend per UTC day (an Estimate); null: the credits left. */
   spendCeilingMinor: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).nullable().optional(),
   maxIdleCycles: z.number().int().min(AUTOPILOT_LIMITS.maxIdleCycles.min).max(AUTOPILOT_LIMITS.maxIdleCycles.max).optional(),
+  /** Autopilot's own limits (0084), apart from Continue's: cycles it starts itself per UTC day, their USD cents; null: none. */
+  ownMaxCyclesPerDay: z.number().int().min(AUTOPILOT_LIMITS.maxCyclesPerDay.min).max(AUTOPILOT_LIMITS.maxCyclesPerDay.max).nullable().optional(),
+  ownSpendCeilingMinor: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).nullable().optional(),
 });
 
 /** The first-week checklist's flags (docs/UX_AUDIT_AND_PLAN.md §6.2 FirstWeekChecklist), one per item, all read-only. */
 export interface FirstWeekFlags {
+  /** The project's public page has gone live (`project_pages.published_at`; package 1.3, the first item). */
+  pagePublished: boolean;
   specificationSignedOff: boolean;
   roadmapSignedOff: boolean;
   cycleCompleted: boolean;
   noteRead: boolean;
   conversationReplySent: boolean;
   distributionStarted: boolean;
-  bankOrStripeConnected: boolean;
 }
 
 /**
- * What the business has done in its first week, from what it already records: the latest sign-off round of each kind
- * approved, a `cycle.completed` event, a note from an agent that someone opened (a read receipt, 0048) or answered, a
- * message the founder wrote to an agent, distribution started, a bank account or a connected Stripe. Every read runs
- * under the caller's RLS (a member of another business is refused by `businessProcedure` before any of this runs);
- * each existence check loads one id at most. The sign-offs are read as their latest round of each kind only (not the
- * Product screens' views, which also read the stage and every specification version with its snapshot), and
- * distribution comes from the business the access lookup already holds: one transaction, every read in parallel.
+ * What the business has done in its first week, from what it already records: the page published, the latest sign-off
+ * round of each kind approved, a `cycle.completed` event, a note from an agent that someone opened (a read receipt,
+ * 0048) or answered, a message the founder wrote to an agent, distribution started. (A bank or Stripe is no longer an
+ * item: it assumed a company bank account in week one, docs/THESIS_REVIEW.md §5.7.) Every read runs under the caller's
+ * RLS (a member of another business is refused by `businessProcedure` before any of this runs); each existence check
+ * loads one row at most. The sign-offs are read as their latest round of each kind only (not the Product screens'
+ * views, which also read the stage and every specification version with its snapshot), and distribution comes from the
+ * business the access lookup already holds: one transaction, every read in parallel.
  */
 export async function firstWeekFlags(tx: DbTx, business: { id: string; distributionStartedAt: Date | null }): Promise<FirstWeekFlags> {
   const businessId = business.id;
-  const [signoffs, completed, noteRead, conversationReplySent, accounts, stripe] = await Promise.all([
+  const [page, signoffs, completed, noteRead, conversationReplySent] = await Promise.all([
+    repos.pages.get(tx, businessId),
     repos.productSignoffs.latest(tx, businessId),
     repos.events.list(tx, businessId, { type: "cycle.completed", limit: 1 }),
     repos.inbox.anyAgentNoteOpened(tx, businessId),
     repos.conversations.anyFounderMessage(tx, businessId),
-    repos.finance.listAccounts(tx, businessId),
-    repos.integrations.getByKey(tx, businessId, "stripe"),
   ]);
   return {
+    pagePublished: page?.publishedAt != null,
     specificationSignedOff: signoffs.spec?.status === "approved",
     roadmapSignedOff: signoffs.roadmap?.status === "approved",
     cycleCompleted: completed.items.length > 0,
     noteRead,
     conversationReplySent,
     distributionStarted: business.distributionStartedAt !== null,
-    bankOrStripeConnected: accounts.length > 0 || stripe?.status === "connected" || stripe?.status === "mock",
   };
 }
 
@@ -179,6 +185,15 @@ export const businessRouter = router({
   }),
 
   /**
+   * The founder areas' opening sentences as one read (services/area-words.ts), for a client that cannot build them from
+   * the tiles' own reads the way the web does (the mobile app, Nov 11, 2026). Any member; each area follows the reader's
+   * section access and answers null when walled.
+   */
+  areas: router({
+    words: businessProcedure.query(({ ctx }) => areaWordsFor(ctx)),
+  }),
+
+  /**
    * The example business (docs/UX_AUDIT_AND_PLAN.md §10 Phase 3, §12 item 5; 0065): a signed-in founder walks around a
    * seeded demo business as a read-only viewer before starting their own. Account-level like founder.businesses.*:
    * no businessId on `get` and `open` (the server picks the example). All three run on the service connection: the
@@ -216,11 +231,12 @@ export const businessRouter = router({
      * the same business is never touched; `left: false` when there was none). Audited on the business when a row went.
      */
     leave: protectedProcedure.input(z.object({ businessId: Id })).mutation(({ ctx, input }) =>
-      ctx.db.transaction(async (tx) => {
+      // Anyone leaving a business: a showcase ask about it is checked again (review finding 8; services/showcase.ts).
+      afterPeopleChange({ ...ctx, businessId: input.businessId }, ctx.db.transaction(async (tx) => {
         const gone = await repos.memberships.leaveExample(tx, input.businessId, ctx.userId);
         if (gone) await audit(tx, { businessId: input.businessId, userId: ctx.userId }, { action: "business.example.leave", target: { kind: "membership", id: gone.id }, details: { businessId: input.businessId } });
         return { businessId: input.businessId, left: gone !== null };
-      }),
+      })),
     ),
   }),
 
@@ -261,6 +277,12 @@ export const businessRouter = router({
       productStage: signoffs.stage,
       signoffs: { spec: signoffs.spec, roadmap: signoffs.roadmap },
       distributionStartedAt: ctx.business.distributionStartedAt,
+      /**
+       * Whether the orchestrator, the service that runs the team's work, can be reached from this api right now (null:
+       * not known yet). The shell and Development › Plan say so before a press, instead of a Continue that writes one
+       * note or a Start that is refused (first-time founder report, Nov 8, 2026). Read without waiting (`health`).
+       */
+      orchestrator: { reachable: ctx.temporal.health().reachable },
     };
   }),
 
@@ -328,10 +350,6 @@ export const businessRouter = router({
       }
       return changed;
     });
-    // LIVE → Personal (BUILD §7.3, AC-11.14.2): the business leaves every leaderboard now. The rows live behind
-    // service_role-only grants, so this runs on the service connection once the mode change has committed; reads also
-    // hide any business that is not LIVE, so a failure here never shows a Personal business.
-    if (input.gameMode !== "live") await repos.social.removeBusinessFromLeaderboards(ctx.db, ctx.businessId);
     return business;
   }),
 
@@ -357,7 +375,7 @@ export const businessRouter = router({
   }),
 
   /**
-   * The "Spend cap per action" (Settings › Mode; first set on Commit), in minor units of the business currency: above it
+   * The "Spend cap per action" (Settings › What the team can do; first set on Commit), in minor units of the business currency: above it
    * every spend asks the founder first, whatever the mode (the gateway lowers each agent's approval threshold to it).
    * Null removes the business cap; each agent's own threshold then applies.
    */
@@ -407,11 +425,11 @@ export const businessRouter = router({
     .input(
       z.object({
         until: HolidayUntil,
-        authority: z.array(z.enum(DECISION_TYPES)).default(DECISION_TYPES.filter((d) => d !== "sign_contracts")),
+        authority: z.array(z.enum(DECISION_TYPES)).max(DECISION_TYPES.length).default(DECISION_TYPES.filter((d) => d !== "sign_contracts")),
         budgetCeilingMinor: z.number().int().nonnegative().nullable().default(null),
         /** The ceiling's currency; absent: the business's own (0025). */
         currency: CurrencyCode.optional(),
-        wakeEvents: z.array(z.enum(EVENT_TYPES)).default(["credential.expiring", "filing.due", "runway.threshold_crossed"]),
+        wakeEvents: z.array(z.enum(EVENT_TYPES)).max(EVENT_TYPES.length).default(["credential.expiring", "filing.due", "runway.threshold_crossed"]),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -528,7 +546,6 @@ export const businessRouter = router({
   /** Stop every agent and hide the business. Data stays; an owner restores it with `restore`. */
   archive: adminProcedure.input(z.object({ reason: z.string().max(200).default("archived") })).mutation(async ({ ctx, input }) => {
     const archived = await archiveBusiness(ctx, input.reason);
-    await repos.social.removeBusinessFromLeaderboards(ctx.db, ctx.businessId);
     // Its events stay in Postgres; the live stream goes now instead of when its 30-day TTL runs out (#233).
     await ctx.redis?.del(businessStreamKey(ctx.businessId)).catch((err: unknown) => ctx.log.warn({ err: (err as Error).message }, "business stream not removed on archive; it expires on its TTL"));
     return archived;

@@ -10,6 +10,8 @@ import { Currency, changes, defined, Id, JsonArray, MinorAmount, numericText, on
 export const CreateTaskInput = z.object({
   kind: z.enum(TASK_KINDS),
   title: z.string().trim().min(1).max(200),
+  /** The title in the founder's words (0070); null until the Composer writes it. */
+  founderTitle: z.string().trim().min(1).max(120).nullable().optional(),
   goalMd: z.string().default(""),
   acceptance: JsonArray.default([]),
   fileScope: z.array(z.string().max(400)).default([]),
@@ -32,12 +34,14 @@ export const UpdateTaskInput = patchSchema(CreateTaskInput.omit({ dependsOn: tru
 export type UpdateTaskInput = z.input<typeof UpdateTaskInput>;
 
 export const TaskListFilter = PageInput.extend({
-  status: z.union([z.enum(TASK_STATUSES), z.array(z.enum(TASK_STATUSES))]).optional(),
+  status: z.union([z.enum(TASK_STATUSES), z.array(z.enum(TASK_STATUSES)).max(TASK_STATUSES.length)]).optional(),
   assigneeAgentId: Id.optional(),
   kind: z.enum(TASK_KINDS).optional(),
   departmentId: Id.optional(),
   roadmapItemId: Id.optional(),
   includeArchived: z.boolean().default(false),
+  /** Only tasks with no founder title yet (the Composer's batch). */
+  founderTitleMissing: z.boolean().optional(),
 });
 export type TaskListFilter = z.input<typeof TaskListFilter>;
 
@@ -100,6 +104,7 @@ export const tasksRepo = {
           f.kind ? eq(tasks.kind, f.kind) : undefined,
           f.departmentId ? eq(tasks.departmentId, f.departmentId) : undefined,
           f.roadmapItemId ? eq(tasks.roadmapItemId, f.roadmapItemId) : undefined,
+          f.founderTitleMissing ? isNull(tasks.founderTitle) : undefined,
           ks.after(f.cursor),
         ),
       )
@@ -123,6 +128,8 @@ export const tasksRepo = {
             businessId,
             kind: v.kind,
             title: v.title,
+            // The founder's words for the task when the caller has them (0070); dropped here until Nov 3, 2026.
+            founderTitle: v.founderTitle ?? null,
             goalMd: v.goalMd,
             acceptance: v.acceptance,
             fileScope: v.fileScope,

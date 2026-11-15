@@ -4,14 +4,15 @@
  * ("agent" | "type" | "all", BUILD §9.6 ApplyScopeDialog). BUILD §11.10; AC-11.10.1/2/5/6.
  */
 import { AgentInstructions, CUSTOM_SKILL_TEST_COUNT, CustomSkillTestsOutput, HOUSE_STYLE, customSkillKey, detectClubRuleViolation, isCustomSkillKey, deriveTraits, getPrompt, getSkillDefinition, getSkillTests, getTemplateByAgentType, redactHeldOut, storedCustomTest } from "@foundmill/agents";
-import { CREDITS_CURRENCY, LIMITS } from "@foundmill/config";
-import { UpdateAgentInput, periodOf, repos, type Agent, type Executor } from "@foundmill/db";
+import { CREDITS_CURRENCY, INPUT_LIMITS, LIMITS } from "@foundmill/config";
+import { UpdateAgentInput, periodOf, repos, type Agent, type AgentVersion, type Executor } from "@foundmill/db";
 import { MODELS, meter, resolveModel, type RouteKey } from "@foundmill/models";
-import { ConflictError, ForbiddenError, MODEL_KEYS, ValidationError, type ModelKey } from "@foundmill/shared";
+import { ConflictError, ForbiddenError, isAdminRole as isAdminMembershipRole, MODEL_KEYS, ValidationError, type ModelKey } from "@foundmill/shared";
 import { z } from "zod";
 import { modelLimited } from "../services/model-limits";
 import { changeAgentModels, routeOf, startModelRetests } from "../services/agent-model";
 import { SkillChoice, addedSkillView, attachSkills, detachSkill, resolveSkillChoice } from "../services/skills";
+import { shownToolGrants } from "../services/squad";
 import { assertAgentsRunning } from "../services/stop-guard";
 import { SIGNALS, WORKFLOWS, workflowIds } from "../services/temporal";
 import { Id, audit, emit, router, sectionAdmin, sectionRead, sectionWrite, type BusinessContext } from "../trpc";
@@ -23,14 +24,14 @@ const write = sectionWrite("team");
  * is an owner's or admin's call, like the business's mode (SEC-7): a member trains and edits, but never raises caps.
  */
 const admin = sectionAdmin("team");
-const isAdminRole = (ctx: Pick<BusinessContext, "role">) => ctx.role === "owner" || ctx.role === "admin";
+const isAdminRole = (ctx: Pick<BusinessContext, "role">) => isAdminMembershipRole(ctx.role);
 
 export const ApplyScope = z.enum(["agent", "type", "all"]);
-const Tools = z.array(z.object({ connectorKey: z.string().min(1), tools: z.array(z.string().min(1)).min(1) }));
+const Tools = z.array(z.object({ connectorKey: z.string().min(1), tools: z.array(z.string().min(1)).max(INPUT_LIMITS.agentToolsPerGrant).min(1) })).max(INPUT_LIMITS.agentToolGrants);
 /** Caps are bounded (`LIMITS.agentCapMaxMinor`): above it a spend is the founder's to approve, whatever the agent's cap. */
 const CapMinor = z.number().int().nonnegative().max(LIMITS.agentCapMaxMinor, "That is above the most an agent may be allowed on its own; approve larger spends yourself");
 const Autonomy = z.object({ mode: z.enum(["inherit", "lower", "higher"]).default("inherit"), spendCapMinor: CapMinor.optional(), approvalThresholdMinor: CapMinor.optional() });
-const Negotiation = z.object({ enabled: z.boolean(), priceMinMinor: z.number().int().nonnegative().optional(), priceMaxMinor: z.number().int().nonnegative().optional(), walkAwayMinor: z.number().int().nonnegative().optional(), maxConcessionPct: z.number().min(0).max(100).optional(), topics: z.array(z.string().min(1)).default([]) });
+const Negotiation = z.object({ enabled: z.boolean(), priceMinMinor: z.number().int().nonnegative().optional(), priceMaxMinor: z.number().int().nonnegative().optional(), walkAwayMinor: z.number().int().nonnegative().optional(), maxConcessionPct: z.number().min(0).max(100).optional(), topics: z.array(z.string().min(1)).max(INPUT_LIMITS.negotiationTopics).default([]) });
 
 /** The agents a scoped change applies to; a released agent keeps its profile as a record and takes no changes. */
 async function scopedAgents(ctx: BusinessContext, agentId: string, scope: z.infer<typeof ApplyScope>): Promise<Agent[]> {
@@ -62,6 +63,15 @@ export function widensGrants(live: unknown, next: unknown): boolean {
   return false;
 }
 
+/**
+ * The grants a version runs with, as the orchestrator reads them (`parseGrants`): a system-written version 1, or a
+ * version with no tools, follows its template.
+ */
+function runningGrants(version: Pick<AgentVersion, "version" | "createdByKind" | "tools"> | undefined, templateTools: unknown): unknown {
+  const followsTemplate = !version || (version.version === 1 && version.createdByKind === "system");
+  if (followsTemplate || !Array.isArray(version.tools) || version.tools.length === 0) return templateTools ?? [];
+  return version.tools;
+}
 
 /** Reference usage per test for the wage estimate: ~4k input / 1.2k output tokens plus an Opus grading pass. */
 const REFERENCE_TEST_USAGE = { inputTokens: 4_000, outputTokens: 1_200, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 };
@@ -127,7 +137,7 @@ export const agentRouter = router({
         const period = input.period ?? periodOf(new Date());
         const to = new Date();
         const from = new Date(Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), to.getUTCDate()) - (RECENT_DAYS - 1) * 86_400_000);
-        const [versions, skills, rolled, daily, runs, sessions, spend, departments] = await Promise.all([
+        const [storedVersions, skills, rolled, daily, runs, sessions, spend, departments] = await Promise.all([
           repos.agents.listVersions(tx, ctx.businessId, agent.id),
           repos.skills.listForAgent(tx, ctx.businessId, agent.id),
           repos.agents.metrics(tx, ctx.businessId, agent.id, { from: from.toISOString().slice(0, 10) }),
@@ -141,6 +151,10 @@ export const agentRouter = router({
           repos.tasks.summaries(tx, ctx.businessId, sessions.items.map((s) => s.taskId).filter((t): t is string => t !== null)),
           agent.lineManagerId ? repos.agents.byIds(tx, ctx.businessId, [agent.lineManagerId]).then((rows) => rows[0] ?? null) : null,
         ]);
+        // The profile shows only tools that exist (`shownToolGrants`): a version stored before Nov 11, 2026 may still
+        // hold grants on connectors that were never built. The rows keep what they hold; a draft saved from the Tools
+        // tab starts from what is shown.
+        const versions = storedVersions.map((v) => ({ ...v, tools: shownToolGrants(v.tools) }));
         const current = versions.find((v) => v.id === agent.currentVersionId) ?? null;
         const parsed = current ? AgentInstructions.safeParse(current.instructions) : null;
         const traits = parsed?.success ? deriveTraits(parsed.data) : [];
@@ -167,7 +181,9 @@ export const agentRouter = router({
           versions,
           skills: skills.map((k) => {
             const d = definitions.find((x) => x.skillKey === k.skillKey);
-            return { ...k, name: d?.name ?? null, source: d?.source ?? (d?.custom ? ("custom" as const) : null) };
+            // The name a person reads: the business's own definition, else the platform catalogue's ("Prioritization"), so a
+            // client without the catalogue (the mobile app) never shows a key or a blank.
+            return { ...k, name: d?.name ?? getSkillDefinition(k.skillKey)?.name ?? null, source: d?.source ?? (d?.custom ? ("custom" as const) : null) };
           }),
           traits,
           metrics,
@@ -215,8 +231,14 @@ export const agentRouter = router({
         if (agent.archivedAt) throw new ValidationError(`${agent.name} has left the team; its profile is kept as a record`);
         const current = agent.currentVersionId ? await repos.agents.getVersion(tx, ctx.businessId, agent.currentVersionId) : null;
         const before = current ? AgentInstructions.safeParse(current.instructions) : null;
-        // New tool grants become the session token's allowedTools once promoted: only an owner or admin grants them.
-        if (input.tools && !isAdminRole(ctx) && widensGrants(current?.tools, input.tools)) throw new ForbiddenError("Only an owner or admin gives an agent new tools");
+        // New tool grants become the session token's allowedTools once promoted: only an owner or admin grants them. Both
+        // sides are read as sessions read them: an empty list (or a system-written version 1) means the template's tools.
+        if (input.tools && !isAdminRole(ctx)) {
+          const templateTools = getTemplateByAgentType(agent.agentType)?.tools;
+          // The draft is a user-written version after the live one, never a system-written version 1.
+          const draft = { version: (current?.version ?? 0) + 1, createdByKind: "user" as const, tools: input.tools };
+          if (widensGrants(runningGrants(current ?? undefined, templateTools), runningGrants(draft, templateTools))) throw new ForbiddenError("Only an owner or admin gives an agent new tools");
+        }
         const detection = detectClubRuleViolation(before?.success ? { before: before.data, after: input.instructions } : { before: input.instructions, after: input.instructions });
         const version = await repos.agents.createVersion(tx, ctx.businessId, agent.id, { instructions: input.instructions, tools: input.tools ?? (current?.tools as unknown[] | undefined) ?? [], modelKey: input.modelKey ?? agent.modelKey, state: "draft", createdByKind: "user", createdBy: ctx.userId });
         await audit(tx, ctx, { action: "agent.training.save_draft", target: { kind: "agent_version", id: version.id }, details: { agentId: agent.id, flagged: detection.flagged, violations: detection.violations.length, comment: input.comment ?? null } });
@@ -286,7 +308,8 @@ export const agentRouter = router({
           const pending = await repos.training.get(tx, ctx.businessId, input.runId);
           const agent = await repos.agents.get(tx, ctx.businessId, pending.agentId);
           const [to, live] = await Promise.all([pending.toVersionId ? repos.agents.getVersion(tx, ctx.businessId, pending.toVersionId) : null, agent.currentVersionId ? repos.agents.getVersion(tx, ctx.businessId, agent.currentVersionId) : null]);
-          if (to && widensGrants(live?.tools, to.tools)) throw new ForbiddenError("This version gives the agent new tools; an owner or admin promotes it");
+          const templateTools = getTemplateByAgentType(agent.agentType)?.tools;
+          if (to && widensGrants(runningGrants(live ?? undefined, templateTools), runningGrants(to, templateTools))) throw new ForbiddenError("This version gives the agent new tools; an owner or admin promotes it");
         }
         const watchUntil = new Date(Date.now() + LIMITS.rollbackWatchDays * 86_400_000);
         const run = await repos.training.decide(tx, ctx.businessId, input.runId, "promoted", { watchUntil });
@@ -333,6 +356,11 @@ export const agentRouter = router({
         const current = versions.find((v) => v.id === agent.currentVersionId);
         const previous = versions.filter((v) => v.id !== agent.currentVersionId && v.state === "retired" && (!current || v.version < current.version)).sort((a, b) => b.version - a.version)[0];
         if (!previous) throw new ValidationError("No previous live version to roll back to");
+        // Rolling back can bring back tools an owner or admin took away: that widens the live grants, so it is theirs.
+        if (!isAdminRole(ctx)) {
+          const templateTools = getTemplateByAgentType(agent.agentType)?.tools;
+          if (widensGrants(runningGrants(current, templateTools), runningGrants(previous, templateTools))) throw new ForbiddenError("The previous version gives the agent tools the live one does not; an owner or admin rolls it back");
+        }
         const rolled = await repos.agents.rollback(tx, ctx.businessId, agent.id, previous.id);
         const restored = agent.currentVersionId ? await repos.training.revertPromotion(tx, ctx.businessId, agent.id, agent.currentVersionId) : [];
         const closed = await repos.training.closeWatch(tx, ctx.businessId, agent.id);
@@ -379,7 +407,8 @@ export const agentRouter = router({
           if (agent.archivedAt) throw new ValidationError(`${agent.name} has left the team`);
           const [existing, skills, version] = await Promise.all([repos.skills.findDefinition(tx, ctx.businessId, agent.agentType, skillKey), repos.skills.listForAgent(tx, ctx.businessId, agent.id), agent.currentVersionId ? repos.agents.getVersion(tx, ctx.businessId, agent.currentVersionId) : null]);
           if (existing || skills.some((s) => s.skillKey === skillKey)) throw new ConflictError(`${agent.name} already has a skill called "${input.name}"`, { skillKey });
-          const connectors = Array.isArray(version?.tools) ? (version.tools as { connectorKey?: unknown }[]).map((t) => t.connectorKey).filter((k): k is string => typeof k === "string") : [];
+          // Only connectors the agent really holds tools on: a version stored before Nov 11, 2026 may still name ones never built.
+          const connectors = shownToolGrants(version?.tools).map((g) => g.connectorKey);
           return { agent, mockTools: [...new Set(["quarantine.read_untrusted", ...connectors.map((k) => `${k}.mock`)])] };
         });
         const template = getTemplateByAgentType(agent.agentType);

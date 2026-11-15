@@ -7,6 +7,7 @@ import { BusinessLogo } from "../foundation/BusinessLogo";
 import { FitText } from "../foundation/FitText";
 import { Icon } from "../foundation/Icon";
 import { IconButton } from "../foundation/IconButton";
+import { Tooltip } from "../foundation/Tooltip";
 import { BusinessSwitcher, type KitBarBusinessMenu } from "./BusinessSwitcher";
 import { ConnectionChip, type ConnectionChipProps } from "./ConnectionChip";
 import { ContinueButton, type ContinueButtonProps } from "./ContinueButton";
@@ -59,6 +60,10 @@ export interface KitBarProps extends Omit<HTMLAttributes<HTMLElement>, "title"> 
   runwayEstimate?: boolean;
   onRunwayClick?: () => void;
   businessMode: BusinessMode;
+  /** The business's spend line for the mode chip (`businesses.spend_cap_minor`): an amount, 0 or null (each agent's own limit). */
+  spendLineMinor?: number | null;
+  /** The business's own currency, for the mode chip's amount ("£50"). */
+  businessCurrency?: string | null;
   onModeClick?: () => void;
   /** Shown as a second chip when LIVE; omitted in Personal mode. */
   gameMode?: GameMode;
@@ -68,8 +73,16 @@ export interface KitBarProps extends Omit<HTMLAttributes<HTMLElement>, "title"> 
    * ContinueButton, inside a box that keeps Continue's height and minimum width so nothing beside it moves.
    */
   continueSlot?: ReactNode;
-  /** A small badge after the business name (the Example frame's neutral "Example" chip). */
+  /**
+   * A one-line caption under the business name (the sample business's "Sample business"). It takes no width from the
+   * bar: the name keeps its column (on one line while there is a caption) and the search keeps its room.
+   */
   businessBadge?: ReactNode;
+  /**
+   * What the caption means, in one line. With `businessMenu` it joins the switcher's own tooltip under "Switch
+   * business" (one tooltip for the whole trigger, never two over each other); otherwise the caption carries it.
+   */
+  businessBadgeLine?: string;
   stopAll: StopAllAgentsProps;
   /** Logo + name become a button (go Home). */
   onHome?: () => void;
@@ -116,8 +129,9 @@ export function kitBarGradient(kit: Kit): string {
  * Left: the 32 px logo tile and the business name (with `businessMenu`, the business switcher: a chevron after the
  * name, the tooltip "Switch business"), back/forward, a hairline, the screen title. Then the universal search
  * and, right: date + runway, the business-mode chip, Continue, Stop all agents — all glass, 34 px. At the widest step
- * the mode and runway chips carry a second phrase ("Assisted · asks before spending", "Not known yet · connect a
- * bank"), the first thing to go as soon as the search is below its whole width (KitBarFit `chips-brief`). Nothing is
+ * the mode chip says the whole setting ("Asks before spending over £50", short "Asks over £50") and the runway chip
+ * carries a second phrase ("Not known yet · connect a bank"); both give way first, as soon as the search is below its
+ * whole width (KitBarFit `chips-brief`). Nothing is
  * clipped at 1280: the search gives way next (its placeholder shortens, then only the icon remains; its ⌘K cap is a
  * control hint and stays whatever the guidance setting); then, while the bar still cannot hold everything whole or the
  * screen title would lose its room, the chips compact one step at a time (KitBarFit: dates drop the year, the vacation
@@ -142,11 +156,14 @@ export const KitBar = forwardRef<HTMLElement, KitBarProps>(function KitBar(
     runwayEstimate = true,
     onRunwayClick,
     businessMode,
+    spendLineMinor,
+    businessCurrency,
     onModeClick,
     gameMode,
     continueButton,
     continueSlot,
     businessBadge,
+    businessBadgeLine,
     stopAll,
     onHome,
     businessMenu,
@@ -161,14 +178,26 @@ export const KitBar = forwardRef<HTMLElement, KitBarProps>(function KitBar(
   const identity = (
     <span className="flex min-w-0 items-center gap-2.5">
       <span className="flex shrink-0">{logoNode}</span>
-      <FitText minPx={KITBAR_NAME_MIN_PX} lines={2} className="t-display-sm leading-tight" data-testid="kitbar-business-name">
-        {businessName}
-      </FitText>
       {businessBadge ? (
-        <span className="flex shrink-0 items-center" data-testid="kitbar-business-badge">
-          {businessBadge}
+        <span className="flex min-w-0 flex-col">
+          <FitText minPx={KITBAR_NAME_MIN_PX} className="t-display-sm leading-tight" data-testid="kitbar-business-name">
+            {businessName}
+          </FitText>
+          <span className="flex min-w-0 items-center" data-testid="kitbar-business-badge">
+            {businessBadgeLine && !businessMenu ? (
+              <Tooltip content={businessBadgeLine} side="bottom" align="start">
+                <span className="flex min-w-0">{businessBadge}</span>
+              </Tooltip>
+            ) : (
+              businessBadge
+            )}
+          </span>
         </span>
-      ) : null}
+      ) : (
+        <FitText minPx={KITBAR_NAME_MIN_PX} lines={2} className="t-display-sm leading-tight" data-testid="kitbar-business-name">
+          {businessName}
+        </FitText>
+      )}
     </span>
   );
   const holiday = continueButton.state.kind === "holiday";
@@ -187,7 +216,7 @@ export const KitBar = forwardRef<HTMLElement, KitBarProps>(function KitBar(
     >
       <div className="flex min-w-0 max-w-sidebar shrink-0 items-center">
         {businessMenu ? (
-          <BusinessSwitcher businessName={businessName} menu={businessMenu} onHome={onHome}>
+          <BusinessSwitcher businessName={businessName} menu={businessMenu} onHome={onHome} tooltipLine={businessBadge ? businessBadgeLine : undefined}>
             {identity}
           </BusinessSwitcher>
         ) : onHome ? (
@@ -244,7 +273,7 @@ export const KitBar = forwardRef<HTMLElement, KitBarProps>(function KitBar(
         {connection ? <ConnectionChip {...connection} /> : null}
         <RunwayChip date={date} runwayMonths={runwayMonths} words={runwayWords} cash={cash} estimate={runwayEstimate} onClick={onRunwayClick} />
         {gameMode === "live" ? <GameModeChip mode="live" /> : null}
-        <ModeChip mode={businessMode} holiday={holiday} onClick={onModeClick} />
+        <ModeChip mode={businessMode} holiday={holiday} spendLineMinor={spendLineMinor} currency={businessCurrency} onClick={onModeClick} />
         {continueSlot ? (
           <div className="flex h-kitbar-chip min-w-continue-min shrink-0 items-stretch" data-testid="kitbar-continue-slot">
             {continueSlot}

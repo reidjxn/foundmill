@@ -7,7 +7,7 @@ import { concurrencyAllowance, modelBudgetState, periodOf, repos, resumeBusiness
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createBriefActivities } from "../activities/brief";
 import { createChannelActivities, emptyChannelState } from "../activities/channel";
-import { createCycleActivities } from "../activities/cycle";
+import { createCycleActivities, lacksTool, PLATFORM_DUTY_STOPPED_AUDIT_ACTION, TOOL_MISSING_STOPPED_AUDIT_ACTION } from "../activities/cycle";
 import { MODEL_BUDGET_ALERT_ACTION, WAGE_ALERT_ACTION, attemptSessionId, nextPeriodStart, openAgentSession, recoverAgents } from "../activities/dispatch";
 import { createHolidayActivities } from "../activities/holiday";
 import { createPlanActivities } from "../activities/plan";
@@ -150,7 +150,9 @@ describe("the stop flag reaches every work-starting path", () => {
     await repos.holidays.end(t.db, B(), holiday.id, { endedAt: t.clock.now() });
 
     const task = await readyTask("Prepared while stopped", t.workerId);
-    const session = await repos.agents.createSession(t.db, B(), { agentId: t.workerId, taskId: task.id });
+    // On the test's clock, like every other session here: a row started on the real clock sorts as the agent's newest
+    // once the real date passes the test's (Nov 1, 2026), and its "done" broke the next test's failure streak.
+    const session = await repos.agents.createSession(t.db, B(), { agentId: t.workerId, taskId: task.id, startedAt: t.clock.now() });
     await expect(createSessionActivities(t.deps).prepareSession({ businessId: B(), agentId: t.workerId, taskId: task.id, sessionId: session.id })).rejects.toThrow(/paused|stopped/);
   });
 
@@ -201,6 +203,10 @@ describe("wage caps at dispatch (BUILD §10.4)", () => {
     expect(await repos.agents.get(t.db, B(), t.workerId)).toMatchObject({ status: "paused", pausedReason: "wage_cap" });
     const note = (await repos.inbox.list(t.db, B(), { limit: 20 })).items.find((i) => /reached its wage cap/.test(i.subject));
     expect(note?.bodyMd).toMatch(/until Nov 1, 2026/);
+    // The agent is named as markup with its stored name; the subject stays plain (One name everywhere, Nov 8, 2026).
+    const worker = await repos.agents.get(t.db, B(), t.workerId);
+    expect(note?.bodyMd.startsWith(`[[ent:${worker.id}|${worker.name}]] has spent`)).toBe(true);
+    expect(note?.subject).toBe(`${worker.name} reached its wage cap: paused`);
     // The brief shows it and the planner gives it nothing.
     const b = await brief.loadBrief({ businessId: B() });
     expect(b.agents.find((a) => a.id === t.workerId)).toMatchObject({ status: "paused", wageRemainingMinor: -50 });
@@ -257,6 +263,64 @@ describe("wage caps at dispatch (BUILD §10.4)", () => {
     const plan = await cycle.planCycle({ businessId: B(), cycleNumber: 9, trigger: "continue", brief: await brief.loadBrief({ businessId: B() }) });
     expect(plan.starts.some((s) => s.agentId === t.workerId)).toBe(false);
     expect(plan.starts.some((s) => s.taskId === task.id && s.agentId === t.workerId)).toBe(false);
+  });
+});
+
+describe("the platform's own steps leave the loop", () => {
+  it("a planned task that runs CI, opens a pull request or rebases onto main is stopped and archived before the plan, and what waited on it is freed", async () => {
+    const duty = await readyTask("Run CI on the agent branch and read the results", t.workerId);
+    const rebase = await repos.tasks.create(t.db, B(), { kind: "code", title: "Rebase the deploy contract branch onto main and hand it to the founder", status: "blocked", assigneeAgentId: t.workerId });
+    const real = await readyTask("Implement gateway deploy guards (main head + CI success)", t.workerId);
+    await repos.tasks.addEdge(t.db, B(), duty.id, real.id);
+    await repos.tasks.addEdge(t.db, B(), rebase.id, real.id);
+    let b = await brief.loadBrief({ businessId: B() });
+    expect(b.openTasks.find((x) => x.id === real.id)?.blocked).toBe(true);
+    const plan = await cycle.planCycle({ businessId: B(), cycleNumber: 11, trigger: "continue", brief: b });
+    for (const id of [duty.id, rebase.id]) {
+      expect(plan.starts.some((s) => s.taskId === id)).toBe(false);
+      expect(plan.deferred.some((d) => d.taskId === id)).toBe(false);
+      expect(await repos.tasks.get(t.db, B(), id)).toMatchObject({ status: "stopped", archivedAt: expect.any(Date) });
+    }
+    const audits = (await repos.audit.list(t.db, B(), { action: PLATFORM_DUTY_STOPPED_AUDIT_ACTION, limit: 20 })).items.filter((a) => [duty.id, rebase.id].includes((a.target as { id: string }).id));
+    expect(audits).toHaveLength(2);
+    expect(audits.map((a) => (a.details as { reason: string }).reason).sort()).toEqual(["the platform brings a branch up to date and merges it after the founder's approval", "the platform runs the repository's CI on every agent branch"]);
+    // The real task no longer waits on either; the platform does those steps for it.
+    b = await brief.loadBrief({ businessId: B() });
+    expect(b.openTasks.find((x) => x.id === real.id)).toMatchObject({ blocked: false, dependsOn: [] });
+    expect(b.openTasks.some((x) => x.id === duty.id || x.id === rebase.id)).toBe(false);
+    expect((await repos.tasks.get(t.db, B(), real.id)).status).toBe("ready");
+  });
+});
+
+describe("a task no agent has a tool for leaves the loop after one attempt", () => {
+  it("is stopped and archived before the plan, its dependent freed, the founder told once in one line; a task blocked for any other reason stays", async () => {
+    const noTool = await repos.tasks.create(t.db, B(), { kind: "ops", title: "Register agent-pack skills as business skills", founderTitle: "Import agent skills as business skills", status: "blocked", assigneeAgentId: t.workerId });
+    const other = await repos.tasks.create(t.db, B(), { kind: "ops", title: "Compare three suppliers", status: "blocked", assigneeAgentId: t.workerId });
+    const dependent = await readyTask("Needs the skills", t.workerId);
+    await repos.tasks.addEdge(t.db, B(), noTool.id, dependent.id);
+    const blockedBy = (task: { id: string; title: string; kind: "ops" }, detail: string) => repos.events.write(t.db, B(), { type: "task.blocked", actor: { kind: "agent", id: t.workerId }, payload: { taskId: task.id, kind: task.kind, title: task.title, assigneeAgentId: t.workerId, sessionId: null, reason: "dependency", detail, approvalId: null, occurrence: 1 } });
+    await blockedBy({ id: noTool.id, title: noTool.title, kind: "ops" }, "No tool is available to create or list business skills. My tools cover GitHub, the task board, messages and founder actions only.");
+    await blockedBy({ id: other.id, title: other.title, kind: "ops" }, "Waiting on the supplier's price list; asked by email.");
+    expect(lacksTool("none can create or register a business source")).toBe(true);
+    expect(lacksTool("I can't do this import with the tools I have")).toBe(true);
+    expect(lacksTool("acceptance tests failed (exit 1, 62 passed, 5 failed)")).toBe(false);
+    expect(lacksTool("Scope mismatch: the branch changes none of the three scoped paths")).toBe(false);
+
+    const b = await brief.loadBrief({ businessId: B() });
+    expect(b.openTasks.find((x) => x.id === dependent.id)?.blocked).toBe(true);
+    const plan = await cycle.planCycle({ businessId: B(), cycleNumber: 12, trigger: "continue", brief: b });
+    expect(plan.starts.some((s) => s.taskId === noTool.id)).toBe(false);
+    expect(plan.deferred.some((d) => d.taskId === noTool.id)).toBe(false);
+    expect(await repos.tasks.get(t.db, B(), noTool.id)).toMatchObject({ status: "stopped", archivedAt: expect.any(Date) });
+    expect((await repos.tasks.get(t.db, B(), other.id)).status).toBe("blocked");
+    const audits = (await repos.audit.list(t.db, B(), { action: TOOL_MISSING_STOPPED_AUDIT_ACTION, limit: 20 })).items.filter((a) => (a.target as { id: string }).id === noTool.id);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]!.details).toMatchObject({ cycleNumber: 12, dependentsFreed: 1 });
+    // A missing tool is the platform's gap, never a founder chore: nothing reaches the Inbox (Nov 7, 2026).
+    const notes = (await repos.inbox.list(t.db, B(), { limit: 50 })).items.filter((i) => i.subject.includes("Import agent skills as business skills") || i.subject.startsWith("Only you can do this"));
+    expect(notes).toEqual([]);
+    const after = await brief.loadBrief({ businessId: B() });
+    expect(after.openTasks.find((x) => x.id === dependent.id)).toMatchObject({ blocked: false, dependsOn: [] });
   });
 });
 
@@ -319,6 +383,22 @@ describe("failed tasks and failing agents come back (bounded backoff)", () => {
     expect((await followUps()).some((s) => s.taskId === task.id)).toBe(false);
     expect((await followUps("schedule")).some((s) => s.taskId === task.id)).toBe(false);
     expect((await followUps("continue")).some((s) => s.taskId === task.id)).toBe(true);
+  });
+
+  it("a task reassigned while its session ran goes back to ready when that session ends, never left running for nobody", async () => {
+    const sessions = createSessionActivities(t.deps);
+    const task = await readyTask("Reassigned mid-session", t.workerId);
+    const opened = await cycle.openSession({ businessId: B(), agentId: t.workerId, taskId: task.id });
+    expect((await repos.tasks.get(t.db, B(), task.id)).status).toBe("running");
+    // A lead hands the task to someone else while the worker's session is still running.
+    const lead = await repos.agents.create(t.db, B(), { name: "Lead who takes it", agentType: (await repos.agents.get(t.db, B(), t.workerId)).agentType, status: "idle", initialVersion: { tools: [{ connectorKey: "platform", tools: ["tasks.list"] }] } });
+    await repos.tasks.reassign(t.db, B(), task.id, lead.id);
+    const blocked: SessionResult = { ...failed(), outcome: "blocked", reason: "could not run the tests here", summary: "Blocked." };
+    const finish = await sessions.finishSession({ businessId: B(), agentId: t.workerId, taskId: task.id, sessionId: opened.sessionId! }, launch, blocked);
+    // The session settles only its own row; the task is the new assignee's and waits for the next cycle to start it.
+    expect(finish.taskStatus).toBe("ready");
+    expect(await repos.tasks.get(t.db, B(), task.id)).toMatchObject({ status: "ready", assigneeAgentId: lead.id });
+    expect((await repos.agents.getSession(t.db, B(), opened.sessionId!)).outcome).toBe("blocked");
   });
 
   it("a session that fails while its team is stopped does not fail the task or overwrite the pause", async () => {

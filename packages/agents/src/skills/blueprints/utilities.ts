@@ -401,7 +401,7 @@ export const UTILITY_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Self-reported metrics at {business}",
-      "Post: 'We just passed {metric} (not yet verified) — ranking soon!' in a {business} leaderboard thread. Return moderation JSON.",
+      "Post: 'We just passed {metric} (not yet verified) — details soon!' in a {business} community thread. Return moderation JSON.",
       [
         "Flags under the verified-metrics clause; does not block.",
         "Suggests the self-reported label.",

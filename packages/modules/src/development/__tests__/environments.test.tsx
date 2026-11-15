@@ -132,3 +132,15 @@ describe("toEnvironmentRows", () => {
     expect(deploymentFromEvent({ type: "deploy.succeeded", payload: { environment: "preview" } })).toBeNull();
   });
 });
+
+describe("what exists now (first-time founder report, Nov 8, 2026)", () => {
+  it("a done task with nothing deployed and no repository connected reads 'No artifact yet', and the counts say so", async () => {
+    const fake = createFakeSource({ responses: { ...responses(), "dev.repository": { connected: false, status: null, repository: null, simulated: true } } });
+    renderScreen(fake, <EnvironmentsScreen {...props} />);
+    const table = await screen.findByRole("grid", { name: "Environments" });
+    expect(within(table).getByText("No artifact yet")).toBeTruthy();
+    expect(within(table).queryByText("Merged")).toBeNull();
+    expect(screen.getByTestId("env-counts").textContent).toBe("0 live · 2 awaiting · 1 with no artifact yet");
+    expect(screen.getByTestId("what-exists-now").textContent).toContain("Nothing exists outside these screens yet");
+  });
+});

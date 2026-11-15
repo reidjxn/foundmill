@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, devApi, openBusiness, settingsScreen, settled, toast } from "./helpers";
+import { LEDGERLY_BUSINESS_ID, LONG, devApi, openBusiness, settingsScreen, settled, toast } from "./helpers";
 
 /**
  * Anthropomorphic agents (founder, 2026-10-22; styles 2026-10-24): Settings › Preferences has a switch; on, every agent is
@@ -22,6 +22,8 @@ const NAME_WITH_POSITION = /^[\p{L}]+ \(.+\)$/u;
 
 /** A name of any script or punctuation ("Mal'Kor"), then the position in brackets. */
 const ANY_NAME_WITH_POSITION = /^(.+?) \((.+)\)$/u;
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 async function setSwitch(page: Page, on: boolean): Promise<void> {
   await openBusiness(page, "settings/preferences");
@@ -144,7 +146,7 @@ test.describe("anthropomorphic agents", () => {
     await page.goto(`${base}/squad`);
     await expect(page.getByTestId("module-screen")).toHaveAttribute("data-module", "team/squad", { timeout: LONG });
     // The Agent column shows first names, with the position in the Role column beside it: no brackets in the name.
-    const names = page.getByRole("grid", { name: "Agents" }).locator("[data-entity-kind='agent']");
+    const names = page.getByRole("treegrid", { name: "Agents" }).locator("[data-entity-kind='agent']");
     await expect(names.first()).toBeVisible({ timeout: LONG });
     for (const text of await names.allTextContents()) expect(text).not.toMatch(/\(/);
     // The mock image connector makes a face for each persona; the page asks again every 15 seconds until they are ready.
@@ -188,6 +190,43 @@ test.describe("anthropomorphic agents", () => {
     await openBusiness(page, "settings/preferences");
     await chooseStyle(page, "humans");
     expect(await firstSenderLabel(page)).toBe(humanLabel);
+    await setSwitch(page, false);
+  });
+
+  test("on: one name everywhere: the Inbox subject, its sender, a Plan row and the Home department card name agents the same way (Nov 8, 2026)", async ({ page }) => {
+    await setSwitch(page, true);
+
+    // Ledgerly's seeded request: the stored subject names the agent by its stored name; the web names it as the sender.
+    await page.goto(`/b/${LEDGERLY_BUSINESS_ID}/inbox?tab=all`);
+    await expect(page.getByTestId("inbox-list")).toBeVisible({ timeout: LONG });
+    const request = page.locator("[data-inbox-row]").filter({ hasText: /needs your OK: .+ › set budget/ }).first();
+    await expect(request, "the seed gives Ledgerly an agent's request to approve").toBeVisible({ timeout: LONG });
+    const label = (await request.getByTestId("row-sender").textContent())?.trim() ?? "";
+    expect(label).toMatch(NAME_WITH_POSITION);
+    await expect(request.getByTestId("row-subject")).toHaveText(new RegExp(`^${escapeRe(label)} needs your OK: `));
+    await request.click();
+    await expect(page.getByTestId("inbox-subject")).toHaveText(new RegExp(`^${escapeRe(label)} needs your OK: `), { timeout: LONG });
+    await expect(page.getByTestId("persona-link")).toHaveText(label);
+    await expect(page.getByTestId("approval-summary")).toHaveText(new RegExp(`^${escapeRe(label)} wants to `));
+
+    // The Plan: the Agent column (and so its sort, filter and CSV) reads "Name (Position)".
+    await page.goto(`/b/${LEDGERLY_BUSINESS_ID}/d/development/plan`);
+    await expect(page.getByTestId("module-screen")).toHaveAttribute("data-module", "development/plan", { timeout: LONG });
+    const planAgents = page.getByRole("grid", { name: "Tasks" }).locator("[data-entity-kind='agent']");
+    await expect(planAgents.first(), "the seed assigns Ledgerly's development tasks to agents").toBeVisible({ timeout: LONG });
+    const planLabels = (await planAgents.allTextContents()).map((t) => t.trim());
+    for (const l of planLabels) expect(l).toMatch(NAME_WITH_POSITION);
+    const planFirstNames = new Set(planLabels.map((l) => l.split(" (")[0]!));
+
+    // Home: the Development card's lead and team strip use the same first names (the card used to drop the persona).
+    await page.goto(`/b/${LEDGERLY_BUSINESS_ID}/home`);
+    const card = page.locator("[data-department]").filter({ has: page.getByRole("heading", { name: "Development" }) }).first();
+    await expect(card).toBeVisible({ timeout: LONG });
+    await expect(card.getByRole("button", { name: /^[\p{L}]+ \(.+\), department lead$/u })).toBeVisible({ timeout: LONG });
+    const strip = (await card.locator("[data-squad-member]").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label") ?? ""))).map((a) => a.split(",")[0]!);
+    expect(strip.length).toBeGreaterThan(0);
+    for (const name of strip) expect(name, "a persona first name, never the stored title").toMatch(/^[\p{L}]+$/u);
+    expect(strip.some((n) => planFirstNames.has(n)), `a Plan agent (${[...planFirstNames].join(", ")}) is on the card (${strip.join(", ")})`).toBe(true);
     await setSwitch(page, false);
   });
 

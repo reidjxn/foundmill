@@ -12,21 +12,22 @@ import { freeDisplayName } from "@foundmill/config";
 import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
 import type { Db } from "../client";
 import { repos } from "../repos";
-import { rowsOf } from "../repos/_shared";
-import { auditLog, businesses, founderProfiles, leaderboardEntries } from "../schema";
+import { auditLog, businesses, founderProfiles } from "../schema";
 import { parseOwnerEmails, stubAuthProvisioner, type AuthProvisioner } from "./auth";
 import { detachDemoPosts } from "./community";
-import { DEFAULT_SEED_DAYS, DEMO_BUSINESS_IDS, DEMO_BUSINESS_SLUGS, DEMO_OWNER_DISPLAY_NAME, DEMO_OWNER_EMAIL, DEMO_OWNER_USER_ID, DEMO_SEED, DEMO_SEED_AUDIT_ACTION, LEDGERLY_BUSINESS_ID, NORTHWIND_BUSINESS_ID } from "./constants";
+import { DEFAULT_SEED_DAYS, DEMO_BUSINESS_IDS, DEMO_BUSINESS_SLUGS, DEMO_OWNER_DISPLAY_NAME, DEMO_OWNER_EMAIL, DEMO_OWNER_USER_ID, DEMO_SEED, DEMO_SEED_AUDIT_ACTION } from "./constants";
 import { createSeedCtx, type SeedOwner } from "./context";
 import { seedLedgerly } from "./ledgerly";
 import { seedNorthwind } from "./northwind";
 import { ensurePlatformSkillDefinitions } from "./platform";
+import { lockDemoBusiness, putNorthwindFirst } from "./roll-forward";
 import type { SeedDemoOptions, SeedDemoResult } from "./types";
 
 export * from "./constants";
 export * from "./types";
 export { parseOwnerEmails, stubAuthProvisioner, supabaseAuthProvisioner, type AuthProvisioner } from "./auth";
 export { FOUNDER_PRESET_LAYOUT } from "./content";
+export { anchorOf, demoAnchor, DEMO_ROLL_AUDIT_ACTION, lockDemoBusiness, putNorthwindFirst, recordSampleRows, rollDays, rollDemoForward, ROLL_EXCLUDED_TABLES, type DemoAnchor, type DemoRollResult, type RollDemoForwardOptions } from "./roll-forward";
 
 /** The demo businesses that exist, found by their fixed ids (never by slug, which founders can edit). */
 export async function findDemoBusinesses(db: Db): Promise<{ id: string; slug: string }[]> {
@@ -62,18 +63,6 @@ export async function demoSeedState(db: Db): Promise<DemoSeedState> {
 }
 
 /**
- * Makes Northwind the newer demo business. `/` opens a founder's newest business when no last-business cookie is set
- * (apps/web/app/page.tsx), and Ledgerly is built after Northwind, so without this a first sign-in lands on Ledgerly.
- * Idempotent; returns whether a row changed.
- */
-export async function putNorthwindFirst(db: Db): Promise<boolean> {
-  const result = await db.execute(
-    sql`update businesses n set created_at = l.created_at + interval '1 second' from businesses l where n.id = ${NORTHWIND_BUSINESS_ID}::uuid and l.id = ${LEDGERLY_BUSINESS_ID}::uuid and n.created_at <= l.created_at returning n.id`,
-  );
-  return rowsOf(result).length > 0;
-}
-
-/**
  * Deletes the demo businesses, found by their fixed ids (every business-scoped table cascades, their audit chains
  * included). A rebuild of the demo discards the demo's audit chains deliberately (docs/DECISIONS.md "Seed re-runs
  * replace the demo businesses"): the audit trigger lets this transaction delete the chain of the one business it names
@@ -87,10 +76,11 @@ export async function deleteDemoBusinesses(db: Db): Promise<number> {
   const rows = await db.select({ id: businesses.id }).from(businesses).where(inArray(businesses.id, [...DEMO_BUSINESS_IDS]));
   if (!rows.length) return 0;
   await db.transaction(async (tx) => {
+    // The lock a roll of each business takes (roll-forward.ts): a roll never runs while its business is being deleted.
+    for (const id of DEMO_BUSINESS_IDS) await lockDemoBusiness(tx, id);
     await detachDemoPosts(tx, rows.map((r) => r.id));
     for (const { id } of rows) {
       await tx.execute(sql`select set_config('fm.purge_business', ${id}, true)`);
-      await tx.delete(leaderboardEntries).where(eq(leaderboardEntries.businessId, id));
       await tx.delete(businesses).where(eq(businesses.id, id));
     }
     await tx.execute(sql`select set_config('fm.purge_business', '', true)`);

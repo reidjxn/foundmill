@@ -7,7 +7,7 @@
  * config and shared), so the shapes are declared structurally; vocabulary enums come from @foundmill/shared.
  */
 import type { ReactNode } from "react";
-import type { AgentStatus, ChannelKey, ConversionKind, DeptColourToken, MatchdayLevel, MilestoneKind } from "@foundmill/shared";
+import type { AgentStatus, AgentTier, ChannelKey, ConversionKind, DeptColourToken, MatchdayLevel, MilestoneKind } from "@foundmill/shared";
 import type { Kit } from "../shell/types";
 
 export type DayKey = string; // YYYY-MM-DD (UTC)
@@ -338,9 +338,13 @@ export interface Concept {
   citations?: number;
   archetypeLabel?: string;
   version?: number;
+  /** The pitch is the founder's own words (a card they wrote or edited): the card says so, and the team builds from them. */
+  yourWords?: boolean;
+  /** The card was written by the sample (mock) model: the card says so, so sample prose is never taken for the team's judgment. */
+  sample?: boolean;
 }
 
-export const CONCEPT_ACTIONS = ["shortlist", "merge", "fork", "ask", "discard"] as const;
+export const CONCEPT_ACTIONS = ["shortlist", "edit", "merge", "fork", "ask", "discard"] as const;
 export type ConceptAction = (typeof CONCEPT_ACTIONS)[number];
 
 /* ---------- Department cards, squad pulse, milestones (BUILD §11.2, §11.4) ---------- */
@@ -353,6 +357,10 @@ export interface SquadMember {
   seed: string | number;
   /** `agents.persona_key`: the name and face shown when anthropomorphic agents are on. */
   personaKey?: string | null;
+  /** The agent's layer: a `utility` agent is a background helper and keeps its role name. */
+  layer?: string | null;
+  /** Its tier (`department.list`): a `background` helper stays out of the team strip and its count. */
+  tier?: AgentTier | null;
   status: AgentStatus;
   role: string;
   model: string;
@@ -382,7 +390,8 @@ export interface DepartmentCardData {
   id: string;
   name: string;
   dept: DeptColourToken;
-  lead: { name: string; seed: string | number; status: AgentStatus; role?: string; personaKey?: string | null };
+  /** The lead; `id` (when there is one) is how the card finds it in the team strip, never its name. */
+  lead: { id?: string | null; name: string; seed: string | number; status: AgentStatus; role?: string; personaKey?: string | null; layer?: string | null };
   health: HealthTone;
   /** Word next to the health icon ("Healthy", "Waiting", "Failing"). */
   healthWord?: string;
@@ -429,7 +438,14 @@ export interface TrophyCard {
   shareable?: boolean;
   /** The figure behind the milestone is an estimate (an "MRR" milestone of a business without subscriptions): labeled Estimate. */
   estimate?: boolean;
+  /**
+   * Where a reached milestone stands on the project's public page (0089): "hidden" can be shown, "shown" is a line of
+   * the story with a card, "waiting" was shown and the page is not live right now. Left out when it cannot be shown.
+   */
+  page?: TrophyPageState | null;
 }
+
+export type TrophyPageState = "hidden" | "shown" | "waiting";
 
 export interface SquadPulseCell {
   departmentId: string;

@@ -17,7 +17,7 @@
 import { createHash } from "node:crypto";
 import { CREDITS_CURRENCY, LIMITS } from "@foundmill/config";
 import { concurrencyAllowance, modelBudgetState, periodOf, repos, sessionWorkflowId, type Agent, type Business } from "@foundmill/db";
-import { formatMoney } from "@foundmill/shared";
+import { agentMention, formatMoney } from "@foundmill/shared";
 import { Context } from "@temporalio/activity";
 import type { OrchestratorDeps } from "../deps";
 import { agentActor, emitEvent, systemActor } from "../events";
@@ -128,7 +128,7 @@ export async function checkWageCap(deps: OrchestratorDeps, businessId: string, a
     await postNote(deps, businessId, chief.id, {
       type: "update",
       subject: `${agent.name} has used ${highest}% of its wage cap`.slice(0, 80),
-      body: `${agent.name} has spent ${amount(spend.costMinor)} of its ${amount(spend.wageCapMinor)} wage cap this month (Estimate). At 100% it stops taking work until ${shortDate(backOn)}. Raise the cap on its profile if the work is worth it.`,
+      body: `${agentMention(agent)} has spent ${amount(spend.costMinor)} of its ${amount(spend.wageCapMinor)} wage cap this month (Estimate). At 100% it stops taking work until ${shortDate(backOn)}. Raise the cap on its profile if the work is worth it.`,
       blocksContinue: false,
     });
   }
@@ -182,7 +182,7 @@ async function pauseForWageCap(deps: OrchestratorDeps, businessId: string, agent
     await postNote(deps, businessId, chief.id, {
       type: "warning",
       subject: `${agent.name} reached its wage cap: paused`.slice(0, 80),
-      body: `${agent.name} has spent ${info.amount(info.spentMinor)} of its ${info.amount(info.capMinor)} wage cap this month (Estimate), so it takes no new work until ${shortDate(info.backOn)}. Raise the cap on its profile to bring it back sooner; its tasks wait for it or go to a teammate.`,
+      body: `${agentMention(agent)} has spent ${info.amount(info.spentMinor)} of its ${info.amount(info.capMinor)} wage cap this month (Estimate), so it takes no new work until ${shortDate(info.backOn)}. Raise the cap on its profile to bring it back sooner; its tasks wait for it or go to a teammate.`,
       blocksContinue: false,
     });
   }

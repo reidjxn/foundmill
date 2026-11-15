@@ -20,6 +20,12 @@
  *   (the checkout's commit for the first push after a checkout of the branch, else the commit the task last pushed
  *   there). When the branch head differs GitHub is not written (`branch_moved`): the reason is recorded on the save and
  *   the next session checks the branch out again.
+ * - A save made on a checkout of another ref than the branch (the default branch: a task handed back to be brought up to
+ *   date starts from its newest files, checkout.ts `fromDefaultBranch`) is a diff against a commit the branch does not
+ *   have, so it is not added on top of the branch: the branch is rebuilt on that commit (`commit_files` `rebuild`), its
+ *   earlier commits left behind, and the push expects the branch at the last head this task knew (its agent's own push
+ *   this session, else the last push the task made there); when GitHub names another head, the rebuild is retried once
+ *   there (the branch is the task's own and is being replaced). A branch that does not exist yet is simply created there.
  * - A save made without a checkout on a task whose saves are diffs against one (`saveHeldBack`) is the whole
  *   workspace, not a diff: it is never pushed over the repository.
  * - The result is recorded on the save (commit and link, or why not). A save that did not reach GitHub is pushed again
@@ -31,7 +37,7 @@ import type { GatewayClient } from "../gateway-client";
 import type { WorkspaceOwner } from "./workspace-store";
 
 export type PushResult =
-  | { status: "pushed"; repo: string; branch: string; commitSha: string; url: string | null; filesWritten: number; filesDeleted: number; leftOut: number }
+  | { status: "pushed"; repo: string; branch: string; commitSha: string; url: string | null; filesWritten: number; filesDeleted: number; leftOut: number; rebuilt: boolean }
   | { status: "up_to_date"; repo: string; branch: string; commitSha: string }
   | { status: "skipped"; reason: string }
   | { status: "awaiting_approval"; repo: string; branch: string; approvalId: string | null }
@@ -68,13 +74,23 @@ export const PUSH_TOKEN_TTL_SECONDS = 300;
 /** How long one push may take end to end (up to 300 files through the gateway to GitHub). */
 export const PUSH_TIMEOUT_MS = 120_000;
 
-export function pushMessage(ctx: PushContext, snapshot: Pick<WorkspaceSnapshot, "added" | "changed" | "removed">): string {
+export function pushMessage(ctx: PushContext, snapshot: Pick<WorkspaceSnapshot, "added" | "changed" | "removed" | "baseRef" | "baseCommitSha">, rebuild = false): string {
   const counts = [`${snapshot.added} added`, `${snapshot.changed} changed`, `${snapshot.removed} removed`].join(", ");
-  return `Code saved by ${ctx.agentName.slice(0, 80)} at the end of a session (${counts})\n\nFoundmill task ${ctx.taskId}, session ${ctx.sessionId}.\n\n[skip ci]`;
+  const rebuilt = rebuild && snapshot.baseCommitSha ? ` Based on ${snapshot.baseRef ?? "the default branch"} at ${snapshot.baseCommitSha.slice(0, 7)}.` : "";
+  return `Code saved by ${ctx.agentName.slice(0, 80)} at the end of a session (${counts})\n\nFoundmill task ${ctx.taskId}, session ${ctx.sessionId}.${rebuilt}\n\n[skip ci]`;
+}
+
+/**
+ * A save made on a checkout of another ref than the task's branch (the default branch, after a hand-back) is a diff
+ * against a commit the branch does not have: it rebuilds the branch on that commit instead of going on top.
+ */
+export function rebuildsBranch(snapshot: Pick<WorkspaceSnapshot, "baseRef" | "baseCommitSha" | "baseRepo">, branch: string): boolean {
+  return snapshot.baseCommitSha !== null && snapshot.baseRepo !== null && snapshot.baseRef !== null && snapshot.baseRef !== branch;
 }
 
 interface CommitFilesData {
   committed: boolean;
+  rebuilt?: boolean;
   sha: string;
   url: string | null;
   filesWritten: number;
@@ -102,7 +118,8 @@ async function expectedHead(db: Db, ctx: PushContext, snapshot: WorkspaceSnapsho
   if (ctx.agentPushed?.lastSha) return ctx.agentPushed.lastSha;
   const last = await repos.workspaces.lastPushed(db, ctx.businessId, ctx.taskId, repo);
   const lastSha = last && last.id !== snapshot.id && last.pushedBranch === branch && last.pushedCommitSha ? last.pushedCommitSha : null;
-  if (snapshot.baseCommitSha === null) return lastSha;
+  // The save's base is not on the branch (a rebuild): the branch is expected where this task last left it, if anywhere.
+  if (snapshot.baseCommitSha === null || rebuildsBranch(snapshot, branch)) return lastSha;
   if (!lastSha || lastSha === snapshot.baseCommitSha || !last?.pushedAt) return snapshot.baseCommitSha;
   // When the base was seen: this session's checkout when the save is on its commit, else when the save was made.
   const seenAt = ctx.checkout && ctx.checkout.commitSha === snapshot.baseCommitSha ? ctx.checkout.at : snapshot.createdAt;
@@ -137,6 +154,8 @@ export async function pushWorkspace(db: Db, gateway: GatewayClient, ctx: PushCon
   // A save made on a checkout is a diff against it: it goes onto the branch as it is, and only to that repository.
   const onCheckout = snapshot.baseCommitSha !== null && snapshot.baseRepo !== null;
   if (onCheckout && snapshot.baseRepo!.toLowerCase() !== repo.toLowerCase()) return { status: "skipped", reason: `this code was checked out from ${snapshot.baseRepo}, not ${repo} (the Code tab)` };
+  // Checked out from another ref (the default branch, after a hand-back): the branch is rebuilt on that commit.
+  const rebuild = rebuildsBranch(snapshot, branch);
 
   try {
     let writes: typeof snapshot.files;
@@ -181,8 +200,9 @@ export async function pushWorkspace(db: Db, gateway: GatewayClient, ctx: PushCon
         {
           connector: "github",
           tool: "commit_files",
-          // A missing branch starts at the checkout's commit, so the diff applies to exactly what the agent saw.
-          args: { owner: target.owner, repo: target.repo, branch, ...(onCheckout ? { fromRef: snapshot.baseCommitSha } : {}), ...(expected ? { expectedHeadSha: expected } : {}), message: pushMessage(ctx, snapshot), files: contents.map((f) => ({ path: f.path, content: Buffer.from(f.content).toString("base64"), encoding: "base64" })), deletions },
+          // A missing branch starts at the checkout's commit, so the diff applies to exactly what the agent saw; a branch
+          // the checkout was not taken from is rebuilt there.
+          args: { owner: target.owner, repo: target.repo, branch, ...(onCheckout ? { fromRef: snapshot.baseCommitSha } : {}), ...(rebuild ? { rebuild: true } : {}), ...(expected ? { expectedHeadSha: expected } : {}), message: pushMessage(ctx, snapshot, rebuild), files: contents.map((f) => ({ path: f.path, content: Buffer.from(f.content).toString("base64"), encoding: "base64" })), deletions },
         },
         { timeoutMs: PUSH_TIMEOUT_MS },
       );
@@ -193,8 +213,11 @@ export async function pushWorkspace(db: Db, gateway: GatewayClient, ctx: PushCon
     };
     // The agent pushed to its branch itself during this session and no answer named the head: the branch is at one of
     // its own commits, so the save goes on top of the head GitHub reports, once. A second refusal is someone else's push.
+    // A rebuild is retried the same way: the branch is the task's own and is being replaced whatever it holds (an
+    // earlier session's own commit the record never saw is the usual reason the head differs), so the one retry at the
+    // head GitHub names replaces it; a second refusal is a push landing while this one ran.
     const ownHead = movedTo(res);
-    if (ownHead && (ctx.agentPushed?.count ?? 0) > 0 && ownHead !== expectedHeadSha) res = await commit(ownHead);
+    if (ownHead && ((ctx.agentPushed?.count ?? 0) > 0 || rebuild) && ownHead !== expectedHeadSha) res = await commit(ownHead);
     if (res.outcome === "ask") {
       await record({ error: "waiting for the founder's approval" });
       return { status: "awaiting_approval", repo, branch, approvalId: res.approvalId ?? null };
@@ -218,7 +241,7 @@ export async function pushWorkspace(db: Db, gateway: GatewayClient, ctx: PushCon
     }
     await record({ commitSha: result.data.sha, url: result.data.url });
     if (!result.data.committed) return { status: "up_to_date", repo, branch, commitSha: result.data.sha };
-    return { status: "pushed", repo, branch, commitSha: result.data.sha, url: result.data.url, filesWritten: result.data.filesWritten, filesDeleted: result.data.filesDeleted, leftOut };
+    return { status: "pushed", repo, branch, commitSha: result.data.sha, url: result.data.url, filesWritten: result.data.filesWritten, filesDeleted: result.data.filesDeleted, leftOut, rebuilt: result.data.rebuilt === true };
   } catch (err) {
     const reason = (err as Error).message.slice(0, 300) || "the push failed";
     await record({ error: reason });
@@ -230,7 +253,7 @@ export async function pushWorkspace(db: Db, gateway: GatewayClient, ctx: PushCon
 export function describePush(push: PushResult): { level: "info" | "warn"; text: string } | null {
   switch (push.status) {
     case "pushed":
-      return { level: "info", text: `Pushed to ${push.branch} on ${push.repo}: ${push.filesWritten} file${push.filesWritten === 1 ? "" : "s"} written, ${push.filesDeleted} removed (commit ${push.commitSha.slice(0, 7)}).${push.leftOut ? ` ${push.leftOut} file${push.leftOut === 1 ? "" : "s"} under .github stayed here: agents never change a repository's workflows.` : ""}` };
+      return { level: "info", text: `Pushed to ${push.branch} on ${push.repo}: ${push.filesWritten} file${push.filesWritten === 1 ? "" : "s"} written, ${push.filesDeleted} removed (commit ${push.commitSha.slice(0, 7)}).${push.rebuilt ? " The branch was rebuilt on the default branch's newest commit; its earlier commits are no longer its history." : ""}${push.leftOut ? ` ${push.leftOut} file${push.leftOut === 1 ? "" : "s"} under .github stayed here: agents never change a repository's workflows.` : ""}` };
     case "up_to_date":
       return null;
     case "skipped":

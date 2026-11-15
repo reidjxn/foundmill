@@ -104,9 +104,9 @@ test.describe("onboarding", () => {
     await page.goto("/new/ideate");
     await expect(page).toHaveURL(/\/new\/ideate$/);
     await expect(page.getByTestId("prompt-box")).toBeVisible({ timeout: LONG });
-    // `/` now resolves to a business Home (the seed owner owns Northwind and Ledgerly).
+    // `/` now resolves to a business's Today (the seed owner owns Northwind and Ledgerly).
     await page.goto("/");
-    await expect(page).toHaveURL(/\/b\/[0-9a-f-]{36}\/home/, { timeout: LONG });
+    await expect(page).toHaveURL(/\/b\/[0-9a-f-]{36}\/today/, { timeout: LONG });
   });
 
   test("two passes: four questions first, the rest behind Add detail, and the rail counts the optional section as one (§7.3, A1)", async ({
@@ -196,11 +196,11 @@ test.describe("onboarding", () => {
     await expect(page.getByLabel(/Budget you can commit/)).toHaveValue(/^5,?000$/);
     await expect(page.locator('[data-section="detail"]').getByText("GBP").first()).toBeVisible();
     await expect(page.getByRole("list", { name: "Target markets chosen" })).toContainText("Ireland");
-    await expect(page.getByRole("list", { name: "Constraints chosen" })).toContainText("Keep my day job for now");
+    await expect(page.getByRole("list", { name: "Constraints chosen" })).toContainText("Fits around what I already do");
     await expect(page.getByRole("list", { name: "Constraints chosen" })).toContainText("No physical inventory");
     await expect(page.getByLabel("Low", { exact: true })).toBeChecked();
     await expect(page.locator('[data-skill-value="domain"]')).toHaveText("16");
-    await expect(page.getByTestId("profile-summary")).toContainText("First-time founder · evenings and weekends · GBP 5,000 · UK, Ireland");
+    await expect(page.getByTestId("profile-summary")).toContainText("First-time founder · evenings and weekends · £5,000 · based in the United Kingdom · markets: UK, Ireland");
     // Continue waits, and says why where the reassurance line was.
     await expect(page.getByTestId("profile-submit")).toBeDisabled();
     await expect(page.getByTestId("profile-submit-bottom")).toBeDisabled();
@@ -272,14 +272,34 @@ test.describe("onboarding", () => {
       "Remote only",
     );
     await page.getByLabel("Medium").check();
-    // The summary names the currency by its ISO code before the grouped amount (the currency follows the residence
+    // The summary shows the money with its narrow symbol before the grouped amount (the currency follows the residence
     // on a new profile; a stored profile keeps its own).
     await expect(page.getByTestId("profile-summary")).toContainText(
-      /First-time founder · full time · [A-Z]{3} 25,000/,
+      /First-time founder · full time · [^\d\s]{1,3}25,000/,
     );
     await expect(page.getByText("5 of 5 done")).toBeVisible();
     await page.getByTestId("profile-submit-bottom").click();
     await expect(page).toHaveURL(/\/new$/, { timeout: LONG });
     await expect(page.getByTestId("doors")).toBeVisible();
+  });
+
+  // A country picked only part of the way (first-time founder report, Nov 8, 2026). Runs with the profile saved by the
+  // tests above, so the form opens pre-filled and the only refusal is the half-picked country. A stored profile keeps
+  // its own currency whatever the residence says (A11; the new-profile derivation is OnboardingForm.test.tsx's), so the
+  // check here is the refusal and that the finished country saves, not which currency the derived line names.
+  test("'United' asks the founder to finish picking instead of counting money in the wrong currency", async ({ page }) => {
+    await page.goto("/onboarding");
+    await expect(page.getByTestId("onboarding-form")).toBeVisible({ timeout: LONG });
+    const residence = page.getByLabel("Residence");
+    await residence.fill("United");
+    await residence.blur();
+    await page.getByTestId("profile-submit").click();
+    await expect(page.getByRole("alert").filter({ hasText: /Finish picking the country: .*United Kingdom or United States/ })).toBeVisible();
+    await expect(page).toHaveURL(/\/onboarding$/);
+    await residence.fill("United Kingdom");
+    await expect(page.getByRole("alert").filter({ hasText: /Finish picking the country/ })).toHaveCount(0);
+    await expect(page.getByTestId("profile-place-derived")).toContainText(/count(ed)? money in|Money is counted in/);
+    await page.getByTestId("profile-submit").click();
+    await expect(page).toHaveURL(/\/new$/, { timeout: LONG });
   });
 });

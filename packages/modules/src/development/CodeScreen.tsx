@@ -6,7 +6,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { CircleCheck, ExternalLink, FileCode, FolderGit2, GitBranch, Network, Search, Trash2, TriangleAlert } from "lucide-react";
-import { Avatar, Button, Chip, CodeViewer, DataTable, EmptyState, ErrorState, Icon, Input, Panel, SimpleSelect, StatusPill, Term, cn, formatBytes, formatDate, formatNumber, formatRelative, useFormatters, type DataTableColumn, type DateFormatPrefs, type SelectOption } from "@foundmill/dugout";
+import { Avatar, Button, Chip, CodeViewer, useAgentPersona, DataTable, EmptyState, ErrorState, Icon, Input, Panel, SimpleSelect, StatusPill, Term, cn, formatBytes, formatDate, formatNumber, formatRelative, useFormatters, type DataTableColumn, type DateFormatPrefs, type SelectOption } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
@@ -38,11 +38,11 @@ export interface CodeTaskTableRow extends CodeTaskRow {
   savedAt: Date | null;
 }
 
-export function toCodeRows(tasks: readonly CodeTaskRow[], agents: Map<string, AgentRow>): CodeTaskTableRow[] {
+export function toCodeRows(tasks: readonly CodeTaskRow[], agents: Map<string, AgentRow>, nameFor: (agent: AgentRow) => string = (a) => a.name): CodeTaskTableRow[] {
   return tasks.map((t) => {
     const agentId = t.latest.agentId ?? t.assigneeAgentId;
     const agent = agentId ? agents.get(agentId) : undefined;
-    return { ...t, id: t.taskId, agent, agentName: agent?.name ?? (agentId ? "Agent" : "Unassigned"), fileCount: t.latest.fileCount, savedAt: toDate(t.latest.createdAt) };
+    return { ...t, id: t.taskId, agent, agentName: agent ? nameFor(agent) : agentId ? "Agent" : "Unassigned", fileCount: t.latest.fileCount, savedAt: toDate(t.latest.createdAt) };
   });
 }
 
@@ -166,9 +166,11 @@ export function CodeScreen({ businessId, departmentId }: ModuleScreenProps) {
   const list = useWidgetQuery<CodeTaskRow[]>("dev.code.list", {});
   const agents = useAgents();
   const agentIndex = useAgentIndex(agents.data?.agents);
+  // Agents named under the reader's preference, in the rows' name fields too (One name everywhere).
+  const persona = useAgentPersona();
   useBusinessEvents(() => list.refetch(), ["task.completed", "task.blocked"]);
 
-  const rows = useMemo(() => toCodeRows(list.data ?? [], agentIndex), [list.data, agentIndex]);
+  const rows = useMemo(() => toCodeRows(list.data ?? [], agentIndex, persona.labelFor), [list.data, agentIndex, persona]);
   const initialTask = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("task") : null;
   const [taskId, setTaskId] = useState<string | null>(initialTask);
   const selectedTask = rows.find((r) => r.taskId === taskId) ?? rows[0] ?? null;

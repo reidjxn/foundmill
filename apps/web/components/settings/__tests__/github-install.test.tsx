@@ -20,6 +20,7 @@ vi.mock("next/navigation", () => ({ useSearchParams: () => search, useRouter: ()
 vi.mock("@/lib/trpc-react", () => ({
   useTRPC: () => ({
     integrations: {
+      platformMail: { queryOptions: () => ({ queryKey: [["integrations", "platformMail"]], queryFn: async () => null }) },
       list: { queryOptions: () => ({ queryKey: [["integrations", "list"]], queryFn: async () => ({ mode: "mock", integrations: [], catalogue }) }) },
       connect: { mutationOptions: (opts: Record<string, unknown>) => ({ mutationKey: [["integrations", "connect"]], mutationFn: (vars: unknown) => connect(vars), ...opts }) },
       disconnect: { mutationOptions: (opts: Record<string, unknown>) => ({ mutationKey: [["integrations", "disconnect"]], mutationFn: vi.fn(), ...opts }) },
@@ -75,7 +76,7 @@ describe("Settings › Integrations: finishing the GitHub connection", () => {
     renderTab();
     expect(screen.getByTestId("github-installation").textContent).toContain("GitHub installation 48213377 is ready");
     // The Code tab is named by the department over the Development module, as the founder named it.
-    expect(screen.getByTestId("github-installation").textContent).toContain("choose the repository on Formulation Lab › Code.");
+    expect(screen.getByTestId("github-installation").textContent).toContain("choose the repository on Product › Code.");
     expect(connect).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Connect installation" }));
     await waitFor(() => expect(connect).toHaveBeenCalledWith({ businessId: BUSINESS, connectorKey: "github", input: { installationId: 48213377, code: "c0de", state: STATE } }));

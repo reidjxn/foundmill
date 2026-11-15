@@ -15,23 +15,43 @@
 import { z } from "zod";
 import {
   Actor,
+  TEAM_CALL_KINDS,
+  TEAM_CALL_LIMITS,
   AgentStatus,
   Archetype,
   AUTOPILOT_CADENCES,
   AUTOPILOT_PAUSE_REASONS,
   BusinessMode,
   ChannelKey,
+  CONTINUE_RUN_END_REASONS,
+  DesignCheckResult,
   ConversationAuthorKind,
   ConversationSubjectKind,
   ConversionKind,
   DecisionType,
   EVENT_TYPES,
   EventType,
+  FOUNDER_RETURN_VIA,
   GameMode,
+  GOAL_METRIC_KINDS,
+  GOAL_PROPOSAL_REASONS,
   GUIDANCE_OFF_SOURCES,
   InboxItemType,
   MatchdayLevel,
   Money,
+  NOTIFICATION_KINDS,
+  EMAIL_NOTIFICATION_KINDS,
+  FOUNDER_NOTICES,
+  INVITATION_ROLES,
+  SHOWCASE_REQUEST_STATES,
+  SHOWCASE_WITHDRAW_REASONS,
+  PUSH_PROVIDERS,
+  SHARE_DESTINATIONS,
+  SHARE_OPEN_TARGETS,
+  SHARE_SUBJECT_KINDS,
+  TEAM_POST_SUBJECTS,
+  TEAM_POST_TRIGGERS,
+  POST_NETWORKS,
   SIGNOFF_KINDS,
   Severity,
   SkillGroup,
@@ -39,8 +59,16 @@ import {
   TaskKind,
   TaskPhase,
   ValidationError,
+  isAccountEventType,
+  PersonHandle,
+  type AccountEventType,
+  type BusinessEventType,
+  type EventScope,
   type EventType as EventTypeT,
 } from "@foundmill/shared";
+import { POST_OUTCOME_KINDS } from "@foundmill/shared/post-outcomes";
+import { ATTRIBUTION_VIA_KINDS } from "@foundmill/shared/via";
+import { assertAccountPayloadSchema } from "./account-payload";
 
 // ---------------------------------------------------------------------------------------------------
 // Building blocks
@@ -76,11 +104,21 @@ export type EventConsumer = (typeof EVENT_CONSUMERS)[number];
 // Declaration helper and registry
 // ---------------------------------------------------------------------------------------------------
 
+/** The scope an event type has in the shared vocabulary (`ACCOUNT_EVENT_TYPES`): what its declaration must state. */
+export type EventScopeOf<T extends EventTypeT> = T extends AccountEventType ? "account" : "business";
+
 export interface EventDeclaration<
   T extends EventTypeT = EventTypeT,
   S extends z.ZodType = z.ZodType,
+  Sc extends EventScope = EventScope,
 > {
   readonly type: T;
+  /**
+   * Where the event belongs: `business` (a fact about a project: `events`, `ev:{businessId}`, written with
+   * `writeEvent`) or `account` (a fact about one person: `account_events`, `ae:{userId}`, written with
+   * `writeAccountEvent`). Each writer refuses the other scope, at compile time and at run time.
+   */
+  readonly scope: Sc;
   readonly schema: S;
   /** One or two sentences: when it fires and what the payload carries. */
   readonly doc: string;
@@ -88,32 +126,83 @@ export interface EventDeclaration<
   readonly consumers: readonly EventConsumer[];
   /** Whether the Inbox Composer may narrate this event as an inbox item (false = internal / already narrated). */
   readonly narratable: boolean;
+  /** Account scope only: the payload keys allowed to hold a UUID (ids of records, never of accounts). */
+  readonly recordIds: readonly string[];
 }
 
 interface DeclareOptions {
+  /** Business is the scope of `declareEvent`; an account-scoped event is declared with `declareAccountEvent`. */
+  scope?: "business";
   doc: string;
   consumers: readonly EventConsumer[];
   narratable?: boolean;
 }
 
+interface DeclareAccountOptions {
+  doc: string;
+  consumers: readonly EventConsumer[];
+  /** Payload keys allowed to hold a UUID: ids of records (an ask, a thread), never of accounts. */
+  recordIds?: readonly string[];
+}
+
 /**
- * Declare one event type. The type must be a member of `EVENT_TYPES`; this is enforced both by the
- * TypeScript signature and at runtime (so a stale catalogue cannot register a type the vocabulary dropped).
+ * Declare one business-scoped event type (the scope of every event of a project; `scope: "business"` may be written
+ * out, and is what this helper states when it is not). The type must be a member of `EVENT_TYPES` and not one of
+ * `ACCOUNT_EVENT_TYPES`; both are enforced by the TypeScript signature and at runtime (so a stale catalog cannot
+ * register a type the vocabulary dropped, or move a person's fact into a project's events).
  */
-export function declareEvent<T extends EventTypeT, S extends z.ZodType>(
+export function declareEvent<T extends BusinessEventType, S extends z.ZodType>(
   type: T,
   schema: S,
   opts: DeclareOptions,
-): EventDeclaration<T, S> {
+): EventDeclaration<T, S, "business"> {
   if (!EventType.safeParse(type).success) {
     throw new Error(`declareEvent: "${type}" is not in EVENT_TYPES (packages/shared/src/types.ts)`);
   }
+  if (isAccountEventType(type) || (opts.scope ?? "business") !== "business") {
+    throw new Error(`declareEvent: "${type}" is account-scoped; declare it with declareAccountEvent`);
+  }
   return Object.freeze({
     type,
+    scope: "business" as const,
     schema,
     doc: opts.doc,
     consumers: Object.freeze([...opts.consumers]),
     narratable: opts.narratable ?? true,
+    recordIds: Object.freeze([]),
+  });
+}
+
+/**
+ * Declare one account-scoped event type: a fact about one person, stored in their own `account_events` rows and never
+ * in a project's events. The type must be one of `ACCOUNT_EVENT_TYPES`, and a new one also needs a migration that
+ * redefines `fm_account_event_types()` with it (the database lets only the listed types into `account_events` and
+ * keeps them out of `events`; packages/db `rls/account-events.test.ts` compares the two lists). The payload schema is checked against the
+ * account payload conventions as the catalog loads (./account-payload: a closed object, nobody named by an account id,
+ * an email address or a private field; another person only by something public about them, such as a handle). Never
+ * narrated: the Composer writes a project's Inbox, and this is not a project's fact.
+ */
+export function declareAccountEvent<T extends AccountEventType, S extends z.ZodType>(
+  type: T,
+  schema: S,
+  opts: DeclareAccountOptions,
+): EventDeclaration<T, S, "account"> {
+  if (!EventType.safeParse(type).success) {
+    throw new Error(`declareAccountEvent: "${type}" is not in EVENT_TYPES (packages/shared/src/types.ts)`);
+  }
+  if (!isAccountEventType(type)) {
+    throw new Error(`declareAccountEvent: "${type}" is not in ACCOUNT_EVENT_TYPES (packages/shared/src/constants.ts); declare it with declareEvent`);
+  }
+  const recordIds = Object.freeze([...(opts.recordIds ?? [])]);
+  assertAccountPayloadSchema(type, schema, recordIds);
+  return Object.freeze({
+    type,
+    scope: "account" as const,
+    schema,
+    doc: opts.doc,
+    consumers: Object.freeze([...opts.consumers]),
+    narratable: false,
+    recordIds,
   });
 }
 
@@ -302,6 +391,8 @@ export const TASK_BLOCKED_REASONS = [
   "error",
   "shout",
   "stopped",
+  /** The task's change clashes with newer work on the default branch (or its checks failed there): its agent brings it up to date. */
+  "needs_update",
 ] as const;
 export const TaskBlockedReason = z.enum(TASK_BLOCKED_REASONS);
 export type TaskBlockedReason = z.infer<typeof TaskBlockedReason>;
@@ -322,6 +413,22 @@ const taskBlocked = declareEvent(
   {
     doc: "A task cannot continue: waiting on approval, a dependency, a credential, budget, a rate limit, a detected loop or a failure. Narrated as a warning (or decision when an approval is needed).",
     consumers: ["composer", "metrics", "health", "playbooks"],
+  },
+);
+
+const taskDesignChecked = declareEvent(
+  "task.design_checked",
+  z.object({
+    ...TaskRef,
+    assigneeAgentId: Id,
+    sessionId: Id.nullable().default(null),
+    /** What the check did and found (packages/shared `DesignCheckResult`): reviewed, not seen (and why), or simulated. */
+    result: DesignCheckResult,
+  }),
+  {
+    doc: "The design check of a code agent's UI change (item 13): screenshots of the changed pages at desktop and 390 px, a separate reviewer's ranked fixes, and whether the author was asked to apply them. `not_seen` and `simulated` say no screenshot exists. Attached to the change's approval; never blocks it.",
+    consumers: ["stream"],
+    narratable: false,
   },
 );
 
@@ -842,7 +949,7 @@ const modeChanged = declareEvent(
     }),
   ]),
   {
-    doc: "Game mode (LIVE ↔ Personal) or business mode (Augmented / Assisted / Automated) changed. LIVE → Personal starts the 15-minute removal from search and leaderboards.",
+    doc: "Game mode (LIVE ↔ Personal) or business mode (Augmented / Assisted / Automated) changed. LIVE → Personal starts the 15-minute removal from search.",
     consumers: ["composer", "metrics", "playbooks"],
   },
 );
@@ -1078,10 +1185,52 @@ const cycleCompleted = declareEvent(
     /** Inbox items the composer wrote during the cycle. */
     inboxItemIds: z.array(Id),
     durationMs: Count,
+    /** A cycle that ended `failed`: what stopped it, for Home's banner (a model account out of credit, a missing key, an error). */
+    failure: z.object({ kind: z.enum(["billing", "credential", "request", "error"]), message: z.string().min(1).max(500) }).nullable().default(null),
   }),
   {
     doc: "The businessCycle ended (all branches done, time box reached, waiting on decisions, stopped or failed). The composer narrates the cycle summary.",
     consumers: ["composer", "metrics", "stream", "playbooks"],
+  },
+);
+
+const cycleRunStarted = declareEvent(
+  "cycle.run_started",
+  z.object({
+    /** One id per press: the rounds the press runs and the run's end carry it. */
+    runId: Id,
+    /** The first round's cycle number; null when a cycle was already open and the run picks up after it. */
+    firstCycleNumber: z.number().int().positive().nullable(),
+  }),
+  {
+    doc: "One press of Continue started a run: the autopilot workflow starts round after round (businessCycle) until nothing is left the team can do, a hard stop, a vacation, Pause or the day's limits end it.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+const cycleRunEnded = declareEvent(
+  "cycle.run_ended",
+  z.object({
+    runId: Id,
+    /**
+     * `done`: the last round did nothing (decisions waiting in Needs you never hold a run); `hard_stop`: the stop flag,
+     * used-up credits or an Inbox item that blocks Continue; `paused`: the founder pressed Pause; `stopped`: Stop all
+     * agents or a stopped round; `daily_cycles` / `daily_spend`: the day's limits from Settings › What the team can do; `lost`: its
+     * workflow was gone (closed by the API's reconciler).
+     */
+    reason: z.enum(CONTINUE_RUN_END_REASONS),
+    /** Rounds of the run that finished. */
+    rounds: Count,
+    /** Model cost of those rounds (an Estimate). */
+    cost: Money,
+    /** The day's cycle cap when the run ended at it (`daily_cycles`), for the founder's words; null otherwise. */
+    maxCyclesPerDay: z.number().int().min(1).max(24).nullable().default(null),
+  }),
+  {
+    doc: "A run that one press of Continue started ended (written once per run, by the workflow or by the API for Pause, Stop all agents and a lost workflow).",
+    consumers: ["stream", "metrics"],
+    narratable: false,
   },
 );
 
@@ -1097,6 +1246,9 @@ const autopilotChanged = declareEvent(
     /** The day's spend ceiling in USD (an Estimate); null: the credits left. */
     spendCeiling: Money.nullable().default(null),
     maxIdleCycles: z.number().int().min(1).max(10),
+    /** Autopilot's own limits (0084): cycles it starts itself per day, and their spend ceiling in USD; null: none. */
+    ownMaxCyclesPerDay: z.number().int().min(1).max(24).nullable().default(null),
+    ownSpendCeiling: Money.nullable().default(null),
   }),
   {
     doc: "Autopilot was turned on or off, its settings changed, or a guard rail (Stop all agents, used-up credits, failed or empty cycles) paused it. Only an owner or admin turns it back on.",
@@ -1111,8 +1263,10 @@ const autopilotCycleStarted = declareEvent(
     cycleNumber: z.number().int().positive(),
     workflowId: z.string().min(1),
     cadence: z.enum(AUTOPILOT_CADENCES),
-    /** Autopilot cycles started today (UTC), this one included. */
+    /** Cycles started today (UTC) that count toward the daily cap, this one included. */
     cyclesToday: z.number().int().positive(),
+    /** Set when the cycle is a follow-on round of a run one press of Continue started. */
+    runId: Id.optional(),
   }),
   {
     doc: "Autopilot started the next businessCycle through the same entry point as Continue (trigger `autopilot`); every approval, hard gate and policy check applies as for a founder press.",
@@ -1145,8 +1299,8 @@ const inboxItemUpdated = declareEvent(
   "inbox.item_updated",
   z.object({
     inboxItemId: Id,
-    /** Archived by a member, or the plan the item was answered with confirmed (its follow-up Update written). */
-    change: z.enum(["archived", "plan_confirmed"]),
+    /** Archived by a member, the plan the item was answered with confirmed (its follow-up Update written), or the note revised in place (the Chief of Staff updating a warning about the same problem). */
+    change: z.enum(["archived", "plan_confirmed", "revised"]),
     /** The confirmed plan (`plan_confirmed`); null otherwise. */
     planId: Id.nullable().default(null),
     /** The follow-up Update the confirmation wrote; null when none. */
@@ -1303,6 +1457,56 @@ const guidanceTurnedOff = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
+// Push notifications (the mobile companion app, docs/mobile)
+// ---------------------------------------------------------------------------------------------------
+
+const pushSent = declareEvent(
+  "push.sent",
+  z.object({
+    /** Which kind of notification (`NOTIFICATION_KINDS`): the per-kind switch each person holds in their preferences. */
+    kind: z.enum(NOTIFICATION_KINDS),
+    /** The business event the notification was about. */
+    sourceEventId: Id,
+    sourceEventType: EventType,
+    /** People it went to (after walls and preferences) and the phones among them it was sent to. */
+    recipients: Count,
+    devices: Count,
+    provider: z.enum(PUSH_PROVIDERS),
+    mode: z.enum(["mock", "live"]),
+    /** The provider's notification ids (one per text variant sent); empty when it accepted nothing. */
+    providerMessageIds: z.array(z.string().max(120)).max(50),
+  }),
+  {
+    doc: "The api's push notifier sent a notification about a business event to the registered phones of the people who may see it (section walls and their own switches applied). The audit of what reached a founder's phone; never the title or the body.",
+    consumers: ["metrics"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
+// The return loop (retention plan, founder 2026-11-11): founders coming back, and what brought them
+// ---------------------------------------------------------------------------------------------------
+
+const founderSessionStarted = declareEvent(
+  "founder.session_started",
+  z.object({
+    /** How the session started: on their own, from a founder email, or from a browser notification. */
+    via: z.enum(FOUNDER_RETURN_VIA),
+    /** The notification whose link started it, when there was one. */
+    notificationId: Id.nullable().default(null),
+    /** Minutes since the end of the session before it; null on the founder's first session in this business. */
+    minutesAway: Count.nullable(),
+    /** The founder's sessions in this business so far, this one included. */
+    sessions: z.number().int().positive(),
+  }),
+  {
+    doc: "A founder opened the business after more than 30 minutes away (or for the first time). Written by founder.presence.ping (the envelope's actor is the founder); the retention report counts returns and returns from notifications from it. Metrics only, never narrated.",
+    consumers: ["metrics"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
 // Founder ↔ agent conversations (audit-conversation §4)
 // ---------------------------------------------------------------------------------------------------
 
@@ -1430,12 +1634,583 @@ const distributionStarted = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
+// The business's goal (founder, 2026-11-07: "Your goal"; migration 0072)
+// ---------------------------------------------------------------------------------------------------
+
+/** What the founder reads about a goal, in the words packages/shared goals.ts writes (no free text of anyone's). */
+const GoalFacts = z.object({
+  goalId: Id,
+  revision: z.number().int().positive(),
+  metricKind: z.enum(GOAL_METRIC_KINDS),
+  /** A count, or minor units for revenue_month; null for a custom goal. */
+  targetValue: z.number().int().positive().nullable(),
+  currency: z.string().length(3).nullable().default(null),
+  /** "2026-12-19". */
+  dueOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
+
+const goalProposed = declareEvent(
+  "goal.proposed",
+  GoalFacts.extend({
+    /** Why: the first goal, a revision of the founder's words, the next after one was reached, a new date after a miss. */
+    reason: z.enum(GOAL_PROPOSAL_REASONS),
+    /** The Chief of Staff who proposed it (null when the business has none). */
+    proposedByAgentId: Id.nullable(),
+    /** The Chief of Staff's decision note. */
+    inboxItemId: Id.nullable(),
+    /** The goal it follows (the changed proposal, the reached goal or the missed one); null for the first. */
+    replacesGoalId: Id.nullable().default(null),
+    /** How the revision was read from the founder's words: the model route, the deterministic reader, or neither (a default). */
+    source: z.enum(["default", "model", "parser"]).default("default"),
+  }),
+  {
+    doc: "The Chief of Staff proposed the business's goal as an Inbox decision note (never holding Continue, 0071): after both sign-offs and a round of work, after a change request, after a goal was reached, or when a goal's date passed. apps/stream pushes it so open tabs refetch `goal.current`. Never narrated: the note is the Chief of Staff's own.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+const goalApproved = declareEvent(
+  "goal.approved",
+  GoalFacts.extend({
+    approvedBy: z.object({ kind: z.literal("user"), id: Id }),
+    /** Where the number stood at the approval (null for custom). */
+    startValue: z.number().int().nullable(),
+    /** The previous active goal this one replaced; null when there was none. */
+    replacedGoalId: Id.nullable().default(null),
+    via: z.enum(["inbox", "goal"]),
+  }),
+  {
+    doc: "The founder approved the proposed goal: it is the active goal from now and the previous one is replaced. apps/stream pushes it so Home and the Inbox follow. Never narrated.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+const goalChangeRequested = declareEvent(
+  "goal.change_requested",
+  z.object({
+    goalId: Id,
+    revision: z.number().int().positive(),
+    requestedBy: z.object({ kind: z.literal("user"), id: Id }),
+    /** The founder's own words (at most 2,000 characters). */
+    words: z.string().min(1).max(2000),
+    /** The revised proposal written from them. */
+    revisedGoalId: Id,
+    via: z.enum(["inbox", "goal"]),
+  }),
+  {
+    doc: "The founder asked for a change to a proposed goal in their own words: the proposal is replaced and the Chief of Staff's revised proposal follows as goal.proposed. apps/stream pushes it (the words are hidden from readers who may not see the Inbox). Never narrated.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+const goalAchieved = declareEvent(
+  "goal.achieved",
+  GoalFacts.extend({
+    /** The value it reached (a count, or minor units). */
+    achievedValue: z.number().int().nullable(),
+    /** The Chief of Staff's "Goal reached: …" note; null when the business has no Chief of Staff. */
+    inboxItemId: Id.nullable().default(null),
+  }),
+  {
+    doc: "The active goal was reached (a payment or a signup arrived, or `goal.ensure` counted it): marked achieved, and the Chief of Staff posted a milestone-style note; the next proposal follows on the next `goal.ensure`. Never narrated.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
+// A project's public page (0077)
+// ---------------------------------------------------------------------------------------------------
+
+/** What both page events carry: the page, its address, and the full public URL it is (or was) served at. */
+const PageFacts = z.object({
+  pageId: Id,
+  /** The address under /p/ (3 to 40 lowercase letters, digits and hyphens). */
+  slug: z.string().min(3).max(40),
+  url: z.string().url().max(2048),
+});
+
+// Team call (docs/TEAM_CALL.md §5): a spoken call between the founder and their team of agents, or one agent.
+const teamCallStarted = declareEvent(
+  "team_call.started",
+  z.object({
+    callId: Id,
+    kind: z.enum(TEAM_CALL_KINDS),
+    agentIds: z.array(Id).min(1).max(TEAM_CALL_LIMITS.maxAgentsInTeamCall),
+    topic: z.string().max(TEAM_CALL_LIMITS.maxTopicChars).nullable().default(null),
+  }),
+  {
+    doc: "A founder started a team call with their agents (`team`) or a call with one agent (`one_to_one`). The founder did it themselves, so it is never narrated; apps/stream pushes it so Team call's list follows.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+const teamCallEnded = declareEvent(
+  "team_call.ended",
+  z.object({
+    callId: Id,
+    kind: z.enum(TEAM_CALL_KINDS),
+    turnCount: z.number().int().nonnegative(),
+    actionCount: z.number().int().nonnegative(),
+    /** Action items filed at once (a task in its department, an item on the roadmap). */
+    filedCount: z.number().int().nonnegative(),
+    /** Action items staged as a plan that waits for the founder's go-ahead. */
+    awaitingCount: z.number().int().nonnegative(),
+    durationSeconds: z.number().int().nonnegative(),
+  }),
+  {
+    doc: "A call ended and its action items were filed: the summary and the actions are on the call, and the Chief of Staff's note in the Inbox says what was agreed. Filing work inside the project is not an outside result, so the north star never counts it. Never narrated (the note is written by the api with the call).",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+const pagePublished = declareEvent("page.published", PageFacts, {
+  doc: "A founder published the project's public page, or published changes to a page that is already live: from this moment anyone can open `url` signed out. A real outside result (the north star counts it). The founder did it themselves, so it is never narrated; apps/stream pushes it so Today and the Public page tab follow.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+const pageUnpublished = declareEvent("page.unpublished", PageFacts, {
+  doc: "A founder took the project's public page down: `url` answers not found from now on (the draft is kept). Never narrated; apps/stream pushes it so Today and the Public page tab follow.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+const pageFollowed = declareEvent(
+  "page.followed",
+  z.object({
+    /** The page they signed up on; null only when that page row was deleted before they confirmed. */
+    pageId: Id.nullable(),
+    /** The follower's CRM record (their lawful basis is now `consent` unless it already had one). Never the address itself. */
+    entityId: Id,
+    /** The consent record (0079 `contact_consents`): what they agreed to, when, and when they confirmed. */
+    consentId: Id,
+  }),
+  {
+    // North star (CLAUDE.md, founder 2026-11-11): a stranger who confirmed from their own inbox that they want to hear
+    // from the project is a real outside result, so each `page.followed` is a real outcome of its week. Written at the
+    // confirmation, never at the signup (double opt-in, SECURITY_REVIEW Nov 11). The measure reads this; it is not built yet.
+    doc: "A person confirmed, from the link in the one email the platform sent them, that they want to follow the project they signed up for on its public page: their consent record is confirmed and they count as a follower. Written by ingest's `/mail/confirm`, once per record (a second use of the link, or a second signup, writes nothing); a signup that was never confirmed writes nothing. A real outside result (the north star counts it). Not narrated: one note per follower would be noise, and no digest pattern exists yet; the Public page tab counts them.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
+// The optional "which one is for you" quiz on a project's public page (0105)
+// ---------------------------------------------------------------------------------------------------
+
+const QuizFacts = z.object({
+  quizId: Id,
+  /** The definition's version (it goes up with every change); counts are read per version. */
+  version: z.number().int().positive(),
+  /** How many customer types and questions it has: shape only, never the words. */
+  typeCount: z.number().int().min(2).max(4),
+  questionCount: z.number().int().min(2).max(4),
+});
+
+const quizApproved = declareEvent("quiz.approved", QuizFacts, {
+  doc: "A founder (an owner or an admin) approved every word of the project's page quiz, which the team drafted from the project's real customers. Approving puts nothing on the page: it stays off until they turn it on (`quiz.published`). Never narrated; apps/stream pushes it so the Public page tab follows.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+const quizPublished = declareEvent("quiz.published", QuizFacts.extend({ slug: z.string().min(3).max(40) }), {
+  doc: "A founder turned the approved quiz on: from now on it shows on the project's public page while the page is live. Not a real outcome on its own (nothing outside happened yet). Never narrated; pushed for the Public page tab.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+const quizUnpublished = declareEvent("quiz.unpublished", QuizFacts.extend({ slug: z.string().min(3).max(40) }), {
+  doc: "A founder turned the quiz off: it leaves the public page at once (the approved quiz is kept). Never narrated; pushed for the Public page tab.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+// ---------------------------------------------------------------------------------------------------
+// A message sent from the project's Foundmill address (0078, package 1.5)
+// ---------------------------------------------------------------------------------------------------
+
+const mailSent = declareEvent(
+  "mail.sent",
+  z.object({
+    /** The gateway's own id for the message, signed into its custom args: delivery events are bound to the project by it. */
+    messageRef: Id,
+    /** SendGrid's `X-Message-Id` (live), or the mock's id (simulated). */
+    messageId: z.string().min(1).max(200),
+    /** sha256 hex of the recipient's address, trimmed and lowercased (`suppressionHash`); never the address itself. */
+    recipientHash: z.string().regex(/^[0-9a-f]{64}$/),
+    /** The local part it was sent from (`<fromLocalPart>@<PLATFORM_MAIL_DOMAIN>`). */
+    fromLocalPart: z.string().min(3).max(40),
+    channelKey: ChannelKey.nullable().default(null),
+    agentId: Id.nullable().default(null),
+    sessionId: Id.nullable().default(null),
+    /** True when the mock ran (SendGrid not live on the gateway): nothing left Foundmill. */
+    simulated: z.boolean(),
+  }),
+  {
+    // North star (CLAUDE.md, founder 2026-11-11): a `mail.sent` with `simulated: false` is a real outcome of its week; a
+    // simulated one never counts. The measure reads this flag; it is not built yet.
+    doc: "An agent sent one message from the project's Foundmill sending address through the gateway, after the policy for outside contact, the suppression list, the project's daily cap and the platform's ceiling. A real outside action when `simulated` is false (the north star counts only those). Never narrated on its own; a reply, if one comes, is `lead.replied`.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
+// Email from Foundmill to a person (packages 1.5 and 5.1)
+// ---------------------------------------------------------------------------------------------------
+
+const notifyEmailSent = declareEvent(
+  "notify.email_sent",
+  z.object({
+    /** Which kind of email (`EMAIL_NOTIFICATION_KINDS`): the per-kind switch each person holds in their preferences. */
+    kind: z.enum(EMAIL_NOTIFICATION_KINDS),
+    /** The person it went to, by account id only: never the address. */
+    userId: Id,
+    /** The note it was about (`decision_waiting`, `win`, `credits`, a milestone's note); null for the others. */
+    inboxItemId: Id.nullable(),
+    /** SendGrid's `X-Message-Id` (live), or the mock's id (simulated). */
+    messageId: z.string().min(1).max(200),
+    /** True when the mock ran (SendGrid not live on the gateway): nothing left Foundmill. */
+    simulated: z.boolean(),
+    /** The `founder_notifications` row that holds the email (readable only by its person); its id travels in the links. */
+    notificationId: Id,
+    /** The email offered a one-click answer. */
+    offersAnswer: z.boolean().default(false),
+  }),
+  {
+    doc: "Foundmill emailed one of the business's people about their own project (a note waiting for their answer, a win, a milestone, a finished Autopilot run, used-up credits, the morning brief or the weekly review), from its own address through the gateway, after the person's own switch, their section walls and the daily limits. The record of what reached a person's inbox and the per-day key of the api's notify pass; the words stay on the founder_notifications row, readable only by that person; never the address. Not an outcome of the project (the north star never counts it); never narrated.",
+    consumers: ["metrics"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
+// Milestones a founder chooses to show (0089; docs/NETWORK.md F2 "the story", F3 "cards")
+// ---------------------------------------------------------------------------------------------------
+
+/** What both events carry: the milestone, which one it is, and the addresses it is (or was) shown at. */
+const ShownMilestoneFacts = z.object({
+  milestoneId: Id,
+  /** The milestone's key (`TROPHY_KEYS` in @foundmill/journey): "page_live", "first_follower", "customer_1", ... */
+  key: z.string().min(1).max(60),
+  /** The project page's address under /p/: the story is `/p/<slug>/story`. */
+  slug: z.string().min(3).max(40),
+  /** The card's full public URL (`/m/<milestoneId>`). */
+  url: z.string().url().max(2048),
+});
+
+const milestoneShown = declareEvent("milestone.shown", ShownMilestoneFacts, {
+  doc: "An owner or an admin chose to show a reached milestone on the project's page: from this moment it is a line of the project's story and anyone can open its card at `url`, while the page is public. The founder's own press, each time (nothing becomes public on its own). Not an outside result in itself (the north star does not count it: the milestone's own event already was one); never narrated.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+const milestoneHidden = declareEvent("milestone.hidden", ShownMilestoneFacts, {
+  doc: "An owner or an admin took a shown milestone off the project's page: it leaves the story and `url` answers not found from now on. The milestone itself stays reached. Never narrated.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Tap-to-post (docs/NETWORK.md F3; docs/DECISIONS.md 2026-11-12)
+// ---------------------------------------------------------------------------------------------------
+
+const shareOpened = declareEvent(
+  "share.opened",
+  z.object({
+    /** Where: a network or a messaging app. Null for the device's own share sheet and for a plain copy of the link or the text. */
+    network: z.enum(SHARE_DESTINATIONS).nullable(),
+    /** What was shared: a milestone's card, the project's page, or a drafted post. */
+    kind: z.enum(SHARE_SUBJECT_KINDS),
+    /** The milestone's id, the page's id, or the asset's id of a post the team drafted to be shared; null for any other drafted post. */
+    refId: Id.nullable(),
+    /** How: a network's window opened ready to post (`tap`) or with the link only, something copied, a message, or the device's sheet. */
+    target: z.enum(SHARE_OPEN_TARGETS),
+  }),
+  {
+    // North star (CLAUDE.md, founder 2026-11-11; DECISIONS 2026-11-12 "Honesty, unchanged"): pressing a share control
+    // opens a window in someone else's product. Whether the founder then pressed Post there is not known here, so this
+    // is not an outside result and the north star does not count it. A visit that comes back through the shared link
+    // (its `via` reference) is what would count, and that is a different event.
+    doc: "A member pressed a share control in the console: a network's own share window opened with the text and the link filled in, or with the link only, or the text or the link was copied, or a message app or the device's own share sheet opened. Recorded as a share that was opened and nothing more: whether anything was then posted is not known, so nothing calls this posted or published, it is not an outside result and the north star does not count it. Ids and names of controls only, never the words of the post. Metrics only; never narrated.",
+    consumers: ["metrics"],
+    narratable: false,
+  },
+);
+
+const postDrafted = declareEvent(
+  "post.drafted",
+  z.object({
+    /** The draft: an `assets` row (kind `post`, no campaign) on the Creative tab. */
+    assetId: Id,
+    /** What made the team write it (`TEAM_POST_TRIGGERS`). */
+    trigger: z.enum(TEAM_POST_TRIGGERS),
+    /** What it is about (`TEAM_POST_SUBJECTS`): the page going live, or the first follower. */
+    subject: z.enum(TEAM_POST_SUBJECTS),
+    /** The social channel's agent that wrote it; null when the channel has none. */
+    agentId: Id.nullable(),
+  }),
+  {
+    // North star (CLAUDE.md, founder 2026-11-11): words waiting in the console are not an outside action or result. A
+    // draft is an offer; whether it is ever shared is the founder's press (`share.opened`), and that is not counted either.
+    doc: "The social channel's agent drafted a post for the founder to share by tap, after a real thing happened to the project (its page went live, a founder showed a milestone on the page, its first follower confirmed): the draft waits on the Creative tab with its Share control, and Today shows one quiet line. Nothing was launched, scheduled, published or measured, so this is not an outside action or result. Ids and the kind of trigger only, never the words of the post. Never narrated: no note, no email and no push (an offer, never a chore); apps/stream pushes it so the Creative tab and Today follow.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+/** Which post and where (item 8, packages/db `post_links`): the link's row, the post's asset and its network (null: a copied or sent link). */
+const PostLinkFacts = {
+  linkId: Id,
+  assetId: Id,
+  network: z.enum(POST_NETWORKS).nullable(),
+};
+
+const visitAttributed = declareEvent(
+  "visit.attributed",
+  z.object(PostLinkFacts),
+  {
+    // North star (CLAUDE.md, founder 2026-11-11; network decision Nov 13, 2026 "visits stay private"): a visit proves a
+    // link was opened, not that anything happened. It is never counted, shown or narrated; a follow needs one first.
+    doc: "A link of a post the team drafted and the founder shared was opened for the first time, in a browser that ran the public page's scripts (crawlers do not), by someone who is not a member of the project. Written once per link, when `post_links.first_visited_at` is set; a returning visit writes nothing. Ids and the network only: never an address, a device or a person. Not an outside result: the north star does not count it, nothing shows visit counts in public or in private, and it is never narrated.",
+    consumers: ["metrics"],
+    narratable: false,
+  },
+);
+
+const postOutcomeAttributed = declareEvent(
+  "post.outcome_attributed",
+  z.object({
+    ...PostLinkFacts,
+    /** What the post led to (`POST_OUTCOME_KINDS`). */
+    outcomeKind: z.enum(POST_OUTCOME_KINDS),
+    /** The real outcome's own event (`page.followed`, `lead.replied` or `payment.received`); one post at most per outcome. */
+    outcomeEventId: Id,
+  }),
+  {
+    // North star (CLAUDE.md, founder 2026-11-11): the outcome itself (`page.followed`, `lead.replied`,
+    // `payment.received`) is what counts, once. This only says which post it came through, so counting it too would
+    // count the same outcome twice: it is never counted toward the north star and never narrated.
+    doc: "A real outcome of the project came back through a post the team drafted and the founder shared (last touch, one post at most per outcome): a person who arrived through the post's link confirmed that they follow the project, replied for real within 30 days of following, or paid. Written in the transaction that records the credit (`post_attributions`). Ids, the network and the kind only: never the person, an address or an amount. Not counted toward the north star (its outcome event already is), and never narrated.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
+// Invitations to a project (0091; docs/NETWORK.md F5, THESIS_REVIEW package 3.1)
+// ---------------------------------------------------------------------------------------------------
+
+const InvitationRoleEnum = z.enum(INVITATION_ROLES);
+
+const invitationSent = declareEvent(
+  "invitation.sent",
+  z.object({
+    /** The invitation (0091 `invitations`): never its token, and never the address it was sent to. */
+    invitationId: Id,
+    role: InvitationRoleEnum,
+    /** Whether Foundmill emailed the link to an address the inviter typed (else the inviter shares the link themselves). */
+    emailed: z.boolean(),
+  }),
+  {
+    doc: "An owner, a cofounder or an admin of the project made an invitation for someone to join it as a cofounder or a collaborator (`invitation.create`, Settings › People). The link was shown to them once; when they typed an address, Foundmill was asked to email it there. Not an outside result of the project's own work. Never narrated: the People tab lists the invitation; apps/stream pushes it so that tab follows.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+const invitationAccepted = declareEvent(
+  "invitation.accepted",
+  z.object({
+    invitationId: Id,
+    role: InvitationRoleEnum,
+    /** The person who accepted and is now one of the project's people (the membership row carries their access). */
+    userId: Id,
+  }),
+  {
+    doc: "The person an invitation was for signed in and accepted it (`invitation.accept`): they joined the project as a cofounder or a collaborator, once (the invitation is used up). The person who invited them is emailed within their limits (`invitation_accepted`). Written beside `membership.changed`. Not narrated: People shows them at once; apps/stream pushes it.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+const invitationDeclined = declareEvent(
+  "invitation.declined",
+  z.object({ invitationId: Id, role: InvitationRoleEnum }),
+  {
+    doc: "The person an invitation was for said no to it from its page (`invitation.decline`): the link stops working. Nothing about who they are is kept. Not narrated, and nobody is emailed about it.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
+// Showcase videos of real projects (0103; docs/THESIS_REVIEW.md §13 item 15). Ids only, never narrated, and no event
+// carries an individual founder's answer: the house's three are about its request, the project's two about the ask.
+// None is an outside result (the north star counts a post only when it is made, which the product cannot see).
+// ---------------------------------------------------------------------------------------------------
+
+const ShowcaseRequestFacts = z.object({
+  /** The house's request (0103 `showcase_requests`). */
+  requestId: Id,
+  /** The project it is about. */
+  subjectBusinessId: Id,
+});
+
+const showcaseRequested = declareEvent("showcase.requested", ShowcaseRequestFacts, {
+  doc: "In the house business: someone with an owner's standing there asked to feature a project with a real, public milestone in a short video. The script is written; the video is made next (where Runway is connected on the house business, after the house approves the spend in Needs you), and the ask goes to the project's founders only once the video is final. Ids only; never narrated.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+const showcaseApproved = declareEvent(
+  "showcase.approved",
+  ShowcaseRequestFacts.extend({
+    /** The house's draft post (an `assets` row, trigger `showcase_approved`), shared only through the showcase gate. */
+    assetId: Id,
+  }),
+  {
+    doc: "In the house business: every founder of the project said yes to the final video, so a draft post waits on the house's Creative tab to be shared by tap, while the approval is in date. Nothing was posted. Never names who said yes; never narrated.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+const showcaseWithdrawn = declareEvent(
+  "showcase.withdrawn",
+  ShowcaseRequestFacts.extend({
+    /** Why it ended without a post: one founder's No or Withdraw, a change of founders, expiry, the page or a milestone no longer public, the setting off, or the house. */
+    reason: z.enum(SHOWCASE_WITHDRAW_REASONS),
+  }),
+  {
+    doc: "In the house business: a showcase request ended without a post. The draft is set aside, the unposted media deleted and its links disabled. Says why, never which founder; never narrated.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+const showcaseAsked = declareEvent("showcase.asked", z.object({ requestId: Id }), {
+  doc: "In the project: the house's final video went out for an answer: each founder has their own note in Needs you (and is emailed if it waits). Ids only; never narrated.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+const showcaseSettled = declareEvent(
+  "showcase.settled",
+  z.object({
+    requestId: Id,
+    /** Where the ask ended: approved by every founder, or declined, withdrawn or expired. Never who answered what. */
+    state: z.enum(SHOWCASE_REQUEST_STATES).exclude(["asking"]),
+  }),
+  {
+    doc: "In the project: the showcase ask is settled. Its overall state only, never an individual founder's answer; never narrated.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
+// Account events: a person's own public profile (0080; account-scoped, docs/ARCHITECTURE.md §5 "Account events")
+// ---------------------------------------------------------------------------------------------------
+
+/** The address of the person's own public profile (`/u/<handle>`), and nothing private. */
+const ProfileFacts = z.strictObject({
+  /** The person's own handle as it was when this happened (a later change of address is not written back). */
+  handle: PersonHandle,
+});
+
+const profilePublished = declareAccountEvent("profile.published", ProfileFacts, {
+  doc: "The person made their own public profile public: from this moment anyone can open /u/<handle> signed out. Written once per change from private to public, in the same transaction, to the person's own account events; a save while it is already public writes nothing. The payload is the handle and nothing else.",
+  consumers: ["stream"],
+});
+
+const profileUnpublished = declareAccountEvent("profile.unpublished", ProfileFacts, {
+  doc: "The person took their own public profile down: /u/<handle> answers not found from now on (everything they wrote is kept). Written once per change from public to private, in the same transaction, to the person's own account events. The payload is the handle and nothing else.",
+  consumers: ["stream"],
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Account events: who or what brought a new person (0088 `attributions`; docs/NETWORK.md §5, §11; account-scoped)
+// ---------------------------------------------------------------------------------------------------
+
+// One sign-up that a public address brought is a fact about two people, so it is two rows (the two-person rule,
+// docs/ARCHITECTURE.md §5): `signup.attributed` in the new person's account events and, when someone is credited,
+// `referral.arrived` in theirs. Both are written by apps/api `services/attribution.ts` in the transaction that inserts
+// the `attributions` row. That row, which only the services read, is where the two accounts and the source project are
+// held together by id; neither payload carries any of the three.
+
+/** What the reference named, by its public address and nothing else. The same two fields for both readers. */
+const AttributionSource = z.strictObject({
+  /** A project's public page or a person's public profile (`ATTRIBUTION_VIA_KINDS`). */
+  sourceKind: z.enum(ATTRIBUTION_VIA_KINDS),
+  /**
+   * The slug or handle as it arrived (3 to 40 lowercase letters, digits and hyphens). Public: it was in an address. An
+   * address shaped like an id (32 letters a to f and digits in a row) is refused when the event is written, like any
+   * id-shaped text in an account event; the `attributions` row is then the only record.
+   */
+  sourceRef: z.string().regex(/^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/),
+});
+
+const signupAttributed = declareAccountEvent("signup.attributed", AttributionSource, {
+  doc: "For the new person: you arrived through this public page or profile. Written once per account, to the new person's own account events, when their profile is first created after they arrived with a `?via=` reference that resolved to a public project page or a public person profile; never for a reference that did not resolve or that named the person themselves. The payload is the kind and the address as it arrived (the address the person themselves opened) and nothing else: not the project's id, and not who is credited (a page need not name its founders). How the growth loops are measured.",
+  consumers: ["metrics"],
+});
+
+// Whether `referral.arrived` can tell its reader who signed up. It carries nothing of the new person: no id, no handle
+// (they have none yet), no name, no email address, no count, no ordinal and no time of its own. What is left is the
+// fact and the row's own time (`occurred_at`, `created_at`, and the moment it reaches `ae:`), which is the moment of
+// the sign-up. So a person who gave their address to one person only learns that this person signed up, and when. That
+// is what "someone arrived through your page" says, and it cannot be taken out without not writing the event; it does
+// not let the reader find the account, because nothing here can be looked up. The exact time is the one thing that
+// could later be matched with something the new person does in public (a profile that goes public minutes after).
+// Nothing is built here to blur it: rounding `occurred_at` would change nothing while `created_at` and live delivery
+// say the same, and holding the row back is delay machinery that belongs with the credit for bringing people (a pass
+// that writes these rows late and in groups). Until that is decided the rule is: nothing is ever added to this payload
+// that narrows who it was.
+const referralArrived = declareAccountEvent("referral.arrived", AttributionSource, {
+  doc: "For the person credited: someone signed up through your page or profile. Written once per sign-up, to the credited person's own account events (a project page's longest-standing owner, or a profile's own person), in the same transaction as the new person's `signup.attributed`; not written when nobody is credited. The payload is the kind and the address, the reader's own public address, and nothing else: it never says who signed up (no id, no handle, no name, no email address, no count and no time beyond the event's own). A reader who gave that address to one person only still learns that this person signed up, and when: that is the fact itself, and nothing here lets them find the account. Nothing may be added to this payload that narrows who it was. How credit for bringing someone is later paid; nothing is paid from it yet.",
+  consumers: ["metrics"],
+});
+
+// A founder notice (security review P2-3, Nov 13, 2026) goes to every founder of a project and to the person it happened
+// to, who may be out of the project by then (removed). So the fact that Foundmill emailed them is theirs, not the
+// project's: one account event per person emailed, never a `notify.email_sent` in a project the reader may no longer
+// belong to. The payload names the project by its record id and nobody by an account: not who did it, not whom it was
+// about (the reader learns those from the email itself).
+const FounderNoticeFacts = z.strictObject({
+  /** What the email was about: a founder's role lowered, a founder removed, deletion asked for or canceled. */
+  notice: z.enum(FOUNDER_NOTICES),
+  /** The project it was about (the id of a record; the reader was, or is, one of its founders). */
+  businessId: z.uuid(),
+  /** The `founder_notifications` row that holds the words (readable by this person while they are a member). */
+  notificationId: z.uuid(),
+  /** The email carried the one-click link that cancels the project's deletion (a founder removed or demoted recently). */
+  offersCancel: z.boolean(),
+  /** Sent on the mock: nothing left for real. */
+  simulated: z.boolean(),
+});
+
+const founderNoticeSent = declareAccountEvent("founder_notice.sent", FounderNoticeFacts, {
+  doc: "For the person emailed: Foundmill sent you a founder notice (a founder's role went below a founder's, a founder was removed, the project's deletion was asked for or canceled). Written by the gateway's `/v1/notify/email` after each such email, once per notice and person (idempotency key `founder_notice:<audit entry id>`), to the reader's own account events: a current founder's, the affected person's, or a former founder's for a deletion request (someone else demoted or removed them within 30 days before it, or after it), or the receipt to the person who asked for a deletion. The payload is the notice, the project's and the record's ids, whether it offered the one-click cancel, and `simulated`; never who did it or whom it was about, never the address. Not an outcome of any project.",
+  consumers: ["stream"],
+  recordIds: ["businessId", "notificationId"],
+});
+
+// ---------------------------------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------------------------------
 
 /**
  * Every declared event, keyed by type. `satisfies Record<EventType, ...>` makes the compiler fail if a
- * type is added to EVENT_TYPES without a declaration here, or declared twice.
+ * type is added to EVENT_TYPES without a declaration here, or declared twice, or declared with a scope other than
+ * the one the shared vocabulary gives it (`ACCOUNT_EVENT_TYPES`).
  */
 export const EVENTS = {
   "idea.committed": ideaCommitted,
@@ -1447,6 +2222,7 @@ export const EVENTS = {
   "task.progressed": taskProgressed,
   "task.completed": taskCompleted,
   "task.blocked": taskBlocked,
+  "task.design_checked": taskDesignChecked,
   "pr.merged": prMerged,
   "deploy.succeeded": deploySucceeded,
   "lead.created": leadCreated,
@@ -1476,6 +2252,8 @@ export const EVENTS = {
   "negotiation.message": negotiationMessage,
   "cycle.started": cycleStarted,
   "cycle.completed": cycleCompleted,
+  "cycle.run_started": cycleRunStarted,
+  "cycle.run_ended": cycleRunEnded,
   "autopilot.changed": autopilotChanged,
   "autopilot.cycle_started": autopilotCycleStarted,
   "inbox.item_created": inboxItemCreated,
@@ -1488,12 +2266,47 @@ export const EVENTS = {
   "product.signoff_decided": productSignoffDecided,
   "distribution.started": distributionStarted,
   "product.research_drafted": productResearchDrafted,
+  "goal.proposed": goalProposed,
+  "goal.approved": goalApproved,
+  "goal.change_requested": goalChangeRequested,
+  "goal.achieved": goalAchieved,
+  "page.published": pagePublished,
+  "team_call.started": teamCallStarted,
+  "team_call.ended": teamCallEnded,
+  "page.unpublished": pageUnpublished,
+  "page.followed": pageFollowed,
   "guidance.tour_completed": guidanceTourCompleted,
   "guidance.tour_skipped": guidanceTourSkipped,
   "guidance.explainer_dismissed": guidanceExplainerDismissed,
   "guidance.term_opened": guidanceTermOpened,
   "guidance.turned_off": guidanceTurnedOff,
-} as const satisfies { readonly [K in EventTypeT]: EventDeclaration<K> };
+  "push.sent": pushSent,
+  "mail.sent": mailSent,
+  "notify.email_sent": notifyEmailSent,
+  "founder.session_started": founderSessionStarted,
+  "profile.published": profilePublished,
+  "profile.unpublished": profileUnpublished,
+  "signup.attributed": signupAttributed,
+  "milestone.shown": milestoneShown,
+  "milestone.hidden": milestoneHidden,
+  "share.opened": shareOpened,
+  "referral.arrived": referralArrived,
+  "founder_notice.sent": founderNoticeSent,
+  "post.drafted": postDrafted,
+  "quiz.approved": quizApproved,
+  "quiz.published": quizPublished,
+  "quiz.unpublished": quizUnpublished,
+  "invitation.sent": invitationSent,
+  "invitation.accepted": invitationAccepted,
+  "invitation.declined": invitationDeclined,
+  "showcase.requested": showcaseRequested,
+  "showcase.approved": showcaseApproved,
+  "showcase.withdrawn": showcaseWithdrawn,
+  "showcase.asked": showcaseAsked,
+  "showcase.settled": showcaseSettled,
+  "visit.attributed": visitAttributed,
+  "post.outcome_attributed": postOutcomeAttributed,
+} as const satisfies { readonly [K in EventTypeT]: EventDeclaration<K, z.ZodType, EventScopeOf<K>> };
 
 export type EventsRegistry = typeof EVENTS;
 
@@ -1515,16 +2328,29 @@ export function isEventType(value: unknown): value is EventTypeT {
   return typeof value === "string" && Object.prototype.hasOwnProperty.call(EVENTS, value);
 }
 
+/** The scope the catalog declares for a type (`business` or `account`). Throws `ValidationError` for an unknown type. */
+export function eventScope(type: EventTypeT): EventScope {
+  return getEventDeclaration(type).scope;
+}
+
+type TypesOfScope<Sc extends EventScope> = Sc extends "account" ? AccountEventType : BusinessEventType;
+
+/** The declared types of one scope, in catalog order. */
+export function eventTypesOfScope<Sc extends EventScope>(scope: Sc): TypesOfScope<Sc>[] {
+  return DECLARED_EVENT_TYPES.filter((t) => EVENTS[t].scope === scope) as TypesOfScope<Sc>[];
+}
+
 // ---------------------------------------------------------------------------------------------------
 // PlatformEvent
 // ---------------------------------------------------------------------------------------------------
 
 /**
- * The envelope every event shares (BUILD §8.1). `occurredAt` is a `Date` in TypeScript and an ISO
- * string on the wire (docs/ARCHITECTURE.md §2); `JSON.stringify` does the right thing.
+ * The envelope every business-scoped event shares (BUILD §8.1). `occurredAt` is a `Date` in TypeScript and an ISO
+ * string on the wire (docs/ARCHITECTURE.md §2); `JSON.stringify` does the right thing. An account-scoped type is never
+ * a `PlatformEvent`: its envelope is `AccountEvent` (./account-event), keyed by a person instead of a business.
  */
-export type PlatformEvent<T extends EventTypeT = EventTypeT> = {
-  [K in EventTypeT]: {
+export type PlatformEvent<T extends BusinessEventType = BusinessEventType> = {
+  [K in BusinessEventType]: {
     id: string;
     businessId: string;
     type: K;
@@ -1537,7 +2363,7 @@ export type PlatformEvent<T extends EventTypeT = EventTypeT> = {
 }[T];
 
 /** Wire form: what goes into `events.payload`'s row JSON and the Redis `json` field. */
-export type PlatformEventWire<T extends EventTypeT = EventTypeT> = Omit<
+export type PlatformEventWire<T extends BusinessEventType = BusinessEventType> = Omit<
   PlatformEvent<T>,
   "occurredAt"
 > & { occurredAt: string };
@@ -1583,6 +2409,12 @@ export function safeParseEvent(raw: unknown): ParseEventSuccess | ParseEventFail
       error: new ValidationError(`Unknown event type "${env.data.type}"`, { type: env.data.type }),
     };
   }
+  if (decl.scope !== "business") {
+    return {
+      ok: false,
+      error: new ValidationError(`${env.data.type} is account-scoped and is never a business event`, { type: env.data.type }),
+    };
+  }
   const payload = decl.schema.safeParse(env.data.payload);
   if (!payload.success) {
     return {
@@ -1620,12 +2452,12 @@ export function serializeEvent(event: PlatformEvent): string {
   return JSON.stringify(toWire(event));
 }
 
-export function toWire<T extends EventTypeT>(event: PlatformEvent<T>): PlatformEventWire<T> {
+export function toWire<T extends BusinessEventType>(event: PlatformEvent<T>): PlatformEventWire<T> {
   return { ...event, occurredAt: event.occurredAt.toISOString() } as PlatformEventWire<T>;
 }
 
 /** Narrow a PlatformEvent to one type (type guard for consumers with a switch per type). */
-export function isEventOfType<T extends EventTypeT>(
+export function isEventOfType<T extends BusinessEventType>(
   event: PlatformEvent,
   type: T,
 ): event is PlatformEvent<T> {
@@ -1636,4 +2468,7 @@ export function isEventOfType<T extends EventTypeT>(
 for (const t of EVENT_TYPES) {
   if (!Object.prototype.hasOwnProperty.call(EVENTS, t))
     throw new Error(`packages/events catalog is missing a declaration for "${t}"`);
+  const declared = (EVENTS as Record<string, EventDeclaration>)[t]!.scope;
+  if (declared !== (isAccountEventType(t) ? "account" : "business"))
+    throw new Error(`packages/events catalog declares "${t}" as ${declared}-scoped, and the shared vocabulary says otherwise (ACCOUNT_EVENT_TYPES)`);
 }

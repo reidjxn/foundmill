@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { AgentPersonaProvider } from "../foundation/AgentPersona";
 import { GuidanceProvider } from "../guidance/GuidanceProvider";
 import { DayDigest } from "./DayDigest";
 import { DepartmentCard, teamStripWords } from "./DepartmentCard";
@@ -77,6 +78,37 @@ describe("DepartmentCard", () => {
     expect(onOpenAgent).toHaveBeenCalledWith("dept-3-2");
     await user.click(screen.getByRole("button", { name: "Open" }));
     expect(onOpen).toHaveBeenCalledWith("d-distribution");
+  });
+  it("finds the lead by id, not by name, and names it as the team strip does with anthropomorphic agents on", async () => {
+    const user = userEvent.setup();
+    const onOpenAgent = vi.fn();
+    const base = cards[0]!;
+    const twin = { ...base.squad[0]!, id: "twin", name: "Twin", role: "Paid ads", personaKey: "mei" };
+    const leadMember = { ...base.squad[1]!, id: "the-lead", name: "Twin", role: "Distribution lead", personaKey: "malik" };
+    const helper = { ...base.squad[2]!, id: "helper", name: "Classifier", role: "Classification utility", personaKey: "amara", layer: "utility" };
+    const department = { ...base, lead: { id: "the-lead", name: "Twin", seed: "lead", status: "healthy" as const }, squad: [twin, leadMember, helper] };
+    render(
+      <AgentPersonaProvider anthropomorphic>
+        <DepartmentCard department={department} onOpenAgent={onOpenAgent} />
+      </AgentPersonaProvider>,
+    );
+    await user.click(screen.getByRole("button", { name: "Malik (Distribution lead), department lead" }));
+    expect(onOpenAgent).toHaveBeenCalledWith("the-lead");
+    expect(screen.getByRole("button", { name: /^Mei, Paid ads/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Malik, Distribution lead/ })).toBeTruthy();
+    // A background helper is not in the team strip at all (Leads first).
+    expect(screen.queryByRole("button", { name: /Classifier/ })).toBeNull();
+  });
+
+  it("leaves background helpers out of the team strip and its count, by layer or by tier", () => {
+    const base = cards[0]!;
+    const helper = (id: string, extra: Record<string, unknown>) => ({ ...base.squad[0]!, id, name: "Entity linker", role: "Linking utility", task: null, status: "injured" as const, ...extra });
+    const department = { ...base, squad: [...base.squad, helper("h1", { layer: "utility" }), helper("h2", { tier: "background" as const })] };
+    const { container } = render(<DepartmentCard department={department} />);
+    expect(container.querySelectorAll("[data-squad-member]").length).toBe(base.squad.length);
+    // A down helper never reads as "down" on the founder's card.
+    expect(container.querySelector("[data-team-strip-words]")?.textContent).toBe("3 of 4 working");
+    expect(screen.queryByText(/Entity linker/)).toBeNull();
   });
 });
 
@@ -206,6 +238,60 @@ describe("TrophyCabinet", () => {
     expect(card.className).not.toMatch(/\bh-full\b/);
     expect(cell.lastElementChild).toBe(share);
     for (const c of container.querySelectorAll("[data-trophy]")) expect(c.firstElementChild!.className).not.toMatch(/\bh-full\b/);
+  });
+
+  it("the public page: one press shows a reached milestone; a shown one says so quietly, with Hide and Copy card link", async () => {
+    const user = userEvent.setup();
+    const onShow = vi.fn();
+    const onHide = vi.fn();
+    const onCopy = vi.fn();
+    const early = [
+      { key: "page_live", label: "Page live", description: "Your project's public page went live.", achievedAt: "2026-11-12T09:00:00.000Z", page: "shown" as const },
+      { key: "first_follower", label: "First follower", description: "The first person confirmed that they follow your project.", achievedAt: "2026-11-14T08:00:00.000Z", page: "hidden" as const },
+      { key: "customer_1", label: "First customer", description: "The first paying customer.", achievedAt: "2026-11-19T10:00:00.000Z", page: "waiting" as const },
+      { key: "customer_10", label: "10th customer", description: "10 paying customers.", achievedAt: null, page: "hidden" as const },
+      { key: "mrr_1k", label: "First $1K MRR", description: "Monthly recurring revenue.", achievedAt: "2026-11-20T10:00:00.000Z" },
+    ];
+    const { container, rerender } = render(<TrophyCabinet trophies={early} onShowOnPage={onShow} onHideFromPage={onHide} onCopyCardLink={onCopy} />);
+    const cell = (key: string) => container.querySelector(`[data-trophy='${key}']`) as HTMLElement;
+
+    // Reached and not shown: one button.
+    await user.click(within(cell("first_follower")).getByRole("button", { name: "Show on your page: First follower" }));
+    expect(onShow).toHaveBeenCalledWith("first_follower");
+    expect(within(cell("first_follower")).getByRole("button").textContent).toBe("Show on your page");
+    expect(cell("first_follower").querySelector("[data-trophy-on-page]")).toBeNull();
+
+    // Shown: the quiet state (an icon and the words), Hide and Copy card link.
+    const shown = cell("page_live").querySelector("[data-trophy-on-page='shown']") as HTMLElement;
+    expect(shown.textContent).toContain("On your page");
+    expect(shown.querySelector("svg")).not.toBeNull();
+    await user.click(within(shown).getByRole("button", { name: "Hide: Page live" }));
+    expect(onHide).toHaveBeenCalledWith("page_live");
+    await user.click(within(shown).getByRole("button", { name: "Copy card link: Page live" }));
+    expect(onCopy).toHaveBeenCalledWith("page_live");
+    expect(within(cell("page_live")).queryByRole("button", { name: /Show on your page/ })).toBeNull();
+
+    // Shown before, page not live now: it says so, can be hidden, and has no link to copy.
+    const waiting = cell("customer_1").querySelector("[data-trophy-on-page='waiting']") as HTMLElement;
+    expect(waiting.textContent).toContain("Shown when your page is live");
+    expect(within(waiting).getByRole("button", { name: "Hide: First customer" })).toBeTruthy();
+    expect(within(waiting).queryByRole("button", { name: /Copy card link/ })).toBeNull();
+
+    // Not reached, or not one that can be shown: nothing.
+    expect(within(cell("customer_10")).queryByRole("button")).toBeNull();
+    expect(within(cell("mrr_1k")).queryByRole("button")).toBeNull();
+    // Nothing here counts what is shown.
+    expect(container.textContent).not.toMatch(/\d+\s+(shown|on your page)/i);
+
+    // While a change is on its way that milestone's controls wait; the others do not.
+    rerender(<TrophyCabinet trophies={early} onShowOnPage={onShow} onHideFromPage={onHide} onCopyCardLink={onCopy} pendingKey="first_follower" />);
+    expect((within(cell("first_follower")).getByRole("button") as HTMLButtonElement).disabled).toBe(true);
+    expect((within(cell("page_live")).getByRole("button", { name: "Hide: Page live" }) as HTMLButtonElement).disabled).toBe(false);
+
+    // A reader who cannot publish sees the state and no control.
+    rerender(<TrophyCabinet trophies={early} />);
+    expect(cell("page_live").querySelector("[data-trophy-on-page='shown']")!.textContent).toBe("On your page");
+    expect(container.querySelectorAll("[data-trophy-show], [data-trophy-hide], [data-trophy-copy-link]")).toHaveLength(0);
   });
 
   it("labels a reached milestone whose figure is an estimate (an MRR milestone of a business without subscriptions)", () => {

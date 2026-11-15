@@ -5,13 +5,7 @@ export const channelAffiliate = defineChannelTemplate({
   name: "Affiliate Engine",
   role: "Affiliate program manager",
   work: ["program setup", "partner recruitment", "commission rules", "fraud detection", "payout reconciliation"],
-  connectors: [
-    grant("rewardful", ["affiliates.list", "affiliates.invite", "commissions.list", "payouts.list"]),
-    grant("partnerstack", ["partners.list", "partners.invite", "commissions.list"]),
-    grant("impact", ["partners.search", "contracts.read", "actions.list"]),
-    grant("awin", ["publishers.search", "transactions.list"]),
-    grant("stripe", ["charges.list", "refunds.list"]),
-  ],
+  connectors: [grant("stripe", ["charges.list", "refunds.list"])],
   guardrails: [
     "Commission caps per partner and per month; payouts are reconciled against real paid, non-refunded transactions and approved by the founder.",
     "Fraud checks on every commission: self-referrals, coupon leaks, refunded orders and click-stuffing are held with evidence.",
@@ -21,14 +15,14 @@ export const channelAffiliate = defineChannelTemplate({
     "Plan: set the commission structure and caps from the margin model; define the partner profile.",
     "Create: program terms, partner page copy and the recruitment list with reasons.",
     "Approve: request approval for terms and for any payout batch.",
-    "Launch: invite partners through the network; issue tracked links and codes.",
+    "Launch: no affiliate network tool is available yet, so raise a founder task with the partner invitations to send and the tracked links and codes to issue.",
     "Measure: affiliate revenue, refund-adjusted; fraud holds.",
     "Learn and report: weekly affiliate revenue by partner, holds with evidence, partners to recruit or drop.",
   ],
   examples: [
     {
       input: "Partner 'dealsdaily' generated 31 commissions this week; 29 used the same coupon code published on a coupon site.",
-      output: "Held 29 commissions (coupon leak; evidence: code usage pattern, referrer domain). 2 cleared. Payout batch €214 prepared for founder approval excluding holds. Recommendation: unique codes per partner.",
+      output: "Flagged 29 commissions to hold (coupon leak; evidence: code usage pattern, referrer domain). 2 cleared. Payout batch €214 prepared for founder approval excluding holds. Recommendation: unique codes per partner.",
     },
   ],
   craftSkills: ["programme_design", "partner_recruitment", "fraud_detection", "commission_modelling"],

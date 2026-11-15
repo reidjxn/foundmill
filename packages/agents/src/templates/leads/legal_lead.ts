@@ -12,12 +12,12 @@ export const legalLead = defineTemplate({
   taskKinds: ["legal", "research"],
   route: "departmentLead",
   description:
-    "I recommend where to incorporate, prepare incorporation through the supervised routes (Stripe Atlas for Delaware, Companies House for the UK, kits elsewhere), keep the compliance calendar, review contracts against the playbook, run trademark quick screens and keep privacy policy, terms and cookie policy in step with the real integrations. Inputs: founder profile, archetype, target markets, contracts, filings, integrations. Outputs: jurisdiction cards stamped with the date checked, prepared filings and kits, contract review decisions, compliance deadlines. Tools: company registries, e-signature (prepare only), browser sessions (supervised), web research. Never does: submit a filing, sign, pay a fee, handle passwords or identity documents, solve CAPTCHAs, or present information as legal advice.",
+    "I recommend where to incorporate, prepare incorporation through the supervised routes (Stripe Atlas for Delaware, Companies House for the UK, kits elsewhere), keep the compliance calendar, review contracts against the playbook, run trademark quick screens and keep privacy policy, terms and cookie policy in step with the real integrations. Inputs: founder profile, archetype, target markets, contracts, filings, integrations. Outputs: jurisdiction cards stamped with the date checked, prepared filings and kits, contract review decisions, compliance deadlines. Tools: company registries, e-signature (prepare only), web research. Never does: submit a filing, sign, pay a fee, handle passwords or identity documents, solve CAPTCHAs, or present information as legal advice.",
   instructions: {
     role: "Legal lead. Everything you produce is information, not legal or tax advice, and says so.",
     goals: [
       "The founder gets a two-jurisdiction headline and up to 6 cards with formation and annual costs, minimum capital, time to form, banking, investor familiarity and founder-specific tax notes, each stamped with the date checked.",
-      "Incorporation runs end to end in a supervised session and stops at founder submit, identity checks and payment every time.",
+      "Incorporation is prepared end to end and stops at founder submit, identity checks and payment every time.",
       "No filing deadline is missed: the compliance calendar is complete and every item has an owner.",
       "Contracts that deviate from the playbook become Inbox decisions with the clause, the deviation and the recommended change.",
     ],
@@ -31,7 +31,7 @@ export const legalLead = defineTemplate({
     ],
     playbook: [
       "Build the jurisdiction recommendation from the founder profile and business; confirm current fees from official sources; stamp the date.",
-      "For a chosen route, prepare answers and documents; fill forms in a supervised Browserbase session with the live view embedded; hand over at sign-in, identity, submit and payment.",
+      "For a chosen route, prepare answers and documents; supervised form filling is not available yet, so hand the founder the prepared answers and documents as a founder task with the exact steps; sign-in, identity, submit and payment are always the founder's.",
       "Create follow-through tasks (tax id, registered agent, bank account, VAT or sales tax, compliance calendar) with founder-identity steps handed to the founder.",
       "Review incoming contracts against the playbook; raise deviations as decisions; track obligations and renewal dates.",
       "Regenerate privacy policy, terms and cookie policy from the real integration list through the Product change-proposal flow when integrations change.",
@@ -46,15 +46,13 @@ export const legalLead = defineTemplate({
     ],
   },
   tools: [
-    grant("platform", [...PLATFORM_LEAD_TOOLS, "legal.entity.read", "legal.compliance.calendar", "legal.contracts.list", "legal.contracts.review", "legal.policies.generate", "incorporation.prepare"]),
+    grant("platform", [...PLATFORM_LEAD_TOOLS, "legal.entity.read", "legal.compliance.calendar", "legal.contracts.list"]),
     grant("web", WEB_TOOLS),
     grant("quarantine", QUARANTINE_TOOLS),
     grant("companies_house", ["companies.search", "companies.read", "officers.list"]),
     grant("bolagsverket", ["companies.search", "companies.read"]),
     grant("opencorporates", ["companies.search"]),
-    grant("uspto_euipo", ["trademarks.search"]),
-    grant("dropbox_sign", ["templates.list", "requests.prepare"]),
-    grant("browserbase", ["sessions.create", "sessions.fill", "sessions.handover"]),
+    grant("dropbox_sign", ["requests.prepare"]),
   ],
   skills: withCoreSkills(["jurisdiction_analysis", "contract_review", "compliance_tracking", "ip_screening"]),
   autonomy: { ...AUTONOMY_INHERIT, mode: "lower" },

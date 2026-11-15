@@ -9,24 +9,36 @@ import { crmRouter } from "./routers/crm";
 import { cycleRouter } from "./routers/cycle";
 import { dashboardRouter, departmentRouter, screenRouter } from "./routers/department";
 import { devRouter } from "./routers/dev";
+import { emailRouter } from "./routers/email";
 import { distributionRouter } from "./routers/distribution";
 import { financeRouter } from "./routers/finance";
-import { founderRouter } from "./routers/founder";
+import { founderRouter, publicPersonRouter } from "./routers/founder";
+import { goalRouter } from "./routers/goal";
 import { ideaRouter } from "./routers/idea";
+import { ideaBoxRouter, waitlistRouter } from "./routers/idea-box";
 import { importRouter } from "./routers/import";
 import { inboxRouter, planRouter } from "./routers/inbox";
 import { integrationsRouter, keysRouter } from "./routers/integrations";
 import { journeyRouter } from "./routers/journey";
 import { legalRouter } from "./routers/legal";
 import { liveRouter } from "./routers/live";
+import { pageRouter, publicPageRouter } from "./routers/page";
+import { pageQuizRouter, publicQuizRouter } from "./routers/page-quiz";
 import { productRouter } from "./routers/product";
+import { shareRouter } from "./routers/share";
+import { showcaseRouter } from "./routers/showcase";
 import { teamRouter } from "./routers/team";
+import { invitationRouter } from "./routers/people";
+import { todayRouter } from "./routers/today";
+import { chiefOfStaffRouter } from "./routers/chief-of-staff";
 import { conversationRouter } from "./routers/conversation";
+import { speechAccentRouter, teamCallRouter } from "./routers/team-call";
 import { createCallerFactory, mergeRouters, publicProcedure, router } from "./trpc";
 
 export const appRouter = router({
   health: publicProcedure.query(() => ({ ok: true })),
   founder: founderRouter,
+  email: emailRouter,
   idea: ideaRouter,
   business: businessRouter,
   cycle: cycleRouter,
@@ -38,12 +50,29 @@ export const appRouter = router({
   plan: planRouter,
   journey: journeyRouter,
   product: productRouter,
+  goal: goalRouter,
+  page: pageRouter,
+  publicPage: publicPageRouter,
+  // The optional quiz on a public page (0105): the console's review, approve and on/off, and the signed-out read and count.
+  pageQuiz: pageQuizRouter,
+  publicQuiz: publicQuizRouter,
+  // Tap-to-post: a pressed share control, recorded as a share that was opened (services/shares.ts).
+  share: shareRouter,
+  showcase: showcaseRouter,
+  publicPerson: publicPersonRouter,
+  today: todayRouter,
+  ideaBox: ideaBoxRouter,
+  waitlist: waitlistRouter,
+  chiefOfStaff: chiefOfStaffRouter,
   dev: devRouter,
   distribution: distributionRouter,
   finance: financeRouter,
   team: teamRouter,
+  // The way in: invitations to a project (routers/people.ts).
+  invitation: invitationRouter,
   // agent.conversation.* (the agent's desk) sits beside agent.profile/training/model/autonomy/negotiation.
-  agent: mergeRouters(agentRouter, router({ conversation: conversationRouter })),
+  agent: mergeRouters(agentRouter, router({ conversation: conversationRouter, speechAccent: speechAccentRouter })),
+  teamCall: teamCallRouter,
   legal: legalRouter,
   crm: crmRouter,
   integrations: integrationsRouter,

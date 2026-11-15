@@ -23,14 +23,45 @@ export interface CommunityScreenInput {
   appName: string;
 }
 
-/** Checks that run before the model, in every mode: each one holds a post outright. */
+// The pieces of a written-out email address ("name [at] example dot com", "name(at)example.com"): an "at" or a "dot" in
+// brackets, or as a word on its own.
+const AT_BRACKETED = String.raw`\s*[\[({<]\s*(?:at|@)\s*[\])}>]\s*`;
+const DOT_BRACKETED = String.raw`\s*[\[({<]\s*(?:dot|\.)\s*[\])}>]\s*`;
+const AT_WORD = String.raw`\s+at\s+`;
+const DOT_WORD = String.raw`\s+dot\s+`;
+const LOCAL = String.raw`[A-Z0-9._%+-]+`;
+const LABEL = String.raw`[A-Z0-9-]+`;
+const TLD = String.raw`[A-Z]{2,}\b`;
+/** Between two digits of a phone number: nothing, or one space, dot or dash with a space either side ("555 - 1234"). */
+const DIGIT_SEP = String.raw`[ \t]?[.\-]?[ \t]?`;
+
+/** Checks that run before the model, in every mode: each one holds a post outright. Matched against `screenText(text)`. */
 export const COMMUNITY_SCREEN_RULES: readonly { flag: string; re: RegExp }[] = [
   // Markup and script URLs never render (post text is shown with HTML, images and links to entities off), but a post
   // that carries them is an attempt, and a person should look at it.
   { flag: "markup", re: /<\s*\/?\s*(?:script|iframe|object|embed|style|form|svg|img|link|meta)\b|\b(?:javascript|vbscript)\s*:|data\s*:\s*text\/html/i },
   // Personal data in a post every member reads: an email address or a phone number.
   { flag: "personal_data", re: /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i },
+  // An address written out: a bracketed or spelled "at" with a bracketed or spelled "dot" ("ana [at] example dot com",
+  // "ana at example dot com"), a bracketed "at" with plain dots ("ana(at)example.com"), or "@" with a bracketed or
+  // spelled "dot" ("ana@example dot com"). A spelled "at" with a plain dot ("look at this. Then") is ordinary prose.
+  {
+    flag: "personal_data",
+    re: new RegExp(
+      [
+        `${LOCAL}(?:${AT_BRACKETED}|${AT_WORD})${LABEL}(?:(?:${DOT_BRACKETED}|${DOT_WORD})${LABEL})*(?:${DOT_BRACKETED}|${DOT_WORD})${TLD}`,
+        `${LOCAL}${AT_BRACKETED}${LABEL}(?:\\.${LABEL})*\\.${TLD}`,
+        `${LOCAL}\\s*@\\s*${LABEL}(?:(?:${DOT_BRACKETED}|${DOT_WORD}|\\.)${LABEL})*(?:${DOT_BRACKETED}|${DOT_WORD})${TLD}`,
+      ].join("|"),
+      "i",
+    ),
+  },
   { flag: "personal_data", re: /(?:\+\d{1,3}[\s.-]?)?\(?\b\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}\b|\+\d[\d\s().-]{8,}\d/ },
+  // A run of nine or more digits, with at most a space, a dot or a dash between two of them ("5552013344",
+  // "07700 900123", "555.201.3344"). Years, prices and counts are shorter ("2026", "$2,300", "300 people").
+  { flag: "personal_data", re: new RegExp(String.raw`(?<!\d)\d(?:${DIGIT_SEP}\d){8,}(?!\d)`) },
+  // A seven-digit local number with a dash ("555-1234").
+  { flag: "personal_data", re: /(?<![\d-])\d{3}-\d{4}(?![\d-])/ },
 ];
 
 /** Model flags that hold a post for a person even when the model allowed it (it allows harassment as advisory in marketing copy). */
@@ -38,9 +69,19 @@ export const COMMUNITY_HOLD_CATEGORIES: ReadonlySet<string> = new Set(["harassme
 
 export const COMMUNITY_SCREEN_MAX_TOKENS = 600;
 
+/**
+ * The text as the rules read it: NFKC-normalized (the fullwidth at sign and digits become "@" and ASCII digits, ligatures and
+ * compatibility forms fold) and with every format character removed (`\p{Cf}`: zero-width spaces and joiners, soft
+ * hyphens, the bidi embeddings, overrides and isolates), so an address with a zero-width space in it, or a number in fullwidth digits, cannot slip past.
+ */
+export function screenText(text: string): string {
+  return text.normalize("NFKC").replace(/\p{Cf}/gu, "");
+}
+
 /** The deterministic flags a text raises (de-duplicated, in rule order). */
 export function communityScreenLocalFlags(text: string): string[] {
-  return [...new Set(COMMUNITY_SCREEN_RULES.filter((r) => r.re.test(text)).map((r) => r.flag))];
+  const clean = screenText(text);
+  return [...new Set(COMMUNITY_SCREEN_RULES.filter((r) => r.re.test(clean)).map((r) => r.flag))];
 }
 
 /** The `moderation` call for one text: the utility's own system prompt, and the text as untrusted data in the user message. */

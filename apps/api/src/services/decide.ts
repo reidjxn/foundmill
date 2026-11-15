@@ -12,20 +12,24 @@
  * An approval's decision item (an agent's gated call waiting for the founder, audit FR-01) is answered without a plan
  * compiler: Approve or Reject resolves the approval (./approvals), records a one-line plan for the history, and the
  * decision reaches the session or wait that asked. A sign-off note (the specification, the roadmap, Ready to start
- * selling; founder 2026-10-18) is answered the same way from its `product_signoffs` round (./signoff).
+ * selling; founder 2026-10-18) is answered the same way from its `product_signoffs` round (./signoff), and the Chief of
+ * Staff's goal (founder 2026-11-07) from its `goals` row (./goals).
  *
  * Only a note that asks for a decision can be decided (audit VRUI-X2): an Update, a Milestone or a follow-up has nothing
  * to choose; free text on them goes to the agent's desk (`replyToInboxItem`).
  */
 import { classifyFounderText } from "@foundmill/agents";
 import { approvalOutcomeOf, closeApprovalItem, repos, type Approval, type DbTx, type Decision, type InboxItem, type PlanWithActions } from "@foundmill/db";
-import { ValidationError, endSentence, hasSectionAccess, type SectionMembership } from "@foundmill/shared";
+import { AppError, ONE_CLICK_ACTION_TYPES, SHOWCASE_ANSWER_HERE_MESSAGE, ValidationError, endSentence, hasSectionAccess, isPageReadyDecision, isPostalAddressDecision, isShowcaseConsentDecision, type SectionMembership } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
 import { assertApprovalAccess, deliverApprovalAnswer, recordApprovalAnswer, type ApprovalAnswer } from "./approvals";
 import { assertMayConfirmAsks } from "./approver";
 import { idsOfItem, inboxWalls, isWalled, loadRedactionSource, mentionIds, noteMask, redactInboxItem, redactPlan, redactValue } from "./inbox-redaction";
 import { startModelRetests } from "./agent-model";
+import { decideGoalItem } from "./goals";
+import { decidePageNote } from "./pages";
+import { decidePostalAddressNote } from "./postal-address";
 import { decideSignoffItem } from "./signoff";
 import { assertInstructionSectionAccess, assertPlanSectionAccess, choiceOf, compileOptionPlan, compilePlan, dispatchPlan, evaluatePlan, executePlanActions, planSectionRefusal, redispatchPlans, requiresConfirmation, stagedAction, syncChannelEngines, type ActionEvaluation, type ChannelToggle, type DecisionOption, type DispatchResult, type ModelRetests, type PlanContext } from "./plans";
 
@@ -71,6 +75,24 @@ export function decidesByText(item: Pick<InboxItem, "state" | "decision">): bool
   return item.state !== "answered" && item.state !== "archived" && !!decision && decision.free_text !== false;
 }
 
+/**
+ * Whether a one-click answer from a founder email may give this option now (retention plan and its security review,
+ * 2026-11-11): the option's plan is compiled exactly as a click in the Inbox would compile it and checked against the
+ * policies, and every action must be one of ONE_CLICK_ACTION_TYPES, allowed without asking, and not a hard gate. An
+ * approval or a sign-off is never answered this way; the goal's approval (decided in-process, no plan) is.
+ */
+export async function oneClickPlanAllowed(ctx: BusinessContext, itemId: string, optionId: string): Promise<boolean> {
+  const item = await ctx.rls((tx) => repos.inbox.get(tx, ctx.businessId, itemId));
+  const option = ((item.decision as ItemDecision | null)?.options ?? []).find((o) => o.id === optionId);
+  if (!option) return false;
+  if ((await ctx.rls((tx) => repos.approvals.listForInboxItem(tx, ctx.businessId, item.id))).length > 0) return false;
+  if (await ctx.rls((tx) => repos.productSignoffs.forInboxItem(tx, ctx.businessId, item.id))) return false;
+  if (await ctx.rls((tx) => repos.goals.forInboxItem(tx, ctx.businessId, item.id))) return true;
+  const planCtx = { ...(await planContextFor(ctx)), choice: choiceOf(option) };
+  const evaluations = evaluatePlan(compileOptionPlan(option, item, planCtx).actions, planCtx);
+  return evaluations.length > 0 && evaluations.every((e) => e.outcome === "allow" && !e.hardGate && ONE_CLICK_ACTION_TYPES.includes(e.action.type));
+}
+
 export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInput): Promise<DecideItemResult> {
   const chosenOption = input.chosenOption?.trim() || null;
   const freeText = input.freeText?.trim() || null;
@@ -96,12 +118,22 @@ export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInp
   // running a plan from it would answer it and chain "Decided: Decided: …" follow-ups.
   if (!decision) throw new ValidationError("This note doesn't ask for a decision. Reply to the agent in the conversation instead.", { route: "conversation", itemId: item.id });
   // An agent's gated call waiting for the founder: Approve or Reject answers the approval itself.
-  const approval = await ctx.rls((tx) => repos.approvals.forInboxItem(tx, ctx.businessId, item.id));
-  if (approval) return decideApprovalItem(ctx, item, approval, { chosenOption, freeText });
+  const approvals = await ctx.rls((tx) => repos.approvals.listForInboxItem(tx, ctx.businessId, item.id));
+  if (approvals.length) return decideApprovalItem(ctx, item, approvals, { chosenOption, freeText });
   // The founder's sign-off of the specification or the roadmap, or Ready to start selling (founder, 2026-10-18): decided
   // in-process from its round; free text is a request for changes in the founder's words.
   const signoff = await ctx.rls((tx) => repos.productSignoffs.forInboxItem(tx, ctx.businessId, item.id));
   if (signoff) return decideSignoffItem(ctx, item, signoff, { chosenOption, freeText });
+  // The Chief of Staff's goal (founder, 2026-11-07): Approve this goal, or Change it in the founder's words (a revised
+  // proposal follows); decided in-process, no plan compiler.
+  const goal = await ctx.rls((tx) => repos.goals.forInboxItem(tx, ctx.businessId, item.id));
+  if (goal) return decideGoalItem(ctx, item, goal, { chosenOption, freeText });
+  // The Product lead's "Your project's page is ready" (package 1.3): Check it and publish, or Later; decided in-process.
+  if (isPageReadyDecision(item.decision) && item.fromAgentId) return decidePageNote(ctx, item, { chosenOption, freeText });
+  // A founder's own showcase ask (0103) is answered from the note (showcase.answer), never by the plan compiler.
+  if (isShowcaseConsentDecision(item.decision)) throw new AppError("showcase_answer_here", SHOWCASE_ANSWER_HERE_MESSAGE, 409);
+  // The founders' postal address note (US CAN-SPAM): Add it in Settings, or Later; decided in-process, founders only.
+  if (isPostalAddressDecision(item.decision)) return decidePostalAddressNote(ctx, item, { chosenOption, freeText });
   if (freeText && !chosenOption && decision.free_text === false) throw new ValidationError("This decision takes one of its options. Pick one, or talk it through with the agent first.", { route: "conversation", itemId: item.id });
   const options = decision.options ?? [];
   const option = chosenOption ? options.find((o) => o.id === chosenOption) : undefined;
@@ -129,7 +161,7 @@ export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInp
       actions: evaluations.map(stagedAction),
     });
     const decided = await repos.inbox.decide(tx, ctx.businessId, item.id, { chosenOption, freeText, decidedByKind: "user", decidedBy: ctx.userId, planId: plan.id });
-    const exec = confirm ? { ...NOTHING_RUN, deferred: plan.actions.map((a) => a.id) } : await executePlanActions(tx, ctx.businessId, plan, { actorUserId: ctx.userId, temporal: ctx.temporal, currency: planCtx.currency });
+    const exec = confirm ? { ...NOTHING_RUN, deferred: plan.actions.map((a) => a.id) } : await executePlanActions(tx, ctx.businessId, plan, { actorUserId: ctx.userId, temporal: ctx.temporal, currency: planCtx.currency, availability: ctx });
 
     await emit(tx, ctx, {
       type: "decision.made",
@@ -175,48 +207,60 @@ export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInp
  * records the answer as one done action, so the item's history reads like any other decision; nothing is compiled
  * and no model is called.
  */
-async function decideApprovalItem(ctx: BusinessContext, item: InboxItem, approval: Approval, input: { chosenOption: string | null; freeText: string | null }): Promise<DecideItemResult> {
+/**
+ * Approve or Reject on an approval's note answers every request the note covers: one for an ordinary note, several for a
+ * batched one (first-time founder report, Nov 8, 2026: "5 channels want to launch a campaign" is one decision). Each
+ * approval is recorded on its own row and told its own way; the plan carries one reply action per request.
+ */
+async function decideApprovalItem(ctx: BusinessContext, item: InboxItem, linked: readonly Approval[], input: { chosenOption: string | null; freeText: string | null }): Promise<DecideItemResult> {
   const outcome = approvalOutcomeOf(input.chosenOption);
-  if (!outcome) throw new ValidationError("Choose Approve or Reject: this note asks about one call an agent wants to make.", { itemId: item.id, approvalId: approval.id });
-  if (approval.outcome !== null) {
+  const first = linked[0]!;
+  if (!outcome) throw new ValidationError(linked.length > 1 ? "Choose Approve all or Reject all: this note asks about several calls the team wants to make." : "Choose Approve or Reject: this note asks about one call an agent wants to make.", { itemId: item.id, approvalId: first.id });
+  const open = linked.filter((a) => a.outcome === null);
+  if (open.length === 0) {
     // Settled some other way (a hold that went on by itself, an expiry, a plan): the note stops asking and stops
     // blocking Continue, instead of waiting for an answer nobody can give any more.
-    await ctx.rls((tx) => closeApprovalItem(tx, ctx.businessId, approval));
-    throw new ValidationError(`This request was already ${approval.outcome}`, { itemId: item.id, approvalId: approval.id });
+    await ctx.rls((tx) => closeApprovalItem(tx, ctx.businessId, first));
+    throw new ValidationError(`This request was already ${first.outcome}`, { itemId: item.id, approvalId: first.id });
   }
   // Section walls hold here too: approving a Stripe call needs Finance write, a GitHub call Development write.
-  assertApprovalAccess(ctx.membership, approval);
+  for (const a of open) assertApprovalAccess(ctx.membership, a);
   const note = input.freeText?.slice(0, 2000) ?? null;
   const written = await ctx.rls(async (tx) => {
-    const recorded = await recordApprovalAnswer(tx, ctx, approval, outcome, note);
+    const recorded = [];
+    for (const a of open) recorded.push(await recordApprovalAnswer(tx, ctx, a, outcome, note));
+    const summary = recorded.length === 1 ? recorded[0]!.summary : `You ${outcome} ${recorded.length} requests at once. ${recorded.map((r) => r.summary).join(" ")}`.slice(0, 4000);
     const plan = await repos.plans.create(tx, ctx.businessId, {
       origin: "option",
-      summaryMd: recorded.summary,
+      summaryMd: summary,
       inboxItemId: item.id,
       status: "executing",
-      actions: [{ type: "reply_only", params: { acknowledgement: recorded.summary, approval_id: approval.id, outcome }, agentId: approval.agentId, policyOutcome: "allow" }],
+      actions: recorded.map((r) => ({ type: "reply_only" as const, params: { acknowledgement: r.summary, approval_id: r.approval.id, outcome }, agentId: r.approval.agentId, policyOutcome: "allow" as const })),
     });
     const decided = await repos.inbox.decide(tx, ctx.businessId, item.id, { chosenOption: input.chosenOption, freeText: note, decidedByKind: "user", decidedBy: ctx.userId, planId: plan.id });
-    const action = plan.actions[0]!;
-    await repos.plans.startAction(tx, ctx.businessId, action.id);
-    await repos.plans.finishAction(tx, ctx.businessId, action.id, { status: "done", result: { approvalId: approval.id, outcome, taskId: recorded.task?.id ?? null } });
-    await emit(tx, ctx, { type: "decision.made", payload: { decisionId: decided.decision.id, inboxItemId: item.id, chosenOption: input.chosenOption, freeText: note, decidedBy: "user", planId: plan.id, planActionCount: 1, hardGateActions: 0 } });
-    await audit(tx, ctx, { action: "inbox.decide", target: { kind: "inbox_item", id: item.id }, details: { chosenOption: input.chosenOption, approvalId: approval.id, outcome, planId: plan.id } });
-    return { recorded, decided, plan: await repos.plans.get(tx, ctx.businessId, plan.id), actionId: action.id };
+    for (const [i, action] of plan.actions.entries()) {
+      await repos.plans.startAction(tx, ctx.businessId, action.id);
+      await repos.plans.finishAction(tx, ctx.businessId, action.id, { status: "done", result: { approvalId: recorded[i]!.approval.id, outcome, taskId: recorded[i]!.task?.id ?? null } });
+    }
+    await emit(tx, ctx, { type: "decision.made", payload: { decisionId: decided.decision.id, inboxItemId: item.id, chosenOption: input.chosenOption, freeText: note, decidedBy: "user", planId: plan.id, planActionCount: plan.actions.length, hardGateActions: 0 } });
+    await audit(tx, ctx, { action: "inbox.decide", target: { kind: "inbox_item", id: item.id }, details: { chosenOption: input.chosenOption, approvalId: first.id, approvalIds: recorded.map((r) => r.approval.id), outcome, planId: plan.id } });
+    return { recorded, decided, plan: await repos.plans.get(tx, ctx.businessId, plan.id), actionIds: plan.actions.map((a) => a.id) };
   });
-  const answer = await deliverApprovalAnswer(ctx, written.recorded);
+  const answers = [];
+  for (const r of written.recorded) answers.push(await deliverApprovalAnswer(ctx, r));
+  const answer = answers[0]!;
   return asSeenBy(ctx, item, {
     item: written.decided.item,
     decision: written.decided.decision,
     plan: written.plan,
     evaluations: [],
     requiresConfirmation: false,
-    executed: [written.actionId],
+    executed: written.actionIds,
     deferred: [],
     denied: [],
     dispatch: null,
-    followUp: answer.note,
-    approval: answer,
+    followUp: answers.find((a) => a.note)?.note ?? null,
+    approval: answers.length === 1 ? answer : { ...answer, summary: written.plan.summaryMd ?? answer.summary, signalled: answers.flatMap((a) => a.signalled) },
   });
 }
 
@@ -261,7 +305,7 @@ export async function confirmPlan(ctx: BusinessContext, planId: string) {
     const claimed = await repos.plans.claimConfirmation(tx, ctx.businessId, planId);
     if (!claimed) return { plan: await repos.plans.get(tx, ctx.businessId, planId), exec: NOTHING_RUN, item: null, alreadyConfirmed: true };
     const confirmed = await repos.plans.get(tx, ctx.businessId, planId);
-    const exec = await executePlanActions(tx, ctx.businessId, confirmed, { actorUserId: ctx.userId, temporal: ctx.temporal, currency: planCtx.currency });
+    const exec = await executePlanActions(tx, ctx.businessId, confirmed, { actorUserId: ctx.userId, temporal: ctx.temporal, currency: planCtx.currency, availability: ctx });
     await audit(tx, ctx, { action: "plan.confirm", target: { kind: "plan", id: planId }, details: { executed: exec.executed.length, deferred: exec.deferred.length } });
     const item = plan.inboxItemId ? await repos.inbox.get(tx, ctx.businessId, plan.inboxItemId) : null;
     return { plan: await repos.plans.get(tx, ctx.businessId, planId), exec, item, alreadyConfirmed: false };

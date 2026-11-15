@@ -3,7 +3,7 @@
  *
  * Phase 4 skeleton: `/health`, `GET /v1/public-profiles` over the `public_profiles` view only (built from LIVE,
  * committed, non-archived businesses and founders who opted in — Personal businesses never enter it, §7.3), and
- * the Phase 4 routers (connections, messages, communities, leaderboards, negotiation) mounted as explicit 501s so
+ * the Phase 4 routers (connections, messages, communities, negotiation) mounted as explicit 501s so
  * the routes exist, are documented and cannot be mistaken for silent 404s. Nothing here touches the database
  * except through `repos.social`.
  */
@@ -20,7 +20,6 @@ export const PHASE4_ROUTERS = [
   { path: "/v1/connections", feature: "connections", summary: "Connection requests, acceptance and blocking between founders." },
   { path: "/v1/messages", feature: "messages", summary: "Human-to-human message threads (agents may draft, never send without Send)." },
   { path: "/v1/communities", feature: "communities", summary: "Cohort, category, geography and private communities with feeds, members and events." },
-  { path: "/v1/leaderboards", feature: "leaderboards", summary: "Leaderboards over verified integration metrics with divisions and monthly promotion/relegation." },
   { path: "/v1/negotiation", feature: "negotiation", summary: "B2B negotiation threads between agents within founder-set limits; final terms are a hard-gate founder task." },
 ] as const;
 export type Phase4Feature = (typeof PHASE4_ROUTERS)[number]["feature"];
