@@ -51,6 +51,7 @@ import { applySessionEvent, initialProgress, type ProgressState } from "../progr
 import { AGENT_PAUSED_FAILURE, CANCELLED_REASON, type RunUsage } from "../session-contract";
 import { failureStreak } from "../retry";
 import { openApprovalNote } from "./approvals";
+import { aboutBusiness } from "./brief";
 import { LoopDetector } from "./loop";
 import { CREDITS_USED_UP_SUMMARY, keptModelForRun, SessionCredits, sessionKeepsModelOnLowCredits, unbookedTokens } from "./session-credits";
 import { budgetSummary, LIMIT_WORDS, sessionBudget, type SessionBudget } from "./session-budget";
@@ -922,7 +923,9 @@ export function createSessionActivities(deps: OrchestratorDeps) {
           await created.start();
           return created;
         };
-        return settle(await runLiveSession(deps, recorder, { input, launch, task, agent, startedAtMs, run }, { business, version, template, skills, briefText, resolveApiKey, sandboxEnv: env, acquireSandbox, pull }));
+        // A session the cycle did not start (Start, a plan, a playbook) has no brief: it still learns what the project is.
+        const brief = briefText ?? (await aboutBusiness(deps, input.businessId));
+        return settle(await runLiveSession(deps, recorder, { input, launch, task, agent, startedAtMs, run }, { business, version, template, skills, briefText: brief, resolveApiKey, sandboxEnv: env, acquireSandbox, pull }));
       } catch (err) {
         // `base()` carries the usage recorded so far: tokens already spent are booked whatever went wrong.
         const message = (err as Error).message ?? String(err);

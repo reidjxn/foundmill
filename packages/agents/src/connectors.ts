@@ -90,6 +90,8 @@ export const PLATFORM_BASE_TOOLS: [string, ...string[]] = [
   // WP-05 T3: save the result of a task, and read what an earlier task found.
   "reports.write",
   "reports.read",
+  // WP-05 T4: the product notes (specification, roadmap, sources), which the brief's About section points every agent to.
+  "spec.read",
   "messages.request",
   "messages.inform",
   "messages.review",
