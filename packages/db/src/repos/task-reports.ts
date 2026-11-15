@@ -21,7 +21,7 @@ export const SaveTaskReportInput = z.object({
   title: z.string().trim().min(1).max(TASK_REPORT_LIMITS.title),
   bodyMd: z.string().trim().min(1).max(TASK_REPORT_LIMITS.bodyMd),
   sources: z
-    .array(z.object({ url: z.url(), title: z.string().trim().min(1).max(TASK_REPORT_LIMITS.sourceTitle) }))
+    .array(z.object({ url: z.url({ protocol: /^https?$/ }), title: z.string().trim().min(1).max(TASK_REPORT_LIMITS.sourceTitle) }))
     .max(TASK_REPORT_LIMITS.sources)
     .default([]),
   simulated: z.boolean().default(false),

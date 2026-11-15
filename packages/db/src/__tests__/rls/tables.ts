@@ -184,9 +184,10 @@ export const TENANT_TABLES: TenantTableSpec[] = [
 /**
  * 0094: the tables a collaborator does not read at all (their select policy is `is_member_not_collaborator`): the ones
  * only owners and admins write, and the Money tables services write, outside what a collaborator's screens use. The
- * generic suite checks a collaborator reads none of their rows and everyone else reads them as before.
+ * generic suite checks a collaborator reads none of their rows and everyone else reads them as before. 0110 adds
+ * `task_reports`: what an agent found, which the event walls hide from a collaborator in `task.completed.summary`.
  */
-export const COLLABORATOR_CLOSED_TABLES: readonly string[] = ["accounts", "securities", "cap_table_entries", "usage_ledger", "credit_balances", "billing_checkouts", "credit_lots", "legal_entities", "incorporations", "integrations", "webhooks", "policies", "app_installations"];
+export const COLLABORATOR_CLOSED_TABLES: readonly string[] = ["accounts", "securities", "cap_table_entries", "usage_ledger", "credit_balances", "billing_checkouts", "credit_lots", "legal_entities", "incorporations", "integrations", "webhooks", "policies", "app_installations", "task_reports"];
 /**
  * Admin- or service-written tables a collaborator still reads, each for a screen of theirs (0094's header gives the
  * reasons). Named so a change to the list is a decision.

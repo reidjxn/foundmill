@@ -123,7 +123,7 @@ export const auditRepo = {
    * The newest entry for `action` whose details hold every key of `match` (jsonb containment) written at or after
    * `since`, or null. Used to recognise a repeated request (one planner run per goal: dev.tasks.plan).
    */
-  async latestMatching(db: Executor, businessId: string, action: string, match: Record<string, string>, since: Date): Promise<AuditEntry | null> {
+  async latestMatching(db: Executor, businessId: string, action: string, match: Record<string, string | boolean>, since: Date): Promise<AuditEntry | null> {
     const rows = await db
       .select()
       .from(auditLog)

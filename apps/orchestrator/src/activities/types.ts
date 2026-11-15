@@ -280,6 +280,11 @@ export interface SessionResult {
    * (package.json scripts, a test runner config, a deleted test) compared with its checkout. Says why.
    */
   review?: string | null;
+  /**
+   * How many tool results of connectors outside the business were simulated in this run (`SessionRecorder.outside`);
+   * absent on results from before WP-05 T3's security review (read as 0). `task.completed.simulated` reads it.
+   */
+  simulatedResults?: number;
 }
 
 export interface SessionParked {

@@ -869,6 +869,7 @@ export function createSessionActivities(deps: OrchestratorDeps) {
           durationMs: deps.clock.nowMs() - startedAtMs,
           sandboxMs: recorder.sandboxMs,
           prNumber: recorder.prNumber,
+          simulatedResults: recorder.outside.simulated,
           // A run moved back up to its usual model books what it spent on that model (`finishSession`).
           ...(kept ? { modelKey: kept.modelKey } : {}),
         };
@@ -1021,7 +1022,7 @@ export function createSessionActivities(deps: OrchestratorDeps) {
             businessId: input.businessId,
             type: "task.completed",
             actor: { kind: "agent", id: agent.id },
-            payload: { taskId: task.id, kind: task.kind, title: task.title, assigneeAgentId: agent.id, sessionId: input.sessionId, outcome: result.progress.progress >= 0.999 ? "success" : "partial", durationMs: Math.max(0, Math.round(result.durationMs)), cost, acceptanceTestsPassing: result.progress.acceptanceTestsPassing, acceptanceTests: result.progress.acceptanceTests, prNumber: result.prNumber, branch: launch.branch, summary: summary.slice(0, 2000), reportId: report?.id ?? null },
+            payload: { taskId: task.id, kind: task.kind, title: task.title, assigneeAgentId: agent.id, sessionId: input.sessionId, outcome: result.progress.progress >= 0.999 ? "success" : "partial", durationMs: Math.max(0, Math.round(result.durationMs)), cost, acceptanceTestsPassing: result.progress.acceptanceTestsPassing, acceptanceTests: result.progress.acceptanceTests, prNumber: result.prNumber, branch: launch.branch, summary: summary.slice(0, 2000), reportId: report?.id ?? null, simulated: Boolean(report?.simulated) || (result.simulatedResults ?? 0) > 0 },
           }, { idempotencyKey: `task.completed:${input.sessionId}` });
           eventIds.push(ev.id);
           break;

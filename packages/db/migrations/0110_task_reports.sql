@@ -3,7 +3,9 @@
 -- carried). The next agent reads it with `read_report`; the founder's note on the finished task quotes it.
 --
 -- Who may do what:
---   read    members of the business, as for `tasks` (a collaborator reads the task board, so its reports too)
+--   read    members of the business except collaborators (`is_member_not_collaborator`, as 0094 closes tables): a
+--           report quotes what an agent found, which the event walls already hide from a collaborator in
+--           `task.completed.summary`, so the table is closed to them too
 --   write   the services only (the gateway's platform tools)
 --
 -- `simulated` is set by the gateway, never by the agent: true when a call of the session that saved the report ran on a
@@ -45,6 +47,11 @@ revoke execute on function fm_task_report_same_business() from public, anon, aut
 create trigger task_reports_same_business before insert or update of task_id, business_id on task_reports for each row execute function fm_task_report_same_business();
 --> statement-breakpoint
 select fm_tenant_table('task_reports', array['owner'], 'read_only');
+--> statement-breakpoint
+-- Closed to collaborators (0094's pattern): the members' read, without them.
+drop policy task_reports_select on task_reports;
+--> statement-breakpoint
+create policy task_reports_select on task_reports for select using (is_member_not_collaborator(business_id));
 --> statement-breakpoint
 -- Read only for app roles in the grants too, not only in the policies.
 revoke insert, update, delete on task_reports from anon, authenticated;

@@ -287,9 +287,12 @@ describe("task reports (WP-05 T3): the result of a task is saved, read by the ne
     await repos.tasks.setStatus(db, analyst.businessId, taskId, "running", { force: true });
     data(await client.call(token, { connector: "platform", tool: "complete_task", args: { taskId, summary: "Three wholesalers listed with contact pages." } }));
     expect(await repos.taskReports.latestForTask(db, analyst.businessId, taskId)).toMatchObject({ title: "List three wholesalers", bodyMd: "Three wholesalers listed with contact pages.", sessionId: analyst.sessionId });
-    const detail = data<{ lastReport: { id: string; title: string; excerpt: string } | null; lastBlock: { reason: string; detail: string } | null }>(await client.call(token, { connector: "platform", tool: "get_task", args: { taskId } }));
-    expect(detail.lastReport).toMatchObject({ title: "List three wholesalers", excerpt: "Three wholesalers listed with contact pages." });
-    expect(detail.lastBlock).toEqual({ reason: "dependency", detail: "Waiting for the founder's region." });
+    const detail = data<{ lastReport: Record<string, unknown> | null; lastBlock: Record<string, unknown> | null }>(await client.call(token, { connector: "platform", tool: "get_task", args: { taskId } }));
+    // No agent-written text outside the untrusted envelope: the report's text is read with read_report only.
+    expect(detail.lastReport).toEqual({ id: expect.any(String), title: "List three wholesalers", simulated: false, createdAt: expect.any(String) });
+    expect(detail.lastBlock).toEqual({ reason: "dependency" });
+    expect(JSON.stringify(detail)).not.toContain("Waiting for the founder's region.");
+    expect(JSON.stringify(detail)).not.toContain("Three wholesalers listed with contact pages.");
     // A session that saved its own report keeps it: complete_task adds none.
     const other = await desk(worker.businessId, "Tove", "researcher");
     const second = await researchTask(other, "Draft the survey");
@@ -298,5 +301,50 @@ describe("task reports (WP-05 T3): the result of a task is saved, read by the ne
     data(await client.call(otherToken, { connector: "platform", tool: "complete_task", args: { taskId: second, summary: "Done." } }));
     const reports = await repos.taskReports.listForBusiness(db, other.businessId, { limit: 500 });
     expect(reports.items.filter((r) => r.taskId === second).map((r) => r.title)).toEqual(["Survey draft"]);
+  });
+
+  it("a session that read a simulated report saves a simulated one; reading a real report leaves it real", async () => {
+    const mocked = await desk(worker.businessId, "Uma", "researcher");
+    const mockedTask = await researchTask(mocked, "Find wholesale prices");
+    const mockedToken = await tokenFor(mocked, ["web:search_web", "platform:save_report"]);
+    asAllow(await client.call(mockedToken, { connector: "web", tool: "search_web", args: { query: "wholesale prices" } }));
+    data(await client.call(mockedToken, { connector: "platform", tool: "save_report", args: { taskId: mockedTask, title: "Wholesale prices", bodyMd: "Prices from the search." } }));
+    const realAuthor = await desk(worker.businessId, "Vik", "researcher");
+    const realTask = await researchTask(realAuthor, "Count the shops");
+    data(await client.call(await tokenFor(realAuthor, ["platform:save_report"]), { connector: "platform", tool: "save_report", args: { taskId: realTask, title: "Shops", bodyMd: "About 200 shops (Estimate)." } }));
+
+    const reader = await desk(worker.businessId, "Wen", "researcher");
+    const readerTask = await researchTask(reader, "Plan the outreach");
+    const readerToken = await tokenFor(reader, ["platform:read_report", "platform:save_report"]);
+    data(await client.call(readerToken, { connector: "platform", tool: "read_report", args: { taskId: realTask } }));
+    data(await client.call(readerToken, { connector: "platform", tool: "save_report", args: { taskId: readerTask, title: "Outreach plan", bodyMd: "Built on the shop count." } }));
+    expect((await repos.taskReports.latestForTask(db, reader.businessId, readerTask))?.simulated).toBe(false);
+    const read = data<{ simulated: boolean }>(await client.call(readerToken, { connector: "platform", tool: "read_report", args: { taskId: mockedTask } }));
+    expect(read.simulated).toBe(true);
+    const audit = await repos.audit.list(db, reader.businessId, { action: "platform.report.read" });
+    expect(audit.items.some((e) => (e.details as { sessionId?: string; simulated?: boolean }).sessionId === reader.sessionId && (e.details as { simulated?: boolean }).simulated === true)).toBe(true);
+    data(await client.call(readerToken, { connector: "platform", tool: "save_report", args: { taskId: readerTask, title: "Outreach plan", bodyMd: "Built on the wholesale prices." } }));
+    expect((await repos.taskReports.latestForTask(db, reader.businessId, readerTask))?.simulated).toBe(true);
+  });
+
+  it("save_report on a finished task is refused invalid_state; the report it had stays", async () => {
+    const analyst = await desk(worker.businessId, "Xan", "researcher");
+    const taskId = await researchTask(analyst, "Name three channels");
+    const token = await tokenFor(analyst, ["platform:*"]);
+    data(await client.call(token, { connector: "platform", tool: "complete_task", args: { taskId, summary: "Three channels named." } }));
+    const late = asAllow(await client.call(token, { connector: "platform", tool: "save_report", args: { taskId, title: "Replaced", bodyMd: "Something else." } }));
+    expect(late.result).toMatchObject({ ok: false, error: { code: "invalid_state" } });
+    expect((await repos.taskReports.latestForTask(db, analyst.businessId, taskId))?.bodyMd).toBe("Three channels named.");
+  });
+
+  it("a source that is not an http or https address is refused", async () => {
+    const analyst = await desk(worker.businessId, "Yan", "researcher");
+    const taskId = await researchTask(analyst, "Collect sources");
+    const token = await tokenFor(analyst, ["platform:save_report"]);
+    for (const url of ["javascript:alert(1)", "file:///etc/passwd", "ftp://files.example/a"]) {
+      const r = asAllow(await client.call(token, { connector: "platform", tool: "save_report", args: { taskId, title: "Sources", bodyMd: "One source.", sources: [{ url, title: "A" }] } }));
+      expect(r.result, url).toMatchObject({ ok: false, error: { code: "invalid_args" } });
+    }
+    expect(await repos.taskReports.latestForTask(db, analyst.businessId, taskId)).toBeNull();
   });
 });

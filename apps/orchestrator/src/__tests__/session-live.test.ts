@@ -1974,6 +1974,37 @@ describe("honest outcomes: a task that is not code is done only when its agent r
     };
     const result = await acts.runAgentSession(input, launch);
     await acts.finishSession(input, launch, result);
-    expect((await completedOf(sessionId))[0]?.payload).toMatchObject({ reportId: null, summary: result.summary });
+    expect((await completedOf(sessionId))[0]?.payload).toMatchObject({ reportId: null, summary: result.summary, simulated: false });
+  });
+
+  it("(f) a simulated report makes task.completed simulated", async () => {
+    const { task, sessionId, input, launch } = await nonCodeTask("Price three suppliers");
+    script = async function* () {
+      yield { type: "system", subtype: "init", session_id: `sdk-${sessionId}` };
+      yield toolUse("tu-report", "mcp__platform__save_report", { taskId: task.id, title: "Supplier prices", bodyMd: "A is cheapest." });
+      // The gateway marked it simulated (its session read through a mock connector or a simulated report).
+      await repos.taskReports.save(t.db, t.businessId, { taskId: task.id, sessionId, agentId: t.workerId, title: "Supplier prices", bodyMd: "A is cheapest.", simulated: true });
+      yield toolResult("tu-report", JSON.stringify({ reportId: "r", taskId: task.id, title: "Supplier prices" }));
+      yield resultOf(modelUsage(10, 5, 0.01));
+    };
+    const result = await acts.runAgentSession(input, launch);
+    await acts.finishSession(input, launch, result);
+    expect((await completedOf(sessionId))[0]?.payload).toMatchObject({ reportId: expect.any(String), simulated: true });
+  });
+
+  it("(g) a simulated result of a connector outside the business makes task.completed simulated, even with a real report", async () => {
+    const { task, sessionId, input, launch } = await nonCodeTask("Find two wholesalers");
+    script = async function* () {
+      yield { type: "system", subtype: "init", session_id: `sdk-${sessionId}` };
+      yield toolUse("tu-search", "mcp__web__search_web", { query: "wholesalers" });
+      yield toolResult("tu-search", JSON.stringify({ ok: true, data: { results: [] }, simulated: true, notice: "Simulated: nothing was read." }));
+      yield toolUse("tu-done", "mcp__platform__complete_task", { taskId: task.id, summary: "Two wholesalers." });
+      yield toolResult("tu-done", JSON.stringify({ id: task.id, status: "done" }));
+      yield resultOf(modelUsage(10, 5, 0.01));
+    };
+    const result = await acts.runAgentSession(input, launch);
+    expect(result.simulatedResults).toBe(1);
+    await acts.finishSession(input, launch, result);
+    expect((await completedOf(sessionId))[0]?.payload).toMatchObject({ simulated: true });
   });
 });

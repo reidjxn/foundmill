@@ -376,6 +376,11 @@ const taskCompleted = declareEvent(
     summary: z.string().max(2000),
     /** The report the session saved on the task (`task_reports`, WP-05 T3); null when it saved none. */
     reportId: Id.nullable().default(null),
+    /**
+     * The session's findings rest on simulated results (its report was marked simulated, or a connector outside the
+     * business answered simulated): the founder's note says so and never narrates them as real.
+     */
+    simulated: z.boolean().default(false),
   }),
   {
     doc: "A task passed its acceptance tests and review (or ended partially complete). The Update inbox item links the PR, preview and session replay.",

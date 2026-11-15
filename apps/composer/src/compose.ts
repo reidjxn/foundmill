@@ -9,7 +9,7 @@
  * The model never decides which events were narrated (`source_event_ids` are the real ids), never chooses an exhibit
  * outside the registry (AC-11.3.6) and never puts an unknown id in front of the founder (AC-11.3.1).
  */
-import { clubRulesPrompt, prompts } from "@foundmill/agents";
+import { SIMULATED_FINDINGS_NOTE, clubRulesPrompt, composerEventPayload, composerNotesFor, prompts } from "@foundmill/agents";
 import { APP_NAME, LIMITS } from "@foundmill/config";
 import type { ComposerItem, Event } from "@foundmill/db";
 import { checkComposerText, linkComposerText, stripMarkup, type LinkedText, type ValidationResult } from "@foundmill/entity-linker";
@@ -121,6 +121,9 @@ export function blocksContinueFor(_type: InboxItemType, _ctx: Pick<ComposeContex
 export const OFFLINE_TRACKING_NOTE =
   "Offline tracking: the team prepared these materials and the founder submits them. Nothing was launched, sent or published from here. Say the materials are ready for the founder to submit; never say the campaign launched, went live, was sent or was published.";
 
+/** Read with a narrated `task.completed` whose findings were simulated (packages/agents, shared with the api's fallback). */
+export { SIMULATED_FINDINGS_NOTE };
+
 /** Builds the JSON input block the model (and the mock) reads. */
 export function composerInputs(ctx: ComposeContext, brief: ComposeBrief): Record<string, unknown> {
   const base: Record<string, unknown> = {
@@ -138,7 +141,7 @@ export function composerInputs(ctx: ComposeContext, brief: ComposeBrief): Record
   };
   switch (brief.mode) {
     case "events": {
-      const events = brief.events.map((e) => ({ id: e.id, type: e.type, occurred_at: e.occurredAt.toISOString(), actor: e.actor, entity_ids: e.entityIds, payload: e.payload }));
+      const events = brief.events.map((e) => ({ id: e.id, type: e.type, occurred_at: e.occurredAt.toISOString(), actor: e.actor, entity_ids: e.entityIds, payload: composerEventPayload(e) }));
       // Tasks the round parked for want of a tool (WP-05 T18): the prompt ends the note with one sentence about them.
       const parked = (brief.parked ?? []).slice(0, PARKED_TASKS_MAX).map((p) => ({ title: p.title.slice(0, PARKED_TITLE_MAX), what_the_agent_said: (p.detail ?? "").slice(0, PARKED_DETAIL_MAX) }));
       if (parked.length > 0) base.parked = parked;
@@ -147,7 +150,9 @@ export function composerInputs(ctx: ComposeContext, brief: ComposeBrief): Record
       if (rolled) return { ...base, events, note: "These wins were rolled up into the day's results table (volume rule): write one short results note that counts them by kind, names no more than three customers from the manifest, and does not narrate any journey." };
       // Offline tracking: the engine's "launch" prepared materials for the founder to submit; nothing went out (WP-02 T2).
       const offline = brief.events.some((e) => e.type === "campaign.launched" && (e.payload as { kitMode?: unknown } | null)?.kitMode === true);
-      return offline ? { ...base, events, note: OFFLINE_TRACKING_NOTE } : { ...base, events };
+      // A finished task whose findings rest on simulated results is narrated as simulated, never as real (WP-05 T3).
+      const notes = [...(offline ? [OFFLINE_TRACKING_NOTE] : []), ...composerNotesFor(brief.events)];
+      return notes.length > 0 ? { ...base, events, note: notes.join(" ") } : { ...base, events };
     }
     case "insight":
       return {

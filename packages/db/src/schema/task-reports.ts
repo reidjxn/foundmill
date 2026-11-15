@@ -1,6 +1,7 @@
 /**
  * 0110 — task reports (WP-05 T3): the result of a task an agent finished, saved with the platform's `save_report` (or
- * from `complete_task`'s summary when the session saved none). Members read, as for `tasks`; only the services write.
+ * from `complete_task`'s summary when the session saved none). Members other than collaborators read; only the services
+ * write.
  * `simulated` is set by the gateway: a report built on a mock connector's reads is never a real result.
  */
 import { sql } from "drizzle-orm";

@@ -5,7 +5,7 @@
 import { buildMockConnector } from "../../define";
 import { MOCK_NOW, mockHealth, mockIntegrationRecord, perBusiness, uuidFromSeed } from "../../mock-utils";
 import type { ToolContext } from "../../contract";
-import { PLATFORM_KEY, PLATFORM_RATE_LIMITS, platformTools, PlatformToolError, REPORT_EXCERPT_CHARS, type AgentMessageT, type PlatformCaller, type PlatformHost, type PlatformResult, type TaskDetailT } from "./tools";
+import { PLATFORM_KEY, PLATFORM_RATE_LIMITS, platformTools, PlatformToolError, type AgentMessageT, type PlatformCaller, type PlatformHost, type PlatformResult, type TaskDetailT } from "./tools";
 
 /** A report in the in-memory world: what read_report answers, plus the session that saved it. */
 type MockReport = PlatformResult<"read_report"> & { sessionId: string | null };
@@ -59,7 +59,7 @@ export function createMemoryPlatformHost(): PlatformHost {
     const w = world(caller.businessId);
     const r: MockReport = { reportId: uuidFromSeed("mock-platform", caller.businessId, "report", w.reports.size), taskId: t.id, ...input, simulated: false, createdAt: MOCK_NOW.toISOString(), sessionId: caller.sessionId };
     w.reports.set(t.id, r);
-    t.lastReport = { id: r.reportId, title: r.title, excerpt: r.bodyMd.slice(0, REPORT_EXCERPT_CHARS) };
+    t.lastReport = { id: r.reportId, title: r.title, simulated: r.simulated, createdAt: r.createdAt };
     return r;
   };
   const mustTask = (caller: PlatformCaller, taskId: string) => {
@@ -97,10 +97,10 @@ export function createMemoryPlatformHost(): PlatformHost {
       if (t.status === "done" || t.status === "failed" || t.status === "stopped") throw new PlatformToolError("invalid_state", `the task is already ${t.status}`);
       return { ...touch(t, { ...(title !== undefined ? { title } : {}), ...(goal !== undefined ? { goalMd: goal } : {}), ...(acceptance !== undefined ? { acceptance } : {}), ...(fileScope !== undefined ? { fileScope } : {}) }) };
     },
-    async blockTask(caller, { taskId, reason }) {
+    async blockTask(caller, { taskId }) {
       const t = mustTask(caller, taskId);
       if (t.assigneeAgentId !== caller.agentId) throw new PlatformToolError("not_yours", "only the agent working on a task can block it");
-      return summary(touch(t, { status: "blocked", lastBlock: { reason: "dependency", detail: reason } }));
+      return summary(touch(t, { status: "blocked", lastBlock: { reason: "dependency" } }));
     },
     async handoffTask(caller, { taskId, toAgentId, note }) {
       const t = mustTask(caller, taskId);
