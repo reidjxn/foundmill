@@ -41,17 +41,15 @@ jobs:
           cache: pnpm
       # The vocabulary scan parses source files with the TypeScript compiler API from the root devDependencies.
       - run: pnpm install --frozen-lockfile
-      # static (below) is skipped on a docs-only change, which is exactly when a log could shrink, so the guard runs here too.
-      - name: The logs only grow (docs/DECISIONS.md, docs/PROGRESS.md)
+      # static (below) is skipped on a docs-only change, so the freeze is checked here too.
+      # On a pull request HEAD is the merge commit, so a branch that is merely behind does not trip this (WP-01 T6).
+      - name: The frozen logs are not edited (new entries go in docs/log/)
         if: ${{ github.event_name == 'pull_request' }}
         env:
           BASE_REF: ${{ github.base_ref }}
         run: |
           git fetch --no-tags --depth=1 origin "$BASE_REF"
-          for f in docs/DECISIONS.md docs/PROGRESS.md; do
-            base=$(git show "FETCH_HEAD:$f" | wc -l); head=$(wc -l < "$f")
-            if [ "$head" -lt $(( base * 98 / 100 )) ]; then echo "::error file=$f::$f shrank from $base to $head lines"; exit 1; fi
-          done
+          git diff --quiet FETCH_HEAD HEAD -- docs/DECISIONS.md docs/PROGRESS.md || { echo "::error::docs/DECISIONS.md and docs/PROGRESS.md are frozen; add a file under docs/log/ (skill: log-entry)"; exit 1; }
       - name: Scanner self-test
         run: node --test scripts/banned-terms.test.mjs
       - name: Brand scan (Football Manager / SI / SEGA) and vocabulary scan (football-only words in user-facing text)
@@ -159,18 +157,16 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Config and guard self-tests (Railway, .env.example, Supabase, the decisions index, the unit matrix, the e2e shards)
-        run: node --test scripts/railway-config.test.mjs scripts/env-example.test.mjs scripts/supabase-config.test.mjs scripts/decisions-index.test.mjs scripts/ci-matrix.test.mjs scripts/e2e-shard.test.mjs scripts/test-inventory.test.mjs
-      - name: The logs only grow (docs/DECISIONS.md, docs/PROGRESS.md)
+      - name: Config and guard self-tests (Railway, .env.example, Supabase, the decisions index, the unit matrix, the e2e shards, the log entries)
+        run: node --test scripts/railway-config.test.mjs scripts/env-example.test.mjs scripts/supabase-config.test.mjs scripts/decisions-index.test.mjs scripts/ci-matrix.test.mjs scripts/e2e-shard.test.mjs scripts/log-entries.test.mjs scripts/test-inventory.test.mjs
+      # On a pull request HEAD is the merge commit, so a branch that is merely behind does not trip this (WP-01 T6).
+      - name: The frozen logs are not edited (new entries go in docs/log/)
         if: ${{ github.event_name == 'pull_request' }}
         env:
           BASE_REF: ${{ github.base_ref }}
         run: |
           git fetch --no-tags --depth=1 origin "$BASE_REF"
-          for f in docs/DECISIONS.md docs/PROGRESS.md; do
-            base=$(git show "FETCH_HEAD:$f" | wc -l); head=$(wc -l < "$f")
-            if [ "$head" -lt $(( base * 98 / 100 )) ]; then echo "::error file=$f::$f shrank from $base to $head lines"; exit 1; fi
-          done
+          git diff --quiet FETCH_HEAD HEAD -- docs/DECISIONS.md docs/PROGRESS.md || { echo "::error::docs/DECISIONS.md and docs/PROGRESS.md are frozen; add a file under docs/log/ (skill: log-entry)"; exit 1; }
       - name: Skipped test sites by reason (an unconditional skip, .only, .fixme or .todo fails)
         run: node scripts/test-inventory.mjs --skips
       - name: Typecheck and lint (all packages)

@@ -1,5 +1,7 @@
 # PROGRESS.md
 
+> Frozen on Nov 15, 2026. New entries are files under docs/log/ (skill `log-entry`). Search both with `node scripts/decisions-index.mjs <words>`.
+
 Status legend: ☐ not started · ◐ in progress · ☑ done · ✗ blocked
 
 ## Phase 0 — Foundations (BUILD §16.1)
@@ -2201,4 +2203,3 @@ zod 4.6.7 stops an array, set or map at a length check placed first in its chain
 ## Holistic plan, WP-01 T1: CI in parallel lanes (Nov 15, 2026)
 
 - ◐ **CI split into lanes** (`.github/workflows/ci.yml`, branch `claude/wp01-t1-ci-lanes`). A `changes` job decides per pull request which lanes run (main and dispatched agent runs run all); `static` (typecheck and lint, the config self-tests) and a 14-entry `unit` matrix replace the one 90-minute job, and `Typecheck, lint, unit tests` is now a gate that ends success when its inputs passed or were not needed. Playwright runs in eight shards dealt by the seconds each file took in CI (`scripts/e2e-shard.mjs` over `apps/web/e2e/shard-weights.json`, measured on the first run of this change; shard 1 keeps onboarding first and the golden path), with the browser cached. Docker and Storybook run only when their inputs changed. Main's runs are no longer cancelled by the next push. The interim guard "the logs only grow" runs in `static` and in the banned-terms job. Test: `scripts/ci-matrix.test.mjs` (every workspace package with a test script is in a matrix entry; a missing one is named). Times are in the pull request.
-- ◐ **WP-01 T7: skipped and flaky tests are counted on every run** (branch `claude/wp01-t7-test-inventory`, stacked on T1). `scripts/test-inventory.mjs --skips` counts the conditional skip sites by reason in the run summary (today 83: live model 20, vendor keys 32, real Postgres, pooler or Redis 12, seed or stack state 19) and fails on an unconditional skip, `.only`, `.fixme` or `.todo`; `--flaky` lists the Playwright tests that passed only on a retry, from the JSON report both configs now write in CI. Unit tests have no retries, so a vitest flake still shows as a failure (one did on T1's second run: `apps/orchestrator` `autopilot.test.ts:407`, 3 of 3 green locally).
