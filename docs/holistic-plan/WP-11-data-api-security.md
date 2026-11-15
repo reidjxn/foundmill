@@ -80,7 +80,7 @@ Rules for every task here (docs/holistic-plan/README.md applies in full):
 
 Sizes: S under a day, M one to three days, L up to a week. 13 S and 7 M: about four to five weeks of one session in sequence (Estimate). T3, T8 and the founder steps run beside the rest; T11 to T20 do not depend on each other. T20 is last in the list only because another package sets its date: start it when WP-07's `create_payment_link` task starts.
 
-### T1: Real Postgres in CI            [size M] [ships alone]
+### [x] T1: Real Postgres in CI            [size M] [ships alone]
 Why: A8-01, EH-11a, a11 S8, a11 S9. Two production-only bugs passed PGlite already (`0087_client_grants.sql` header; `packages/db/src/client.ts` `withDateParams`). Every migration in this package changes what PGlite cannot show.
 Files: create `scripts/ci/supabase-like.sql`; modify `.github/workflows/ci.yml` (one new job), docs/DEPLOY.md §4 "Checking grants on a real Postgres" (point at the script).
 Interfaces: consumes `RLS_TEST_DATABASE_URL`, `RLS_TEST_ALLOW_REMOTE`, `createRealPostgresTestDb` (`packages/db/src/testing/postgres.ts`: one fresh database `fm_rls_<random>` per harness, dropped on close; the URL's role needs CREATEDB), `FM_TEST_POSTGRES_URL` (`migrate-lock.test.ts`, `owner-lock.test.ts`, apps/api `migrate-on-boot.test.ts`). Produces: CI job id `postgres-suites`, name `Real Postgres (migrations and tenancy)` (the id `audits/a10-engineering-health.md` §3.6 uses, so WP-01 extends this job instead of adding a second).
