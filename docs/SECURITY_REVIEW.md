@@ -189,3 +189,65 @@ New since Oct 7:
 - **N2 (high for email), open.** No per-business SendGrid inbound token, event-webhook key or Stripe endpoint secret is ever stored by the api or the web, so inbound mail would verify against one platform token for every business. To design with the platform sending address (package 1.5): derive the token per business and store the founder's own keys at connect.
 - **N3 (medium), open.** See SEC-10.
 - **N4 (low), open.** Any service that holds `SESSION_TOKEN_SECRET` can mint the `svc: api` token the push route trusts; `devices.register` moves a push token that another account holds. The second is also what lets two accounts share one phone, so it is left as it is and recorded.
+
+## Audit fixes, Nov 13 – 14, 2026
+
+Folded in from the "SECURITY_REVIEW entry" of each pull request (#116, #129), as written. #131 and #132 carry no such entry; their rows below are taken from their descriptions, with severities given by the #131/#132 session.
+
+### The Nov 13 audit (#116)
+
+| Finding | Severity | Status | PR |
+|---|---|---|---|
+| Export ignores section walls | Medium | Fixed | #116 |
+| Admin lifts own walls via invite | Medium | Fixed (hardened by #120) | #113 |
+| Rollback, save or promote widens tool grants | Medium | Fixed | #116 |
+| fm_purge_business executable by client roles | Medium (critical if Data API on) | Fixed | #101 |
+| Delegated approval reused after withdrawal | Medium | Fixed | #116 |
+| SEC-9 gateway dev secret (and pause-link secret) | Low | Fixed | #116 |
+| Digest recipients not registered as untrusted | Medium | Fixed | #116 |
+| Inbox note remote images / links | Medium | Fixed | #116 |
+| Supabase redirect wildcard | Medium | Fixed in file; dashboard step pending | #116 |
+| Follow sign-ups spend the mail cap | Medium | Fixed: Turnstile on Follow, and confirmations on their own daily counts | #119 |
+
+### The untrusted-content scan (#129)
+
+**Denial of service through a quadratic regex in the untrusted-content scan (fixed 2026-11-14).**
+- A long run of local-part characters with no "@" took seconds to scan: 11 s for 94 KB.
+- The fix is a linear scan anchored on "@", checked for equivalence against the old pattern.
+- Binary content is kept out of the reader's prompt.
+
+### A collaborator's reads of the event log (#131)
+
+Severities from the #131/#132 session (Nov 14, 2026), on this document's scale.
+
+| Finding | Severity | Status | PR |
+|---|---|---|---|
+| `events` collaborator walls (0099): a signed-in collaborator (whom the founders must invite: it needs a role) could read event payloads from sections their role walls off, both from the stream and straight from `events`. A gap in a documented control (the collaborator walls), not a cross-tenant read. | P2 | Fixed in 0099: `events_select` admits a collaborator only to the types on `fm_collaborator_event_types()`, a collaborator's writes are held to the same list, and `outbox` follows its event | #131 |
+| 0099 cannot hide one field of an `events` row a collaborator reads directly | P3 | Open: defense in depth only, the api (`eventAsSeenBy`) and the stream cut those fields | — |
+
+### Next.js advisories (#133)
+
+| Finding | Severity | Status | PR |
+|---|---|---|---|
+| GHSA-2464-fhr4-w9xw: RCE in the Image Optimization API with SVGs (through `sharp`) | Critical | Not exploitable before the fix: `sharp` 0.35.5 was already resolved, and `images.unoptimized` makes `/_next/image` answer 404 before the optimizer runs. Fixed by Next.js 16.4.3 | #133 |
+| GHSA-673q-mjm6-r5xr: RCE in `use cache` functions | Critical | No `use cache` in the app. Fixed by Next.js 16.4.3 | #133 |
+| GHSA-p3m5-59mp-jv5r: DoS in the App Router through Server Actions | High | Affected, through the Follow form's Server Action. Fixed by Next.js 16.4.3 | #133 |
+| dompurify SAFE_FOR_TEMPLATES bypass (in the design system's code editor, through `monaco-editor`) | Critical | Fixed by the `dompurify` 3.4.17 override | #133 |
+
+The remaining non-critical advisories (dev tools, the test DOM, the agent and MCP SDKs' web servers) are listed in the CI-scanning PR for triage.
+
+### Collaborators and Finance figures (#132)
+
+| Finding | Severity | Status | PR |
+|---|---|---|---|
+| Collaborator Finance fields (0107): with the same prerequisite, a collaborator could read Finance figures through api procedures (cycle cost, revenue goals, approval amounts, Ribbon money, CRM payment amounts, Inbox note cost) and through `conversions` and `journey_daily` | P2 | Fixed: the api cuts the same fields as the stream (`EVENT_WALLS` in @foundmill/shared, `eventAsSeenBy`); migration 0107 gives a collaborator `conversions` only through `member_conversions` (amount null) and `journey_daily` without spend and revenue; `inbox_items` keeps the api's redaction as its wall | #132 |
+| Agents' AI cost (wages) on the Team screens, the profile, recruitment and the hire catalog: a platform-usage figure, not the business's revenue or a customer's money, shown in a section the collaborator may read | P3 | Open | — |
+| Free text that may quote money (Customer Update commentary, stored chapter titles, design-check results): a figure appears only when an agent or a person writes one; it cannot be walled per field, and the api masks known money patterns | P3 | Open | — |
+| The department metrics' own section walls: after 0107 their raw SQL on `conversions` returns nothing for a collaborator, so a revenue metric reads empty rather than leaking; what is left is a missing wall, a hardening issue, not an exposure | P3 | Open | — |
+
+### zod memory exhaustion through input validation (#139)
+
+| Finding | Severity | Status | PR |
+|---|---|---|---|
+| GHSA-mrhx-c7xc-m3w5 through `publicQuiz.answer` (signed out): a 2 MB body of junk keys made zod build an issue per key (about 83 MB per request), and the error sent back listed every key (6.9 MB) | P1 | Fixed: the input's keys are counted before zod reads them; every procedure's error is bounded (`boundedIssues` in `trpc.ts`); zod 4.6.7 | #139 |
+| The same shape on signed-in inputs: lists without `.max()` first and records without a count first, reachable by any signed-in person | P3 | Open: a follow-up PR bounds every list and map an api input can reach | — |
