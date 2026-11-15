@@ -81,7 +81,23 @@ export async function loadDispatchFacts(deps: Pick<OrchestratorDeps, "db" | "clo
     loadProductStage(db, businessId),
   ]);
   const retriedIds = candidates.items.filter((t) => t.status === "failed" || t.status === "blocked").map((t) => t.id);
-  const [recent, holds] = await Promise.all([repos.agents.recentOutcomes(db, businessId, { taskIds: retriedIds, limit: 20 * retriedIds.length }), repos.approvals.holds(db, businessId, candidates.items.map((t) => t.id))]);
+  const anyBlocked = candidates.items.some((t) => t.status === "blocked");
+  const [recent, holds, blocks] = await Promise.all([
+    repos.agents.recentOutcomes(db, businessId, { taskIds: retriedIds, limit: 20 * retriedIds.length }),
+    repos.approvals.holds(db, businessId, candidates.items.map((t) => t.id)),
+    anyBlocked ? repos.events.list(db, businessId, { type: "task.blocked", limit: 300 }) : null,
+  ]);
+  // A task blocked `not_connected` gets the same answer until the founder connects something: it is not retried on a
+  // timer, only on the founder's Start or Continue (WP-05 T2). Newest first, so the first event per task is its latest.
+  const latestBlock = new Map<string, unknown>();
+  for (const e of blocks?.items ?? []) {
+    const p = e.payload as { taskId?: unknown; reason?: unknown };
+    if (typeof p.taskId === "string" && !latestBlock.has(p.taskId)) latestBlock.set(p.taskId, p.reason);
+  }
+  const blockedRetry = (taskId: string) => {
+    const retry = taskRetry(failureStreak(recent.filter((s) => s.taskId === taskId), ["blocked", "failed"]), now);
+    return latestBlock.get(taskId) === "not_connected" ? { ...retry, due: false, exhausted: true, nextAttemptAt: null } : retry;
+  };
   const spentBy = new Map(wages.map((w) => [w.agentId, w.costMinor]));
 
   const departments: BriefDepartment[] = departmentsRaw.map((d) => ({ id: d.id, name: d.name, slug: d.slug, leadAgentId: d.leadAgentId, moduleKeys: d.moduleKeys, budgetMinor: d.budgetMinor === null ? null : Number(d.budgetMinor) }));
@@ -112,7 +128,7 @@ export async function loadDispatchFacts(deps: Pick<OrchestratorDeps, "db" | "clo
     blocked: t.blocked,
     awaitingApproval: t.awaitingApproval,
     approvalHold: holds.get(t.id) ?? null,
-    retry: t.status === "failed" ? taskRetry(failureStreak(recent.filter((s) => s.taskId === t.id)), now) : t.status === "blocked" ? taskRetry(failureStreak(recent.filter((s) => s.taskId === t.id), ["blocked", "failed"]), now) : null,
+    retry: t.status === "failed" ? taskRetry(failureStreak(recent.filter((s) => s.taskId === t.id)), now) : t.status === "blocked" ? blockedRetry(t.id) : null,
   }));
   return { business, departments, agents, openTasks, openTaskTotal: candidates.total, productStage: product.stage, product, agentsStopped: business.agentsStoppedAt !== null };
 }

@@ -63,7 +63,7 @@ async function commitFreshBusiness(page: Page, name: string): Promise<{ bid: str
   return { bid };
 }
 
-const WELCOME_NOTE = "Your team is drafting the product foundations";
+const WELCOME_NOTE = "Your team is drafting your page and your plan";
 const SPEC_SIGNOFF = "Sign off the product specification";
 const ROADMAP_SIGNOFF = "Sign off the product roadmap";
 

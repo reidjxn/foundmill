@@ -108,7 +108,7 @@ test.describe("settings, plain words", () => {
     await expect(autopilot.getByTestId("autopilot-help")).toHaveText("Autopilot presses Continue for you on a schedule. It never answers notes for you.", { timeout: LONG });
     await expect(autopilot.getByTestId("autopilot-switch")).toHaveAttribute("aria-describedby", "autopilot-help");
     // Continue runs until done (Nov 7, 2026) and the daily limits here bound it too.
-    await expect(autopilot.getByText("Continue keeps the team working, one cycle after another, until nothing is left to do. The daily limits below apply to those cycles too.")).toBeVisible();
+    await expect(autopilot.getByText("Continue keeps the team working, one round of work after another, until nothing is left to do. The daily limits below apply to those rounds too.")).toBeVisible();
     // Vacation carries its consequence under the button.
     await expect(screen.getByTestId("vacation-consequence")).toContainText("Reversible");
   });

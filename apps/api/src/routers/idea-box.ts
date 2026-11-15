@@ -13,6 +13,7 @@ import { TRPCError } from "@trpc/server";
 import { repos, IDEA_DRAFT_HOLD_MS } from "@foundmill/db";
 import { IdeaToken } from "@foundmill/shared";
 import { z } from "zod";
+import { recordFirstIdeas, recordIdeaKept } from "../services/funnel-facts";
 import { claimIdeaBoxDraft, ideaTokenHash, previewIdeaBoxDraft } from "../services/idea-box";
 import { protectedProcedure, publicProcedure, router } from "../trpc";
 
@@ -42,7 +43,15 @@ export const ideaBoxRouter = router({
    * of a sign-in, so a link someone else sends to a person who is already signed in cannot reach their deck, and the
    * press itself means nobody's card lands in a deck unseen.
    */
-  claim: protectedProcedure.input(ClaimInput).mutation(async ({ ctx, input }) => claimIdeaBoxDraft(ctx.db, ctx.userId, { token: input.token, claim: freshClaim(ctx, input.claim) })),
+  claim: protectedProcedure.input(ClaimInput).mutation(async ({ ctx, input }) => {
+    const claimed = await claimIdeaBoxDraft(ctx.db, ctx.userId, { token: input.token, claim: freshClaim(ctx, input.claim) });
+    // The funnel's facts (WP-02 T9): a first keep only; a repeat (`again`) writes nothing.
+    if (claimed && !claimed.again) {
+      await recordIdeaKept(ctx, ctx.userId, claimed.ideaId);
+      await recordFirstIdeas(ctx, ctx.userId, "idea_box", 1);
+    }
+    return claimed;
+  }),
 });
 
 export const waitlistRouter = router({

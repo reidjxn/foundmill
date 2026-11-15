@@ -210,6 +210,8 @@ export const FoundationsDoor = z.enum(FOUNDATIONS_DOORS);
 export type FoundationsDoor = C.FoundationsDoor;
 export const FoundationsRunner = z.enum(FOUNDATIONS_RUNNERS);
 export type FoundationsRunner = C.FoundationsRunner;
+/** Where the team's code can go (WP-02 T4/T5): nowhere yet, or the founder's GitHub repository with pushing on. WP-07 adds "site". */
+export type BuildDestination = "none" | "github";
 export const ProductStage = z.enum(PRODUCT_STAGES);
 export type ProductStage = C.ProductStage;
 export const SignoffKind = z.enum(SIGNOFF_KINDS);

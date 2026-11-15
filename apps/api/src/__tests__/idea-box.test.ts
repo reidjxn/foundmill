@@ -207,6 +207,11 @@ describe("ideaBox.claim and the waitlist", () => {
     expect(row!.ownerUserId).toBe(hz.A.ownerId);
     expect(await owner.ideaBox.claim({ token: first.token })).toEqual({ ideaId: claimed!.ideaId, again: true });
     expect(await hz.caller({ userId: hz.B.ownerId, email: "b@test.local" }).ideaBox.claim({ token: first.token })).toBeNull();
+    // The funnel's facts (WP-02 T9): one idea.kept and one idea.drafted after two claims, nothing for the other person.
+    const facts = await hz.db.select({ type: s.accountEvents.type, payload: s.accountEvents.payload, userId: s.accountEvents.userId }).from(s.accountEvents).where(eq(s.accountEvents.userId, hz.A.ownerId));
+    expect(facts.filter((f) => f.type === "idea.kept").map((f) => f.payload)).toEqual([{ from: "idea_box" }]);
+    expect(facts.filter((f) => f.type === "idea.drafted").map((f) => f.payload)).toEqual([{ source: "idea_box", cards: 1 }]);
+    expect(JSON.stringify(facts)).not.toContain(claimed!.ideaId);
   });
 
   it("claims on another device with the sign-in link's claim token, once", async () => {

@@ -21,7 +21,7 @@
  */
 import { APP_NAME } from "@foundmill/config";
 import { isUntrusted } from "@foundmill/connectors";
-import { repos } from "@foundmill/db";
+import { founderReworkDetail, repos } from "@foundmill/db";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 import { postNote } from "./dispatch";
@@ -138,6 +138,8 @@ export function mergeableOf(state: string | null | undefined, draft: boolean | u
  * the next session must do. The founder reads the first sentence in the Chief of Staff's note; the agent reads all of it.
  */
 export function handBackDetail(why: MergeHoldReason, branch: string, detail: string | null): string {
+  // The founder's words are the instruction, first (WP-05 T16); the api writes the same text when the founder answers.
+  if (why === "founder" && detail?.trim()) return founderReworkDetail(detail, branch);
   const what =
     why === "conflicts"
       ? "This change clashes with newer work on the live product, so it could not go live as it is."
@@ -220,11 +222,25 @@ export function createMergeActivities(deps: OrchestratorDeps) {
       const mergedTasks = new Set(mergedEvents.items.map((e) => (e.payload as { taskId?: unknown }).taskId).filter((id): id is string => typeof id === "string"));
       // Newest first: the first completion seen for a task is its latest.
       const latest = new Map<string, CompletedPayload>();
+      const completedAt = new Map<string, number>();
       for (const e of completed.items) {
         const p = e.payload as unknown as CompletedPayload;
-        if (p?.taskId && !latest.has(p.taskId)) latest.set(p.taskId, p);
+        if (p?.taskId && !latest.has(p.taskId)) {
+          latest.set(p.taskId, p);
+          completedAt.set(p.taskId, new Date(e.occurredAt).getTime());
+        }
       }
-      const settled = new Set(merges.items.filter((a) => a.action === MERGE_AUDIT.merged || ["decision", NOTHING_TO_MERGE].includes(String((a.details as { step?: unknown } | null)?.step))).map((a) => (a.target as { id?: unknown } | null)?.id).filter((id): id is string => typeof id === "string"));
+      // The founder's answer settles the work it was about, not the rework they asked for: a `decision` older than the
+      // task's latest completion is a change sent back and finished again (WP-05 T16), offered to go live again.
+      const settledRow = (a: (typeof merges.items)[number]) => {
+        const step = String((a.details as { step?: unknown } | null)?.step);
+        if (a.action === MERGE_AUDIT.merged || step === NOTHING_TO_MERGE) return true;
+        if (step !== "decision") return false;
+        const id = (a.target as { id?: unknown } | null)?.id;
+        const done = typeof id === "string" ? completedAt.get(id) : undefined;
+        return done === undefined || new Date(a.createdAt).getTime() >= done;
+      };
+      const settled = new Set(merges.items.filter(settledRow).map((a) => (a.target as { id?: unknown } | null)?.id).filter((id): id is string => typeof id === "string"));
       const heldForSetup = new Set(finishes.items.filter((a) => String((a.details as { reason?: unknown } | null)?.reason ?? "").startsWith(TEST_SETUP_REVIEW)).map((a) => (a.target as { id?: unknown } | null)?.id).filter((id): id is string => typeof id === "string"));
       const out: MergeInput[] = [];
       for (const task of waiting) {

@@ -37,7 +37,7 @@ export interface TestConnectorOptions {
   /** Connector key; default "test". A second instance keyed "anthropic" stands in for the key-bearing connector (SEC-1). */
   key?: string;
   /** How the connector authenticates; "app" stands in for GitHub (platform App keys, no stored secret). */
-  authKind?: "api_key" | "app";
+  authKind?: "api_key" | "app" | "none";
   /** Runs on the platform's own key once connected, with no stored credential (registries, Voyage, E2B...). */
   platformKey?: boolean;
   /** Stands in for the connector's connect() (GitHub's installation check). */
@@ -51,6 +51,9 @@ export interface TestConnectorOptions {
  * connector throws a refused merge), or `null` for an error with no status (a dropped connection, which may have run).
  */
 export const sendRefusals: (number | null)[] = [];
+
+/** While `until` is set, `send_message` waits on it before sending; `entered` counts the sends that reached it. */
+export const sendHold: { until: Promise<void> | null; entered: number } = { until: null, entered: 0 };
 
 /** `read_inbox` with this id returns a message whose addresses and URL each start a line (BUILD §9.8 step 4). */
 export const MULTILINE_MESSAGE_ID = "multiline";
@@ -118,6 +121,8 @@ export function createTestConnector(options: TestConnectorOptions = {}, seen: Se
           const status = sendRefusals.shift()!;
           throw status === null ? new Error("connection reset") : Object.assign(new Error("not mergeable"), { status });
         }
+        sendHold.entered++;
+        if (sendHold.until) await sendHold.until;
         record("send_message", args, ctx);
         return { sent: true as const, to: args.to };
       },

@@ -110,10 +110,19 @@ export interface WhatChangedProps {
   error?: string;
   onRetry: () => void;
   now: Date;
+  /** Where the team's code goes (WP-02 T5); absent reads as "github". */
+  destination?: "none" | "github";
+}
+
+/** The What changed footer: with no repository to push to, nothing can go live from the team's code (WP-02 T5). */
+export function waitingFooter(destination: "none" | "github" = "github"): string {
+  return destination === "none"
+    ? "The team's code is saved in your project. It has nowhere to go live yet: connect a GitHub repository in Settings › Integrations to have it pushed there for you to approve."
+    : "Nothing goes live until you say so: when a change passes the quality checks, you get one decision in your Inbox, whatever the business mode.";
 }
 
 /** Development › What changed: the founder's rendering of the Pull requests tab. */
-export function WhatChanged({ businessId, deptSlug, open, live, loading, error, onRetry, now }: WhatChangedProps) {
+export function WhatChanged({ businessId, deptSlug, open, live, loading, error, onRetry, now, destination }: WhatChangedProps) {
   const { navigate } = useWidgetData();
   const { formatDateSmart } = useFormatters();
   const planHref = (taskId: string) => `${routes.department(businessId, deptSlug, "plan")}?task=${taskId}`;
@@ -179,7 +188,7 @@ export function WhatChanged({ businessId, deptSlug, open, live, loading, error, 
             {open.length - ready} being checked · {ready} ready for your go-ahead
           </span>
         }
-        footer={<span>Nothing goes live until you say so: when a change passes the quality checks, you get one decision in your Inbox, whatever the business mode.</span>}
+        footer={<span>{waitingFooter(destination)}</span>}
         data-testid="what-changed-waiting"
       >
         <div className="min-w-0">
@@ -230,10 +239,12 @@ export interface LiveProductProps {
   error?: string;
   onRetry: () => void;
   now: Date;
+  /** Product › Public page, the first thing people can open while nothing is live from here (WP-02 T5). */
+  publicPageHref?: string;
 }
 
 /** Development › Live product: the founder's rendering of the Environments tab. */
-export function LiveProduct({ businessId, deptSlug, live, previews, loading, error, onRetry, now }: LiveProductProps) {
+export function LiveProduct({ businessId, deptSlug, live, previews, loading, error, onRetry, now, publicPageHref }: LiveProductProps) {
   const { navigate } = useWidgetData();
   const { formatDateSmart } = useFormatters();
   const columns = useMemo<DataTableColumn<FounderPreviewRow>[]>(
@@ -268,11 +279,19 @@ export function LiveProduct({ businessId, deptSlug, live, previews, loading, err
           />
         ) : (
           <EmptyState icon={Radio} title="No release recorded yet" className="py-4">
-            The address of your live product appears here after its first release. Every change waits for your go-ahead before it goes live.
+            Nothing is live from here yet. Your public page is the first thing people can open:{" "}
+            {publicPageHref ? (
+              <a href={publicPageHref} className="entity-link" data-testid="live-product-public-page">
+                Product › Public page
+              </a>
+            ) : (
+              "Product › Public page"
+            )}
+            .
           </EmptyState>
         )}
       </Panel>
-      <Panel span={12} title="Previews of changes" flush loading={loading} error={error} onRetry={onRetry} meta={previews.length ? <span>{previews.filter((p) => p.url).length} ready to open</span> : undefined} footer={<span>Each change gets its own preview to try before it goes live; it opens here once the quality checks pass.</span>}>
+      <Panel span={12} title="Previews of changes" flush loading={loading} error={error} onRetry={onRetry} meta={previews.length ? <span>{previews.filter((p) => p.url).length} ready to open</span> : undefined} footer={<span>{live ? "Each change gets its own preview to try before it goes live; it opens here once the quality checks pass." : "Previews are not available yet."}</span>}>
         <div className="min-w-0">
           <DataTable<FounderPreviewRow> data={previews} columns={columns} rowActions={actions} onRowOpen={(r) => r.url && window.open(r.url, "_blank", "noopener")} height={Math.min(520, Math.max(4, previews.length) * 28 + 42)} exportFileName="previews" empty={{ icon: Clock, children: "Previews appear here as the team works on changes to the product.", action: { label: "Go to Plan", onClick: () => navigate(routes.department(businessId, deptSlug, "plan")) } }} aria-label="Previews of changes" className="border-0" />
         </div>

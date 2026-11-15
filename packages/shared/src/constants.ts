@@ -484,6 +484,8 @@ export const EVENT_TYPES = [
   "showcase.requested", "showcase.approved", "showcase.withdrawn", "showcase.asked", "showcase.settled",
   "visit.attributed", "post.outcome_attributed",
   "founder_notice.sent",
+  // The funnel's four account facts (WP-02 T9): admitted, profile created, a card kept, a first deck drafted.
+  "account.admitted", "profile.created", "idea.kept", "idea.drafted",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
@@ -529,7 +531,7 @@ export const isPersonAddressedEvent = (type: string | null | undefined): boolean
  */
 export const EVENT_SCOPES = ["business", "account"] as const;
 export type EventScope = (typeof EVENT_SCOPES)[number];
-export const ACCOUNT_EVENT_TYPES = ["profile.published", "profile.unpublished", "signup.attributed", "referral.arrived", "founder_notice.sent"] as const satisfies readonly EventType[];
+export const ACCOUNT_EVENT_TYPES = ["profile.published", "profile.unpublished", "signup.attributed", "referral.arrived", "founder_notice.sent", "account.admitted", "profile.created", "idea.kept", "idea.drafted"] as const satisfies readonly EventType[];
 export type AccountEventType = (typeof ACCOUNT_EVENT_TYPES)[number];
 /** Every event type that belongs to a project: all of `EVENT_TYPES` but the account-scoped ones. */
 export type BusinessEventType = Exclude<EventType, AccountEventType>;

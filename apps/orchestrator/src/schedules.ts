@@ -40,12 +40,14 @@ export const SCHEDULES: readonly ScheduleDefinition[] = [
   { id: "credential-expiry-scan", workflowType: "credentialExpiryScan", spec: daily(5, 6), args: [{}], description: "Daily: credentials expiring within 14 days" },
   { id: "consent-renewal-scan", workflowType: "consentRenewalScan", spec: daily(20, 6), args: [{}], description: "Daily: open-banking consents expiring within 14 days" },
   { id: "agent-metrics-rollup", workflowType: "agentMetricsRollup", spec: daily(20, 0), args: [{}], description: "Nightly: yesterday's sessions into agent metrics, then agent health" },
-  { id: "agent-health-sweep", workflowType: "agentHealthSweep", spec: every("1h"), args: [{}], description: "Hourly: agent health, rested agents back to work, wage-cap pauses lifted in a new period" },
+  { id: "agent-health-sweep", workflowType: "agentHealthSweep", spec: every("1h"), args: [{}], description: "Hourly: lost sessions closed, agent health, rested agents back to work, wage-cap pauses lifted in a new period" },
   { id: "legal-calendar-roll", workflowType: "legalCalendarRoll", spec: daily(50, 5), args: [{}], description: "Daily: filings due within 30 days and overdue ones" },
   { id: "source-watch-sweep", workflowType: "sourceWatchSweep", spec: daily(10, 4), args: [{ staleAfterHours: 24, perBusiness: 10 }], description: "Daily: the Source Watcher re-reads sources older than a day" },
   { id: "channel-engine-reconcile", workflowType: "channelEngineReconcile", spec: every("15m"), args: [], description: "Every 15 minutes: every channel on the board has its engine running", triggerOnRegister: true },
   { id: "crm-deletion-sweep", workflowType: "crmDeletionSweep", spec: daily(15, 1), args: [{}], description: "Nightly: CRM records whose deletion request came due are purged" },
   { id: "founder-notifications", workflowType: "founderNotifications", spec: every("5m"), args: [{}], description: "Every 5 minutes: founder emails (waiting decisions, wins, milestones, finished runs, used-up credits, the morning brief and the weekly review)" },
+  { id: "mock-results-cleanup", workflowType: "mockResultsCleanup", spec: daily(30, 3), args: [{}], description: "Nightly: generated results on real projects, counted or removed (MOCK_RESULTS_CLEANUP)", triggerOnRegister: true },
+  { id: "platform-metrics", workflowType: "platformMetrics", spec: daily(15, 3), args: [{}], description: "Nightly: funnel, north star, retention and agent-work counts for real projects" },
   { id: "business-deletion-sweep", workflowType: "businessDeletionSweep", spec: daily(45, 1), args: [{}], description: "Nightly: businesses whose scheduled deletion came due are deleted" },
 ];
 

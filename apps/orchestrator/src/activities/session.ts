@@ -33,12 +33,12 @@ import path from "node:path";
 import type { Query } from "@anthropic-ai/claude-agent-sdk";
 import { AgentInstructions, buildSystemPrompt, docText, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, restoredWorkspaceNote, roleSkillsFor, ToolGrant, type AgentSkillPrompt, type AgentTemplate } from "@foundmill/agents";
 import { APP_NAME, CREDITS_CURRENCY, sandboxCostMicroMinor } from "@foundmill/config";
-import { firstChannelToOpen, resolveGrants } from "@foundmill/connectors";
-import { bookUsage, checkPlatformCredits, closeApprovalItem, loadByokApiKey, MICRO_PER_MINOR, repos, signoffDecisionBlock, type Agent, type AgentVersion, type Approval, type Business, type Task } from "@foundmill/db";
+import { BUILTIN_CONNECTOR_FACTORIES, CONNECTOR_FACTORIES, firstChannelToOpen, resolveGrants } from "@foundmill/connectors";
+import { bookUsage, buildDestinationOf, checkPlatformCredits, closeApprovalItem, loadByokApiKey, MICRO_PER_MINOR, repos, signoffDecisionBlock, type Agent, type AgentVersion, type Approval, type Business, type Task } from "@foundmill/db";
 import { publishSessionEvent, type SessionEventInput } from "@foundmill/events";
 import { meter, MODEL_PRICING, resolveModel, type ModelId, type RouteKey } from "@foundmill/models";
 import { assertNoLongLivedCredentials, capturePages, MockSandbox, MockSandboxProvider, RECORDINGS, redactCredentialValues, stableHash32, type Sandbox, type SandboxSpecInput } from "@foundmill/sandbox";
-import { CHANNEL_KEYS, CHANNEL_META, channelEngineMayRun, channelTeamRuns, isUuid, noChannelSentence, type AgentStatus, type ChannelKey, type DesignCheckResult, type DesignShotRef, type ModelKey, type TaskStatus } from "@foundmill/shared";
+import { CHANNEL_KEYS, CHANNEL_META, channelEngineMayRun, channelTeamRuns, isUuid, mockResultsAllowed, noChannelSentence, type AgentStatus, type BuildDestination, type ChannelKey, type DesignCheckResult, type DesignShotRef, type ModelKey, type TaskStatus } from "@foundmill/shared";
 import { channelAvailabilityFor } from "./channel-availability";
 import { currentTraceparent } from "@foundmill/shared/telemetry";
 import { Context } from "@temporalio/activity";
@@ -430,6 +430,15 @@ class SessionRecorder {
   agentBlock: { reason: string } | null = null;
   /** `block_task` calls in flight on this session's task: call id → the agent's reason. */
   private readonly blockCalls = new Map<string, string>();
+  /** The agent called `complete_task` on this session's own task and the call went through (WP-05 T2). */
+  completedOwnTask = false;
+  /** `complete_task` calls in flight on this session's task. */
+  private readonly completeCalls = new Set<string>();
+  /**
+   * Tool results from connectors that reach outside the business (not `platform` or `quarantine`), read from the full
+   * result text: how many came back simulated or not connected, and which connectors they were (WP-05 T2).
+   */
+  readonly outside = { total: 0, simulated: 0, notConnected: 0, connectors: new Set<string>() };
   /**
    * What the agent pushed to its own branch (`agent/<taskId>`) with GitHub's `commit_files` during this session: the
    * count of pushes that went through and the last branch head one answered. The end-of-session push goes on top of
@@ -472,7 +481,7 @@ class SessionRecorder {
   }
 
   /** Publish one event to the session stream and fold it into progress / loop detection / approvals. */
-  async publish(event: SessionEventInput, opts: { args?: unknown } = {}): Promise<{ loop: boolean }> {
+  async publish(event: SessionEventInput, opts: { args?: unknown; result?: string } = {}): Promise<{ loop: boolean }> {
     const { deps, ctx } = this;
     const at = event.at ?? deps.clock.now().toISOString();
     const full = { ...event, at } as SessionEventInput;
@@ -488,6 +497,8 @@ class SessionRecorder {
       if (full.status === "started") this.toolCalls += 1;
       if (full.status === "failed" || full.status === "denied") this.toolFailures += 1;
       this.trackBlockTask(full, opts.args);
+      this.trackCompleteTask(full, opts.args);
+      this.trackOutside(full, opts.result);
       this.trackAgentPush(full, opts.args);
       if (full.status === "succeeded" && /merge_pr|merge_pull_request/i.test(full.tool)) {
         const m = /#?(\d{1,6})/.exec(full.resultSummary ?? "");
@@ -529,6 +540,29 @@ class SessionRecorder {
     if (reason === undefined) return;
     this.blockCalls.delete(call.callId);
     if (call.status === "succeeded" && call.policyOutcome !== "deny" && call.policyOutcome !== "ask") this.agentBlock = { reason };
+  }
+
+  /** A `complete_task` on this session's own task, tracked like `trackBlockTask`: it counts once the call went through. */
+  private trackCompleteTask(call: Extract<SessionEventInput, { kind: "tool_call" }>, args: unknown): void {
+    if (call.tool !== "complete_task" || (call.connectorKey !== null && call.connectorKey !== undefined && call.connectorKey !== "platform")) return;
+    if (call.status === "started") {
+      const a = (args ?? {}) as { taskId?: unknown };
+      if (a.taskId === undefined || a.taskId === this.ctx.task.id) this.completeCalls.add(call.callId);
+      return;
+    }
+    if (!this.completeCalls.delete(call.callId)) return;
+    if (call.status === "succeeded" && call.policyOutcome !== "deny" && call.policyOutcome !== "ask") this.completedOwnTask = true;
+  }
+
+  /** One tool result of a connector outside the business: counted, and whether it was simulated or not connected. */
+  private trackOutside(call: Extract<SessionEventInput, { kind: "tool_call" }>, result: string | undefined): void {
+    const key = call.connectorKey;
+    if (call.status === "started" || !key || key === "platform" || key === "quarantine") return;
+    const text = result ?? call.resultSummary ?? "";
+    this.outside.total += 1;
+    this.outside.connectors.add(key);
+    if (/"simulated"\s*:\s*true/.test(text)) this.outside.simulated += 1;
+    else if (/integration_not_connected/.test(text)) this.outside.notConnected += 1;
   }
 
   /**
@@ -1299,7 +1333,7 @@ async function runMockSession(deps: OrchestratorDeps, recorder: SessionRecorder,
 // ---------------------------------------------------------------------------------------------------------------------
 
 interface LiveContext {
-  business: { id: string; name: string; glossary: Record<string, string>; modelBilling: "byok" | "credits"; planTier: Business["planTier"] };
+  business: { id: string; name: string; glossary: Record<string, string>; modelBilling: "byok" | "credits"; planTier: Business["planTier"]; isDemo: boolean };
   version: AgentVersion | null;
   template: AgentTemplate;
   /** The agent's skills from the library or files (`buildSystemPrompt` renders them after the instructions). */
@@ -1527,7 +1561,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
 
   const continuing = [handedBack ? `## Why this task is back\n${handedBack}` : "", checkout ? checkoutNote(checkout) : checkoutMissing ? checkoutMissingNote(checkoutMissing) : "", updateNoteText ?? "", restored && restored.files > 0 ? restoredWorkspaceNote(restored.files) : ""].filter(Boolean).join("\n\n");
   const resumed = !ctx.run.resume ? "" : ctx.run.resume.reason === "handoff" || ctx.run.resume.reason === "retry" ? "This session moved to another worker mid-task and has been resumed. Continue the task from where the work stands, and check what is already done before you repeat any external action." : "This session was paused for a while and has been resumed. Continue the task from where the work stands.";
-  const taskPrompt = [`# Task: ${task.title}`, task.goalMd || "", Array.isArray(task.acceptance) && task.acceptance.length ? `## Acceptance criteria\n${task.acceptance.map((a) => `- ${typeof a === "string" ? a : JSON.stringify(a)}`).join("\n")}` : "", policy.fileTools ? codeTaskNote(launch.branch) : "Keep every action inside the tools you were given; this task has no file access.", continuing, resumed, "Report each phase change and keep every external action inside the tools you were given."].filter(Boolean).join("\n\n");
+  const taskPrompt = [`# Task: ${task.title}`, task.goalMd || "", Array.isArray(task.acceptance) && task.acceptance.length ? `## Acceptance criteria\n${task.acceptance.map((a) => `- ${typeof a === "string" ? a : JSON.stringify(a)}`).join("\n")}` : "", policy.fileTools ? codeTaskNote(launch.branch, buildDestinationOf(await repos.integrations.codeRepository(deps.db, input.businessId))) : "Keep every action inside the tools you were given; this task has no file access.", continuing, resumed, "Keep every external action inside the tools you were given. If a tool you need is missing or not connected, call block_task in your first turn and name it; do not explore. When the work is finished, call complete_task with what you found or made. A session that ends without complete_task or block_task is not counted as done."].filter(Boolean).join("\n\n");
 
   const waits = founderWaits(deps);
   /**
@@ -1593,6 +1627,17 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   const send = (text: string) => {
     turnOpen = true;
     queue.push(text);
+  };
+  /**
+   * A task that is not code whose agent is about to end without `complete_task` or `block_task` gets one more turn to
+   * report (WP-05 T2); true when it was sent.
+   */
+  let reportTurnSent = false;
+  const askToReport = (): boolean => {
+    if (task.kind === "code" || reportTurnSent || recorder.completedOwnTask || recorder.agentBlock) return false;
+    reportTurnSent = true;
+    send(REPORT_TURN);
+    return true;
   };
   const openGate = () => {
     gate?.open();
@@ -1667,7 +1712,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
         pauseCut = false;
         held = [];
         if (turns.length > 0) send(turns.join("\n\n"));
-        else if (!turnOpen && !recorder.pendingApprovalId) {
+        else if (!turnOpen && !recorder.pendingApprovalId && !askToReport()) {
           inputDone = true;
           queue.close();
         }
@@ -1813,7 +1858,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
               const text = typeof block.content === "string" ? block.content : JSON.stringify(block.content ?? "");
               const asked = /"outcome"\s*:\s*"ask"/.test(text);
               const approvalMatch = /"approvalId"\s*:\s*"([0-9a-f-]{36})"/.exec(text);
-              await recorder.publish({ kind: "tool_call", at: deps.clock.now().toISOString(), callId: block.tool_use_id, connectorKey: open.connectorKey, tool: open.tool, status: asked ? "awaiting_approval" : block.is_error ? "failed" : "succeeded", resultSummary: text.slice(0, 1000), durationMs: deps.clock.nowMs() - open.startedAt, policyOutcome: asked ? "ask" : /"outcome"\s*:\s*"deny"/.test(text) ? "deny" : null, approvalId: approvalMatch ? approvalMatch[1]! : null });
+              await recorder.publish({ kind: "tool_call", at: deps.clock.now().toISOString(), callId: block.tool_use_id, connectorKey: open.connectorKey, tool: open.tool, status: asked ? "awaiting_approval" : block.is_error ? "failed" : "succeeded", resultSummary: text.slice(0, 1000), durationMs: deps.clock.nowMs() - open.startedAt, policyOutcome: asked ? "ask" : /"outcome"\s*:\s*"deny"/.test(text) ? "deny" : null, approvalId: approvalMatch ? approvalMatch[1]! : null }, { result: text });
             }
           }
         }
@@ -1852,6 +1897,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
               continue;
             }
           }
+          if (!creditsOut && askToReport()) continue;
           inputDone = true;
           queue.close();
         }
@@ -1990,6 +2036,17 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
         return { outcome: "done", reason: review, review, blockedReason: null, approvalId: null, summary: `${agent.name} finished "${task.title}"; it needs your review: ${why}.`.slice(0, 1800), providerSessionId: sdkSessionId, ...usageNow() };
       }
     }
+    if (task.kind !== "code") {
+      // A task that is not code is done only on a result the agent reported, and never on outside calls that were all
+      // simulated or not connected on a real project (WP-05 T2). `finishSession` sets the task's status from this.
+      const { outside } = recorder;
+      if (!mockResultsAllowed(deps.env.APP_ENV, live.business.isDemo) && outside.total > 0 && outside.simulated + outside.notConnected === outside.total) {
+        const keys = [...outside.connectors];
+        return { outcome: "blocked", reason: `not connected: ${keys.join(", ")}`, blockedReason: "not_connected", approvalId: null, summary: `Blocked: ${namesList(keys.map(connectorName))} not connected for this project, so nothing real was read or sent.`.slice(0, 1800), providerSessionId: sdkSessionId, ...usageNow() };
+      }
+      if (!recorder.completedOwnTask) return { outcome: "blocked", reason: NO_RESULT_REASON, blockedReason: "no_result", approvalId: null, summary: `Blocked: ${agent.name} ended the session without reporting a result on "${task.title}".`.slice(0, 1800), providerSessionId: sdkSessionId, ...usageNow() };
+      recorder.progress = { ...recorder.progress, progress: 1 };
+    }
     return { outcome: "done", reason: null, blockedReason: null, approvalId: null, summary: `${agent.name} finished "${task.title}" with ${recorder.toolCalls} tool calls.`, providerSessionId: sdkSessionId, ...usageNow() };
   } finally {
     await loop.stop();
@@ -2018,10 +2075,12 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
  * the acceptance command in a test copy, brings the branch up to date, runs CI, opens the pull request and asks the
  * founder. Said up front, so a session finishes instead of blocking on a step that was never its own.
  */
-export function codeTaskNote(branch: string): string {
+export function codeTaskNote(branch: string, destination: BuildDestination = "github"): string {
   return [
     `Work on branch ${branch} inside your working directory; it is the only place you can read or write files.`,
-    "You have no shell, no node_modules and no way to run tests here, and that is expected. When your session ends the platform saves your changes and pushes them to your branch, runs the task's acceptance command in a test copy, brings the branch up to date with the live product, runs the repository's CI and opens the pull request; the founder decides what goes live.",
+    destination === "none"
+      ? "You have no shell, no node_modules and no way to run tests here, and that is expected. When your session ends the platform saves your changes and runs the task's acceptance command in a test copy. This project has no repository connected, so nothing is pushed and no pull request opens: never say that it was."
+      : "You have no shell, no node_modules and no way to run tests here, and that is expected. When your session ends the platform saves your changes and pushes them to your branch, runs the task's acceptance command in a test copy, brings the branch up to date with the live product, runs the repository's CI and opens the pull request; the founder decides what goes live.",
     "Never block or stop the task because you cannot run tests, CI, a rebase or a merge yourself, and never plan or ask for those steps: write the change and the tests it needs, then finish. Block only for something the task itself needs and you cannot get (a decision, a missing credential, a dependency that is not done).",
   ].join(" ");
 }
@@ -2481,6 +2540,32 @@ async function adoptPushedBranch(deps: OrchestratorDeps, recorder: SessionRecord
 }
 
 /** Why a code session that changed no file is not done. */
+/** The one turn a task that is not code gets when its agent ended without reporting (WP-05 T2). */
+export const REPORT_TURN = "You ended without reporting. Call complete_task with what you found or made, or block_task with what stopped you.";
+/** Why a task that is not code is blocked when its agent never reported a result. */
+export const NO_RESULT_REASON = "no result: the session ended without complete_task or block_task";
+
+/** A connector's display name for the founder, or its key when the catalog does not know it. */
+const connectorNames = new Map<string, string>();
+function connectorName(key: string): string {
+  let name = connectorNames.get(key);
+  if (name === undefined) {
+    const factory = (CONNECTOR_FACTORIES as Record<string, (() => { displayName: string }) | undefined>)[key] ?? (BUILTIN_CONNECTOR_FACTORIES as Record<string, (() => { displayName: string }) | undefined>)[key];
+    try {
+      name = factory?.().displayName ?? key;
+    } catch {
+      name = key;
+    }
+    connectorNames.set(key, name);
+  }
+  return name;
+}
+
+/** "A", "A and B", "A, B and C". */
+function namesList(names: readonly string[]): string {
+  return names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)!}`;
+}
+
 export const NO_CHANGES_REASON = "no changes: the session ended without changing any file in the workspace";
 /** Why a code task with an acceptance command whose run never happened is not done. */
 export const ACCEPTANCE_NOT_RUN_REASON = "acceptance tests did not run";

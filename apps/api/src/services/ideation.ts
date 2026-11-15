@@ -14,6 +14,7 @@
  *
  * Import's single card (`single`) is one card call on the same prefix.
  */
+import { recordFirstIdeas } from "./funnel-facts";
 import { buildFounderCardRequest, buildIdeationCardRequest, buildIdeationSlateRequest, buildSingleConceptRequest, IDEATION_AGENT_NAME, IDEATION_MAX_CONCEPTS, IDEATION_MIN_CONCEPTS, type IdeationBrief } from "@foundmill/agents";
 import { repos, type CreateIdeaInput, type IdeaWithVersion } from "@foundmill/db";
 import { isModelBillingError, ModelAbortedError, ModelOutputError, streamStructured, type ConceptCard, type IdeationSlateItem, type ModelClient, type ModelMode } from "@foundmill/models";
@@ -347,6 +348,7 @@ export async function draftIdeas(deps: DraftDeps, input: DraftInput, opts: Draft
     if (rejected) throw rejected.reason;
 
     const ideas = [...saved.entries()].sort(([a], [b]) => a - b).map(([, idea]) => idea);
+    if (ideas.length >= IDEATION_MIN_CONCEPTS) await recordFirstIdeas(deps, deps.userId, "set", ideas.length);
     if (ideas.length < IDEATION_MIN_CONCEPTS) {
       throw new AppError("ideation_incomplete", `The Ideation agent finished ${ideas.length} of ${total} concepts, fewer than a set needs. The finished ones are in your deck; draft again for more.`, 502, { drafted: ideas.length, total, failed: failures.length });
     }
@@ -395,6 +397,7 @@ export async function writeIdea(deps: DraftDeps, input: WriteIdeaInput, opts: { 
   });
   const card: ConceptCard = { ...res.json, name: title, pitch: words, archetype: input.archetype ?? res.json.archetype };
   const idea = await repos.ideas.create(deps.db, deps.userId, ideaFromCard(card, { founder_words: words, ...cardProvenance(models, words) }, "edited"));
+  await recordFirstIdeas(deps, deps.userId, "written", 1);
   return { idea, costMinor: Math.round(res.cost.costMicroMinor / 1_000_000), costLabel: "Estimate", mode: models.mode };
 }
 

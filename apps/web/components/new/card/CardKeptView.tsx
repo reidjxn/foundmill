@@ -15,7 +15,7 @@ export interface CardKeptViewProps {
 }
 
 export const CARD_KEPT_WORDS = {
-  lede: "It is saved in your deck. Your team starts from your words and checks every number against real sources.",
+  lede: "It is saved in your deck. Your team starts from your words.",
   profileNext: "Answer three questions about you",
   profileWhy: "Founder fit, and the plan your team drafts, come from what you can put in: your time, your money and what you are good at.",
   build: "Start building it",

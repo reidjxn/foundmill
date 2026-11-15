@@ -53,7 +53,7 @@ export interface NeedsYouListProps {
 
 export const NEEDS_YOU_WORDS = {
   title: "Needs you",
-  seeAll: "See all in the Inbox",
+  seeAll: "See all",
   empty: "Nothing needs you right now. The team keeps working.",
   open: "Open",
 } as const;
@@ -114,7 +114,7 @@ export function NeedsYouList({ items, total, seeAllHref, onQuickAnswer, pendingI
               <p className="flex flex-wrap items-center gap-x-2 gap-y-1 t-small text-tertiary">
                 {row.kindLabel ? <span>{row.kindLabel}</span> : null}
                 {row.from ? <span>From {row.from}</span> : null}
-                {row.holdsContinue ? <StatusPill tone="bad">Holds Continue</StatusPill> : null}
+                {row.holdsContinue ? <StatusPill tone="bad">The team is waiting on this</StatusPill> : null}
               </p>
             </div>
             <div className="flex shrink-0 flex-wrap items-center gap-1">

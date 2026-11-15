@@ -251,7 +251,7 @@ export function continueRunEndedMessage(reason: ContinueRunEndReason, maxCyclesP
     case "daily_spend":
       return { title: "Today's spend ceiling is reached (Estimate)", description: "No more cycles start on their own today. Raise the ceiling in Settings › What the team can do, or press Continue for one more.", tone: "warn" };
     case "hard_stop":
-      return { title: "The team stopped working", description: "Something needs you before the team can carry on. Open the Inbox's Needs you tab.", tone: "warn" };
+      return { title: "The team stopped working", description: "Something needs you before the team can carry on. Open Needs you.", tone: "warn" };
     case "vacation":
       return { title: "You are on vacation", description: "The Chief of Staff runs the cycles until you come back.", tone: "info" };
     case "lost":

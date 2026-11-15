@@ -42,6 +42,8 @@ export {
   legalCalendarRoll,
   channelEngineReconcile,
   crmDeletionSweep,
+  mockResultsCleanup,
+  platformMetrics,
   businessDeletionSweep,
   founderNotifications,
 } from "./schedules";

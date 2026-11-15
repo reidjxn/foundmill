@@ -109,7 +109,7 @@ test.describe("the tour (/tour)", () => {
     // The callout under Continue teaches the loop in the app's own words, until the visitor presses it. It is the
     // design system's Callout: a popover portaled to <body>, anchored to the deck's Continue (data-coachmark-active).
     const callout = page.locator("[data-coachmark][data-tour='deck-continue']");
-    await expect(callout).toContainText("Press it when you have answered what needs you.");
+    await expect(callout).toContainText("One press and your team works until nothing is left to do. Anything that needs you shows in Needs you.");
     await expect(page.locator("[data-testid='deck-continue'][data-coachmark-active]")).toHaveCount(1);
 
     // Pressing Continue runs the next cycle, which brings a customer; the gold card opens the Journey.

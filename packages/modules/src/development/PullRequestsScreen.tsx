@@ -15,6 +15,7 @@ import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import { RelativeDateText } from "../dates";
 import { fitColumns, fitToGrow, humanise, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
+import { useBusinessStage } from "../stage";
 import { OpenInClaudeCodeDialog } from "./dialogs";
 import { WhatChanged, toFounderChangeRows, toFounderLiveRows } from "./founder-views";
 import { useDevScreenOptions } from "./options";
@@ -155,6 +156,7 @@ export function PullRequestsScreen({ businessId, departmentId }: ModuleScreenPro
   // Where the code goes (first-time founder report, Nov 8, 2026): with no repository connected a "merged" change was
   // never pushed anywhere, and the rows say so instead of reading as shipped.
   const repo = useRepository();
+  const { buildDestination } = useBusinessStage();
   const pushed = repo.data?.connected !== false;
   // Agents named under the reader's preference, in the rows' name fields too (One name everywhere).
   const persona = useAgentPersona();
@@ -284,7 +286,7 @@ export function PullRequestsScreen({ businessId, departmentId }: ModuleScreenPro
 
   // Builder view off: the founder's What changed (no PR number, branch, lines or commit; founder titles and words).
   if (!builder) {
-    return <WhatChanged businessId={businessId} deptSlug={deptSlug} open={founderOpen} live={founderLive} loading={prs.isLoading} error={prs.error ? prs.error.message : undefined} onRetry={prs.refetch} now={now} />;
+    return <WhatChanged businessId={businessId} deptSlug={deptSlug} open={founderOpen} live={founderLive} loading={prs.isLoading} error={prs.error ? prs.error.message : undefined} onRetry={prs.refetch} now={now} destination={buildDestination} />;
   }
 
   const openActions = (row: OpenPrTableRow): RowAction<OpenPrTableRow>[] => [

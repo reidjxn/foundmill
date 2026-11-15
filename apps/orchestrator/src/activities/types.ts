@@ -5,7 +5,7 @@
 import type { SessionCommand } from "../control-bus";
 import type { ProgressState } from "../progress";
 import type { FoundationsDraft } from "@foundmill/agents";
-import type { AgentStatus, BusinessMode, ModelKey, PlanActionType, PolicyOutcome, TaskKind, TaskStatus, ProductStage } from "@foundmill/shared";
+import type { AgentStatus, BusinessMode, ModelKey, ParkedTask, PlanActionType, PolicyOutcome, TaskKind, TaskStatus, ProductStage } from "@foundmill/shared";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Brief and cycle planning
@@ -168,6 +168,11 @@ export interface CyclePlan {
   costMinor: number;
   /** Nothing could start, so no model was called: the cycle posts one plain note instead of a narration. */
   idle?: boolean;
+  /**
+   * Tasks this plan stopped because no agent has a tool for them (`stopToollessTasks`), in the founder's words, for the
+   * round's note to say once (WP-05 T18, founder D1). An idle plan says it in its own summary instead.
+   */
+  parked?: ParkedTask[];
 }
 
 export type CycleTrigger = "continue" | "holiday" | "schedule" | "wake" | "autopilot";
@@ -244,7 +249,7 @@ export type SessionOutcome = "done" | "blocked" | "failed" | "stopped";
 export interface SessionResult {
   outcome: SessionOutcome;
   reason: string | null;
-  blockedReason: "awaiting_approval" | "approval_rejected" | "dependency" | "credential" | "budget" | "rate_limit" | "loop_detected" | "error" | "shout" | "stopped" | "needs_update" | null;
+  blockedReason: "awaiting_approval" | "approval_rejected" | "dependency" | "credential" | "budget" | "rate_limit" | "loop_detected" | "error" | "shout" | "stopped" | "needs_update" | "no_result" | "not_connected" | null;
   approvalId: string | null;
   progress: ProgressState;
   eventsEmitted: number;
@@ -376,8 +381,11 @@ export type MergeAsked =
   | ({ status: "merged"; mergeCommitSha: string } & MergePullRequest)
   | ({ status: "held"; reason: string } & MergePullRequest);
 
-/** Why a merge was not made after the pull request existed. */
-export type MergeHoldReason = "conflicts" | "behind" | "checks_failed" | "checks_timeout" | "refused";
+/**
+ * Why a merge was not made after the pull request existed. `founder`: the founder said no with words, and the change
+ * goes back to its agent with them (the api hands it back at the answer, WP-05 T16; the wording is shared here).
+ */
+export type MergeHoldReason = "conflicts" | "behind" | "checks_failed" | "checks_timeout" | "refused" | "founder";
 
 export type MergeOutcome =
   | ({ status: "merged"; mergeCommitSha: string } & MergePullRequest)

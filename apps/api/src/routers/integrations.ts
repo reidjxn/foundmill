@@ -7,7 +7,7 @@
 import { INPUT_LIMITS } from "@foundmill/config";
 import { isServiceOnlyConnector, type HealthResult } from "@foundmill/connectors";
 import { repos, type Executor } from "@foundmill/db";
-import { AppError, boundedRecord, connectorMode, ForbiddenError, platformMailAddress, platformMailDomain, platformMailLive } from "@foundmill/shared";
+import { AppError, boundedRecord, connectorMode, ForbiddenError, mockResultsAllowed, platformMailAddress, platformMailDomain, platformMailLive } from "@foundmill/shared";
 import { z } from "zod";
 import type { GatewayConnectResult } from "../services/gateway";
 import { clearPostalAddress, isProjectFounder, postalAddressOf, setPostalAddress } from "../services/postal-address";
@@ -44,7 +44,11 @@ export const integrationsRouter = router({
       return {
         mode: ctx.env.INTEGRATIONS_MODE,
         integrations: rows,
-        catalogue: catalogue.map((c) => ({ ...c, live: connectorMode(ctx.env, c.key) === "live", integration: rows.find((r) => r.connectorKey === c.key) ?? null })),
+        catalogue: catalogue.map((c) => {
+          const live = connectorMode(ctx.env, c.key) === "live";
+          // Whether it can be connected here: live, or a mock where simulated results are allowed (WP-02 T3).
+          return { ...c, live, available: live || mockResultsAllowed(ctx.env.APP_ENV, ctx.business.isDemo), integration: rows.find((r) => r.connectorKey === c.key) ?? null };
+        }),
       };
     }),
   ),
@@ -94,6 +98,8 @@ export const integrationsRouter = router({
     if (isServiceOnlyConnector(input.connectorKey)) throw new AppError("service_only_connector", "This connector is run by the platform itself and cannot be connected for a business.", 400, { connector: input.connectorKey });
     // Static metadata only (auth kind, OAuth flow): a live connector never runs in the api (SEC-14).
     const connector = ctx.connectors.get(input.connectorKey, mode);
+    // A mock connect on a person's project writes a row that looks connected and does nothing (audit a5 GTM-16).
+    if (mode === "mock" && !mockResultsAllowed(ctx.env.APP_ENV, ctx.business.isDemo)) throw new AppError("connector_not_live", `${connector.displayName} is not available yet. Nothing was connected.`, 409, { connector: input.connectorKey });
 
     let connected: GatewayConnectResult;
     if (mode === "live" && connector.auth.kind === "app") {

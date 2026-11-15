@@ -81,6 +81,10 @@ describe("assertAccountPayloadSchema (when the catalog loads)", () => {
       "profile.unpublished": ["handle"],
       "signup.attributed": ["sourceKind", "sourceRef"],
       "referral.arrived": ["sourceKind", "sourceRef"],
+      "account.admitted": ["how"],
+      "profile.created": ["client"],
+      "idea.kept": ["from"],
+      "idea.drafted": ["cards", "source"],
     };
     for (const type of ACCOUNT_EVENT_TYPES) {
       if (type === "founder_notice.sent") continue;

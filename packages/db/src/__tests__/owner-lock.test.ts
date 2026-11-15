@@ -1,7 +1,7 @@
 /**
  * The keep-owner trigger under real concurrency (security review S9; migrations 0026 and 0035).
  *
- * Two owners demote each other in two transactions at the same moment. Under 0026 alone each trigger counted the
+ * Two owners demote each other in two transactions at the same moment. Under 0026 as first written each trigger counted the
  * other as the remaining owner (READ COMMITTED), both committed and the business had no owner. 0035 takes the
  * business's owner lock before counting: the second transaction waits for the first, then sees its change and is
  * refused. PGlite runs one session, so this needs a Postgres:
@@ -29,9 +29,10 @@ function keepOwnerStatements(tag: string): string[] {
   return migration.statements.filter((st) => /fm_memberships_keep_owner|memberships_keep_owner/.test(st));
 }
 
+/** Only on a bare cluster: one set up like Supabase (scripts/ci/supabase-like.sql) has auth.users in its template, and
+ * its auth schema belongs to another role, so even `create ... if not exists` there is refused. */
+const AUTH_STUB = ["create schema auth", "create table auth.users (id uuid primary key)"];
 const SCHEMA = [
-  "create schema auth",
-  "create table auth.users (id uuid primary key)",
   "create table businesses (id uuid primary key)",
   "create table memberships (id uuid primary key default gen_random_uuid(), business_id uuid not null references businesses (id) on delete cascade, user_id uuid not null references auth.users (id) on delete cascade, role text not null)",
 ];
@@ -54,7 +55,8 @@ describe.skipIf(!DIRECT)("the last owner under concurrent demotions (Postgres)",
     await admin.unsafe(`create database ${name}`);
     created.push(name);
     const sql = postgres(withDb(DIRECT!, name), { max: 1, onnotice: () => undefined });
-    for (const st of SCHEMA) await sql.unsafe(st);
+    const hasAuth = (await sql<{ has_auth: boolean }[]>`select to_regclass('auth.users') is not null as has_auth`)[0]!.has_auth;
+    for (const st of [...(hasAuth ? [] : AUTH_STUB), ...SCHEMA]) await sql.unsafe(st);
     for (const tag of tags) for (const st of keepOwnerStatements(tag)) await sql.unsafe(st);
     const [businessId, first, second] = [randomUUID(), randomUUID(), randomUUID()];
     await sql`insert into businesses (id) values (${businessId})`;
@@ -110,12 +112,15 @@ describe.skipIf(!DIRECT)("the last owner under concurrent demotions (Postgres)",
     return { second, waited };
   }
 
-  it("0026 alone: both demotions commit and the business is left without an owner (the defect)", async () => {
+  // 0026 was edited in place on Oct 12, 2026 (70a70e0a) to take a per-business lock, the same day 0035 added one, so the
+  // file as it reads now no longer shows the defect (two demotions both committing). This case never ran in CI until
+  // the real-Postgres job (WP-11 T1); it now holds 0026's file to what it says.
+  it("0026 as written today already serializes: the second demotion waits, is refused, and one owner remains", async () => {
     const fx = await businessWithTwoOwners(["0026_membership_guards"]);
     const { second, waited } = await race(fx);
-    expect(waited).toBe(false);
-    expect(second).toBe("committed");
-    expect(await fx.owners()).toBe(0);
+    expect(waited).toBe(true);
+    expect(second).toMatch(/at least one owner/);
+    expect(await fx.owners()).toBe(1);
     await fx.sql.end({ timeout: 1 });
   });
 

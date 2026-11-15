@@ -199,7 +199,7 @@ export const founderRouter = router({
       const profile = await repos.founders.upsert(ctx.db, ctx.userId, created);
       const guidanceTurnedOff = guidanceOffByDefault(profile.experience);
       if (guidanceTurnedOff) await asUser(ctx, (tx) => repos.preferences.update(tx, ctx.userId, { guidance: "off", builderView: true }));
-      await onPersonCreated(ctx, ctx.userId, { via, ideaDraftToken, confirmAdult });
+      await onPersonCreated(ctx, ctx.userId, { via, ideaDraftToken, confirmAdult, client: ctx.clientKind });
       return { ...profile, guidanceTurnedOff };
     }),
   }),

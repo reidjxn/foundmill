@@ -118,7 +118,7 @@ test.describe("shell resilience", () => {
     await switcher.getByRole("option", { name: /^Today$/ }).click();
     await expect(page).toHaveURL(new RegExp(`/b/${NORTHWIND_BUSINESS_ID}/today$`));
     switcher = await openSwitcher(page);
-    await switcher.getByRole("option", { name: /Create a new business/ }).click();
+    await switcher.getByRole("option", { name: /Start a new project/ }).click();
     await expect(page).toHaveURL(/\/new$/, { timeout: LONG });
   });
 
@@ -127,7 +127,7 @@ test.describe("shell resilience", () => {
     await page.keyboard.press("Control+k");
     const input = page.getByRole("combobox").or(page.getByPlaceholder(/search/i)).first();
     await input.fill("new business");
-    await expect(page.getByRole("option", { name: /Create a new business/ }).first()).toBeVisible();
+    await expect(page.getByRole("option", { name: /Start a new project/ }).first()).toBeVisible();
     await page.keyboard.press("Escape");
     await page.keyboard.press("Control+k");
     await expect(input).toHaveValue("");
@@ -136,7 +136,7 @@ test.describe("shell resilience", () => {
     await input.fill("Ledgerly");
     // The seeded Ledgerly alone: the foundations spec takes charge of throwaways named "Ledgerly <suffix>", whose rows
     // read "Switch to Ledgerly <suffix>".
-    const ledgerly = page.getByRole("option", { name: /^Switch to Ledgerly\s*Switch business$/ });
+    const ledgerly = page.getByRole("option", { name: /^Switch to Ledgerly\s*Switch project$/ });
     await expect(ledgerly).toBeVisible({ timeout: LONG });
     await ledgerly.click();
     await expect(page).toHaveURL(new RegExp(`/b/${LEDGERLY_BUSINESS_ID}/today$`), { timeout: LONG });
