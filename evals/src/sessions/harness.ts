@@ -26,7 +26,7 @@ import { createAllConnectors, createRegistry, createWebConnector, type Connector
 import { initialVersionFromTemplate, listTemplates } from "@foundmill/agents";
 import { repos, type Task, type TaskReport } from "@foundmill/db";
 import { readSessionEvents } from "@foundmill/events";
-import { buildGateway, createGatewayBuiltins, listenGateway, type RunningGateway } from "@foundmill/gateway";
+import { buildGateway, createGatewayBuiltins, createUntrustedReader, listenGateway, type RunningGateway } from "@foundmill/gateway";
 import { MemoryRateLimitStore } from "@foundmill/gateway/rate-limit";
 import type { GatewayLogger } from "@foundmill/gateway/pipeline";
 import { createModelClient, type ModelClient } from "@foundmill/models";
@@ -156,11 +156,14 @@ export function createCaptureInbox(): { fetch: typeof fetch; mail: CapturedMail[
 
 // ------------------------------------------------------------------------------------------------ the SDK seam
 
-/** One call of the agent's tools in a mock run: what the scripted agent calls, with arguments built from the case. */
+/**
+ * One call of the agent's tools in a mock run: what the scripted agent calls, with arguments built from the case and from
+ * what its earlier calls returned (`seen`: each tool result as the agent received it, parsed), as a live agent's are.
+ */
 export interface ScriptStep {
   connector: string;
   tool: string;
-  args: (ctx: CaseContext) => Record<string, unknown>;
+  args: (ctx: CaseContext, seen: readonly unknown[]) => Record<string, unknown>;
 }
 
 export interface CaseContext {
@@ -224,9 +227,10 @@ export function interceptQuery(actual: (call: QueryCall) => unknown, call: Query
 async function* scriptedRun(call: QueryCall, script: readonly ScriptStep[], ctx: CaseContext): AsyncGenerator<Record<string, unknown>> {
   const servers = (call.options.mcpServers ?? {}) as Record<string, { url: string; headers: Record<string, string> }>;
   yield { type: "system", subtype: "init", session_id: `script-${ctx.sessionId}` };
+  const seen: unknown[] = [];
   for (const [i, step] of script.entries()) {
     const id = `tu-${i}`;
-    const args = step.args(ctx);
+    const args = step.args(ctx, seen);
     yield { type: "assistant", message: { content: [{ type: "tool_use", id, name: `mcp__${step.connector}__${step.tool}`, input: args }] } };
     const server = servers[step.connector];
     let text: string;
@@ -239,6 +243,11 @@ async function* scriptedRun(call: QueryCall, script: readonly ScriptStep[], ctx:
       const res = await fetch(`${base}/v1/call`, { method: "POST", headers: { ...server.headers, "content-type": "application/json" }, body: JSON.stringify({ connector: step.connector, tool: step.tool, args }) });
       text = await res.text();
       isError = !res.ok;
+    }
+    try {
+      seen.push(JSON.parse(text) as unknown);
+    } catch {
+      seen.push(text);
     }
     yield { type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, content: text, ...(isError ? { is_error: true } : {}) }] } };
   }
@@ -358,7 +367,10 @@ export async function createSessionEvalEnv(options: { budget?: RunBudget } = {})
   const builtins = createGatewayBuiltins({ db: t.db, vault: null, models: gatewayModels, mode: live ? "live" : "mock", log: silentLog, live: { secrets: { sendgridApiKey: "SG.capture-inbox" }, fetch: inbox.fetch } }).filter((c) => c.key !== "web");
   const registry = createRegistry([...catalogue, ...builtins, web.connector]);
   const gatewayEnv = loadEnv({ APP_ENV: "staging", INTEGRATIONS_MODE: "mock", MODEL_MODE: live ? "live" : "mock", LIVE_CONNECTORS: "web,sendgrid", SESSION_TOKEN_SECRET: GATEWAY_SECRET });
-  const built = buildGateway({ env: gatewayEnv, db: t.db, registry, models: gatewayModels, vault: null, rateLimits: new MemoryRateLimitStore(), log: silentLog });
+  // The reader runs on `gatewayModels` as well: given a registry, `buildGateway` builds its own from the env otherwise,
+  // and its calls were off the run budget.
+  const reader = createUntrustedReader(gatewayModels);
+  const built = buildGateway({ env: gatewayEnv, db: t.db, registry, models: gatewayModels, reader, vault: null, rateLimits: new MemoryRateLimitStore(), log: silentLog });
   const server: RunningGateway = await listenGateway(built.app, { port: 0, host: "127.0.0.1" });
   const gateway = createGatewayClient({ baseUrl: server.url, serviceSecret: GATEWAY_SECRET, serviceName: "orchestrator" });
 
