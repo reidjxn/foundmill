@@ -341,6 +341,9 @@ Done when: a stopped task is on record for the founder in one clause and never a
 11. AR-13 and A4-12 each reverse a recorded decision; see D1 and D2.
 
 ## Decisions for the founder
+
+**Answered by the founder, Nov 15, 2026** (docs/log/2026-11/2026-11-15-claude-wp05-founder-decisions.md): D1 yes, one sentence, and it always explains in plain language what the problem is; D2 yes, one round; D3 yes; D4 yes, $2 a night (Estimate). T5, T6's nightly workflow, T8, T17 and T18 are no longer waiting on a decision.
+
 - **D1 (T18).** DECISIONS "A missing tool is the platform's gap, not the founder's chore (2026-11-07)" says such a task never reaches the founder. AR-13 asks for one clause in the round's note so the plan does not lose it silently. Recommended: yes, one clause, never a to-do.
 - **D2 (T17).** DECISIONS "The second read (#117)" (2026-11-13) says the review "never blocks". A4-12 asks that "request changes" go back to the author once before you are asked. Recommended: yes, one round.
 - **D3 (T5, T8).** Until Foundmill Sites (WP-07), a project with no repository is planned no code, and code already written reads "Saved, not live anywhere". Twelve of the thirteen real projects are in that state. Recommended: yes.
