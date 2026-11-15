@@ -294,7 +294,7 @@
 
 ---
 
-### T4: Watch paths per service, written out and proven  [S] [ships alone; WP-00 S4 applies it before Dec 1, 2026]
+### [x] T4: Watch paths per service, written out and proven  [S] [ships alone; WP-00 S4 applies it before Dec 1, 2026]
 
 **Why:** EH-07. Watch paths are set on no service (docs/DEPLOY.md §6, row "Healthchecks and watch patterns": Railway's API refused the config-file setting), every push restarts the orchestrator and hands every running agent session to a new worker, and the repo says `railway.toml` stops being read on 2026-12-01 (`railway.toml:2`; **Unverified** against Railway).
 
