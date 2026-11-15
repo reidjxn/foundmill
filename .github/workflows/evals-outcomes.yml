@@ -1,0 +1,58 @@
+# Outcome evals against a live model (WP-05 T6; evals/src/sessions/). Each case runs one agent session with tools
+# through the orchestrator's live runner and an in-process gateway on a test database (PGlite), then checks what the
+# session left in the database: a saved report with real sources, a blocked task when no mail is connected, the
+# built-in tools refused. Nothing is deployed and nothing outside the job is reached but the Anthropic API: the web is
+# a fixture, mail goes to a capture inbox.
+# It calls the Anthropic API on the repository secret ANTHROPIC_API_KEY and costs money, so it runs nightly and by hand
+# only, never on a pull request, and is not a required check. The whole run has one budget, OUTCOME_EVAL_BUDGET_USD = 2
+# (Estimate; founder decision D4, Nov 15, 2026): each session is capped at what is left, a case does not start once
+# it is reached, and the run fails then. A red run opens or updates an issue, like the Nightly lane (nightly.yml).
+name: Outcome evals (live, nightly)
+
+on:
+  schedule:
+    - cron: "41 4 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: evals-outcomes
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  outcome-evals:
+    name: Outcome evals (live model, $2 budget)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CI: true
+      APP_ENV: test
+      INTEGRATIONS_MODE: mock
+      MODEL_MODE: live
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      TURBO_TELEMETRY_DISABLED: 1
+      DO_NOT_TRACK: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Fail if the model key is missing (the suite would otherwise skip and look green)
+        run: test -n "$ANTHROPIC_API_KEY" || { echo "ANTHROPIC_API_KEY is not set for this repository"; exit 1; }
+      - name: The cases with scripted agents (no model calls)
+        run: pnpm --filter @foundmill/evals exec vitest run src/__tests__/sessions.test.ts
+      - name: Outcome evals against the live model (fails when the $2 run budget is reached)
+        run: pnpm --filter @foundmill/evals exec vitest run src/__tests__/sessions.eval.test.ts --reporter=verbose
+      - name: Open or update the issue
+        if: ${{ failure() && github.event_name == 'schedule' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "The nightly outcome evals failed: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > body.md
+          bash scripts/open-or-update-issue.sh outcome-evals-red "The nightly outcome evals failed" body.md

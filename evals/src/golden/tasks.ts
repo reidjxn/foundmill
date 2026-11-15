@@ -1,7 +1,8 @@
 /**
  * Golden tasks per agent template (BUILD §17.1). Data only: one or more tasks per template key, each with the prompt the
  * agent receives, deterministic checks, a rubric for the Opus grader and (where the template returns JSON) the output
- * schema key. Adding coverage means appending an entry here.
+ * schema key. Adding coverage means appending an entry here. These grade one completion with no tools; a task an agent
+ * finishes with tools in a real session (a saved report, a blocked send) is an outcome case in ../sessions/cases.ts.
  *
  * All tasks are set in the Ledgerly business (BUILD §17.2 seed): a month-end reconciliation tool for fintech operations
  * teams, £49 per seat per month, UK and US.
