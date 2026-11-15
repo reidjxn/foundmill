@@ -8,7 +8,7 @@
  * `team.approvals.resolve` does the same from Team › approvals.
  */
 import { APP_NAME } from "@foundmill/config";
-import { APPROVAL_OPTIONS, approvalAction, closeApprovalItem, inboxItems, openApprovalItem, repos, resumeBusinessAgents, stopBusinessAgents, type Approval } from "@foundmill/db";
+import { APPROVAL_OPTIONS, RELEASE_FOLLOW_UP, approvalAction, closeApprovalItem, inboxItems, openApprovalItem, repos, resumeBusinessAgents, stopBusinessAgents, type Approval } from "@foundmill/db";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
@@ -393,5 +393,74 @@ describe("approvals must be decidable (first-time founder report, Nov 8, 2026)",
     for (const a of [first, second]) expect((await repos.approvals.get(hz.db, hz.A.businessId, a.id)).outcome).toBe("approved");
     expect(temporal.signals.map((s) => s.workflowId).sort()).toEqual([`approval:${first.id}`, `approval:${second.id}`].sort());
     expect(result.approval?.summary).toMatch(/^You approved 2 requests at once\./);
+  });
+});
+
+describe("a founder's no to a change going live (WP-05 T16)", () => {
+  /** A code task in review whose merge review asks the founder to put it live; its session already ended. */
+  async function releaseAsked(title: string) {
+    const A = hz.A.businessId;
+    const task = await repos.tasks.create(hz.db, A, { kind: "code", title, goalMd: "x", assigneeAgentId: hz.A.agentId, status: "ready" });
+    await repos.tasks.setStatus(hz.db, A, task.id, "review", { force: true });
+    const dependent = await repos.tasks.create(hz.db, A, { kind: "code", title: `${title}, next step`, goalMd: "x", assigneeAgentId: hz.A.agentId, status: "ready" });
+    await repos.tasks.addEdge(hz.db, A, task.id, dependent.id);
+    const session = await repos.agents.createSession(hz.db, A, { agentId: hz.A.agentId, taskId: task.id, modelKey: "sonnet" });
+    await repos.agents.endSession(hz.db, A, session.id, { endedAt: new Date(), tokensIn: 0, tokensOut: 0, costMinor: 0, outcome: "review" });
+    const approval = await repos.approvals.create(hz.db, A, { agentId: hz.A.agentId, sessionId: session.id, connectorKey: "github", tool: "merge_pr", args: { owner: "acme", repo: "shop", prNumber: 7, mergeMethod: "squash", commitTitle: `${title} (#7)` }, reasons: ["You chose to be asked before anything goes live"] });
+    const { item } = await openApprovalItem(hz.db, A, approval, { agentId: hz.A.agentId, agentName, connectorName: "GitHub", taskTitle: title });
+    return { task, dependent, approval, itemId: item.id };
+  }
+  const blockOf = async (taskId: string) => (await repos.events.list(hz.db, hz.A.businessId, { type: "task.blocked", limit: 50 })).items.find((e) => (e.payload as { taskId?: string }).taskId === taskId);
+  const followUpsFor = async (approvalId: string) => (await repos.inbox.list(hz.db, hz.A.businessId, { type: "decision", limit: 200 })).items.filter((i) => (i.decision as { key?: string } | null)?.key === `${RELEASE_FOLLOW_UP.key}:${approvalId}`);
+
+  it("a rejection with words hands the change back: the task is blocked needs_update with the founder's words first", async () => {
+    const r = await releaseAsked("Pricing page");
+    const result = await owner().inbox.decide({ businessId: hz.A.businessId, itemId: r.itemId, chosenOption: APPROVAL_OPTIONS.reject, freeText: "Make the prices bigger on phones" });
+    expect(result.approval?.summary).toBe(`You rejected ${agentName}'s change going live (Make the prices bigger on phones). Nothing goes live. ${agentName} gets your note and reworks it.`);
+    expect((await repos.tasks.get(hz.db, hz.A.businessId, r.task.id)).status).toBe("blocked");
+    const block = await blockOf(r.task.id);
+    expect(block?.payload).toMatchObject({ reason: "needs_update", assigneeAgentId: hz.A.agentId, approvalId: r.approval.id });
+    expect((block!.payload as { detail: string }).detail).toMatch(/^The founder's instruction: “Make the prices bigger on phones”\./);
+    expect((block!.payload as { detail: string }).detail).toContain(`Bring your working copy (agent/${r.task.id}) up to date`);
+    const back = (await repos.audit.list(hz.db, hz.A.businessId, { action: "merge.handed_back", limit: 20 })).items.find((a) => (a.target as { id?: string }).id === r.task.id);
+    expect(back?.details).toMatchObject({ why: "founder", approvalId: r.approval.id });
+    expect(await followUpsFor(r.approval.id)).toEqual([]);
+    // The merge review that waits on the approval is told, as before.
+    expect(temporal.signals.map((s) => s.workflowId)).toContain(`approval:${r.approval.id}`);
+  });
+
+  it("a rejection with nothing writes exactly one follow-up; Drop archives the task and frees its dependents", async () => {
+    const r = await releaseAsked("Signup form");
+    const result = await owner().inbox.decide({ businessId: hz.A.businessId, itemId: r.itemId, chosenOption: APPROVAL_OPTIONS.reject });
+    expect((await repos.tasks.get(hz.db, hz.A.businessId, r.task.id)).status).toBe("review");
+    const followUps = await followUpsFor(r.approval.id);
+    expect(followUps).toHaveLength(1);
+    const followUp = followUps[0]!;
+    expect(result.approval?.note?.id).toBe(followUp.id);
+    expect(followUp).toMatchObject({ type: "decision", subject: "What should happen to this change?", blocksContinue: false });
+    const decision = followUp.decision as { options: { id: string; label: string }[]; free_text: boolean };
+    expect(decision.options.map((o) => o.label)).toEqual(["Tell the team what to change", "Drop this change"]);
+    expect(decision.free_text).toBe(true);
+
+    const dropped = await owner().inbox.decide({ businessId: hz.A.businessId, itemId: followUp.id, chosenOption: RELEASE_FOLLOW_UP.options.drop });
+    expect(dropped.item.state).toBe("answered");
+    const task = await repos.tasks.get(hz.db, hz.A.businessId, r.task.id);
+    expect(task.status).toBe("stopped");
+    expect(task.archivedAt).not.toBeNull();
+    expect((await repos.tasks.listEdges(hz.db, hz.A.businessId, [r.task.id])).filter((e) => e.fromTask === r.task.id)).toEqual([]);
+    const audit = (await repos.audit.list(hz.db, hz.A.businessId, { action: "merge.dropped", limit: 20 })).items.find((a) => (a.target as { id?: string }).id === r.task.id);
+    expect(audit?.details).toMatchObject({ approvalId: r.approval.id, dependentsFreed: 1 });
+    expect(await followUpsFor(r.approval.id)).toHaveLength(1);
+  });
+
+  it("the follow-up's Tell the team what to change hands the change back with the founder's words, and asks for them when missing", async () => {
+    const r = await releaseAsked("Checkout copy");
+    await owner().inbox.decide({ businessId: hz.A.businessId, itemId: r.itemId, chosenOption: APPROVAL_OPTIONS.reject });
+    const followUp = (await followUpsFor(r.approval.id))[0]!;
+    await expect(owner().inbox.decide({ businessId: hz.A.businessId, itemId: followUp.id, chosenOption: RELEASE_FOLLOW_UP.options.rework })).rejects.toThrow(/What should change\?/);
+    const answered = await owner().inbox.decide({ businessId: hz.A.businessId, itemId: followUp.id, chosenOption: RELEASE_FOLLOW_UP.options.rework, freeText: "Use the words from the landing page" });
+    expect(answered.item.state).toBe("answered");
+    expect((await repos.tasks.get(hz.db, hz.A.businessId, r.task.id)).status).toBe("blocked");
+    expect((await blockOf(r.task.id))?.payload).toMatchObject({ reason: "needs_update", detail: expect.stringMatching(/^The founder's instruction: “Use the words from the landing page”\./) });
   });
 });
