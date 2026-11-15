@@ -239,6 +239,20 @@ export const campaignsRepo = {
   },
 
   /**
+   * The channel's most recent `launch_campaign` approval (any outcome), or null. The engine reads it so an offline-tracking
+   * channel whose ask expired does not ask again every week (WP-02 T2).
+   */
+  async lastLaunchApproval(db: Executor, businessId: string, channelKey: string): Promise<Approval | null> {
+    const rows = await db
+      .select()
+      .from(approvals)
+      .where(and(eq(approvals.businessId, businessId), eq(approvals.tool, "launch_campaign"), sql`${approvals.args} ->> 'channelKey' = ${channelKey}`))
+      .orderBy(desc(approvals.requestedAt))
+      .limit(1);
+    return rows[0] ?? null;
+  },
+
+  /**
    * The channel's most recent campaign that actually went live (live, paused or ended after a launch), other than
    * `exceptId`; null when none has. The engine's approve step reads it: a channel's first campaign is a new campaign.
    */

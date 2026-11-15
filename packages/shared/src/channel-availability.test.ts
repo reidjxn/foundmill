@@ -95,10 +95,12 @@ describe("tap-to-post (founder, 2026-11-12): a channel the founder posts with on
     // Offline tracking is the founder's own choice: the agent prepares, the founder submits.
     expect(channelEngineMayRun(byTap, true)).toBe(true);
     // Every other available reason is the team's to run, as before.
-    for (const reason of ["acts", "simulated_allowed"] as const) {
-      expect(channelTeamRuns({ available: true, reason }), reason).toBe(true);
-      expect(channelEngineMayRun({ available: true, reason }, false), reason).toBe(true);
-    }
+    for (const reason of ["acts", "simulated_allowed"] as const) expect(channelTeamRuns({ available: true, reason }), reason).toBe(true);
+    // The weekly engine's launch step sends nothing for any channel yet (WP-02 T2): a channel whose agents can act does
+    // so through tasks and sessions, so it gets no engine. Sample projects, development and tests keep theirs.
+    expect(channelEngineMayRun({ available: true, reason: "acts" }, false)).toBe(false);
+    expect(channelEngineMayRun({ available: true, reason: "acts" }, true)).toBe(true);
+    expect(channelEngineMayRun({ available: true, reason: "simulated_allowed" }, false)).toBe(true);
     const simulatedTap: ChannelAvailability = { available: true, reason: "simulated_allowed", byTap: true };
     expect(channelTeamRuns(simulatedTap)).toBe(true);
     for (const reason of ["no_publisher", "not_connected"] as const) {

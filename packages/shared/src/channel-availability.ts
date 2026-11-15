@@ -112,12 +112,16 @@ export function channelTeamRuns(availability: Pick<ChannelAvailability, "availab
 }
 
 /**
- * Whether a channel's engine may run (plan, draft, launch, measure): the team runs it, or it is in offline tracking. A
- * channel the founder posts by tap never has an engine: an agent cannot publish there, so nothing is launched, nothing
- * is measured and no result is invented for it.
+ * Whether a channel's engine may run (plan, draft, launch, measure): it is in offline tracking (the agent prepares, the
+ * founder submits), simulated results are allowed (sample projects, development, tests), or nothing is known (an older
+ * answer). The weekly engine's launch step sends nothing for any channel yet; a channel whose agents can act (`acts`)
+ * does so through tasks and sessions, so it gets no engine and nothing is claimed as launched (WP-02 T2). WP-08 adds a
+ * launcher per channel and lists it here. A channel the founder posts by tap never has an engine either.
  */
 export function channelEngineMayRun(availability: Pick<ChannelAvailability, "available" | "reason"> | null | undefined, kitMode: boolean | null | undefined): boolean {
-  return kitMode === true || channelTeamRuns(availability);
+  if (kitMode === true) return true;
+  if (!availability) return true;
+  return availability.available !== false && availability.reason === "simulated_allowed";
 }
 
 /**
@@ -126,6 +130,14 @@ export function channelEngineMayRun(availability: Pick<ChannelAvailability, "ava
  */
 export function channelByTapRefusal(channelKey: ChannelKey): string {
   return `${CHANNEL_META[channelKey].label} is yours to post, one press at a time: the team cannot publish there, so nothing is launched. Open a drafted post and press Share.`;
+}
+
+/**
+ * The refusal when something tries to launch or schedule a weekly campaign on a channel whose agents act through tasks
+ * (`acts`): there is no weekly launch for it yet, so nothing is launched and nothing is reported as launched (WP-02 T2).
+ */
+export function channelActsRefusal(channelKey: ChannelKey): string {
+  return `The team works on ${CHANNEL_META[channelKey].label} through tasks. There is no weekly campaign to launch yet.`;
 }
 
 /** The refusal a founder reads when they try to turn on a channel that cannot run (the api's typed error message). */

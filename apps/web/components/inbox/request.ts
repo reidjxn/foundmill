@@ -167,6 +167,8 @@ export function describeRequest(r: RequestLike): string {
       return title ? `${who} wants to create the task ${quoted(title)}` : `${who} wants to create a task`;
     }
     case "launch_campaign": {
+      // Offline tracking: nothing launches from here; the founder checks the materials and submits them (WP-02 T2).
+      if (p.kitMode === true) return `${who} has materials ready for you to check and submit yourself`;
       const name = str(p, "name", "campaign", "title");
       return `${who} wants to launch ${name ? `the campaign ${quoted(name)}` : "a campaign"}${channel ? ` on ${channel}` : ""}${amount ? ` with ${amount}` : ""}`;
     }

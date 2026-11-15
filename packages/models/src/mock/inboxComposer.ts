@@ -334,6 +334,8 @@ function factSentence(type: InboxItemType, e: EventIn | undefined, who: string |
         `Done: ${title ? `"${title}"` : "the task"} is complete${who ? ` thanks to ${who}` : ""}, reviewed and clean.`,
       ]);
     case /^campaign\.launched$/.test(e.type):
+      // Offline tracking: the team prepared the materials and the founder submits them; nothing went out (WP-02 T2).
+      if (e.payload.kitMode === true) return `The ${ch} materials${title ? ` for "${title}"` : ""} are ready for you to submit yourself; nothing has gone out from here yet.`;
       return `${ch} is live${title ? ` with "${title}"` : ""}, with tracking in place so every customer it brings can be traced back to it.`;
     case /^approval\.requested$/.test(e.type):
       return `${who ?? "An agent"} needs your go-ahead${title ? ` on "${title}"` : ""}${amount ? ` worth ${amount}` : ""} before going further.`;
