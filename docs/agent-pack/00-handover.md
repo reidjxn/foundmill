@@ -25,8 +25,8 @@ The codebase is a pnpm and Turborepo monorepo:
 1. `CLAUDE.md` (repo root): the rules. Vocabulary, never-list, definition of done. Authoritative.
 2. `docs/ARCHITECTURE.md`: package ownership and cross-package contracts.
 3. `docs/DESIGN.md`: the design direction. Every pixel follows it.
-4. `docs/DECISIONS.md`: decisions already taken. Do not re-decide them. Add new judgment calls here.
-5. `docs/PROGRESS.md`: what was built, wave by wave. Update it after every task.
+4. `docs/DECISIONS.md`: decisions already taken. Do not re-decide them. Do not edit it.
+5. `docs/PROGRESS.md`: what was built, wave by wave. Do not edit it.
 6. `docs/DEPLOY.md`: how production is set up, including the GitHub App (section 4) and the live connectors (section 6).
 7. `docs/BUILD.md`: the original build plan.
 8. `docs/UX_AUDIT_AND_PLAN.md`: the UX audit and the guided-layer plan that was built in the last big wave.
@@ -49,7 +49,7 @@ The codebase is a pnpm and Turborepo monorepo:
 
 - Never push to `main`. Work on your own `agent/<name>` branch, open a pull request, and wait for the founder. Never merge. Never approve your own merge.
 - Secrets live in Railway variables and nowhere else: not in the repo, not in a pull request, not in chat.
-- Every change: typecheck, lint, unit tests, and a Playwright spec for any screen you touched, a Storybook story for any new component, an eval for any new agent behavior, and an update to `docs/PROGRESS.md`.
+- Every change: typecheck, lint, unit tests, and a Playwright spec for any screen you touched, a Storybook story for any new component, an eval for any new agent behavior.
 - Business-scoped tables need a `business_id`, a row-level security policy, and a cross-tenant test in the same change.
 - Outside calls go only through `apps/gateway`. Never call a vendor API from another service.
 - Events are declared in `packages/events` with Zod, and written through the outbox.
@@ -84,4 +84,4 @@ CI runs on every pull request. A full CI run takes about 15 minutes: the unit te
 - The earlier waves of Foundmill, and the reasons for the big choices (Railway instead of Fly.io, GitHub Actions as the verification machine, the sandbox runner choice), are in `docs/DECISIONS.md`.
 - Production incidents and their fixes are in `docs/PROGRESS.md` and `docs/DECISIONS.md`.
 
-If something in this brief disagrees with the repo, trust the repo, and record the difference in `docs/PROGRESS.md`.
+If something in this brief disagrees with the repo, trust the repo, and say so in your final report.
