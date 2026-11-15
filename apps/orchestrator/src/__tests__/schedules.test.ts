@@ -7,6 +7,8 @@
 import { repos } from "@foundmill/db";
 import { MockActivityEnvironment } from "@temporalio/testing";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { LOST_SESSION_AFTER_MS, openAgentSession } from "../activities/dispatch";
+import { createHealthActivities } from "../activities/health";
 import { createScheduleActivities } from "../activities/schedules";
 import type { ScheduleResult } from "../activities/types";
 import { emitEvent, systemActor } from "../events";
@@ -181,6 +183,22 @@ describe("schedule activities on PGlite", () => {
     expect((peer[0]!.details as { benchmarks: { archetype: string; businesses: number }[] }).benchmarks).toContainEqual(expect.objectContaining({ archetype: "b2b_saas", businesses: 2 }));
     // While it re-read, the heartbeats kept the write progress, so a failure there still resumes the writes.
     expect(heartbeats.slice(0, 2)).toEqual([1, 1]);
+  });
+
+  it("the hourly health sweep closes a lost session and plans its task again (WP-05 T13)", async () => {
+    const task = await repos.tasks.create(t.db, t.businessId, { kind: "ops", title: "Lost in the sweep", status: "ready", assigneeAgentId: t.workerId });
+    const opened = await openAgentSession(t.deps, { businessId: t.businessId, agentId: t.workerId, taskId: task.id, sessionId: null });
+    expect(opened.refused).toBeNull();
+    const before = t.deps.workflowRunning;
+    t.deps.workflowRunning = async (id) => (id === opened.workflowId ? false : null);
+    try {
+      await t.clock.advance(LOST_SESSION_AFTER_MS + 60_000);
+      await createHealthActivities(t.deps).refreshAgentHealth({ businessId: t.businessId });
+    } finally {
+      t.deps.workflowRunning = before;
+    }
+    expect((await repos.agents.getSession(t.db, t.businessId, opened.sessionId!)).outcome).toBe("lost");
+    expect((await repos.tasks.get(t.db, t.businessId, task.id)).status).toBe("ready");
   });
 
   it("the nightly milestone catch-up awards the trophies the business reached", async () => {

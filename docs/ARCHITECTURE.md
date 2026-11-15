@@ -208,7 +208,7 @@ HTTP (JSON), service-to-service auth with `SESSION_TOKEN_SECRET`-signed JWTs (`j
   | `credential-expiry-scan` | `credentialExpiryScan` | 6:05 AM | `credential.expiring` for credentials expiring within 14 days |
   | `consent-renewal-scan` | `consentRenewalScan` | 6:20 AM | the same for open-banking consents |
   | `agent-metrics-rollup` | `agentMetricsRollup` | 12:20 AM | yesterday's sessions into `agent_metrics`, then every agent's health |
-  | `agent-health-sweep` | `agentHealthSweep` | hourly | `refreshAgentHealth`: health, rested failing agents and wage-cap pauses lifted in a new period (never while the team is stopped) |
+  | `agent-health-sweep` | `agentHealthSweep` | hourly | `refreshAgentHealth`: open session rows older than 10 minutes whose `session:<id>` Temporal says is not running closed as `lost` and their running task back to `ready` (`closeLostSessions`; an unknown answer changes nothing), health, rested failing agents and wage-cap pauses lifted in a new period (never while the team is stopped) |
   | `legal-calendar-roll` | `legalCalendarRoll` | 5:50 AM | filings due within 30 days and overdue ones (`rollFilingStatuses`) |
   | `source-watch-sweep` | `sourceWatchSweep` | 4:10 AM | the Source Watcher re-reads sources older than a day (teams not stopped) |
   | `channel-engine-reconcile` | `channelEngineReconcile` | every 15 min, and at every boot | starts `engine:<channelId>` for every enabled channel of a committed, not stopped business that has none running, and records the id on the channel |
