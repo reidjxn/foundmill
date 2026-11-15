@@ -7,7 +7,7 @@
 import { APP_NAME, LIMITS } from "@foundmill/config";
 import { platformBillingRefusal } from "@foundmill/models";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
-import { AppError, DEFAULT_AGENT_STYLE, isAgentStyle, liveConnectorKeys } from "@foundmill/shared";
+import { AppError, DEFAULT_AGENT_STYLE, isAgentStyle, liveConnectorKeys, platformMailLive } from "@foundmill/shared";
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { compress } from "hono/compress";
@@ -235,6 +235,8 @@ export function createApp(deps: ApiDeps) {
         env: deps.env.APP_ENV,
         // The mode the api actually runs in: MODEL_MODE=live without ANTHROPIC_API_KEY serves the mock client.
         modes: { integrations: deps.env.INTEGRATIONS_MODE, models: deps.models.mode, liveConnectors: liveConnectorKeys(deps.env) },
+        // Whether a project's Foundmill address really sends (WP-02 T7, checked by T12's production script).
+        platformMail: platformMailLive(deps.env) ? ("live" as const) : ("off" as const),
         gateway,
         modelKeyMissing: deps.env.MODEL_MODE === "live" && deps.models.mode !== "live",
         db,

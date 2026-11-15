@@ -33,6 +33,8 @@ describe("HTTP surface on an ephemeral port", () => {
     expect(res.headers.get("x-request-id")).toBeTruthy();
     // The connectors switched live one by one, here and on the gateway (unreachable in this test, so null).
     expect(body.modes).toMatchObject({ liveConnectors: [] });
+    // Mock integrations: the project's address does not really send (WP-02 T7).
+    expect(body.platformMail).toBe("off");
     expect(body.gateway).toBeNull();
   });
 

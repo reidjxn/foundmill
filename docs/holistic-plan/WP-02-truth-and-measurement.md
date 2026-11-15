@@ -193,7 +193,7 @@ WP-04 changes this constant when the two notes become one; nothing else needs to
 **Steps:** 1. Tests pin every "After" (and that rows 3 and 4 read the constant, not a copy). verify: fail. 2. Change the strings; run the three word scripts. verify: green. 3. `apps/web/e2e/first-days.spec.ts`: the toast and the empty text on a new business. verify: passes locally in the cloud session.
 **Done when:** the six places that tell the first day agree, by test.
 
-### T7: The Follow form is offered only when a confirmation can be sent    [S] [ships alone]
+### [x] T7: The Follow form is offered only when a confirmation can be sent    [S] [ships alone]
 
 **Why:** FR-12, GTM-03 (b) and (c). Part (a) is WP-00 (S1, S2); part (d), re-offering confirmation to old pending records, is not needed: `contact_consents` has 0 rows (e0).
 

@@ -57,6 +57,8 @@ import {
   starterPageDraft,
   suggestPageSlug,
   type Env,
+  mockResultsAllowed,
+  platformMailLive,
   isIndexNowKey,
   type PageHoldReason,
   type ProjectPageContent as PageContent,
@@ -100,6 +102,8 @@ export interface PageView {
   followers: number;
   /** Whether the page carries the small "Built on" mark for its visitors (the free plan; docs/NETWORK.md F2). */
   mark: boolean;
+  /** Whether Follow can confirm an address here (platform mail live, or a development or test stack). */
+  followAvailable: boolean;
 }
 
 /** `page.publish`'s answer: published, or held with the reason and its sentence (the page stays as it was). */
@@ -154,6 +158,7 @@ async function viewOf(tx: DbTx, ctx: BusinessContext, row: ProjectPage | null, s
     preview: { name: ctx.business.name, brandPrimary: ctx.business.kitPrimary, brandSecondary: ctx.business.kitSecondary, founderNames },
     followers,
     mark: tierShowsBuiltOnMark(ctx.business.planTier),
+    followAvailable: followAvailable(ctx.env),
   };
 }
 
@@ -356,6 +361,15 @@ export async function publicIndexNowKeyFile(ctx: Pick<Context, "db" | "env" | "l
   return { key };
 }
 
+/**
+ * Whether a Follow confirmation can be sent here (WP-02 T7): platform mail is live, or this is a development or test
+ * stack, where the mock answers. On staging or production without it no visitor is offered the form, so nobody is told
+ * "Check your email to confirm." for an email that cannot go out.
+ */
+export function followAvailable(env: Pick<Env, "APP_ENV" | "INTEGRATIONS_MODE" | "LIVE_CONNECTORS"> & Partial<Pick<Env, "PLATFORM_MAIL_DOMAIN">>): boolean {
+  return platformMailLive(env) || mockResultsAllowed(env.APP_ENV, false);
+}
+
 /** `publicPage.bySlug`: the published page at `slug`, or null for an unknown address or a page that is not public. */
 export async function publicPageBySlug(ctx: Pick<Context, "db" | "env" | "limits"> & { clientAddress?: string | null }, slug: string): Promise<PublicPageView | null> {
   const clean = slug.trim().toLowerCase();
@@ -386,7 +400,7 @@ export async function publicPageBySlug(ctx: Pick<Context, "db" | "env" | "limits
     brandSecondary: page.brandSecondary,
     logo,
     founderNames: showFounders ? page.founderNames : [],
-    followForm,
+    followForm: followForm && followAvailable(ctx.env),
     // Taken down between the two reads: no plan to go by, so the mark stays (the free plan's rule).
     mark: tierShowsBuiltOnMark(planTier ?? "free"),
     story,
@@ -571,7 +585,7 @@ export async function followPage(ctx: FollowContext, input: FollowInput): Promis
 
   try {
     const target = await repos.followers.target(ctx.db, slug);
-    if (!target || !target.followForm) {
+    if (!target || !target.followForm || !followAvailable(ctx.env)) {
       await giveSlotBack();
       await takeOrThrow(ctx.limits, "Follow", [{ key: followLimitKeys.closed, rule: PAGE_FOLLOW_LIMITS.closed }]);
       throw followRefusal("follow_closed");
