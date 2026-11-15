@@ -276,6 +276,25 @@ Checked against the Railway GraphQL API (team token), the Vercel and Supabase co
 | Redis `maxmemory` and an alert on `used_memory` (§3 "Redis memory") | ⬜ founder (2026-10-11: `maxmemory 0`, `noeviction`) |
 | Agents' code on real GitHub: a GitHub App with OAuth during installation; `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET` and `LIVE_CONNECTORS=github` on the gateway; `LIVE_CONNECTORS=github` on the api (§5.4) | ✅ App `foundmill` (id 5246243) created by the founder 2026-10-09; `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID` set on the gateway, `GITHUB_APP_PRIVATE_KEY` and `GITHUB_APP_CLIENT_SECRET` set by the founder. ✅ `LIVE_CONNECTORS=github` on the gateway and the api (the gateway logs `liveConnectors: ["github"]`, checked 2026-10-11); connect through Settings › Integrations |
 
+### Nov 15, 2026: read and changed through the connectors (cloud session, on the founder's go)
+
+| What | State | How it was read or changed |
+| --- | --- | --- |
+| Watch paths | **Set** on api, gateway, orchestrator, composer, stream and ingest, each to its block of `node scripts/railway-watch.mjs --print` (WP-01 T4) | Railway connector, `update-service` `watchPatterns`, production; read back on ingest |
+| Wait for CI (`checkSuites`) | **On for all six** (api and gateway turned on Nov 15 by the founder in the dashboard, after the CI lanes merged; the staged change read "Check Suites false → true" on those two only, and the repository connection stayed `reidjxn/foundmill@main`). A connector-staged attempt earlier that day showed the whole Source replaced by `{}` and was discarded unapplied | Railway service config, read back |
+| Build | Every service builds from the root `Dockerfile` without a config file being read (Railway's agent: no deployment reports a config file); healthchecks, overlap and draining are in the service settings, so Dec 1, 2026 changes nothing else | Railway service config and its agent |
+| `APP_ENV`, modes | api and ingest answer `env: "staging"`; the api runs integrations `mock`, models `live` | `GET /health` |
+| `LIVE_CONNECTORS` | Set on api, gateway and orchestrator, not on composer, stream or ingest; the values are hidden from the connector and from Railway's agent. Since this change the api's `/health` shows its own list (`modes.liveConnectors`) and the gateway's (`gateway.liveConnectors`), so the value is read from outside | Railway service config; `/health` |
+| SendGrid event webhook (WP-00 S2) | **Working**: SendGrid's Event API posted to `https://ingest.foundmill.com/mail/events` on Nov 14, 2026 at 4:38 PM UTC and ingest answered 200 | Railway http logs of ingest |
+| Supabase auth (WP-00 S10) | Six-digit code, 900 s expiry, "Confirm email" on, Google on, magic-link template carries the code, custom SMTP. The redirect list was narrowed to the three entries of `supabase/config.toml` (founder's go; previews and `localhost` no longer sign in). **Open:** the "Confirm signup" template has no code (WP-03 T4) | Supabase management API (founder's personal access token, saved as a network secret of the cloud environment) |
+| Supabase Data API | Exposes no schema (`db_schema` empty); `rest/v1/` answers 401 at the gateway | Management API; `curl` |
+| Database | 19 accounts (1 in 14 days), 0 waitlist entries, admissions, invitations or published pages, 54 open approvals, 1 idea draft, `bak_20261013` still present | Supabase connector, counts only |
+| Vercel | The team `fm-2f083c2b` (display name fm-504afaf6) is on **Pro** (founder, Nov 15, 2026; the plan's audit had Hobby). Project domains: foundmill.com, www.foundmill.com, foundmill.vercel.app, founder-manager.vercel.app | Founder; Chrome extension report |
+| foundmill.com apex | One A record, `216.150.1.1` (Vercel's recommended address), in place of `64.29.17.1` and `216.198.79.1`; every other record at Spaceship unchanged | Spaceship (founder through the Chrome extension); `dns.google` |
+| foundmill.app | **Bought** by the founder (renews Nov 15, 2027), DNS on Vercel, attached to no project: reserved for Foundmill Sites (WP-07) | Vercel team domains; `curl` answers 404 |
+| Railway project | Renamed `founder-manager` to `foundmill` | Railway connector |
+| Indexing | The home page still sends `noindex, nofollow` (WP-03) | `curl` |
+
 ## 7. Local stack without Postgres or Redis
 
 ```
