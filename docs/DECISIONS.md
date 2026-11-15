@@ -4616,3 +4616,12 @@ Drizzle's postgres-js driver makes the date and time serializers pass values thr
 - **Switches are read at build time from the web's own environment.** The page is `force-static`; unset means off, which matches production today. The api's variables of the same names do not reach the web build by themselves.
 - **Superseded by the founder's brief (Nov 15), with the old form kept where it is a look:** the two-reader page (to `/tour`), the phone-only hero with a 1280 px note (one page for every width), the example business's colors on `/` (Foundmill's own look). The dark outlined Generate button stays the built default behind `IDEA_BUTTON`; the filled primary is proposed.
 - **No top-bar start button.** It competed with the idea box and led to the invite wall (s1, the critique); the top bar is the wordmark, Sign in and, with the people layer on, Find people.
+
+## 2026-11-15 — The founder's answers on the landing direction (#153)
+
+1. **`/` is for the first-timer alone; today's page moves to `/tour`.** Supersedes DESIGN §9a's two readers.
+2. **The idea box button is the flat filled primary** (`IDEA_BUTTON = "filled"`). Supersedes the 2026-11-13 "dark with a white 1 px outline" on the landing page; that look stays available as `"recorded"`.
+3. **The home page is indexed once sign-up opens.** Judgment call: indexing follows `SIGNUP_OPEN` rather than a separate constant, so opening sign-up is the one change.
+4. **Open the people layer, and build everything it needs to work end to end, reporting included.** Supersedes the main plan's "closed until reporting exists" (WP-12 D2) as a direction; the switch itself (`LIVE_MODE`) is turned on per deployment once that work lands. The landing page builds its find block for the layer as open.
+5. **Keep `/tour`.** A/B testing of landing pages, the tour and features at launch: strings and looks stay in one words file and constants so a variant is cheap.
+6. **impeccable's detector is allowed** (the founder, overriding the session brief). It ran from the session's scratch directory on a copy of the files, its engine checked against the skill's pinned checksum.

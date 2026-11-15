@@ -1,6 +1,6 @@
 # The landing page: direction
 
-Status: proposed, Nov 15, 2026. Pull request 1 of the landing session (`docs/holistic-plan/landing/PROMPT.md` on the plan branch). Nothing here is built yet; pull requests 2 to 5 build it, and every choice below is held in one constant or one words file so the founder can change course cheaply.
+Status: proposed Nov 15, 2026; the founder answered section 10 the same day (marked **Decided**). Pull request 1 of the landing session (`docs/holistic-plan/landing/PROMPT.md` on the plan branch). Nothing here is built yet; pull requests 2 to 5 build it, and every choice below is held in one constant or one words file so the founder can change course cheaply.
 
 ## 1. What today's page does
 
@@ -11,7 +11,21 @@ Rendered at 390 × 844 and 1440 × 900 on Nov 15 (`shots/today-390.png`, `shots/
 - **Both.** The page wears an example business's brand colors. No filled main button anywhere (the main action is outlined glass at 1.6 : 1 against the page, s1 §2). The field's label is screen-reader only. No word about cofounders, collaborators or building with anyone. Production sends `noindex, nofollow`; title "Foundmill"; no canonical, no structured data (s3).
 - **Checks.** axe (WCAG 2.2 A/AA rules) at 1440: one serious failure, `aria-hidden-focus` (a focusable element inside the decorative orbit). At 390: none. s3 measured production at 38 script files, about 604 KB Brotli of JavaScript for `/`; LCP, INP and CLS have never been measured.
 
-### The critique (impeccable's method, run by hand)
+### impeccable's detector (run Nov 15 at the founder's request)
+
+Engine 0.1.24, fetched by the skill's launcher into the session's scratch directory and checked against the skill's pinned SHA-256 before it ran. It scanned a copy of the landing files outside the repository and the rendered pages; nothing of the repository was changed.
+
+| Target | Findings | What they are |
+| --- | --- | --- |
+| Today's `/` at 1440 × 900 | 55 | 19 colored glows, 7 radial spotlights, 5 nested cards, 3 gradient-text headlines, 3 over-long lines, a marquee, a pulsing dot, an "AI color palette", 7 low-contrast texts (white on the brand gradient at 4.1 : 1) |
+| Today's `/` at 390 × 844 | 6 | the spotlight glow, the gradient "real business", a colored glow, a halo, a straggling word, the spring easing |
+| Today's landing source | 1 | a side-tab border in `CycleDeck.tsx` |
+| The direction mock, source | 0 | |
+| The direction mock at 390 and 1440 | 124 / 121 | 117 are `IdeaCard`'s lit rating cells (DESIGN §5's skill-bar glow, a console look shown inside the frame); the rest: the hero's radial light, the Example frame around a card (card in card), Inter as the main face, three one-word last lines |
+
+What the build takes from it (pull requests 2 and 3): no radial light behind the hero (a flat canvas with the top hairline only); `ScreenFrame` has no surface of its own (a hairline and the Example chip, so a card is never inside a card); `text-wrap: pretty` on every paragraph; `IdeaCard` gets a `quiet` look on the landing page with its rating cells unlit (a new prop in pull request 2, the console keeps its glow). Inter stays: it is the product's recorded face (DESIGN §2), and the spring easing is not used on the page.
+
+### The critique (impeccable's method)
 
 Assessment A ran as an isolated reviewer with impeccable's rubric. Assessment B (impeccable's detector) did not run: its launcher downloads a binary, which this session's brief rules out, so the detector's place was taken by the Playwright and axe measurements above.
 
@@ -180,7 +194,7 @@ Native `<details>`, so it works without script; on a phone they start closed, on
 > Tagline (`APP_TAGLINE`) · Terms · Privacy · from 1280 px **[tour]** "How the team works" (to `/tour`) · © {year} Foundmill
 
 ### Metadata (pull request 4)
-Title "Foundmill | Start your first project with one sentence". Description "Say your idea in a sentence. A team of AI agents shapes it and rates it honestly, free and before you sign up. Build it alone or with people." Canonical `/`. Open Graph with a share image drawn from the hero. One JSON-LD block (Organization, WebSite, SoftwareApplication with a free Offer; no FAQPage). `robots` stays `noindex` behind `HOME_INDEXED = false`.
+Title "Foundmill | Start your first project with one sentence". Description "Say your idea in a sentence. A team of AI agents shapes it and rates it honestly, free and before you sign up. Build it alone or with people." Canonical `/`. Open Graph with a share image drawn from the hero. One JSON-LD block (Organization, WebSite, SoftwareApplication with a free Offer; no FAQPage). `robots` is `noindex` until sign-up opens: indexing follows `SIGNUP_OPEN` (founder, Nov 15).
 
 ### Removed claims (a test fails if any returns to `/`)
 "checks it against real sources" · "reconcile your Stripe and bank data" · "Better every cycle" · "Six departments work at once" · "Nothing is spent until you approve it" · "Start your business" · "First company or fifth" · "Or watch an example run" · "built for screens 1280 px wide or more" · "Desktop only" · "We will email you" · "cofounders' credits pool" (true only once package 3.9 ships) · "in one tap" (Share exists only in the desktop console, a9 A9-P1-5).
@@ -232,8 +246,8 @@ The page is prerendered (`force-static`), so a switch is read once at build time
 | "Find people" in the top bar; the find block | `LIVE_MODE` through `liveModeOpen` (`packages/config/src/flags.ts`) | `words.ts` `people.find*`, `topBar.findPeople` |
 | "Four people follow the page."; "Send email for your project" leaves the limits answer | `PLATFORM_MAIL_DOMAIN` set | `words.ts` `firstWeek.day3Follow`, `questions.limitsMail` |
 | "How the team works" link and `/tour` itself | `TOUR_ENABLED` constant (true) | `components/landing/flags.ts` |
-| Idea-box button look | `IDEA_BUTTON = "recorded"` (`"filled"` the alternative) | `components/landing/flags.ts` |
-| `noindex` | `HOME_INDEXED = false` | `components/landing/flags.ts` |
+| Idea-box button look | `IDEA_BUTTON = "filled"` (founder, Nov 15; `"recorded"` keeps the earlier look) | `components/landing/flags.ts` |
+| `noindex` | follows `SIGNUP_OPEN`: indexed once sign-up is open (founder, Nov 15) | `app/page.tsx` metadata |
 
 Later edits with no switch yet (strings stay in `words.ts`): the phone answer once publishing works on a phone (WP-04); "Take a payment" leaves the limits answer once Stripe is live; "check facts on the live web" leaves it once web research is live; a pooled-credits line once package 3.9 ships; real project pages replace the examples once their founders consent (`showcase_consents`).
 
@@ -255,7 +269,7 @@ Later edits with no switch yet (strings stay in `words.ts`): the phone answer on
 
 **Spacing and layout.** One column with a 16 px gutter under 640 px; a centered 640 px reading column from 640 to 1023 px; from 1024 px sections 2 to 4 become two columns (words left at the 640 px measure, the real screen right), the rest stays one centered column. Section rhythm `--landing-section-y`: clamp(56px, 7vw, 112px). Every tap target 44 px (`min-h-tap`). The page lays itself out from its own width (`@container`), like the public pages.
 
-**The main action.** One per screen: the hero's "Shape my idea", then the closing "Shape my idea". Built in the recorded look (dark, white 1 px outline, `idea-gen`, founder 2026-11-13) behind `IDEA_BUTTON`; the flat filled primary is the alternative shown next to it in Storybook (`Landing/Direction`, stories "Hero, recorded button" and "Hero, filled button"). s1 recommends the filled one: its fill reads 4.1 : 1 against the page where the recorded one reads 1.6 : 1, and it is the only filled thing on the page. Founder decision 2.
+**The main action.** One per screen: the hero's "Shape my idea", then the closing "Shape my idea". The flat filled primary (`--kit-primary`, white label, `idea-gen-filled`): the founder chose it on Nov 15 over the dark outlined look of 2026-11-13, which stays available behind `IDEA_BUTTON = "recorded"`. Its fill reads 4.1 : 1 against the page where the recorded one reads 1.6 : 1, and it is the only filled thing on the page.
 
 **Motion.** The hero's entrance (the h1, lede and box rise 8 px and fade in once, 320 ms, `view` duration), the founder's typed placeholder, and a landed card's existing `landed` rise and edge flash. Nothing else moves: no ticker, no reveal on scroll, no auto-advancing tabs, no deck running by itself. Under `prefers-reduced-motion` all three are instant (the placeholder shows its first idea, still).
 
@@ -298,13 +312,13 @@ Each is built in its recorded form behind a constant where it is a look, and pro
 | 2026-11-13 "less dense: keep every word and concept" | Every word and concept is kept on `/tour`; `/` is a new, shorter page | The brief replaces `/`'s purpose; `/tour` honors the recorded call for the second reader. |
 | 2026-10-10 three example businesses with a picker; the page wears the example's colors | Moves to `/tour`; `/` wears Foundmill's own look | The brief: "the page wears Foundmill's own look". |
 
-## 10. Decisions for the founder
+## 10. The founder's answers (Nov 15, 2026)
 
-| # | Question | Default built | Recommendation |
-| --- | --- | --- | --- |
-| 1 | Is `/` for the first-timer alone, with today's page at `/tour`? | Yes | Yes. |
-| 2 | The idea box button: recorded (dark, white outline) or flat filled primary? | Recorded, both shown | Filled: it is the one main action and should read as one (4.1 : 1 against 1.6 : 1). |
-| 3 | Index the home page once the new page merges? | No (`HOME_INDEXED = false`) | Yes once sign-up is open; an indexed page that ends at a waitlist spends the one first impression a search gives. |
-| 4 | Open the people layer (`LIVE_MODE`)? | Closed; the find block stays hidden | Keep closed until reporting exists (WP-12 D2), as the main plan recommends. |
-| 5 | Keep `/tour` after a month if nobody opens it? | Keep | Decide with a month of numbers. |
-| 6 | (new) The pooled-credits line and "share in one tap" from the brief are held back: neither is true for a free stranger today (a9 §1.3, A9-P1-5). | Held back | Add each when its code ships. |
+| # | Question | Answer |
+| --- | --- | --- |
+| 1 | Is `/` for the first-timer alone, with today's page at `/tour`? | **Decided: yes.** |
+| 2 | The idea box button: recorded or flat filled? | **Decided: flat filled.** `IDEA_BUTTON = "filled"`. |
+| 3 | Index the home page? | **Decided: once sign-up opens.** Indexing follows `SIGNUP_OPEN`, so the day sign-up opens the page is indexed with no second change. |
+| 4 | Open the people layer (`LIVE_MODE`)? | **Decided: open it, and build what it needs to work end to end, reporting included.** The landing page shows the find block and the top-bar link whenever the deployment has `LIVE_MODE` on; the network's own work (reporting, Find people, the rest of NETWORK.md's waves) is a separate piece of work outside this session's files, and turning the switch on in production is a deployment step. |
+| 5 | Keep `/tour` after a month if nobody opens it? | **Decided: keep it.** At launch the founder plans broad A/B testing of landing pages, the tour and features. The page is built for it: every string in `words.ts`, every look behind a constant, sections as separate components, so a variant is a different words object or constant, assigned by a cookie in `proxy.ts` (s2 §9) when the experiments start. |
+| 6 | The pooled-credits line and "share in one tap" | Held back until their code ships. |
