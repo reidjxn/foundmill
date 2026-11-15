@@ -61,6 +61,7 @@ import { tableViewsRepo } from "./table-views";
 import { personaPortraitsRepo } from "./persona-portraits";
 import { teamCallsRepo } from "./team-calls";
 import { presenceRepo } from "./presence";
+import { costReportRepo } from "./cost-report";
 import { notificationsRepo } from "./notifications";
 import { notifyFactsRepo } from "./notify-facts";
 import { attributionsRepo } from "./attributions";
@@ -133,6 +134,7 @@ export const repos = {
   personaPortraits: personaPortraitsRepo,
   teamCalls: teamCallsRepo,
   presence: presenceRepo,
+  costReport: costReportRepo,
   notifications: notificationsRepo,
   emailPrefs: emailPrefsRepo,
   notifyFacts: notifyFactsRepo,
@@ -213,6 +215,7 @@ export * from "./portability";
 export * from "./persona-portraits";
 export * from "./team-calls";
 export * from "./presence";
+export * from "./cost-report";
 export * from "./notifications";
 export * from "./notify-facts";
 export * from "./account-events";

@@ -148,11 +148,11 @@ export function welcomeNote(input: { agents: number; departments: number; produc
   const from = input.door === "import" ? "the Import report" : "your idea and your founder profile";
   const who = input.productLeadName ?? "The Product lead";
   return {
-    subject: "Your team is drafting the product foundations",
+    subject: "Your team is drafting your page and your plan",
     bodyMd: [
       prompts.HOUSE_RULES_FOUNDER_LINE,
       `The team is hired: ${input.agents} agents in ${input.departments} departments.`,
-      `${who} is drafting the vision, the specification and the roadmap from ${from}; you will get two notes asking you to sign off each. Building starts when both are approved.`,
+      `${who} is drafting your public page first, from ${from}: check it and put it live. The vision, the specification and the roadmap follow as two notes to sign off. Building starts when both are approved.`,
       "Nothing is spent on distribution until you start it from Customers › Board.",
     ].join("\n\n"),
   };
