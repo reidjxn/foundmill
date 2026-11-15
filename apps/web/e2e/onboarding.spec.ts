@@ -101,6 +101,11 @@ test.describe("onboarding", () => {
     // With the profile saved, business routes and the studio open.
     await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/home`);
     await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
+    // The first open of a business starts work in the browser (the time zone claim, goal.ensure, Today's batches), and
+    // the api keeps running it after the page is left. On the test stack PGlite runs inside the api's one thread, so
+    // leaving at once queued /new/ideate's server reads behind that work past their 8 s limit ("Can't reach the
+    // server", CI Nov 14–15). Wait for it to answer first, as `openBusiness` does.
+    await page.waitForLoadState("networkidle", { timeout: LONG });
     await page.goto("/new/ideate");
     await expect(page).toHaveURL(/\/new\/ideate$/);
     await expect(page.getByTestId("prompt-box")).toBeVisible({ timeout: LONG });
