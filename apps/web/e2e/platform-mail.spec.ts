@@ -45,7 +45,7 @@ test.describe("Email from your project", () => {
     // A PO box, saved, and kept after a reload as one tidy line.
     await input.fill("PO Box 1234, Springfield, IL 62701, USA");
     await field.getByTestId("postal-address-save").click();
-    await expect(page.getByText("Postal address saved")).toBeVisible({ timeout: LONG });
+    await expect(page.getByText("Postal address saved", { exact: true })).toBeVisible({ timeout: LONG });
     await expect(field.getByTestId("postal-address-missing")).toHaveCount(0);
     await page.reload();
     await expect(screen.getByTestId("postal-address").getByLabel("Postal address for your emails")).toHaveValue("PO Box 1234, Springfield, IL 62701, USA", { timeout: LONG });
