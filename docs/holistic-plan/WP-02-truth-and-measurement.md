@@ -247,7 +247,7 @@ Left alone, with the reason: Settings tab "Business" and Team › "Staff" (tab s
 **Steps:** 1. `founder-words.test.ts` for the two helpers; `shell-words.test.ts` renders each constant or component with Builder view off and asserts none matches `/\bcycles?\b|orchestrator|\bInbox\b(?! tab)|Switch business|Sample business/`. verify: fails listing every row. 2. Change the strings; where a string is built from a number or a flag, take the word from `roundWords(builder)`. verify: the test passes; Storybook stories for the three dugout components still render (update their fixtures). 3. Run the word scripts and update `docs/DESIGN.md` §10 with the four-row table "Engine word → founder word" (cycle → round of work; orchestrator → the team; Inbox as a place → Needs you; business → project until the first sale). verify: `node scripts/banned-terms.mjs` green. 4. Playwright specs that assert the old strings (`today.spec.ts`, `inbox.spec.ts`, `shell.spec.ts`: grep the old text under `apps/web/e2e`). verify: green.
 **Done when:** Done-when 5.
 
-### T9: Four funnel facts in the account event store                      [M] [ships alone]
+### [x] T9: Four funnel facts in the account event store                      [M] [ships alone]
 
 **Why:** FR-10 step 1, A8-08 fix 1. Recorded decision: "Account events: a private, person-level event store (founder, 2026-11-12)" and "The account relay is turned off" (same day): writes still land in `account_events`; nothing here starts a poller.
 

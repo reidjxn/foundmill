@@ -597,6 +597,10 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
   "signup.attributed": { sourceKind: "project_page", sourceRef: "northwind-skincare" },
   "referral.arrived": { sourceKind: "person_profile", sourceRef: "maya-okafor" },
   // A founder notice for the person emailed: the notice and the project's and the record's ids, nobody's account.
+  "account.admitted": { how: "invitation" },
+  "profile.created": { client: "web" },
+  "idea.kept": { from: "idea_box" },
+  "idea.drafted": { source: "set", cards: 6 },
   "founder_notice.sent": { notice: "removed", businessId: fixtureId("business"), notificationId: fixtureId("notification"), offersCancel: true, simulated: true },
 };
 

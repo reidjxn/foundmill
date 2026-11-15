@@ -673,6 +673,13 @@
       "when": 1796138640000,
       "tag": "0107_collaborator_finance_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1796138700000,
+      "tag": "0108_funnel_account_events",
+      "breakpoints": true
     }
   ]
 }

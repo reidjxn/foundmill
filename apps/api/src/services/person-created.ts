@@ -11,7 +11,9 @@
  *      account once (`recordAdultConfirmation`, ./adults; 0100). The save itself records it before the profile exists
  *      (`founder.profile.update` calls `requireAdult` first, so a profile never exists without it) or refuses; this
  *      step then writes nothing (the first confirmation stands). It stays for a caller that creates a profile another
- *      way and hands the confirmation here.
+ *      way and hands the confirmation here;
+ *   4. `admission_fact` and 5. `profile_fact`: the funnel's account facts `account.admitted` (how the person was let
+ *      in, from `account_admissions`, else "list") and `profile.created` (web or app), once per account (WP-02 T9).
  * `ideaDraftToken` is accepted and passed to every step, and no step reads it yet: the step that claims an idea drafted
  * before sign-up (`claimIdeaDraft`) is added to the list by the change that builds it.
  *
@@ -27,7 +29,8 @@
  *   - **inline, once.** The steps run in the request that created the profile. Nothing here starts a timer, a poller
  *     or a background query on the api's database pool, and a step must not either.
  */
-import type { Db } from "@foundmill/db";
+import { repos, type Db } from "@foundmill/db";
+import { writeAccountEvent } from "@foundmill/events";
 import { recordAdultConfirmation } from "./adults";
 import { recordInvitationAttribution, recordSignupAttribution } from "./attribution";
 import type { ApiLogger } from "./log";
@@ -49,6 +52,8 @@ export interface PersonCreatedInput {
   ideaDraftToken?: unknown;
   /** The person ticked "I am 18 or older" on the screen that created the profile: recorded only when exactly `true`. */
   confirmAdult?: unknown;
+  /** Which client saved the profile (the request's `x-foundmill-client`); anything but "app" reads as "web". */
+  client?: unknown;
 }
 
 export interface PersonCreatedStep {
@@ -68,6 +73,21 @@ export const PERSON_CREATED_STEPS: readonly PersonCreatedStep[] = [
     name: "adult_confirmation",
     run: async (deps, userId, input) => {
       if (input.confirmAdult === true) await recordAdultConfirmation(deps.db, userId);
+    },
+  },
+  // The funnel's account facts (WP-02 T9), once per account (their idempotency keys): how the person was let in, and
+  // that the profile was created and from which client. Nothing here names another person.
+  {
+    name: "admission_fact",
+    run: async (deps, userId) => {
+      const admission = await repos.admissions.forUser(deps.db, userId);
+      await deps.db.transaction((tx) => writeAccountEvent(tx, { userId, type: "account.admitted", actor: { kind: "user", id: userId }, payload: { how: admission?.how ?? "list" }, idempotencyKey: "account.admitted" }));
+    },
+  },
+  {
+    name: "profile_fact",
+    run: async (deps, userId, input) => {
+      await deps.db.transaction((tx) => writeAccountEvent(tx, { userId, type: "profile.created", actor: { kind: "user", id: userId }, payload: { client: input.client === "app" ? "app" : "web" }, idempotencyKey: "profile.created" }));
     },
   },
 ];

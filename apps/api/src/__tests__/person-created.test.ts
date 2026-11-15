@@ -64,19 +64,19 @@ beforeEach(() => vi.mocked(recordSignupAttribution).mockClear());
 describe("founder.profile.update runs onPersonCreated on the save that creates the profile", () => {
   it("the attribution step still runs: the row and its two account events are written, once", async () => {
     // An accepted invitation outranks the cookie's reference (services/attribution.ts `recordInvitationAttribution`).
-    expect(PERSON_CREATED_STEPS.map((step) => step.name)).toEqual(["invitation_attribution", "signup_attribution", "adult_confirmation"]);
+    expect(PERSON_CREATED_STEPS.map((step) => step.name)).toEqual(["invitation_attribution", "signup_attribution", "adult_confirmation", "admission_fact", "profile_fact"]);
     const p = await newcomer();
     await p.me.founder.profile.update({ confirmAdult: true, ...answer, via: "u.ida-moss" });
     expect(recordSignupAttribution).toHaveBeenCalledTimes(1);
     expect(vi.mocked(recordSignupAttribution).mock.calls[0]!.slice(1)).toEqual([p.userId, "u.ida-moss"]);
     expect(await repos.attributions.forUser(hz.db, p.userId)).toMatchObject({ sourceKind: "person_profile", sourceRef: "ida-moss", referrerUserId: ida });
-    expect(await eventTypes(p.userId)).toEqual(["signup.attributed"]);
+    expect(await eventTypes(p.userId)).toEqual(["signup.attributed", "account.admitted", "profile.created"]);
     expect(await eventTypes(ida)).toContain("referral.arrived");
 
     // A later save is not the save that creates the profile: no step runs, whatever it carries.
     await p.me.founder.profile.update({ confirmAdult: true, displayName: "Renamed", via: "u.ida-moss", ideaDraftToken: TOKEN });
     expect(recordSignupAttribution).toHaveBeenCalledTimes(1);
-    expect(await eventTypes(p.userId)).toEqual(["signup.attributed"]);
+    expect(await eventTypes(p.userId)).toEqual(["signup.attributed", "account.admitted", "profile.created"]);
   });
 
   it("a step that throws never fails the save or changes its answer", async () => {
@@ -90,7 +90,8 @@ describe("founder.profile.update runs onPersonCreated on the save that creates t
     expect(await repos.founders.get(hz.db, p.userId)).toMatchObject({ displayName: "Newcomer" });
     // The step did not run to its end, and the save stands without it.
     expect(await repos.attributions.forUser(hz.db, p.userId)).toBeNull();
-    expect(await eventTypes(p.userId)).toEqual([]);
+    // The steps after it still ran: only the funnel facts are written, no attribution event.
+    expect(await eventTypes(p.userId)).toEqual(["account.admitted", "profile.created"]);
 
     // A synchronous throw is caught the same way.
     vi.mocked(recordSignupAttribution).mockImplementationOnce(() => {
@@ -114,9 +115,11 @@ describe("founder.profile.update runs onPersonCreated on the save that creates t
     expect(comparable(saved)).toEqual(expected);
     expect(saved).not.toHaveProperty("ideaDraftToken");
     expect(JSON.stringify(saved)).not.toContain(TOKEN);
-    // It reached the one place that will read it, and no step did anything with it.
+    // It reached the one place that will read it, and no step did anything with it: the new person's only rows are
+    // the two funnel facts every new account gets (WP-02 T9).
     expect(recordSignupAttribution).toHaveBeenLastCalledWith(expect.anything(), p.userId, undefined);
-    expect((await rows<{ n: number }>(sql`select (select count(*)::int from account_events) + (select count(*)::int from attributions) + (select count(*)::int from events) as n`))[0]!.n).toBe(before);
+    expect((await rows<{ n: number }>(sql`select (select count(*)::int from account_events) + (select count(*)::int from attributions) + (select count(*)::int from events) as n`))[0]!.n).toBe(before + 2);
+    expect(await eventTypes(p.userId)).toEqual(["account.admitted", "profile.created"]);
     expect(JSON.stringify(await repos.founders.get(hz.db, p.userId))).not.toContain(TOKEN);
 
     // Beside a reference, the reference is still recorded and the token still changes nothing.
@@ -240,5 +243,26 @@ describe("onPersonCreated", () => {
       ]),
     ).resolves.toBeUndefined();
     expect(ran).toEqual(["after"]);
+  });
+});
+
+describe("the funnel's account facts (WP-02 T9)", () => {
+  it("a new account gets account.admitted (list when no admission row) and profile.created (app from the header), once", async () => {
+    const p = await newcomer();
+    await onPersonCreated({ db: hz.db, log: pino({ level: "silent" }) }, p.userId, { client: "app" });
+    await onPersonCreated({ db: hz.db, log: pino({ level: "silent" }) }, p.userId, { client: "app" });
+    const facts = await rows<{ type: string; payload: unknown }>(sql`select type, payload from account_events where user_id = ${p.userId}::uuid order by created_at, id`);
+    expect(facts).toEqual([
+      { type: "account.admitted", payload: { how: "list" } },
+      { type: "profile.created", payload: { client: "app" } },
+    ]);
+  });
+
+  it("an admission row gives its how", async () => {
+    const p = await newcomer();
+    await repos.admissions.record(hz.db, { userId: p.userId, how: "open" });
+    await onPersonCreated({ db: hz.db, log: pino({ level: "silent" }) }, p.userId, {});
+    const facts = await rows<{ type: string; payload: unknown }>(sql`select type, payload from account_events where user_id = ${p.userId}::uuid order by created_at, id`);
+    expect(facts.map((f) => f.payload)).toEqual([{ how: "open" }, { client: "web" }]);
   });
 });
