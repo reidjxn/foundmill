@@ -1,5 +1,7 @@
 # DECISIONS.md
 
+> Frozen on Nov 15, 2026. New entries are files under docs/log/ (skill `log-entry`). Search both with `node scripts/decisions-index.mjs <words>`.
+
 Decisions this build has taken where `docs/BUILD.md` left room. Each entry: the decision, the option chosen, why. Newest at the bottom.
 
 ## 2026-10-05 — Toolchain versions (BUILD §3.1 "record exact versions")
@@ -4627,9 +4629,4 @@ Drizzle's postgres-js driver makes the date and time serializers pass values thr
 - **Chosen.** The filter lives in a `changes` job inside `ci.yml`, never on `on:`, so every required check still reports (a job skipped by its `if:` counts as passed). A pull request is diffed against its base commit (`pull_request.base.sha`) to its merge commit; when the base has moved this can name a few files the branch did not change, which only runs more lanes, never fewer. Pushes to main and `workflow_dispatch` (agent branches through `run_checks`) always run every lane.
 - **Kept.** The required check names, the file name and the dispatch trigger; `--maxWorkers=2` on every unit entry (runner size unverified); the golden path in Playwright shard 1, because that shard is the one seeded without a founder profile.
 - **Small call.** The base branch name reaches the log guard's shell through an environment variable rather than an inline expression.
-
-## 2026-11-15 — Railway watch paths: per service from its dependencies; the toml files are a mirror (WP-01 T4)
-
-- **Chosen.** A service's watch paths are its app, the workspace packages it reaches through `dependencies` (never `devDependencies`: the api lists the gateway there and imports nothing from it), and the image's inputs; the orchestrator also watches `/infra/**`. A service's own `railway/<service>.toml` leaves its list: Railway stops reading those files on Dec 1, 2026, so editing one should not restart anything. `scripts/railway-watch.mjs` is the source; the tomls are kept equal by the test.
-- **Measured.** Over main's last 150 commits the replay gives 91 to 111 deploys per service, slightly above the audit's estimate of 86 to 104 (the orchestrator is highest because it also imports sandbox and watches infra). With the optional negations, 86 to 105.
-- **Not applied here.** Applying the lists, trying the negations on ingest first, and "Wait for CI" on api and gateway are WP-00 S4.
+- **Beyond the plan's letter.** The plan dealt Playwright files by their count of `test(` calls in six shards. The first run measured 71.6 minutes of tests with shards between 5.9 and 18.3 minutes: two files take six minutes each and many take seconds, so a count is a poor weight. Files are now dealt by the seconds each took (greedy, heaviest first, to the lightest shard; shard 1 starts loaded with onboarding and the golden path) in eight shards, the split the plan names when a job runs past 14 minutes. The weights file is refreshed from a green run when the shards drift apart; a new file counts as the median.
