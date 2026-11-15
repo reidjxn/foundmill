@@ -328,6 +328,26 @@
   --inner-highlight: var(--elev-0);
   --focus-ring: 2px solid var(--accent);
   --focus-offset: 2px;
+
+  /* ---------- The landing page (DESIGN §9a; docs/holistic-plan/landing/DIRECTION.md §7) ---------- */
+  /* Its own type scale, so the console's 13 px root and every token it reads never move. Body 16 px is the size an
+     iPhone does not zoom a field at; headings scale with the page's width between a phone and 1440 px. */
+  --fs-landing-h1: clamp(36px, 4.6vw + 18px, 72px);
+  --lh-landing-h1: 1.04;
+  --fs-landing-h2: clamp(26px, 1.8vw + 19px, 40px);
+  --lh-landing-h2: 1.12;
+  --fs-landing-lede: clamp(17px, 0.3vw + 16px, 19px);
+  --lh-landing-lede: 1.55;
+  --fs-landing-body: 16px;
+  --lh-landing-body: 26px;
+  --fs-landing-small: 14px;
+  --lh-landing-small: 20px;
+  --landing-column: 1120px; /* the widest the page's content runs (two columns from 1024 px) */
+  --landing-screen: 420px; /* the column a real screen sits in beside the words */
+  --landing-section-y: clamp(56px, 7vw, 112px); /* space above and below a section */
+  --landing-field-h: 56px; /* the idea field and its button, side by side from 640 px */
+  --landing-gen-h: 52px; /* the idea button, full width under the field on a phone */
+  --line-control: rgba(255, 255, 255, 0.34); /* a field's edge on the landing page: 3 : 1 against the canvas (s1 §2, WCAG 1.4.11) */
 }
 
 /*

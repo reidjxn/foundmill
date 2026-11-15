@@ -28,6 +28,8 @@
 @import "./call.css";
 /* The landing page's idea box (docs/IDEA_BOX.md). */
 @import "./idea-box.css";
+/* The landing page (DESIGN §9a): its type, column, sections, the filled idea button and the Example frame. */
+@import "./landing.css";
 
 /* Components in this package and in the packages built on top of it. Paths are relative to this file. */
 @source "./components";

@@ -128,6 +128,12 @@ export const SERVER_SAFE_FILES = [
   "components/public/PersonPage.tsx",
   // The Terms and the Privacy Policy (founder, 2026-11-13): rendered by their static routes as Server Components.
   "components/public/LegalPage.tsx",
+  // The landing page's pieces (DESIGN §9a): plain markup the prerendered page renders as Server Components.
+  "components/landing/ScreenFrame.tsx",
+  "components/landing/LandingSection.tsx",
+  "components/landing/DayList.tsx",
+  "components/landing/AssuranceList.tsx",
+  "components/landing/QuestionList.tsx",
   // The streak (retention plan, 2026-11-11): plain markup inside a Panel.
   "components/today/StreakStrip.tsx",
 ];
