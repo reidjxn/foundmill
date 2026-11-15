@@ -13,7 +13,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { prefersReducedMotion } from "@foundmill/dugout";
-import { DEFAULT_EXAMPLE, EXAMPLE_IDS, EXAMPLE_PARAM, exampleSearch, isExampleId, loadExample, peekExample, prefetchExample, rememberExample, type ExampleBusiness, type ExampleId } from "./index";
+import { DEFAULT_EXAMPLE, DEFAULT_EXAMPLE_ID, EXAMPLE_IDS, EXAMPLE_PARAM, exampleSearch, isExampleId, loadExample, peekExample, prefetchExample, rememberExample, type ExampleBusiness, type ExampleId } from "./index";
 
 export interface ExampleChoice {
   /** The business on screen. */
@@ -113,10 +113,13 @@ export function useExampleChoice(): ExampleChoice {
   return choice;
 }
 
-/** Puts the choice in the address bar without a navigation: `/?example=glitchwick`, or `/` for the default. */
+/**
+ * Puts the choice in the address bar without a navigation: `/?example=glitchwick` (the deep link the proxy serves the
+ * tour from), or `/tour` for the default. The examples live on the tour only (founder, 2026-11-15).
+ */
 function writeAddress(id: ExampleId): void {
   const { pathname, search, hash } = window.location;
-  const next = `${pathname}${exampleSearch(id, search)}${hash}`;
+  const next = `${id === DEFAULT_EXAMPLE_ID ? "/tour" : "/"}${exampleSearch(id, search)}${hash}`;
   if (next !== `${pathname}${search}${hash}`) window.history.replaceState(null, "", next);
 }
 

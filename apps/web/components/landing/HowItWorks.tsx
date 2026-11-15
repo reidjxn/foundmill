@@ -18,7 +18,7 @@ export const FIRST_DAY_SIGNOFFS = ["Sign off the product specification", "Sign o
 /** The drafting panel's title as the app shows it (Dugout `FoundationsStatus`: the heading and its Drafting pill). */
 export const FIRST_DAY_PANEL_TITLE = "Vision, specification and roadmap · Drafting";
 /** One sentence on day one (docs/UX_AUDIT_AND_PLAN.md §7.1). */
-export const FIRST_DAY_SENTENCE = "The team drafts; you sign off; then they build. Nothing is spent until you approve it.";
+export const FIRST_DAY_SENTENCE = "The team drafts; you sign off; then they build. Your project's money is never spent without your approval; agent work uses your monthly allowance.";
 
 export function HowItWorks() {
   return (

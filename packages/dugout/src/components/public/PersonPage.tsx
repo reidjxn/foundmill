@@ -48,6 +48,11 @@ export interface PersonPageProps extends Omit<HTMLAttributes<HTMLElement>, "chil
   place?: string | null;
   /** The person's public project pages. */
   projects?: readonly PersonPageProject[] | null;
+  /**
+   * The level of the page's title: 1 on its own route (default); 3 when the page is shown inside another page as an
+   * example (the landing page), so that page keeps one h1. Its section labels follow one level below.
+   */
+  titleLevel?: 1 | 3;
   /** "page" fills the window (the public route); "preview" sits inside a frame (the edit screen). */
   variant?: "page" | "preview";
 }
@@ -63,7 +68,9 @@ export const PERSON_PAGE_WORDS = {
 
 const clean = (tags: readonly string[] | null | undefined): string[] => (tags ?? []).map((t) => t.trim()).filter(Boolean);
 
-export function PersonPage({ name, headline, about, strengths, wantsToLearn, lookingFor, place, projects, variant = "page", className, ...rest }: PersonPageProps) {
+export function PersonPage({ name, headline, about, strengths, wantsToLearn, lookingFor, place, projects, titleLevel = 1, variant = "page", className, ...rest }: PersonPageProps) {
+  const Title = titleLevel === 1 ? "h1" : "h3";
+  const Sub = titleLevel === 1 ? "h2" : "h4";
   const paragraphs = pageParagraphs(about ?? "");
   const good = clean(strengths);
   const learn = clean(wantsToLearn);
@@ -82,9 +89,9 @@ export function PersonPage({ name, headline, about, strengths, wantsToLearn, loo
         <header className="flex min-w-0 flex-col gap-4">
           <AvatarBase name={name} size={64} ring="none" className="self-start" data-person-avatar="" />
           <div className="flex min-w-0 flex-col gap-2">
-            <h1 className="t-display-lg min-w-0 text-balance break-words text-primary @page-wide:t-display-xl" data-person-name="">
+            <Title className="t-display-lg min-w-0 text-balance break-words text-primary @page-wide:t-display-xl" data-person-name="">
               {name}
-            </h1>
+            </Title>
             {sub ? (
               <p className="t-reading min-w-0 text-balance break-words text-secondary" data-person-headline="">
                 {sub}
@@ -120,9 +127,9 @@ export function PersonPage({ name, headline, about, strengths, wantsToLearn, loo
 
         {good.length ? (
           <section aria-labelledby={goodId} className="flex min-w-0 flex-col gap-2.5" data-person-strengths="">
-            <h2 id={goodId} className="t-label text-secondary">
+            <Sub id={goodId} className="t-label text-secondary">
               {PERSON_PAGE_WORDS.strengths}
-            </h2>
+            </Sub>
             <ul className="flex flex-wrap gap-1.5">
               {good.map((t) => (
                 <li key={t} className="flex max-w-full">
@@ -135,9 +142,9 @@ export function PersonPage({ name, headline, about, strengths, wantsToLearn, loo
 
         {learn.length ? (
           <section aria-labelledby={learnId} className="flex min-w-0 flex-col gap-2.5" data-person-wants-to-learn="">
-            <h2 id={learnId} className="t-label text-secondary">
+            <Sub id={learnId} className="t-label text-secondary">
               {PERSON_PAGE_WORDS.wantsToLearn}
-            </h2>
+            </Sub>
             <ul className="flex flex-wrap gap-1.5">
               {learn.map((t) => (
                 <li key={t} className="flex max-w-full">
@@ -150,9 +157,9 @@ export function PersonPage({ name, headline, about, strengths, wantsToLearn, loo
 
         {list.length ? (
           <section aria-labelledby={projectsId} className="flex min-w-0 flex-col gap-2.5" data-person-projects="">
-            <h2 id={projectsId} className="t-label text-secondary">
+            <Sub id={projectsId} className="t-label text-secondary">
               {PERSON_PAGE_WORDS.projects}
-            </h2>
+            </Sub>
             <ul className="flex flex-col gap-2">
               {list.map((p) => (
                 <li key={p.slug}>

@@ -146,7 +146,7 @@ export function FinalCall() {
             <h2 id="start-title" className="t-display-hero text-balance text-primary">
               Your team is ready <span className="landing-lit">when you are.</span>
             </h2>
-            <p className="t-reading mx-auto text-pretty text-secondary">Never started a company? You do not need to know how to incorporate, price, run ads or keep books. Every decision arrives with the work done, a recommendation and the reason for it.</p>
+            <p className="t-reading mx-auto text-pretty text-secondary">Never started anything? You do not need to know the steps. Your team plans them and tells you which decision is yours, with the work done, a recommendation and the reason for it.</p>
             <div className="flex gap-3">
               <Button asChild variant="glass" size="lg" iconRight={ArrowRight}>
                 <Link href={SIGN_IN}>Start your business</Link>

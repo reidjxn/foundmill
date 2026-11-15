@@ -88,7 +88,7 @@ export function Channels() {
   return (
     <Section id="channels">
       <div className="flex items-end justify-between gap-10">
-        <SectionHeading id="channels" eyebrow="Distribution" title="Fifteen channels. The right few first." lede={
+        <SectionHeading id="channels" eyebrow="Distribution" title="Channels on one board. The few that can act for you come first." lede={
             <>
               The Distribution Strategist scores every channel 1–20 for <Term id="fit">fit</Term>, puts the strongest on the board within your <Term id="runway">runway</Term>, and shows you why. Drag a channel on or off to try it.
             </>

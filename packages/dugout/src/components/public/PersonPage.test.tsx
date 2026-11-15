@@ -85,3 +85,12 @@ describe("PersonPage", () => {
     expect(renderToStaticMarkup(<PersonPage {...props} />)).toContain("data-person-page");
   });
 });
+
+describe("PersonPage inside another page (titleLevel 3)", () => {
+  it("titles itself with an h3 and its labels with h4s, so the host page keeps one h1", () => {
+    render(<PersonPage {...props} titleLevel={3} />);
+    expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
+    expect(screen.getByRole("heading", { level: 3, name: "Maya Okafor" })).toBeTruthy();
+    expect(screen.getAllByRole("heading", { level: 4 }).length).toBeGreaterThan(0);
+  });
+});

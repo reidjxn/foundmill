@@ -1,15 +1,16 @@
 import { expect, test, type Page } from "@playwright/test";
 
 /**
- * The signed-out landing page at `/` (it needs no api and no session). Runs in a fresh browser context, so the dev
+ * `/tour`, the earlier landing page for the second reader (it needs no api and no session); `/?example=` deep links
+ * still open it on another business. The first-timer's page at `/` is first-timer.spec.ts. Runs in a fresh browser context, so the dev
  * auth cookie of the other specs is not present.
  */
 test.use({ storageState: { cookies: [], origins: [] } });
 
-test.describe("landing page", () => {
+test.describe("the tour (/tour)", () => {
   test("explains the product, links every call to action to sign-in, and shows the live parts", async ({ page }) => {
-    await page.goto("/");
-    await expect(page).toHaveURL(/\/$/);
+    await page.goto("/tour");
+    await expect(page).toHaveURL(/\/tour$/);
     await expect(page.getByTestId("landing")).toBeVisible();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Build a real business with a team of AI agents.");
     await expect(page.getByRole("img", { name: /Your team: you at the center/ })).toBeVisible();
@@ -26,7 +27,7 @@ test.describe("landing page", () => {
     const hero = page.locator("section", { has: page.locator("#hero-title") });
     // The hero's assurances sit under the idea box (founder, 2026-11-13; docs/IDEA_BOX.md); the included credits are said
     // once a card lands, beside the ways to keep it.
-    await expect(hero.getByText("Your first card is free · no sign-up")).toBeVisible();
+    await expect(hero.getByText("Your first card is free and needs no sign-up")).toBeVisible();
     await expect(hero.getByText("Your idea stays private until you choose to share it")).toBeVisible();
     await expect(hero.getByText(/Anthropic key/)).toHaveCount(0);
     await expect(page.getByText(/Bring your own Anthropic key/)).toHaveCount(1);
@@ -34,7 +35,7 @@ test.describe("landing page", () => {
 
     // No section nav in the top bar (founder, 2026-11-13); each Why now pillar scrolls to the section that proves it.
     await expect(page.getByRole("navigation", { name: "Sections" })).toHaveCount(0);
-    for (const [label, id] of [["Meet the team", "team"], ["Watch the work", "live"], ["See it grow", "journey"], ["Your decisions", "control"]] as const) {
+    for (const [label, id] of [["Meet the team", "team"], ["Watch the work", "live"], ["Your decisions", "control"]] as const) {
       await page.locator("#why").getByRole("link", { name: label }).click();
       await expect(page.locator(`#${id}`)).toBeInViewport();
     }
@@ -52,7 +53,7 @@ test.describe("landing page", () => {
     await expect(signoffs).toHaveText([/Sign off the product specification/, /Sign off the product roadmap/]);
     await expect(how.getByRole("list", { name: "Inbox" }).getByText("Needs you", { exact: true })).toHaveCount(2);
     await expect(how.getByText("Building starts: 11 tasks planned")).toBeVisible();
-    await expect(how.getByText("The team drafts; you sign off; then they build. Nothing is spent until you approve it.")).toBeVisible();
+    await expect(how.getByText("The team drafts; you sign off; then they build. Your project's money is never spent without your approval; agent work uses your monthly allowance.")).toBeVisible();
 
     // The team: each department's lead, with their attribute ratings.
     await page.locator("#team").scrollIntoViewIfNeeded();
@@ -98,7 +99,7 @@ test.describe("landing page", () => {
   });
 
   test("the hero deck runs a cycle: a decision comes back, then a customer", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/tour");
     const deck = page.getByTestId("cycle-deck");
     // The first cycle runs on its own and comes back with a decision; Continue waits for the founder.
     await expect(deck).toHaveAttribute("data-phase", "decision", { timeout: 15_000 });
@@ -126,7 +127,7 @@ test.describe("landing page", () => {
   });
 
   test("the picker switches the whole page between the three example businesses", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/tour");
     const picker = page.getByRole("radiogroup", { name: "Watch it run" });
     await expect(picker.getByRole("radio")).toHaveCount(3);
     await expect(picker.getByRole("radio", { name: "Tutorlane" })).toHaveAttribute("aria-checked", "true");
@@ -145,7 +146,7 @@ test.describe("landing page", () => {
       await expect(picker.getByRole("radio", { name: b.name })).toHaveAttribute("aria-checked", "true");
       // The page wears the business's brand colours and the address can be shared.
       expect(await landing.evaluate((el) => el.style.getPropertyValue("--kit-primary"))).toBe(b.primary);
-      await expect(page).toHaveURL(b.id === "tutorlane" ? /\/$/ : new RegExp(`\\?example=${b.id}$`));
+      await expect(page).toHaveURL(b.id === "tutorlane" ? /\/tour$/ : new RegExp(`/\\?example=${b.id}$`));
       // Its name in the hero's product screen, and its customer in the Customer Update.
       await expect(deck.getByText(b.name, { exact: true })).toBeVisible();
       await update.scrollIntoViewIfNeeded();
@@ -154,8 +155,8 @@ test.describe("landing page", () => {
     }
   });
 
-  test("`/` and its deep links are prerendered pages, regenerated hourly, not a render per visit", async ({ page }) => {
-    for (const path of ["/", "/?example=northwind", "/?example=glitchwick"]) {
+  test("`/`, `/tour` and the deep links are prerendered pages, regenerated hourly, not a render per visit", async ({ page }) => {
+    for (const path of ["/", "/tour", "/?example=northwind", "/?example=glitchwick"]) {
       const res = await page.request.get(path);
       expect(res.ok(), path).toBe(true);
       const cacheControl = res.headers()["cache-control"] ?? "";
@@ -178,7 +179,7 @@ test.describe("landing page", () => {
     await expect(page).toHaveURL(/\?example=glitchwick$/);
     await page.keyboard.press("Home");
     await expect(page.getByTestId("landing")).toHaveAttribute("data-example", "tutorlane");
-    await expect(page).toHaveURL(/\/$/);
+    await expect(page).toHaveURL(/\/tour$/);
     // Choosing never navigated or scrolled the page.
     expect(await page.evaluate(() => window.scrollY)).toBe(0);
   });
@@ -256,7 +257,7 @@ test.describe("landing page", () => {
 
   for (const example of ["tutorlane", "glitchwick", "northwind"]) {
     test(`${example}: the four live tiles keep working, each on its own task, and never read overdue`, async ({ page }) => {
-      await page.goto(example === "tutorlane" ? "/" : `/?example=${example}`);
+      await page.goto(example === "tutorlane" ? "/tour" : `/?example=${example}`);
       await page.locator("#live").scrollIntoViewIfNeeded();
       const grid = page.getByRole("region", { name: "Example agent sessions" });
       await expect(grid.getByRole("group")).toHaveCount(4);

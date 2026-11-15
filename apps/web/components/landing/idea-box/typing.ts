@@ -7,16 +7,19 @@ import { useEffect, useState } from "react";
 
 export const TYPING = { typeMs: 42, holdMs: 1_800, eraseMs: 16, gapMs: 260, startMs: 400 } as const;
 
-/** The ideas the placeholder types (the canvas's eight). */
+/**
+ * The ideas the placeholder types (s2 §3.4, DIRECTION §4): things a first-timer can start with $0 and no code, so the
+ * first example a visitor reads is not a piece of business software.
+ */
 export const PLACEHOLDER_IDEAS = [
-  "An AI teaching assistant for independent tutors",
-  "Restored film cameras for people buying their first one",
-  "A weekly meal plan for people training for their first marathon",
-  "Playtesters that try every build of an indie game",
-  "Spanish lessons for kids, built around the shows they watch",
-  "A booking page and reminders for independent barbers",
-  "Skincare made for cold, dry winters",
-  "Bookkeeping for small cafes, done overnight",
+  "Sneaker cleaning for people at my school",
+  "A weekly email about cheap eats in Houston",
+  "Coding lessons for kids, online, two evenings a week",
+  "Candles that smell like places I have lived",
+  "Vintage band tees, found and resold",
+  "Meal prep for people who work nights",
+  "Dog walking in my neighborhood, booked by text",
+  "Study notes for my nursing class",
 ] as const;
 
 const reducedMotion = () => typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;

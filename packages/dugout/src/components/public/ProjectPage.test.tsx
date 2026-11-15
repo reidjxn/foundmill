@@ -104,3 +104,11 @@ describe("ProjectPage", () => {
     expect(renderToStaticMarkup(<ProjectPage {...props} />)).toContain("data-project-page");
   });
 });
+
+describe("ProjectPage inside another page (titleLevel 3)", () => {
+  it("titles itself with an h3, so the host page keeps one h1", () => {
+    render(<ProjectPage {...props} titleLevel={3} />);
+    expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
+    expect(screen.getByRole("heading", { level: 3 }).textContent).toBe(props.pitch);
+  });
+});

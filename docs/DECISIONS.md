@@ -4614,3 +4614,12 @@ Drizzle's postgres-js driver makes the date and time serializers pass values thr
 - **New tokens only.** The landing scale and `--line-control` are added beside the console's tokens; nothing the console reads changes, so no console screen needed re-checking.
 - **The Example frame has no surface.** A hairline and a chip, so a real card is never inside a card (impeccable's nested-cards finding), and its rating cells lose their glow inside it (dark-glow): the console keeps both.
 - **`IdeaCard`'s rating names get 24 px on the landing page only** (WCAG 2.5.8), from landing.css, because the component is outside the landing session's files; the proper fix is in the component.
+
+## 2026-11-15 — The first-timer's page: the calls made (landing session, pull request 3)
+
+- **Examples render inside the page with their titles at h3** (`titleLevel`, PersonPage and ProjectPage) so `/` keeps one h1; considered hiding them from assistive technology, which would have hidden the example from the readers it is for.
+- **The example project page shows the mark as its founder sees it** (`mark: "member"`): a visitor's mark starts dim and lights as it scrolls in, so a frozen example would show it below contrast.
+- **The idea box stacks its card over the keep panel at every width.** Side by side, the card took the hero's 640 px column and squeezed the panel out.
+- **The tour's picker writes `/tour` or `/?example=<id>`**, because only the `/?example=` deep link is served for another business.
+- **`/tour` is added to `PUBLIC_PREFIXES`**, a one-line change outside the landing session's files, without which the founder's `/tour` would send a stranger to sign-in.
+- **The keep panel's research lines are replaced on both pages** ("checks it against real sources", "A researched version of this card, with sources"): web research is not live (a1 FR-06). `CardKeptView` still says "checks every number against real sources"; that screen belongs to WP-03 and is listed for it.

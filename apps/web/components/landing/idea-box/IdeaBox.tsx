@@ -9,9 +9,10 @@
  * it at once (`/idea-box/mine`).
  */
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { ArrowRight, Columns2, Dices, Fan, Lock, Mail, Medal, Search, ShieldCheck, Users } from "lucide-react";
+import { ArrowRight, Dices, Fan, Globe, Lock, Mail, Medal, Scale, ShieldCheck, Users } from "lucide-react";
 import { CREDITS_CURRENCY, includedCreditsMinor } from "@foundmill/config";
-import { Button, GoogleSignInButton, Icon, IdeaCard, cn, formatMoney, type IdeaCardData } from "@foundmill/dugout";
+import { AssuranceList, Button, GoogleSignInButton, Icon, IdeaCard, formatMoney, type IdeaCardData } from "@foundmill/dugout";
+import { IDEA_BUTTON } from "../flags";
 import { IDEA_BOX_INTERESTS, IDEA_BOX_PROMPT_MAX, IDEA_BOX_PROMPT_MIN, IDEA_CLAIM_PARAM, type IdeaBoxEvent, type IdeaBoxInterest } from "@foundmill/shared";
 import { NEXT_PARAM } from "@/lib/auth/constants";
 import { startGoogleSignIn } from "@/lib/auth/google";
@@ -30,35 +31,37 @@ export interface IdeaBoxLanded {
 }
 
 export interface IdeaBoxProps {
-  /** "phone": the field stacks and the card sits under it (the hero from 390 px). */
-  layout?: "desktop" | "phone";
   /** Told when a card lands (or a held card is found): the hero changes its headline. */
   onLanded?: (landed: IdeaBoxLanded | null) => void;
 }
 
 const INCLUDED = formatMoney({ amountMinor: includedCreditsMinor("free"), currency: CREDITS_CURRENCY }, { locale: "en-US" });
 
-/** The words the box prints. */
+/**
+ * The words the box prints (docs/holistic-plan/landing/DIRECTION.md §4). The label is visible; the placeholder shows
+ * once the field has focus (the typed ideas run before that).
+ */
 export const IDEA_BOX_WORDS = {
-  label: "Your idea, in a sentence",
+  label: "What do you want to make?",
+  placeholder: "One sentence is enough. Rough is fine.",
   generate: "Shape my idea",
   drafting: "Shaping",
-  noIdea: "No idea yet? Say what you are good at, or",
-  noIdeaPhone: "No idea yet?",
+  noIdea: "No idea yet?",
   surprise: "Surprise me",
   pickInterest: "Pick something you like",
-  free: "Your first card is free · no sign-up",
+  free: "Your first card is free and needs no sign-up",
   private: "Your idea stays private until you choose to share it",
-  safe: "Nothing moves money or signs in your name without you",
-  keepLead: "Sign in and it is saved to your account. From there your team checks it against real sources, drafts the plan, and starts building when you say so.",
+  safe: "Nothing spends money or signs in your name without you",
+  // Web research is not live (a1 FR-06), so the keep panel promises the plan and the page, not checked sources.
+  keepLead: "Sign in to keep it. Your team starts from your words, drafts a page for it and plans what comes next, and nothing goes out without your yes.",
   keepEmail: "Continue with email",
-  freeLine: `Free to start · ${INCLUDED} of included credits · no card`,
+  freeLine: `Free to start. Your plan includes ${INCLUDED} of agent work every month. You never enter a card.`,
   waits: "Not now? This card waits on this device for 7 days.",
   yourWords: "Your words",
   again: "This is the card this device already holds. Sign in to keep it and draft more with your team.",
-  unlockResearch: "A researched version of this card, with sources",
-  unlockCompare: "More directions to compare side by side",
-  unlockTeam: "A team of agents to build it",
+  unlockPage: "A page for your idea at its own link",
+  unlockDecide: "One decision at a time, each with a recommendation",
+  unlockTeam: "A team of agents for the work you have not learned yet",
 } as const;
 
 /** Where "Keep this card" goes: sign-in, then /start, which claims the card (the claim token for another device). */
@@ -69,9 +72,8 @@ export function keepHref(claim: string | null): string {
 
 type Landed = Extract<IdeaBoxEvent, { type: "card" }>;
 
-export function IdeaBox({ layout = "desktop", onLanded }: IdeaBoxProps) {
+export function IdeaBox({ onLanded }: IdeaBoxProps) {
   const env = publicEnv();
-  const phone = layout === "phone";
   const inputId = useId();
   const errorId = useId();
   const [value, setValue] = useState("");
@@ -169,91 +171,92 @@ export function IdeaBox({ layout = "desktop", onLanded }: IdeaBoxProps) {
   const drafting = phase === "drafting";
   const showField = phase !== "landed";
 
+  // One layout for every width (DESIGN §9a): it reads the page's own width (`@page-wide:`, 640 px), never the window's.
   return (
-    <div className={cn("flex w-full flex-col items-center", phone ? "gap-3.5" : "gap-3.5")} data-idea-box="" data-phase={phase}>
+    <div className="flex w-full flex-col items-stretch gap-4" data-idea-box="" data-phase={phase}>
       {showField ? (
-        <form onSubmit={submit} className={cn("relative flex w-full", phone ? "flex-col gap-2.5" : "max-w-[60rem] items-center gap-3")} aria-label="Your idea" noValidate>
-          <label htmlFor={inputId} className="sr-only">
+        <form onSubmit={submit} className="relative flex w-full flex-col gap-2 text-left" aria-label="Your idea" noValidate>
+          <label htmlFor={inputId} className="t-landing-body font-medium text-primary">
             {IDEA_BOX_WORDS.label}
           </label>
-          {/* The field holds only the line; Generate sits beside it (founder, 2026-11-13: it must never cover the field). */}
-          <div className={cn("idea-field min-w-0 flex-1", phone && "pl-3")} data-testid="idea-field">
-          <div className="relative flex min-w-0 flex-1 items-center">
-            <textarea
-              ref={inputRef}
-              id={inputId}
-              rows={1}
-              maxLength={IDEA_BOX_PROMPT_MAX}
-              value={value}
-              disabled={drafting}
-              onChange={(e) => {
-                setValue(e.target.value.replace(/\n/g, " "));
-                if (error) setError(null);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  e.currentTarget.form?.requestSubmit();
-                }
-              }}
-              onFocus={() => {
-                setFocused(true);
-                warm();
-              }}
-              onBlur={() => setFocused(false)}
-              aria-describedby={error ? errorId : undefined}
-              aria-invalid={error ? true : undefined}
-              placeholder={focused ? "Describe your idea in a sentence" : ""}
-              className={cn("idea-input min-h-12 py-3", phone ? "px-2" : "overflow-hidden whitespace-nowrap")}
-              data-testid="idea-input"
-            />
-            {/* The typing placeholder: decorative, under the empty field until the visitor clicks in. */}
-            {!focused && value === "" && !drafting ? (
-              <span aria-hidden className={cn("pointer-events-none absolute inset-y-0 left-0 flex items-center text-[17px] leading-6 tracking-[-0.01em] text-tertiary", phone ? "px-2" : "truncate")} data-testid="idea-placeholder">
-                {placeholder}
-                <span className="idea-caret" />
-              </span>
-            ) : null}
+          {/* Generate sits beside the field, never inside it (founder, 2026-11-13); under it on a phone. */}
+          <div className="flex flex-col gap-2.5 @page-wide:flex-row @page-wide:items-stretch">
+            <div className="idea-field min-w-0 flex-1" data-testid="idea-field">
+              <div className="relative flex min-w-0 flex-1 items-center">
+                <textarea
+                  ref={inputRef}
+                  id={inputId}
+                  rows={1}
+                  maxLength={IDEA_BOX_PROMPT_MAX}
+                  value={value}
+                  disabled={drafting}
+                  onChange={(e) => {
+                    setValue(e.target.value.replace(/\n/g, " "));
+                    if (error) setError(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      e.currentTarget.form?.requestSubmit();
+                    }
+                  }}
+                  onFocus={() => {
+                    setFocused(true);
+                    warm();
+                  }}
+                  onBlur={() => setFocused(false)}
+                  aria-describedby={error ? errorId : undefined}
+                  aria-invalid={error ? true : undefined}
+                  placeholder={focused ? IDEA_BOX_WORDS.placeholder : ""}
+                  className="idea-input min-h-12 py-3"
+                  data-testid="idea-input"
+                />
+                {/* The typing placeholder: decorative, under the empty field until the visitor clicks in. */}
+                {!focused && value === "" && !drafting ? (
+                  <span aria-hidden className="idea-input pointer-events-none absolute inset-y-0 left-0 flex items-center overflow-hidden text-tertiary" data-testid="idea-placeholder">
+                    <span className="truncate">{placeholder}</span>
+                    <span className="idea-caret" />
+                  </span>
+                ) : null}
+              </div>
+            </div>
+            <button type="submit" className={IDEA_BUTTON === "filled" ? "idea-gen-filled" : "idea-gen min-h-tap"} disabled={drafting} data-testid="idea-generate">
+              {IDEA_BUTTON === "filled" ? (
+                <Icon icon={Fan} size={18} className={drafting ? "motion-safe:animate-spin" : undefined} />
+              ) : (
+                <span className="idea-gen-core">
+                  <Icon icon={Fan} size={18} className={drafting ? "motion-safe:animate-spin" : undefined} />
+                </span>
+              )}
+              {drafting ? IDEA_BOX_WORDS.drafting : IDEA_BOX_WORDS.generate}
+            </button>
           </div>
-          </div>
-          <button type="submit" className={cn("idea-gen", phone && "w-full")} disabled={drafting} data-testid="idea-generate">
-            <span className="idea-gen-core">
-              <Icon icon={Fan} size={18} className={drafting ? "motion-safe:animate-spin" : undefined} />
-            </span>
-            {drafting ? IDEA_BOX_WORDS.drafting : IDEA_BOX_WORDS.generate}
-            {!phone && !drafting ? (
-              <span className="idea-kbd" aria-hidden>
-                Enter
-              </span>
-            ) : null}
-          </button>
           {/* The invisible Turnstile widget renders here. */}
           <div ref={widget} className="absolute" aria-hidden />
         </form>
       ) : (
-        <div className={cn("idea-field idea-field-quiet", phone ? "w-full min-h-0 py-2 pl-3" : "max-w-[47.5rem]")} aria-label="Your idea">
-          <span className={cn("idea-input py-3", phone ? "px-2" : "truncate")} data-testid="idea-landed-words">
+        <div className="idea-field idea-field-quiet w-full" aria-label="Your idea">
+          <span className="idea-input truncate py-3" data-testid="idea-landed-words">
             {landed?.prompt || `${IDEA_BOX_WORDS.surprise}: ${landed?.interest ?? ""}`}
           </span>
-          {landed?.prompt && !phone ? <span className="t-small mr-3 inline-flex shrink-0 items-center gap-1.5 rounded-xs px-2 py-1 text-accent">{IDEA_BOX_WORDS.yourWords}</span> : null}
+          {landed?.prompt ? <span className="t-small mr-1 hidden shrink-0 items-center rounded-xs px-2 py-1 text-accent @page-wide:inline-flex">{IDEA_BOX_WORDS.yourWords}</span> : null}
         </div>
       )}
 
       {error ? (
-        <p id={errorId} role="alert" className="t-body text-status-warn" data-testid="idea-error">
+        <p id={errorId} role="alert" className="t-landing-body text-status-warn" data-testid="idea-error">
           {error}
         </p>
       ) : null}
 
       {phase === "rest" ? (
         <>
-          <div className={cn("flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-small text-tertiary", phone && "w-full")}>
-            <span>{phone ? IDEA_BOX_WORDS.noIdeaPhone : IDEA_BOX_WORDS.noIdea}</span>
+          <div className="t-landing-small flex flex-wrap items-center gap-x-3 gap-y-2 text-secondary @page-wide:justify-center">
+            <span>{IDEA_BOX_WORDS.noIdea}</span>
             <Button
               variant="default"
-              size="sm"
               icon={Dices}
-              className={phone ? "min-h-tap" : undefined}
+              className="min-h-tap"
               aria-expanded={interestsOpen}
               onClick={() => {
                 setInterestsOpen((o) => !o);
@@ -265,12 +268,12 @@ export function IdeaBox({ layout = "desktop", onLanded }: IdeaBoxProps) {
             </Button>
           </div>
           {interestsOpen ? (
-            <div className="flex max-w-[47.5rem] flex-col items-center gap-2" data-testid="idea-interests">
-              <span className="t-label text-secondary">{IDEA_BOX_WORDS.pickInterest}</span>
-              <ul className="flex flex-wrap justify-center gap-2">
+            <div className="flex flex-col gap-2 @page-wide:items-center" data-testid="idea-interests">
+              <span className="t-landing-small text-secondary">{IDEA_BOX_WORDS.pickInterest}</span>
+              <ul className="flex flex-wrap gap-2 @page-wide:justify-center">
                 {IDEA_BOX_INTERESTS.map((interest) => (
                   <li key={interest}>
-                    <Button variant="default" size="sm" className={phone ? "min-h-tap" : undefined} onClick={() => void draft({ prompt: "", interest })}>
+                    <Button variant="default" className="min-h-tap" onClick={() => void draft({ prompt: "", interest })}>
                       {interest}
                     </Button>
                   </li>
@@ -278,21 +281,25 @@ export function IdeaBox({ layout = "desktop", onLanded }: IdeaBoxProps) {
               </ul>
             </div>
           ) : null}
-          <ul className={cn("flex flex-wrap justify-center gap-x-6 gap-y-2 text-small text-secondary", phone && "flex-col items-center")}>
-            <Assure icon={Medal}>{IDEA_BOX_WORDS.free}</Assure>
-            <Assure icon={Lock}>{IDEA_BOX_WORDS.private}</Assure>
-            {!phone ? <Assure icon={ShieldCheck}>{IDEA_BOX_WORDS.safe}</Assure> : null}
-          </ul>
+          <AssuranceList
+            className="@page-wide:items-center"
+            items={[
+              { icon: Medal, text: IDEA_BOX_WORDS.free },
+              { icon: Lock, text: IDEA_BOX_WORDS.private },
+              { icon: ShieldCheck, text: IDEA_BOX_WORDS.safe },
+            ]}
+          />
         </>
       ) : null}
 
       {phase !== "rest" ? (
-        <div className={cn("mt-3 flex w-full gap-10", phone ? "flex-col items-center gap-6" : "max-w-[47.5rem] items-start")} data-testid="idea-result">
-          <IdeaCard card={card} drafting={drafting} justIn={phase === "landed" && !landed?.again} sample={landed?.sample ?? false} className={phone ? "max-w-full" : "shrink-0"} />
+        // The card, then the ways to keep it, stacked at every width: the hero's column is the 640 px reading measure.
+        <div className="mt-3 flex w-full flex-col items-center gap-6" data-testid="idea-result">
+          <IdeaCard card={card} drafting={drafting} justIn={phase === "landed" && !landed?.again} sample={landed?.sample ?? false} />
           {phase === "landed" ? (
-            <div className="flex min-w-0 flex-1 flex-col gap-5 pt-1 text-left" data-testid="idea-keep">
-              {landed?.again ? <p className="t-small text-secondary">{IDEA_BOX_WORDS.again}</p> : null}
-              <p className="t-reading text-prose">{IDEA_BOX_WORDS.keepLead}</p>
+            <div className="flex w-full min-w-0 flex-col gap-5 text-left" data-testid="idea-keep">
+              {landed?.again ? <p className="t-landing-small text-secondary">{IDEA_BOX_WORDS.again}</p> : null}
+              <p className="t-landing-body text-prose">{IDEA_BOX_WORDS.keepLead}</p>
               <div className="flex flex-col gap-2.5">
                 {googleSignInEnabled(env) ? <GoogleSignInButton onClick={() => void continueWithGoogle()} loading={googleBusy} /> : null}
                 <Button asChild variant="glass" size="lg" icon={Mail} iconRight={ArrowRight} className="min-h-tap w-full">
@@ -300,14 +307,14 @@ export function IdeaBox({ layout = "desktop", onLanded }: IdeaBoxProps) {
                     {IDEA_BOX_WORDS.keepEmail}
                   </a>
                 </Button>
-                <p className="t-small text-center text-tertiary">{IDEA_BOX_WORDS.freeLine}</p>
+                <p className="t-landing-small text-center text-secondary">{IDEA_BOX_WORDS.freeLine}</p>
               </div>
-              <ul className="flex flex-col gap-2.5 border-t border-line pt-5 text-body text-secondary">
-                <Unlock icon={Search}>{IDEA_BOX_WORDS.unlockResearch}</Unlock>
-                <Unlock icon={Columns2}>{IDEA_BOX_WORDS.unlockCompare}</Unlock>
+              <ul className="t-landing-body flex flex-col gap-2.5 border-t border-line pt-5 text-secondary">
+                <Unlock icon={Globe}>{IDEA_BOX_WORDS.unlockPage}</Unlock>
+                <Unlock icon={Scale}>{IDEA_BOX_WORDS.unlockDecide}</Unlock>
                 <Unlock icon={Users}>{IDEA_BOX_WORDS.unlockTeam}</Unlock>
               </ul>
-              <p className="t-small text-tertiary">{IDEA_BOX_WORDS.waits}</p>
+              <p className="t-landing-small text-secondary">{IDEA_BOX_WORDS.waits}</p>
             </div>
           ) : null}
         </div>
@@ -316,15 +323,6 @@ export function IdeaBox({ layout = "desktop", onLanded }: IdeaBoxProps) {
         {phase === "drafting" ? `Your team is shaping ${card.name ?? "your idea"}` : phase === "landed" ? `${card.name ?? "Your card"} is ready` : ""}
       </span>
     </div>
-  );
-}
-
-function Assure({ icon, children }: { icon: typeof Medal; children: ReactNode }) {
-  return (
-    <li className="inline-flex items-center gap-1.5">
-      <Icon icon={icon} size="inline" className="text-status-good" />
-      {children}
-    </li>
   );
 }
 

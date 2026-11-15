@@ -30,7 +30,8 @@ test("a visitor types an idea, watches the card arrive, keeps it by signing in a
     await expect(page.getByTestId("idea-placeholder")).toHaveCount(0);
     await page.getByTestId("idea-input").fill("Restored film cameras for people buying their first one");
     await page.getByTestId("idea-generate").click();
-    const card = page.locator("[data-idea-card]");
+    // The visitor's card lands in the hero; the example card further down steps aside for it.
+    const card = page.locator("#hero [data-idea-card]");
     await expect(card).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("idea-keep")).toBeVisible({ timeout: LONG });
     await expect(card.locator("[data-idea-rating][data-arrived]")).toHaveCount(9);
@@ -40,12 +41,13 @@ test("a visitor types an idea, watches the card arrive, keeps it by signing in a
     await expect(card.locator("[data-idea-sample]")).toBeVisible();
     const name = (await card.locator("[data-idea-name]").textContent())!.trim();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(`${name} is yours to keep.`);
+    await expect(page.locator("#card [data-screen-frame]")).toBeHidden();
     if (process.env.E2E_UX_AUDIT === "1") await page.screenshot({ path: path.join(AUDIT_DIR, "46-idea-box-landed-1440.png") });
 
     // A reload lands on the same card (the cookie keeps it).
     await page.reload();
     await expect(page.getByTestId("idea-keep")).toBeVisible({ timeout: LONG });
-    await expect(page.locator("[data-idea-name]")).toHaveText(name);
+    await expect(page.locator("#hero [data-idea-name]")).toHaveText(name);
 
     // Keep it: sign in (the developer sign-in stands in for the email link) and land on the card in the deck.
     await page.getByTestId("idea-keep-email").click();
@@ -64,11 +66,11 @@ test("a visitor types an idea, watches the card arrive, keeps it by signing in a
   }
 });
 
-test("on a phone at 390 px the hero works on its own: Surprise me drafts from an interest, nothing scrolls sideways", async ({ browser }) => {
+test("on a phone at 390 px the same page works: Surprise me drafts from an interest, nothing scrolls sideways", async ({ browser }) => {
   const { page, close } = await visitor(browser, 390, 844);
   try {
     await page.goto("/");
-    await expect(page.locator('[data-testid="landing"][data-layout="phone"]')).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("landing")).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
     const overflow = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(await overflow()).toBeLessThanOrEqual(0);
@@ -76,7 +78,7 @@ test("on a phone at 390 px the hero works on its own: Surprise me drafts from an
     await page.getByTestId("idea-surprise").click();
     await page.getByTestId("idea-interests").getByRole("button", { name: "Pets" }).click();
     await expect(page.getByTestId("idea-keep")).toBeVisible({ timeout: LONG });
-    const box = (await page.locator("[data-idea-card]").boundingBox())!;
+    const box = (await page.locator("#hero [data-idea-card]").boundingBox())!;
     expect(box.x).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width).toBeLessThanOrEqual(390);
     expect(await overflow()).toBeLessThanOrEqual(0);
