@@ -81,3 +81,13 @@ describe("firstWeekTimeline", () => {
     expect(text).not.toMatch(/\d{1,2}\/\d{1,2}/);
   });
 });
+
+describe("firstWeekTimeline with nowhere to push the code (WP-02 T5)", () => {
+  it("asks for the first pieces of work, not changes going live", () => {
+    const none = steps({ ...fresh, destination: "none" })[1]!;
+    expect(none.asks).toBe("You are asked to approve your first goal, once your Chief of Staff proposes it and the first pieces of work.");
+    expect(none.asks).not.toContain("going live");
+    expect(steps({ ...fresh, destination: "none", firstRoundOn: "2026-10-08", goalApprovedOn: "2026-10-08" })[1]!.asks).toBe("You approved your first goal and the first pieces of work.");
+    expect(steps({ ...fresh, firstRoundOn: "2026-10-08", goalApprovedOn: "2026-10-08" })[1]!.asks).toBe("You approved your first goal and the first changes going live.");
+  });
+});
