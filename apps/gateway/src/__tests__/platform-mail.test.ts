@@ -53,11 +53,12 @@ describe("platform_mail through the gateway (mock)", () => {
   beforeAll(async () => {
     g = await setupGateway({ businessMode: "automated", connectors: [mock] });
     g.deps.appEnv = "test";
-    token = await g.token({ allowedTools: ["platform_mail:*"] });
     await repos.postalAddress.set(g.db, g.businessId, { address: POSTAL, userId: null });
   }, 120_000);
   afterAll(async () => g.close());
   beforeEach(async () => {
+    // A fresh session per test: an identical send already done in the same session is replayed, not sent again (WP-05 T14).
+    token = await g.token({ allowedTools: ["platform_mail:*"], sessionId: await g.newSession() });
     g.deps.platformMail = config();
     await repos.businesses.setBusinessMode(g.db, g.businessId, "automated");
   });
