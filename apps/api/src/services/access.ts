@@ -43,7 +43,7 @@ import { repos, type Db, type Executor } from "@foundmill/db";
 export { allowlisted, parseSignupAllowlist, type SignupAllowlist } from "@foundmill/shared";
 
 export const NOT_INVITED_CODE = "not_invited";
-export const NOT_INVITED_MESSAGE = "This address is not on the invite list yet. Ask the person who invited you to add it, or sign in with an address that is on it.";
+export const NOT_INVITED_MESSAGE = `${APP_NAME} is letting new people in a few at a time so every project gets real agent work. Your place is not open yet.`;
 export const EMAIL_UNCONFIRMED_MESSAGE = "This address is not confirmed yet. Open the link we sent to it, then sign in again.";
 /** The refusal of a signed-in person open sign-up did not admit today (`appCode`), and what it says. */
 export { ON_WAITLIST_CODE };

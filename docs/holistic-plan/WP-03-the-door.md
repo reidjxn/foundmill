@@ -39,7 +39,7 @@ Migrations: take the next free number when the branch is cut (0108, journal idx 
 
 Order: T1, T4, T7 and T9 can start at once. T2, then T3 (T3 reuses T2's gateway module). T5, then T6. T8 after T2. T10 last, after Decision 5.
 
-### T1: The gate tells the truth at any width [S] [ships alone]
+### [x] T1: The gate tells the truth at any width [S] [ships alone]
 
 **Why:** FR-01 (fixes 1 and 4), FR-02, A9-P1-1, s2 §1.3 rows 1 to 3, §4.4.
 

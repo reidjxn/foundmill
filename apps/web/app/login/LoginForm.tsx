@@ -157,6 +157,11 @@ export function LoginForm({ nextParam = null, errorParam = null, google = google
                   No password, no card. We email you a link.
                 </p>
               ) : null}
+              {supabaseReady ? (
+                <p className="text-small text-secondary" data-testid="login-new-here">
+                  {`New here? ${APP_NAME} lets new people in a few at a time. Signing in saves your place.`}
+                </p>
+              ) : null}
             </form>
             {/* Google's sign-in review and the EU and US privacy laws ask for the two documents where an account starts. The
                 age is said here and confirmed once, with a box, after the first sign-in (0100): never on every sign-in. */}

@@ -55,6 +55,8 @@ describe("protectedProcedure with SIGNUP_ALLOWLIST", () => {
     const models = new MockModelClient();
     const stranger = createCaller({ ...hz.deps, models, env: { ...hz.deps.env, SIGNUP_ALLOWLIST: "founder@example.com, @team.example" } }, { userId, email: "stranger@elsewhere.test" });
     expect(await refusal(stranger.founder.profile.get())).toEqual({ code: "FORBIDDEN", appCode: "not_invited", message: NOT_INVITED_MESSAGE });
+    // WP-03 T1: what the gate says is true in invite-only and open sign-up alike, and asks nothing of an inviter.
+    expect(NOT_INVITED_MESSAGE).toBe("Foundmill is letting new people in a few at a time so every project gets real agent work. Your place is not open yet.");
     expect((await refusal(stranger.idea.generate({ prompt: "x" })))?.appCode).toBe("not_invited");
     expect((await refusal(stranger.founder.preferences.get()))?.code).toBe("FORBIDDEN");
     expect(models.history).toHaveLength(0);
