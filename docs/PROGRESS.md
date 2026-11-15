@@ -1,5 +1,7 @@
 # PROGRESS.md
 
+> Frozen on Nov 15, 2026. New entries are files under docs/log/ (skill `log-entry`). Search both with `node scripts/decisions-index.mjs <words>`.
+
 Status legend: ☐ not started · ◐ in progress · ☑ done · ✗ blocked
 
 ## Phase 0 — Foundations (BUILD §16.1)

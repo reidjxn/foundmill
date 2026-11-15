@@ -1,5 +1,7 @@
 # DECISIONS.md
 
+> Frozen on Nov 15, 2026. New entries are files under docs/log/ (skill `log-entry`). Search both with `node scripts/decisions-index.mjs <words>`.
+
 Decisions this build has taken where `docs/BUILD.md` left room. Each entry: the decision, the option chosen, why. Newest at the bottom.
 
 ## 2026-10-05 — Toolchain versions (BUILD §3.1 "record exact versions")
