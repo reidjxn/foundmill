@@ -198,7 +198,7 @@ describe("schedule activities on PGlite", () => {
     expect(await acts.recordEngineWorkflows({ entries: [{ businessId: t.businessId, channelId: t.fixture.channelId, workflowId: `engine:${t.fixture.channelId}` }] })).toEqual({ updated: 0 });
   });
 
-  it("on staging the reconciler leaves out a channel that cannot really act, keeps one in offline tracking and one that acts (founder, 2026-11-11)", async () => {
+  it("on staging the reconciler keeps only offline tracking: a channel that cannot act, or acts through tasks, gets no engine (founder, 2026-11-11; WP-02 T2)", async () => {
     const staging = createScheduleActivities({ ...t.deps, env: { ...t.deps.env, APP_ENV: "staging", LIVE_CONNECTORS: "github" } });
     const print = await repos.channels.upsert(t.db, t.businessId, { channelKey: "print", line: "wings", enabled: true, kitMode: true });
     const seo = await repos.channels.upsert(t.db, t.businessId, { channelKey: "seo", line: "defence", enabled: true, kitMode: false });
@@ -206,11 +206,13 @@ describe("schedule activities on PGlite", () => {
     // Events has no publisher, SEO's connector is live here but not connected: only print (offline tracking) keeps its engine.
     expect(await mine()).toEqual(["print"]);
     await repos.integrations.upsert(t.db, t.businessId, { connectorKey: "github", status: "connected", authKind: "app" });
-    expect(await mine()).toEqual(["print", "seo"]);
+    // SEO can act now (the agents work through tasks and sessions), but the weekly engine has nothing it can send for
+    // it yet, so it gets no engine and no launch is ever claimed (WP-02 T2). Offline tracking keeps its engine.
+    expect(await mine()).toEqual(["print"]);
     // Tap-to-post (founder, 2026-11-12): social is available and on the board, and the founder posts it. No engine is
     // ever ensured for it, so the reconciler does not start one every 15 minutes for the engine to stop at once.
     const social = await repos.channels.upsert(t.db, t.businessId, { channelKey: "social", line: "midfield", enabled: true, kitMode: false });
-    expect(await mine()).toEqual(["print", "seo"]);
+    expect(await mine()).toEqual(["print"]);
     // In test (and development) nothing is left out.
     const all = (await acts.listEnginesToEnsure()).channels.filter((c) => c.businessId === t.businessId).map((c) => c.channelId);
     expect(all).toEqual(expect.arrayContaining([t.fixture.channelId, print.id, seo.id, social.id]));

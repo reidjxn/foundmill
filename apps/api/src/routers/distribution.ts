@@ -2,7 +2,7 @@
 import { recordExpiredApprovals } from "@foundmill/events";
 import { CreateCampaignInput, UpdateCampaignInput, hasLaunched, repos } from "@foundmill/db";
 import { HOUSE_STYLE, POST_DRAFT_CHANNEL } from "@foundmill/agents";
-import { CAMPAIGN_STATUSES, CHANNEL_KEYS, CHANNEL_LINES, CHANNEL_META, CHANNEL_WINDOW_DAYS, ChannelKey, CurrencyCode, dayKeyIn, isTeamPost, ValidationError, type ChannelLine } from "@foundmill/shared";
+import { AppError, CAMPAIGN_STATUSES, CHANNEL_KEYS, CHANNEL_LINES, CHANNEL_META, CHANNEL_WINDOW_DAYS, ChannelKey, CurrencyCode, dayKeyIn, isTeamPost, mockResultsAllowed, ValidationError, type ChannelLine } from "@foundmill/shared";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { assertChannelMayLaunch, assertChannelMayRun, channelRowsFor, FOUNDER_POSTS_CHANNEL, runnableChannels } from "../services/channel-availability";
@@ -182,6 +182,12 @@ export const distributionRouter = router({
           // offline tracking, where the founder submits the materials themselves. A channel the founder posts by tap is
           // refused too: no agent can publish there, so a campaign on it is never "live" (founder, 2026-11-12).
           await assertChannelMayLaunch(tx, ctx, owner);
+        }
+        // On a real project only the engine's launch step marks a campaign live (WP-02 T2, GTM-36): nothing is sent from
+        // here, so an offline-tracking campaign is not marked live by hand either. A sample or test project still can.
+        if (input.status === "live" && before.status !== "live" && !mockResultsAllowed(ctx.env.APP_ENV, ctx.business.isDemo)) {
+          const owner = await repos.channels.get(tx, ctx.businessId, before.channelId);
+          if (owner.kitMode) throw new AppError("campaign_nothing_to_send", "Nothing is sent from here, so the campaign stays as it is. Submit the materials yourself, then mark it ended.", 409);
         }
         const campaign = await repos.campaigns.setStatus(tx, ctx.businessId, input.campaignId, input.status);
         if (launching) {

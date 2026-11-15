@@ -117,6 +117,10 @@ export function blocksContinueFor(_type: InboxItemType, _ctx: Pick<ComposeContex
   return false;
 }
 
+/** Read with a narrated `campaign.launched` in offline tracking (evals `channel_engine.reports_prepared_not_launched` sends the same). */
+export const OFFLINE_TRACKING_NOTE =
+  "Offline tracking: the team prepared these materials and the founder submits them. Nothing was launched, sent or published from here. Say the materials are ready for the founder to submit; never say the campaign launched, went live, was sent or was published.";
+
 /** Builds the JSON input block the model (and the mock) reads. */
 export function composerInputs(ctx: ComposeContext, brief: ComposeBrief): Record<string, unknown> {
   const base: Record<string, unknown> = {
@@ -137,7 +141,10 @@ export function composerInputs(ctx: ComposeContext, brief: ComposeBrief): Record
       const events = brief.events.map((e) => ({ id: e.id, type: e.type, occurred_at: e.occurredAt.toISOString(), actor: e.actor, entity_ids: e.entityIds, payload: e.payload }));
       // Wins the volume rule rolled up: one results note for the day, not a story per win.
       const rolled = brief.events.length > 0 && brief.events.every((e) => e.type === "customer.converted" && (e.payload as { fullMatchDay?: unknown } | null)?.fullMatchDay === false);
-      return rolled ? { ...base, events, note: "These wins were rolled up into the day's results table (volume rule): write one short results note that counts them by kind, names no more than three customers from the manifest, and does not narrate any journey." } : { ...base, events };
+      if (rolled) return { ...base, events, note: "These wins were rolled up into the day's results table (volume rule): write one short results note that counts them by kind, names no more than three customers from the manifest, and does not narrate any journey." };
+      // Offline tracking: the engine's "launch" prepared materials for the founder to submit; nothing went out (WP-02 T2).
+      const offline = brief.events.some((e) => e.type === "campaign.launched" && (e.payload as { kitMode?: unknown } | null)?.kitMode === true);
+      return offline ? { ...base, events, note: OFFLINE_TRACKING_NOTE } : { ...base, events };
     }
     case "insight":
       return {

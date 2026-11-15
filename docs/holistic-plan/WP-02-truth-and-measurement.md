@@ -48,7 +48,7 @@
 **Tests and evals:** the three cases above; `pnpm --filter @foundmill/orchestrator test`, `pnpm --filter @foundmill/db test`. No agent behavior changes, so no eval.
 **Done when:** on a seeded business, requested minus resolved equals the number of approvals still open.
 
-### T2: The channel engine stops claiming launches on a real project        [M] [ships alone]
+### [x] T2: The channel engine stops claiming launches on a real project        [M] [ships alone]
 
 **Why:** GTM-02 (P0), GTM-36, §3.5 row "Can a campaign read live with nothing sent?"; e0: 79 `launch_campaign` requests. This is GTM-02 cut down to its honest core: the audit's launchers, new campaign statuses and renamed notes are WP-08. Here an engine simply does not run where its launch step has nothing to run.
 
