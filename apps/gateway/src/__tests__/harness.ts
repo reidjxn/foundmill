@@ -37,7 +37,7 @@ export interface TestConnectorOptions {
   /** Connector key; default "test". A second instance keyed "anthropic" stands in for the key-bearing connector (SEC-1). */
   key?: string;
   /** How the connector authenticates; "app" stands in for GitHub (platform App keys, no stored secret). */
-  authKind?: "api_key" | "app";
+  authKind?: "api_key" | "app" | "none";
   /** Runs on the platform's own key once connected, with no stored credential (registries, Voyage, E2B...). */
   platformKey?: boolean;
   /** Stands in for the connector's connect() (GitHub's installation check). */
