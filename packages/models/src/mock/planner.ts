@@ -31,6 +31,7 @@ export function generatePlanner(ctx: MockContext): TaskGraphOutput {
   const goal = ctx.getString("goal", "objective", "epic");
   const sources: RoadmapItemIn[] = items.length > 0 ? items : [{ id: null, title: goal ?? firstLine(ctx.lastUser) ?? "Deliver the next roadmap step" }];
   const tasks: PlannedTask[] = [];
+  const noDestination = ctx.getString("destination") === "none";
 
   sources.forEach((item, idx) => {
     const base = `${idx + 1}`;
@@ -80,6 +81,25 @@ export function generatePlanner(ctx: MockContext): TaskGraphOutput {
       hard: false,
       roadmap_item_id: item.id,
     };
+    if (noDestination) {
+      // Nowhere for code to go live yet (WP-05 T5): no code task; the work that moves the goal, and building says when it starts.
+      const kept = [implement, verify].filter((t) => t.kind !== "code");
+      const writePlan: PlannedTask = {
+        id: `t${base}.4`,
+        title: truncate(`Write the build plan for ${item.title}`, 80),
+        goal: `Write down, step by step, what building ${item.title} takes and what counts as done for each step. Building starts once the project has a place to publish.`,
+        kind: "research",
+        acceptance_criteria: [`A written plan for ${item.title} lists each step and what counts as done for it`],
+        test_expectations: [],
+        file_scope_hints: ["docs/", "spec blocks"],
+        depends_on: [design.id],
+        estimate_hours: 1,
+        hard: false,
+        roadmap_item_id: item.id,
+      };
+      tasks.push(design, ...kept.map((t) => ({ ...t, depends_on: [design.id] })), writePlan);
+      return;
+    }
     tasks.push(design, implement, verify);
   });
 
