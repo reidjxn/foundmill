@@ -8,7 +8,7 @@ import { extractEntityIds, validateMarkup } from "@foundmill/entity-linker";
 import { MOCK_ROUTES, createModelClient, type MockGenerator } from "@foundmill/models";
 import type { EventType } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { ComposeTimeoutError, ComposerRejectedError, founderJargonOf, jargonReask } from "../compose";
+import { ComposeTimeoutError, ComposerRejectedError, OFFLINE_TRACKING_NOTE, founderJargonOf, jargonReask } from "../compose";
 import { isNamedQueryId } from "../exhibits";
 import { isDraftWorthy } from "../persist";
 import { createComposerService, narrationKey } from "../service";
@@ -306,5 +306,20 @@ describe("blocks_continue: a Composer note never holds Continue (Nov 7, 2026; 00
     const red = await service.narrate(hz.A.businessId, [(await hz.writeEvent(hz.A.businessId, "runway.threshold_crossed", { runwayMonths: 2.4, thresholdMonths: 3, direction: "below" })).id]);
     expect(red.item.type).toBe("warning");
     expect(red.item.blocksContinue).toBe(false);
+  });
+
+  it("an offline-tracking campaign.launched reads as materials to submit, never as launched (WP-02 T2)", async () => {
+    let seen: Record<string, unknown> | null = null;
+    const base = MOCK_ROUTES.inboxComposer.generate;
+    const spy: MockGenerator = (ctx) => {
+      seen = ctx.data;
+      return base(ctx);
+    };
+    const service = hz.service({}, { inboxComposer: spy });
+    const id = "00000000-0000-4000-8000-0000000000c1";
+    const event = await hz.writeEvent(hz.A.businessId, "campaign.launched", { campaignId: id, channelId: id, channelKey: "print", name: "Print week 2", goal: "Replies", budget: { amountMinor: 0, currency: "EUR" }, startsAt: new Date().toISOString(), endsAt: null, kitMode: true, assetIds: [id], approvalId: null });
+    const r = await service.narrate(hz.A.businessId, [event.id]);
+    expect(seen).toMatchObject({ note: OFFLINE_TRACKING_NOTE });
+    expect(`${r.item.subject}\n${r.item.bodyMd}`).not.toMatch(/\b(launched|is live|went live|sent|published)\b/i);
   });
 });

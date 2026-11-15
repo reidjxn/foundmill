@@ -23,7 +23,7 @@
  * - **Your first week**: Day 1 asks to publish the page (done the day `project_pages.published_at` is set) and to sign
  *   off the specification and the roadmap.
  */
-import { APPROVAL_OPTIONS, approvalSection, repos, type DbTx, type InboxItem, type Task } from "@foundmill/db";
+import { APPROVAL_OPTIONS, approvalSection, buildDestinationOf, repos, type DbTx, type InboxItem, type Task } from "@foundmill/db";
 import { CREDITS_CURRENCY } from "@foundmill/config";
 import { GOAL_OPTION_IDS, PAGE_READY_NOTE, POSTAL_ADDRESS_NOTE, WRITE_ROLES, addDaysToDay, dailyStreak, dayKeyIn, firstWeekTimeline, firstWeekVisible, hasSectionAccess, isPageReadyDecision, isPostalAddressDecision, vacationDayKeys, weekPlanWords, type FirstWeekWords, type Streak, type WeekFacts, type WeekPlanWords } from "@foundmill/shared";
 import { channelRowsFor } from "./channel-availability";
@@ -229,12 +229,13 @@ export async function firstWeekFor(tx: DbTx, ctx: BusinessContext, now: Date = n
   const dayOf = (at: Date | null | undefined): string | null => (at ? dayKeyIn(at, zone) : null);
   const base = { today: dayKeyIn(now, zone), createdOn: dayKeyIn(ctx.business.createdAt, zone), distributionStartedOn: dayOf(ctx.business.distributionStartedAt) };
   if (!firstWeekVisible(base)) return null;
-  const [signoffs, rounds, goals, channels, page] = await Promise.all([
+  const [signoffs, rounds, goals, channels, page, repository] = await Promise.all([
     repos.productSignoffs.latest(tx, ctx.businessId),
     repos.events.list(tx, ctx.businessId, { type: "cycle.completed", limit: 50 }),
     repos.goals.recent(tx, ctx.businessId, 10),
     channelRowsFor(tx, ctx),
     repos.pages.get(tx, ctx.businessId),
+    repos.integrations.codeRepository(tx, ctx.businessId),
   ]);
   const firstRound = rounds.items.reduce<Date | null>((a, e) => (a === null || e.occurredAt < a ? e.occurredAt : a), null);
   const approvedAt = goals.reduce<Date | null>((a, g) => (g.approvedAt && (a === null || g.approvedAt < a) ? g.approvedAt : a), null);
@@ -250,6 +251,7 @@ export async function firstWeekFor(tx: DbTx, ctx: BusinessContext, now: Date = n
     // Week 1 does not promise an approach no channel can make yet (founder, 2026-11-11). The promise is the team's, so a
     // channel the founder posts by tap does not make it true.
     noChannelCanRun: channels.teamRuns.length === 0,
+    destination: buildDestinationOf(repository),
   });
 }
 

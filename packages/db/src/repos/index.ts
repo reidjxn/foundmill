@@ -33,6 +33,7 @@ import { holidaysRepo } from "./holidays";
 import { ideasRepo } from "./ideas";
 import { inboxRepo } from "./inbox";
 import { integrationsRepo } from "./integrations";
+import { mockResultsRepo } from "./mock-results";
 import { journeysRepo } from "./journeys";
 import { legalRepo } from "./legal";
 import { logosRepo } from "./logos";
@@ -103,6 +104,7 @@ export const repos = {
   plans: plansRepo,
   channels: channelsRepo,
   campaigns: campaignsRepo,
+  mockResults: mockResultsRepo,
   journeys: journeysRepo,
   entities: entitiesRepo,
   finance: financeRepo,

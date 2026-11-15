@@ -31,6 +31,11 @@ describe("HTTP surface on an ephemeral port", () => {
     const body = (await res.json()) as Record<string, unknown>;
     expect(body).toMatchObject({ ok: true, service: "api", db: true, redis: false, temporal: false, composer: false, vault: true, modes: { integrations: "mock", models: "mock" } });
     expect(res.headers.get("x-request-id")).toBeTruthy();
+    // The connectors switched live one by one, here and on the gateway (unreachable in this test, so null).
+    expect(body.modes).toMatchObject({ liveConnectors: [] });
+    // Mock integrations: the project's address does not really send (WP-02 T7).
+    expect(body.platformMail).toBe("off");
+    expect(body.gateway).toBeNull();
   });
 
   it("GET /health answers 503 without the database, so Railway's healthcheck keeps traffic on the previous deployment", async () => {

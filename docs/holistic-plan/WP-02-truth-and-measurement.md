@@ -48,7 +48,7 @@
 **Tests and evals:** the three cases above; `pnpm --filter @foundmill/orchestrator test`, `pnpm --filter @foundmill/db test`. No agent behavior changes, so no eval.
 **Done when:** on a seeded business, requested minus resolved equals the number of approvals still open.
 
-### T2: The channel engine stops claiming launches on a real project        [M] [ships alone]
+### [x] T2: The channel engine stops claiming launches on a real project        [M] [ships alone]
 
 **Why:** GTM-02 (P0), GTM-36, §3.5 row "Can a campaign read live with nothing sent?"; e0: 79 `launch_campaign` requests. This is GTM-02 cut down to its honest core: the audit's launchers, new campaign statuses and renamed notes are WP-08. Here an engine simply does not run where its launch step has nothing to run.
 
@@ -134,7 +134,7 @@ select (select count(*) from entities e join businesses b on b.id = e.business_i
 **Tests and evals:** as named; RLS is not involved (service role, existing tables).
 **Done when:** the query in step 4 returns five zeros on production, and T10's `fabricated_left` is 0 every night after.
 
-### T5: The build path says what is true without a repository             [S] [ships alone]
+### [x] T5: The build path says what is true without a repository             [S] [ships alone]
 
 **Why:** A4-03 (P0, the copy half), A4-10 (P1). The site workspace that makes the promises true is WP-07.
 
@@ -193,7 +193,7 @@ WP-04 changes this constant when the two notes become one; nothing else needs to
 **Steps:** 1. Tests pin every "After" (and that rows 3 and 4 read the constant, not a copy). verify: fail. 2. Change the strings; run the three word scripts. verify: green. 3. `apps/web/e2e/first-days.spec.ts`: the toast and the empty text on a new business. verify: passes locally in the cloud session.
 **Done when:** the six places that tell the first day agree, by test.
 
-### T7: The Follow form is offered only when a confirmation can be sent    [S] [ships alone]
+### [x] T7: The Follow form is offered only when a confirmation can be sent    [S] [ships alone]
 
 **Why:** FR-12, GTM-03 (b) and (c). Part (a) is WP-00 (S1, S2); part (d), re-offering confirmation to old pending records, is not needed: `contact_consents` has 0 rows (e0).
 

@@ -30,7 +30,7 @@ import { buildChannelCreativeRequest, docText, finaliseCreative, getChannelTempl
 import { LIMITS } from "@foundmill/config";
 import { repos } from "@foundmill/db";
 import { stableHash } from "@foundmill/models";
-import { CHANNEL_KEYS, CHANNEL_META, mockResultsAllowed, type BusinessMode, type ChannelAvailability, type ChannelKey } from "@foundmill/shared";
+import { assertMockResultsAllowed, CHANNEL_KEYS, CHANNEL_META, mockResultsAllowed, type BusinessMode, type ChannelAvailability, type ChannelKey } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 import { openApprovalNote } from "./approvals";
@@ -38,12 +38,17 @@ import { channelEngineBlocked } from "./channel-availability";
 import { requestJourneyDailyRefresh } from "../journey-refresh";
 import type { ChannelEngineState, ChannelStep, ChannelStepResult } from "./types";
 
+/** The engine's note while an offline-tracking channel waits on the founder's earlier ask (WP-02 T2). */
+export const WAITING_ON_FOUNDER = "Waiting for you: the materials are on Creative.";
+
 export const emptyChannelState = (): ChannelEngineState => ({ campaignId: null, approvalId: null, lastStep: null, weeksRun: 0, learnings: [] });
 
 /** The engine's note when it stops because the channel cannot act for this business (a log line; the Board says it in a founder's words). */
 export function channelUnavailableNote(label: string, availability: ChannelAvailability): string {
   // Tap-to-post: the channel is available to the founder, and there is nothing in it for an agent to launch or measure.
   if (availability.reason === "by_tap") return `${label} is posted by the founder, one press at a time (tap-to-post): no agent can publish there, so the engine is stopping; nothing planned, launched or measured`;
+  // The team can act on it, through tasks and sessions: the weekly engine has nothing it can send yet (WP-02 T2).
+  if (availability.available && availability.reason === "acts") return `${label} has nothing the weekly engine can send yet; the team works on it through tasks. Engine stopping; nothing planned or launched`;
   const why = availability.reason === "not_connected" ? `${availability.connectorKey ?? "its connector"} is not ${availability.connectable ? "connected for this business" : "live on this deployment"}` : "no tool publishes to it yet";
   return `${label} is not available yet (${why}) and is not in offline tracking; engine stopping, nothing planned or launched`;
 }
@@ -150,6 +155,18 @@ export function createChannelActivities(deps: OrchestratorDeps) {
         return done(channelUnavailableNote(meta.label, blocked), { stop: true });
       }
       const owner = channel.ownerAgentId ? await repos.agents.get(db, businessId, channel.ownerAgentId) : null;
+      // Offline tracking on a real project asks once (WP-02 T2): while the channel's last ask expired unanswered and none
+      // of its materials has been approved since, nothing new is drafted or asked. Approving the materials on Creative,
+      // or taking the channel off the board and back (which ends that campaign), lets the next week ask as before.
+      const waitingOnFounder = async (): Promise<boolean> => {
+        if (!channel.kitMode || mockResultsAllowed(deps.env.APP_ENV, business.isDemo)) return false;
+        const last = await repos.campaigns.lastLaunchApproval(db, businessId, key);
+        const campaignId = (last?.args as { campaignId?: unknown } | undefined)?.campaignId;
+        if (!last || last.outcome !== "expired" || typeof campaignId !== "string") return false;
+        const asked = await repos.campaigns.get(db, businessId, campaignId).catch(() => null);
+        if (!asked || asked.status !== "pending_approval") return false;
+        return !(await repos.campaigns.listAssets(db, businessId, { campaignId })).some((a) => a.approvalState === "approved");
+      };
       // The channel's agent paused (its wage cap, or by hand): nothing new is drafted or launched for it this week.
       if (owner?.status === "paused" && (input.step === "create" || input.step === "launch")) return done(`${owner.name} is paused; skipped this week's ${input.step}`);
       const template = getChannelTemplate(key);
@@ -163,6 +180,10 @@ export function createChannelActivities(deps: OrchestratorDeps) {
           return done(`Plan for ${meta.label}: core metric ${meta.coreMetric}; monthly budget ${(monthlyMinor / 100).toFixed(2)} ${currency}, this week's share ${(weeklyBudgetMinor(monthlyMinor) / 100).toFixed(2)} (Estimate); ${template.name} owns the work.`);
         }
         case "create": {
+          if (await waitingOnFounder()) {
+            state.campaignId = null;
+            return done(WAITING_ON_FOUNDER);
+          }
           const budgetMinor = weeklyBudgetMinor(channel.budgetMinor);
           const campaign = await repos.campaigns.create(db, businessId, { channelId: channel.id, name: `${meta.label} — ${weekLabel}`, goal: `Improve ${meta.coreMetric}`, status: "draft", budgetMinor, currency, config: { weekIndex: input.weekIndex, learnings: state.learnings, kitMode: channel.kitMode } });
           state.campaignId = campaign.id;
@@ -188,6 +209,10 @@ export function createChannelActivities(deps: OrchestratorDeps) {
           return done(`Campaign drafted (${campaign.id}) with ${drafted} creative draft${drafted === 1 ? "" : "s"} for approval.`);
         }
         case "approve": {
+          if (await waitingOnFounder()) {
+            state.campaignId = null;
+            return done(WAITING_ON_FOUNDER);
+          }
           if (!state.campaignId) return done("no campaign to approve");
           const assets = (await repos.campaigns.listAssets(db, businessId, { campaignId: state.campaignId })).filter((a) => a.approvalState !== "rejected");
           if (assets.length === 0) return done("No creative to approve; the campaign does not launch this week.");
@@ -216,7 +241,7 @@ export function createChannelActivities(deps: OrchestratorDeps) {
           }
           await repos.campaigns.setStatus(db, businessId, state.campaignId, "pending_approval");
           const budget = budgetMinor <= 0 ? null : { amountMinor: budgetMinor, currency: campaign.currency };
-          const approval = await repos.approvals.create(db, businessId, { agentId: owner?.id ?? null, connectorKey: "platform", tool: "launch_campaign", args: { campaignId: state.campaignId, channelKey: key, assetIds: assets.map((a) => a.id) }, reasons: [reason], ...(budget ?? {}) });
+          const approval = await repos.approvals.create(db, businessId, { agentId: owner?.id ?? null, connectorKey: "platform", tool: "launch_campaign", args: { campaignId: state.campaignId, channelKey: key, assetIds: assets.map((a) => a.id), kitMode: channel.kitMode }, reasons: [reason], ...(budget ?? {}) });
           // Publishing delegated to an agent in Team › Responsibilities (AC-11.9.2): it approved as the approval opened.
           if (approval.outcome === "approved" && approval.byKind === "agent" && approval.byId) {
             await repos.campaigns.setStatus(db, businessId, state.campaignId, "scheduled");
@@ -225,7 +250,7 @@ export function createChannelActivities(deps: OrchestratorDeps) {
             return done("Approved by the agent Team › Responsibilities names; scheduled.");
           }
           state.approvalId = approval.id;
-          const requested = owner ? await emitEvent(db, { businessId, type: "approval.requested", actor: { kind: "agent", id: owner.id }, payload: { approvalId: approval.id, agentId: owner.id, connectorKey: "platform", tool: "launch_campaign", amount: budget, reasons: ["campaign launch needs your approval"], policyIds: [], decisionType: "publish_content", hardGate: false, summary: `${owner.name} wants to launch "${meta.label} — ${weekLabel}"` } }) : null;
+          const requested = owner ? await emitEvent(db, { businessId, type: "approval.requested", actor: { kind: "agent", id: owner.id }, payload: { approvalId: approval.id, agentId: owner.id, connectorKey: "platform", tool: "launch_campaign", amount: budget, reasons: ["campaign launch needs your approval"], policyIds: [], decisionType: "publish_content", hardGate: false, summary: channel.kitMode && !mockResultsAllowed(deps.env.APP_ENV, business.isDemo) ? `${owner.name} has ${meta.label} materials ready for you to check` : `${owner.name} wants to launch "${meta.label} — ${weekLabel}"` } }) : null;
           // Answered in the Inbox: Approve or Reject signals `approval:<id>`, the wait this engine runs in.
           await openApprovalNote(db, businessId, approval, { agent: owner ? { id: owner.id, name: owner.name } : null, taskTitle: null, argsSummary: `Launch "${meta.label} — ${weekLabel}"`, sourceEventIds: requested ? [requested.id] : [] });
           return done("Waiting for the founder's approval.", { awaitingApprovalId: approval.id });
@@ -272,8 +297,9 @@ export function createChannelActivities(deps: OrchestratorDeps) {
             const impressions = 400 + (seed % 3000);
             const leadChannel = LEAD_CHANNELS[key];
             // Lead channels count the leads they record; the others measure signups from their reach.
-            const recorded = leadChannel ? await recordMockLeads(businessId, channel.id, key, state.campaignId, owner?.id ?? null, 1 + (seed % leadChannel.maxPerWeek), leadChannel.basis, `${state.campaignId}:${input.weekIndex}`) : 0;
+            const recorded = leadChannel ? await recordMockLeads(deps, business, channel.id, key, state.campaignId, owner?.id ?? null, 1 + (seed % leadChannel.maxPerWeek), leadChannel.basis, `${state.campaignId}:${input.weekIndex}`) : 0;
             const signups = leadChannel ? Math.round(recorded * 0.3) : Math.round(impressions * (0.002 + (seed % 5) / 1000));
+            assertMockResultsAllowed(deps.env.APP_ENV, business.isDemo, "estimated channel numbers");
             await repos.channels.upsertMetric(db, businessId, { channelId: channel.id, campaignId: state.campaignId, day, spendMinor: Math.round(Number(campaign.budgetMinor) * 0.9), currency: campaign.currency, impressions, leads: recorded, signups, activations: Math.round(signups * 0.5), customers: Math.round(signups * 0.2), source: "estimate" });
             requestJourneyDailyRefresh(deps);
             return done(`Measured (mock, Estimate): ${impressions} impressions, ${recorded} leads, ${signups} signups.`);
@@ -314,25 +340,28 @@ export function createChannelActivities(deps: OrchestratorDeps) {
       }
     },
   };
+}
 
-  /**
-   * Mock mode: `count` leads for a lead channel, each a CRM record (deterministic name, an `.example` address, its
-   * company, the channel as source and the channel's lawful basis) with a `lead` role owned by the channel's agent, and
-   * `lead.created`. A suppressed address is skipped and not counted. Returns how many were recorded.
-   */
-  async function recordMockLeads(businessId: string, channelId: string, channelKey: ChannelKey, campaignId: string, ownerAgentId: string | null, count: number, basis: "legitimate_interest" | "consent", seed: string): Promise<number> {
-    let recorded = 0;
-    for (let i = 0; i < count; i++) {
-      const lead = mockLead(`${businessId}:${channelId}:${seed}:${i}`);
-      const out = await repos.entities.upsertLead(deps.db, businessId, { kind: "person", displayName: lead.displayName, email: lead.email, company: lead.company, domain: lead.domain, source: channelKey, lawfulBasis: basis, ownerAgentId });
-      if (out.status === "suppressed") continue;
-      // Counted even when a retried step finds the record it wrote before; announced once.
-      recorded += 1;
-      if (!out.roleCreated) continue;
-      await emitEvent(deps.db, { businessId, type: "lead.created", actor: ownerAgentId ? { kind: "agent", id: ownerAgentId } : systemActor, entityIds: [out.entity.id], payload: { entityId: out.entity.id, channelKey, campaignId, score: null, source: `${CHANNEL_META[channelKey].label} (mock)`, lawfulBasis: basis, country: null } });
-    }
-    return recorded;
+/**
+ * Mock mode: `count` leads for a lead channel, each a CRM record (deterministic name, an `.example` address, its
+ * company, the channel as source and the channel's lawful basis) with a `lead` role owned by the channel's agent, and
+ * `lead.created`. A suppressed address is skipped and not counted. Returns how many were recorded. Refused where
+ * simulated results are not allowed (WP-02 T4): the call site checks too, and a second caller cannot skip it.
+ */
+export async function recordMockLeads(deps: Pick<OrchestratorDeps, "db" | "env">, business: { id: string; isDemo: boolean }, channelId: string, channelKey: ChannelKey, campaignId: string, ownerAgentId: string | null, count: number, basis: "legitimate_interest" | "consent", seed: string): Promise<number> {
+  assertMockResultsAllowed(deps.env.APP_ENV, business.isDemo, "generated leads");
+  const businessId = business.id;
+  let recorded = 0;
+  for (let i = 0; i < count; i++) {
+    const lead = mockLead(`${businessId}:${channelId}:${seed}:${i}`);
+    const out = await repos.entities.upsertLead(deps.db, businessId, { kind: "person", displayName: lead.displayName, email: lead.email, company: lead.company, domain: lead.domain, source: channelKey, lawfulBasis: basis, ownerAgentId });
+    if (out.status === "suppressed") continue;
+    // Counted even when a retried step finds the record it wrote before; announced once.
+    recorded += 1;
+    if (!out.roleCreated) continue;
+    await emitEvent(deps.db, { businessId, type: "lead.created", actor: ownerAgentId ? { kind: "agent", id: ownerAgentId } : systemActor, entityIds: [out.entity.id], payload: { entityId: out.entity.id, channelKey, campaignId, score: null, source: `${CHANNEL_META[channelKey].label} (mock)`, lawfulBasis: basis, country: null } });
   }
+  return recorded;
 }
 
 export type ChannelActivities = ReturnType<typeof createChannelActivities>;

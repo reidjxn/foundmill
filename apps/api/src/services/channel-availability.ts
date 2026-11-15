@@ -17,7 +17,7 @@
  */
 import { channelAvailabilityFacts, channelAvailabilityRows, channelRefusal, everyChannelAvailable, firstChannelToOpen, type ChannelAvailabilityFacts } from "@foundmill/connectors";
 import { repos, type Executor } from "@foundmill/db";
-import { AppError, CHANNEL_KEYS, CHANNEL_META, channelByTapRefusal, channelEngineMayRun, channelMayRun, channelTeamRuns, noChannelSentence, type ChannelAvailabilityRow, type ChannelKey, type Env } from "@foundmill/shared";
+import { AppError, CHANNEL_KEYS, CHANNEL_META, channelActsRefusal, channelByTapRefusal, channelEngineMayRun, channelMayRun, channelTeamRuns, noChannelSentence, type ChannelAvailabilityRow, type ChannelKey, type Env } from "@foundmill/shared";
 
 /** What the availability of a business's channels is read from: the deployment's env and the business row. */
 export interface ChannelAvailabilityScope {
@@ -130,5 +130,5 @@ export async function assertChannelMayLaunch(db: Executor, scope: ChannelAvailab
   const { rows } = await channelRowsFor(db, scope);
   const row = rows[channel.channelKey];
   if (!channelMayRun(row, channel.kitMode)) throw channelNotAvailableError(channel.channelKey, row);
-  if (!channelEngineMayRun(row, channel.kitMode)) throw new AppError(CHANNEL_NOT_AVAILABLE, channelByTapRefusal(channel.channelKey), 409, { channelKey: channel.channelKey, reason: row.reason });
+  if (!channelEngineMayRun(row, channel.kitMode)) throw new AppError(CHANNEL_NOT_AVAILABLE, row.reason === "acts" ? channelActsRefusal(channel.channelKey) : channelByTapRefusal(channel.channelKey), 409, { channelKey: channel.channelKey, reason: row.reason });
 }

@@ -31,6 +31,8 @@ const Extra = z.object({
   TEMPORAL_RETRY_SECONDS: z.coerce.number().min(10).default(10),
   /** Register the periodic jobs' Temporal Schedules at boot (src/schedules.ts); "off" for a worker that must not. */
   ORCHESTRATOR_SCHEDULES: z.enum(["on", "off"]).default("on"),
+  /** The nightly removal of generated results from real projects (WP-02 T4): "report" counts and logs, "apply" removes. */
+  MOCK_RESULTS_CLEANUP: z.enum(["off", "report", "apply"]).default("report"),
   /** Port of the orchestrator's `/health` when PORT is unset (./health-server.ts). */
   ORCHESTRATOR_PORT: z.coerce.number().int().min(0).max(65_535).default(4007),
 });
@@ -49,6 +51,7 @@ export interface OrchestratorEnv extends Env {
   TEMPORAL_RETRY_SECONDS: number;
   ORCHESTRATOR_SCHEDULES: "on" | "off";
   ORCHESTRATOR_PORT: number;
+  MOCK_RESULTS_CLEANUP: "off" | "report" | "apply";
 }
 
 let cached: OrchestratorEnv | undefined;
@@ -73,6 +76,7 @@ export function loadOrchestratorEnv(overrides: Partial<NodeJS.ProcessEnv> = {}):
     TEMPORAL_RETRY_SECONDS: extra.TEMPORAL_RETRY_SECONDS,
     ORCHESTRATOR_SCHEDULES: extra.ORCHESTRATOR_SCHEDULES,
     ORCHESTRATOR_PORT: extra.ORCHESTRATOR_PORT,
+    MOCK_RESULTS_CLEANUP: extra.MOCK_RESULTS_CLEANUP,
   };
   if (Object.keys(overrides).length === 0) cached = env;
   return env;
