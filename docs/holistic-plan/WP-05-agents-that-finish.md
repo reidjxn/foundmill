@@ -174,7 +174,7 @@ Steps:
 3. The nightly workflow (`schedule: cron`, plus `workflow_dispatch`), not a required check. verify: one manual run green; WP-01's nightly hook lists it.
 Done when: three nights green. Needs founder decision D4 (the nightly budget).
 
-### T7: The founder can read the result [M] [ships alone; after T3]
+### [x] T7: The founder can read the result [M] [ships alone; after T3]
 Why: AR-02 steps 4 and 5.
 Files:
 - modify `packages/agents/src/prompts/inbox-composer.ts` (version 6 → 7), `apps/composer/src/compose.ts` (inputs), `apps/api/src/routers/dev.ts` (`tasks.get`), the Plan's task view in `packages/modules/src/development/` (the screen `planHref(taskId)` opens);

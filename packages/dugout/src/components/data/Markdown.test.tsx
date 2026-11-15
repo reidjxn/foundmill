@@ -71,6 +71,19 @@ describe("Markdown parser loading", () => {
     expect(anchors[1]?.getAttribute("target")).toBeNull();
   });
 
+  it("with webLinksOnly, only http(s) addresses are links: a path, mailto or tel inside the app stays text", async () => {
+    vi.resetModules();
+    const { Markdown, preloadMarkdown } = await import("./Markdown");
+    await preloadMarkdown();
+    const { container } = render(
+      <Markdown variant="body" images={false} webLinksOnly>
+        {"[site](https://example.com) [plain](http://example.org) [settings](/b/x/settings) [mail](mailto:a@b.example) [call](tel:123) <https://auto.example>"}
+      </Markdown>,
+    );
+    expect(Array.from(container.querySelectorAll("a")).map((a) => a.getAttribute("href"))).toEqual(["https://example.com", "http://example.org", "https://auto.example"]);
+    for (const text of ["settings", "mail", "call"]) expect(screen.getByText(text).tagName).toBe("SPAN");
+  });
+
   it("renders formatted at once when the parser is already in", async () => {
     vi.resetModules();
     const { Markdown, preloadMarkdown } = await import("./Markdown");

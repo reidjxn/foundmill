@@ -188,6 +188,11 @@ export interface MarkdownProps extends Pick<
    * case-insensitive, once per term per note, never inside a link, code or an entity mention. Off while guidance is off.
    */
   terms?: boolean;
+  /**
+   * Link only http(s) addresses (default false). Text an agent wrote from web pages (a task's report) passes `true`: a
+   * path, `mailto:` or `tel:` link in it is shown as its words, so nothing in it can point into the app or open an app.
+   */
+  webLinksOnly?: boolean;
 }
 
 type Handlers = Pick<EntityTextProps, "onResolveAmbiguous" | "onCreateDraft" | "onOpen">;
@@ -241,6 +246,7 @@ export function Markdown({
   images = true,
   entities = true,
   terms = false,
+  webLinksOnly = false,
   onResolveAmbiguous,
   onCreateDraft,
   onOpen,
@@ -322,7 +328,7 @@ export function Markdown({
     a: ({ children: c, href, ...rest }: ComponentPropsWithoutRef<"a">) => {
       // The parser blanks a URL it will not follow (javascript:, data:, vbscript:) to "". That is text, not a link: an
       // anchor with an empty href would look clickable and reload the page.
-      if (!href) return <span>{plain(c)}</span>;
+      if (!href || (webLinksOnly && !/^https?:\/\//i.test(href))) return <span>{plain(c)}</span>;
       const external = externalLinks && /^https?:/i.test(href);
       return (
         <a

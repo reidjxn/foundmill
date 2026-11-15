@@ -7,7 +7,7 @@
  */
 import { useId, useMemo, useRef, useState } from "react";
 import { ArrowUpCircle, Bot, ChevronRight, ExternalLink, ListTree, Network, Pause, Play, Radio, Square } from "lucide-react";
-import { Avatar, BuilderOnly, Button, Chip, DataTable, EntityLink, useAgentPersona, Field, GenerateControl, KeyValueList, Panel, ProgressRing, ProvenanceChip, STRONGEST_MODEL_LABEL, TASK_STATUS_META, TaskGraph, TaskRunState, Term, Textarea, SimpleSelect, useTerm, canStartTask, taskRunInfo, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
+import { Avatar, BuilderOnly, Button, Chip, DataTable, EntityLink, useAgentPersona, Field, GenerateControl, KeyValueList, Panel, ProgressRing, ProvenanceChip, STRONGEST_MODEL_LABEL, TASK_STATUS_META, TaskGraph, TaskResult, TaskRunState, Term, Textarea, SimpleSelect, useTerm, canStartTask, taskRunInfo, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import type { TaskStatus } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
@@ -20,7 +20,7 @@ import { OpenInClaudeCodeDialog, ReassignDialog, StopDialog } from "./dialogs";
 import { useDevScreenOptions } from "./options";
 import { InlineError, SIMPLE_VIEW_ID, Screen, TaskStatusPill, agentBranch, agentHref, progressValue, toDate, toTileAgent, useAction, useAgentIndex, useAgents, useDefaultViewId, useDevDepartment } from "./shared";
 import { toGraphNodes } from "./TrainingGroundScreen";
-import type { AgentRow, PlanResponse, RoadmapListResponse, TaskRow, TasksListResponse } from "./types";
+import type { AgentRow, PlanResponse, RoadmapListResponse, TaskGetResponse, TaskRow, TasksListResponse } from "./types";
 
 export interface PlanRow extends TaskRow {
   agentName: string;
@@ -101,6 +101,9 @@ export function withRunColumn(views: readonly SavedView[]): SavedView[] {
   });
 }
 
+/** The statuses a task can have a saved result in: it finished, or stopped after the agent reported. */
+const RESULT_STATUSES: ReadonlySet<TaskStatus> = new Set<TaskStatus>(["done", "review", "merging", "blocked", "failed", "stopped"]);
+
 export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
   const { navigate } = useWidgetData();
   const options = useDevScreenOptions();
@@ -117,7 +120,10 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
   const planViews = useSavedViews("development.plan", PLAN_VIEWS, { defaultViewId });
   const viewsWithRun = useMemo(() => withRunColumn(planViews.views), [planViews.views]);
   const savedViews = { ...planViews, views: viewsWithRun };
-  useBusinessEvents(() => tasks.refetch(), ["task.started", "task.completed", "task.blocked", "pr.merged", "product.signoff_decided"]);
+  useBusinessEvents(() => {
+    tasks.refetch();
+    if (hasResult) detail.refetch();
+  }, ["task.started", "task.completed", "task.blocked", "pr.merged", "product.signoff_decided"]);
   // Building starts when the founder has signed off the specification and the roadmap (founder, 2026-10-18).
   const stage = useBusinessStage();
   // No orchestrator reachable (first-time founder report, Nov 8, 2026): Start is off and the banner says why, instead of
@@ -128,6 +134,10 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
   const initialTask = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("task") : null;
   const [selectedId, setSelectedId] = useState<string | null>(initialTask);
   const selected = rows.find((r) => r.id === selectedId) ?? null;
+  // The selected task's saved result (WP-05 T7): read only for a task that has finished or stopped, where one can exist.
+  const hasResult = !!selected && RESULT_STATUSES.has(selected.status);
+  const detail = useWidgetQuery<TaskGetResponse>("dev.tasks.get", { taskId: selected?.id ?? "" }, { enabled: hasResult });
+  const report = hasResult ? (detail.data?.report ?? null) : null;
   const [reassign, setReassign] = useState<PlanRow | null>(null);
   const [stop, setStop] = useState<PlanRow | null>(null);
   const [claudeCode, setClaudeCode] = useState<PlanRow | null>(null);
@@ -468,6 +478,12 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
           </div>
         ) : null}
       </Panel>
+
+      {selected && report ? (
+        <Panel span={12} title="Result" help="What the agent found or made, saved when it finished this task." meta={<>Saved <RelativeDateText value={new Date(report.createdAt)} /></>} data-testid="task-result">
+          <TaskResult className="max-w-reading" title={report.title} bodyMd={report.bodyMd} sources={report.sources} simulated={report.simulated} />
+        </Panel>
+      ) : null}
 
       <ReassignDialog
         open={!!reassign}

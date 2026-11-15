@@ -279,6 +279,30 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
     { kind: "specialist", title: "Carton artwork proof round 2", goal: "Review the second proof for the refill carton against the labeling checklist.", acceptance: ["PAO and batch marks present", "Barcode verified"], status: "paused", departmentSlug: "operations", assigneeTemplateKey: "packaging_design", startedDaysAgo: 5, durationHours: 0.5 },
   ];
   const tasks = await seedTasks(ctx, businessId, taskSpecs, squad, roadmapIds, CURRENCY);
+  // The research task's saved result, as the founder reads it on the task (WP-05 T7: Development › Plan › Result).
+  const synthesis = tasks.get("Reaction report synthesis Q3");
+  if (synthesis && researcher) {
+    await repos.taskReports.save(db, businessId, {
+      taskId: synthesis.task.id,
+      sessionId: synthesis.sessionIds[0] ?? null,
+      agentId: researcher.agent.id,
+      title: "Reaction reports Q3: three claims",
+      bodyMd: [
+        "## What I found",
+        "",
+        `${agentMention(agentEntities, researcher)} read the twelve reaction reports from the quarter. Three claims hold up:`,
+        "",
+        "- **Fragrance is the trigger** in seven of twelve reports; none name the active ingredient (confidence: high).",
+        "- Reactions cluster in the first five days of use, so a patch-test note on the box would catch most of them (confidence: medium).",
+        "- Two reports mention a clinic that referred the customer, a channel the specification does not name (confidence: low).",
+        "",
+        "## What I recommend",
+        "",
+        "Add the fragrance-free option to the reformulation brief and a patch-test line to the carton artwork.",
+      ].join("\n"),
+      sources: [{ url: "https://northwindskincare.example/support/reaction-reports", title: "Support desk: reaction reports, Q3" }],
+    });
+  }
   const historical = await seedHistoricalTasks(ctx, businessId, squad, HISTORY_TITLES, 90, CURRENCY);
   log(`tasks: ${tasks.size} current + ${historical} historical`);
 
