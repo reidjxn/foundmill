@@ -20,7 +20,7 @@ These repeat CLAUDE.md where it matters most here; CLAUDE.md wins on any differe
 5. **`verify-done` before saying a task is finished.** Report each check with its result, and say what the checks do not cover.
 6. **Other skills in `.claude/skills/`** that the work packages call for: `executing-plans` or `subagent-driven-development` to run a package task by task, `test-driven-development`, `systematic-debugging`, `requesting-code-review`, and for copy and pages `copywriting`, `copy-editing`, `humanizer`, `onboarding`, `cro`, `frontend-design`, `design-taste-frontend`, `schema`, `ai-seo`. Where one of them disagrees with CLAUDE.md, docs/DESIGN.md or docs/DECISIONS.md, the repo's documents win.
 7. **Do not start a task marked "needs setup" or "needs the founder"** until the step it names is recorded as done in `docs/DEPLOY.md`. Build the code path behind its switch, with the mock passing, and stop there.
-8. **Record as you go:** one line in `docs/PROGRESS.md` per merged task, judgment calls in `docs/DECISIONS.md`, and tick the task in the work package file in the same pull request.
+8. **Record as you go:** one file under `docs/log/` per task with what changed and the judgment calls, and tick the task in the work package file in the same pull request.
 
 ## Shape of a work package file
 

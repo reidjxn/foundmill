@@ -398,7 +398,7 @@ git diff --quiet "${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}" HEAD -- . \
 
 ---
 
-### T6: One small file per change; the two logs are frozen  [M] [ships alone; announce a day ahead]
+### [x] T6: One small file per change; the two logs are frozen  [M] [ships alone; announce a day ahead]
 
 **Why:** EH-10, EH-02 (lasting fix), EH-09 cause 2 (the agent pack tells agents to edit both logs, the only conflict in #39 and #49); a10 §4.1, §4.2.
 

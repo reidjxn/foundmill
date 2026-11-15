@@ -43,3 +43,15 @@ test("indexes the real DECISIONS.md", () => {
   assert.ok(s.length > 100);
   for (const x of s) assert.ok(x.end >= x.start);
 });
+
+test("reads each file under a log folder as one section, with its path and its ### parts (WP-01 T6)", async () => {
+  const { fragments } = await import("./decisions-index.mjs");
+  const f = fragments(new URL("./fixtures/log", import.meta.url).pathname);
+  assert.equal(f.length, 1);
+  assert.equal(f[0].title, "2026-01-05 — An example entry for the index test");
+  assert.equal(f[0].file, "scripts/fixtures/log/2026-01/2026-01-05-claude-example.md");
+  assert.deepEqual(f[0].subs.map((p) => p.title), ["A judgment call about lanterns"]);
+  assert.deepEqual(f[0].areas, ["scripts"]);
+  assert.deepEqual(filter(f, ["lanterns"]).map((x) => x.title), [f[0].title]);
+  assert.match(render(f), /scripts\/fixtures\/log\/2026-01\/2026-01-05-claude-example\.md {2}2026-01-05 — An example entry/);
+});

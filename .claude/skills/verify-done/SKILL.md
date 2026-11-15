@@ -14,6 +14,6 @@ Run each line that applies, from the repo root, and report the command and its r
 5. A new agent behavior: an eval in `evals/src/`, run in mock mode with `pnpm --filter @foundmill/evals test`.
 6. Copy a person can read changed: `node scripts/banned-terms.mjs`, `node scripts/us-english.mjs`, `node scripts/plain-language.mjs --gate --summary`, `node scripts/focus-visible.mjs`.
 7. An event added: declared in `packages/events` with Zod and written through the outbox.
-8. `docs/PROGRESS.md` has a line for the change; judgment calls are in `docs/DECISIONS.md`.
+8. The branch has its file under `docs/log/` with what changed and the judgment calls; neither frozen log is edited.
 
 Never skip, disable or quarantine a test to get green. A failing test that also fails on main is reported as such, not hidden.
