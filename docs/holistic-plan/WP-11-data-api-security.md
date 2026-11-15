@@ -131,7 +131,7 @@ Steps:
 Tests: no new file. The real-Postgres halves of `testing-postgres`, `migrate-lock`, `owner-lock`, `date-params`, the whole `rls` directory, and the api's `migrate-on-boot` and `people-races` now run on every change to the database.
 Done when: the job is green on `main`; step 5's result is in the pull request; DEPLOY §4 names the script.
 
-### T2: A failed migration fails readiness            [size S] [ships alone]
+### [x] T2: A failed migration fails readiness            [size S] [ships alone]
 Why: A8-15, EH-08 part 1. `apps/api/src/index.ts` `migrateOnBoot` logs "migrations failed; serving anyway (health reports db status)" and `/health` then answers 200 because it probes `select 1`.
 Recorded decision: 2026-10-11 "Deploy review: a deadlock at boot retries; `next` never resolves off-site" keeps the api running after any other migration error because exiting would loop. This task keeps that (no exit, no loop) and changes only what `/health` answers; record it in docs/DECISIONS.md as an amendment that cites the entry.
 Files: modify `packages/db/src/migrator.ts`, `packages/db/src/migrate.ts`, `packages/db/src/index.ts` (export), `apps/api/src/context.ts`, `apps/api/src/app.ts`, `apps/api/src/index.ts`, `apps/api/src/__tests__/health.test.ts`, `apps/api/src/__tests__/migrate-on-boot.test.ts`, docs/DEPLOY.md §3 "Migrations at boot"; create `packages/db/src/__tests__/schema-ready.test.ts`.

@@ -15,7 +15,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createDb, closeDb, type Db, type ServiceDb } from "@foundmill/db";
 import { loadEnv } from "@foundmill/shared";
 import { createApiDeps, type ApiDeps } from "../context";
-import { migrateOnBoot } from "../index";
+import { migrateOnBoot, schemaProbe } from "../index";
 
 const DIRECT = process.env.FM_TEST_POSTGRES_URL;
 const POOLER = process.env.FM_TEST_POOLER_URL;
@@ -67,7 +67,7 @@ describe("migrateOnBoot without a reachable database", () => {
     const exit = vi.fn();
     expect(await migrateOnBoot(deps, { exit })).toBe(false);
     expect(exit).not.toHaveBeenCalled();
-    expect(lines.some((l) => l.level === "error" && /migrations failed; serving anyway/.test(l.msg ?? ""))).toBe(true);
+    expect(lines.some((l) => l.level === "error" && /migrations failed; serving, but \/health answers 503/.test(l.msg ?? ""))).toBe(true);
     await closeDb(db);
   });
 });
@@ -144,4 +144,19 @@ describe.skipIf(!DIRECT)("migrateOnBoot on Postgres", () => {
 
     expect(await migrationLocks(admin, name)).toEqual([]);
   }, 60_000);
+});
+
+describe("schemaProbe (WP-11 T2)", () => {
+  it("is not ready while a migration is missing, remembers ready once seen, and never throws", async () => {
+    const db = {} as Db;
+    const answers = [{ applied: 95, expected: 96, ready: false }, { applied: 96, expected: 96, ready: true }];
+    const check = vi.fn(async () => answers.shift() ?? Promise.reject(new Error("asked again after ready")));
+    const probe = schemaProbe(db, check);
+    expect(await probe()).toEqual({ applied: 95, expected: 96, ready: false });
+    expect(await probe()).toEqual({ applied: 96, expected: 96, ready: true });
+    expect(await probe()).toEqual({ applied: 96, expected: 96, ready: true });
+    expect(check).toHaveBeenCalledTimes(2);
+    const down = schemaProbe(db, async () => Promise.reject(new Error("connection refused")));
+    expect(await down()).toEqual({ ready: false, applied: null, expected: null });
+  });
 });

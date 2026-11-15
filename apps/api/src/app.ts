@@ -194,13 +194,17 @@ export function createApp(deps: ApiDeps) {
         return false;
       }
     };
-    const [db, redis, temporal, composer, worker] = await Promise.all([
+    const [db, redis, temporal, composer, worker, schema] = await Promise.all([
       probe(deps.health.db),
       probe(deps.health.redis),
       probe(deps.health.temporal),
       probe(() => deps.composer.reachable()),
       Promise.race([checkWorker(deps.temporal, deps.env.TEMPORAL_TASK_QUEUE).catch(() => null), new Promise<null>((resolve) => setTimeout(() => resolve(null), 2_000))]),
+      deps.health.schema ? deps.health.schema().catch(() => ({ ready: false, applied: null, expected: null })) : Promise.resolve({ ready: true, applied: null, expected: null }),
     ]);
+    // A migration that failed at boot leaves the api serving the old schema; it is not ready, so the previous deployment
+    // keeps the traffic (WP-11 T2).
+    const ready = db && schema.ready;
     // Readiness: Railway's healthcheck (railway/api.toml) moves traffic to a new deployment only on a 2xx, so an api
     // without its database answers 503 and the previous deployment keeps serving. Redis, Temporal, the composer, the
     // relay and the orchestrator's worker are reported but never fail the check (the api degrades without them).
@@ -209,13 +213,14 @@ export function createApp(deps: ApiDeps) {
     const billingRefusal = platformBillingRefusal();
     return c.json(
       {
-        ok: db,
+        ok: ready,
         service: "api",
         env: deps.env.APP_ENV,
         // The mode the api actually runs in: MODEL_MODE=live without ANTHROPIC_API_KEY serves the mock client.
         modes: { integrations: deps.env.INTEGRATIONS_MODE, models: deps.models.mode },
         modelKeyMissing: deps.env.MODEL_MODE === "live" && deps.models.mode !== "live",
         db,
+        schema: { applied: schema.applied, expected: schema.expected },
         redis,
         temporal,
         composer,
@@ -229,7 +234,7 @@ export function createApp(deps: ApiDeps) {
         modelBilling: billingRefusal ? { ok: false, ...billingRefusal } : { ok: true },
         time: new Date().toISOString(),
       },
-      db ? 200 : 503,
+      ready ? 200 : 503,
     );
   });
 
