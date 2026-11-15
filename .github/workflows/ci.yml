@@ -212,7 +212,21 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: ${{ matrix.run }}
+      # One migrated PGlite database, dumped once and loaded by every test harness instead of replaying every migration
+      # per test file (WP-01 T3, packages/db src/testing/snapshot.ts). The cache is scoped to the branch by GitHub, so
+      # main never reads a dump that a branch built.
+      - name: Migrated PGlite snapshot (rebuilt only when a migration changes)
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/foundmill-pglite
+          key: pglite-${{ hashFiles('packages/db/migrations/**', 'packages/db/src/pglite.ts', 'packages/db/src/testing/snapshot.ts', 'pnpm-lock.yaml') }}
+      - name: Build the snapshot if the cache missed
+        env:
+          FM_PGLITE_SNAPSHOT_DIR: ${{ runner.temp }}/foundmill-pglite
+        run: pnpm --filter @foundmill/db exec tsx src/testing/build-snapshot.ts
+      - env:
+          FM_PGLITE_SNAPSHOT_DIR: ${{ runner.temp }}/foundmill-pglite
+        run: ${{ matrix.run }}
 
   checks:
     # The required check keeps its name; it is now a gate, like the Playwright one. It ends success when its inputs were

@@ -245,7 +245,7 @@
 
 ---
 
-### T3: Tests load a migrated database instead of replaying 96 migrations  [M] [ships alone]
+### [x] T3: Tests load a migrated database instead of replaying 96 migrations  [M] [ships alone]
 
 **Why:** EH-04; a10 §3.3. About 300 test files each pay 11 to 13 s to replay every migration; some suites pay it per test (`apps/gateway/src/__tests__/byo-key-connectors-2.test.ts`, 205 s for 17 tests).
 

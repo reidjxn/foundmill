@@ -21,10 +21,10 @@ One row per task of docs/holistic-plan/WP-*.md. Updated before a task starts and
 | WP-00 | S15 | Mail reputation | waiting | Founder at Spaceship, later |
 | WP-00 | S16 | Leftovers | waiting | Desktop, on the founder's go |
 | WP-00 | S17 | Later, with the phone app | waiting | Desktop or Founder |
-| WP-01 | T1 | Split the hour into parallel lanes | in progress (branch claude/wp01-t1-ci-lanes) |  |
-| WP-01 | T2 | A red main opens an issue; a nightly lane exists | not started |  |
-| WP-01 | T3 | Tests load a migrated database instead of replaying 96 migrations | not started |  |
-| WP-01 | T4 | Watch paths per service, written out and proven | not started |  |
+| WP-01 | T1 | Split the hour into parallel lanes | pull request open (#144) | founder merge |
+| WP-01 | T2 | A red main opens an issue; a nightly lane exists | pull request open (#146) | founder merge; first real run after merge |
+| WP-01 | T3 | Tests load a migrated database instead of replaying 96 migrations | pull request open (stacked on #144) | founder merge; step 5 (fewer unit shards) after CI numbers |
+| WP-01 | T4 | Watch paths per service, written out and proven | pull request open (#145) | founder merge; then WP-00 S4 |
 | WP-01 | T5 | Fewer web builds | not started |  |
 | WP-01 | T6 | One small file per change; the two logs are frozen | not started |  |
 | WP-01 | T7 | Skipped and flaky tests are counted on every run | not started |  |
@@ -152,8 +152,8 @@ One row per task of docs/holistic-plan/WP-*.md. Updated before a task starts and
 | WP-10 | T11 | Settings opens on five basics | not started |  |
 | WP-10 | T12 | States that lose or hide information | not started |  |
 | WP-10 | T13 | Today's bundle, dead code and a token scanner | not started |  |
-| WP-11 | T1 | Real Postgres in CI | not started |  |
-| WP-11 | T2 | A failed migration fails readiness | not started |  |
+| WP-11 | T1 | Real Postgres in CI | pull request open (#147) | founder merge; then F1 |
+| WP-11 | T2 | A failed migration fails readiness | pull request open (#148) | founder merge |
 | WP-11 | T3 | Backup and restore runbook | not started | founder decision or go-ahead (see the package) |
 | WP-11 | T4 | Advisor test, pinned service-only tables, `search_path` migration | not started |  |
 | WP-11 | T5 | Migration: `auth.uid()` once per statement | not started |  |
