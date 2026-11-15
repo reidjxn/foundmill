@@ -78,12 +78,18 @@ export function generateInboxComposer(ctx: MockContext): ComposerOutput {
   // to be simulated, never narrated as real (WP-05 T3).
   const simulated = !grounded && (events.some((e) => e.type === "task.completed" && simulatedFindings(e)) || (ctx.getString("note") ?? "").includes("Simulated findings:"));
 
+  // A finished task that saved a report (WP-05 T7): the note says what it found, in a sentence quoted from the report,
+  // and that the full result is on the task.
+  const report = !grounded && !simulated && primary?.type === "task.completed" && isRecord(primary.payload.report) ? primary.payload.report : undefined;
+
   // --- the stake, the fact, the ask -------------------------------------------------------------------------------
   const fact = grounded
     ? groundedFact(grounded)
     : simulated
       ? `${taskTitle ? `"${taskTitle}"` : "The task"} is finished, but its findings were simulated: nothing real was read, found or done.`
-      : factSentence(type, primary, who, channel, taskTitle, amount, businessName, rng);
+      : report
+        ? reportFact(taskTitle, report)
+        : factSentence(type, primary, who, channel, taskTitle, amount, businessName, rng);
   const why = simulated
     ? "Treat it as a practice run; the team can do it for real once the tools it needs are connected."
     : grounded
@@ -395,6 +401,31 @@ export function metricWords(key: string): string {
 }
 
 /** A `task.completed` whose findings rest on simulated results (apps/composer sends `payload.simulated`, and `report.simulated`). */
+/**
+ * Words a quoted report sentence must not carry: a report is untrusted (it may quote web pages), so a sentence with an
+ * address or an instruction-like word is never copied into the note. The live prompt says the same in words.
+ */
+const UNSAFE_QUOTE = /https?:|www\.|\[\[|ignore|instruction|system|notice|pay|wire|transfer|password|founder|click|call |email|send/i;
+
+/** The first sentence of a report's body that is safe to quote, as plain text; figures carry "Estimate". */
+export function reportFinding(text: string): string | undefined {
+  const body = text.includes("\n\n") ? text.slice(text.indexOf("\n\n") + 2) : text;
+  const plain = body.replace(/\[\[ent:[^|\]]*\|([^\]]*)\]\]/g, "$1").replace(/[#*_`>]/g, " ").replace(/\s+/g, " ").trim();
+  for (const raw of plain.split(/(?<=[.!?])\s+/)) {
+    const sentence = raw.replace(/^[-\s]+/, "").trim();
+    if (sentence.length < 8 || sentence.length > 220 || UNSAFE_QUOTE.test(sentence)) continue;
+    const ended = /[.!?]$/.test(sentence) ? sentence : `${sentence}.`;
+    return /\d/.test(ended) && !/\bEstimate\b/.test(ended) ? `${ended.replace(/[.!?]$/, "")} (Estimate).` : ended;
+  }
+  return undefined;
+}
+
+function reportFact(taskTitle: string | undefined, report: Record<string, unknown>): string {
+  const name = taskTitle ? `"${taskTitle}"` : "The task";
+  const finding = typeof report.text === "string" ? reportFinding(report.text) : undefined;
+  return finding ? `${name} is finished. What it found: ${finding} The full result is on the task.` : `${name} is finished, and the full result is on the task.`;
+}
+
 function simulatedFindings(e: EventIn): boolean {
   return e.payload.simulated === true || (isRecord(e.payload.report) && e.payload.report.simulated === true);
 }

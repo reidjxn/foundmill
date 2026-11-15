@@ -94,7 +94,9 @@ describe("prompt templates (BUILD §12)", () => {
     expect(composer).not.toContain("Under 180 words");
     expect(composer).toContain("mark exactly one recommended");
     // Nov 8, 2026 (v6, One name everywhere): agents only by their manifest name, never a first name the model picked.
-    expect(getPrompt("inbox_composer").version).toBe(8);
+    expect(getPrompt("inbox_composer").version).toBe(9);
+    // Nov 15, 2026 (v9, WP-05 T7): a finished task's report is said in a sentence or two, and the full result is on the task.
+    expect(composer).toContain("say the full result is on the task");
     // Nov 15, 2026 (v7, WP-05 T18, founder D1): a task parked for want of a tool is said once, explained, never a chore.
     expect(composer).toContain("If the inputs carry `parked`");
     expect(composer).toContain("end the note with exactly one sentence about them");
