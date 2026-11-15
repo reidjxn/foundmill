@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FIRST_WEEK_DAYS, dayRangeWords, firstWeekTimeline, firstWeekVisible, type FirstWeekFacts } from "./first-week";
+import { FIRST_DAY_PROMISE, FIRST_WEEK_DAYS, dayRangeWords, firstWeekTimeline, firstWeekVisible, type FirstWeekFacts } from "./first-week";
 
 const fresh: FirstWeekFacts = { today: "2026-10-07", createdOn: "2026-10-07", specSignedOffOn: null, roadmapSignedOffOn: null, firstRoundOn: null, goalApprovedOn: null, distributionStartedOn: null, stopped: false };
 const steps = (f: FirstWeekFacts) => firstWeekTimeline(f)!.steps;
@@ -79,5 +79,12 @@ describe("firstWeekTimeline", () => {
     const text = JSON.stringify(steps({ ...fresh, createdOn: "2026-12-30", today: "2026-12-30" }));
     expect(text).toContain("Dec 31 – Jan 1");
     expect(text).not.toMatch(/\d{1,2}\/\d{1,2}/);
+  });
+});
+
+describe("FIRST_DAY_PROMISE (WP-02 T6)", () => {
+  it("tells the first day page first, then the plan", () => {
+    expect(FIRST_DAY_PROMISE.steps[1]).toBe("Your public page is drafted first: check it and put it live");
+    expect(FIRST_DAY_PROMISE.sentence).toBe("Your team is drafting your public page first, then your plan. You check the page and put it live; two notes then ask you to sign off the plan.");
   });
 });

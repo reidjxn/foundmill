@@ -54,7 +54,7 @@ export function emptyWhy(id: EmptyWhyId, facts: EmptyWhyFacts = {}): EmptyWhy {
   switch (id) {
     case "today_needs_you":
       return facts.firstDays
-        ? { text: `Nothing needs you yet. Your first notes, the specification and the roadmap to sign off, arrive once the team finishes drafting them, usually on day 1.` }
+        ? { text: `Nothing needs you yet. Your page arrives first, usually within a few minutes, then the plan to sign off.` }
         : { text: "Nothing needs you right now. The team keeps working." };
     case "leads":
       return facts.distributionStarted

@@ -83,10 +83,12 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     const inbox = await caller.inbox.list({ businessId: bid, limit: 50 });
     expect(inbox.items.map((i) => ({ id: i.id, type: i.type, blocksContinue: i.blocksContinue }))).toEqual([{ id: result.firstItem.id, type: "update", blocksContinue: false }]);
     expect(result.firstItem.fromAgentId).toBe(result.chiefOfStaffId);
-    expect(result.firstItem.subject).toBe("Your team is drafting the product foundations");
+    expect(result.firstItem.subject).toBe("Your team is drafting your page and your plan");
     // The founder meets the Chief of Staff and what is always theirs in the first note (UX plan §7.19, E5).
     expect(result.firstItem.bodyMd.startsWith("I'm your Chief of Staff. I run the team so you only read and decide. Some things are always yours: money, signatures, contracts, deleting things.")).toBe(true);
     expect(result.firstItem.bodyMd).toContain("Nothing is spent on distribution until you start it");
+    // The page comes first, then the plan (WP-02 T6).
+    expect(result.firstItem.bodyMd).toMatch(/is drafting your public page first, from .+: check it and put it live\. The vision, the specification and the roadmap follow as two notes to sign off\. Building starts when both are approved\./);
     expect(inbox.continueState).toEqual({ kind: "idle" });
     expect((await caller.business.get({ businessId: bid })).productStage).toBe("drafting");
 
