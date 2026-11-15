@@ -8,9 +8,9 @@ supersedes: []
 ## What changed
 - `evals/src/sessions/harness.ts`: `createSessionEvalEnv()` and `runSessionCase(c)`. One PGlite database (the
   orchestrator's `setupOrchestratorHarness`), one in-process gateway (`buildGateway`, the real pipeline and `platform`),
-  and the orchestrator's own `prepareSession` / `runAgentSession` / `finishSession` on the live runner. Per case it hires
-  an agent from a template, opens a task and a session, runs it and reads back the task, its `task_reports` row, the
-  session's tool calls, the pages read and the mail sent.
+  and the orchestrator's own `prepareSession` / `runAgentSession` / `finishSession` on the live runner. Per case it
+  hires an agent from a template, opens a task and a session, runs it and reads back the task, its `task_reports` row,
+  the session's tool calls, the pages read and the mail sent.
 - The world around the session: `web` runs live over a fixture (three supplier pages; `search_web`'s Anthropic call
   is answered by the fixture); `sendgrid` runs live into a capture inbox (`platform_mail` follows it); the project's own
   address is off. Gateway and orchestrator run with `APP_ENV=staging`, so simulated results never count.
