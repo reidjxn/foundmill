@@ -34,7 +34,7 @@ export interface LandingPageProps {
 export function LandingPage({ switches = SWITCHES_OFF, renderDay }: LandingPageProps) {
   const year = (renderDay ?? new Date().toISOString()).slice(0, 4);
   return (
-    <div className="landing-page" data-testid="landing" data-landing="">
+    <div className="landing-page" data-testid="landing" data-landing="" data-people={switches.peopleOpen ? "open" : "closed"}>
       <HomeJsonLd />
       <TopBar peopleOpen={switches.peopleOpen} />
       <main>

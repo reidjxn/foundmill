@@ -25,6 +25,8 @@ Side by side, the card took the hero's 640 px column and squeezed the panel out.
 Only the `/?example=` deep link is served for another business.
 ### The footer keeps the earlier page's test ids
 `legal.spec.ts` finds the landing footer's Terms and Privacy links by `landing-terms` and `landing-privacy`; the new footer keeps both (CI shard 3 caught their absence).
+### The specs read which way the people layer was built
+CI builds the web with `LIVE_MODE=1`, so the find block shows there (shard 6 failed on a spec that assumed it off). The page states its build in `data-people` and `first-timer.spec.ts` checks the block and links against it.
 ### /tour joins PUBLIC_PREFIXES
 A one-line change outside the landing files, without which a stranger opening `/tour` is sent to sign-in.
 
