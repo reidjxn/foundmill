@@ -30,5 +30,9 @@ The mint table is in `mint-scope.test.ts` rather than `service-routes.test.ts`: 
 ### apps/collab
 It shares `liveChannelAdmit` and passes no `emailConfirmed`, so it now admits a listed address only through a recorded admission. It is not deployed (WP-12 decides its future); its own verifier copy stays.
 
+### What the security review left open
+- The stream reads `emailConfirmed` from the token alone. It does not also distrust it while Supabase's "Confirm email" is off, as the api's `confirmationTrusted()` does. The plan accepts this for T13 ("it relies on the token"). Since T14 declares `enable_confirmations = true`, the gap is closed only once that push is done (WP-00 S10).
+- The mint rule rests on the service secret. A service holding `SESSION_TOKEN_SECRET` can sign `svc: "orchestrator"`. T12 (the api's own secret) narrows that, and SEC-17 counts as closed only with it.
+
 ## Not done
 - T12 (the api-only service token secret) touches `packages/shared/src/env.ts` and `.env.example`, which open branches of WP-13 and the network session also change; it waits for them.
