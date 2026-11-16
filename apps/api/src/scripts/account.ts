@@ -8,8 +8,9 @@
  *   pnpm --filter @foundmill/api account verify <userId>   after the auth user is gone: only cleared references remain,
  *                                                          and the person's event stream (ae:<id>) is removed
  */
-import { createDb, repos, type Db } from "@foundmill/db";
-import { ACCOUNT_COLUMNS } from "@foundmill/db/repos/account-portability";
+import { pathToFileURL } from "node:url";
+import { createDb, type Db } from "@foundmill/db";
+import { ACCOUNT_COLUMNS, accountPortabilityRepo } from "@foundmill/db/repos/account-portability";
 import { deleteAccountStream } from "@foundmill/events/outbox/account-relay";
 import { loadEnv } from "@foundmill/shared";
 import { createRedis } from "../services/redis";
@@ -19,17 +20,17 @@ const USAGE = "usage: account <export|check|verify> <userId>";
 
 export async function runAccountCommand(db: Db, command: string, userId: string, out: (line: string) => void, redis: Parameters<typeof deleteAccountStream>[0] | null = null): Promise<number> {
   if (command === "export") {
-    out(JSON.stringify(await repos.accountPortability.export(db, userId), null, 2));
+    out(JSON.stringify(await accountPortabilityRepo.export(db, userId), null, 2));
     return 0;
   }
   if (command === "check") {
-    const plan = await repos.accountPortability.closingPlan(db, userId);
+    const plan = await accountPortabilityRepo.closingPlan(db, userId);
     out(JSON.stringify(plan, null, 2));
     if (plan.soleOwnerOf.length) out(`Not yet: hand over or delete ${plan.soleOwnerOf.length} project(s) first (DEPLOY §4).`);
     return plan.soleOwnerOf.length ? 1 : 0;
   }
   if (command === "verify") {
-    const left = await repos.accountPortability.leftovers(db, userId);
+    const left = await accountPortabilityRepo.leftovers(db, userId);
     const notCleared = left.filter((l) => ACCOUNT_COLUMNS[l.column]?.onDelete === "cascade" || ACCOUNT_COLUMNS[l.column]?.onDelete === "restrict");
     out(JSON.stringify({ leftovers: left }, null, 2));
     if (notCleared.length) {
@@ -54,7 +55,7 @@ async function main(): Promise<void> {
   process.exit(code);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((err: unknown) => {
     process.stderr.write(`${(err as Error).message}\n`);
     process.exit(1);

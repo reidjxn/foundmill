@@ -17,18 +17,20 @@ export interface AccountColumn {
   /** What deleting the auth user does to the row (its foreign key's action), or "none" without a key. */
   onDelete: "cascade" | "set null" | "restrict" | "none";
   note?: string;
+  /** Columns left out of the export: other people's private state, or values hidden from clients (security review). */
+  omit?: readonly string[];
 }
 
 /** Keyed `table.column`. */
 export const ACCOUNT_COLUMNS: Readonly<Record<string, AccountColumn>> = {
   "account_admissions.user_id": { export: false, onDelete: "cascade", note: "the admission record; the person is told they were let in" },
-  "account_events.user_id": { export: true, onDelete: "cascade" },
+  "account_events.user_id": { export: true, onDelete: "cascade", omit: ["idempotency_key"] },
   "account_outbox.user_id": { export: false, onDelete: "cascade", note: "the delivery queue of the person's own events; the events themselves are exported" },
   "account_preferences.user_id": { export: true, onDelete: "cascade" },
   "adult_confirmations.user_id": { export: true, onDelete: "cascade" },
   "agent_messages.author_user_id": { export: false, onDelete: "set null", note: "a reference inside a project's own records; the project keeps it, the id is cleared" },
   "attributions.referrer_user_id": { export: false, onDelete: "set null", note: "a reference inside a project's own records; the project keeps it, the id is cleared" },
-  "attributions.user_id": { export: true, onDelete: "cascade" },
+  "attributions.user_id": { export: true, onDelete: "cascade", omit: ["referrer_user_id"] },
   "businesses.created_by": { export: false, onDelete: "set null", note: "a reference inside a project's own records; the project keeps it, the id is cleared" },
   "communities.created_by": { export: false, onDelete: "set null", note: "a reference inside a project's own records; the project keeps it, the id is cleared" },
   "community_members.invited_by": { export: false, onDelete: "set null", note: "a reference inside a project's own records; the project keeps it, the id is cleared" },
@@ -41,7 +43,7 @@ export const ACCOUNT_COLUMNS: Readonly<Record<string, AccountColumn>> = {
   "founder_departures.by_user_id": { export: false, onDelete: "set null", note: "a reference inside a project's own records; the project keeps it, the id is cleared" },
   "founder_departures.user_id": { export: true, onDelete: "cascade" },
   "founder_devices.user_id": { export: false, onDelete: "cascade", note: "phone push tokens; a credential, not something to email out" },
-  "founder_notifications.user_id": { export: true, onDelete: "cascade" },
+  "founder_notifications.user_id": { export: true, onDelete: "cascade", omit: ["action_token_hash"] },
   "founder_presence.user_id": { export: true, onDelete: "cascade" },
   "founder_profiles.user_id": { export: true, onDelete: "cascade" },
   "founder_visit_days.user_id": { export: true, onDelete: "cascade" },
@@ -57,14 +59,14 @@ export const ACCOUNT_COLUMNS: Readonly<Record<string, AccountColumn>> = {
   "invitations.invited_by_user_id": { export: false, onDelete: "set null", note: "a reference inside a project's own records; the project keeps it, the id is cleared" },
   "invitations.revoked_by_user_id": { export: false, onDelete: "set null", note: "a reference inside a project's own records; the project keeps it, the id is cleared" },
   "memberships.user_id": { export: true, onDelete: "cascade" },
-  "messages.from_user": { export: true, onDelete: "cascade" },
+  "messages.from_user": { export: true, onDelete: "cascade", omit: ["read_by"] },
   "network_attestations.user_id": { export: true, onDelete: "cascade" },
   "page_quizzes.approved_by": { export: false, onDelete: "set null", note: "a reference inside a project's own records; the project keeps it, the id is cleared" },
   "page_quizzes.updated_by": { export: false, onDelete: "set null", note: "a reference inside a project's own records; the project keeps it, the id is cleared" },
   "person_handle_releases.user_id": { export: false, onDelete: "cascade", note: "service-only: handles kept for the person for 90 days" },
   "post_reports.reporter_user_id": { export: true, onDelete: "cascade" },
   "post_reports.resolved_by": { export: false, onDelete: "set null", note: "a reference inside a project's own records; the project keeps it, the id is cleared" },
-  "posts.author_user_id": { export: true, onDelete: "cascade" },
+  "posts.author_user_id": { export: true, onDelete: "cascade", omit: ["screening", "moderated_by", "moderation_note"] },
   "posts.moderated_by": { export: false, onDelete: "set null", note: "a reference inside a project's own records; the project keeps it, the id is cleared" },
   "product_signoffs.decided_by": { export: false, onDelete: "set null", note: "a reference inside a project's own records; the project keeps it, the id is cleared" },
   "project_pages.published_by": { export: false, onDelete: "set null", note: "a reference inside a project's own records; the project keeps it, the id is cleared" },
@@ -77,7 +79,7 @@ export const ACCOUNT_COLUMNS: Readonly<Record<string, AccountColumn>> = {
   "team_call_turns.user_id": { export: false, onDelete: "set null", note: "a reference inside a project's own records; the project keeps it, the id is cleared" },
   "team_calls.started_by": { export: false, onDelete: "set null", note: "a reference inside a project's own records; the project keeps it, the id is cleared" },
   "waitlist_entries.user_id": { export: true, onDelete: "cascade" },
-  "message_threads.participant_ids": { export: true, onDelete: "none", note: "an array without a foreign key: the person is a participant of these threads" },
+  "message_threads.participant_ids": { export: true, onDelete: "none", note: "an array without a foreign key: the person is a participant of these threads", omit: ["muted_ids", "left_ids"] },
 };
 
 export const ACCOUNT_EXPORT_FORMAT = "foundmill-account-export/1" as const;
@@ -113,16 +115,19 @@ export const accountPortabilityRepo = {
     for (const [key, c] of Object.entries(ACCOUNT_COLUMNS)) {
       if (!c.export) continue;
       const { table } = parts(key);
-      const found = await rowsOf<Record<string, unknown>>(db, sql`select * from ${sql.identifier(table)} where ${matches(key, userId)} limit ${ACCOUNT_EXPORT_MAX_ROWS + 1}`);
+      // A block is never shown to the person blocked (0016): their export leaves out a connection someone else blocked.
+      const hiddenBlocks = table === "connections" ? sql` and not (status = 'blocked' and blocked_by is distinct from ${userId}::uuid)` : sql``;
+      const found = await rowsOf<Record<string, unknown>>(db, sql`select * from ${sql.identifier(table)} where ${matches(key, userId)}${hiddenBlocks} limit ${ACCOUNT_EXPORT_MAX_ROWS + 1}`);
+      const omitted = new Set(c.omit ?? []);
       if (found.length > ACCOUNT_EXPORT_MAX_ROWS) truncated.push(key);
-      if (found.length) tables[key] = found.slice(0, ACCOUNT_EXPORT_MAX_ROWS).map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, portableValue(v)])));
+      if (found.length) tables[key] = found.slice(0, ACCOUNT_EXPORT_MAX_ROWS).map((r) => Object.fromEntries(Object.entries(r).filter(([k]) => !omitted.has(k)).map(([k, v]) => [k, portableValue(v)])));
     }
     return { format: ACCOUNT_EXPORT_FORMAT, userId, generatedAt: new Date().toISOString(), tables, truncated };
   },
 
   /**
-   * What must happen before the auth user may be deleted: the real projects the person is the only unexpired owner or
-   * cofounder of (each is handed over or deleted first, or the project would be left without anyone), and how many
+   * What must happen before the auth user may be deleted: the real projects (archived ones too, which can be restored)
+   * the person is the only unexpired owner or cofounder of (each is handed over or deleted first, or the project would be left without anyone), and how many
    * memberships they hold.
    */
   async closingPlan(db: Executor, userId: string): Promise<{ soleOwnerOf: { businessId: string; name: string }[]; memberships: number }> {
@@ -130,7 +135,7 @@ export const accountPortabilityRepo = {
     const sole = await rowsOf<{ business_id: string; name: string }>(db, sql`
       select b.id as business_id, b.name from businesses b
         join memberships m on m.business_id = b.id and m.user_id = ${userId}::uuid and m.role in ('owner', 'cofounder') and (m.expires_at is null or m.expires_at > now())
-       where not b.is_demo and b.archived_at is null
+       where not b.is_demo
          and not exists (select 1 from memberships o where o.business_id = b.id and o.user_id <> ${userId}::uuid and o.role in ('owner', 'cofounder') and (o.expires_at is null or o.expires_at > now()))
        order by b.name`);
     const [count] = await rowsOf<{ n: number }>(db, sql`select count(*)::int as n from memberships where user_id = ${userId}::uuid`);
