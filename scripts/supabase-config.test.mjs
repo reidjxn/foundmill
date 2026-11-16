@@ -47,6 +47,11 @@ describe("supabase/config.toml", () => {
       const html = readFileSync(path, "utf8");
       assert.ok(html.includes("{{ .Token }}"), `${file} carries {{ .Token }}`);
       assert.ok(html.includes("{{ .ConfirmationURL }}"), `${file} carries {{ .ConfirmationURL }}`);
+      // The link opens the app's /auth/confirm page, whose button opens the one-time confirmation link: a mail service
+      // that opens every link ahead of the reader (Microsoft 365's Safe Links) must never reach Supabase's verify
+      // endpoint from the email itself (lib/auth/confirm-link.ts; Supabase, "Email prefetching").
+      assert.ok(html.includes('href="{{ .SiteURL }}/auth/confirm?confirmation_url={{ .ConfirmationURL }}"'), `${file} links through /auth/confirm`);
+      assert.ok(!html.includes('href="{{ .ConfirmationURL }}"'), `${file} never links straight to the verify endpoint`);
     });
   }
 });

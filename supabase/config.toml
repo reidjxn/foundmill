@@ -25,6 +25,9 @@ otp_length = 6
 otp_expiry = 900
 
 # One template for every client: the link (which carries `emailRedirectTo`, docs/DEPLOY.md §2) and the code. Copy in US English.
+# The link opens the app's /auth/confirm page with `{{ .ConfirmationURL }}` as `confirmation_url`, and a button there opens
+# it: mail services that open every link ahead of the reader (Microsoft 365's Safe Links) would use the one-time link up
+# first (Supabase, "Email prefetching"; apps/web lib/auth/confirm-link.ts).
 [auth.email.template.magic_link]
 subject = "Sign in to Foundmill"
 content_path = "./supabase/templates/magic_link.html"

@@ -11,6 +11,8 @@ import { LONG, NORTHWIND_BUSINESS_ID, expectTapTarget } from "./helpers";
  */
 const GOOGLE_ON = process.env.NEXT_PUBLIC_AUTH_GOOGLE?.trim().toLowerCase() === "on";
 const SUPABASE_STUB = process.env.E2E_SUPABASE_STUB === "1";
+/** The stand-in Supabase address the web was built with (the stub case), for the confirm page's link. */
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/+$/, "") ?? "";
 const WIDTHS = [
   { width: 1280, height: 900 },
   { width: 390, height: 844 },
@@ -93,6 +95,45 @@ for (const { width, height } of WIDTHS) {
         await expect(page).toHaveURL(/\/login\?error=(not_configured|signups_closed)&next=%2Fb%2Fx$/, { timeout: LONG });
         await expect(page.getByTestId("login-link-problem")).toBeVisible();
         await expectFits(page, width, "the callback's notice");
+      } finally {
+        await close();
+      }
+    });
+
+    test("the sign-in email's link lands on /auth/confirm; on this stack (no Supabase) it goes to the sign-in form's notice, never a blank page", async ({ browser }) => {
+      const { page, close } = await visitor(browser, width, height);
+      try {
+        await page.goto(`/auth/confirm?confirmation_url=${encodeURIComponent("https://x.supabase.co/auth/v1/verify?token=t&type=signup")}`);
+        // Without Supabase the page reports that first; with Supabase a link on another origin reads as an incomplete
+        // link (app/__tests__/auth-confirm.test.tsx).
+        await expect(page).toHaveURL(/\/login\?error=(not_configured|missing_code)$/, { timeout: LONG });
+        await expect(page.getByTestId("login-link-problem")).toBeVisible();
+        await expectFits(page, width, "the confirm page's notice");
+      } finally {
+        await close();
+      }
+    });
+
+    test("with Supabase (the stub): the confirm page shows one button, opens the one-time link only when it is pressed, and fits", async ({ browser }) => {
+      test.skip(!SUPABASE_STUB || !SUPABASE_URL, "needs the web built with NEXT_PUBLIC_SUPABASE_URL (given to the runner too) and E2E_SUPABASE_STUB=1");
+      const { page, close } = await visitor(browser, width, height);
+      try {
+        const verify = `${SUPABASE_URL}/auth/v1/verify?token=t&type=signup&redirect_to=${encodeURIComponent("http://localhost:3000/auth/callback?next=%2F")}`;
+        const opened: string[] = [];
+        await page.route("**/auth/v1/verify**", (route) => {
+          opened.push(route.request().url());
+          return route.fulfill({ status: 200, contentType: "text/plain", body: "verified" });
+        });
+        await page.goto(`/auth/confirm?confirmation_url=${encodeURIComponent(verify)}`);
+        await expect(page.getByTestId("confirm-sign-in")).toBeVisible({ timeout: LONG });
+        // Nothing on the page points at the verify endpoint: a visitor that follows links finds none.
+        await expect(page.locator('a[href*="/auth/v1/verify"]')).toHaveCount(0);
+        await expectFits(page, width, "the confirm page");
+        await page.waitForLoadState("networkidle");
+        expect(opened).toEqual([]);
+        await page.getByRole("button", { name: "Sign in to Foundmill" }).click();
+        await expect(page).toHaveURL(/\/auth\/v1\/verify\?token=t/, { timeout: LONG });
+        expect(opened).toHaveLength(1);
       } finally {
         await close();
       }
