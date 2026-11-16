@@ -60,7 +60,7 @@ export function AttributeLabel({ label, hint, attributeKey, className, textClass
   const id = key ? attributeTermId(key) : `attr_${label.toLowerCase().replace(/[^a-z0-9]+/g, "_")}`;
   return (
     <span className={cn("min-w-0 shrink-0 text-left", textClassName, className)} data-attribute-hint="">
-      <Term id={id} always definition={{ id, word: label, short: hint }} side="top" align="start" className="max-w-full text-left">
+      <Term id={id} always definition={{ id, word: label, short: hint }} side="top" align="start" className="inline-flex min-h-target max-w-full items-center text-left">
         <FitText minPx={11}>{label}</FitText>
       </Term>
     </span>
