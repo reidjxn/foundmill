@@ -298,7 +298,8 @@ describe("agent.conversation.send", () => {
     await owner().agent.conversation.send({ businessId: hz.A.businessId, subject: { kind: "inbox_item", id: item.id }, quickReplyId: "why_that_one" });
     const booked = (await ledger(hz.A.businessId)).filter((u) => !beforeA.some((b) => b.id === u.id));
     expect(booked).toHaveLength(1);
-    expect(booked[0]).toMatchObject({ agentId: hz.A.agentId, kind: "tokens", modelKey: "sonnet", currency: PRICING_CURRENCY, billedTo: "credits", details: { service: "api", route: "conversation", kind: "conversation", inboxItemId: item.id, mode: "mock", label: "Estimate" } });
+    // Business A is on the free plan, so the reply runs on Haiku 5.5 (WP-13).
+    expect(booked[0]).toMatchObject({ agentId: hz.A.agentId, kind: "tokens", modelKey: "haiku", currency: PRICING_CURRENCY, billedTo: "credits", details: { service: "api", route: "conversation", kind: "conversation", inboxItemId: item.id, mode: "mock", label: "Estimate" } });
     expect(booked[0]!.quantity).toBeGreaterThan(0);
     // Nothing is booked to another business.
     expect(await ledger(hz.B.businessId)).toHaveLength(beforeB.length);

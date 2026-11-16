@@ -41,10 +41,11 @@ export const IDEA_BOX_LIMITS = {
  * What one card can cost at most (Estimate, millionths of a US cent): the card route's model at its full output budget
  * and a generous prompt. The day's ceiling is reserved card by card at this price before any model call, and a call
  * once started is never given back (security review 2026-11-13, P1-1: a visitor who closes the stream early still cost
- * the call), so the ceiling holds however the calls end.
+ * the call), so the ceiling holds however the calls end. A visitor is signed out, so the card runs on the free plan's
+ * model (WP-13: `enforceModelFunding` in the api's client) and is priced at it.
  */
 export const IDEA_BOX_CARD_RESERVE_MICRO = (() => {
-  const route = resolveModel(IDEATION_CARD_ROUTE);
+  const route = resolveModel(IDEATION_CARD_ROUTE, undefined, { freePlan: true });
   return meter({ inputTokens: 4_000, outputTokens: IDEATION_CARD_MAX_TOKENS, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 }, route.modelId, route.speed ? { speed: route.speed } : {}).costMicroMinor;
 })();
 
