@@ -12,11 +12,6 @@
   & p {
     text-wrap: pretty;
   }
-  /* A defined word that stands alone as a control (an IdeaCard's rating names) gets the 24 px target WCAG 2.5.8 asks
-     for on this page; the console's dense rows keep theirs (a follow-up for IdeaCard itself). */
-  & button[data-term] {
-    min-height: 24px;
-  }
 }
 /* The content column: 16 px gutters on a phone, 32 px from 640 px, never wider than the landing column. */
 @utility landing-col {
