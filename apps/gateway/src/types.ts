@@ -158,5 +158,7 @@ export interface HealthResponse {
   policy: { cedar: string; policies: number };
   vault: "local" | "kms" | "none";
   rateLimitStore: "memory" | "redis";
+  /** How the api's service token is checked (WP-11 T12): "shared", "legacy" (switching), "own". A word, never a value. */
+  apiServiceToken: "shared" | "legacy" | "own";
   time: string;
 }

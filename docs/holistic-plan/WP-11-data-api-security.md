@@ -68,15 +68,15 @@ Rules for every task here (docs/holistic-plan/README.md applies in full):
 | [ ] | T9 Demo data out of every cross-project number | S | F3 |
 | [ ] | T10 Measure the api under 100 Today loads | M | F3, F4 |
 | [x] | T11 Gateway: who may mint what; a tool without hints is refused | S | |
-| [ ] | T12 An api-only service token secret | M | F5 |
+| [x] | T12 An api-only service token secret | M | F5 |
 | [x] | T13 One JWT verifier for the api and the stream | M | |
-| [ ] | T14 Supabase settings: declared and watched | S | WP-00 S10 |
-| [ ] | T15 ingest: bounded webhook bodies; mail routes on `/health` | S | WP-00 S2 |
+| [x] | T14 Supabase settings: declared and watched | S | WP-00 S10 |
+| [x] | T15 ingest: bounded webhook bodies; mail routes on `/health` | S | WP-00 S2 |
 | [ ] | T16 Account export and closing, by request | M | F6 |
-| [ ] | T17 The service connection: the rule as it is, and a pinned list | S | |
+| [x] | T17 The service connection: the rule as it is, and a pinned list | S | |
 | [ ] | T18 The P3 items in one change | S | |
-| [ ] | T19 A dated decision for every item left open | S | WP-00 S16 |
-| [ ] | T20 A founder's own Stripe: store the webhook signing secret | M | WP-00 S8; WP-07 and WP-08 wait for it |
+| [x] | T19 A dated decision for every item left open | S | WP-00 S16 |
+| [x] | T20 A founder's own Stripe: store the webhook signing secret | M | WP-00 S8; WP-07 and WP-08 wait for it |
 
 Sizes: S under a day, M one to three days, L up to a week. 13 S and 7 M: about four to five weeks of one session in sequence (Estimate). T3, T8 and the founder steps run beside the rest; T11 to T20 do not depend on each other. T20 is last in the list only because another package sets its date: start it when WP-07's `create_payment_link` task starts.
 
@@ -369,7 +369,7 @@ Tests and evals: `service-routes.test.ts` (the mint table of step 1), `policy-ha
 verify for all: `pnpm --filter @foundmill/gateway test`, `pnpm --filter @foundmill/connectors test`, `pnpm --filter @foundmill/policy test`, `pnpm --filter @foundmill/orchestrator test grants-contract session`.
 Done when: only the two services mint, the api only one tool at a time, and a tool with empty hints is either read-only or on a reviewed list.
 
-### T12: An api-only service token secret            [size M] [ships alone] [production switch: F5] Review: security-reviewer
+### [x] T12: An api-only service token secret            [size M] [ships alone] [production switch: F5] Review: security-reviewer
 Why: N4, A8-09 (first step), a11 C4, a11 S1. Recorded: 2026-11-11 "SEC-14: the calls made" ("needs a new variable set on the api and the gateway on Railway at the same deploy; doing it in code alone would break production"). This task writes the code so it merges first and the switch is three safe steps.
 Files: modify `packages/shared/src/env.ts`, `.env.example`, `apps/gateway/src/config.ts`, `apps/gateway/src/tokens.ts`, `apps/gateway/src/app.ts` (`requireService`, `/health`), `apps/api/src/services/gateway.ts`, `apps/api/src/context.ts`, `apps/gateway/src/__tests__/tokens.test.ts`, docs/DEPLOY.md §3 (variable table) and §6, docs/SECURITY_REVIEW.md (N4).
 Interfaces: consumes `verifyServiceToken(secret: string, token: string): Promise<ServiceToken>`, `signServiceToken(secret, svc, ttlSeconds)`, `gatewayConfig(env, nodeEnv)`. Produces:
@@ -398,7 +398,7 @@ Not done: `apps/collab` keeps its copy (not deployed; WP-12 decides its future).
 Tests: `packages/shared/src/auth-verifier.test.ts`, `packages/shared/src/allowlist.test.ts`, `apps/stream/src/__tests__/auth.test.ts` (a password-only token and an unconfirmed listed address are refused at the upgrade).
 Done when: a password-only session and an unconfirmed listed address get no socket, and `grep -rn "jwtVerify" apps/api/src apps/stream/src` finds no call outside tests.
 
-### T14: Supabase settings: declared and watched            [size S] [ships alone] [production switch: WP-00 S10] Review: security-reviewer
+### [x] T14: Supabase settings: declared and watched            [size S] [ships alone] [production switch: WP-00 S10] Review: security-reviewer
 Why: A8-11, SEC-8 (accepted only while the Data API is off), a11 C11, a11 S10, a11 S11. The setting lives in a dashboard and nothing notices if it flips.
 Files: create `apps/api/src/services/data-api-probe.ts`, `apps/api/src/__tests__/data-api-probe.test.ts`; modify `apps/api/src/context.ts`, `apps/api/src/index.ts`, `apps/api/src/app.ts` (`/health`), `supabase/config.toml`, `scripts/supabase-config.test.mjs`, docs/DEPLOY.md §4.
 Interfaces: consumes the shape of `createConfirmEmailGuard` (`apps/api/src/services/confirm-email.ts`) and `CONFIRM_EMAIL_REFRESH_MS`. Produces `createDataApiProbe(opts: { supabaseUrl: string; anonKey: string | undefined; log: ApiLogger; fetchImpl?: typeof fetch; timeoutMs?: number }): { state(): "off" | "on" | "unknown"; start(): { stop(): void } }`: `GET {supabaseUrl}/rest/v1/` with the `apikey` header at boot (never awaited) and every 10 minutes; a 2xx is `on` and logs one error; 503 or 404 is `off`; anything else keeps the last value. `/health` adds `dataApi`. It reports and never fails readiness.
@@ -409,7 +409,7 @@ Steps:
 Tests: `data-api-probe.test.ts` (the four answers of step 1); `scripts/supabase-config.test.mjs` (the four keys).
 Done when: `https://api.foundmill.com/health` shows `dataApi: "off"`, and turning the Data API on would log an error within 10 minutes.
 
-### T15: ingest: bounded webhook bodies; mail routes on `/health`            [size S] [ships alone] Review: security-reviewer
+### [x] T15: ingest: bounded webhook bodies; mail routes on `/health`            [size S] [ships alone] Review: security-reviewer
 Why: A8-22, N2, `audits/e0-production-evidence.md` "Live configuration". `apps/ingest/src/webhooks.ts` (`ctx.req.clone().text()`) and `apps/ingest/src/billing.ts` (`req.text()`) read a body of any size on a public service; only `/mail/*` is capped.
 Files: modify `apps/ingest/src/app.ts`, `apps/ingest/src/webhooks.ts`, `apps/ingest/src/billing.ts` (constants), `apps/ingest/src/__tests__/webhooks.test.ts`, `apps/ingest/src/__tests__/billing.test.ts`, `apps/ingest/CLAUDE.md`, docs/DEPLOY.md §3 (ingest row) and §5.7.
 Interfaces: consumes the existing `tooLarge(maxSize)` in `app.ts` (hono `bodyLimit`; answers 413 `payload_too_large`). Produces `WEBHOOK_MAX_BYTES = 1024 * 1024`, `WEBHOOK_MAX_BYTES_BY_CONNECTOR: Record<string, number> = { github: 25 * 1024 * 1024 }`, `BILLING_WEBHOOK_MAX_BYTES = 1024 * 1024`; `/health` adds `platformMail: { domain: boolean; inbound: boolean; events: boolean }` (`inbound`: the token is set; `events`: the event key and the signing secret are set; booleans only).
@@ -439,7 +439,7 @@ Steps:
 Tests: `account-portability.test.ts` (every foreign key to `auth.users` is classified; an export holds one account only; after the auth user is deleted only classified columns keep the id), on both engines.
 Done when: a test account is exported, closed and verified end to end, and the orphan query returns no row on production.
 
-### T17: The service connection: the rule as it is, and a pinned list            [size S] [ships alone]
+### [x] T17: The service connection: the rule as it is, and a pinned list            [size S] [ships alone]
 Why: A8-16. `apps/api/CLAUDE.md` says every user-originated query runs under RLS. In `apps/api/src/routers`, 201 lines use `ctx.db` and 206 use `ctx.rls(`. Recorded 2026-10-07 "apps/api: RLS runner for user work, service db only for service-written tables, never nested" covers part of it; the person-level routers came later. Moving 201 call sites under RLS is not a hygiene task: the rule is written as it is and a new use becomes visible in review.
 Files: create `apps/api/src/__tests__/service-connection.test.ts`; modify `apps/api/CLAUDE.md` (the first invariant), docs/ARCHITECTURE.md §13 (one paragraph), docs/DECISIONS.md.
 Interfaces: produces `SERVICE_CONNECTION_ROUTERS: Readonly<Record<string, { lines: number; why: "person" | "signed_out" | "service_written" | "mixed"; note: string }>>`. At `04a0a509`: `live.ts` 61, `idea.ts` 26, `founder.ts` 15, `email.ts` 15, `agent.ts` 14, `business.ts` 14, `integrations.ts` 10, `import.ts` 9, `product.ts` 5, `distribution.ts` 5, `team.ts` 5, `logo.ts` 5, `idea-box.ts` 5, `billing.ts` 4, `legal.ts` 3, `founder-businesses.ts` 2, `dev.ts` 1, `team-call.ts` 1, `people.ts` 1.
@@ -463,7 +463,7 @@ verify for all: `pnpm exec turbo run typecheck lint test --filter=@foundmill/sha
 Tests: `client-grants.test.ts`, `apps/web/lib/__tests__/env.test.ts`, `health.test.ts`, `packages/shared/src/logger.test.ts`, one case each as the steps say.
 Done when: the four checks pass and a11 S10 is closed.
 
-### T19: A dated decision for every item left open            [size S] [ships alone]
+### [x] T19: A dated decision for every item left open            [size S] [ships alone]
 Why: the package's last "done when". An item nobody fixes and nobody accepts is picked up again by every audit.
 Files: modify docs/DECISIONS.md (one entry, dated on the day it merges, titled "Security and data items accepted for now (WP-11)"), docs/SECURITY_REVIEW.md (a status table dated the same day, one row per id, each "fixed in T<n>" or "accepted, see DECISIONS"), docs/DEPLOY.md §3 (which service holds `DEV_MASTER_KEY` and why; WP-00 S16).
 Interfaces: none (documents).
@@ -475,7 +475,7 @@ Steps:
 Tests: none (documents); the two greps in steps 1 and 2 are the check.
 Done when: every id in `audits/a8-data-api-security.md` §4 and `audits/a11-roadmap-status.md` §7.0 has a row.
 
-### T20: A founder's own Stripe: store the webhook signing secret            [size M] [ships alone] [production switch: WP-00 S8] Review: security-reviewer
+### [x] T20: A founder's own Stripe: store the webhook signing secret            [size M] [ships alone] [production switch: WP-00 S8] Review: security-reviewer
 Why: N2 (the Stripe half). The Stripe connector verifies a delivery with the project's own `stripe_webhook_secret` and falls back to the platform's (`packages/connectors/src/connectors/stripe/index.ts` `secretFor`); ingest reads that credential (`apps/ingest/src/secrets.ts` `WEBHOOK_SECRET_NAMES`); nothing ever stores it. A founder's own Stripe account signs with its own endpoint secret, so its deliveries fail verification and `payment.received` never arrives. WP-07's pay link and WP-08's first payment both wait for that event.
 Files: modify `packages/connectors/src/connectors/stripe/tools.ts` (`STRIPE_CONNECT_FIELDS`), `apps/gateway/src/integrations.ts`, `apps/gateway/src/__tests__/live-integrations.test.ts`, `apps/ingest/src/__tests__/staging-webhooks.test.ts`, docs/DEPLOY.md §5.5, docs/SECURITY_REVIEW.md (N2).
 Interfaces: consumes `ConnectField` (`packages/connectors/src/contract.ts`), `connectIntegration(deps: GatewayDeps, input: ConnectInput, service: string)` and its provisional-then-bound sealing (`encryptJson`, `buildAad`, `repos.credentials.store`, `repos.credentials.rotate`), `createBusinessSecretResolver` (ingest, unchanged). Produces: a second field `{ name: "webhookSecret", label: "Webhook signing secret", secret: true, required: false, placeholder: "whsec_…", hint }`; in the gateway `WEBHOOK_SECRET_FIELDS: Readonly<Record<string, { field: string; kind: "stripe_webhook_secret" }>>` with the one entry `stripe`; after the main credential is stored, a field named there is sealed as a second `credentials` row of that kind on the same integration, in the same transaction, never echoed, and audited by kind only. A value that does not start with `whsec_` is a 400 before the vendor is called. The field is taken out of the input before `connector.connect` sees it.

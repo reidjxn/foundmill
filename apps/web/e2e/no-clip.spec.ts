@@ -163,9 +163,11 @@ const DATE_FORMAT_RUNS: DatePrefs[] = (process.env.E2E_DATE_FORMATS ?? "us.12h")
     return { date, time };
   });
 
-async function setDatePrefs(playwright: Parameters<typeof devApi>[0], prefs: DatePrefs): Promise<DatePrefs> {
+async function setDatePrefs<P extends Record<string, string>>(playwright: Parameters<typeof devApi>[0], prefs: P): Promise<P> {
   const api = await devApi(playwright);
-  const before = ((await (await api.get("/trpc/founder.preferences.get")).json()) as { result: { data: { json: DatePrefs } } }).result.data.json;
+  const read = async (path: string) => ((await (await api.get(`/trpc/founder.preferences.${path}`)).json()) as { result: { data: { json: Record<string, string> } } }).result.data.json;
+  const all = { ...(await read("get")), ...(await read("guidance")) };
+  const before = Object.fromEntries(Object.keys(prefs).map((k) => [k, all[k]])) as P;
   const res = await api.post("/trpc/founder.preferences.update", { data: { json: prefs } });
   expect(res.ok(), await res.text()).toBe(true);
   await api.dispose();
@@ -208,3 +210,18 @@ for (const prefs of DATE_FORMAT_RUNS) {
     });
   }
 }
+
+// Comfortable text is where a new guided account starts (WP-10 T5): body 14/20, small 12.5/16, chat 14/21 must fit too.
+for (const width of [1280, 1440]) {
+  test(`no text is clipped and no field overlaps at ${width} px (comfortable text)`, async ({ page, playwright }) => {
+    test.setTimeout(20 * 60_000);
+    const before = await setDatePrefs(playwright, { textSize: "comfortable" });
+    try {
+      await measureEveryScreen(page, width);
+      await expect(page.locator("html")).toHaveAttribute("data-text", "comfortable");
+    } finally {
+      await setDatePrefs(playwright, before);
+    }
+  });
+}
+

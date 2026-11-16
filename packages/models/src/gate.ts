@@ -19,14 +19,17 @@ import type { CompleteRequest, CompleteResult, CompleteResultWithJson, ModelClie
 export interface ModelCallVerdict {
   /** The business's credits are low: routine routes run on their lower-cost model. */
   lowCredits?: boolean;
+  /** The account is not on a paid plan: the call runs on the free plan's model (`enforceModelFunding`). */
+  freePlan?: boolean;
 }
 
 /** What the gate sees of a call: its route and who it is for. Throw to refuse it; return a verdict to shape it. */
 export type ModelCallGate = (call: { route: RouteKey; attribution?: UsageAttribution }) => Promise<void | ModelCallVerdict>;
 
 /** The request as the verdict shapes it (the same object when there is nothing to change). */
-function shaped<R extends { lowCredits?: boolean }>(req: R, verdict: void | ModelCallVerdict): R {
-  return verdict && verdict.lowCredits ? { ...req, lowCredits: true } : req;
+function shaped<R extends { lowCredits?: boolean; freePlan?: boolean }>(req: R, verdict: void | ModelCallVerdict): R {
+  if (!verdict || (!verdict.lowCredits && !verdict.freePlan)) return req;
+  return { ...req, ...(verdict.lowCredits ? { lowCredits: true } : {}), ...(verdict.freePlan ? { freePlan: true } : {}) };
 }
 
 /** Methods live on the prototype, as on the built-in clients, so `{ ...client, complete }` overrides behave the same. */

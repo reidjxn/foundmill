@@ -102,18 +102,27 @@ async function* once(...events: IdeaBoxEvent[]): AsyncGenerator<IdeaBoxEvent, vo
 export const boxCard = (card: unknown): IdeaBoxCard => card as IdeaBoxCard;
 
 /** A card as the `card` event, with the claim token its sign-in link carries (null when none could be issued). */
-export function cardEvent(row: IdeaDraftRow, again: boolean, claim: string | null): IdeaBoxEvent {
-  return { type: "card", card: boxCard(row.card), prompt: row.prompt, interest: row.interest, sample: row.modelMode === "mock", again, claim };
+export function cardEvent(row: IdeaDraftRow, again: boolean, claim: string | null, redrawsLeft: number | null = null): IdeaBoxEvent {
+  return { type: "card", card: boxCard(row.card), prompt: row.prompt, interest: row.interest, sample: row.modelMode === "mock", again, claim, redrawsLeft };
+}
+
+/** The limit-store key that counts a browser's redraws (the token's hash, never the token). */
+const redrawKey = (token: string) => `idea-box:redraw:${ideaTokenHash(token)}`;
+
+/** How many redraws this browser has left today, recording nothing; null when the store cannot say. */
+async function redrawsLeftFor(limits: RateLimitStore | undefined, token: string): Promise<number | null> {
+  if (!limits) return null;
+  return limits.peek({ key: redrawKey(token), rule: IDEA_BOX_LIMITS.redrawsPerBrowserDay }).catch(() => null);
 }
 
 /** The browser's live card with a fresh claim token (the old one is stored only as a hash), or null. */
-async function liveCardEvent(deps: Pick<IdeaBoxDeps, "db">, cookieToken: string, now: Date): Promise<IdeaBoxEvent | null> {
+async function liveCardEvent(deps: Pick<IdeaBoxDeps, "db"> & { limits?: RateLimitStore }, cookieToken: string, now: Date): Promise<IdeaBoxEvent | null> {
   const hash = ideaTokenHash(cookieToken);
   const row = await repos.ideaDrafts.liveByToken(deps.db, hash, now);
   if (!row) return null;
   const claim = newIdeaToken();
   const rotated = await repos.ideaDrafts.rotateClaim(deps.db, hash, ideaTokenHash(claim), now);
-  return cardEvent(row, true, rotated ? claim : null);
+  return cardEvent(row, true, rotated ? claim : null, await redrawsLeftFor(deps.limits, cookieToken));
 }
 
 const startOfUtcDay = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
@@ -164,7 +173,7 @@ export async function planIdeaBoxDraft(deps: IdeaBoxDeps, input: IdeaBoxDraftInp
     entries.push({ key: `${key}:hour`, rule: IDEA_BOX_LIMITS.perAddressHour });
     entries.push({ key: `${key}:day`, rule: IDEA_BOX_LIMITS.perAddressDay });
   }
-  if (redraw) entries.push({ key: `idea-box:redraw:${ideaTokenHash(redraw)}`, rule: IDEA_BOX_LIMITS.redrawsPerBrowserDay });
+  if (redraw) entries.push({ key: redrawKey(redraw), rule: IDEA_BOX_LIMITS.redrawsPerBrowserDay });
   const taken = await deps.limits.take(entries);
   if (!taken.ok) return refuse("limit");
 
@@ -260,7 +269,7 @@ async function* draftStream(deps: IdeaBoxDeps, input: { prompt: string; interest
         return;
       }
       deps.log.info({ mode: deps.models.mode, costMicro: res.cost.costMicroMinor, firstTextMs: res.firstTextMs ?? null }, "idea box: card drafted");
-      push(cardEvent(row, false, claim));
+      push(cardEvent(row, false, claim, await redrawsLeftFor(deps.limits, input.token)));
     } catch (err) {
       // Nothing is given back: the call was made (and paid for) whether it finished, failed or the visitor left.
       const refused = err instanceof ModelOutputError && err.code === "refusal";
@@ -294,7 +303,7 @@ async function* draftStream(deps: IdeaBoxDeps, input: { prompt: string; interest
 }
 
 /** `GET /idea-box/mine`: the browser's live card (with a fresh claim token), or null. */
-export async function mineIdeaBox(deps: Pick<IdeaBoxDeps, "db" | "now">, cookieToken: string | null): Promise<IdeaBoxEvent | null> {
+export async function mineIdeaBox(deps: Pick<IdeaBoxDeps, "db" | "now"> & { limits?: RateLimitStore }, cookieToken: string | null): Promise<IdeaBoxEvent | null> {
   if (!cookieToken || !IdeaToken.safeParse(cookieToken).success) return null;
   return liveCardEvent(deps, cookieToken, deps.now?.() ?? new Date());
 }

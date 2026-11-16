@@ -167,7 +167,7 @@ describe("today.get › firstWeek", () => {
 
   it("reads Day 1 from the page and the sign-offs (package 1.3): both sign-offs leave the page to publish", async () => {
     const b = await business("Today First Week Facts");
-    expect((await b.owner.today.get({ businessId: b.id })).firstWeek!.steps[0]).toMatchObject({ team: "Your team drafts your page, your specification and your roadmap.", asks: "You are asked to publish your page and sign off the specification and the roadmap." });
+    expect((await b.owner.today.get({ businessId: b.id })).firstWeek!.steps[0]).toMatchObject({ team: "Your team drafts your page, your specification and your roadmap.", asks: "You are asked to publish your page and approve your plan." });
     await repos.productSignoffs.seedApproved(hz.db, b.id, { spec: { at: new Date() }, roadmap: { at: new Date() }, decidedBy: b.ownerId });
     const signed = await b.owner.today.get({ businessId: b.id });
     expect(signed.firstWeek!.steps.map((s) => s.state)).toEqual(["now", "next", "next"]);

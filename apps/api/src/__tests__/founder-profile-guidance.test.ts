@@ -58,7 +58,19 @@ describe("founder.profile.update and guidance", () => {
     expect(await hz.caller({ userId: first }).founder.profile.update({ ...profile("Fin", "first_time"), confirmAdult: true })).toMatchObject({ guidanceTurnedOff: false });
     // A first-time founder's single keys stay off: one stray key never starts work or answers a note (WP-04 T13).
     expect(await hz.caller({ userId: first }).founder.preferences.guidance()).toMatchObject({ guidance: "on", builderView: false, keyboardShortcuts: false });
-    expect(await hz.db.select().from(accountPreferences).where(eq(accountPreferences.userId, first))).toHaveLength(0);
+  });
+
+  it("a first-time profile starts on comfortable text; an Operator's does not (WP-10 T5)", async () => {
+    const first = await hz.h.createUser("first-time-text@test.local");
+    await hz.caller({ userId: first }).founder.profile.update({ ...profile("Fay", "first_time"), confirmAdult: true });
+    expect(await hz.caller({ userId: first }).founder.preferences.guidance()).toMatchObject({ guidance: "on", textSize: "comfortable" });
+    const op = await hz.h.createUser("operator-text@test.local");
+    await hz.caller({ userId: op }).founder.profile.update({ ...profile("Oren", "operator"), confirmAdult: true });
+    expect(await hz.caller({ userId: op }).founder.preferences.guidance()).toMatchObject({ guidance: "off", textSize: "standard" });
+    // A later save leaves the size alone, so a founder who picks standard keeps it.
+    await hz.caller({ userId: first }).founder.preferences.update({ textSize: "standard" });
+    await hz.caller({ userId: first }).founder.profile.update({ confirmAdult: true, displayName: "Faye" });
+    expect(await hz.caller({ userId: first }).founder.preferences.guidance()).toMatchObject({ textSize: "standard" });
   });
 
   it("a first save that names no experience keeps guidance on, and the choices made before the profile stay", async () => {

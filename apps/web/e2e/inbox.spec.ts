@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, ROADMAP_SIGNOFF, SPEC_SIGNOFF, UUID, approveBothSignoffs, approveFromInbox, devApi, dismissCoachmarks, ensureDeck, focusDecisionBar, inboxRow, openBoardQuestion, openBusiness, signIn, startDistributionFromBoard, takeChargeToHome, setBuilderView } from "./helpers";
+import { LONG, NORTHWIND_BUSINESS_ID, PLAN_NOTE, UUID, approvePlan, devApi, dismissCoachmarks, ensureDeck, focusDecisionBar, inboxRow, openBoardQuestion, openBusiness, signIn, startDistributionFromBoard, takeChargeToHome, setBuilderView } from "./helpers";
 
 // Builder view on for this file (it opens an approval's Details); global-setup.ts starts every run with it off. Restored afterwards.
 let builderViewBefore = false;
@@ -103,19 +103,19 @@ test.describe("inbox", () => {
     await expect(rows).toHaveCount(before + 1);
   });
 
-  test("the two sign-off notes wait in Needs you without holding Continue; 1 approves each (the second starts the build), Continue runs a cycle step, and 1 approves the first goal", async ({ page, playwright }) => {
+  test("the plan note waits in Needs you without holding Continue; 1 approves it and starts the build, Continue runs a cycle step, and 1 approves the first goal", async ({ page, playwright }) => {
     test.setTimeout(360_000);
     await signIn(page);
     const { bid } = await commitFreshBusiness(page, `Playwright Inbox ${Date.now().toString(36)}`);
-    // The foundations draft in the background (mock models); their two sign-off notes wait in Needs you. Since Nov 7, 2026
-    // a decision never holds Continue: the button stays Continue and the Inbox counts what needs the founder (the two
-    // sign-offs and, since package 1.3, the Product lead's "Your project's page is ready").
+    // The foundations draft in the background (mock models); the one plan note (WP-04 T5) waits in Needs you. Since Nov 7,
+    // 2026 a decision never holds Continue: the button stays Continue and the Inbox counts what needs the founder (the
+    // plan and, since package 1.3, the Product lead's "Your project's page is ready").
     await page.goto(`/b/${bid}/inbox`);
-    await expect(inboxRow(page, SPEC_SIGNOFF)).toBeVisible({ timeout: LONG });
-    await expect(inboxRow(page, ROADMAP_SIGNOFF)).toBeVisible({ timeout: LONG });
-    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Needs you/ })).toContainText("3", { timeout: LONG });
+    await expect(inboxRow(page, PLAN_NOTE)).toBeVisible({ timeout: LONG });
+    await expect(inboxRow(page, /Sign off the product/)).toHaveCount(0);
+    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Needs you/ })).toContainText("2", { timeout: LONG });
     await expect(page.getByRole("button", { name: /^Continue$/ })).toBeVisible({ timeout: LONG });
-    await inboxRow(page, SPEC_SIGNOFF).click();
+    await inboxRow(page, PLAN_NOTE).click();
     const item = page.getByTestId("inbox-item");
     await expect(item).toHaveAttribute("data-type", "decision", { timeout: LONG });
     const bar = page.getByTestId("decision-bar");
@@ -148,11 +148,10 @@ test.describe("inbox", () => {
     await expect(answered).toBeVisible();
     // Decided from the DecisionBar: the desk keeps 2–4 replies but no longer offers "Go with: …" (no second decision).
     await expect(desk.locator('[data-quick-reply="go_with"]')).toHaveCount(0, { timeout: LONG });
-    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Needs you/ })).toContainText("2", { timeout: LONG });
-    // The second approval starts the build: Development › Plan gets the Planner's first tasks.
-    await approveFromInbox(page, bid, ROADMAP_SIGNOFF);
-    // In the project's first week the Product lead's "Building starts: …" is folded into the Chief of Staff's note of the
-    // day (WP-04 T8): one row in the Inbox, the update itself in Archive.
+    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Needs you/ })).toContainText("1", { timeout: LONG });
+    // The one approval starts the build: Development › Plan gets the Planner's first tasks. In the project's first week
+    // the Product lead's "Building starts: …" is folded into the Chief of Staff's note of the day (WP-04 T8): one row in
+    // the Inbox, the update itself in Archive.
     await expect(inboxRow(page, "What your team did today")).toBeVisible({ timeout: LONG });
     await expect(inboxRow(page, /Building starts:/)).toHaveCount(0);
     const idle = page.getByRole("button", { name: /^Continue$/ });
@@ -165,7 +164,7 @@ test.describe("inbox", () => {
     await expect(page.locator("[data-coachmark='processing-strip'][data-notice]")).toHaveAttribute("aria-label", /Starting the next (cycle|round of work)|(cycle \d+|round of work) started|cannot run right now|(cycle \d+|round of work) resumed|already running/i, { timeout: 1_000 });
     await expect(page.getByText(/(cycle \d+|round of work) started|cannot run right now|(cycle \d+|round of work) resumed|already running/i).first()).toBeVisible({ timeout: LONG });
 
-    // After both sign-offs and a round of work the Chief of Staff proposes the first goal (founder, 2026-11-07): Home asks
+    // After the plan's approval and a round of work the Chief of Staff proposes the first goal (founder, 2026-11-07): Home asks
     // `goal.ensure` once per visit, the proposal is a decision note in Needs you that never holds Continue, and one tap on
     // the recommended option (1) approves it. On a project's first day the goal waits for the page (WP-04 T8), so the
     // page goes live first, through the api as the founder's own press.
@@ -449,9 +448,9 @@ test.describe("inbox", () => {
   test("a \"Go with: …\" quick reply decides the note through the decide path", async ({ page }) => {
     await signIn(page);
     const { bid } = await commitFreshBusiness(page, `Playwright Desk ${Date.now().toString(36)}`);
-    // The first open decision of a new business is the specification sign-off (founder, 2026-10-18).
+    // The first open decision of a new business is the plan note (WP-04 T5).
     await page.goto(`/b/${bid}/inbox`);
-    await inboxRow(page, SPEC_SIGNOFF).click();
+    await inboxRow(page, PLAN_NOTE).click();
     const item = page.getByTestId("inbox-item");
     await expect(item).toHaveAttribute("data-type", "decision", { timeout: LONG });
     const desk = page.getByTestId("agent-desk");
@@ -518,7 +517,7 @@ test.describe("inbox", () => {
     test.setTimeout(300_000);
     const { bid } = await commitFreshBusiness(page, `Playwright Go-ahead ${Date.now().toString(36)}`);
     // The Board's question arrives once the product is signed off and distribution started (founder, 2026-10-18).
-    await approveBothSignoffs(page, bid);
+    await approvePlan(page, bid);
     const { boardItemId: itemId } = await startDistributionFromBoard(page, bid);
     await openBoardQuestion(page, bid, itemId);
     const item = page.getByTestId("inbox-item");
@@ -617,7 +616,7 @@ test.describe("inbox", () => {
     await signIn(page);
     const { bid } = await commitFreshBusiness(page, `Playwright Double ${Date.now().toString(36)}`);
     await page.goto(`/b/${bid}/inbox`);
-    await inboxRow(page, SPEC_SIGNOFF).click();
+    await inboxRow(page, PLAN_NOTE).click();
     await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open", { timeout: LONG });
     let sent = 0;
     await page.route("**/trpc/**", async (route) => {

@@ -167,6 +167,7 @@ export async function main(): Promise<void> {
   const keys: KeyRefresher | null = deps.auth.keepKeysFresh?.({ onError: (err) => deps.log.warn({ err: (err as Error)?.message }, "fetching Supabase's signing keys failed; retrying in 5 minutes (a token with an unknown key fetches them at once)") }) ?? null;
   // With SIGNUP_ALLOWLIST: is Supabase's "Confirm email" on? Read in the background; boot never waits for it.
   const confirmEmail = deps.confirmEmail?.start() ?? null;
+  const dataApi = deps.dataApi?.start() ?? null;
   // Installed before the migration: a SIGTERM during boot still closes the pool (the migration transaction rolls back).
   const lifecycle = onShutdown({
     service: "api",
@@ -188,6 +189,7 @@ export async function main(): Promise<void> {
       { name: "stop showcase sweep", run: async () => showcaseSweep?.stop() },
       { name: "stop key refresh", run: () => keys?.stop() },
       { name: "stop confirm-email check", run: () => confirmEmail?.stop() },
+      { name: "stop data-api check", run: () => dataApi?.stop() },
       { name: "stop pool warmer", run: () => warmer?.stop() },
       { name: "stop pool watchdog", run: () => watchdog?.stop() },
       { name: "stop outbox relay", run: () => relay?.stop() },
