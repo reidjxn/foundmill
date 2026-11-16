@@ -20,6 +20,7 @@ export type { Journal, JournalEntry, MigrationFile } from "./migrations";
 export { appliedMigrationCount, DEFAULT_MIGRATION_LOCK_TIMEOUT_MS, isMigrationLockTimeout, migrateDb, MIGRATION_LOCK, MigrationLockTimeoutError, schemaReady, type MigrateOptions, type MigrateResult, type MigrationLockHolder } from "./migrator";
 export { DEFAULT_PGLITE_DIR, PGLITE_BOOTSTRAP_SQL, findWorkspaceRoot, isPgliteDb, isPgliteUrl, parsePgliteUrl, pgliteUrl, resolvePgliteDir } from "./pglite";
 export type { LazyPgliteClient, PgliteTarget } from "./pglite";
+export { hireFromTemplate, hireMany, type HiredAgent, type HireOptions, type PlannedHire } from "./hire";
 export { attachAddedSkills, resolveLibrarySkill, resolveSkillFile, skillLibraryEntries, type ResolvedSkill } from "./skill-attach";
 export { awardMilestonesForConversion, awardRevenueMilestones, awardPageLiveMilestone, awardFirstFollowerMilestone, catchUpMilestones, monthlyRevenueAt, MONTHLY_REVENUE_REF } from "./milestones";
 export { draftTeamPost, type TeamPostDraftDeps, type TeamPostDraftOptions, type TeamPostDraftResult, type TeamPostDraftSkip } from "./team-post-draft";
