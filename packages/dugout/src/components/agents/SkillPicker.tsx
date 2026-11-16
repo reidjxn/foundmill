@@ -1,15 +1,18 @@
 "use client";
 /**
  * Skills a founder adds to an agent (founder request 2026-10-16): the skills library as a searchable list grouped by
- * category (`SkillLibraryList`), the preview of an uploaded skill file before it is added (`SkillFilePreview`) and the
+ * category, the skills suggested for the agent first (`SkillLibraryList`), one skill's whole text to read before adding
+ * it (`SkillReader`, WP-06 T7), the preview of an uploaded skill file before it is added (`SkillFilePreview`) and the
  * skills chosen so far, each removable (`ChosenSkillList`). Presentational: the hire dialog and the agent profile wire
  * them to data.
  */
-import { useId, useMemo, useState } from "react";
-import { BookOpen, FileText, Info, Search, X } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { ArrowLeft, BookOpen, FileText, Info, Search, X } from "lucide-react";
 import type { SkillGroup } from "@foundmill/shared/constants";
 import { cn } from "../../lib/cn";
 import { formatNumber } from "../../lib/format";
+import { Markdown } from "../data/Markdown";
+import { Button } from "../foundation/Button";
 import { Checkbox } from "../foundation/Checkbox";
 import { Chip } from "../foundation/Chip";
 import { Icon } from "../foundation/Icon";
@@ -25,6 +28,47 @@ export interface LibrarySkillOption {
   categoryLabel: string;
   /** The attribute rating it shows as on the profile. */
   attribute: { name: string; group: SkillGroup };
+  /** Suggested for the agent the picker was opened for: listed first, under `SUGGESTED_GROUP_LABEL`. */
+  suggested?: boolean;
+  /** Why it is suggested ("Fits this role"). */
+  suggestedBecause?: string | null;
+  /** Connectors that make it better (it works without them), and whether each is connected. */
+  requires?: readonly SkillConnectorNeed[];
+  /** Tools it would use that are not built yet, as plain names. */
+  notYetOnFoundmill?: readonly string[];
+}
+
+/** A connector a skill is better with. */
+export interface SkillConnectorNeed {
+  connectorKey: string;
+  name: string;
+  connected: boolean;
+}
+
+/** "Better with Stripe, connected". */
+export function connectorNeedLabel(need: SkillConnectorNeed): string {
+  return `Better with ${need.name}, ${need.connected ? "connected" : "not connected"}`;
+}
+
+/** "Not built yet: Search Console". */
+export function notBuiltLabel(names: readonly string[]): string {
+  return `Not built yet: ${names.join(", ")}`;
+}
+
+/** What a skill is better with and what it would use that is not built yet; `all` names the connected ones too. */
+function SkillNeeds({ requires = [], notYetOnFoundmill = [], all = false }: { requires?: readonly SkillConnectorNeed[]; notYetOnFoundmill?: readonly string[]; all?: boolean }) {
+  const shown = all ? requires : requires.filter((r) => !r.connected);
+  if (shown.length === 0 && notYetOnFoundmill.length === 0) return null;
+  return (
+    <span className="flex flex-wrap gap-1.5">
+      {shown.map((r) => (
+        <Chip key={r.connectorKey} tone={r.connected ? "good" : "neutral"}>
+          {connectorNeedLabel(r)}
+        </Chip>
+      ))}
+      {notYetOnFoundmill.length ? <Chip tone="warn">{notBuiltLabel(notYetOnFoundmill)}</Chip> : null}
+    </span>
+  );
 }
 
 /** "Craft · Press releases": where the skill shows on the profile's attributes. */
@@ -48,16 +92,26 @@ export interface SkillLibraryListProps {
   unavailable?: Readonly<Record<string, string>>;
   /** Most that may be selected; the rest disable once it is reached. */
   max?: number;
+  /** Shows "Read the skill" on each row; called with its key (the host loads and shows the text). */
+  onRead?: (key: string) => void;
   className?: string;
 }
 
-/** The skills library: a search field, then the skills grouped by category, each with a checkbox. */
-export function SkillLibraryList({ skills, selected, onToggle, unavailable = {}, max, className }: SkillLibraryListProps) {
+/** The heading of the suggested group, which leads the list. */
+export const SUGGESTED_GROUP_LABEL = "Suggested for this agent";
+
+/**
+ * The skills library: a search field, then the suggested skills (when any), then the rest grouped by category, each
+ * with a checkbox and, with `onRead`, a button that opens its text. A suggested skill is listed once, in that group.
+ */
+export function SkillLibraryList({ skills, selected, onToggle, unavailable = {}, max, onRead, className }: SkillLibraryListProps) {
   const id = useId();
   const [query, setQuery] = useState("");
   const groups = useMemo(() => {
     const out = new Map<string, LibrarySkillOption[]>();
-    for (const s of skills) if (matchesSkillQuery(s, query)) out.set(s.categoryLabel, [...(out.get(s.categoryLabel) ?? []), s]);
+    const add = (label: string, s: LibrarySkillOption) => out.set(label, [...(out.get(label) ?? []), s]);
+    for (const s of skills) if (s.suggested && matchesSkillQuery(s, query)) add(SUGGESTED_GROUP_LABEL, s);
+    for (const s of skills) if (!s.suggested && matchesSkillQuery(s, query)) add(s.categoryLabel, s);
     return [...out.entries()];
   }, [skills, query]);
   const full = max !== undefined && selected.length >= max;
@@ -70,9 +124,9 @@ export function SkillLibraryList({ skills, selected, onToggle, unavailable = {},
         </p>
       ) : null}
       <div className="flex min-h-0 flex-col gap-4">
-        {groups.map(([label, rows]) => (
-          <section key={label} aria-labelledby={`${id}-${label}`} className="flex flex-col gap-1">
-            <h3 id={`${id}-${label}`} className="t-label flex items-center gap-2">
+        {groups.map(([label, rows], gi) => (
+          <section key={label} aria-labelledby={`${id}-group-${gi}`} className="flex flex-col gap-1" data-skill-group={label === SUGGESTED_GROUP_LABEL ? "suggested" : undefined}>
+            <h3 id={`${id}-group-${gi}`} className="t-label flex items-center gap-2">
               {label}
               <span className="font-mono text-micro text-tertiary tabular-nums">{formatNumber(rows.length, { maxDigits: 0 })}</span>
             </h3>
@@ -89,11 +143,18 @@ export function SkillLibraryList({ skills, selected, onToggle, unavailable = {},
                       <span className="flex min-w-0 flex-wrap items-center gap-2">
                         <span className="text-body-strong text-primary">{s.name}</span>
                         <Chip>{`Shows as ${showsAsLabel(s.attribute)}`}</Chip>
+                        {s.suggested && s.suggestedBecause ? <Chip tone="info">{s.suggestedBecause}</Chip> : null}
                       </span>
                       <span id={`${cid}-desc`} className="text-small text-secondary">
                         {reason ?? s.description}
                       </span>
+                      <SkillNeeds requires={s.requires} notYetOnFoundmill={s.notYetOnFoundmill} />
                     </label>
+                    {onRead ? (
+                      <Button size="sm" variant="ghost" icon={BookOpen} className="shrink-0" aria-label={`Read the skill: ${s.name}`} onClick={() => onRead(s.key)} data-read-skill={s.key}>
+                        Read the skill
+                      </Button>
+                    ) : null}
                   </li>
                 );
               })}
@@ -102,6 +163,64 @@ export function SkillLibraryList({ skills, selected, onToggle, unavailable = {},
         ))}
       </div>
     </div>
+  );
+}
+
+export interface SkillReaderProps {
+  name: string;
+  /** The skill's whole text in Markdown; null while it loads or when it failed. */
+  instructionsMd: string | null;
+  version?: number;
+  /** "Adapted from ... under the MIT license."; null for text written for the product. */
+  attribution?: string | null;
+  requires?: readonly SkillConnectorNeed[];
+  notYetOnFoundmill?: readonly string[];
+  loading?: boolean;
+  error?: string | null;
+  onBack: () => void;
+  className?: string;
+}
+
+/**
+ * One library skill's whole text, for a person to read before adding it (founder, Nov 16, 2026: a person reads a skill's
+ * text in the product). Rendered as Markdown with raw HTML skipped, no images loaded, no entity links and web links
+ * only: library text is safe, and is still shown as text, never as markup.
+ */
+export function SkillReader({ name, instructionsMd, version, attribution, requires, notYetOnFoundmill, loading, error, onBack, className }: SkillReaderProps) {
+  // It takes the place of the list the person pressed "Read the skill" in: focus moves with it, onto the way back.
+  const back = useRef<HTMLButtonElement>(null);
+  useEffect(() => back.current?.focus(), []);
+  return (
+    <section aria-label={name} className={cn("flex min-h-0 flex-col gap-3", className)} data-skill-reader>
+      <header className="flex min-w-0 flex-col gap-2">
+        <Button ref={back} size="sm" variant="ghost" icon={ArrowLeft} className="-ml-2 self-start" onClick={onBack} data-testid="skill-reader-back">
+          Back to the library
+        </Button>
+        <span className="flex min-w-0 flex-wrap items-center gap-2">
+          <span className="text-body-strong text-primary">{name}</span>
+          {version !== undefined ? <Chip mono>{`Version ${formatNumber(version, { maxDigits: 0 })}`}</Chip> : null}
+        </span>
+        <SkillNeeds requires={requires} notYetOnFoundmill={notYetOnFoundmill} all />
+      </header>
+      {loading && instructionsMd === null ? (
+        <p role="status" className="text-small text-secondary">
+          Loading the skill…
+        </p>
+      ) : null}
+      {error ? (
+        <p role="alert" className="text-small text-status-bad">
+          {error}
+        </p>
+      ) : null}
+      {instructionsMd !== null ? (
+        <div className="edge rounded-md bg-surface-2 p-panel-pad" data-skill-text>
+          <Markdown variant="body" entities={false} images={false} webLinksOnly>
+            {instructionsMd}
+          </Markdown>
+        </div>
+      ) : null}
+      {attribution ? <p className="text-small text-tertiary">{attribution}</p> : null}
+    </section>
   );
 }
 

@@ -2,15 +2,19 @@ import "./setup";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
+import { preloadMarkdown } from "@foundmill/dugout";
 import { RecruitmentScreen } from "../RecruitmentScreen";
 import { readSkillFile, toSkillChoices } from "../skills";
 import { BID, DEPT_TEAM, dataResponses } from "./fixtures";
 import { createFakeSource, renderScreen } from "./fake-source";
 
 const LIBRARY = [
-  { key: "newsletter_writing", skillKey: "library_newsletter_writing", name: "Newsletter writing", description: "Writes a regular customer newsletter.", category: "marketing", categoryLabel: "Marketing", attribute: { name: "Newsletter writing", group: "craft" }, instructionsMd: "# Newsletter writing" },
-  { key: "pricing_analysis", skillKey: "library_pricing_analysis", name: "Pricing analysis", description: "Compares pricing options on margin.", category: "finance", categoryLabel: "Finance", attribute: { name: "Pricing judgment", group: "judgement" }, instructionsMd: "# Pricing analysis" },
+  { key: "newsletter_writing", skillKey: "library_newsletter_writing", name: "Newsletter writing", description: "Writes a regular customer newsletter.", category: "marketing", categoryLabel: "Marketing", attribute: { name: "Newsletter writing", group: "craft" }, whenToUse: "Use when the next issue needs writing.", version: 1, suggested: false, suggestedBecause: null, requires: [], notYetOnFoundmill: [], attribution: null },
+  { key: "pricing_analysis", skillKey: "library_pricing_analysis", name: "Pricing analysis", description: "Compares pricing options on margin.", category: "finance", categoryLabel: "Finance", attribute: { name: "Pricing judgment", group: "judgement" }, whenToUse: "Use when a price is being set.", version: 2, suggested: false, suggestedBecause: null, requires: [{ connectorKey: "stripe", name: "Stripe", connected: false }], notYetOnFoundmill: [], attribution: "Adapted from marketing-skills:pricing under the MIT license." },
 ];
+/** team.skills.library as the api answers it: the template's skills suggested, first. */
+const libraryFor = (input: Record<string, unknown> | undefined) => (input?.templateKey === "newsletter_writer" ? [{ ...LIBRARY[0]!, suggested: true, suggestedBecause: "Fits this role" }, LIBRARY[1]!] : LIBRARY);
+const SKILL_TEXT = { key: "pricing_analysis", name: "Pricing analysis", version: 2, attribution: "Adapted from marketing-skills:pricing under the MIT license.", instructionsMd: "# Pricing analysis\n\n## Steps\n\n- Compare options on **margin**.\n\n<b>raw</b>" };
 const SKILL_MD = "---\nname: changelog-digest\ndescription: Turns a week of merged changes into a short digest.\n---\n# Changelog digest\n\n1. Group the changes.";
 const PREVIEW = { name: "Changelog digest", description: "Turns a week of merged changes into a short digest.", format: "skill_md", fileName: "SKILL.md", sizeBytes: 120, lines: ["# Changelog digest", "1. Group the changes."], totalLines: 2, notes: [], group: "craft" };
 
@@ -81,6 +85,38 @@ describe("the hire dialog's Skills step", () => {
     await waitFor(() => expect(fake.mutations.find((m) => m.path === "team.agents.hire")).toBeTruthy());
     expect(fake.mutations.find((m) => m.path === "team.agents.hire")!.input.skills).toEqual([{ source: "upload", fileName: "SKILL.md", content: SKILL_MD }, { source: "library", key: "newsletter_writing" }]);
     await waitFor(() => expect(screen.getByTestId("recruitment-notice").textContent).toBe("Newsletter writer hired with 2 added skills. Train it from its profile to tune its skills."));
+  });
+
+  it("suggests the skills for the template being hired, first, and opens a skill's whole text without losing the choice (WP-06 T7)", async () => {
+    await preloadMarkdown();
+    const user = userEvent.setup();
+    const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "team.skills.library": libraryFor, "team.skills.get": SKILL_TEXT } });
+    renderScreen(fake, <RecruitmentScreen businessId={BID} departmentId={DEPT_TEAM} />);
+    const table = await screen.findByRole("grid", { name: "Catalog" });
+    fireEvent.contextMenu(within(table).getByText("Newsletter writer"));
+    await user.click(await screen.findByRole("menuitem", { name: "Hire…" }));
+    await user.click(within(await screen.findByTestId("hire-dialog")).getByRole("button", { name: "Add from library" }));
+    const library = await screen.findByTestId("skill-library-dialog");
+    expect(fake.inputs.get("team.skills.library")?.at(-1)).toEqual({ templateKey: "newsletter_writer" });
+    const suggested = within(library).getByRole("region", { name: /Suggested for this agent/ });
+    expect(within(suggested).getByText("Newsletter writing")).toBeTruthy();
+    expect(within(suggested).getByText("Fits this role")).toBeTruthy();
+    expect(within(library).getByText("Better with Stripe, not connected")).toBeTruthy();
+
+    // Choose one, read another, come back: the choice is kept.
+    await user.click(within(library).getByRole("checkbox", { name: /Newsletter writing/ }));
+    await user.click(within(library).getByRole("button", { name: "Read the skill: Pricing analysis" }));
+    const reader = await within(library).findByRole("region", { name: "Pricing analysis" });
+    expect(fake.inputs.get("team.skills.get")?.at(-1)).toEqual({ key: "pricing_analysis" });
+    expect(await within(reader).findByRole("heading", { name: "Steps" })).toBeTruthy();
+    expect(within(reader).getByText("margin").tagName).toBe("STRONG");
+    expect(reader.querySelector("b")).toBeNull();
+    expect(within(reader).getByText("Adapted from marketing-skills:pricing under the MIT license.")).toBeTruthy();
+    await user.click(within(reader).getByRole("button", { name: "Back to the library" }));
+    expect(within(library).queryByRole("region", { name: "Pricing analysis" })).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(within(library).getByRole("button", { name: "Read the skill: Pricing analysis" })));
+    expect((within(library).getByRole("checkbox", { name: /Newsletter writing/ }) as HTMLButtonElement).getAttribute("data-state")).toBe("checked");
+    expect(within(library).getByTestId("skill-library-add").textContent).toBe("Add 1 skill");
   });
 
   it("shows the api's reason when a file is refused, and nothing can be added", async () => {
