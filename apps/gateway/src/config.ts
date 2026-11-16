@@ -52,6 +52,8 @@ export function gatewayConfig(env: Env = loadEnv(), nodeEnv: string | undefined 
   if (secret && secret.length < 16) throw new Error("SESSION_TOKEN_SECRET must be at least 16 characters");
   const apiSecret = env.API_SERVICE_TOKEN_SECRET?.trim() || null;
   if (apiSecret && apiSecret.length < API_SERVICE_TOKEN_MIN_LENGTH) throw new Error(`API_SERVICE_TOKEN_SECRET must be at least ${API_SERVICE_TOKEN_MIN_LENGTH} characters`);
+  // The same value as the shared secret would let every holder of it pass as the api, and refuse everyone else.
+  if (apiSecret && apiSecret === secret) throw new Error("API_SERVICE_TOKEN_SECRET must differ from SESSION_TOKEN_SECRET");
   return {
     appEnv: env.APP_ENV,
     port: servicePort(env, "GATEWAY_PORT"),
