@@ -4,7 +4,7 @@
 // address the list matches, so a preview pattern on a shared host or localhost there would hand codes to whoever can
 // serve that address. Previews and localhost belong in a development Supabase project.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -30,4 +30,23 @@ describe("supabase/config.toml", () => {
   it("keeps the site address on production", () => {
     assert.match(text, /^site_url = "https:\/\/foundmill\.com"$/m);
   });
+
+  // WP-03 T4: a new address gets Supabase's "Confirm signup" email, not the magic link, so both templates carry the
+  // link and the six-digit code the sign-in page asks for. A new check (the file did not look at templates before).
+  for (const [section, file, subject] of [
+    ["magic_link", "magic_link.html", "Sign in to Foundmill"],
+    ["confirmation", "confirm_signup.html", "Your Foundmill sign-in code"],
+  ]) {
+    it(`declares the ${section} template, whose file carries the link and the code`, () => {
+      const body = text.split(new RegExp(`^\\[auth\\.email\\.template\\.${section}\\]\\s*$`, "m"))[1]?.split(/^\[/m)[0];
+      assert.ok(body, `supabase/config.toml declares [auth.email.template.${section}]`);
+      assert.match(body, new RegExp(`^subject = "${subject}"$`, "m"));
+      assert.match(body, new RegExp(`^content_path = "\\./supabase/templates/${file.replace(".", "\\.")}"$`, "m"));
+      const path = join(root, "supabase/templates", file);
+      assert.ok(existsSync(path), `supabase/templates/${file} exists`);
+      const html = readFileSync(path, "utf8");
+      assert.ok(html.includes("{{ .Token }}"), `${file} carries {{ .Token }}`);
+      assert.ok(html.includes("{{ .ConfirmationURL }}"), `${file} carries {{ .ConfirmationURL }}`);
+    });
+  }
 });
