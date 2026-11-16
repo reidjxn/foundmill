@@ -21,6 +21,7 @@ import { LONG_LIVED_NAME_PATTERNS, parseSandboxSpec, type Sandbox, type SandboxP
 import { buildAad, createVault, encryptJson, generateMasterKey } from "@foundmill/shared/crypto";
 import { MockActivityEnvironment } from "@temporalio/testing";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { grant, initialVersionFromTemplate, listTemplates, PLATFORM_BASE_TOOLS, WEB_TOOLS } from "@foundmill/agents";
 import { isUntrusted } from "@foundmill/connectors";
 import { createGithubMock } from "@foundmill/connectors/connectors/github/mock";
 import { makeToolContext } from "@foundmill/connectors/testing/contract-suite";
@@ -2117,6 +2118,14 @@ describe("honest outcomes: a task that is not code is done only when its agent r
   afterEach(async () => {
     await repos.agents.setStatus(t.db, t.businessId, t.workerId, "idle");
   });
+  // The worker's one outside connector is GitHub: connected here, so its staging sessions start (WP-05 T12 would skip
+  // a research session whose every outside connector is refused) and these cases test what happens after the session.
+  beforeAll(async () => {
+    await repos.integrations.upsert(t.deps.db, t.businessId, { connectorKey: "github", status: "connected", authKind: "app", settings: {} });
+  });
+  afterAll(async () => {
+    await repos.integrations.disconnect(t.deps.db, t.businessId, (await repos.integrations.getByKey(t.deps.db, t.businessId, "github"))!.id);
+  });
 
   it("(a) a session whose only outside calls were simulated or not connected, on a real project, ends blocked not_connected even after complete_task", async () => {
     const staging = { ...liveDeps, env: { ...liveDeps.env, APP_ENV: "staging" as const } };
@@ -2278,5 +2287,89 @@ describe("honest outcomes: a task that is not code is done only when its agent r
     expect(result.simulatedResults).toBe(1);
     await acts.finishSession(input, launch, result);
     expect((await completedOf(sessionId))[0]?.payload).toMatchObject({ simulated: true });
+  });
+});
+
+describe("not connected: the agent is told, and a hopeless session does not start (WP-05 T12)", () => {
+  const NOT_CONNECTED_LINE = "Not connected for this project: Web search and pages. Calls to them are refused. If the task cannot be done without one, call block_task now and name it.";
+  const staging = () => ({ ...liveDeps, env: { ...liveDeps.env, APP_ENV: "staging" as const } });
+  /** An agent whose only outside connector is `web` (mock here, so refused on a real project on staging). */
+  const webOnlyAgent = async (name: string, layer: "worker" | "lead") => {
+    const template = listTemplates({ family: "worker" }).find((x) => x.agentType === "researcher")!;
+    const spec = initialVersionFromTemplate(template, "00000000-0000-0000-0000-000000000000");
+    const agent = await repos.agents.create(t.db, t.businessId, {
+      name,
+      role: template.role,
+      agentType: template.agentType,
+      layer,
+      descriptionMd: template.description,
+      departmentIds: [t.fixture.departmentId],
+      modelKey: template.modelKey,
+      status: "idle",
+      autonomy: spec.autonomy,
+      initialVersion: { instructions: spec.instructions, tools: [grant("platform", PLATFORM_BASE_TOOLS), grant("web", WEB_TOOLS)], modelKey: spec.modelKey },
+    });
+    return agent.id;
+  };
+  const taskFor = async (agentId: string, kind: "research" | "channel" | "ops", title: string, deps = staging()) => {
+    const task = await repos.tasks.create(t.db, t.businessId, { kind, title, goalMd: "Find suppliers.", assigneeAgentId: agentId, status: "ready" });
+    await repos.tasks.setStatus(t.db, t.businessId, task.id, "running", { force: true });
+    const sessionId = await openSessionRow(t, agentId, task.id);
+    const input = { businessId: t.businessId, agentId, taskId: task.id, sessionId };
+    const a = createSessionActivities(deps);
+    return { task, sessionId, input, acts: a, launch: await a.prepareSession(input) };
+  };
+  let workerId: string;
+  let leadId: string;
+  beforeAll(async () => {
+    workerId = await webOnlyAgent("Web Researcher", "worker");
+    leadId = await webOnlyAgent("Web Lead", "lead");
+  });
+
+  it.each(["research", "channel"] as const)("a %s task whose agent holds only an unusable web ends blocked not_connected with no SDK, no token and no workspace", async (kind) => {
+    const { task, sessionId, input, acts: a, launch } = await taskFor(workerId, kind, `Find suppliers (${kind})`);
+    // A session that would end done if the SDK ran: `calls` stays empty only if it never did.
+    script = success(sessionId);
+    const result = await a.runAgentSession(input, launch);
+    expect(result).toMatchObject({ outcome: "blocked", blockedReason: "not_connected", reason: "not connected: web", costMinor: 0, tokensIn: 0, tokensOut: 0 });
+    expect(result.summary).toBe("Blocked: Web search and pages not connected for this project, so nothing real was read or sent.");
+    expect(calls).toHaveLength(0);
+    expect(t.gateway.minted.some((m) => m.sessionId === sessionId)).toBe(false);
+    expect(await readdir(workspaceRoot)).not.toContain(sessionId);
+    expect((await a.finishSession(input, launch, result)).taskStatus).toBe("blocked");
+    const blocked = (await repos.events.list(t.db, t.businessId, { type: "task.blocked", limit: 200 })).items.find((e) => (e.payload as { sessionId?: string }).sessionId === sessionId);
+    expect(blocked?.payload).toMatchObject({ taskId: task.id, reason: "not_connected", detail: "not connected: web" });
+  });
+
+  it("a lead's ops task with the same grants still starts, and its prompt carries the not-connected line", async () => {
+    const { sessionId, input, acts: a, launch } = await taskFor(leadId, "ops", "Tidy the supplier list");
+    let prompt = "";
+    script = async function* (call) {
+      prompt = (await promptsOf(call).next()).value?.message.content ?? "";
+      yield* success(sessionId)();
+    };
+    const result = await a.runAgentSession(input, launch);
+    expect(calls).toHaveLength(1);
+    expect(t.gateway.minted.some((m) => m.sessionId === sessionId)).toBe(true);
+    expect(result.blockedReason).not.toBe("not_connected");
+    expect(prompt).toContain(NOT_CONNECTED_LINE);
+  });
+
+  it("a sample business is unaffected: the research task starts and its prompt has no not-connected line", async () => {
+    await t.h.pg.query("update businesses set is_demo = true where id = $1", [t.businessId]);
+    try {
+      const { sessionId, input, acts: a, launch } = await taskFor(workerId, "research", "Find sample suppliers");
+      let prompt = "";
+      script = async function* (call) {
+        prompt = (await promptsOf(call).next()).value?.message.content ?? "";
+        yield* success(sessionId)();
+      };
+      const result = await a.runAgentSession(input, launch);
+      expect(calls).toHaveLength(1);
+      expect(result.outcome).toBe("done");
+      expect(prompt).not.toContain("Not connected for this project");
+    } finally {
+      await t.h.pg.query("update businesses set is_demo = false where id = $1", [t.businessId]);
+    }
   });
 });
