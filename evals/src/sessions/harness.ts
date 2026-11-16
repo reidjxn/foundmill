@@ -489,7 +489,7 @@ export async function createSessionEvalEnv(options: { budget?: RunBudget } = {})
   const deps = {
     ...t.deps,
     // As on staging: a simulated or not-connected result is never a person's result.
-    env: { ...t.deps.env, APP_ENV: "staging" as const, ANTHROPIC_API_KEY: apiKey ?? "sk-ant-api03-outcome-evals-mock-key", ORCHESTRATOR_WORKSPACE_DIR: workspaceRoot },
+    env: { ...t.deps.env, APP_ENV: "staging" as const, INTEGRATIONS_MODE: "mock" as const, LIVE_CONNECTORS: "web,sendgrid", ANTHROPIC_API_KEY: apiKey ?? "sk-ant-api03-outcome-evals-mock-key", ORCHESTRATOR_WORKSPACE_DIR: workspaceRoot },
     gateway,
     // A code case brings its fixture sandbox; every other case runs none.
     sandbox: async () => ({ provider: active?.sandbox ?? noSandbox, mode: "docker" as const, fellBackFrom: null }),

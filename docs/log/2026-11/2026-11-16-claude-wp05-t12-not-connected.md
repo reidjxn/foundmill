@@ -52,3 +52,8 @@ WP-05 T12 (A7-01 step 2).
 - The classifier triage call (A7-01 step 3), cut by the plan until T0's numbers.
 - No session.test.ts case: the replay path (mock sandbox) is untouched, and every case runs on the live runner.
 - "Query 2 shows `not_connected` blocks at zero cost" needs production data to check.
+- The orchestrator reads `INTEGRATIONS_MODE` and `LIVE_CONNECTORS` for this rule, so they must match the gateway's
+  (docs/DEPLOY.md §2, the orchestrator row). CI found that the outcome-eval harness had given `web` as live to the
+  gateway only, so its research cases stopped before the session. The harness now gives the orchestrator the same
+  value. Production's orchestrator variables were not read from here: a Desktop session checks that they match the
+  gateway's before this deploys.
