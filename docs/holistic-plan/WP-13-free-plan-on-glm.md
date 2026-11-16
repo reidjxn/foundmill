@@ -24,7 +24,8 @@ Why GLM-5.3 Flash: MIT license, Arena about 1476 (third among open models on Nov
 5. On a free project with no own key, the model dialog shows GLM-5.3 Flash as the model in use. The Anthropic models are slightly grayed out. Choosing one opens the prompt with "See plans" and "Connect your Anthropic key". Covered by a Storybook story and a Playwright spec (T7).
 6. The evals named in T8 pass live on GLM-5.3 Flash. Where one does not, the task's fallback is in place and the shortfall is written in the log.
 7. The privacy policy names Z.ai, its country and the transfer safeguard. The training sentence on line 107 is true for every provider it names (T9).
-8. `INTEGRATIONS_MODE=mock` and `MODEL_MODE=mock` still run the golden path.
+8. A free founder on their own Anthropic key gets Anthropic models, on their key, for every call the api and composer make for their project (T11).
+9. `INTEGRATIONS_MODE=mock` and `MODEL_MODE=mock` still run the golden path.
 
 **Scope, in:**
 - a second model provider (Z.ai's Anthropic-compatible endpoint) and its capabilities, in packages/models;
@@ -58,7 +59,7 @@ Why GLM-5.3 Flash: MIT license, Arena about 1476 (third among open models on Nov
 - WP-10 on `apps/web/components/settings/BillingTab.tsx` (not touched here).
 
 **Setup it needs:**
-- **Z1, Z.ai account (founder):**
+- **Z1, Z.ai account (founder): done Nov 16.**
   - an API account at z.ai under Foundmill's company, paid by card;
   - an account-side spend limit or alert, if Z.ai offers one, as the backstop behind T6;
   - one key for production and one for evals.
@@ -73,7 +74,7 @@ Why GLM-5.3 Flash: MIT license, Arena about 1476 (third among open models on Nov
   - put Standard Contractual Clauses in place for transfers from the EU to Singapore.
 
   T9 waits on this, and T10 (switching it on) waits on T9.
-- **Z4, an eval key in the cloud session (founder):** saved through `request_credential` for `api.z.ai`, with a spending limit for T1 and T8 (D4).
+- **Z4, an eval key in the cloud session (founder): done Nov 16.** Saved on the session environment for `api.z.ai`; the account holds a $50 balance.
 
 ## Rules for this package (on top of README.md)
 
@@ -232,7 +233,7 @@ Steps:
 
    The pre-commit call sites pass `attribution.userId`: four in Ideation, Import, Ask, compare, `ideaLogoSet`, and `screenText` without a business. This overlaps WP-09 T2 step 2. Whichever lands second keeps the other's edits.
 
-   A business on its own key is still served on the platform key by the api today (`services/models.ts:101`, no own-key path; the api must not decrypt keys). Under the rule that is a payment to Anthropic for a free founder, so `fundingOf` returns `platform_glm` for a free business on `byok` in the api. Its founder-facing calls in the api then run on GLM. That gap is recorded in the log as a follow-up.
+   A business on its own key is served on the platform key by the api today (`services/models.ts:101`, no own-key path; the api must not decrypt keys). In this task, `fundingOf` returns `platform_glm` for a free business on `byok` in the api and composer, so nothing reaches Foundmill's Anthropic key. T11 then moves those calls onto the founder's own key (D6).
 
    verify: `free-plan-provider.test.ts` drives every api call site named in WP-09 T2's list, plus `team-call.ts`, `task-graph.ts`, `goals.ts`, `product-research.ts`, `composer.ts`, `plans.ts`, `logo.ts`, `conversation.ts`, `page-quiz.ts`, `post-drafts.ts`, `routers/agent.ts`, `legal.ts` and `distribution.ts`, for the three accounts in Done-when item 1.
 2. **The signed-out idea box** uses `platform_glm`. Its daily ceiling and reservation meter at the GLM price, so the same $20 a day buys more cards. verify: `idea-box.test.ts` passes, and its reservation uses `MODELS.glm`.
@@ -356,7 +357,7 @@ Steps:
 
    verify: each suite's score is in the log next to its Anthropic score.
 2. **Where a suite fails:**
-   - **Injection suites:** free projects' untrusted reads use the deterministic extraction alone, with no model (D5), until a fix passes. They never fall back to Anthropic.
+   - **Injection suites:** the reader routes step up to Z.ai's full GLM-5.3 for free projects (D5). That means adding the key `glmMax`, `MODELS.glmMax = "glm-5.3"`, its price row and the capability flags T1 measured, on the same migration pattern as T2. Re-run the suites. If they still fail, fix the reader prompt and re-run. They never fall back to Anthropic, and never to a reader with no model.
    - **Moderation:** a post is held for the founder.
    - **Others:** a prompt fix scoped to the GLM capability path, re-run, and a note in the log.
 
@@ -375,7 +376,7 @@ Steps:
 verify: the legal page spec passes at 390 px and 1280 px, and both copy linters pass.
 Done when: merged after Z3.
 
-### T10: Switch it on            [S] [after T3 to T9; needs setup Z2]
+### T10: Switch it on            [S] [after T3 to T9 and T11; needs setup Z2]
 Steps:
 1. Desktop sets Z2 on each service. verify: `/health` on each shows the Z.ai provider configured and the cap state `open`.
 2. A test account on the free plan drafts ideas, commits and runs its first session. The ledger shows only `model_key = 'glm'` rows, and the Anthropic console shows no new usage from it. verify: recorded in the log.
@@ -383,17 +384,67 @@ Steps:
 
 Done when: the log entry is merged.
 
-## Decisions for the founder
+### T11: The api and composer use a founder's own Anthropic key            [M] [ships alone; after T3; before T10]
+Why: D6. A founder who connected their own key gets Anthropic models for every call, not only agent sessions. Today the api and composer run on Foundmill's key whatever the business's billing (`apps/api/src/services/models.ts:101`, `apps/composer/src/index.ts:78`). The api may not decrypt keys (BUILD §10.2); the gateway holds them (`loadByokApiKey`).
+Files:
+- create, gateway: `apps/gateway/src/model-proxy.ts`, `apps/gateway/src/__tests__/model-proxy.test.ts`;
+- modify, gateway: `apps/gateway/src/index.ts`, to mount the route;
+- create, api: `apps/api/src/services/gateway-models.ts` (a `ModelClient` that calls the route);
+- modify, api: `apps/api/src/services/models.ts`;
+- modify, composer: `apps/composer/src/index.ts`, `apps/composer/src/usage.ts`;
+- create, api: `apps/api/src/__tests__/own-key-calls.test.ts`;
+- modify: `docs/ARCHITECTURE.md`, the gateway section, to document the route.
 
-- **D1. Z.ai is called the way Anthropic is**, straight from the services through packages/models, not through the gateway. Model calls are already the one exception to "external calls only through the gateway", and Z.ai speaks the same protocol on the same client. Recommended: yes. Web search, a tool, still goes through the gateway (T5).
-- **D2. The slow-down at the cap.** Recommended:
-  - from $480 (80%), free accounts get a quarter of their usual limits and sessions run one at a time per project;
-  - at $600, free work waits until the month resets, and interactive calls say when it is back;
-  - paid and own-key projects are never slowed.
-- **D3. A free project's stored model choices** (Opus for the Chief of Staff, for example). Recommended: keep them. The table shows GLM-5.3 Flash as the model in use, and the stored choice applies after an upgrade or with an own key.
-- **D4. Spending limit for T1 and T8 on the eval key.** Recommended: $15 on Z.ai (Estimate: about $5 needed).
-- **D5. If GLM fails the injection suites**, free projects read untrusted content with the deterministic checks alone, with no model, until it passes. Recommended: yes, because the alternative is paying Anthropic for them.
-- **D6. A free founder on their own key, for calls made by the api.** Today the api never uses a business's own key (it must not decrypt keys) and runs those calls on Foundmill's key. Recommended: under this package those calls run on GLM (T3 step 1). Decide later whether to route them to the founder's own key through the gateway.
+Interfaces, consumes:
+- `loadByokApiKey`;
+- `createModelClient({ mode: "live", apiKey, billedTo: "byok" })`;
+- the service-token check of `POST /v1/keys/validate` (`svc: api` and `svc: composer`);
+- `ModelClient`'s `complete` and `stream` (and `streamStructured`, which is built on `stream`).
+
+Interfaces, produces:
+```ts
+// gateway, service auth: svc api | composer
+POST /v1/models/complete { businessId, request: CompletionRequest } -> CompletionResult
+POST /v1/models/stream   { businessId, request: CompletionRequest } -> text/event-stream of the client's stream events
+// both refuse (409 own_key_missing) unless the business's model_billing is byok and its key loads; never use a platform key
+// api
+createGatewayModelClient(gateway): ModelClient   // for own_anthropic calls; usage reaches the api's sink with billedTo "byok"
+```
+Steps:
+1. **The gateway route.** The same body limits, per-business rate limit (`rl:<businessId>:own_key_models`) and audit pattern as `/v1/keys/validate`. The key is never logged or echoed, and the response carries the usage. verify: `model-proxy.test.ts`. A byok business is answered on its own key (a recording fetch shows the founder's key). A credits business is refused with no model call.
+2. **The api's gateway client.** The routed client sends `own_anthropic` to it, and `fundingOf` returns `own_anthropic` for any business on `byok`, free or paid. verify: `own-key-calls.test.ts` drives every call site in this list for a free business on its own key and sees only gateway calls, booked `byok`, with no Z.ai call and no platform Anthropic call:
+   - desk conversations;
+   - team call turns and wrap-up;
+   - the goal proposal, the plan compiler, the task graph, product research;
+   - Legal's jurisdiction cards, Distribution's channel scores;
+   - the logo, the page quiz, post drafts, and the agent builder (`routers/agent.ts`).
+3. **Composer:** the Inbox notes, the founder titles, journey commentary and the chapter note go the same way. verify: a composer test.
+4. **Streaming:** the desk reply and the card streams render token by token through the route, as they do now. verify: a stream test with a fake gateway; `client.stream.test.ts` patterns.
+5. **A revoked or failing key** answers the existing "your key" refusal sentences, never a silent fallback to Foundmill's key or to GLM. verify: a test.
+
+Tests and evals: above. No prompt changes.
+Done when: a free founder on their own key sees Anthropic answers in every place listed, and the ledger shows them as `byok`.
+
+## Decisions for the founder (answered Nov 16, 2026)
+
+- **D1, answered yes.** Z.ai is called the way Anthropic is: straight from the services through packages/models, not through the gateway. Web search, a tool, goes through the gateway (T5).
+- **D2, answered yes.**
+  - From $480 (80% of the cap), free accounts get a quarter of their usual limits and sessions run one at a time per project.
+  - At $600, free work waits until the month resets, and interactive calls say when it is back.
+  - Paid and own-key projects are never slowed.
+- **D3, answered yes.** A free project's agents keep their stored model choice. The table shows GLM-5.3 Flash as the model in use, and the stored choice applies after an upgrade or with an own key.
+- **D4, answered.** The founder put $50 on the Z.ai account as the first budget. T1 and T8 stay well inside it (about $5, Estimate).
+- **D5, revised by the founder: there is always AI.** If GLM-5.3 Flash fails the injection suites, free projects' readers (the quarantined reader and the untrusted reader) step up to Z.ai's full GLM-5.3 ($1.40 / $4.40 per 1M tokens, about half a cent a read, Estimate). The deterministic checks stay as the outer layer, as today. If GLM-5.3 also fails, the reader's prompt is fixed and re-tested before T10. A reader without a model is never the answer, and neither is Anthropic.
+- **D6, answered: a founder's own key reaches every call.** A founder who connected their own Anthropic key gets Anthropic models on that key for every call the api and composer make for their project, not only agent sessions. That covers:
+  - desk conversations;
+  - team call turns and wrap-up;
+  - the Inbox notes, task titles in plain words and journey commentary;
+  - the Chief of Staff's goal proposal, the plan compiler, the task graph and product research;
+  - Legal's jurisdiction cards and Distribution's channel scores;
+  - the logo, the page quiz, post drafts, and building a new agent.
+
+  The api may not decrypt keys, so these go through a new gateway route (T11).
+- **Z3, answered.** Z.ai's terms (Additional Terms §3(b), and the API note in §IV.7) say "We will not use End User Content to develop or improve Services, unless you explicitly agree to such use." The copy read on Nov 16 shows that sentence in square brackets, so keep a dated copy or Z.ai support's written confirmation with the DPA. The founder confirmed that the terms should name providers in Singapore and the United States, with Standard Contractual Clauses for transfers from the EU.
 
 ## Risks
 
@@ -413,7 +464,7 @@ You are executing work package WP-13 "The free plan runs on GLM-5.3 Flash" for F
 
 Load the skills `claude-api` (for every Anthropic fact), `karpathy-guidelines`, `plan-change`, `test-driven-development` and `executing-plans`. Run `plan-change` before code: it finds overlapping branches and the next free migration number.
 
-Work T1 to T10 in order. T2 waits for WP-09 T3 to merge; T4 waits for a word from the plan-execution session (session_01CJRTqRyoumyGvVfGMuknRM) on session.ts. One task, one pull request on claude/wp13-t<n>. Write the failing test the task names, make it pass, run `verify-done`, and report each check with its result. Never push to main and never merge.
+Work T1 to T9, then T11, then T10. T2 waits for WP-09 T3 to merge; T4 waits for a word from the plan-execution session (session_01CJRTqRyoumyGvVfGMuknRM) on session.ts. One task, one pull request on claude/wp13-t<n>. Write the failing test the task names, make it pass, run `verify-done`, and report each check with its result. Never push to main and never merge.
 
 Stop and ask the founder where a task says "needs setup" or names a decision (D1 to D6). Live calls spend real money: state the expected cost first and stay inside D4.
 
