@@ -7,6 +7,7 @@
 import { RESEARCH_PLAN_KINDS } from "@foundmill/models";
 import { productResearch, repos } from "@foundmill/db";
 import { MockModelClient, ModelUnavailableError, type ModelClient } from "@foundmill/models";
+import { DIGEST_SUBJECT } from "@foundmill/shared";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { settleFoundationRuns } from "../services/foundations";
@@ -106,10 +107,14 @@ describe("product.research — the plan after the foundations", () => {
       expect((t.acceptance as string[]).length).toBeGreaterThanOrEqual(1);
       expect(t.goalMd).toContain("founder's approval");
     }
-    const inbox = await a.caller.inbox.list({ businessId: a.businessId, limit: 50 });
+    // In the project's first week the researcher's update is folded (WP-04 T8): kept in Archive, listed in the Chief of
+    // Staff's "What your team did today".
+    const inbox = await a.caller.inbox.list({ businessId: a.businessId, tab: "archive", limit: 50 });
     const notes = inbox.items.filter((i) => i.subject.startsWith("How we'll test the specification with"));
     expect(notes).toHaveLength(1);
     expect(notes[0]).toMatchObject({ type: "update", blocksContinue: false, fromAgentId: researcher.id });
+    const digest = (await a.caller.inbox.list({ businessId: a.businessId, limit: 50 })).items.find((i) => i.subject === DIGEST_SUBJECT);
+    expect(digest?.bodyMd).toContain(notes[0]!.subject);
     const words = notes[0]!.bodyMd.split(/\s+/).filter(Boolean).length;
     expect(words).toBeGreaterThanOrEqual(60);
     expect(words).toBeLessThanOrEqual(180);

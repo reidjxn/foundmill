@@ -7,6 +7,7 @@
  */
 import { CHANNEL_SCORING_TASK } from "@foundmill/agents";
 import { repos, signoffDecisionBlock } from "@foundmill/db";
+import { DIGEST_SUBJECT } from "@foundmill/shared";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { runFoundationsLocally } from "../services/foundations";
 import { REVISION_TASK_PRIORITY, buildingStartsBody } from "../services/signoff";
@@ -33,7 +34,14 @@ async function freshBusiness(email: string, name: string) {
   return { userId, caller, businessId, result };
 }
 
-const bySubject = async (caller: ReturnType<ApiHarness["caller"]>, businessId: string, subject: string) => (await caller.inbox.list({ businessId, limit: 100 })).items.filter((i) => i.subject === subject);
+/**
+ * Notes by subject, Archive included: in a project's first week an agent's update (the Product lead's follow-ups) is
+ * stored archived and listed in the Chief of Staff's note of the day (WP-04 T8).
+ */
+const bySubject = async (caller: ReturnType<ApiHarness["caller"]>, businessId: string, subject: string) => {
+  const [open, archived] = await Promise.all([caller.inbox.list({ businessId, limit: 100 }), caller.inbox.list({ businessId, tab: "archive", limit: 100 })]);
+  return [...open.items, ...archived.items].filter((i) => i.subject === subject);
+};
 
 describe("sign-offs: the specification and the roadmap (founder, 2026-10-18)", () => {
   let b: Awaited<ReturnType<typeof freshBusiness>>;
@@ -140,6 +148,9 @@ describe("sign-offs: the specification and the roadmap (founder, 2026-10-18)", (
     // The follow-up and the event say the build started; distribution still waits.
     const note = (await bySubject(b.caller, b.businessId, `Building starts: ${build.plannedTaskIds.length} tasks planned`))[0];
     expect(note?.bodyMd).toContain("Distribution waits until you start it from Customers › Board.");
+    // The first week: folded into the Chief of Staff's note of the day, which lists it (WP-04 T8).
+    expect(note?.state).toBe("archived");
+    expect((await bySubject(b.caller, b.businessId, DIGEST_SUBJECT))[0]?.bodyMd).toContain(note!.subject);
     // No repository connected (WP-02 T5): the round of work starts, and nothing is said to go live.
     expect(note?.bodyMd).toContain("The first round of work is under way. The code is kept in your project; nothing goes live from it until a repository is connected.");
     expect(note?.bodyMd).not.toMatch(/build cycle/);

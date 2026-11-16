@@ -7,11 +7,13 @@
  * business's own words (Settings › Glossary, AC-11.13.6): `applyGlossary` runs on its subject, body and decision
  * options here, the one place every composed and templated note passes through.
  */
-import { ENTITY_MARKUP_RE, EXHIBIT_KINDS, INBOX_ITEM_TYPES, INBOX_STATES, OptionAction, ValidationError, applyGlossary, type InboxItemType, type InboxState } from "@foundmill/shared";
-import { and, asc, desc, eq, getTableColumns, inArray, isNotNull, isNull, notInArray, or, sql, type SQL } from "drizzle-orm";
+import { LIMITS } from "@foundmill/config";
+import { DIGEST_SUBJECT, ENTITY_MARKUP_RE, EXHIBIT_KINDS, INBOX_ITEM_TYPES, INBOX_STATES, OptionAction, ValidationError, applyGlossary, dayKeyIn, digestBody, noteVerdict, type InboxItemType, type InboxState } from "@foundmill/shared";
+import { and, asc, desc, eq, getTableColumns, gte, inArray, isNotNull, isNull, ne, notInArray, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { agents, businesses, composerBuffer, DECIDED_BY_KINDS, decisions, entities, events, inboxItemReads, inboxItems, memberships, plans, tasks, type ComposerBufferRow, type Decision, type InboxItem } from "../schema";
 import { Currency, Id, MinorAmount, one, PageInput, parseInput, timeKeyset, toPage, type Executor, type Page } from "./_shared";
+import { agentsRepo } from "./agents";
 
 // --- Composer output schema (BUILD §11.3) ------------------------------------------------------------------------------
 
@@ -252,6 +254,61 @@ async function assertOwnedIds(db: Executor, businessId: string, v: z.output<type
   }
 }
 
+/** What the digest needs once a note is folded: who writes it, and which notes count as today's. */
+interface Fold {
+  chiefId: string;
+  committedAt: Date;
+  timeZone: string | null;
+  now: Date;
+}
+
+/**
+ * The first week's note budget (WP-04 T8, `noteVerdict`): whether this note is folded into the day's digest. Only an
+ * agent's plain update or report can be, so every other note costs no extra query. No Chief of Staff: nobody writes the
+ * digest, and the note is delivered.
+ */
+async function foldOf(db: Executor, businessId: string, v: ParsedComposerItem, blocksContinue: boolean, state: InboxState): Promise<Fold | null> {
+  if (state === "archived" || !v.from_agent_id || (v.type !== "update" && v.type !== "report") || v.decision !== null || blocksContinue) return null;
+  const [business] = await db.select({ committedAt: businesses.committedAt, isDemo: businesses.isDemo, timeZone: businesses.timeZone }).from(businesses).where(eq(businesses.id, businessId)).limit(1);
+  if (!business?.committedAt || business.isDemo) return null;
+  const chief = await agentsRepo.chiefOfStaff(db, businessId);
+  if (!chief) return null;
+  const now = new Date();
+  const verdict = noteVerdict({ type: v.type, hasDecision: false, blocksContinue, fromChiefOfStaff: chief.id === v.from_agent_id, committedAt: business.committedAt, isDemo: business.isDemo, now }, LIMITS.firstWeekDays);
+  return verdict === "fold" ? { chiefId: chief.id, committedAt: business.committedAt, timeZone: business.timeZone, now } : null;
+}
+
+/**
+ * Writes the Chief of Staff's "What your team did today" afresh, listing the notes folded on the business's day so far
+ * (newest first). It is a Chief of Staff update, so it replaces the earlier digest and the welcome note
+ * (`supersedeUpdates`). In the first week every archived plain update or report from another agent was folded: none
+ * reaches the Inbox to be archived by hand or superseded.
+ */
+async function writeDigest(db: Executor, businessId: string, fold: Fold): Promise<void> {
+  const since = new Date(Math.max(fold.committedAt.getTime(), fold.now.getTime() - 26 * 60 * 60 * 1000));
+  const rows = await db
+    .select({ subject: inboxItems.subject, createdAt: inboxItems.createdAt, agentName: agents.name })
+    .from(inboxItems)
+    .innerJoin(agents, eq(agents.id, inboxItems.fromAgentId))
+    .where(
+      and(
+        eq(inboxItems.businessId, businessId),
+        eq(inboxItems.state, "archived"),
+        isNull(inboxItems.archivedAt),
+        inArray(inboxItems.type, ["update", "report"]),
+        isNull(inboxItems.decision),
+        ne(inboxItems.fromAgentId, fold.chiefId),
+        gte(inboxItems.createdAt, since),
+      ),
+    )
+    .orderBy(desc(inboxItems.createdAt), desc(inboxItems.id))
+    .limit(500);
+  const today = dayKeyIn(fold.now, fold.timeZone);
+  const lines = rows.filter((n) => dayKeyIn(n.createdAt, fold.timeZone) === today);
+  if (lines.length === 0) return;
+  await inboxRepo.createItem(db, businessId, { type: "update", from_agent_id: fold.chiefId, subject: DIGEST_SUBJECT, body_md: digestBody(lines), status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: null, blocks_continue: false, source_event_ids: [], entity_ids: [] });
+}
+
 export const inboxRepo = {
   /**
    * `viewerId` is who is looking: with it, `state` reads `read` for a note that person has opened (their receipt, 0048)
@@ -315,13 +372,17 @@ export const inboxRepo = {
 
   /**
    * Persists one Composer note. Validates the §11.3 shape and that every referenced id belongs to the business, then
-   * renames nouns with the business glossary (a person's own message is theirs and is stored as written).
+   * renames nouns with the business glossary (a person's own message is theirs and is stored as written). In a
+   * project's first week an agent's plain update is stored archived and listed in the Chief of Staff's digest
+   * (`foldOf`, WP-04 T8); callers pass nothing new and still write `inbox.item_created` for the note they wrote.
    */
   async createItem(db: Executor, businessId: string, item: ComposerItem, options: CreateItemOptions = {}): Promise<InboxItem> {
     const parsed = parseInput(ComposerItem, withPlainOptionLines(item), "composer item");
     const o = parseInput(CreateItemOptions, options, "inbox item options");
     await assertOwnedIds(db, businessId, parsed);
     const v = parsed.type === "human_message" ? parsed : inBusinessWords(parsed, await businessGlossary(db, businessId));
+    const blocksContinue = holdsContinue(v.type, v.blocks_continue);
+    const fold = await foldOf(db, businessId, v, blocksContinue, o.state);
     const created = one(
       await db
         .insert(inboxItems)
@@ -335,10 +396,10 @@ export const inboxRepo = {
           statusStrip: v.status_strip,
           exhibit: v.exhibit,
           decision: v.decision,
-          blocksContinue: holdsContinue(v.type, v.blocks_continue),
+          blocksContinue,
           sourceEventIds: v.source_event_ids,
           entityIds: v.entity_ids,
-          state: o.state,
+          state: fold ? "archived" : o.state,
           costMinor: o.costMinor,
           ...(o.currency ? { currency: o.currency } : {}),
         })
@@ -347,6 +408,8 @@ export const inboxRepo = {
     );
     // One current update per agent: the newer replaces the older open ones (Nov 7, 2026).
     if (created.type === "update" && created.fromAgentId && created.decision === null && created.state !== "archived") await inboxRepo.supersedeUpdates(db, businessId, { fromAgentId: created.fromAgentId, keepId: created.id });
+    // The first week: a folded note is listed in the Chief of Staff's digest instead (WP-04 T8).
+    if (fold) await writeDigest(db, businessId, fold);
     return created;
   },
 
