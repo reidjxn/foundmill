@@ -26,6 +26,12 @@ export interface PublicEnv {
   /** NEXT_PUBLIC_TURNSTILE_SITE_KEY: Cloudflare Turnstile's site key for the bot check of the idea box and the Follow form on public pages; empty uses the mock token (development stacks only). */
   turnstileSiteKey: string;
   /**
+   * NEXT_PUBLIC_SIGNIN_BOT_CHECK=on (WP-03 T8): sending the sign-in email carries a Turnstile token for Supabase's bot
+   * check (`captchaToken`). Off unless exactly "on" and a site key is set; turned on with Supabase's own bot protection
+   * (docs/DEPLOY.md §4 "Open sign-up"), which the founder turns on only once the native app sends a token too (D6).
+   */
+  signInBotCheck: boolean;
+  /**
    * NEXT_PUBLIC_STORE_LINKS: the native app's store links (`parseStoreLinks`, @foundmill/config), the one value every
    * "Get the app" prompt reads. Null until the app launches, and for any value that is not an App Store or Google Play link.
    */
@@ -54,6 +60,7 @@ export function parsePublicEnv(raw: Record<string, string | undefined>): PublicE
     appUrl: trimSlash(raw.NEXT_PUBLIC_APP_URL ?? ""),
     authGoogle: raw.NEXT_PUBLIC_AUTH_GOOGLE?.trim().toLowerCase() === "on",
     turnstileSiteKey: raw.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim() ?? "",
+    signInBotCheck: raw.NEXT_PUBLIC_SIGNIN_BOT_CHECK?.trim().toLowerCase() === "on" && !!raw.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim(),
     storeLinks: parseStoreLinks(raw.NEXT_PUBLIC_STORE_LINKS),
   };
 }
@@ -75,6 +82,7 @@ export function publicEnv(): PublicEnv {
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
     NEXT_PUBLIC_AUTH_GOOGLE: process.env.NEXT_PUBLIC_AUTH_GOOGLE,
     NEXT_PUBLIC_TURNSTILE_SITE_KEY: process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
+    NEXT_PUBLIC_SIGNIN_BOT_CHECK: process.env.NEXT_PUBLIC_SIGNIN_BOT_CHECK,
     NEXT_PUBLIC_STORE_LINKS: process.env.NEXT_PUBLIC_STORE_LINKS,
   });
   return cached;

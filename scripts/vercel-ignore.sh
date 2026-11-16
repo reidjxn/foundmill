@@ -8,4 +8,4 @@ git diff --quiet "${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}" HEAD -- . \
   ../../packages/agents ../../packages/config ../../packages/db ../../packages/dugout ../../packages/entity-linker \
   ../../packages/events ../../packages/journey ../../packages/models ../../packages/modules ../../packages/shared \
   ../../packages/widgets ../../apps/api/src \
-  ../../package.json ../../pnpm-lock.yaml ../../pnpm-workspace.yaml ../../patches
+  ../../package.json ../../pnpm-lock.yaml ../../pnpm-workspace.yaml ../../patches ../../turbo.json

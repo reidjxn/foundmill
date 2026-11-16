@@ -57,9 +57,11 @@ export const accountAdmissions = pgTable(
     userId: uuid("user_id").notNull().unique("account_admissions_user_id_key").references(() => authUsers.id, { onDelete: "cascade" }),
     how: text("how", { enum: ADMISSION_KINDS }).notNull(),
     invitationId: uuid("invitation_id").references(() => invitations.id, { onDelete: "set null" }),
+    /** 0112 (WP-03 T8): the mailbox an `open` admission came from (@foundmill/shared `addressKey`); null otherwise. */
+    addressKey: text("address_key"),
     ...timestamps(),
   },
-  (t) => [index("account_admissions_invitation_id_idx").on(t.invitationId), index("account_admissions_how_created_at_idx").on(t.how, t.createdAt)],
+  (t) => [index("account_admissions_invitation_id_idx").on(t.invitationId), index("account_admissions_how_created_at_idx").on(t.how, t.createdAt), index("account_admissions_address_key_idx").on(t.addressKey)],
 );
 export type AccountAdmission = typeof accountAdmissions.$inferSelect;
 

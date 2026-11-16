@@ -93,7 +93,7 @@ const freshInviter = async (tag: string, how?: "open" | "existing" | "waitlist")
 const collaboratorLink = async (inviterId: string) => tokenOf((await hz.caller({ userId: inviterId }).invitation.create({ businessId: hz.A.businessId, role: "collaborator" })).link);
 
 describe("decideAdmission: admit now or wait, every mode", () => {
-  const base: AdmissionFacts = { mode: "invite_only", devUser: false, listed: false, emailConfirmed: true, admitted: false, existingPerson: false, admittedToday: 0, ceiling: 200 };
+  const base: AdmissionFacts = { mode: "invite_only", devUser: false, listed: false, emailConfirmed: true, admitted: false, existingPerson: false, admittedToday: 0, ceiling: 200, sameAddressAdmitted: false, domainAdmittedToday: 0, domainCeiling: null };
   const cases: [string, Partial<AdmissionFacts>, ReturnType<typeof decideAdmission>][] = [
     ["unrestricted: everyone", { mode: "unrestricted", emailConfirmed: false }, { outcome: "admit", record: null }],
     ["the development bypass user", { devUser: true, emailConfirmed: false }, { outcome: "admit", record: null }],
@@ -315,6 +315,20 @@ describe("admitOrWait: open sign-up with a daily ceiling", () => {
     const b = await person("open-plain-b");
     expect(await refusal(callerIn(OPEN, b).invitation.accept({ confirmAdult: true, token: tokenOf(second.link) }))).toMatchObject({ appCode: "on_waitlist" });
     expect(await membershipOf(hz.A.businessId, b.userId)).toBeNull();
+  });
+
+  it("an invitation that falls back to open sign-up's own admission meets open sign-up's guards (WP-03 T8)", async () => {
+    const [first, second] = [await collaboratorLink(hz.A.ownerId), await collaboratorLink(hz.A.ownerId)];
+    const before = await repos.admissions.openSince(hz.db, todayStart());
+    const OPEN = { SIGNUP_OPEN: "1", SIGNUP_DAILY_CEILING: before + 10 };
+    const a = { userId: await hz.h.createUser("fallback.guard@gmail.com"), email: "fallback.guard@gmail.com" };
+    expect(await callerIn(OPEN, a).invitation.accept({ confirmAdult: true, token: first })).toMatchObject({ already: false });
+    expect(await repos.admissions.forUser(hz.db, a.userId)).toMatchObject({ how: "open", addressKey: "fallbackguard@gmail.com" });
+    // The same mailbox under another account waits, and the invitation stays pending.
+    const b = { userId: await hz.h.createUser("fallbackguard+2@gmail.com"), email: "fallbackguard+2@gmail.com" };
+    expect(await refusal(callerIn(OPEN, b).invitation.accept({ confirmAdult: true, token: second }))).toMatchObject({ appCode: "on_waitlist", reason: "ceiling" });
+    expect(await repos.admissions.has(hz.db, b.userId)).toBe(false);
+    expect(await hz.caller(null).invitation.byToken({ token: second })).toMatchObject({ state: "pending" });
   });
 
   it("an inviter open sign-up let in: their invitation admits while the ceiling has room, and waits at it like any sign-up", async () => {

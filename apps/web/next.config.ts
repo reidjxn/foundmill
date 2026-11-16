@@ -29,6 +29,8 @@ const PUBLIC_DEFAULTS: Record<string, string> = {
   NEXT_PUBLIC_APP_URL: "",
   // Off until the founder has set up Google in Supabase (docs/DEPLOY.md §4 "Signing in with Google"); "on" shows the button.
   NEXT_PUBLIC_AUTH_GOOGLE: "",
+  // Off until Supabase's bot protection is on, which waits for the native app (docs/DEPLOY.md §4 "Open sign-up").
+  NEXT_PUBLIC_SIGNIN_BOT_CHECK: "",
 };
 
 const env = Object.fromEntries(Object.entries(PUBLIC_DEFAULTS).map(([k, v]) => [k, process.env[k] ?? v]));

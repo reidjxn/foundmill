@@ -242,7 +242,7 @@ Steps:
 2. The change. verify: named tests.
 Done when: no agent is marked failing for a long task.
 
-### T11: A resumed run knows what it already did [M] [session.ts chain 7]
+### [x] T11: A resumed run knows what it already did [M] [session.ts chain 7]
 Why: AR-08.
 Files: modify `session.ts` (the `resumed` text at `:1529`); tests `session-handoff.test.ts`, `workflows/sessionHandoff.test.ts`.
 Interfaces, consumes: `readSessionEvents(redis, sessionId)` (`packages/events/src/session-stream.ts:240`); the stream `as:<sessionId>` keeps every run's `tool_call` events until `finishSession` archives it; `ctx.run.resume.reason: "park" | "handoff" | "retry"`; `ToolCallEvent` fields `connectorKey`, `tool`, `status`, `argsSummary`, `resultSummary`.
