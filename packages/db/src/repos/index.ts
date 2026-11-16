@@ -58,6 +58,7 @@ import { emailPrefsRepo, preferencesRepo } from "./preferences";
 import { devicesRepo } from "./devices";
 import { accountEventsRepo } from "./account-events";
 import { portabilityRepo } from "./portability";
+import { accountPortabilityRepo } from "./account-portability";
 import { tableViewsRepo } from "./table-views";
 import { personaPortraitsRepo } from "./persona-portraits";
 import { teamCallsRepo } from "./team-calls";
@@ -134,6 +135,7 @@ export const repos = {
   tableViews: tableViewsRepo,
   checkouts: checkoutsRepo,
   portability: portabilityRepo,
+  accountPortability: accountPortabilityRepo,
   recordings: recordingsRepo,
   personaPortraits: personaPortraitsRepo,
   teamCalls: teamCallsRepo,
