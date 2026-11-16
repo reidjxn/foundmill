@@ -24,7 +24,7 @@ The migration-point tests (`migration-00NN.test.ts`) apply every migration but o
 ### fm_set_updated_at keeps its pin
 It fires on every update and a `set` clause costs a little per call. Measured `SEED_TARGET=pglite SEED_VOLUME_SCALE=0.1 pnpm seed`: pinned 22.9 s and 18.9 s, unpinned 19.7 s and 21.0 s, which is noise and under the 20% bar. No `ACCEPTED_MUTABLE_SEARCH_PATH` list.
 ### Migration numbers
-0114 to 0116 are held by open branches (wp04-t13, network-reports, brave-ptolemy), so this takes 0117 to 0119. Journal idx follows main (102 to 104); whichever merges second renumbers its idx.
+0114 to 0116 are held by open branches (wp04-t13, network-reports, brave-ptolemy), so this takes 0117 to 0119. Journal idx follows main (102 to 104), `when` 1796142000000 onward. The open branches holding 0114 to 0116 carry earlier `when` values; drizzle's migrator applies a migration only when its `when` is later than the last applied one, so whichever merges after this must append after 0119 with a later `when` and the next idx, not only a new idx, or a database already at 0119 would skip it silently.
 ### Real Postgres here was 16, not 17
 The session has no Docker; the suites ran on a local Postgres 16 with pgvector and `scripts/ci/supabase-like.sql`. CI's job runs 17.
 
