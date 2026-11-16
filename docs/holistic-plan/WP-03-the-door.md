@@ -399,7 +399,7 @@ Facts:
 **Done when:** Done-when 5.
 **Needs the founder:** Decision 1 (index now) and Decision 2 (training crawlers). Until Decision 1 is yes, merge with `indexable()` returning false behind one constant `HOME_INDEXED = false` and flip it in a one-line pull request.
 
-### T7: The idea box keeps its word under load [S] [ships alone] (steps 1–2: step 1 built on claude/wp03-t7-idea-box-load; step 2 left for the landing session)
+### [x] T7: The idea box keeps its word under load [S] [ships alone]
 
 **Why:** FR-14 (the deadline and the refusal lines; "one more try" waits on Decision 3).
 
@@ -415,7 +415,7 @@ Facts:
 
 **Done when:** a stalled model call ends in 35 seconds or less on the page with the words restored.
 
-### T8: The guards sign-up needs before it opens [M] [ships alone; the switch is WP-00 S5]
+### [x] T8: The guards sign-up needs before it opens [M] [ships alone; the switch is WP-00 S5] (built on claude/wp03-t8-signup-guards; left: WP-09's per-account ceiling, then S5; the bot check's switches wait for the native app, D6)
 
 **Why:** FR-01 (fix 3), A9-P0-1 (step 3), s2 §4.3 option C; `docs/DEPLOY.md` §4 condition "per-domain caps with a captcha"; DECISIONS 2026-11-13 "Recorded, not fixed today: one person can still use the open-mode ceiling with many addresses".
 
@@ -441,7 +441,7 @@ Facts:
 
 **Done when:** Done-when 7. Opening itself also waits on WP-09's per-account ceiling and Decision 4.
 
-### [x] T9: The store-links value and its first readers [S] [ships alone] (the value and `GetTheApp` built; `ContinueLater` reads it since T3; the landing footer is left for the landing session)
+### [x] T9: The store-links value and its first readers [S] [ships alone] (the value and `GetTheApp` built; the landing footer built on claude/wp03-t7-stall-guard; `ContinueLater` reads it since T3)
 
 **Why:** A2-02, A9-P2-1; CLAUDE.md "through one config value for the store links (unset until launch)".
 

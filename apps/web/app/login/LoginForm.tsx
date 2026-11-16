@@ -9,20 +9,25 @@
  * callback, the same `next`. When it cannot start (the provider is not turned on in Supabase, no answer), a plain line
  * under it points to the email link, which stays usable throughout.
  *
+ * With NEXT_PUBLIC_SIGNIN_BOT_CHECK=on and a Turnstile site key (`signInBotCheck`, off by default; WP-03 T8), the send
+ * carries a Turnstile token (`captchaToken`) for Supabase's bot check, which covers sending the email (`/otp`) but not
+ * typing its code (`/verify`) or Google (`/authorize`). A token that cannot be had says so and sends nothing.
+ *
  * Works from 390 px (CLAUDE.md "Small screens"): the frame renders at every width, every control is at least 44 px tall.
  * Once sent, a small screen shows the six-digit code first and the link second (WP-03 T4); a desktop the link first.
  */
 import { Mail, Send, Unlink, Wrench } from "lucide-react";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { APP_NAME } from "@foundmill/config";
 import { Button, Field, GoogleSignInButton, Input, Separator, StatusPill, isViewportTooSmall, useViewportWidth } from "@foundmill/dugout";
 import { magicLinkCallbackUrl } from "@/lib/auth/canonical-origin";
 import { NEXT_PARAM } from "@/lib/auth/constants";
 import { startGoogleSignIn } from "@/lib/auth/google";
 import { safeNextPath } from "@/lib/auth/redirects";
-import { classifySendLinkError, GOOGLE_UNAVAILABLE_MESSAGE, parseSignInError, sendLinkErrorMessage, signInErrorCopy } from "@/lib/auth/sign-in-errors";
+import { BROWSER_CHECK_FAILED_MESSAGE, classifySendLinkError, GOOGLE_UNAVAILABLE_MESSAGE, parseSignInError, sendLinkErrorMessage, signInErrorCopy } from "@/lib/auth/sign-in-errors";
 import { googleSignInEnabled, hasSupabase, isDevLike, publicEnv } from "@/lib/env";
 import { createClient } from "@/lib/supabase/client";
+import { loadTurnstile, turnstileToken } from "@/lib/turnstile";
 import { BrandFrame } from "@/components/shell/BrandFrame";
 import { LEGAL_ROUTES } from "@/content/legal/facts";
 import { SignInCode } from "./SignInCode";
@@ -49,6 +54,8 @@ export function LoginForm({ nextParam = null, errorParam = null, google = google
   const width = useViewportWidth();
   const supabaseReady = hasSupabase();
   const devBypass = isDevLike();
+  const botCheck = publicEnv().signInBotCheck;
+  const widget = useRef<HTMLDivElement>(null);
   // The Supabase client loads on demand; start it once the form is on screen so sending the link never waits for it.
   useEffect(() => {
     if (supabaseReady) void createClient().catch(() => undefined);
@@ -69,8 +76,13 @@ export function LoginForm({ nextParam = null, errorParam = null, google = google
     setPhase({ kind: "sending" });
     const env = publicEnv();
     const emailRedirectTo = magicLinkCallbackUrl({ appUrl: env.appUrl, appEnv: env.appEnv, currentOrigin: window.location.origin, next });
+    const captchaToken = botCheck ? await turnstileToken(env.turnstileSiteKey, widget.current, 15_000, "sign_in") : undefined;
+    if (captchaToken === null) {
+      setPhase({ kind: "error", message: BROWSER_CHECK_FAILED_MESSAGE });
+      return;
+    }
     // A send that throws (the network dropped before Supabase answered) reads like a refused one.
-    const { error } = await supabase.auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo } }).catch((err: unknown) => ({ error: err as { name?: string; message?: string } }));
+    const { error } = await supabase.auth.signInWithOtp({ email: email.trim(), options: captchaToken ? { emailRedirectTo, captchaToken } : { emailRedirectTo } }).catch((err: unknown) => ({ error: err as { name?: string; message?: string } }));
     // Supabase's own wording never reaches the screen: the error is mapped to what happened and what to do next.
     if (error) setPhase({ kind: "error", message: sendLinkErrorMessage(classifySendLinkError(error)) });
     else setPhase({ kind: "sent", email: email.trim() });
@@ -156,7 +168,7 @@ export function LoginForm({ nextParam = null, errorParam = null, google = google
                 </div>
               </>
             ) : null}
-            <form onSubmit={submit} className="flex flex-col gap-3" data-testid="login-form">
+            <form onSubmit={submit} onFocus={botCheck ? () => void loadTurnstile() : undefined} className="flex flex-col gap-3" data-testid="login-form">
               <Field htmlFor="login-email" label="Email" hint={supabaseReady ? undefined : "Email sign-in is not set up on this server yet."}>
                 <Input id="login-email" controlSize="lg" wrapperClassName="min-h-tap" type="email" name="email" autoComplete="email" required icon={Mail} placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} disabled={!supabaseReady || phase.kind === "sending"} />
               </Field>
@@ -165,6 +177,8 @@ export function LoginForm({ nextParam = null, errorParam = null, google = google
                   {phase.message}
                 </StatusPill>
               ) : null}
+              {/* Where Turnstile draws when it must ask the person something; takes no room otherwise. */}
+              {botCheck ? <div ref={widget} className="min-w-0 max-w-full overflow-hidden empty:hidden" data-testid="login-bot-check" /> : null}
               <Button type="submit" size="lg" variant="glass" className="min-h-tap" icon={Send} loading={phase.kind === "sending"} disabled={!supabaseReady || email.trim().length === 0}>
                 Send sign-in link
               </Button>

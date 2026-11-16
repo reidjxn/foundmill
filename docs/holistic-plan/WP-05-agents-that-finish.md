@@ -205,7 +205,7 @@ Steps:
 Tests and evals: above.
 Done when: no code task waits in `review` for a merge that cannot be asked.
 
-### T9: A failing test goes back to the author, twice, before the session ends [L] [session.ts chain 5]
+### [x] T9: A failing test goes back to the author, twice, before the session ends [L] [session.ts chain 5]
 Why: AR-07; A4-06 (the verdict).
 Files:
 - modify `apps/orchestrator/src/activities/session.ts`, `apps/orchestrator/src/progress.ts`, `packages/db/src/approvals.ts`;
@@ -232,7 +232,7 @@ Steps:
 Tests and evals: above.
 Done when: a session whose tests fail gets the output and two tries; the founder is never told "passed every quality check" when nothing ran.
 
-### T10: Reaching the turn limit is a checkpoint [S] [session.ts chain 6]
+### [x] T10: Reaching the turn limit is a checkpoint [S] [session.ts chain 6]
 Why: AR-09.
 Files: modify `session.ts` (`classifyTurnEnd`, `:1385`), `activities/types.ts`, `packages/events/src/catalogue.ts`; tests `session-live.test.ts:867` (today asserts `failed`), `session.test.ts`.
 Interfaces, consumes: `classifyTurnEnd(result: SdkTurnResult, apiError, keySource, budget): TurnFailure | null`; any `subtype` other than `success` or `error_max_budget_usd` is `failed` (`:1392-1395`); `finishSession` marks the agent `failing` on `failed` (`:1043`).
@@ -242,7 +242,7 @@ Steps:
 2. The change. verify: named tests.
 Done when: no agent is marked failing for a long task.
 
-### T11: A resumed run knows what it already did [M] [session.ts chain 7]
+### [x] T11: A resumed run knows what it already did [M] [session.ts chain 7]
 Why: AR-08.
 Files: modify `session.ts` (the `resumed` text at `:1529`); tests `session-handoff.test.ts`, `workflows/sessionHandoff.test.ts`.
 Interfaces, consumes: `readSessionEvents(redis, sessionId)` (`packages/events/src/session-stream.ts:240`); the stream `as:<sessionId>` keeps every run's `tool_call` events until `finishSession` archives it; `ctx.run.resume.reason: "park" | "handoff" | "retry"`; `ToolCallEvent` fields `connectorKey`, `tool`, `status`, `argsSummary`, `resultSummary`.

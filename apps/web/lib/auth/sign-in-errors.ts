@@ -84,6 +84,9 @@ export function signInErrorCopy(reason: SignInErrorReason): SignInErrorCopy {
 }
 
 /** Under Continue with Google when the button could not start a sign-in (the provider is not turned on, the network dropped). */
+/** The sign-in bot check (NEXT_PUBLIC_SIGNIN_BOT_CHECK, WP-03 T8) could not get a token: the idea box's own line. */
+export const BROWSER_CHECK_FAILED_MESSAGE = "We could not check this browser. Reload the page and try again.";
+
 export const GOOGLE_UNAVAILABLE_MESSAGE = "Google sign-in isn't available right now. Use the email link below.";
 
 /**

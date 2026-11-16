@@ -4,7 +4,8 @@
  * claim it into their deck.
  *
  * A draft, in order, before any model call: the request's shape and the honeypot; the browser's live card (one per
- * browser: it gets that card back, nothing is drafted); the bot check (Turnstile, through the gateway); the per-address
+ * browser: it gets that card back, nothing is drafted, unless it asks for another with `again`, up to
+ * `IDEA_BOX_REDRAWS_PER_BROWSER` a day, and then every check below still runs); the bot check (Turnstile, through the gateway); the per-address
  * windows; the day's spend ceiling across every visitor ($20, `IDEA_BOX_DAILY_CEILING_CENTS`). Then the Ideation
  * agent's idea-box card on the platform key, streamed: the name and pitch as soon as they are written, then each rating.
  * The card is stored only when it is complete and valid.
@@ -13,7 +14,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { buildIdeaBoxCardRequest, IDEATION_CARD_MAX_TOKENS, IDEATION_CARD_ROUTE } from "@foundmill/agents";
 import { IDEA_DRAFT_SWEEP_BATCH, repos, type IdeaDraftRow } from "@foundmill/db";
 import { IdeaAttribute, isModelBillingError, meter, ModelOutputError, resolveModel, streamStructured, type ConceptCard, type ModelClient } from "@foundmill/models";
-import { IDEA_BOX_DEADLINE_MS, IDEA_BOX_ERRORS, IdeaBoxDraftRequest, IdeaToken, limitAddress, type IdeaBoxCard, type IdeaBoxErrorCode, type IdeaBoxEvent, type IdeaBoxPartialCard } from "@foundmill/shared";
+import { IDEA_BOX_DEADLINE_MS, IDEA_BOX_ERRORS, IDEA_BOX_REDRAWS_PER_BROWSER, IdeaBoxDraftRequest, IdeaToken, limitAddress, type IdeaBoxCard, type IdeaBoxErrorCode, type IdeaBoxEvent, type IdeaBoxPartialCard } from "@foundmill/shared";
 import type { Env } from "@foundmill/shared";
 import { ideaFromCard } from "./ideation";
 import { callerLimitKey } from "./pages";
@@ -32,6 +33,8 @@ export const IDEA_BOX_LIMITS = {
   perAddressHour: { limit: 3, windowMs: HOUR },
   perAddressDay: { limit: 5, windowMs: DAY },
   allHour: { limit: 400, windowMs: HOUR },
+  /** "Try another idea" (WP-03 T7): per browser token, on top of the address's own windows. */
+  redrawsPerBrowserDay: { limit: IDEA_BOX_REDRAWS_PER_BROWSER, windowMs: DAY },
 } as const satisfies Record<string, WindowLimit>;
 
 /**
@@ -130,10 +133,15 @@ export async function planIdeaBoxDraft(deps: IdeaBoxDeps, input: IdeaBoxDraftInp
   // A field no person sees: whoever filled it is a bot. The same answer as a failed bot check.
   if (req.website.trim()) return refuse("bot");
 
-  // One card per browser: the card it already holds.
+  // One card per browser: the card it already holds; or, with `again` ("Try another idea"), a new card in its place,
+  // after the same checks and limits below and at most `IDEA_BOX_REDRAWS_PER_BROWSER` a day.
+  let redraw: string | null = null;
   if (input.cookieToken && IdeaToken.safeParse(input.cookieToken).success) {
-    const held = await liveCardEvent(deps, input.cookieToken, now);
-    if (held) return { setToken: null, events: once(held) };
+    if (req.again && (await repos.ideaDrafts.liveByToken(deps.db, ideaTokenHash(input.cookieToken), now))) redraw = input.cookieToken;
+    else {
+      const held = await liveCardEvent(deps, input.cookieToken, now);
+      if (held) return { setToken: null, events: once(held) };
+    }
   }
 
   // The bot check, through the gateway (it holds the secret).
@@ -156,6 +164,7 @@ export async function planIdeaBoxDraft(deps: IdeaBoxDeps, input: IdeaBoxDraftInp
     entries.push({ key: `${key}:hour`, rule: IDEA_BOX_LIMITS.perAddressHour });
     entries.push({ key: `${key}:day`, rule: IDEA_BOX_LIMITS.perAddressDay });
   }
+  if (redraw) entries.push({ key: `idea-box:redraw:${ideaTokenHash(redraw)}`, rule: IDEA_BOX_LIMITS.redrawsPerBrowserDay });
   const taken = await deps.limits.take(entries);
   if (!taken.ok) return refuse("limit");
 
@@ -170,8 +179,9 @@ export async function planIdeaBoxDraft(deps: IdeaBoxDeps, input: IdeaBoxDraftInp
     return refuse("resting");
   }
 
-  const token = newIdeaToken();
-  return { setToken: token, events: draftStream(deps, { prompt: req.prompt.trim(), interest: req.interest, token }, signal) };
+  // A redraw keeps the browser's token (the cookie is set again for the card's fresh 7 days).
+  const token = redraw ?? newIdeaToken();
+  return { setToken: token, events: draftStream(deps, { prompt: req.prompt.trim(), interest: req.interest, token, replace: redraw !== null }, signal) };
 }
 
 const PARTIAL_KEYS = ["name", "pitch", "archetype", "stars_current", "stars_potential"] as const;
@@ -189,7 +199,7 @@ function partialOf(snapshot: unknown): IdeaBoxPartialCard {
 }
 
 /** The drafting stream: started, partials, ratings, then the stored card (or one error line). */
-async function* draftStream(deps: IdeaBoxDeps, input: { prompt: string; interest: string | null; token: string }, signal?: AbortSignal): AsyncGenerator<IdeaBoxEvent, void, undefined> {
+async function* draftStream(deps: IdeaBoxDeps, input: { prompt: string; interest: string | null; token: string; replace: boolean }, signal?: AbortSignal): AsyncGenerator<IdeaBoxEvent, void, undefined> {
   const queue: IdeaBoxEvent[] = [];
   let wake: (() => void) | null = null;
   let done = false;
@@ -242,15 +252,13 @@ async function* draftStream(deps: IdeaBoxDeps, input: { prompt: string; interest
       if (timedOut) return;
       const card: ConceptCard = res.json;
       const claim = newIdeaToken();
-      const row = await repos.ideaDrafts.create(deps.db, {
-        tokenHash: ideaTokenHash(input.token),
-        claimHash: ideaTokenHash(claim),
-        prompt: input.prompt,
-        interest: input.interest,
-        card,
-        modelMode: deps.models.mode,
-        costMicro: res.cost.costMicroMinor,
-      });
+      const fields = { claimHash: ideaTokenHash(claim), prompt: input.prompt, interest: input.interest, card, modelMode: deps.models.mode, costMicro: res.cost.costMicroMinor };
+      const row = input.replace ? await repos.ideaDrafts.replace(deps.db, ideaTokenHash(input.token), fields) : await repos.ideaDrafts.create(deps.db, { tokenHash: ideaTokenHash(input.token), ...fields });
+      // The card was kept (claimed) or ran out while the new one was drafted: nothing to replace.
+      if (!row) {
+        push(errorEvent("failed"));
+        return;
+      }
       deps.log.info({ mode: deps.models.mode, costMicro: res.cost.costMicroMinor, firstTextMs: res.firstTextMs ?? null }, "idea box: card drafted");
       push(cardEvent(row, false, claim));
     } catch (err) {

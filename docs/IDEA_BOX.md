@@ -17,7 +17,7 @@ placeholder that types ideas until the visitor clicks in.
 | After sign-in | The visitor lands on their saved card (`/new/card/<ideaId>`); the profile questions come at the next step. |
 | Other device | The sign-in email carries the card: the link claims it wherever it is opened. |
 | Sign-up | Invite-only until per-account spend ceilings and reporting land; a visitor who is not on the list joins the waitlist and keeps the card (90 days). Then sign-up opens with a quiet ceiling of 200 new accounts a day (past it, the waitlist). |
-| Money | At most $20 a day of model spend across all visitors; one card per browser; about 5 per address a day. |
+| Money | At most $20 a day of model spend across all visitors; one card per browser, which it may replace up to 2 times a day ("Try another idea"); about 5 per address a day. |
 | Bots | Cloudflare Turnstile (invisible) from day one, checked by the gateway. |
 | Retention | A card nobody claims is deleted after 7 days (90 with a waitlist hold). The Privacy Policy says so. |
 | Privacy | "Your idea stays private until you choose to share it." Sharing a card publicly is the network session's (`ideaShare.publish`); the card page leaves it a slot. |
@@ -40,7 +40,10 @@ NDJSON stream:
 
 Before any model call, in order: the honeypot; the body's size and the prompt's length (500 characters); Turnstile
 (gateway `turnstile.verify`, mock in mock mode); the browser's cookie (one card per browser: a browser that already
-holds a live draft gets that card back, `{"type":"card"}` at once, no model call); the per-address window (5 a day,
+holds a live draft gets that card back, `{"type":"card"}` at once, no model call; with `"again": true`, "Try
+another idea", it gets a new card in its place instead, under the same token, after every check below and at most
+`IDEA_BOX_REDRAWS_PER_BROWSER` = 2 a day, counted in the limit store by the token's hash: founder, 2026-11-15, WP-03
+decision 3); the per-address window (5 a day,
 keyed by HMAC like the public page's limits); the day's spend ceiling ($20, Estimate from the call's metered cost,
 kept in the limit store; refused once spent). A refusal is a single `error` line.
 

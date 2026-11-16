@@ -12,6 +12,7 @@ export * from "./copy";
 export * from "./ids";
 export * from "./permissions";
 export * from "./event-walls";
+export * from "./address-key";
 export * from "./allowlist";
 export * from "./people";
 export * from "./showcase";

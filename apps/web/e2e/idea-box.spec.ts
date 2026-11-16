@@ -6,7 +6,8 @@ import { LONG } from "./helpers";
 /**
  * The landing page's idea box (founder, 2026-11-13; docs/IDEA_BOX.md) against the local stack (mock models, the mock
  * Turnstile token): a signed-out visitor types a line and gets a card streamed in, keeps it by signing in (the stack's
- * developer sign-in stands in for the email link), keeps it with one press, and lands on the card in their deck; on a phone at 390 px the hero
+ * developer sign-in stands in for the email link), keeps it with one press, and lands on the card in their deck; "Try
+ * another idea" replaces the card with one from edited words (WP-03 T7); on a phone at 390 px the hero
  * works on its own, Surprise me drafts from an interest, and nothing scrolls sideways.
  *
  * With `E2E_UX_AUDIT=1` the pages are saved as docs/ux-audit/46-idea-box-landed-1440.png and 47-idea-box-phone-390.png.
@@ -61,6 +62,30 @@ test("a visitor types an idea, watches the card arrive, keeps it by signing in a
     await expect(page).toHaveURL(/\/new\/card\/[0-9a-f-]{36}$/, { timeout: LONG });
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(`${name} is yours`);
     await expect(page.getByTestId("card-kept-next")).toBeVisible();
+  } finally {
+    await close();
+  }
+});
+
+test("Try another idea replaces the card: the field comes back with the words, and the new card is the one kept", async ({ browser }) => {
+  const { page, close } = await visitor(browser, 1440, 900);
+  try {
+    // Its own address (the api reads the last X-Forwarded-For on a test stack), so these cards fill no other test's window.
+    const address = `198.51.100.${1 + Math.floor(Math.random() * 250)}`;
+    await page.route("**/idea-box/draft", (route) => route.continue({ headers: { ...route.request().headers(), "x-forwarded-for": address } }));
+    await page.goto("/");
+    await page.getByTestId("idea-input").fill("A repair service for old film cameras");
+    await page.getByTestId("idea-generate").click();
+    await expect(page.getByTestId("idea-keep")).toBeVisible({ timeout: LONG });
+    await page.getByRole("button", { name: "Try another idea" }).click();
+    await expect(page.getByTestId("idea-input")).toHaveValue("A repair service for old film cameras");
+    await page.getByTestId("idea-input").fill("A repair service for old film cameras, by mail");
+    await page.getByTestId("idea-generate").click();
+    await expect(page.getByTestId("idea-keep")).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("idea-landed-words")).toHaveText("A repair service for old film cameras, by mail");
+    // The browser holds the new card, not a second one.
+    await page.reload();
+    await expect(page.getByTestId("idea-landed-words")).toHaveText("A repair service for old film cameras, by mail", { timeout: LONG });
   } finally {
     await close();
   }

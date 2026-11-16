@@ -410,6 +410,8 @@ export const TASK_BLOCKED_REASONS = [
   "no_result",
   /** Every outside call of the session came back simulated or not connected on a real project: nothing real happened. */
   "not_connected",
+  /** The session reached its turn limit with the work saved: a checkpoint, offered again in the next round (WP-05 T10). */
+  "turn_limit",
 ] as const;
 export const TaskBlockedReason = z.enum(TASK_BLOCKED_REASONS);
 export type TaskBlockedReason = z.infer<typeof TaskBlockedReason>;

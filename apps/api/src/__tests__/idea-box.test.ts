@@ -8,7 +8,7 @@ import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as s from "@foundmill/db";
 import type { ModelClient } from "@foundmill/models";
-import { IDEA_BOX_DEADLINE_MS, IDEA_BOX_ERRORS, IDEA_COOKIE, type IdeaBoxEvent } from "@foundmill/shared";
+import { IDEA_BOX_DEADLINE_MS, IDEA_BOX_ERRORS, IDEA_BOX_REDRAWS_PER_BROWSER, IDEA_COOKIE, type IdeaBoxEvent } from "@foundmill/shared";
 import { createApp } from "../app";
 import type { GatewayTurnstileResult } from "../services/gateway";
 import { IDEA_BOX_CARD_RESERVE_MICRO, IDEA_BOX_LIMITS, ideaBoxDailyCards, ideaTokenHash, limitAddress, planIdeaBoxDraft } from "../services/idea-box";
@@ -77,6 +77,52 @@ describe("POST /idea-box/draft", () => {
     expect(again.events).toHaveLength(1);
     expect(again.events[0]).toMatchObject({ type: "card", again: true, prompt: idea.prompt });
     expect((await hz.db.select().from(s.ideaDrafts)).length).toBe(1);
+  });
+
+  it("Try another idea: again replaces the held card under the same token, with a new claim token (WP-03 T7)", async () => {
+    const { hz, app } = await setup();
+    const first = await draft(app, idea);
+    const firstCard = last(first.events);
+    const redo = await draft(app, { ...idea, prompt: "Restored film cameras for first-time buyers", again: true }, { cookie: first.token! });
+    const card = last(redo.events);
+    expect(card).toMatchObject({ type: "card", again: false, prompt: "Restored film cameras for first-time buyers" });
+    if (card.type !== "card" || firstCard.type !== "card") return;
+    // The same browser token: the cookie is set again with it (a fresh 7 days), and there is still one draft.
+    expect(redo.token).toBe(first.token);
+    const rows = await hz.db.select().from(s.ideaDrafts);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.prompt).toBe("Restored film cameras for first-time buyers");
+    // The first card's claim link no longer works; the new one points at the new card.
+    expect(card.claim).not.toBe(firstCard.claim);
+    expect(rows[0]!.claimHash).toBe(ideaTokenHash(card.claim!));
+    // Without again, the browser gets the new card back.
+    expect((await draft(app, idea, { cookie: first.token! })).events[0]).toMatchObject({ type: "card", again: true, prompt: "Restored film cameras for first-time buyers" });
+  });
+
+  it("a third redraw is refused with `limit`", async () => {
+    const { hz, app } = await setup();
+    const first = await draft(app, idea, { address: "203.0.113.40" });
+    // Each redraw from its own address, so only the browser's count can refuse the third.
+    for (let i = 0; i < IDEA_BOX_REDRAWS_PER_BROWSER; i++) expect(last((await draft(app, { ...idea, again: true }, { cookie: first.token!, address: `203.0.113.${41 + i}` })).events).type).toBe("card");
+    const third = await draft(app, { ...idea, again: true }, { cookie: first.token!, address: "203.0.113.49" });
+    expect(third.events).toEqual([{ type: "error", code: "limit", message: IDEA_BOX_ERRORS.limit }]);
+    expect(third.setCookie).toBeNull();
+    // The card stays the browser's.
+    expect((await draft(app, idea, { cookie: first.token! })).events[0]).toMatchObject({ type: "card", again: true });
+    expect((await hz.db.select().from(s.ideaDrafts)).length).toBe(1);
+  });
+
+  it("a redraw runs the same checks: the bot check and the address's own window", async () => {
+    let pass = true;
+    const { app } = await setup({}, async () => (pass ? { ok: true, reason: "ok", simulated: false } : { ok: false, reason: "invalid", simulated: false }));
+    const first = await draft(app, idea, { address: "203.0.113.60" });
+    pass = false;
+    expect((await draft(app, { ...idea, again: true }, { cookie: first.token!, address: "203.0.113.60" })).events[0]).toMatchObject({ type: "error", code: "bot" });
+    pass = true;
+    // The address has had one card; two more fill its hour (one of them a redraw), and the next redraw is refused.
+    expect(last((await draft(app, { ...idea, again: true }, { cookie: first.token!, address: "203.0.113.60" })).events).type).toBe("card");
+    expect(last((await draft(app, idea, { address: "203.0.113.60" })).events).type).toBe("card");
+    expect((await draft(app, { ...idea, again: true }, { cookie: first.token!, address: "203.0.113.60" })).events[0]).toMatchObject({ type: "error", code: "limit" });
   });
 
   it("refuses with one fixed line and no cookie: another origin, a bad shape, the honeypot, a failed bot check", async () => {
