@@ -24,8 +24,6 @@ export const WEB_MAX_CHARS = 50_000;
 export const WEB_MAX_BYTES = 2 * 1024 * 1024;
 export const WEB_TIMEOUT_MS = 15_000;
 export const WEB_MAX_REDIRECTS = 3;
-/** Estimated cost of one search (a server-side search plus the routed model's tokens), minor units. Estimate. */
-export const WEB_SEARCH_COST_MINOR = 2;
 
 export const SearchResult = z.object({ url: z.string(), title: z.string(), pageAge: z.string().nullable() });
 
@@ -83,7 +81,8 @@ export const webTools = [
     // Titles stay out (a result chooses its own title); an address that does not pass `fact.url` is null.
     facts: (data) => ({ results: data.results.slice(0, 10).map((r) => ({ url: fact.url(r.url), host: fact.hostOf(r.url) })) }),
     untrustedRef: (a) => `search:${a.query.slice(0, 120)}`,
-    costMinor: () => WEB_SEARCH_COST_MINOR,
+    // No tool cost: the model row booked by `searchWeb` carries the search's real tokens and fee (WP-09 T3), so a second
+    // row here would count the search twice in Payroll and the day's spend.
     annotations: { readOnlyHint: true, openWorldHint: true },
   }),
   defineTool({

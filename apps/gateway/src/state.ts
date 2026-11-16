@@ -41,7 +41,11 @@ export const STATE_ERROR_CODES: Readonly<Record<StatePolicyId, string>> = {
 
 /** The connector whose tools run on the club's own Anthropic key when `modelBilling` is `byok` (BUILD §10.2). */
 export const ANTHROPIC_CONNECTOR_KEY = "anthropic";
-/** The built-in quarantined reader: its model call runs on the club's own key too when `modelBilling` is `byok`. */
+/**
+ * The built-in quarantined reader: its model call runs on the club's own key too when `modelBilling` is `byok`, as does
+ * the pipeline's digest (builtins.ts `readerClientFor`). Web search is not listed: it runs on the platform key and is
+ * charged to credits for every business (WP-09 T3).
+ */
 export const QUARANTINE_CONNECTOR_KEY = "quarantine";
 /** Gateway-owned, like `FINANCE_CONNECTORS`: connectors that need the club's BYOK key, never a connector hint. */
 export const BYOK_KEY_CONNECTORS: ReadonlySet<string> = new Set([ANTHROPIC_CONNECTOR_KEY, QUARANTINE_CONNECTOR_KEY]);

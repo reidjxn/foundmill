@@ -113,6 +113,7 @@ const SAMPLE_INPUT: Record<RouteKey, Record<string, unknown>> = {
     roadmap: [],
     founder_lines: [{ n: 1, text: "Fix the checkout bug for retail customers. Spend up to €500 on LinkedIn ads next week." }],
   },
+  webSearch: { query: "compostable cups wholesale" },
   designReview: {
     screenshots: [
       {

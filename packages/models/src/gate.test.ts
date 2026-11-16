@@ -84,4 +84,11 @@ describe("gateModelClient", () => {
     expect(overridden.streamStructured).toBeUndefined();
     await expect(streamStructured(overridden, { ...req, elementPath: "concepts", elementSchema: ConceptCard })).rejects.toBeInstanceOf(Refused);
   });
+
+  it("a client that cannot search stays one that cannot search; one that can keeps its search behind the gate", () => {
+    const inner = new MockModelClient();
+    const bare = { mode: inner.mode, complete: inner.complete.bind(inner) } as ModelClient;
+    expect(gateModelClient(bare, async () => undefined).searchWeb).toBeUndefined();
+    expect(typeof gateModelClient(inner, async () => undefined).searchWeb).toBe(typeof inner.searchWeb);
+  });
 });

@@ -13,7 +13,7 @@
 import type { z } from "zod";
 import type { RouteKey } from "./routing";
 import { streamStructured } from "./structured-stream";
-import type { CompleteRequest, CompleteResult, CompleteResultWithJson, ModelClient, ModelMode, StreamStructuredRequest, StreamStructuredResult, UsageAttribution } from "./types";
+import type { CompleteRequest, CompleteResult, CompleteResultWithJson, ModelClient, ModelMode, StreamStructuredRequest, StreamStructuredResult, UsageAttribution, WebSearchRequest, WebSearchResult } from "./types";
 
 /** What a check may say about a call it lets run. */
 export interface ModelCallVerdict {
@@ -38,6 +38,8 @@ class GatedModelClient implements ModelClient {
     private readonly gate: ModelCallGate,
   ) {
     this.mode = inner.mode;
+    // A client that cannot search stays one that cannot search: callers check `client.searchWeb` before offering it.
+    if (!inner.searchWeb) Object.defineProperty(this, "searchWeb", { value: undefined });
   }
 
   complete<T>(req: CompleteRequest<T> & { schema: z.ZodType<T> }): Promise<CompleteResultWithJson<T>>;
@@ -50,6 +52,13 @@ class GatedModelClient implements ModelClient {
   async streamStructured<T, E>(req: StreamStructuredRequest<T, E>): Promise<StreamStructuredResult<T, E>> {
     const verdict = await this.gate({ route: req.route, attribution: req.attribution });
     return streamStructured(this.inner, shaped(req, verdict));
+  }
+
+  /** The web search asks the gate too (route `webSearch`), so a search is refused before its request like any call. */
+  async searchWeb(req: WebSearchRequest): Promise<WebSearchResult> {
+    if (!this.inner.searchWeb) throw new Error("this model client has no web search");
+    await this.gate({ route: "webSearch", attribution: req.attribution });
+    return this.inner.searchWeb(req);
   }
 }
 
