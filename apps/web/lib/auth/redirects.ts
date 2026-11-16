@@ -75,6 +75,19 @@ export function safeNextPath(next: string | null | undefined, fallback = "/"): s
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
+/** The only places the three questions go on to (WP-04 T1): a kept card's Commit, or the kept card itself. */
+const ONBOARDING_NEXT = /^\/new\/(commit|card)\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * `/onboarding?next=`: the path the profile's first save goes on to, or null for anything but `/new/commit/<uuid>` and
+ * `/new/card/<uuid>` (the card a person kept from the idea box keeps its thread through the three questions). The
+ * path is clamped by `safeNextPath` first, then must be exactly one of the two.
+ */
+export function onboardingNext(raw: string | null | undefined): string | null {
+  const path = safeNextPath(raw, "");
+  return ONBOARDING_NEXT.test(path) ? path : null;
+}
+
 /**
  * Where a signed-in founder goes instead of `target` when `target` is the index: their last business's Home when the
  * cookie names one (the redirect `/` would answer anyway, one hop sooner). Anything else is kept.

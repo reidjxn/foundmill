@@ -4,7 +4,7 @@
  */
 import { CREDITS_CURRENCY } from "@foundmill/config";
 import { concurrencyAllowance, creditsState, loadProductStage, modelBudgetState, periodOf, repos } from "@foundmill/db";
-import { pageUrl, ventureNoun, type ProductStage, type TaskStatus } from "@foundmill/shared";
+import { founderBriefSection, pageUrl, ventureNoun, type ProductStage, type TaskStatus } from "@foundmill/shared";
 import { detectSectors, openSectorGates } from "@foundmill/shared/sectors";
 import type { OrchestratorDeps } from "../deps";
 import { failureStreak, taskRetry } from "../retry";
@@ -176,7 +176,7 @@ export function createBriefActivities(deps: OrchestratorDeps) {
       // that went over its cap while it worked is paused (with its note) before the planner sees the team.
       await recoverAgents(deps, businessId);
       await enforceWageCaps(deps, businessId);
-      const [facts, inFlight, pendingApprovals, blockingInboxItems, holiday, chief, roadmap, about] = await Promise.all([
+      const [facts, inFlight, pendingApprovals, blockingInboxItems, holiday, chief, roadmap, about, founder] = await Promise.all([
         loadDispatchFacts(deps, businessId),
         repos.tasks.list(db, businessId, { status: IN_FLIGHT_STATUSES, limit: 50 }),
         repos.approvals.countPending(db, businessId),
@@ -185,6 +185,8 @@ export function createBriefActivities(deps: OrchestratorDeps) {
         repos.agents.chiefOfStaff(db, businessId),
         repos.product.untaskedRoadmap(db, businessId, 20),
         aboutBusiness(deps, businessId),
+        // Who the team works with (WP-04 T10): the primary owner's own profile and the other founders' first names.
+        repos.founders.contextFor(db, businessId),
       ]);
       const { business, departments, agents, openTasks, product, agentsStopped } = facts;
       const candidates = { total: facts.openTaskTotal };
@@ -218,6 +220,7 @@ export function createBriefActivities(deps: OrchestratorDeps) {
       const sections: string[] = [];
       sections.push(`# ${business.name}\nMode: ${business.businessMode}${holiday ? " (founder on vacation; Chief of Staff decides within authority)" : ""}. Archetype: ${business.archetype ?? "not committed"}. Game mode: ${business.gameMode}. Plan tier: ${business.planTier}. Currency: ${currency}.`);
       sections.push(about);
+      sections.push(founderBriefSection(founder));
       if (Object.keys(business.glossary).length) sections.push(`## Glossary\n${Object.entries(business.glossary).map(([k, v]) => `- say "${v}" for "${k}"`).join("\n")}`);
       sections.push(`## Departments\n${fit(departments.map((d) => `- ${d.name} (${d.id}): modules ${d.moduleKeys.join(", ") || "none"}; lead ${d.leadAgentId ?? "none"}; budget ${d.budgetMinor === null ? "unset" : formatMinor(d.budgetMinor, currency) + " (Estimate)"}`), 400).join("\n")}`);
       sections.push(`## Team (${agents.length})\n${fit(agents.map((a) => `- ${a.name} — ${a.role || a.agentType} [${a.layer}, ${a.modelKey}, ${a.status}${a.wageRemainingMinor !== null && a.wageRemainingMinor !== undefined && a.wageRemainingMinor <= 0 ? ", wage cap reached" : ""}] id ${a.id}`), 900).join("\n")}`);

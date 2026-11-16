@@ -4,7 +4,7 @@
  * Inbox questions that never use up a decision, and tenancy (business, role and section).
  */
 import { CONVERSATION_MAX_TOKENS, CONVERSATION_RESERVE_TOKENS, REFUSED_REPLY_LINES, hasClubRulesPrefix } from "@foundmill/agents";
-import { inboxItems, repos } from "@foundmill/db";
+import { founderProfiles, inboxItems, repos } from "@foundmill/db";
 import { eq } from "drizzle-orm";
 import { agentDisplayName, personaByKey } from "@foundmill/shared";
 import { MockModelClient, ModelOutputError, PRICING_CURRENCY, type CompleteRequest, type ModelClient } from "@foundmill/models";
@@ -87,6 +87,23 @@ describe("agent.conversation.get", () => {
 });
 
 describe("agent.conversation.send", () => {
+  it("tells the agent who it is talking with: the person's first name and profile as trusted JSON, never in the instructions (WP-04 T10)", async () => {
+    await repos.founders.upsert(hz.db, hz.A.ownerId, { displayName: "Maya Lopez", experience: "first_time", budgetMinor: 0 });
+    try {
+      const client = recordingModels();
+      const item = await decisionItem("Where do the first customers come from?");
+      await owner().agent.conversation.send({ businessId: hz.A.businessId, subject: { kind: "inbox_item", id: item.id }, quickReplyId: "why_that_one" });
+      const req = conversationRequests(client).at(-1)!;
+      const prompt = String(req.messages[0]!.content);
+      const inputs = JSON.parse(prompt.slice(prompt.indexOf("{"), prompt.lastIndexOf("}") + 1)) as { founder?: Record<string, unknown> };
+      expect(inputs.founder).toMatchObject({ first_name: "Maya", experience: "first_time", budget: "none" });
+      expect(inputs.founder).not.toHaveProperty("other_founders");
+      expect(systemBlocks(req).join("\n")).not.toContain("Maya");
+    } finally {
+      await hz.db.delete(founderProfiles).where(eq(founderProfiles.userId, hz.A.ownerId));
+    }
+  });
+
   it("prices option costs in the business currency as an Estimate, never in the note's own model-cost currency (audit CML-12)", async () => {
     const client = recordingModels();
     const item = await decisionItem("Which channel carries the first spend?");

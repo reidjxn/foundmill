@@ -11,7 +11,7 @@ import { afterPeopleChange } from "../services/showcase";
 import { modelLimited } from "../services/model-limits";
 import { ensurePortraits } from "../services/personas";
 import { archivePlaybook, compilePlaybookText, createPlaybook, setPlaybookEnabled, toPlaybookView, updatePlaybook } from "../services/playbooks";
-import { SkillChoice, SkillFileUpload, attachSkills, libraryView, resolveSkillChoice, uploadPreview } from "../services/skills";
+import { LibraryFor, SkillChoice, SkillFileUpload, attachSkills, librarySkillText, libraryView, resolveSkillChoice, uploadPreview } from "../services/skills";
 import { hireFromTemplate, shownToolGrants } from "../services/squad";
 import { SIGNALS, workflowIds } from "../services/temporal";
 import { Id, audit, businessProcedure, emit, router, sectionAdmin, sectionRead, sectionWrite, writeProcedure } from "../trpc";
@@ -77,8 +77,14 @@ export const teamRouter = router({
    * profile's Skills from the library or files panel. Adding happens in team.agents.hire and agent.skills.add.
    */
   skills: router({
-    /** The curated, read-only catalog: every skill with its category, the attribute it shows as and its instructions. */
-    library: read.query(() => libraryView()),
+    /**
+     * The curated, read-only catalog (WP-06 T7): every skill with its category, the attribute it shows as, what makes it
+     * better and whether that is connected, and, for the agent or template the picker was opened for, the suggested
+     * skills first. No bodies: `get` gives one skill's whole text.
+     */
+    library: read.input(LibraryFor).query(({ ctx, input }) => libraryView(ctx, input)),
+    /** One library skill's whole text, for a person to read before adding it (founder, Nov 16, 2026: D6). */
+    get: read.input(z.object({ key: z.string().min(1).max(80) })).query(({ input }) => librarySkillText(input.key)),
     /** Parses and screens a skill file without storing it: the preview, or a 400 that says what to change. */
     preview: write.input(SkillFileUpload).mutation(({ input }) => uploadPreview(input)),
   }),

@@ -1,10 +1,14 @@
+import { randomUUID } from "node:crypto";
 import { expect, test, type Page, type PlaywrightWorkerArgs } from "@playwright/test";
 import {
   DEMO_OWNER_DISPLAY_NAME,
   LONG,
   NORTHWIND_BUSINESS_ID,
   completeProfile,
+  confirmAdultOnForm,
   devApi,
+  expectTapTarget,
+  signInAs,
   readFounderProfile,
   restoreFounderProfile,
   type FounderProfileSnapshot,
@@ -79,10 +83,9 @@ test.describe("onboarding", () => {
         "E2E_EXPECT_PROFILE_GATE is set: `/` must redirect the dev user to /onboarding",
       ).toBe(true);
     await page.goto("/onboarding");
-    await expect(page.getByTestId("onboarding-form")).toBeVisible({ timeout: LONG });
-    await expect(page.getByTestId("profile-submit")).toHaveText(
-      gated ? /^Continue$/ : /Save and continue/,
-    );
+    // A founder without a profile meets the three questions (WP-04 T1); one with a profile, the long form to edit it.
+    await expect(page.getByTestId(gated ? "first-profile" : "onboarding-form")).toBeVisible({ timeout: LONG });
+    if (!gated) await expect(page.getByTestId("profile-submit")).toHaveText(/Save and continue/);
     if (gated) {
       // The gate: /b/* and /new/* both bounce to /onboarding before the profile exists.
       await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/home`);
@@ -112,6 +115,47 @@ test.describe("onboarding", () => {
     // `/` now resolves to a business's Today (the seed owner owns Northwind and Ledgerly).
     await page.goto("/");
     await expect(page).toHaveURL(/\/b\/[0-9a-f-]{36}\/today/, { timeout: LONG });
+  });
+
+  test("WP-04 T1: a new account answers three questions at 390 and 1440 px and goes on to the kept card's Commit", async ({
+    browser,
+  }) => {
+    const commit = `/new/commit/${randomUUID()}`;
+    for (const viewport of [
+      { width: 390, height: 844 },
+      { width: 1440, height: 900 },
+    ]) {
+      const small = viewport.width < 600;
+      const context = await browser.newContext({ viewport, hasTouch: small, isMobile: small });
+      const page = await context.newPage();
+      try {
+        await signInAs(page, randomUUID(), `/onboarding?next=${commit}`);
+        await expect(page.getByTestId("first-profile")).toBeVisible({ timeout: LONG });
+        await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
+        await expect(page.getByRole("heading", { level: 1 })).toHaveText("Three quick things about you");
+        // Building on my own is chosen; people are one answer among the others. (The name is prefilled from the
+        // email, FirstProfile.test.tsx; a developer sign-in has none.)
+        await expect(page.getByRole("radio", { name: "Building on my own" })).toHaveAttribute("aria-checked", "true");
+        await expect(page.getByRole("radio", { name: "Looking for a cofounder" })).toHaveAttribute("aria-checked", "false");
+        expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+        if (small) await expectTapTarget(page.getByTestId("first-profile-submit"), "Continue");
+        await page.getByLabel(/What should your team call you/).fill("Three Questions");
+        await page.getByRole("button", { name: "Writing", exact: true }).click();
+        await page.getByRole("radio", { name: "Open to building with people" }).click();
+        await confirmAdultOnForm(page);
+        const created = page.waitForRequest((r) => r.method() === "POST" && r.url().includes("founder.profile.update"), { timeout: LONG });
+        const answers = page.waitForRequest((r) => r.method() === "POST" && r.url().includes("founder.publicProfile.update"), { timeout: LONG });
+        await page.getByTestId("first-profile-submit").click();
+        expect((await created).postData() ?? "").toContain('"confirmAdult":true');
+        const sent = (await answers).postData() ?? "";
+        expect(sent).toContain('"strengths":["Writing"]');
+        expect(sent).toContain('"lookingFor":"open_to_people"');
+        // The kept card's thread: on to its Commit (still desktop-only on a phone until WP-04 T2).
+        await expect(page).toHaveURL(new RegExp(`${commit}$`), { timeout: LONG });
+      } finally {
+        await context.close();
+      }
+    }
   });
 
   test("two passes: four questions first, the rest behind Add detail, and the rail counts the optional section as one (§7.3, A1)", async ({

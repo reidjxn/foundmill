@@ -356,9 +356,8 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
 
   useKeyboardMap({
     enabled: dialog === null,
+    // Esc clears the pick. Space is no page shortcut (WP-04 T13): Compare takes it only with focus, as any button does.
     onEscape: () => setSelection([]),
-    // Space compares only when there is something to compare; otherwise it stays the page's (or the focused control's).
-    onContinue: canCompare ? goCompare : undefined,
   });
 
   // Stable handlers, so a streamed card (or a ticking timer) re-renders only what changed, not every card in the deck.
@@ -576,7 +575,7 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
                     <span data-testid="compare-kbd-tip">
                       <InfoTip always label="Keyboard shortcuts for comparing">
                         <span className="flex items-center gap-1.5">
-                          <Kbd>Space</Kbd> compares the picked cards · <Kbd>Esc</Kbd> clears the pick
+                          <Kbd>Esc</Kbd> clears the pick
                         </span>
                       </InfoTip>
                     </span>

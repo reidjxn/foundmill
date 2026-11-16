@@ -133,6 +133,8 @@ export const accountPreferences = pgTable("account_preferences", {
   /** 0075 — keep money amounts out of lock-screen notifications. */
   hideAmountsOnLockScreen: boolean("hide_amounts_on_lock_screen").notNull().default(false),
   builderView: boolean("builder_view").notNull().default(false),
+  /** 0114 — the single-key shortcuts (R, G chords, J, K, 1–4, E); off by default, on for accounts that had guidance off (WP-04 T13). */
+  keyboardShortcuts: boolean("keyboard_shortcuts").notNull().default(false),
   /** 0082 — share this person's one-to-one calls with the project (default false: private to them). */
   shareOneToOneCalls: boolean("share_one_to_one_calls").notNull().default(false),
   /**

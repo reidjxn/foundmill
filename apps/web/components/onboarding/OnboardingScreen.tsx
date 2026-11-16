@@ -18,6 +18,10 @@
  * `OnboardingForm` is pure (props in, `onSubmit(patch)` out) so it is tested without tRPC; `OnboardingScreen` wires
  * the mutation, the toasts (including "Guidance is off for experienced founders" when the save turned it off) and the
  * redirect.
+ *
+ * WP-04 T1: this long form is for editing a profile on a computer. A new account answers three questions instead
+ * (`FirstProfile`, which carries the `via` reference and the "18 or older" box on the save that creates the profile),
+ * and so does an account editing on a screen under 1280 px.
  */
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -62,9 +66,11 @@ import {
   SkillSlider,
   StatusPill,
   cn,
+  isViewportTooSmall,
   ratingClass,
   useGuided,
   useToast,
+  useViewportWidth,
 } from "@foundmill/dugout";
 import { errorMessage, trpcPathPrefix, validationIssues } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
@@ -106,9 +112,8 @@ import {
   type ProfileSectionId,
 } from "./profile-form";
 import { AccountId } from "@/components/settings/AccountId";
-import { forgetVia } from "@/app/onboarding/actions";
-import { isAdultUnconfirmed } from "@/lib/adult";
 import { AdultStep } from "./AdultStep";
+import { FirstProfile } from "./FirstProfile";
 
 export interface OnboardingScreenProps {
   profile: ProfileLike | null;
@@ -128,15 +133,14 @@ export interface OnboardingScreenProps {
    * asks for it too, whatever this said.
    */
   adultConfirmed: boolean;
+  /** Where the three questions go on to (`onboardingNext`: a kept card's Commit); /new when null. */
+  next?: string | null;
 }
 
 /** Under the box on the form that creates an account: asked once, never again. */
 export const ADULT_FORM_HINT = "You confirm this once.";
 /** When Continue is pressed with the box empty. */
 export const ADULT_FORM_NEEDED = "Confirm that you are 18 or older to continue.";
-
-/** How long the first save waits for the attribution cookie to be cleared before it moves on without that. */
-export const FORGET_VIA_WAIT_MS = 3_000;
 
 /**
  * Said once, after the save that created the profile with an Exited or Operator experience (UX plan §6.3, decided
@@ -156,55 +160,43 @@ export const SKILLS_HINT = "Be honest: the team hires to cover what you don't ha
 /** Under Continue while the example founder is in: the example is never saved as the founder's own profile. */
 export const EXAMPLE_PROFILE_LINE = "Replace the example with your own answers to continue.";
 
-export function OnboardingScreen({ profile, email, accountId = null, via = null, adultConfirmed }: OnboardingScreenProps) {
+export function OnboardingScreen({ profile, email, accountId = null, via = null, adultConfirmed, next = null }: OnboardingScreenProps) {
   const router = useRouter();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const editing = profile !== null;
-  /** Only the save that creates the profile carries the reference. */
-  const handOver = editing ? null : via;
-  /** The api refused a save for want of the confirmation: ask for it, whatever the page was told. */
-  const [serverAsked, setServerAsked] = useState(false);
-  const needsAdult = !adultConfirmed || serverAsked;
+  // The long form is for a computer; on a phone an account with a profile edits the three questions (WP-04 T1).
+  const small = isViewportTooSmall(useViewportWidth());
 
+  // The long form only edits a profile that exists: no reference and no "18 or older" box (FirstProfile creates it).
   const save = useMutation(
     trpc.founder.profile.update.mutationOptions({
       onSuccess: async (data) => {
-        // The api has read the reference (it reads it once): clear the cookie, and never hold the founder up for it.
-        if (handOver) await Promise.race([forgetVia().catch(() => undefined), new Promise((done) => setTimeout(done, FORGET_VIA_WAIT_MS))]);
         // The founder's own queries, the guidance switch among them (`founder.preferences.guidance`), read again.
         await queryClient.invalidateQueries({ queryKey: trpcPathPrefix("founder") as unknown[] });
-        toast({
-          title: editing ? "Profile updated" : "Welcome aboard",
-          description: editing
-            ? "Your constraints shape every concept the studio drafts."
-            : "Next: ideate a concept or import what already exists.",
-          tone: "good",
-        });
+        toast({ title: "Profile updated", description: "Your constraints shape every concept the studio drafts.", tone: "good" });
         if (data.guidanceTurnedOff) toast({ ...GUIDANCE_OFF_TOAST, tone: "info" });
         router.push("/new");
         router.refresh();
       },
-      onError: (err) => {
-        if (isAdultUnconfirmed(err)) setServerAsked(true);
-        toast({ title: "Profile not saved", description: saveErrorMessage(err), tone: "bad" });
-      },
+      onError: (err) => toast({ title: "Profile not saved", description: saveErrorMessage(err), tone: "bad" }),
     }),
   );
 
+  // A new account answers three questions (WP-04 T1); that save carries the reference and the box.
+  if (profile === null) return <FirstProfile email={email} via={via} next={next} adultConfirmed={adultConfirmed} />;
   // A person from before (a profile, no "18 or older" on record) is asked once, in one step, instead of the form.
-  if (editing && needsAdult) return <AdultStep />;
+  if (!adultConfirmed) return <AdultStep />;
+  if (small) return <FirstProfile email={email} next={next} adultConfirmed profile={{ displayName: profile.displayName }} />;
 
   return (
     <OnboardingForm
       profile={profile}
       email={email}
       accountId={accountId}
-      askAdult={!editing && needsAdult}
       saving={save.isPending}
       error={save.error ? saveErrorMessage(save.error) : null}
-      onSubmit={(patch) => save.mutate(handOver ? { ...patch, via: handOver } : patch)}
+      onSubmit={(patch) => save.mutate(patch)}
     />
   );
 }

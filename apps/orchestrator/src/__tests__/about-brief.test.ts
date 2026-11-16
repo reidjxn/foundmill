@@ -56,3 +56,13 @@ describe("aboutBusiness and the brief's About section", () => {
     expect(about).not.toContain(NOT_WRITTEN);
   });
 });
+
+describe("the brief's Founder section (WP-04 T10)", () => {
+  it("says who the team works with, right after About, and nothing about other people on a one-founder project", async () => {
+    await repos.founders.upsert(t.db, t.fixture.ownerId, { displayName: "Maya Lopez", experience: "first_time", budgetMinor: 0 });
+    const brief = await createBriefActivities(t.deps).loadBrief({ businessId: t.businessId });
+    const third = brief.text.split("\n\n")[2]!;
+    expect(third).toBe(["## Founder", "Name: Maya; running a business for the first time.", "Money: nothing to spend for now; free options come first unless they said they can spend."].join("\n"));
+    expect(third).not.toMatch(/\b(?:alone|solo|missing|co-?founders?|partners?)\b/i);
+  });
+});

@@ -144,7 +144,7 @@ describe("teamCallDoneClaim and teamCallRemit", () => {
   });
 
   it("a remit is the first sentence that is not an introduction, at most 200 characters", () => {
-    expect(teamCallRemit(chiefOfStaff.description)).toBe("I run the team so you only read and decide.");
+    expect(teamCallRemit(chiefOfStaff.description)).toBe("I run the team beside you and tell you what matters and why.");
     expect(teamCallRemit(productLead.description)).toBe("I own the living specification and the roadmap.");
     expect(teamCallRemit("word ".repeat(100)).length).toBeLessThanOrEqual(200);
   });

@@ -36,6 +36,7 @@ export * from "./vacation";
 export * from "./playbook";
 export * from "./terms";
 export * from "./founder-words";
+export * from "./founder-context";
 export * from "./personas";
 export * from "./channel-availability";
 export * from "./platform-mail";

@@ -42,6 +42,8 @@ export const SMALL_SCREEN_PREFIXES: readonly string[] = [
   // card a person kept from it, where sign-in lands them.
   "/",
   "/new/card/",
+  // The three questions after a kept card (WP-04 T1).
+  "/onboarding",
   // The person's own pages and the people pages (package 2.1): their profile, finding people, communities, messages.
   "/public-profile",
   "/network",
