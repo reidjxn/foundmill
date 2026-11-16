@@ -64,7 +64,7 @@ export const SKILL_PROMPT_CASES: SkillPromptCase[] = [
   { id: "skills.prompt.builder.source_relevance", builder: "source_relevance", templateKey: "product_lead", skill: { source: "library", key: "pricing_analysis" }, mustContain: "List competitor prices you found, each with its source" },
   { id: "skills.prompt.builder.source_proposal", builder: "source_proposal", templateKey: "product_lead", skill: { source: "library", key: "pricing_analysis" }, mustContain: "List competitor prices you found, each with its source" },
   { id: "skills.prompt.builder.team_call_turn", builder: "team_call_turn", templateKey: "chief_of_staff", skill: { source: "library", key: "weekly_status_report" }, mustContain: "Put the most important news first." },
-  { id: "skills.prompt.builder.team_call_wrap_up", builder: "team_call_wrap_up", templateKey: "chief_of_staff", skill: { source: "library", key: "meeting_notes" }, mustContain: "Action items next: what, who and by when." },
+  { id: "skills.prompt.builder.team_call_wrap_up", builder: "team_call_wrap_up", templateKey: "chief_of_staff", skill: { source: "library", key: "meeting_notes" }, mustContain: "Action items next: what, who and by when, listed for your lead to turn into tasks." },
 ];
 
 export const SKILL_REFUSAL_CASES: SkillRefusalCase[] = [
