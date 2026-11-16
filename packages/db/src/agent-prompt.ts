@@ -7,7 +7,7 @@
  * by the system still follows the template, so a template change reaches every agent nobody has edited. The skills are
  * the session's too: the template's role skills first, then the library and file skills the agent carries.
  */
-import { AgentInstructions, getChannelTemplate, getTemplate, getTemplateByAgentType, listTemplates, roleSkillsFor, type AgentPromptParts, type AgentSkillPrompt, type AgentTemplate } from "@foundmill/agents";
+import { AgentInstructions, NO_TOOL_LOOP_PRELOAD_BODIES, attachedSkills, findAttachedSkill, getChannelTemplate, getTemplate, getTemplateByAgentType, listTemplates, renderSkillBlock, screenSkill, selectSkills, type AgentPromptParts, type AgentTemplate } from "@foundmill/agents";
 import type { ChannelKey } from "@foundmill/shared";
 import { agentsRepo } from "./repos/agents";
 import { skillsRepo } from "./repos/skills";
@@ -23,7 +23,7 @@ export interface ResolvedAgentPrompt extends AgentPromptParts {
 }
 
 /** The template an agent runs on: its type's, else the first worker template, else the Chief of Staff (session.ts). */
-function templateOf(agent: Pick<Agent, "agentType">): AgentTemplate {
+export function agentTemplateOf(agent: Pick<Agent, "agentType">): AgentTemplate {
   return getTemplateByAgentType(agent.agentType) ?? listTemplates({ family: "worker" })[0] ?? getTemplate("chief_of_staff");
 }
 
@@ -42,15 +42,35 @@ export async function resolveAgentPrompt(db: Executor, businessId: string, targe
   let template: AgentTemplate;
   if ("agentId" in target) {
     agent = await agentsRepo.get(db, businessId, target.agentId);
-    template = templateOf(agent);
+    template = agentTemplateOf(agent);
   } else {
     template = "templateKey" in target ? getTemplate(target.templateKey) : getChannelTemplate(target.channelKey);
     agent = (await agentsRepo.list(db, businessId, { agentType: template.agentType, limit: 1 })).items[0] ?? null;
   }
-  const roleSkills = roleSkillsFor(template.skills);
-  if (!agent) return { agentId: null, templateKey: template.key, instructions: template.instructions, description: template.description, skills: roleSkills };
+  // These are one-call builders (no tool loop, no read_skill): the index plus the first bodies in order (WP-06 T4).
+  const select = (added: Parameters<typeof attachedSkills>[1]) => selectSkills({ skills: attachedSkills(template.skills, added), maxBodies: NO_TOOL_LOOP_PRELOAD_BODIES });
+  if (!agent) return { agentId: null, templateKey: template.key, instructions: template.instructions, description: template.description, skills: select([]) };
   const [version, added] = await Promise.all([agent.currentVersionId ? agentsRepo.getVersion(db, businessId, agent.currentVersionId) : null, skillsRepo.listAddedForAgent(db, businessId, agent.id, agent.agentType)]);
   const parsed = version && !followsTemplate(version) ? AgentInstructions.safeParse(version.instructions) : null;
-  const skills: AgentSkillPrompt[] = [...roleSkills, ...added.filter((a) => a.instructionsMd.trim()).map((a) => ({ name: a.name, source: a.source, instructionsMd: a.instructionsMd }))];
+  const skills = select(added);
   return { agentId: agent.id, templateKey: template.key, instructions: parsed?.success ? parsed.data : template.instructions, description: template.description, skills };
+}
+
+/** What `read_skill` answers: the skill as its block, or why it is not given. */
+export type ReadAgentSkillResult = { ok: true; skillKey: string; name: string; text: string } | { ok: false; code: "not_found" | "refused"; message: string };
+
+/**
+ * One of an agent's own skills in full, for the gateway's `read_skill` (WP-06 T4): only a skill the agent carries (its
+ * role's, or one added to it in this business), never another agent's or another business's. A library skill reads as
+ * the catalog has it. The text is screened again as it is read; one that no longer passes is refused with the reason.
+ * It comes inside its `<skill>` block, so its text cannot open or close another.
+ */
+export async function readAgentSkill(db: Executor, businessId: string, agentId: string, skillKey: string): Promise<ReadAgentSkillResult> {
+  const agent = await agentsRepo.get(db, businessId, agentId);
+  const added = await skillsRepo.listAddedForAgent(db, businessId, agent.id, agent.agentType);
+  const skill = findAttachedSkill(attachedSkills(agentTemplateOf(agent).skills, added), skillKey);
+  if (!skill) return { ok: false, code: "not_found", message: `You have no skill ${skillKey.slice(0, 200)}: use a key from your skills list` };
+  const refusal = screenSkill({ name: skill.name, description: skill.whenToUse, instructionsMd: skill.instructionsMd });
+  if (refusal) return { ok: false, code: "refused", message: `The skill ${skill.name} did not pass the platform's check, so it was not loaded: ${refusal.message}` };
+  return { ok: true, skillKey: skill.key, name: skill.name, text: renderSkillBlock(skill) };
 }

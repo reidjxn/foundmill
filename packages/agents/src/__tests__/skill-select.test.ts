@@ -1,0 +1,86 @@
+/**
+ * `selectSkills` (WP-06 T4): every skill stays in the index in its attached order; bodies are chosen by the rated skill,
+ * the stage, then word overlap with the task, at most `maxBodies` and never past `SKILL_PRELOAD_MAX_CHARS`. Library
+ * skills follow the catalog (`attachedSkillFrom`).
+ */
+import { describe, expect, it } from "vitest";
+import { DESIGN_PRINCIPLES_SKILL_KEY } from "../design-check";
+import { SKILL_LIBRARY, librarySkillKey } from "../skill-library";
+import { SKILL_PRELOAD_MAX_CHARS } from "../club-rules";
+import { attachedSkillFrom, attachedSkills, findAttachedSkill, selectSkills, type AttachedSkill } from "../skill-select";
+
+const skill = (key: string, whenToUse: string, extra: Partial<AttachedSkill> = {}): AttachedSkill => ({ key, name: key.replace(/_/g, " "), source: "library", whenToUse, instructionsMd: `Body of ${key}.`, ...extra });
+const loaded = (out: ReturnType<typeof selectSkills>) => out.filter((s) => s.instructionsMd !== undefined).map((s) => s.key);
+
+const skills = [
+  skill("library_press_releases", "Use when asked to announce news to journalists."),
+  skill("library_cold_email", "Use when asked to write to someone who has not heard of the project.", { stages: ["selling"] }),
+  skill("library_release_notes", "Use when a version ships and the changes need writing up.", { improves: ["communication"] }),
+  skill("library_pricing", "Use when choosing what to charge.", { stages: ["selling"] }),
+];
+
+describe("selectSkills", () => {
+  it("keeps every skill in the index, in the attached order, whatever it loads", () => {
+    const out = selectSkills({ skills, task: { kind: "channel", title: "Write the release notes", goal: "Version 2 shipped: write up the changes." }, maxBodies: 1 });
+    expect(out.map((s) => s.key)).toEqual(skills.map((s) => s.key));
+    expect(loaded(out)).toEqual(["library_release_notes"]);
+    expect(out.every((s) => (s.whenToUse ?? "").length > 0)).toBe(true);
+    // The output carries no ranking fields.
+    expect(Object.keys(out[2]!).sort()).toEqual(["instructionsMd", "key", "name", "source", "whenToUse"]);
+  });
+
+  it("puts a skill that fits the stage first, then word overlap", () => {
+    const task = { kind: "channel" as const, title: "Write to three prospects about the price", goal: "Someone who has not heard of the project: what to charge them." };
+    expect(loaded(selectSkills({ skills, task, maxBodies: 1 }))).toEqual(["library_cold_email"]);
+    expect(loaded(selectSkills({ skills, task, stage: "selling", maxBodies: 2 }))).toEqual(["library_cold_email", "library_pricing"]);
+    // Nothing in the task matches: nothing is loaded (the session reads one with read_skill).
+    expect(loaded(selectSkills({ skills, task: { kind: "ops", title: "Tidy the board", goal: "Close stale cards." }, maxBodies: 2 }))).toEqual([]);
+  });
+
+  it("uses the message when there is no task, and the first skills when there is nothing to match", () => {
+    expect(loaded(selectSkills({ skills, message: "How do we announce this to journalists?", maxBodies: 2 }))).toEqual(["library_press_releases"]);
+    expect(loaded(selectSkills({ skills, maxBodies: 2 }))).toEqual(["library_press_releases", "library_cold_email"]);
+  });
+
+  it("loads the rated skill and the skills that improve it in training", () => {
+    expect(loaded(selectSkills({ skills, ratedSkillKey: "library_pricing", maxBodies: 2 }))).toEqual(["library_pricing"]);
+    expect(loaded(selectSkills({ skills, ratedSkillKey: "communication", maxBodies: 2 }))).toEqual(["library_release_notes"]);
+  });
+
+  it("never loads past the character budget, and always loads role skills", () => {
+    const big = (key: string) => skill(key, "Use when writing anything.", { instructionsMd: "x".repeat(Math.floor(SKILL_PRELOAD_MAX_CHARS * 0.6)) });
+    const role: AttachedSkill = { key: DESIGN_PRINCIPLES_SKILL_KEY, name: "Design principles", source: "role", whenToUse: "Use when you build a screen.", instructionsMd: "Role body." };
+    const out = selectSkills({ skills: [role, big("library_a"), big("library_b"), skill("library_c", "Use when writing anything.")], message: "writing", maxBodies: 3 });
+    expect(loaded(out)).toEqual([DESIGN_PRINCIPLES_SKILL_KEY, "library_a", "library_c"]);
+    const chars = out.reduce((n, s) => n + (s.instructionsMd?.length ?? 0), 0);
+    expect(chars).toBeLessThanOrEqual(SKILL_PRELOAD_MAX_CHARS);
+  });
+
+  it("gives the same output for the same input", () => {
+    const input = { skills, task: { kind: "channel" as const, title: "Price and prospects", goal: "Charge and write." }, stage: "selling" as const, maxBodies: 2 };
+    expect(JSON.stringify(selectSkills(input))).toBe(JSON.stringify(selectSkills(input)));
+    expect(JSON.stringify(selectSkills({ ...input, skills: [...skills] }))).toBe(JSON.stringify(selectSkills(input)));
+  });
+});
+
+describe("attachedSkills: library skills follow the catalog", () => {
+  const lib = SKILL_LIBRARY.find((s) => s.key === "cold_email")!;
+  it("takes a library skill's body and whenToUse from the catalog when the stored copy differs", () => {
+    const got = attachedSkillFrom({ skillKey: librarySkillKey("cold_email"), name: lib.attribute.name, source: "library", description: "old", instructionsMd: "An old stored copy." });
+    expect(got).toMatchObject({ key: "library_cold_email", instructionsMd: lib.instructionsMd, whenToUse: lib.whenToUse, stages: lib.stages, improves: lib.improves });
+  });
+
+  it("keeps the stored copy of a library key the catalog no longer has, and cuts an upload's description to 160", () => {
+    expect(attachedSkillFrom({ skillKey: "library_gone", name: "Gone", source: "library", description: "Was in the library.", instructionsMd: "Stored." }).instructionsMd).toBe("Stored.");
+    const upload = attachedSkillFrom({ skillKey: "upload_x_aaaaaaaa", name: "X", source: "upload", description: "d".repeat(400), instructionsMd: "Mine." });
+    expect(upload.whenToUse.length).toBeLessThanOrEqual(160);
+  });
+
+  it("puts the role's skills first and finds a skill by its key or a bare library key", () => {
+    const all = attachedSkills(["design_principles"], [{ skillKey: "upload_x_aaaaaaaa", name: "X", source: "upload", description: "Mine.", instructionsMd: "Mine." }, { skillKey: librarySkillKey("cold_email"), name: lib.attribute.name, source: "library", description: "", instructionsMd: "" }]);
+    expect(all.map((s) => s.key)).toEqual([DESIGN_PRINCIPLES_SKILL_KEY, "upload_x_aaaaaaaa", "library_cold_email"]);
+    expect(findAttachedSkill(all, "cold_email")?.key).toBe("library_cold_email");
+    expect(findAttachedSkill(all, "upload_x_aaaaaaaa")?.key).toBe("upload_x_aaaaaaaa");
+    expect(findAttachedSkill(all, "x_aaaaaaaa")).toBeUndefined();
+  });
+});

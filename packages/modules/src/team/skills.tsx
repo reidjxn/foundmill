@@ -70,7 +70,7 @@ export function toSkillChoices(drafts: readonly SkillDraft[]): SkillChoiceInput[
 }
 
 /** Library and file skills one agent may carry (the api refuses more). */
-export const MAX_ADDED_SKILLS = 8;
+export const MAX_ADDED_SKILLS = LIMITS.skillsPerAgentMax;
 export const SKILL_FILE_ACCEPT = ".md,.markdown,.txt,text/markdown,text/plain";
 const SKILL_FILE_EXTENSIONS = [".md", ".markdown", ".txt"];
 

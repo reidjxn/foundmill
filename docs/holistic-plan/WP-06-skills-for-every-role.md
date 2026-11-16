@@ -200,7 +200,7 @@ export interface LibrarySkill {
 
 **Tests and evals:** step 1 and 5; `evals/src/skills/cases.ts` gains one placement case for a moved skill (`skills.prompt.library_project_page_copy`, Product Lead, must contain "The button says what the reader gets"). **Done when:** Done-when 1 and 2 for all 83. **Does not cover:** that a skill helps (T8); skills in use (T4, T6).
 
-### T4: Skill index, `selectSkills`, `read_skill`; new limits   [L] [ships alone, after WP-05's open session.ts task]
+### [x] T4: Skill index, `selectSkills`, `read_skill`; new limits   [L] [ships alone, after WP-05's open session.ts task]
 
 **Why:** AR-10 (design A), a3b §6c, TS-11 (the accidental update), TS-19, planner's decision 2.
 

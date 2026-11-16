@@ -5,7 +5,7 @@
 import { buildMockConnector } from "../../define";
 import { MOCK_NOW, mockHealth, mockIntegrationRecord, perBusiness, uuidFromSeed } from "../../mock-utils";
 import type { ToolContext } from "../../contract";
-import { PLATFORM_KEY, PLATFORM_RATE_LIMITS, platformTools, PlatformToolError, type AgentMessageT, type PlatformCaller, type PlatformHost, type PlatformResult, type TaskDetailT } from "./tools";
+import { PLATFORM_KEY, PLATFORM_RATE_LIMITS, READ_SKILL_NOTICE, platformTools, PlatformToolError, type AgentMessageT, type PlatformCaller, type PlatformHost, type PlatformResult, type TaskDetailT } from "./tools";
 
 /** A report in the in-memory world: what read_report answers, plus the session that saved it. */
 type MockReport = PlatformResult<"read_report"> & { sessionId: string | null };
@@ -40,6 +40,10 @@ export function platformHandlers(host: PlatformHost) {
     list_repository_docs: async (args: Parameters<PlatformHost["listRepositoryDocs"]>[1], ctx: ToolContext) => host.listRepositoryDocs(caller(ctx), args),
     read_repository_doc: async (args: Parameters<PlatformHost["readRepositoryDoc"]>[1], ctx: ToolContext) => host.readRepositoryDoc(caller(ctx), args),
     list_skills: async (args: Parameters<PlatformHost["listSkills"]>[1], ctx: ToolContext) => host.listSkills(caller(ctx), args),
+    read_skill: async (args: Parameters<NonNullable<PlatformHost["readSkill"]>>[1], ctx: ToolContext) => {
+      if (!host.readSkill) throw new PlatformToolError("invalid_state", "Reading a skill is not available here: use the skills shown in full in your instructions");
+      return host.readSkill(caller(ctx), args);
+    },
     assign_skill: async (args: Parameters<PlatformHost["assignSkill"]>[1], ctx: ToolContext) => host.assignSkill(caller(ctx), args),
     remove_skill: async (args: Parameters<PlatformHost["removeSkill"]>[1], ctx: ToolContext) => host.removeSkill(caller(ctx), args),
   };
@@ -195,6 +199,13 @@ export function createMemoryPlatformHost(): PlatformHost {
         }
       }
       return { skill, assigned, skipped };
+    },
+    async readSkill(caller, { skillKey }) {
+      // The same lookup as the gateway's: only a skill this agent carries, in this business's world.
+      const found = (world(caller.businessId).skills.get(caller.agentId) ?? []).find((x) => x.skillKey === skillKey);
+      if (!found) throw new PlatformToolError("not_found", `You have no skill ${skillKey}: use a key from your skills list`);
+      const source = found.source === "upload" ? "uploaded file" : "library";
+      return { skillKey: found.skillKey, name: found.name, text: `<skill name="${found.name}" source="${source}">\n# ${found.name}\n\nMock instructions for ${found.name}.\n</skill>`, notice: READ_SKILL_NOTICE };
     },
     async removeSkill(caller, { agentId, skillKey }) {
       const w = world(caller.businessId);

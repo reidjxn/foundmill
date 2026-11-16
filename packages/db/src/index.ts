@@ -25,4 +25,4 @@ export { attachAddedSkills, resolveLibrarySkill, resolveSkillFile, skillLibraryE
 export { awardMilestonesForConversion, awardRevenueMilestones, awardPageLiveMilestone, awardFirstFollowerMilestone, catchUpMilestones, monthlyRevenueAt, MONTHLY_REVENUE_REF } from "./milestones";
 export { draftTeamPost, type TeamPostDraftDeps, type TeamPostDraftOptions, type TeamPostDraftResult, type TeamPostDraftSkip } from "./team-post-draft";
 export { achieveGoalIfReached, counterFor, goalCounters, goalProgress, type GoalCounters, type GoalProgress } from "./goals";
-export { resolveAgentPrompt, type AgentPromptTarget, type ResolvedAgentPrompt } from "./agent-prompt";
+export { agentTemplateOf, readAgentSkill, resolveAgentPrompt, type AgentPromptTarget, type ReadAgentSkillResult, type ResolvedAgentPrompt } from "./agent-prompt";

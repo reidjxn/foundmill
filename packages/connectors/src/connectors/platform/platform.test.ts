@@ -8,7 +8,7 @@ import { isConfigError, type ToolResult } from "../../contract";
 import { uuidFromSeed } from "../../mock-utils";
 import { isUntrusted } from "../../quarantine";
 import { describeConnectorContract, makeToolContext } from "../../testing/contract-suite";
-import { createPlatformConnector, createPlatformMock } from "./index";
+import { READ_SKILL_NOTICE, createPlatformConnector, createPlatformMock } from "./index";
 import { createMemoryPlatformHost, platformMock } from "./mock";
 
 describeConnectorContract("platform (mock)", {
@@ -104,5 +104,32 @@ describe("platform live side", () => {
     const ctx = makeToolContext(connector, { mode: "live", businessId: A, agentId: WORKER, sessionId: null });
     ok(await connector.callTool("list_tasks", { scope: "team", limit: 2 }, ctx));
     expect(seen).toEqual([{ caller: { businessId: A, agentId: WORKER, sessionId: null }, args: { scope: "team", limit: 2 } }]);
+  });
+});
+
+describe("read_skill (WP-06 T4)", () => {
+  it("is read-only: no hint that asks first, annotated as a read", () => {
+    const connector = createPlatformMock(createMemoryPlatformHost());
+    const hints = connector.policyHints.read_skill as Record<string, unknown> | undefined;
+    for (const key of ["spendsMoney", "contactsThirdParty", "irreversible", "hardGate", "requiresKitMode"]) expect(Boolean(hints?.[key]), key).toBe(false);
+    expect(connector.tools.find((t) => t.name === "read_skill")?.annotations).toMatchObject({ readOnlyHint: true });
+  });
+
+  it("the mock returns only the calling agent's own skill, in this business, with the notice", async () => {
+    const connector = createPlatformMock(createMemoryPlatformHost());
+    const as = (businessId: string, agentId: string) => (tool: string, args: unknown) => connector.callTool(tool, args, makeToolContext(connector, { businessId, agentId }));
+    ok(await as(A, LEAD)("assign_skill", { agentIds: [WORKER], library: "cold_email" }));
+    const mine = ok<{ skillKey: string; text: string; notice: string }>(await as(A, WORKER)("read_skill", { skillKey: "library:cold_email" }));
+    expect(mine.text.startsWith('<skill name="cold_email" source="library">')).toBe(true);
+    expect(mine.notice).toBe(READ_SKILL_NOTICE);
+    expect((await as(A, LEAD)("read_skill", { skillKey: "library:cold_email" })).error).toMatchObject({ code: "not_found" });
+    expect((await as(B, WORKER)("read_skill", { skillKey: "library:cold_email" })).error).toMatchObject({ code: "not_found" });
+  });
+
+  it("a host that does not serve it refuses the call", async () => {
+    const { readSkill: _drop, ...host } = createMemoryPlatformHost();
+    const connector = createPlatformConnector({ platform: host });
+    const r = await connector.callTool("read_skill", { skillKey: "x" }, makeToolContext(connector, { mode: "live", businessId: A, agentId: WORKER, sessionId: null }));
+    expect(r.error).toMatchObject({ code: "invalid_state" });
   });
 });

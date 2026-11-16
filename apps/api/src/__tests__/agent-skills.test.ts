@@ -179,13 +179,24 @@ describe("agent.skills.add / remove", () => {
     expect((await owner().agent.skills.added({ businessId: hz.A.businessId, agentId: agent.id })).map((s) => s.skillKey)).toEqual(["library_meeting_notes"]);
   });
 
-  it("caps an agent at eight added skills", async () => {
+  it("caps an agent at 40 added skills, whatever the length of their bodies (WP-06 T4)", async () => {
     const agent = await owner().team.agents.hire({ businessId: hz.A.businessId, templateKey: TEMPLATE, departmentId: hz.A.departmentId, name: "Busy" });
-    // The nine shortest, so the count limit is reached before the limit on characters.
-    const shortest = [...SKILL_LIBRARY].sort((a, b) => a.instructionsMd.length - b.instructionsMd.length).slice(0, 9);
-    const keys = shortest.slice(0, 8).map((s) => ({ source: "library" as const, key: s.key }));
-    await owner().agent.skills.add({ businessId: hz.A.businessId, agentId: agent.id, skills: keys });
-    await expect(owner().agent.skills.add({ businessId: hz.A.businessId, agentId: agent.id, skills: [{ source: "library", key: shortest[8]!.key }] })).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringMatching(/at most 8/) });
+    // The 41 longest bodies: they pass the old 60,000-character limit many times over, and the index stays under 8,000.
+    const longest = [...SKILL_LIBRARY].sort((a, b) => b.instructionsMd.length - a.instructionsMd.length).slice(0, 41);
+    expect(longest.slice(0, 40).reduce((n, s) => n + s.instructionsMd.length, 0)).toBeGreaterThan(60_000);
+    for (let i = 0; i < 40; i += 8) await owner().agent.skills.add({ businessId: hz.A.businessId, agentId: agent.id, skills: longest.slice(i, i + 8).map((s) => ({ source: "library" as const, key: s.key })) });
+    expect(await owner().agent.skills.added({ businessId: hz.A.businessId, agentId: agent.id })).toHaveLength(40);
+    await expect(owner().agent.skills.add({ businessId: hz.A.businessId, agentId: agent.id, skills: [{ source: "library", key: longest[40]!.key }] })).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringMatching(/at most 40/) });
+  });
+
+  it("refuses a skill that would take the agent's skills index past 8,000 characters (WP-06 T4)", async () => {
+    const agent = await owner().team.agents.hire({ businessId: hz.A.businessId, templateKey: TEMPLATE, departmentId: hz.A.departmentId, name: "Wordy" });
+    // Uploads with long names and descriptions: about 300 characters of index each, so the index limit comes first.
+    const upload = (n: number) => ({ source: "upload" as const, fileName: `skill-${n}.md`, content: ["---", `name: Long careful skill number ${String(n).padStart(2, "0")} for writing the weekly report`, `description: ${"Use when the weekly report needs careful writing for the founders. ".repeat(4)}`, "---", "", `# Skill ${n}`, "", "Say what changed this week, and why it matters."].join("\n") });
+    let refused: unknown = null;
+    for (let i = 0; i < 40 && !refused; i++) await owner().agent.skills.add({ businessId: hz.A.businessId, agentId: agent.id, skills: [upload(i)] }).catch((e: unknown) => (refused = e));
+    expect(refused).toMatchObject({ code: "BAD_REQUEST", message: expect.stringMatching(/list of skills would pass 8,000 characters/) });
+    expect((await owner().agent.skills.added({ businessId: hz.A.businessId, agentId: agent.id })).length).toBeLessThan(40);
   });
 
   it("a library skill that sharpens a rating the agent carries shows once, and a file named after a rating is refused (TS-12)", async () => {
