@@ -400,7 +400,7 @@ Facts:
 **Done when:** Done-when 5.
 **Needs the founder:** Decision 1 (index now) and Decision 2 (training crawlers). Until Decision 1 is yes, merge with `indexable()` returning false behind one constant `HOME_INDEXED = false` and flip it in a one-line pull request.
 
-### T7: The idea box keeps its word under load [S] [ships alone]
+### T7: The idea box keeps its word under load [S] [ships alone] (steps 1–2: step 1 built on claude/wp03-t7-idea-box-load; step 2 left for the landing session)
 
 **Why:** FR-14 (the deadline and the refusal lines; "one more try" waits on Decision 3).
 

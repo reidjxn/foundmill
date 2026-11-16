@@ -13,6 +13,11 @@ export const IDEA_COOKIE_MAX_AGE_S = 7 * 24 * 60 * 60;
 export const IDEA_BOX_PROMPT_MAX = 500;
 /** The shortest line worth drafting from. */
 export const IDEA_BOX_PROMPT_MIN = 3;
+/**
+ * The longest a card's model call may take (WP-03 T7): past it the api stops the call and answers the `failed` line.
+ * The page's own timer waits 5 seconds longer, for a stream that stalls on the way.
+ */
+export const IDEA_BOX_DEADLINE_MS = 30_000;
 /** The query parameter the sign-in link carries to /start so another device can claim the card. */
 export const IDEA_CLAIM_PARAM = "claim";
 
