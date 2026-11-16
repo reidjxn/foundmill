@@ -143,7 +143,7 @@ What happens while any of these is missing (it fails closed, never with a broken
   1. On the **gateway**, set `API_SERVICE_TOKEN_SECRET=<32+ random characters>` and `API_SERVICE_TOKEN_LEGACY=1`. Check: the gateway's `/health` says `apiServiceToken: "legacy"`.
   2. On the **api**, set the same `API_SERVICE_TOKEN_SECRET`. Check: Settings › Integrations still connects and checks an integration.
   3. On the **gateway**, remove `API_SERVICE_TOKEN_LEGACY`. Check: `/health` says `apiServiceToken: "own"`.
-  Out of order, the api cannot reach the gateway (Settings › Integrations, key checks, push). If step 3 is forgotten, `/health` keeps saying `legacy`.
+  Out of order, the api cannot reach the gateway (Settings › Integrations, key checks, push). If step 3 is forgotten, `/health` keeps saying `legacy`. The secret must differ from `SESSION_TOKEN_SECRET` (both services refuse to start otherwise). To undo: set `API_SERVICE_TOKEN_LEGACY=1` on the gateway, remove the secret from the api, then remove both variables from the gateway.
 
 ## 4. Supabase
 

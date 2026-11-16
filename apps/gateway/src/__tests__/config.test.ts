@@ -40,5 +40,6 @@ describe("gatewayConfig: API_SERVICE_TOKEN_SECRET (WP-11 T12)", () => {
     const config = gatewayConfig(envWith({ ...base, API_SERVICE_TOKEN_SECRET: "a".repeat(32), API_SERVICE_TOKEN_LEGACY: "1" }), "production");
     expect(config).toMatchObject({ apiServiceTokenSecret: "a".repeat(32), apiServiceTokenLegacy: true });
     expect(gatewayConfig(envWith(base), "production")).toMatchObject({ apiServiceTokenSecret: null, apiServiceTokenLegacy: false });
+    expect(() => gatewayConfig(envWith({ ...base, API_SERVICE_TOKEN_SECRET: base.SESSION_TOKEN_SECRET }), "production")).toThrow(/must differ/);
   });
 });

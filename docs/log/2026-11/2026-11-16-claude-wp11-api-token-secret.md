@@ -23,6 +23,13 @@ supersedes: []
 ### Only the api's path
 The wider secret split of A8-09 (session, service and link secrets, HKDF) stays for T19's dated decision: this closes the path that mattered, a service posing as the api.
 
+### Security review (security-reviewer agent)
+No blockers. The rule holds in every mode, every gateway route goes through `requireService`, and the only api signer is `createApiGatewayClient`. Fixed here:
+- **Medium:** an api secret equal to `SESSION_TOKEN_SECRET` would let every holder of the shared secret pass as the api, and refuse the orchestrator. The gateway and the api now refuse to start with the two equal.
+- **Low:** the api's error names both variables.
+- **Low:** DEPLOY §3 says how to undo the switch.
+- Left as known: the shared secret still lets a service claim any name but `api` (A8-09's wider split, accepted in T19).
+
 ## Not done
 - F5, the founder's.
 - `packages/shared/src/env.ts` and `.env.example` are also changed on open branches of WP-13 and the network session. Whichever merges second resolves a one-line append.
