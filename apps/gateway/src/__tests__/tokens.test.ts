@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { UnauthorizedError } from "@foundmill/shared";
-import { bearerToken, mintSessionToken, signServiceToken, toolAllowed, verifyServiceToken, verifySessionToken } from "../tokens";
+import { apiServiceTokenMode, bearerToken, mintSessionToken, signServiceToken, toolAllowed, verifyServiceToken, verifyServiceTokenFor, verifySessionToken } from "../tokens";
 
 const SECRET = "unit-test-secret-0123456789abcdef";
 const OTHER = "another-secret-0123456789abcdef";
@@ -62,5 +62,39 @@ describe("session tokens", () => {
     expect(bearerToken("bearer   abc")).toBe("abc");
     expect(bearerToken("Basic abc")).toBeNull();
     expect(bearerToken(undefined)).toBeNull();
+  });
+});
+
+describe("the api's own service-token secret (WP-11 T12)", () => {
+  const SHARED = "shared-session-token-secret-0123456789";
+  const API = "api-only-service-token-secret-0123456789ab";
+  const modes = {
+    shared: { shared: SHARED, api: null, legacy: false },
+    legacy: { shared: SHARED, api: API, legacy: true },
+    own: { shared: SHARED, api: API, legacy: false },
+  } as const;
+  // [signing secret, svc, mode, passes]
+  const table: [string, string, keyof typeof modes, boolean][] = [
+    [SHARED, "api", "shared", true],
+    [SHARED, "api", "legacy", true],
+    [SHARED, "api", "own", false],
+    [API, "api", "legacy", true],
+    [API, "api", "own", true],
+    [API, "orchestrator", "shared", false],
+    [API, "orchestrator", "legacy", false],
+    [API, "orchestrator", "own", false],
+    [SHARED, "orchestrator", "shared", true],
+    [SHARED, "orchestrator", "legacy", true],
+    [SHARED, "orchestrator", "own", true],
+  ];
+  it.each(table)("signed with %s… as %s in %s mode passes: %s", async (secret, svc, mode, passes) => {
+    const token = await signServiceToken(secret, svc);
+    const result = verifyServiceTokenFor(modes[mode], token);
+    if (passes) expect((await result).svc).toBe(svc);
+    else await expect(result).rejects.toBeInstanceOf(UnauthorizedError);
+  });
+
+  it("names the mode for /health", () => {
+    expect([apiServiceTokenMode(modes.shared), apiServiceTokenMode(modes.legacy), apiServiceTokenMode(modes.own)]).toEqual(["shared", "legacy", "own"]);
   });
 });

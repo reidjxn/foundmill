@@ -17,6 +17,10 @@ export interface GatewayConfig {
   /** LIVE_CONNECTORS: connectors that run live while integrationsMode is mock. */
   liveConnectors: string[];
   sessionTokenSecret: string;
+  /** API_SERVICE_TOKEN_SECRET: the api's own; null while it signs with the shared one (WP-11 T12). */
+  apiServiceTokenSecret: string | null;
+  /** API_SERVICE_TOKEN_LEGACY=1: the api may still sign with the shared secret during the switch. */
+  apiServiceTokenLegacy: boolean;
   /** Default lifetime of a minted session token. */
   sessionTokenTtlSeconds: number;
   /** Upper bound a caller may ask for. */
@@ -32,6 +36,7 @@ export interface GatewayConfig {
 const PROCESS_SESSION_TOKEN_SECRET = randomBytes(32).toString("base64url");
 
 export const GATEWAY_HOST = "::";
+export const API_SERVICE_TOKEN_MIN_LENGTH = 32;
 export const DEFAULT_SESSION_TTL_SECONDS = 60 * 60; // one agent session, one hour
 export const MAX_SESSION_TTL_SECONDS = 12 * 60 * 60;
 
@@ -45,6 +50,8 @@ export function gatewayConfig(env: Env = loadEnv(), nodeEnv: string | undefined 
   const localRun = (env.APP_ENV === "development" || env.APP_ENV === "test") && nodeEnv !== "production";
   if (!secret && !localRun) throw new Error("SESSION_TOKEN_SECRET is required unless APP_ENV is development or test in a local run (NODE_ENV not production)");
   if (secret && secret.length < 16) throw new Error("SESSION_TOKEN_SECRET must be at least 16 characters");
+  const apiSecret = env.API_SERVICE_TOKEN_SECRET?.trim() || null;
+  if (apiSecret && apiSecret.length < API_SERVICE_TOKEN_MIN_LENGTH) throw new Error(`API_SERVICE_TOKEN_SECRET must be at least ${API_SERVICE_TOKEN_MIN_LENGTH} characters`);
   return {
     appEnv: env.APP_ENV,
     port: servicePort(env, "GATEWAY_PORT"),
@@ -52,6 +59,8 @@ export function gatewayConfig(env: Env = loadEnv(), nodeEnv: string | undefined 
     integrationsMode: env.INTEGRATIONS_MODE,
     liveConnectors: liveConnectorKeys(env),
     sessionTokenSecret: secret || PROCESS_SESSION_TOKEN_SECRET,
+    apiServiceTokenSecret: apiSecret,
+    apiServiceTokenLegacy: env.API_SERVICE_TOKEN_LEGACY?.trim() === "1",
     sessionTokenTtlSeconds: DEFAULT_SESSION_TTL_SECONDS,
     sessionTokenMaxTtlSeconds: MAX_SESSION_TTL_SECONDS,
     redisUrl: env.REDIS_URL,
