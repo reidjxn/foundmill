@@ -2,6 +2,7 @@
  * The waitlist admits and emails (0111, WP-03 T2): `repos.waitlist.admitNext`, `admittedSince`, `toNotify`, `forEmail`
  * and `markNotified`. The order is sign-up time (`WAITLIST_ORDER`); an entry with no account is never admitted; nobody
  * is admitted twice; an account that already has an admission keeps its one row, is closed as told and takes no place.
+ * Since 0113 (WP-03 T10) the order puts first those who brought someone who joined, then sign-up time.
  *
  * The row lock (`for update skip locked`, two sweeps at once) needs a real-Postgres run: PGlite has one connection, so
  * here the two calls run one after the other and the test shows the second admits nobody twice, as the invitation race
@@ -10,6 +11,7 @@
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { repos } from "../repos";
 import { WAITLIST_ORDER } from "../repos/idea-drafts";
 import * as s from "../schema";
@@ -137,6 +139,74 @@ describe("the waitlist admits (repos.waitlist)", () => {
     const userId = await h.createUser(`kind-${++n}@test.local`);
     await expect(h.pg.query("insert into account_admissions (user_id, how) values ($1, 'list')", [userId])).rejects.toThrow(/account_admissions_how_value/);
     expect((await repos.admissions.record(h.db, { userId, how: "waitlist" }))?.how).toBe("waitlist");
+  });
+});
+
+describe("the waitlist's order: who brought whom (WP-03 T10, 0113)", () => {
+  /** `person` joined through `referrer`'s link (`w.<code>`), at `at`. */
+  async function broughtBy(referrer: { id: string }, at: Date) {
+    const row = await waiting(at);
+    await h.db.update(s.waitlistEntries).set({ referredByEntryId: referrer.id }).where(eq(s.waitlistEntries.id, row.id));
+    return row;
+  }
+
+  it("lets in first those who brought someone who joined, then everyone by sign-up time; ties by sign-up time", async () => {
+    await onlyThese();
+    const now = new Date("2026-11-16T12:00:00Z");
+    const alone1 = await waiting(new Date("2026-09-01T00:00:00Z"));
+    const brought2 = await waiting(new Date("2026-09-03T00:00:00Z"));
+    const alone2 = await waiting(new Date("2026-09-02T00:00:00Z"));
+    const brought1 = await waiting(new Date("2026-09-04T00:00:00Z"));
+    // brought2 brought two, brought1 one: the number does not order them, sign-up time does (no counts).
+    const friendA = await broughtBy(brought2, new Date("2026-09-05T00:00:00Z"));
+    const friendB = await broughtBy(brought2, new Date("2026-09-06T00:00:00Z"));
+    const friendC = await broughtBy(brought1, new Date("2026-09-07T00:00:00Z"));
+    // docs/DEPLOY.md §4's list for the operator shows the same order.
+    const deploy = readFileSync(new URL("../../../../docs/DEPLOY.md", import.meta.url), "utf8");
+    const listed = /```sql\n\s*(select e\.email[\s\S]*?;)\n/.exec(deploy)![1]!;
+    const shown = (await h.pg.query<{ email: string }>(listed)).rows.map((r) => r.email);
+    const admitted = await repos.waitlist.admitNext(h.db, { limit: 10, now });
+    expect(shown).toEqual(admitted.map((r) => r.email));
+    // Being brought changes nothing for the person brought: friends wait in sign-up order among the others.
+    expect(admitted.map((r) => r.id)).toEqual([brought2.id, brought1.id, alone1.id, alone2.id, friendA.id, friendB.id, friendC.id]);
+  });
+
+  it("a referral counts only when the person brought has an account", async () => {
+    await onlyThese();
+    const now = new Date("2026-11-16T12:00:00Z");
+    const first = await waiting(new Date("2026-08-01T00:00:00Z"));
+    const second = await waiting(new Date("2026-08-02T00:00:00Z"));
+    const ghost = await waiting(new Date("2026-08-03T00:00:00Z"), { account: false });
+    await h.db.update(s.waitlistEntries).set({ referredByEntryId: second.id }).where(eq(s.waitlistEntries.id, ghost.id));
+    const [one] = await repos.waitlist.admitNext(h.db, { limit: 1, now });
+    expect(one!.id).toBe(first.id);
+  });
+
+  it("join stores who brought the person, once, by their code; an unknown code and their own are ignored", async () => {
+    const now = new Date("2026-11-16T12:00:00Z");
+    const aUser = await h.createUser(`ref-a-${++n}@test.local`);
+    const a = await repos.waitlist.join(h.db, { userId: aUser, email: `ref-a-${n}@test.local`, ideaDraftId: null, now });
+    expect(a.code).toMatch(/^[a-z2-7]{10}$/);
+    expect(a.referredByEntryId).toBeNull();
+    // Joining again keeps the code and does not take a reference, not even the person's own.
+    const again = await repos.waitlist.join(h.db, { userId: aUser, email: `ref-a-${n}@test.local`, ideaDraftId: null, referrerCode: a.code, now });
+    expect([again.id, again.code, again.referredByEntryId]).toEqual([a.id, a.code, null]);
+    const bUser = await h.createUser(`ref-b-${++n}@test.local`);
+    const b = await repos.waitlist.join(h.db, { userId: bUser, email: `ref-b-${n}@test.local`, ideaDraftId: null, referrerCode: a.code, now });
+    expect(b.referredByEntryId).toBe(a.id);
+    expect(b.code).not.toBe(a.code);
+    // A later link changes nothing: the first entry stays as it was made.
+    const cUser = await h.createUser(`ref-c-${++n}@test.local`);
+    const c = await repos.waitlist.join(h.db, { userId: cUser, email: `ref-c-${n}@test.local`, ideaDraftId: null, referrerCode: "zzzzzzzzzz", now });
+    expect(c.referredByEntryId).toBeNull();
+    const b2 = await repos.waitlist.join(h.db, { userId: bUser, email: `ref-b-${n - 1}@test.local`, ideaDraftId: null, referrerCode: c.code, now });
+    expect(b2.referredByEntryId).toBe(a.id);
+  });
+
+  it("the database refuses a self-reference and a malformed code", async () => {
+    const row = await waiting(new Date("2026-08-10T00:00:00Z"));
+    await expect(h.pg.query("update waitlist_entries set referred_by_entry_id = id where id = $1", [row.id])).rejects.toThrow(/waitlist_entries_not_self/);
+    await expect(h.pg.query("update waitlist_entries set code = 'ABC' where id = $1", [row.id])).rejects.toThrow(/waitlist_entries_code_format/);
   });
 });
 

@@ -3,8 +3,11 @@
  *
  * - `ideaBox.claim({ token?, claim? })`: the visitor's card into their deck (the web's /start Server Action sends the
  *   `fm_idea` cookie it read, or the claim token the sign-in link carried). Null when there is nothing to claim.
- * - `waitlist.join({ token? })`: a signed-in person who is not on the invite list yet. Their card is kept 90 days.
- * - `waitlist.status`: whether they are on it.
+ * - `waitlist.join({ token?, via? })`: a signed-in person who is not on the invite list yet. Their card is kept 90 days.
+ *   `via` is the web's `fm_via` cookie: a waitlist link (`w.<code>`, WP-03 T10) records whose link brought them, once,
+ *   when the entry is made; any other reference is ignored here.
+ * - `waitlist.status`: whether they are on it, and their own link to share (`shareUrl`). Never a place or a count
+ *   (DECISIONS 2026-11-12, "No public counts").
  *
  * The waitlist procedures take any signed-in person with a confirmed address, on the list or not (that is who they are
  * for); `ideaBox.claim` is for people who may use the product (`protectedProcedure`).
@@ -12,6 +15,7 @@
 import { TRPCError } from "@trpc/server";
 import { repos, IDEA_DRAFT_HOLD_MS } from "@foundmill/db";
 import { IdeaToken } from "@foundmill/shared";
+import { VIA_MAX_LENGTH, parseVia, withVia } from "@foundmill/shared/via";
 import { z } from "zod";
 import { recordFirstIdeas, recordIdeaKept } from "../services/funnel-facts";
 import { claimIdeaBoxDraft, ideaTokenHash, previewIdeaBoxDraft } from "../services/idea-box";
@@ -54,15 +58,23 @@ export const ideaBoxRouter = router({
   }),
 });
 
+/** The person's own waitlist link: the home page with `?via=w.<code>`; null before the entry has a code. */
+const waitlistShareUrl = (appUrl: string, code: string | null | undefined): string | null =>
+  code ? withVia(`${appUrl.trim().replace(/\/+$/, "")}/`, { kind: "waitlist", ref: code }) : null;
+
 export const waitlistRouter = router({
-  join: confirmedProcedure.input(z.strictObject({ token: IdeaToken.nullish() })).mutation(async ({ ctx, input }) => {
-    const now = new Date();
-    const held = input.token ? await repos.ideaDrafts.hold(ctx.db, ideaTokenHash(input.token), new Date(now.getTime() + IDEA_DRAFT_HOLD_MS), now) : null;
-    await repos.waitlist.join(ctx.db, { userId: ctx.userId, email: ctx.email, ideaDraftId: held?.id ?? null, now });
-    return { joined: true as const, cardKept: !!held };
-  }),
+  join: confirmedProcedure
+    .input(z.strictObject({ token: IdeaToken.nullish(), via: z.string().max(VIA_MAX_LENGTH).nullish() }))
+    .mutation(async ({ ctx, input }) => {
+      const now = new Date();
+      const held = input.token ? await repos.ideaDrafts.hold(ctx.db, ideaTokenHash(input.token), new Date(now.getTime() + IDEA_DRAFT_HOLD_MS), now) : null;
+      const ref = parseVia(input.via);
+      const referrerCode = ref?.kind === "waitlist" ? ref.ref : null;
+      const entry = await repos.waitlist.join(ctx.db, { userId: ctx.userId, email: ctx.email, ideaDraftId: held?.id ?? null, referrerCode, now });
+      return { joined: true as const, cardKept: !!held, shareUrl: waitlistShareUrl(ctx.env.APP_URL, entry.code) };
+    }),
   status: confirmedProcedure.query(async ({ ctx }) => {
     const entry = await repos.waitlist.get(ctx.db, ctx.userId);
-    return { joined: !!entry, cardKept: !!entry?.ideaDraftId };
+    return { joined: !!entry, cardKept: !!entry?.ideaDraftId, shareUrl: waitlistShareUrl(ctx.env.APP_URL, entry?.code) };
   }),
 });

@@ -82,6 +82,8 @@ describe("proxy attribution: the first `via` a visitor arrives with", () => {
       ["http://localhost:3000/p/maple-bakes?via=p.maple-bakes", "p.maple-bakes"],
       ["http://localhost:3000/?via=u.maya", "u.maya"],
       ["http://localhost:3000/u/maya?utm_source=x&via=u.maya", "u.maya"],
+      // A waitlist place's link (WP-03 T10): the waitlist join hands it to the api.
+      ["http://localhost:3000/?via=w.k3m7qa2xpw", "w.k3m7qa2xpw"],
     ] as const) {
       const res = await proxy(new NextRequest(url));
       expect(res.headers.get("x-middleware-next"), url).toBe("1");

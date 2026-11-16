@@ -8,8 +8,8 @@
  * the waitlist sends when the place opens (WP-03 T2) only when the API says it is really sent here (`emails`, the API's
  * `waitlistEmails`: WAITLIST_EMAILS on and platform mail live); otherwise it says it cannot email yet.
  */
-import { startTransition, useActionState, useEffect, useRef } from "react";
-import { ListPlus, MailX } from "lucide-react";
+import { startTransition, useActionState, useEffect, useRef, useState } from "react";
+import { Copy, ListPlus, MailX } from "lucide-react";
 import { APP_NAME } from "@foundmill/config";
 import { Button, EmptyState, StatusPill } from "@foundmill/dugout";
 import { WorksOnSmallScreens } from "@/components/providers/DesktopOnly";
@@ -48,6 +48,11 @@ export const WAITLIST_WORDS = {
   joinedWithCardEmail: (email: string | null) => `Your place is saved, and your card is kept for 90 days. We email ${email ?? "you"} the day your place opens.`,
   joinedEmail: (email: string | null) => `Your place is saved. We email ${email ?? "you"} the day it opens.`,
   error: "That did not go through. Try again in a minute.",
+  /** The person's own link (WP-03 T10): an offer, with no place number and no count ("No public counts"). */
+  shareOffer: "Know someone who wants a place too? When they join through your link, your place opens sooner.",
+  copyLink: "Copy link",
+  copied: "Link copied",
+  copyFailed: "The link could not be copied. Select it and copy it instead.",
 } as const;
 
 /** The saved line for this deployment: the email promise only when `emails`. */
@@ -70,9 +75,12 @@ export function WaitlistJoin({ email = null, emails = false }: { email?: string 
   }, [action]);
   if (state.status === "joined") {
     return (
-      <StatusPill tone="good" role="status" className="mt-3" data-testid="waitlist-joined">
-        {waitlistJoinedLine({ cardKept: state.cardKept, email, emails })}
-      </StatusPill>
+      <>
+        <StatusPill tone="good" role="status" className="mt-3" data-testid="waitlist-joined">
+          {waitlistJoinedLine({ cardKept: state.cardKept, email, emails })}
+        </StatusPill>
+        {state.shareUrl ? <WaitlistShare url={state.shareUrl} /> : null}
+      </>
     );
   }
   if (state.status !== "error") {
@@ -91,5 +99,36 @@ export function WaitlistJoin({ email = null, emails = false }: { email?: string 
         {WAITLIST_WORDS.join}
       </Button>
     </form>
+  );
+}
+
+/**
+ * The person's own waitlist link (WP-03 T10: the waitlist is ordered by who brought whom). An offer only: the page says
+ * nothing about anyone's place or how many came, and waiting without sharing is the same wait it always was.
+ */
+function WaitlistShare({ url }: { url: string }) {
+  const [copied, setCopied] = useState<"no" | "yes" | "failed">("no");
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied("yes");
+      setTimeout(() => setCopied("no"), 2000);
+    } catch {
+      setCopied("failed");
+    }
+  };
+  return (
+    <div className="mt-3 flex flex-col gap-2" data-testid="waitlist-share">
+      <p className="text-body text-secondary">{WAITLIST_WORDS.shareOffer}</p>
+      <p className="break-all font-mono text-body text-primary select-all">{url}</p>
+      <Button type="button" variant="glass" icon={Copy} onClick={() => void copy()} className="min-h-tap self-start">
+        {copied === "yes" ? WAITLIST_WORDS.copied : WAITLIST_WORDS.copyLink}
+      </Button>
+      {copied === "failed" ? (
+        <p role="alert" className="text-body text-secondary">
+          {WAITLIST_WORDS.copyFailed}
+        </p>
+      ) : null}
+    </div>
   );
 }

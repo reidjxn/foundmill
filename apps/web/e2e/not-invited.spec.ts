@@ -33,6 +33,14 @@ test.describe("the not-invited page at 390 px", () => {
     await expect(page.getByText(/email you when/i)).toHaveCount(0);
     // The stack runs platform mail on its mock, so the saved line promises no email (WP-03 T2: `waitlistEmails`).
     await expect(page.getByText(/We email/)).toHaveCount(0);
+    // Once saved, the person's own link to share (WP-03 T10), and never a place number or a count.
+    if (await panel.getByTestId("waitlist-joined").isVisible()) {
+      const share = panel.getByTestId("waitlist-share");
+      await expect(share).toBeVisible();
+      await expect(share).toContainText(/\?via=w\.[a-z2-7]{10}/);
+      await expect(share.getByRole("button", { name: "Copy link" })).toBeVisible();
+      await expect(panel.getByText(/position|people ahead|#\d/i)).toHaveCount(0);
+    }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
     for (const control of await panel.locator("a, button").all()) expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await page.getByRole("button", { name: "Sign out" }).click();

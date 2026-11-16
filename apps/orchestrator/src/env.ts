@@ -34,7 +34,7 @@ const Extra = z.object({
   /** The nightly removal of generated results from real projects (WP-02 T4): "report" counts and logs, "apply" removes. */
   MOCK_RESULTS_CLEANUP: z.enum(["off", "report", "apply"]).default("report"),
   /**
-   * How many people the waitlist lets in each UTC day (WP-03 T2, `waitlist-admissions`), oldest sign-up first. Unset
+   * How many people the waitlist lets in each UTC day (WP-03 T2, `waitlist-admissions`), in `WAITLIST_ORDER`. Unset
    * means 0: nobody is admitted by number, and the sweep still emails anyone the operator admitted by hand.
    */
   WAITLIST_ADMIT_PER_DAY: z.coerce.number().int().min(0).max(1000).default(0),

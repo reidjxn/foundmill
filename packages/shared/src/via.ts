@@ -13,6 +13,9 @@
  *                  public (it was in a shared link) and is not an internal id. Only `p.` and `u.` are recorded in
  *                  `attributions`: a first touch through `s.<code>` is recorded as the `p.<slug>` of the post's project
  *                  (`ATTRIBUTION_VIA_KINDS`), so no post code reaches an account event.
+ *   - `w.<code>`   a waitlist place (packages/db `waitlist_entries.code`, 0113; WP-03 T10): the same ten-character shape as
+ *                  a post's code. The api's `waitlist.join` reads it to record whose link brought a person who joins the
+ *                  waitlist; it is never an attribution (`ATTRIBUTION_VIA_KINDS`), so `attributions.resolve` names nothing.
  * More kinds (a card, a feedback link, an invitation) add a letter here. Anything else is not a reference and is
  * dropped without an error: a `via` is a hint a stranger typed into an address, never something to trust.
  */
@@ -33,7 +36,7 @@ export const ATTRIBUTION_VIA_KINDS = ["project_page", "person_profile"] as const
 export type AttributionViaKind = (typeof ATTRIBUTION_VIA_KINDS)[number];
 
 /** Every kind of reference an address may carry. */
-export const VIA_KINDS = [...ATTRIBUTION_VIA_KINDS, "post"] as const;
+export const VIA_KINDS = [...ATTRIBUTION_VIA_KINDS, "post", "waitlist"] as const;
 export type ViaKind = (typeof VIA_KINDS)[number];
 
 /** The cookie that remembers the last post code a visitor arrived with (last touch; httpOnly, lax). */
@@ -53,14 +56,14 @@ export interface ViaRef {
   ref: string;
 }
 
-const LETTER: Record<ViaKind, string> = { project_page: "p", person_profile: "u", post: "s" };
-const KIND_BY_LETTER: Record<string, ViaKind> = { p: "project_page", u: "person_profile", s: "post" };
+const LETTER: Record<ViaKind, string> = { project_page: "p", person_profile: "u", post: "s", waitlist: "w" };
+const KIND_BY_LETTER: Record<string, ViaKind> = { p: "project_page", u: "person_profile", s: "post", w: "waitlist" };
 /** Slugs and handles share one shape (0077, 0080): lowercase letters, digits and hyphens, never a hyphen at either end. */
 const ADDRESS = new RegExp(`^[a-z0-9][a-z0-9-]{${PAGE_SLUG_MIN - 2},${PAGE_SLUG_MAX - 2}}[a-z0-9]$`);
 /** The longest reference there can be ("p." and a 40-character slug); anything longer is not read at all. */
 export const VIA_MAX_LENGTH = 2 + PAGE_SLUG_MAX;
 
-/** "p.maple-bakes" for a project page, "u.maya" for a person, "s.k3m7qa2xpw" for a shared post. */
+/** "p.maple-bakes" for a page, "u.maya" for a person, "s.k3m7qa2xpw" for a shared post, "w.<code>" for a waitlist place. */
 export function formatVia(ref: ViaRef): string {
   return `${LETTER[ref.kind]}.${ref.ref}`;
 }
@@ -73,8 +76,8 @@ export function parseVia(value: unknown): ViaRef | null {
   const kind = KIND_BY_LETTER[value.slice(0, 1)];
   const ref = value.slice(2);
   if (!kind || !ADDRESS.test(ref)) return null;
-  // A post code also has its own shape (it fits the address shape above).
-  if (kind === "post" && !isPostCode(ref)) return null;
+  // A post or waitlist code also has its own shape (it fits the address shape above).
+  if ((kind === "post" || kind === "waitlist") && !isPostCode(ref)) return null;
   return { kind, ref };
 }
 

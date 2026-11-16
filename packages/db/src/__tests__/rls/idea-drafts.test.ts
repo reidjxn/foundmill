@@ -36,6 +36,9 @@ describe("idea_drafts and waitlist_entries", () => {
       await expect(role().run((tx) => tx.insert(s.ideaDrafts).values({ tokenHash: hash("x"), card, modelMode: "mock", expiresAt: new Date() }))).rejects.toThrow(/permission denied/);
       // 0111: when the place opened and when the email went are the services' alone too.
       await expect(role().run((tx) => tx.select({ admittedAt: s.waitlistEntries.admittedAt, notifiedAt: s.waitlistEntries.notifiedAt }).from(s.waitlistEntries))).rejects.toThrow(/permission denied/);
+      // 0113: the share code and who brought whom are the services' alone too (no client reads a code or the links).
+      await expect(role().run((tx) => tx.select({ code: s.waitlistEntries.code, referredBy: s.waitlistEntries.referredByEntryId }).from(s.waitlistEntries))).rejects.toThrow(/permission denied/);
+      await expect(role().run((tx) => tx.update(s.waitlistEntries).set({ referredByEntryId: null }))).rejects.toThrow(/permission denied/);
     }
     // Closed by having no policy at all: a policy added later fails here.
     const policies = await h.pg.query<{ n: number }>("select count(*)::int as n from pg_policies where tablename in ('idea_drafts', 'waitlist_entries')");
