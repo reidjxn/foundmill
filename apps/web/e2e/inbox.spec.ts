@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, ROADMAP_SIGNOFF, SPEC_SIGNOFF, UUID, approveBothSignoffs, approveFromInbox, dismissCoachmarks, ensureDeck, inboxRow, openBoardQuestion, openBusiness, signIn, startDistributionFromBoard, takeChargeToHome, setBuilderView } from "./helpers";
+import { LONG, NORTHWIND_BUSINESS_ID, ROADMAP_SIGNOFF, SPEC_SIGNOFF, UUID, approveBothSignoffs, approveFromInbox, dismissCoachmarks, ensureDeck, focusDecisionBar, inboxRow, openBoardQuestion, openBusiness, signIn, startDistributionFromBoard, takeChargeToHome, setBuilderView } from "./helpers";
 
 // Builder view on for this file (it opens an approval's Details); global-setup.ts starts every run with it off. Restored afterwards.
 let builderViewBefore = false;
@@ -125,22 +125,22 @@ test.describe("inbox", () => {
     const desk = page.getByTestId("agent-desk");
     await expect(desk.locator('[data-quick-reply="go_with"]')).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("signoff-panel")).toBeVisible();
-    // The number keys decide the note from the page (the shell's main content), not from the list row that opened it.
+    // The number keys decide the note from inside its decision bar (WP-04 T13), not from the list row that opened it.
     // Request changes without words asks for them instead of sending (the option stays open). On the account's first
     // Inbox visit the Inbox tour (then the first-decision callout) opens, and an open card holds the number keys (UX plan
     // §6.2, §7.9): close what shows, press, and try again if a card opened in between (a second 2 only asks again).
     await expect(async () => {
       await dismissCoachmarks(page);
-      await page.getByTestId("shell-content").focus();
+      await focusDecisionBar(page);
       await page.keyboard.press("2");
       await expect(page.getByTestId("signoff-panel")).toContainText("Say what should change", { timeout: 10_000 });
     }).toPass({ timeout: LONG * 2 });
     await expect(item).toHaveAttribute("data-state", /unread|read/);
-    // The notes field took the focus so the founder can type; back on the page, 1 approves.
+    // The notes field took the focus so the founder can type; back in the decision bar, 1 approves.
     await expect(page.getByTestId("signoff-notes")).toBeFocused();
     await expect(async () => {
       await dismissCoachmarks(page);
-      await page.getByTestId("shell-content").focus();
+      await focusDecisionBar(page);
       await page.keyboard.press("1");
       await expect(item).toHaveAttribute("data-state", "answered", { timeout: 10_000 });
     }).toPass({ timeout: LONG * 2 });
@@ -184,7 +184,7 @@ test.describe("inbox", () => {
     await expect(goalBar.getByRole("group", { name: "Options" }).getByRole("button")).toHaveText([/Approve this goal/, /Change it/]);
     await expect(async () => {
       await dismissCoachmarks(page);
-      await page.getByTestId("shell-content").focus();
+      await focusDecisionBar(page);
       await page.keyboard.press("1");
       await expect(goalNote).toHaveAttribute("data-state", "answered", { timeout: 10_000 });
     }).toPass({ timeout: LONG * 2 });
@@ -316,6 +316,38 @@ test.describe("inbox", () => {
     await expect(desk.locator('[data-quick-reply="local-retry"]')).toHaveCount(0);
     await expect(desk.getByTestId("agent-bubble").filter({ hasText: "couldn't confirm your message" })).toHaveCount(0);
     await page.unroute(lost);
+  });
+
+  test("a digit outside the decision bar does nothing; with focus in the bar it chooses (WP-04 T13)", async ({ page }) => {
+    await openInbox(page, "respond");
+    const decision = rowsOf(page).filter({ hasText: "Approve batch 002" }).first();
+    await expect(decision, "the seed gives Northwind the batch 002 decision").toBeVisible({ timeout: LONG });
+    await decision.click();
+    const item = page.getByTestId("inbox-item");
+    await expect(item).toHaveAttribute("data-type", "decision", { timeout: LONG });
+    await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open");
+    // Count the answers the keys send, and send none on: the seed's decision stays open for the other tests.
+    let decided = 0;
+    await page.route(/\/trpc\/[^?]*inbox\.decide/, (route) => {
+      decided++;
+      return route.abort();
+    });
+    await dismissCoachmarks(page);
+    // The note's body, the list row and the page: a digit there answers nothing.
+    await page.getByTestId("shell-content").focus();
+    await page.keyboard.press("1");
+    await decision.focus();
+    await page.keyboard.press("1");
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.keyboard.press("1");
+    await page.waitForTimeout(500);
+    expect(decided).toBe(0);
+    await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open");
+    // From inside the bar the same key chooses.
+    await focusDecisionBar(page);
+    await page.keyboard.press("1");
+    await expect.poll(() => decided, { timeout: LONG }).toBeGreaterThan(0);
+    await page.unroute(/\/trpc\/[^?]*inbox\.decide/);
   });
 
   test("number keys in an agent's sheet opened over a decision answer the sheet, never the note underneath", async ({ page }) => {

@@ -56,6 +56,7 @@ import { SpecUserProvider, specUserName } from "@/components/spec/spec-user";
 import { AgentDeskHost, prefetchAgentDesk, type AgentDeskApi } from "@/components/conversation/DeskHost";
 import { useNetworkBadge } from "@/components/live/signals";
 import { termsFor } from "@/components/providers/GuidanceHost";
+import { useKeyboardShortcutsOn } from "@/components/providers/guidance-context";
 import { worksOnSmallScreens } from "@/components/providers/DesktopOnly";
 import { agentOfAskItem, agentOfCallItem, askPaletteItems, askQuestion, callPaletteItems, generatePaletteItems, paletteAgents } from "@/components/conversation/palette";
 import { BusinessProvider, makeBusinessContext, type BusinessGet, type DepartmentList } from "./business-context";
@@ -361,6 +362,8 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   const { toast } = useToast();
   const chrome = useShellChromeValue();
   const shortcuts = useRegisteredShortcuts();
+  // Single keys only once the person turned them on in Settings › Preferences (WP-04 T13): a stray key does nothing.
+  const singleKeys = useKeyboardShortcutsOn();
 
   // --- data ---------------------------------------------------------------------------------------------------
   // The layout starts inbox, finance and cycle on the server and hands them over under these same keys
@@ -917,6 +920,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                 onRunwayClick={financeDept ? onRunwayClick : undefined}
                 onModeClick={() => router.push(routes.settings(businessId, "mode"))}
                 keyboard={{
+                  singleKeys,
                   onRefreshInbox: shortcuts.onRefreshInbox ?? (access.canChange ? () => refreshInbox.mutate({ businessId }) : undefined),
                   onNextInboxItem: shortcuts.onNextInboxItem,
                   onPrevInboxItem: shortcuts.onPrevInboxItem,

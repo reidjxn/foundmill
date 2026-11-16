@@ -10,13 +10,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GuidanceTermsProvider, useBuilderView, useGuidance, useTerm } from "@foundmill/dugout";
 import type { AgentStyle } from "@foundmill/shared/personas";
 
-type Prefs = { guidance: "on" | "off"; textSize: "standard" | "comfortable"; explainersSeen: Record<string, true>; toursDone: Record<string, true>; checklistDismissedAt: string | null; anthropomorphicAgents: boolean; agentStyle: AgentStyle; builderView: boolean };
-type Patch = Partial<{ guidance: Prefs["guidance"]; textSize: Prefs["textSize"]; explainersSeen: Record<string, true>; toursDone: Record<string, true>; checklistDismissed: boolean; anthropomorphicAgents: boolean; agentStyle: AgentStyle; builderView: boolean; reset: true }>;
+type Prefs = { guidance: "on" | "off"; textSize: "standard" | "comfortable"; explainersSeen: Record<string, true>; toursDone: Record<string, true>; checklistDismissedAt: string | null; anthropomorphicAgents: boolean; agentStyle: AgentStyle; builderView: boolean; keyboardShortcuts: boolean };
+type Patch = Partial<{ guidance: Prefs["guidance"]; textSize: Prefs["textSize"]; explainersSeen: Record<string, true>; toursDone: Record<string, true>; checklistDismissed: boolean; anthropomorphicAgents: boolean; agentStyle: AgentStyle; builderView: boolean; keyboardShortcuts: boolean; reset: true }>;
 
 const BUSINESS = "b1e5e5e5-0000-4000-8000-000000000001";
 const GUIDANCE_KEY = [["founder", "preferences", "guidance"], { type: "query" }];
 const businessKey = (businessId: string) => [["business", "get"], { input: { businessId }, type: "query" }];
-const defaults = (): Prefs => ({ guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: "humans", builderView: false });
+const defaults = (): Prefs => ({ guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: "humans", builderView: false, keyboardShortcuts: false });
 
 let stored: Prefs = defaults();
 let pathname: string | null = `/b/${BUSINESS}/home`;
@@ -30,6 +30,7 @@ async function serverUpdate(change: Patch) {
   if (change.anthropomorphicAgents !== undefined) next.anthropomorphicAgents = change.anthropomorphicAgents;
   if (change.agentStyle) next.agentStyle = change.agentStyle;
   if (change.builderView !== undefined) next.builderView = change.builderView;
+  if (change.keyboardShortcuts !== undefined) next.keyboardShortcuts = change.keyboardShortcuts;
   if (change.reset) Object.assign(next, { explainersSeen: {}, toursDone: {}, checklistDismissedAt: null });
   for (const id of Object.keys(change.explainersSeen ?? {})) next.explainersSeen[id] = true;
   for (const id of Object.keys(change.toursDone ?? {})) next.toursDone[id] = true;
@@ -71,7 +72,7 @@ vi.mock("@/lib/trpc-react", () => ({
 }));
 
 import { useBuilderViewPreference } from "../guidance-context";
-import { GuidanceHost, agentStyleOf, applyGuidancePatch, guidanceSignalInput, isSignedInPath, resolveLearn, sameGuidancePrefs, screenIdFromPath, termsFor, useGuidancePreferences, useGuidanceSignal, type GuidancePreferencesApi } from "../GuidanceHost";
+import { GuidanceHost, agentStyleOf, applyGuidancePatch, guidancePrefsOf, guidanceSignalInput, isSignedInPath, resolveLearn, sameGuidancePrefs, screenIdFromPath, termsFor, useGuidancePreferences, useGuidanceSignal, type GuidancePreferencesApi } from "../GuidanceHost";
 import { TEXT_SIZE_COOKIE, readTextSizeCookie } from "../text-size-cookie";
 
 let api: GuidancePreferencesApi | null = null;
@@ -543,7 +544,7 @@ describe("helpers", () => {
   });
 
   it("applyGuidancePatch: the optimistic answer follows the API's rules without touching the previous state", () => {
-    const prev: Prefs = { guidance: "on", textSize: "standard", explainersSeen: { home: true }, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: "humans", builderView: false };
+    const prev: Prefs = { guidance: "on", textSize: "standard", explainersSeen: { home: true }, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: "humans", builderView: false, keyboardShortcuts: false };
     const now = "2026-10-20T15:45:00.000Z";
     expect(applyGuidancePatch(prev, { guidance: "off", textSize: "comfortable" }, now)).toEqual({ ...prev, guidance: "off", textSize: "comfortable" });
     expect(applyGuidancePatch(prev, { explainersSeen: { inbox: true }, toursDone: { home: true } }, now)).toEqual({ ...prev, explainersSeen: { home: true, inbox: true }, toursDone: { home: true } });
@@ -554,8 +555,8 @@ describe("helpers", () => {
     expect(applyGuidancePatch({ ...prev, anthropomorphicAgents: true }, { guidance: "off" }, now).anthropomorphicAgents).toBe(true);
     expect(applyGuidancePatch({ ...prev, anthropomorphicAgents: true }, { reset: true }, now).anthropomorphicAgents).toBe(true);
     expect(sameGuidancePrefs(prev, { ...prev, anthropomorphicAgents: true })).toBe(false);
-    expect(applyGuidancePatch({ ...prev, toursDone: { home: true }, checklistDismissedAt: now }, { reset: true, guidance: "off" }, now)).toEqual({ guidance: "off", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: "humans", builderView: false });
-    expect(prev).toEqual({ guidance: "on", textSize: "standard", explainersSeen: { home: true }, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: "humans", builderView: false });
+    expect(applyGuidancePatch({ ...prev, toursDone: { home: true }, checklistDismissedAt: now }, { reset: true, guidance: "off" }, now)).toEqual({ guidance: "off", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: "humans", builderView: false, keyboardShortcuts: false });
+    expect(prev).toEqual({ guidance: "on", textSize: "standard", explainersSeen: { home: true }, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: "humans", builderView: false, keyboardShortcuts: false });
     // The agent style travels the same way, is kept by a reset, and counts as a change.
     expect(applyGuidancePatch(prev, { agentStyle: "fantasy" }, now).agentStyle).toBe("fantasy");
     expect(applyGuidancePatch({ ...prev, agentStyle: "fantasy" }, { reset: true }, now).agentStyle).toBe("fantasy");
@@ -564,6 +565,11 @@ describe("helpers", () => {
     expect(applyGuidancePatch(prev, { builderView: true }, now).builderView).toBe(true);
     expect(applyGuidancePatch({ ...prev, builderView: true }, { reset: true }, now).builderView).toBe(true);
     expect(sameGuidancePrefs(prev, { ...prev, builderView: true })).toBe(false);
+    // And the single-key shortcuts (WP-04 T13): they travel, a reset keeps them, they count as a change.
+    expect(applyGuidancePatch(prev, { keyboardShortcuts: true }, now).keyboardShortcuts).toBe(true);
+    expect(applyGuidancePatch({ ...prev, keyboardShortcuts: true }, { reset: true }, now).keyboardShortcuts).toBe(true);
+    expect(sameGuidancePrefs(prev, { ...prev, keyboardShortcuts: true })).toBe(false);
+    expect(guidancePrefsOf({ ...prev, keyboardShortcuts: true }).keyboardShortcuts).toBe(true);
     expect(agentStyleOf(prev)).toBe("humans");
     expect(agentStyleOf({ agentStyle: "cartoon_2d" })).toBe("cartoon_2d");
     expect(agentStyleOf({})).toBe("humans");

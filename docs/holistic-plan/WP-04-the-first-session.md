@@ -36,7 +36,7 @@
 - [ ] T10 Chief of Staff as mentor, with founder context (M)
 - [ ] T11 Lifecycle email for a started project (M, needs setup)
 - [ ] T12 Email for a person with a card and no project (M, needs setup)
-- [ ] T13 Single-key shortcuts off by default (S)
+- [x] T13 Single-key shortcuts off by default (S)
 - [ ] T14 The one-click answer page on a phone (S)
 - [ ] T15 A phone start without a card (S)
 - [ ] T16 Win-back for the 11 stalled projects (S, needs the founder)
@@ -312,7 +312,7 @@ Bodies are s2 §6.3's, edited to the emails skill (reason first, one action, no 
 3. Counts toward the person's three a day; the pause link and the kind's switch apply.
 **Done when:** the mock sweep records the two emails for a card-holder and nothing for anyone else.
 
-### T13: Single-key shortcuts off by default   [S] [ships alone]
+### [x] T13: Single-key shortcuts off by default   [S] [ships alone]
 
 **Why:** A2-03 (an accidental Space starts paid work; 1 to 4 answer a decision; WCAG 2.1.4).
 

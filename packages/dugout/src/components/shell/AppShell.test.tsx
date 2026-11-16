@@ -341,7 +341,7 @@ describe("AppShell", () => {
     expect(sidebarItemForTarget(keyed, { kind: "inbox" })?.id).toBe("inbox");
     expect(sidebarItemForTarget(keyed, { kind: "area", area: "money" })?.id).toBe("area-money");
     expect(sidebarItemForTarget(keyed, { kind: "department", id: "d-studio" })?.id).toBe("d-studio");
-    render(<AppShell {...shellProps({ onNavigate })} />);
+    render(<AppShell {...shellProps({ onNavigate, keyboard: { singleKeys: true } })} />);
     expect(screen.getByRole("link", { name: "Money" }).getAttribute("aria-keyshortcuts")).toBe("G M");
     document.body.focus();
     await user.keyboard("gm");
@@ -361,7 +361,7 @@ describe("AppShell", () => {
     const sidebar = NORTHWIND_SIDEBAR.map((i) => (i.id === "d-studio" ? { ...i, shortcut: "Q" } : i));
     expect(withSidebarKeys(sidebar).find((i) => i.id === "d-studio")?.keys).toEqual(["G", "Q"]);
     expect(withSidebarKeys(NORTHWIND_SIDEBAR.map((i) => (i.id === "d-studio" ? { ...i, shortcut: "M" } : i))).find((i) => i.id === "d-studio")?.keys).toEqual(["G", "S"]);
-    render(<AppShell {...shellProps({ onNavigate, sidebar: { items: sidebar, collapsed: false, onCollapsedChange: () => {} } })} />);
+    render(<AppShell {...shellProps({ onNavigate, keyboard: { singleKeys: true }, sidebar: { items: sidebar, collapsed: false, onCollapsedChange: () => {} } })} />);
     expect(screen.getByRole("link", { name: "Studio, 1 item" }).getAttribute("aria-keyshortcuts")).toBe("G Q");
     document.body.focus();
     await user.keyboard("gq");
@@ -373,15 +373,24 @@ describe("AppShell", () => {
     expect(help.textContent).not.toContain("Contacts");
   });
 
-  it("Space continues, / opens the palette, ? opens help, Esc closes them in order", async () => {
+  it("Space on the page never continues; / opens the palette, ? opens help, Esc closes them in order (WP-04 T13)", async () => {
     const user = userEvent.setup();
     const onContinue = vi.fn();
     const onSelect = vi.fn();
     const onEscape = vi.fn();
-    render(<AppShell {...shellProps({ continueButton: { state: { kind: "idle" }, onContinue }, search: { items: PALETTE_ITEMS, onSelect }, keyboard: { onEscape } })} />);
+    const onNavigate = vi.fn();
+    render(<AppShell {...shellProps({ onNavigate, continueButton: { state: { kind: "idle" }, onContinue }, search: { items: PALETTE_ITEMS, onSelect }, keyboard: { onEscape } })} />);
     document.body.focus();
     await user.keyboard(" ");
+    expect(onContinue).not.toHaveBeenCalled();
+    // Single keys are off by default: a G chord goes nowhere.
+    await user.keyboard("gm");
+    expect(onNavigate).not.toHaveBeenCalled();
+    // Continue still takes Space when it has focus, as any button does.
+    screen.getByRole("button", { name: /^Continue/ }).focus();
+    await user.keyboard(" ");
     expect(onContinue).toHaveBeenCalledTimes(1);
+    document.body.focus();
     await user.keyboard("/");
     expect(await screen.findByTestId("command-palette")).toBeTruthy();
     await user.keyboard("{Escape}");
