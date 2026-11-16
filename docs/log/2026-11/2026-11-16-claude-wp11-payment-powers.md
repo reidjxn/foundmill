@@ -30,6 +30,10 @@ supersedes: []
 - **Q3, WP-00 S2:** S2 must not set `LIVE_CONNECTORS=sendgrid` on ingest. The founder follows the corrected step.
 ### No outbound power
 CLAUDE.md's Never list says agent code never moves money, and no ruling has changed it. The planning session is asking the founder. The column's check allows `inbound` alone, and the policy's input type names `PAYMENT_POWERS = ["inbound"]`, so an outbound power would be one new value and one new rule. Paying out, transferring and refunding stay hard gates, and no tool becomes callable in any mode.
+### Confirmed by the founder, Nov 16, 2026
+- "No outbound payment powers yet": this change stays inbound only, and CLAUDE.md's rule that agent code never moves money stands.
+- On Foundmill Sites, only the finance lead agent may create a payment link, and it asks first. The WP-07 session builds that tool and reads this setting: `businesses.payment_powers` (value `inbound`), with the tool listed in the gateway's `PAYMENT_RECORD_TOOLS`.
+
 ### "Full autopilot" is automated mode
 The policy's modes are augmented, assisted and automated; Autopilot (the scheduler that starts cycles) does not change what a call may do. The power applies where the team decides on its own: automated mode, and every vacation, which runs as automated (BUILD §9.6). The switch sits where the founder picks automated.
   An agent given automated autonomy of its own in a business on another mode is covered by the same rule.
