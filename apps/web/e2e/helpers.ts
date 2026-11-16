@@ -179,10 +179,26 @@ export function toast(page: Page, title: string | RegExp): Locator {
   return page.locator("[data-dugout-toasts]").getByText(title, { exact: true });
 }
 
-/** Fills the founder profile on /onboarding (the page the dev user is held at without one) and saves it. */
+/**
+ * Answers the three questions a new account meets on /onboarding (WP-04 T1): the name, the "I am 18 or older" box when
+ * it is asked, Continue. The caller waits for where it goes (`next`, else /new).
+ */
+export async function answerFirstProfile(page: Page, name: string): Promise<void> {
+  await expect(page.getByTestId("first-profile")).toBeVisible({ timeout: LONG });
+  await page.getByLabel(/What should your team call you/).fill(name);
+  await confirmAdultOnForm(page);
+  await page.getByTestId("first-profile-submit").click();
+}
+
+/**
+ * Creates the founder profile on /onboarding (the page the dev user is held at without one) with the three questions,
+ * then fills the rest on the long form, so the profile holds the seed owner's answers as before.
+ */
 export async function completeProfile(page: Page): Promise<void> {
+  await answerFirstProfile(page, "Playwright Founder");
+  await expect(page).toHaveURL(/\/new$/, { timeout: LONG });
+  await page.goto("/onboarding");
   await expect(page.getByTestId("onboarding-form")).toBeVisible({ timeout: LONG });
-  await page.getByLabel(/What the team calls you/).fill("Playwright Founder");
   await page.getByLabel("First-time founder").check();
   await page.getByLabel("Full time").check();
   // The profile is two passes (UX plan §7.3): budget, markets, constraints and risk sit behind the collapsed "Add
@@ -196,18 +212,17 @@ export async function completeProfile(page: Page): Promise<void> {
   await markets.press("Enter");
   await page.getByRole("button", { name: "Remote only" }).click();
   await page.getByLabel("Medium").check();
-  await confirmAdultOnForm(page);
   await page.getByTestId("profile-submit-bottom").click();
   await expect(page).toHaveURL(/\/new$/, { timeout: LONG });
   await expect(page.getByTestId("doors")).toBeVisible();
 }
 
 /**
- * Ticks "I am 18 or older" on the founder profile form when the form asks for it (a new account with no confirmation
- * on record, 0100); the seeded founder has confirmed, so the form does not ask them.
+ * Ticks "I am 18 or older" on the three questions when they ask for it (a new account with no confirmation on record,
+ * 0100); the seeded founder has confirmed, so they are not asked.
  */
 export async function confirmAdultOnForm(page: Page): Promise<void> {
-  const adult = page.getByTestId("profile-adult");
+  const adult = page.getByTestId("first-profile-adult");
   if (await adult.count()) await adult.getByRole("checkbox", { name: "I am 18 or older" }).check();
 }
 

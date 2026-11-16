@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Browser, type Page } from "@playwright/test";
@@ -86,6 +87,40 @@ test("Try another idea replaces the card: the field comes back with the words, a
     // The browser holds the new card, not a second one.
     await page.reload();
     await expect(page.getByTestId("idea-landed-words")).toHaveText("A repair service for old film cameras, by mail", { timeout: LONG });
+  } finally {
+    await close();
+  }
+});
+
+test("WP-04 T1: a new account on a phone keeps a card, answers three questions and lands on that card's Commit", async ({ browser }) => {
+  const { page, close } = await visitor(browser, 390, 844);
+  try {
+    // Its own address, as above, so this card fills no other test's window.
+    const address = `198.51.100.${1 + Math.floor(Math.random() * 250)}`;
+    await page.route("**/idea-box/draft", (route) => route.continue({ headers: { ...route.request().headers(), "x-forwarded-for": address } }));
+    await page.goto("/");
+    await page.getByTestId("idea-input").fill("Dog walking rounds for people who work late");
+    await page.getByTestId("idea-generate").click();
+    await expect(page.getByTestId("idea-keep")).toBeVisible({ timeout: LONG });
+    await page.getByTestId("idea-keep-email").click();
+    await expect(page).toHaveURL(/\/login\?next=%2Fstart%3Fclaim%3D/);
+    // A new account signs in (the developer sign-in as a fresh id stands in for the email link) and keeps the card.
+    const next = new URL(page.url()).searchParams.get("next")!;
+    await page.goto(`/auth/dev?as=${randomUUID()}&next=${encodeURIComponent(next)}`);
+    await expect(page).toHaveURL(/\/new\/card\/keep/, { timeout: LONG });
+    await page.getByTestId("card-keep").click();
+    await expect(page).toHaveURL(/\/new\/card\/[0-9a-f-]{36}$/, { timeout: LONG });
+    const ideaId = new URL(page.url()).pathname.split("/").pop()!;
+    // The card's next step is the three questions, a link on a phone, with the card's Commit as where they go on to.
+    const step = page.getByTestId("card-kept-next");
+    await expect(step).toHaveText("Three quick things about you");
+    await expect(step).toHaveAttribute("href", `/onboarding?next=/new/commit/${ideaId}`);
+    await step.click();
+    await expect(page.getByTestId("first-profile")).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
+    await page.getByTestId("first-profile-adult").getByRole("checkbox", { name: "I am 18 or older" }).check();
+    await page.getByTestId("first-profile-submit").click();
+    await expect(page).toHaveURL(new RegExp(`/new/commit/${ideaId}$`), { timeout: LONG });
   } finally {
     await close();
   }
