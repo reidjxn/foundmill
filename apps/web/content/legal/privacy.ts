@@ -104,7 +104,7 @@ export const PRIVACY: LegalDocument = {
       id: "ai",
       heading: "AI and your content",
       blocks: [
-        { kind: "p", text: "Your team of agents runs on AI models from other companies. To do what you ask, we send them the parts of your project the work needs. Under the terms we use them on, Anthropic and OpenAI do not use what we send to train their models." },
+        { kind: "p", text: "Your team of agents runs on AI models from other companies. To do what you ask, we send them the parts of your project the work needs. Under the terms we use them on, Anthropic, OpenAI and Z.ai do not use what we send to train their models." },
         { kind: "p", text: "We do not use your content to train AI models, and we do not sell it." },
         { kind: "p", text: "If you connect your own AI provider with your own key, that work runs on your account with that provider, under your agreement with them." },
       ],
@@ -133,6 +133,7 @@ export const PRIVACY: LegalDocument = {
             { term: "Railway", detail: "The servers that run the service. Amsterdam, the Netherlands." },
             { term: "Vercel", detail: "The website. Frankfurt, Germany, served through a worldwide network." },
             { term: "Anthropic", detail: "The AI models your agents run on. United States." },
+            { term: "Z.ai", detail: "An AI model your agents' work can run on when your project is on the free plan. Singapore." },
             { term: "Voyage AI", detail: "Search across your project's own material. United States." },
             { term: "OpenAI", detail: "Pictures, such as agents' portraits. United States." },
             { term: "ElevenLabs", detail: "Turning your voice into text. United States." },
@@ -153,7 +154,7 @@ export const PRIVACY: LegalDocument = {
       id: "transfers",
       heading: "Where your data is",
       blocks: [
-        { kind: "p", text: "Your account and your projects are stored in the European Union. When a provider in the United States processes them, the transfer is protected by the EU-U.S. Data Privacy Framework where the provider is certified, or by the European Commission's Standard Contractual Clauses. You can ask us for a copy of the safeguards that apply." },
+        { kind: "p", text: "Your account and your projects are stored in the European Union. When a provider in the United States or Singapore processes them, the transfer is protected by the EU-U.S. Data Privacy Framework where the provider is certified, or by the European Commission's Standard Contractual Clauses. You can ask us for a copy of the safeguards that apply." },
       ],
     },
     {

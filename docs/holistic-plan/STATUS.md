@@ -190,6 +190,6 @@ One row per task of docs/holistic-plan/WP-*.md. Updated before a task starts and
 | WP-13 | T6 | The $600 monthly cap, and slowing down at it | not started | T3 |
 | WP-13 | T7 | The model dialog shows GLM, and Anthropic models offer an upgrade | not started | T2 |
 | WP-13 | T8 | Evals on GLM-5.3 Flash | not started | T3, T4 |
-| WP-13 | T9 | The privacy policy names Z.ai | not started |  |
+| WP-13 | T9 | The privacy policy names Z.ai | pull request open | the DPA and SCCs are the founder's (Z3) |
 | WP-13 | T11 | The api and composer use a founder's own Anthropic key | not started | T3 |
 | WP-13 | T10 | Switch it on | not started | T3 to T9, T11; setup Z2 |
