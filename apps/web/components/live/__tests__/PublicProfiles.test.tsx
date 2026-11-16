@@ -141,6 +141,24 @@ describe("/profiles/[kind]/[id]", () => {
     expect(screen.queryByTestId("profile-report-open")).toBeNull();
   });
 
+  it("one identity: a person who published /u/<handle> shows what their page says, and an answer of building alone says nothing", async () => {
+    const person = { handle: "ana", headline: "Coffee cart in Austin", about: "I sell coffee.", strengths: ["Coffee"], wantsToLearn: ["Pricing"], lookingFor: "on_my_own", place: "Austin, TX", projects: [{ slug: "cart", name: "Cart Co", pitch: "Coffee on wheels" }] };
+    api.handlers["live.people.profile"] = () => ({ ...founderProfile(), businesses: [], person });
+    mount(<ProfileScreen kind="founder" id={ids.ana} />);
+    const about = await screen.findByTestId("profile-person");
+    expect(about.textContent).toContain("Coffee cart in Austin");
+    expect(about.textContent).toContain("I sell coffee.");
+    expect(within(about).getByText("Cart Co").getAttribute("href")).toBe("/p/cart");
+    expect(screen.getByTestId("profile-person-page").getAttribute("href")).toBe("/u/ana");
+    expect(screen.queryByTestId("profile-looking-for")).toBeNull();
+    // No empty Businesses panel beside a page.
+    expect(screen.queryByTestId("profile-businesses")).toBeNull();
+    cleanup();
+    api.handlers["live.people.profile"] = () => ({ ...founderProfile(), person: { ...person, lookingFor: "looking_to_join" } });
+    mount(<ProfileScreen kind="founder" id={ids.ana} />);
+    expect((await screen.findByTestId("profile-looking-for")).textContent).toBe("Looking to join a project");
+  });
+
   it("a Personal business explains why Connect is off", async () => {
     ctx.gameMode = "personal";
     api.handlers["live.people.profile"] = () => founderProfile();

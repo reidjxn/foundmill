@@ -7,11 +7,12 @@
  * is shown instead of the button.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Building2, Check, Clock, Flag, MessageSquare, UserRoundPlus, UsersRound } from "lucide-react";
+import { ArrowLeft, Building2, Check, Clock, ExternalLink, Flag, MessageSquare, UserRoundPlus, UsersRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { APP_NAME } from "@foundmill/config";
-import { Avatar, Button, EmptyState, Panel, ProfileHeader, StatusPill, useFormatters, useToast, type ProfileChip, type ProfileFact } from "@foundmill/dugout";
+import { Avatar, Button, Chip, EmptyState, Panel, ProfileHeader, StatusPill, useFormatters, useToast, type ProfileChip, type ProfileFact } from "@foundmill/dugout";
+import { lookingForLine } from "@foundmill/shared/person-profile";
 import { plainWords } from "@/lib/format";
 import { publicProfileHref } from "@/lib/public-search";
 import { errorMessage, trpcErrorCode, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
@@ -28,7 +29,7 @@ const UNKNOWN_ARCHETYPE = "Business";
 
 /** The business's mark from its public card: initials on its brand color (a public profile is a live business). */
 function cardLogo(card: Card, size: 32 | 48 = 48) {
-  return <BusinessLogo card={{ businessId: card.businessId, name: card.name, slug: card.slug, kitPrimary: card.kitPrimary, kitSecondary: card.kitSecondary, archetype: card.archetype, live: true }} name={card.name} size={size} />;
+  return <BusinessLogo card={{ businessId: card.businessId ?? "", name: card.name, slug: card.slug, kitPrimary: card.kitPrimary, kitSecondary: card.kitSecondary, archetype: card.archetype, live: true }} name={card.name} size={size} />;
 }
 
 export function ProfileScreen({ kind, id }: { kind: "business" | "founder"; id: string }) {
@@ -71,7 +72,7 @@ export function ProfileScreen({ kind, id }: { kind: "business" | "founder"; id: 
     );
   }
 
-  const { businesses, founders, isSelf, connection } = q.data;
+  const { businesses, founders, isSelf, connection, person } = q.data;
   const chips: ProfileChip[] = [{ label: profile.kind === "founder" ? "Founder" : (profile.archetype ? plainWords(profile.archetype) : UNKNOWN_ARCHETYPE), icon: profile.kind === "founder" ? undefined : Building2 }];
   const facts: ProfileFact[] = [];
   if (profile.kind === "business" && profile.since) facts.push({ label: "On " + APP_NAME + " since", value: formatDate(profile.since) });
@@ -130,7 +131,8 @@ export function ProfileScreen({ kind, id }: { kind: "business" | "founder"; id: 
               Switch to a live business to ask {profile.name} to connect: a Personal business is not on the network.
             </p>
           ) : null}
-          {profile.kind === "founder" ? (
+          {person ? <PersonPanel person={person} className="@page-wide:col-span-8" /> : null}
+          {profile.kind === "founder" && person && businesses.length === 0 ? null : profile.kind === "founder" ? (
             <Panel title="Businesses" className="@page-wide:col-span-8" empty={businesses.length === 0 ? { icon: Building2, children: "No live business is listed." } : undefined} data-testid="profile-businesses">
               <ul>
                 {businesses.map((b) => (
@@ -162,12 +164,66 @@ export function ProfileScreen({ kind, id }: { kind: "business" | "founder"; id: 
           )}
           <Panel title="What is public" className="@page-wide:col-span-4" footer="Only these fields are shown. Everything else stays in the business.">
             <p className="text-small text-secondary">
-              {profile.kind === "founder" ? "A founder's name, when they choose to make it public, and the live businesses they run." : "A live business's name, logo, kind of business, region and when it went live, and its founders who made their name public."}
+              {profile.kind === "founder" ? (person ? "What this person published on their own page, and the live businesses they run." : "A founder's name, when they choose to make it public, and the live businesses they run.") : "A live business's name, logo, kind of business, region and when it went live, and its founders who made their name public."}
             </p>
           </Panel>
           {!q.data && <EmptyState icon={UsersRound}>Nothing to show.</EmptyState>}
         </div>
       </div>
     </div>
+  );
+}
+
+/** What the person's page at /u/<handle> says (one identity: the page and this screen show the same profile). */
+function PersonPanel({ person, className }: { person: NonNullable<Profile["person"]>; className?: string }) {
+  const line = lookingForLine(person.lookingFor);
+  return (
+    <Panel title="About" className={className} data-testid="profile-person">
+      <div className="flex flex-col gap-3">
+        {person.headline ? <p className="text-body-strong text-primary">{person.headline}</p> : null}
+        {person.place ? <p className="text-small text-secondary">{person.place}</p> : null}
+        {person.about ? <p className="whitespace-pre-line break-words text-body text-prose">{person.about}</p> : null}
+        {person.strengths.length ? (
+          <div className="flex flex-col gap-1.5">
+            <span className="t-label text-secondary">Good at</span>
+            <span className="flex flex-wrap gap-1">
+              {person.strengths.map((t) => (
+                <Chip key={t} tone="neutral">
+                  {t}
+                </Chip>
+              ))}
+            </span>
+          </div>
+        ) : null}
+        {person.wantsToLearn.length ? (
+          <div className="flex flex-col gap-1.5">
+            <span className="t-label text-secondary">Wants to learn</span>
+            <span className="flex flex-wrap gap-1">
+              {person.wantsToLearn.map((t) => (
+                <Chip key={t} tone="neutral">
+                  {t}
+                </Chip>
+              ))}
+            </span>
+          </div>
+        ) : null}
+        {line ? <p className="text-small text-secondary" data-testid="profile-looking-for">{line}</p> : null}
+        {person.projects.length ? (
+          <ul className="flex flex-col gap-1">
+            {person.projects.map((p) => (
+              <li key={p.slug}>
+                <a className="min-h-tap text-body text-primary hover:underline @page-wide:min-h-0" href={`/p/${p.slug}`}>
+                  {p.name}
+                </a>
+                {p.pitch ? <span className="text-small text-secondary"> · {p.pitch}</span> : null}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        <a className="inline-flex min-h-tap items-center gap-1.5 text-small text-secondary hover:text-primary @page-wide:min-h-0" href={`/u/${person.handle}`} data-testid="profile-person-page">
+          <ExternalLink aria-hidden className="size-icon-inline" /> Their page
+        </a>
+      </div>
+    </Panel>
   );
 }
