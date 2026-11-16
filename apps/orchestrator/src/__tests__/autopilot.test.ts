@@ -8,6 +8,7 @@ import { createBusinessFixture, type BusinessFixture } from "@foundmill/db/__tes
 import { repos, resumeBusinessAgents, stopBusinessAgents } from "@foundmill/db";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { AUTOPILOT_MAX_SLEEP_MS, AUTOPILOT_POLL_MS, createAutopilotActivities, runEndedKey } from "../activities/autopilot";
+import { nextCycleNumberOf } from "../activities/holiday";
 import { setupOrchestratorHarness, type OrchestratorTestHarness } from "./harness";
 
 let t: OrchestratorTestHarness;
@@ -118,6 +119,22 @@ describe("autopilotEvaluate", () => {
     expect(capped.waitMs).toBe(AUTOPILOT_MAX_SLEEP_MS);
     await repos.autopilot.set(t.db, B(), { maxCyclesPerDay: 6, spendCeilingMinor: 0 });
     expect((await acts.autopilotEvaluate({ businessId: B() })).decision).toMatchObject({ action: "wait", why: "daily_spend" });
+  });
+
+  it("a project committed without a budget (no cycle yet, one ready task) starts cycle 1 at the overnight shift's first look, and its empty history is not an idle night (WP-04 T3)", async () => {
+    const now = t.clock.nowMs();
+    const committedAt = now - 2 * H;
+    // The overnight shift as Commit turns it on, due one hour ago (its daily hour falls after the commit).
+    const dailyHour = new Date(now - 1 * H).getUTCHours();
+    await repos.autopilot.set(t.db, B(), { enabled: true, cadence: "daily", dailyHour, ownMaxCyclesPerDay: 1, ownSpendCeilingMinor: 15, maxIdleCycles: 1 }, new Date(committedAt));
+    await repos.tasks.create(t.db, B(), { kind: "research", title: "Answer the specification's open questions", goalMd: "Answer each open question.", acceptance: ["Every open question answered"], departmentId: null, assigneeAgentId: null, status: "ready", currency: "USD" });
+    expect((await repos.events.list(t.db, B(), { type: "cycle.started" })).items).toHaveLength(0);
+    const look = await acts.autopilotEvaluate({ businessId: B() });
+    // No cycle means no idle streak: even with a limit of one empty cycle it starts, never pauses.
+    expect(look.decision).toMatchObject({ action: "start" });
+    expect(look.cycleBudgetMinor).toBe(15);
+    // Cycles are numbered from history: the first one is cycle 1.
+    expect(await nextCycleNumberOf(t.db, B())).toBe(1);
   });
 });
 
