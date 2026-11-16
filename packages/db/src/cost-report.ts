@@ -3,7 +3,8 @@
  * report (costReportRepo, WP-02 T11) for real projects, all time unless a range is given (from inclusive, to
  * exclusive). Reads with the service role through DATABASE_URL (a `pglite:<dir>` URL works locally). `--print-sql`
  * prints each query exactly as it would run and exits without connecting. Every dollar figure is printed with
- * "(measured)"; a figure from fewer than 5 projects with "(small sample)". Only ids, no names.
+ * "(measured)"; a figure from fewer than 5 projects with "(small sample)". Only ids, no names. The queries run in a
+ * read-only transaction (costReportRepo.run), so the service role cannot write through this report.
  */
 import { loadEnv } from "@foundmill/shared";
 import { closeDb, createDb } from "./client";
@@ -43,7 +44,7 @@ async function main(): Promise<void> {
     const ledger = r.projects.ledger;
     const sessions = r.projects.sessions;
 
-    print(`Cost report, ${r.from?.slice(0, 10) ?? "all time"} to ${r.to?.slice(0, 10) ?? "now"}, real projects only`);
+    print(`Cost report, ${r.from?.slice(0, 10) ?? "all time"} to ${r.to?.slice(0, 10) ?? "now"}, real projects only, read in a read-only transaction`);
     print(`Projects in the ledger: ${ledger}; with ended sessions: ${sessions}; with training runs: ${r.projects.trainingRuns}`);
 
     print("\nCost per route (direct model calls)");
