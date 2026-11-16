@@ -5,6 +5,14 @@ description: Runs the month-end checklist: reconcile accounts, review categories
 category: finance
 attribute_name: Month-end close
 attribute_group: execution
+when_to_use: Use when a month has ended and the books need the month-end checklist: accounts, categories and what needs the founder.
+roles: finance_lead
+default_for:
+stage: idea, building, page_live, first_followers, first_sale, growing
+needs: none
+adapted_from: original
+license_note: original
+improves: anomaly_detection, communication
 version: 2
 ---
 # Month-end close

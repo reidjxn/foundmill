@@ -123,7 +123,7 @@ export async function resolveAgentPrompt(db: Executor, businessId: string, targe
 
 **Tests and evals:** steps 1, 2, 5; `evals/src/__tests__/skills.test.ts` unchanged and green (`skills.prompt.library_newsletter`, `…library_nda`). **Done when:** Done-when 1 and 2 for the 20 skills.
 
-### T3: The library type grows; the drafts move in   [L] [ships alone]
+### [x] T3: The library type grows; the drafts move in   [L] [ships alone]
 
 **Why:** TS-05, TS-10 (the rewrite each outside text needs), TS-12, §6e provenance (before any adapted skill ships), planner's decisions 6 and 7.
 

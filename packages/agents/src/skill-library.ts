@@ -22,8 +22,10 @@ export { SKILL_LIBRARY_CATEGORIES, type LibrarySkill, type SkillLibraryCategory 
 export const SKILL_LIBRARY_CATEGORY_LABELS: Record<SkillLibraryCategory, string> = {
   product: "Product",
   engineering: "Engineering",
+  design: "Design",
   marketing: "Marketing",
   sales: "Sales",
+  customers: "Customers",
   finance: "Finance",
   legal: "Legal",
   operations: "Operations",

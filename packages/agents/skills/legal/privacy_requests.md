@@ -5,6 +5,14 @@ description: Handles access and deletion requests from customers within the lega
 category: legal
 attribute_name: Privacy requests
 attribute_group: craft
+when_to_use: Use when a customer asks to see or remove their personal data and the request needs handling within the deadline.
+roles: legal_lead
+default_for:
+stage: idea, building, page_live, first_followers, first_sale, growing
+needs: none
+adapted_from: original
+license_note: original
+improves: contract_review, compliance_tracking
 version: 1
 ---
 # Privacy request handling

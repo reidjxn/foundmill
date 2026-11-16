@@ -3,7 +3,7 @@
  * agent.model.compare/set, agent.autonomy.set, agent.negotiation.set — all scoped actions accept `applyScope`
  * ("agent" | "type" | "all", BUILD §9.6 ApplyScopeDialog). BUILD §11.10; AC-11.10.1/2/5/6.
  */
-import { AgentInstructions, CUSTOM_SKILL_TEST_COUNT, CustomSkillTestsOutput, HOUSE_STYLE, customSkillKey, detectClubRuleViolation, isCustomSkillKey, deriveTraits, getPrompt, getSkillDefinition, getSkillTests, getTemplateByAgentType, redactHeldOut, storedCustomTest } from "@foundmill/agents";
+import { AgentInstructions, CUSTOM_SKILL_TEST_COUNT, CustomSkillTestsOutput, HOUSE_STYLE, LIBRARY_SKILL_PREFIX, customSkillKey, detectClubRuleViolation, isCustomSkillKey, deriveTraits, getLibrarySkill, getPrompt, getSkillDefinition, getSkillTests, getTemplateByAgentType, redactHeldOut, storedCustomTest } from "@foundmill/agents";
 import { CREDITS_CURRENCY, INPUT_LIMITS, LIMITS } from "@foundmill/config";
 import { UpdateAgentInput, periodOf, repos, type Agent, type AgentVersion, type Executor } from "@foundmill/db";
 import { MODELS, meter, resolveModel, type RouteKey } from "@foundmill/models";
@@ -119,6 +119,18 @@ function withHeldOutSplit(tests: CustomSkillTestsOutput["tests"]): CustomSkillTe
 /** Agent negotiation has no runtime yet: the setting cannot be switched on (AC-11.14.3 arrives with LIVE B2B). */
 export const NEGOTIATION_UNAVAILABLE = "Negotiation is not available yet; it arrives with LIVE business-to-business deals";
 
+/**
+ * A `library_` rating row whose skill improves a rating the agent also carries and reads under that rating's name
+ * ("Acceptance criteria" on a Planner): the profile shows the rating once.
+ */
+function duplicatesRating(skillKey: string, rows: readonly { skillKey: string }[]): boolean {
+  if (!skillKey.startsWith(LIBRARY_SKILL_PREFIX)) return false;
+  const lib = getLibrarySkill(skillKey.slice(LIBRARY_SKILL_PREFIX.length));
+  if (!lib) return false;
+  const name = lib.attribute.name.trim().toLowerCase();
+  return rows.some((r) => lib.improves.includes(r.skillKey) && getSkillDefinition(r.skillKey)?.name.trim().toLowerCase() === name);
+}
+
 /** The profile's activity strip covers the last 30 days, today included. */
 const RECENT_DAYS = 30;
 const Period = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "period is YYYY-MM");
@@ -179,7 +191,9 @@ export const agentRouter = router({
           agent,
           current,
           versions,
-          skills: skills.map((k) => {
+          // A library skill that sharpens a rating the agent carries under the same name is one row, the rating's
+          // (TS-12); `agent.skills.added` still lists it.
+          skills: skills.filter((k) => !duplicatesRating(k.skillKey, skills)).map((k) => {
             const d = definitions.find((x) => x.skillKey === k.skillKey);
             // The name a person reads: the business's own definition, else the platform catalogue's ("Prioritization"), so a
             // client without the catalogue (the mobile app) never shows a key or a blank.

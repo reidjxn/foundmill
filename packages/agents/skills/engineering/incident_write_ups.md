@@ -5,6 +5,14 @@ description: Writes blameless incident reviews with a timeline, the cause and ac
 category: engineering
 attribute_name: Incident reviews
 attribute_group: craft
+when_to_use: Use when something broke for customers and the project needs a blameless review with a timeline, the cause and actions.
+roles: infra_engineer, engineering_lead
+default_for:
+stage: idea, building, page_live, first_followers, first_sale, growing
+needs: none
+adapted_from: original
+license_note: original
+improves: observability, communication
 version: 2
 ---
 # Incident write-ups

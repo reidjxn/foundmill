@@ -5,6 +5,14 @@ description: Turns interview notes into themes, each backed by quotes and the re
 category: product
 attribute_name: Interview synthesis
 attribute_group: craft
+when_to_use: Use when interview or call notes need to become themes the project can act on, each backed by what people said.
+roles: product_researcher, product_lead
+default_for:
+stage: idea, building, page_live, first_followers, first_sale, growing
+needs: none
+adapted_from: original
+license_note: original
+improves: evidence_synthesis, discovery_interviewing
 version: 1
 ---
 # Customer interview synthesis

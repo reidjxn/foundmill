@@ -5,6 +5,14 @@ description: Writes landing pages in the customer's words with one clear call to
 category: marketing
 attribute_name: Landing page copy
 attribute_group: craft
+when_to_use: Use when a landing page needs words in the customer's language with one clear call to action.
+roles: channel_content, channel_email_automation
+default_for:
+stage: idea, building, page_live, first_followers, first_sale, growing
+needs: none
+adapted_from: original
+license_note: original
+improves: copywriting
 version: 1
 ---
 # Landing page copy
