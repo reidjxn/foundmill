@@ -35,7 +35,7 @@
 ## Tasks
 
 ### T0: The standing solo-guard test            [S] [ships alone, first]
-- [ ] merged
+- [x] merged
 
 Why: A9 §6 gap 4; NETWORK §10 ("Each feature ships with a test of the right-hand column"); THESIS_REVIEW §13 phase 3 guard. Today the guard is tested only on the person page and `/home`.
 Files: create `packages/shared/src/solo-guard.ts`, `packages/shared/src/solo-guard.test.ts`, `apps/api/src/__tests__/solo-guard.test.ts`, `apps/web/e2e/solo-guard.spec.ts`.
@@ -70,7 +70,7 @@ Done when: Done-when 1 returns 0 in production and `select count(*) from project
 Cost (Estimate): one `projectPage` call per project, about one cent each, charged to the project's own credits; a project with none gets the starter draft.
 
 ### T2: An invited person lands in the project            [S] [ships alone]
-- [ ] merged
+- [x] merged
 
 Why: A9-P1-2. After Accept, a new account is redirected to `/onboarding` (`apps/web/app/b/[bid]/layout.tsx:67`), which is desktop-only and ends at `/new`.
 Files: modify `apps/api/src/services/invitations.ts`, `apps/web/components/people/InvitationScreen.tsx`, `apps/web/e2e/invitations.spec.ts`. Create `apps/web/components/people/__tests__/InvitationScreen.name.test.tsx`; add cases to `apps/api/src/__tests__/invitations-admission.test.ts`.
