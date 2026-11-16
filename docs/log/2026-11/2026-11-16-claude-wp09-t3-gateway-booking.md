@@ -89,3 +89,16 @@ Tests, written first. All 11 new cases failed on main (`client.search.test.ts` 5
   rule as well as on T3.** The models changes (`types.ts`, `client.ts`, `routing.ts`, `pricing.ts`) were kept to what
   the spec needs (one optional method, one route, one constant and one meter function), so the GLM session can build
   on them.
+
+## Security review
+The security reviewer found no blocking issue: no own-key leak or fallback, and the credits gate fails closed. Four low
+findings were fixed in this change:
+- `search_web` no longer books a 2-cent tool row next to the exact model row, so Payroll and the day's spend count a
+  search once (`WEB_SEARCH_COST_MINOR` is gone).
+- The gateway's `creditsGate` refuses a call that names no business (`forbidden`, 403) instead of running it ungated.
+- In mock mode a business on its own key reads on the ungated simulated client, as it reads on its own key ungated
+  when live (`ungatedMock`).
+- A gated client whose inner client cannot search has no `searchWeb`, so live `search_web` reports the missing platform
+  key instead of failing with a plain error.
+Left: the ledger row of a search keeps the token prices' `pricingAsOf`; the fee's own date is the constant
+`WEB_SEARCH_PRICING_AS_OF` in pricing.ts.

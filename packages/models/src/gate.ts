@@ -38,6 +38,8 @@ class GatedModelClient implements ModelClient {
     private readonly gate: ModelCallGate,
   ) {
     this.mode = inner.mode;
+    // A client that cannot search stays one that cannot search: callers check `client.searchWeb` before offering it.
+    if (!inner.searchWeb) Object.defineProperty(this, "searchWeb", { value: undefined });
   }
 
   complete<T>(req: CompleteRequest<T> & { schema: z.ZodType<T> }): Promise<CompleteResultWithJson<T>>;

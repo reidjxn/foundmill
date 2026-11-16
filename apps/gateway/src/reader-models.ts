@@ -8,11 +8,13 @@
  */
 import { assertPlatformCredits, type Db } from "@foundmill/db";
 import { gateModelClient, type ModelCallGate, type ModelClient } from "@foundmill/models";
+import { AppError } from "@foundmill/shared";
 
 /** The check before every platform-key model call: the business's credits must allow it (`live`: simulated credits do not count). */
 export function creditsGate(db: Db, live: boolean): ModelCallGate {
   return async ({ attribution }) => {
-    if (!attribution?.businessId) return undefined;
+    // Every model call the gateway makes is for a business; one that names none is refused, never run unbooked.
+    if (!attribution?.businessId) throw new AppError("forbidden", "A model call here must name the business it is for", 403);
     const check = await assertPlatformCredits(db, attribution.businessId, { live });
     return check.low ? { lowCredits: true } : undefined;
   };

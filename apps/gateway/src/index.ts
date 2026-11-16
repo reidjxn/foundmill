@@ -100,8 +100,9 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
   // key and is booked to the business that asked at its exact cost, like any other service's (WP-09 T3).
   const mode = effectiveModelMode(env.MODEL_MODE, env.ANTHROPIC_API_KEY, log);
   const onUsage = gatewayUsageSink(db, log);
-  const models = gatePlatformModels(options.models ?? createModelClient({ mode, apiKey: env.ANTHROPIC_API_KEY, logger: log, onUsage, ...(options.modelFetch ? { fetch: options.modelFetch } : {}) }), db);
-  const readerDeps: QuarantinedReaderDeps = { db, vault, models, mode: models.mode, log, onUsage, ...(options.modelFetch ? { fetch: options.modelFetch } : {}) };
+  const ungated = options.models ?? createModelClient({ mode, apiKey: env.ANTHROPIC_API_KEY, logger: log, onUsage, ...(options.modelFetch ? { fetch: options.modelFetch } : {}) });
+  const models = gatePlatformModels(ungated, db);
+  const readerDeps: QuarantinedReaderDeps = { db, vault, models, ...(ungated.mode === "mock" ? { ungatedMock: ungated } : {}), mode: models.mode, log, onUsage, ...(options.modelFetch ? { fetch: options.modelFetch } : {}) };
   let registry = options.registry;
   // The skill tools read the business's repository through this gateway's own pipeline, built further down.
   let repositoryFiles: RepositoryFiles | null = null;

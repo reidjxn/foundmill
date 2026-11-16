@@ -68,6 +68,11 @@ export interface QuarantinedReaderDeps {
    * credits (`gatePlatformModels`, reader-models.ts) by `buildGateway`.
    */
   models: ModelClient;
+  /**
+   * The platform client before the credits gate (mock mode only): a business on its own key reads on it, ungated, as it
+   * reads on its own key ungated when live. Absent, it falls back to `models`.
+   */
+  ungatedMock?: ModelClient;
   /** The mode a business's own-key client runs in (the platform client's mode). */
   mode: ModelMode;
   log: GatewayLogger;
@@ -85,9 +90,10 @@ export interface QuarantinedReaderDeps {
  */
 export function readerClientFor(deps: QuarantinedReaderDeps): (businessId: string) => Promise<ModelClient> {
   return async (businessId) => {
-    if (deps.mode === "mock") return deps.models;
     const business = await repos.businesses.get(deps.db, businessId, { includeArchived: true });
     if (business.modelBilling !== "byok") return deps.models;
+    // Mock mode: the own-key business reads on the simulated client, ungated, the same as live on its own key.
+    if (deps.mode === "mock") return deps.ungatedMock ?? deps.models;
     const key = deps.vault ? await loadByokApiKey(deps.db, deps.vault, businessId) : null;
     if (!key) throw new AppError("key_revoked", "This business runs on its own Anthropic key and none is stored; set one in Settings › Keys", 403);
     return createModelClient({ mode: "live", apiKey: key.apiKey, billedTo: "byok", logger: deps.log, ...(deps.onUsage ? { onUsage: deps.onUsage } : {}), ...(deps.fetch ? { fetch: deps.fetch } : {}) });
