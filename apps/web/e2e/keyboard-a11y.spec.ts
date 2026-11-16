@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, commitThrowaway, dismissCoachmarks, openBusiness, setKeyboardShortcuts, settingsScreen, settled, signIn } from "./helpers";
+import { LONG, PLAN_NOTE, commitThrowaway, dismissCoachmarks, inboxRow, openBusiness, setKeyboardShortcuts, settingsScreen, settled, signIn } from "./helpers";
 
 /** Ledgerly is seeded on vacation (packages/db/src/seed/ledgerly.ts). */
 const LEDGERLY_BUSINESS_ID = "b1e5e5e5-0000-4000-8000-000000000002";
@@ -311,7 +311,8 @@ test.describe("single-key shortcuts off (a new founder's default)", () => {
     test.setTimeout(240_000);
     const bid = await commitThrowaway(page, `Playwright focus ${Date.now().toString(36)}`);
     await page.goto(`/b/${bid}/inbox`);
-    const row = page.getByTestId("inbox-list").locator("[data-inbox-row]").first();
+    // The plan note is the decision the team sends first (the first row may be the welcome note or the day's digest).
+    const row = inboxRow(page, PLAN_NOTE);
     await expect(row).toBeVisible({ timeout: LONG });
     await row.click();
     await expect(page.getByTestId("decision-bar")).toBeVisible({ timeout: LONG });
