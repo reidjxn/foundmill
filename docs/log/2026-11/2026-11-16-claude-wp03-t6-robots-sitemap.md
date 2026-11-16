@@ -28,6 +28,12 @@ The plan names three home examples that are no longer the home page's. The line 
 ### Closed sitemap
 `sitemap.xml` still lists the three static pages when closed; robots.txt is the gate and names no sitemap then.
 
+### The founder's answers (Nov 16, 2026)
+Search and answer bots stay allowed on `/p/` and `/u/`, with only training crawlers blocked. The new Terms sentence and date: "Reviewed and approved". Robots stays closed to everything while sign-up is closed.
+
+### An old end-to-end check changed
+`project-story.spec.ts` expected the bare address `/milestones` to ask for a sign-in. It is no route (the screen is `/b/<id>/milestones`), so signed out it now answers 404 under the new rule. The spec now checks both.
+
 ## Not done
 - `docs/DEPLOY.md` curl lines for WP-00 S7 (step 5), and ticking T6 in the work package file.
 - Project pages in the sitemap (waits on #244).
