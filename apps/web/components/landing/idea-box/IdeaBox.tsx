@@ -9,7 +9,7 @@
  * it at once (`/idea-box/mine`).
  */
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { ArrowRight, Dices, Fan, Globe, Lock, Mail, Medal, Scale, ShieldCheck, Users } from "lucide-react";
+import { ArrowRight, Dices, Fan, Globe, Lock, Mail, Medal, RotateCcw, Scale, ShieldCheck, Users } from "lucide-react";
 import { APP_NAME, CREDITS_CURRENCY, includedCreditsMinor } from "@foundmill/config";
 import { AssuranceList, Button, GoogleSignInButton, Icon, IdeaCard, formatMoney, type IdeaCardData } from "@foundmill/dugout";
 import { IDEA_BUTTON } from "../flags";
@@ -58,6 +58,8 @@ export const IDEA_BOX_WORDS = {
   keepEmail: "Continue with email",
   freeLine: `Free to start. Your plan includes ${INCLUDED} of agent work every month. You never enter a card.`,
   waits: "Not now? This card waits on this device for 7 days.",
+  // WP-03 T7 (founder, 2026-11-15: up to 2 redraws a day): the card is replaced, under the same limits.
+  tryAnother: "Try another idea",
   yourWords: "Your words",
   again: "This is the card this device already holds. Sign in to keep it and draft more with your team.",
   unlockPage: "A page for your idea at its own link",
@@ -85,6 +87,8 @@ export function IdeaBox({ onLanded }: IdeaBoxProps) {
   const [landed, setLanded] = useState<Landed | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [googleBusy, setGoogleBusy] = useState(false);
+  /** The visitor pressed "Try another idea": the next draft replaces the card this browser holds. */
+  const [redrawing, setRedrawing] = useState(false);
   const widget = useRef<HTMLDivElement>(null);
   const abort = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -95,6 +99,7 @@ export function IdeaBox({ onLanded }: IdeaBoxProps) {
       setLanded(e);
       setCard(e.card);
       setPhase("landed");
+      setRedrawing(false);
       onLanded?.({ name: e.card.name, prompt: e.prompt, interest: e.interest });
     },
     [onLanded],
@@ -118,23 +123,29 @@ export function IdeaBox({ onLanded }: IdeaBoxProps) {
 
   const draft = async (body: { prompt: string; interest: IdeaBoxInterest | null }) => {
     if (phase === "drafting") return;
+    // "Try another idea" asks the api to replace the card; a refusal goes back to the card the browser still holds.
+    const previous = redrawing ? landed : null;
+    const fail = (message: string) => {
+      if (previous) {
+        setPhase("landed");
+        setCard(previous.card);
+      } else {
+        setPhase("rest");
+        setCard({});
+      }
+      setError(message);
+    };
     setError(null);
     setInterestsOpen(false);
     setPhase("drafting");
     setCard({});
     const token = await turnstileToken(env.turnstileSiteKey, widget.current);
     if (!token) {
-      setPhase("rest");
-      setError("We could not check this browser. Reload the page and try again.");
+      fail("We could not check this browser. Reload the page and try again.");
       return;
     }
     const controller = new AbortController();
     abort.current = controller;
-    const fail = (message: string) => {
-      setPhase("rest");
-      setCard({});
-      setError(message);
-    };
     // WP-03 T7: the api ends a slow card at its deadline; a stream that stalls on the way is stopped here 5 seconds
     // later. The field comes back with the visitor's words still in it (`value` is never cleared).
     const stall = setTimeout(() => {
@@ -142,7 +153,7 @@ export function IdeaBox({ onLanded }: IdeaBoxProps) {
       fail(IDEA_BOX_ERRORS.failed);
     }, IDEA_BOX_DEADLINE_MS + 5_000);
     try {
-      await streamIdeaDraft(env.apiUrl, { ...body, turnstile: token, website: "" }, {
+      await streamIdeaDraft(env.apiUrl, { ...body, turnstile: token, website: "", ...(previous ? { again: true } : {}) }, {
         signal: controller.signal,
         onEvent: (e) => {
           if (e.type === "partial") setCard((c) => ({ ...c, ...e.card }));
@@ -165,6 +176,17 @@ export function IdeaBox({ onLanded }: IdeaBoxProps) {
       return;
     }
     void draft({ prompt, interest: null });
+  };
+
+  // Back to the field with the card's own words in it (a typo should not be permanent; founder, 2026-11-15).
+  const tryAnother = () => {
+    if (landed?.prompt) setValue(landed.prompt);
+    setRedrawing(true);
+    setError(null);
+    setCard({});
+    setPhase("rest");
+    onLanded?.(null);
+    requestAnimationFrame(() => inputRef.current?.focus());
   };
 
   const keep = keepHref(landed?.claim ?? null);
@@ -327,6 +349,9 @@ export function IdeaBox({ onLanded }: IdeaBoxProps) {
                 <Unlock icon={Users}>{IDEA_BOX_WORDS.unlockTeam}</Unlock>
               </ul>
               <p className="t-landing-small text-secondary">{IDEA_BOX_WORDS.waits}</p>
+              <Button variant="ghost" icon={RotateCcw} className="min-h-tap self-start" onClick={tryAnother} data-testid="idea-try-another">
+                {IDEA_BOX_WORDS.tryAnother}
+              </Button>
             </div>
           ) : null}
         </div>

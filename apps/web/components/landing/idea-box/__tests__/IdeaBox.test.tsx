@@ -145,6 +145,38 @@ describe("IdeaBox", () => {
     expect(screen.getByTestId("idea-keep").textContent).not.toMatch(/real sources|checks it/i);
   });
 
+  it("Try another idea gives the field back with the card's words, and the next draft asks to replace the card (WP-03 T7)", async () => {
+    const onLanded = vi.fn();
+    mine = { ...landedEvent, again: true };
+    renderBox({ onLanded });
+    await waitFor(() => expect(screen.getByTestId("idea-keep")).toBeTruthy());
+    const button = screen.getByRole("button", { name: IDEA_BOX_WORDS.tryAnother });
+    expect(button.className).toContain("btn-ghost");
+    fireEvent.click(button);
+    const input = screen.getByTestId("idea-input") as HTMLTextAreaElement;
+    expect(input.value).toBe("Restored film cameras");
+    expect(onLanded).toHaveBeenLastCalledWith(null);
+    draftEvents = [{ type: "started" }, { ...landedEvent, prompt: "Restored film cameras for first-time buyers" }];
+    fireEvent.change(input, { target: { value: "Restored film cameras for first-time buyers" } });
+    fireEvent.click(screen.getByTestId("idea-generate"));
+    await waitFor(() => expect(screen.getByTestId("idea-keep")).toBeTruthy());
+    const [, init] = fetchMock.mock.calls.find(([u]) => String(u).endsWith("/idea-box/draft"))!;
+    expect(JSON.parse(init.body)).toEqual({ prompt: "Restored film cameras for first-time buyers", interest: null, turnstile: "mock-ok", website: "", again: true });
+    expect(screen.getByTestId("idea-landed-words").textContent).toBe("Restored film cameras for first-time buyers");
+  });
+
+  it("a refused redraw goes back to the card the browser still holds, with the refusal's line", async () => {
+    mine = { ...landedEvent, again: true };
+    renderBox();
+    await waitFor(() => expect(screen.getByTestId("idea-keep")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: IDEA_BOX_WORDS.tryAnother }));
+    draftEvents = [{ type: "error", code: "limit", message: IDEA_BOX_ERRORS.limit }];
+    fireEvent.click(screen.getByTestId("idea-generate"));
+    await waitFor(() => expect(screen.getByTestId("idea-error").textContent).toBe(IDEA_BOX_ERRORS.limit));
+    expect(screen.getByTestId("idea-keep")).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 2, name: "Firstframe" })).toBeTruthy();
+  });
+
   it("lands at once on the card this browser already holds", async () => {
     mine = { ...landedEvent, again: true };
     renderBox();

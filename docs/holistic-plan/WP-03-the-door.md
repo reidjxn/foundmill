@@ -400,7 +400,7 @@ Facts:
 **Done when:** Done-when 5.
 **Needs the founder:** Decision 1 (index now) and Decision 2 (training crawlers). Until Decision 1 is yes, merge with `indexable()` returning false behind one constant `HOME_INDEXED = false` and flip it in a one-line pull request.
 
-### T7: The idea box keeps its word under load [S] [ships alone] (steps 1–2: step 1 built on claude/wp03-t7-idea-box-load; step 2 left for the landing session)
+### [x] T7: The idea box keeps its word under load [S] [ships alone]
 
 **Why:** FR-14 (the deadline and the refusal lines; "one more try" waits on Decision 3).
 
@@ -442,7 +442,7 @@ Facts:
 
 **Done when:** Done-when 7. Opening itself also waits on WP-09's per-account ceiling and Decision 4.
 
-### [x] T9: The store-links value and its first readers [S] [ships alone] (the value and `GetTheApp` built; both readers left: `ContinueLater` waits on T3, the landing footer on the landing session)
+### [x] T9: The store-links value and its first readers [S] [ships alone] (the value and `GetTheApp` built; the landing footer built on claude/wp03-t7-stall-guard; `ContinueLater` waits on T3)
 
 **Why:** A2-02, A9-P2-1; CLAUDE.md "through one config value for the store links (unset until launch)".
 

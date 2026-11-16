@@ -18,6 +18,11 @@ export const IDEA_BOX_PROMPT_MIN = 3;
  * The page's own timer waits 5 seconds longer, for a stream that stalls on the way.
  */
 export const IDEA_BOX_DEADLINE_MS = 30_000;
+/**
+ * How many times a day a browser may replace its card with a new one ("Try another idea"; founder, 2026-11-15, WP-03
+ * decision 3). Each redraw also counts as a card for the address and the day's ceiling.
+ */
+export const IDEA_BOX_REDRAWS_PER_BROWSER = 2;
 /** The query parameter the sign-in link carries to /start so another device can claim the card. */
 export const IDEA_CLAIM_PARAM = "claim";
 
@@ -49,6 +54,8 @@ export const IdeaBoxDraftRequest = z
     turnstile: z.string().min(1).max(2048),
     /** A field no person fills (hidden from people and from assistive technology): a bot that fills it gets nothing. */
     website: z.string().max(200).default(""),
+    /** "Try another idea": replace the browser's card instead of getting it back (`IDEA_BOX_REDRAWS_PER_BROWSER`). */
+    again: z.boolean().default(false),
   })
   .refine((r) => r.interest !== null || r.prompt.trim().length >= IDEA_BOX_PROMPT_MIN, { message: "Write your idea in a sentence, or pick an interest" });
 export type IdeaBoxDraftRequest = z.input<typeof IdeaBoxDraftRequest>;
