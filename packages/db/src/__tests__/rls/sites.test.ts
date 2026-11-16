@@ -35,6 +35,22 @@ let cPreview: s.SiteRelease;
 const blob = (businessId: string, text: string) =>
   h.db.execute(sql`insert into workspace_blobs (business_id, sha256, size_bytes, content) values (${businessId}, ${sha(text)}, ${Buffer.byteLength(text)}, ${Buffer.from(text)})`);
 
+/**
+ * Whether this connection may `set role sites_reader`. PGlite's user is a superuser. On real Postgres (16+) the role's
+ * creator holds ADMIN on it but not SET, so the test grants itself membership first; where even that is refused the
+ * login tests skip rather than fail.
+ */
+async function canBecomeReader(): Promise<boolean> {
+  const may = async () => ((await h.db.execute(sql`select pg_has_role(current_user, 'sites_reader', 'set') as ok`)) as unknown as { rows: { ok: boolean }[] }).rows[0]?.ok === true;
+  if (await may()) return true;
+  try {
+    await h.db.execute(sql.raw("grant sites_reader to current_user"));
+  } catch {
+    return false;
+  }
+  return may();
+}
+
 /** Every message in a rejected promise's cause chain, joined ("" when it resolved). */
 async function causes(p: Promise<unknown>): Promise<string> {
   try {
@@ -282,8 +298,7 @@ describe("sites_reader", () => {
     });
 
   it("reads no table, and calls the two functions", async (ctx) => {
-    const [{ ok } = { ok: false }] = ((await h.db.execute(sql`select pg_has_role(current_user, 'sites_reader', 'member') as ok`)) as unknown as { rows: { ok: boolean }[] }).rows;
-    if (!ok) ctx.skip();
+    if (!(await canBecomeReader())) ctx.skip();
     for (const table of ["sites", "site_releases", "workspace_blobs", "businesses", "audit_log"]) {
       expect(await causes(asReader(sql.raw(`select * from ${table}`))), table).toMatch(/permission denied for table/);
     }
@@ -295,8 +310,7 @@ describe("sites_reader", () => {
 
 describe("hardening", () => {
   it("a temporary table cannot shadow the tables the functions read (search_path pins pg_temp last)", async (ctx) => {
-    const [{ ok } = { ok: false }] = ((await h.db.execute(sql`select pg_has_role(current_user, 'sites_reader', 'member') as ok`)) as unknown as { rows: { ok: boolean }[] }).rows;
-    if (!ok) ctx.skip();
+    if (!(await canBecomeReader())) ctx.skip();
     const fake = crypto.randomUUID();
     const rows = await h.db.transaction(async (tx) => {
       await tx.execute(sql`set local role sites_reader`);

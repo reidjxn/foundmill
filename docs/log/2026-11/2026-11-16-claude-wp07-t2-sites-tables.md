@@ -68,5 +68,8 @@ docs/DECISIONS.md is frozen, so they are recorded here.
   `published_at` only if the Data API were turned back on.
 - `scripts/vercel-ignore.sh` exits 1 (build) when the branch's previous deployed commit is gone, as after a force-push;
   git's 128 made Vercel mark the deployment failed on this branch twice.
-- Not done here: T3 to T10. The real-Postgres lane did not run the new suite locally (it skips the `sites_reader`
-  role test where the migration role cannot switch to it).
+
+## Not done
+- T3, T5 to T10. Nothing is deployed and `SITES_DOMAIN` is set nowhere (WP-00 S9).
+- The `sites_reader` login tests on the real-Postgres lane grant the test connection membership in the role first
+  (Postgres 16 gives a role's creator ADMIN but not SET); where even that is refused they skip.
