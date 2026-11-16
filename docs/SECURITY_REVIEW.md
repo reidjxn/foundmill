@@ -186,7 +186,7 @@ Before email and Stripe go live for people's own projects (docs/THESIS_REVIEW.md
 New since Oct 7:
 
 - **N1 (high), fixed.** `findContractByDocRef` matched a substring, and the request id in a Dropbox Sign callback is not covered by its signature: a callback with a valid hash and a one-character id marked the business's newest matching contract signed. The lookup now matches the whole id (the reference equals it, or holds it as a whole path segment or query value), at least 12 characters of letters, digits, `_` and `-`.
-- **N2 (high for email), open.** No per-business SendGrid inbound token, event-webhook key or Stripe endpoint secret is ever stored by the api or the web, so inbound mail would verify against one platform token for every business. To design with the platform sending address (package 1.5): derive the token per business and store the founder's own keys at connect.
+- **N2 (high for email), open for SendGrid; the Stripe half fixed Nov 16, 2026 (WP-11 T20).** A founder's own Stripe endpoint secret is now stored at connect (gateway `WEBHOOK_SECRET_FIELDS`, kind `stripe_webhook_secret`) and ingest verifies that project's deliveries with it. No per-business SendGrid inbound token or event-webhook key is stored yet, so inbound mail would verify against one platform token for every business. To design with the platform sending address (package 1.5): derive the token per business and store the founder's own keys at connect.
 - **N3 (medium), open.** See SEC-10.
 - **N4 (low), open.** Any service that holds `SESSION_TOKEN_SECRET` can mint the `svc: api` token the push route trusts; `devices.register` moves a push token that another account holds. The second is also what lets two accounts share one phone, so it is left as it is and recorded.
 
