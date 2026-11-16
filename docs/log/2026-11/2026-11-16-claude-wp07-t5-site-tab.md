@@ -35,7 +35,13 @@ supersedes: []
   phone and id numbers still are.
 - **The preview opens in a new tab, not in frames on the tab.** One link per version; the frames (390 px and desktop)
   wait for WP-10's look of the tab. apps/sites already lets the product's origin frame a preview.
-- **Left for T3,** which writes the releases: the Needs you note "Your site is ready to look at" and its "Publish it"
+- **D4 and D5 (the founder, Nov 16, 2026): yes to both.** Pay links on sites accept `buy.stripe.com` only at first; only
+  the finance lead agent may call `create_payment_link`, asking first. Built in T7 and T8. The same day: agent code
+  still never moves money out; an "inbound payment power" for autopilot and vacations is WP-11's (default off).
+
+## Not done
+- Left for T3, which writes the releases: the Needs you note "Your site is ready to look at" and its "Publish it"
   answer, the "Live product" line in Development and the first-week line. Nothing writes a release before T3, so
-  neither the note nor the lines can appear yet. No Storybook story: module screens have none in this repo (the
-  module test covers empty, preview, held and live).
+  neither the note nor the lines can appear yet.
+- No Storybook story: module screens have none in this repo (the module test covers empty, preview, held and live).
+- The Playwright golden path with SITES_DOMAIN set is T10's.
