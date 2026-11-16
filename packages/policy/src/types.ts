@@ -4,7 +4,7 @@
  * (src/schema.ts) marks as required is given a default here so a policy can never hit a missing-attribute error.
  */
 import { z } from "zod";
-import { BUSINESS_MODES, BusinessMode, ModelKey, PolicyOutcome } from "@foundmill/shared";
+import { BUSINESS_MODES, BusinessMode, ModelKey, PolicyOutcome, RECIPIENT_BASES } from "@foundmill/shared";
 import { LIMITS } from "@foundmill/config";
 
 /**
@@ -71,6 +71,8 @@ export const CallContext = z.object({
   /** ISO 8601 local time at the recipient, when known. Informational for now; reserved for quiet-hours rules. */
   localTimeAtRecipient: z.string().min(1).optional(),
   suppressed: z.boolean().default(false),
+  /** Set by the gateway for the mail-sending tools only (`MAIL_SEND_TOOLS`): the weakest basis among the addresses. */
+  recipientBasis: z.enum(RECIPIENT_BASES).optional(),
   /** Defaults to `business.holidayActive` when omitted. */
   holidayActive: z.boolean().optional(),
   /** True when the calling session runs a channel in kit mode (agent prepares, founder submits). */
