@@ -99,14 +99,12 @@ describe("reports: service role only", () => {
       expect(read).toBe(0);
       await expect(
         role().run((tx) =>
-          tx
-            .insert(s.reports)
-            .values({
-              reporterUserId: cai,
-              targetKind: "person",
-              targetUserId: ben,
-              reason: "spam",
-            }),
+          tx.insert(s.reports).values({
+            reporterUserId: cai,
+            targetKind: "person",
+            targetUserId: ben,
+            reason: "spam",
+          }),
         ),
       ).rejects.toThrow(/permission denied/);
       await expect(role().run((tx) => tx.update(s.reports).set({ note: "x" }))).rejects.toThrow(
@@ -143,18 +141,14 @@ describe("reports repo", () => {
       }),
     ).toBeNull();
     await expect(
-      h
-        .service()
-        .run((tx) =>
-          tx
-            .insert(s.reports)
-            .values({
-              reporterUserId: ana,
-              targetKind: "person",
-              targetUserId: ana,
-              reason: "spam",
-            }),
-        ),
+      h.service().run((tx) =>
+        tx.insert(s.reports).values({
+          reporterUserId: ana,
+          targetKind: "person",
+          targetUserId: ana,
+          reason: "spam",
+        }),
+      ),
     ).rejects.toThrow(/reports_not_self/);
   });
 
@@ -162,7 +156,10 @@ describe("reports repo", () => {
     expect(await repos.reports.profileOwner(db, "ben-bakes")).toBe(ben);
     expect(await repos.reports.profileOwner(db, "BEN-BAKES")).toBe(ben);
     expect(await repos.reports.profileOwner(db, "nobody-here")).toBeNull();
-    expect(await repos.reports.messageAuthor(db, ana, messageId)).toBe(ben);
+    expect(await repos.reports.messageAuthor(db, ana, messageId)).toEqual({
+      authorId: ben,
+      body: "Send me $200 and I will double it",
+    });
     expect(await repos.reports.messageAuthor(db, cai, messageId)).toBeNull();
     expect(await repos.reports.messageAuthor(db, ben, messageId)).toBeNull();
     await repos.personProfiles.unpublish(db, ben);
@@ -178,6 +175,7 @@ describe("reports repo", () => {
       targetMessageId: messageId,
       reason: "asks_for_money",
       note: "  He asked me for money  ",
+      messageBody: "Send me $200 and I will double it",
     });
     await repos.reports.file(db, {
       reporterUserId: cai,
@@ -242,5 +240,57 @@ describe("reports repo", () => {
           .run((tx) => tx.select().from(s.reports).where(eq(s.reports.targetUserId, cai)))
       ).length,
     ).toBe(0);
+  });
+
+  it("a deleted message keeps its report and its words, and never blocks the thread's deletion or the author's", async () => {
+    // Eve and Fay talk; Fay reports two of Eve's messages; Fay leaves; Eve, the last one in, leaves (the thread goes).
+    const eve = await h.createUser("eve@reports.test");
+    const fay = await h.createUser("fay@reports.test");
+    const link = await repos.social.requestConnection(db, eve, fay);
+    await repos.social.respondConnection(db, fay, link.id, "accepted");
+    const thread = await repos.social.startThread(db, eve, [fay], null);
+    for (const body of ["First", "Second"]) {
+      const m = await repos.social.sendMessage(db, eve, thread.id, body);
+      expect(
+        await repos.reports.file(db, {
+          reporterUserId: fay,
+          targetKind: "message",
+          targetUserId: eve,
+          targetMessageId: m.id,
+          reason: "harassment",
+          messageBody: body,
+        }),
+      ).not.toBeNull();
+    }
+    await repos.social.leaveThread(db, fay, thread.id);
+    await repos.social.leaveThread(db, eve, thread.id);
+    const kept = await h
+      .service()
+      .run((tx) => tx.select().from(s.reports).where(eq(s.reports.reporterUserId, fay)));
+    expect(kept.map((r) => [r.targetMessageId, r.messageBody]).sort()).toEqual([
+      [null, "First"],
+      [null, "Second"],
+    ]);
+    // Two more reported messages from the same author, then the author's account goes.
+    const t2 = await repos.social.startThread(db, fay, [eve], null).catch(() => null);
+    if (t2) {
+      for (const body of ["Third", "Fourth"]) {
+        const m = await repos.social.sendMessage(db, eve, t2.id, body);
+        await repos.reports.file(db, {
+          reporterUserId: fay,
+          targetKind: "message",
+          targetUserId: eve,
+          targetMessageId: m.id,
+          reason: "spam",
+          messageBody: body,
+        });
+      }
+    }
+    await h.db.execute(sql`delete from auth.users where id = ${eve}`);
+    const after = await h
+      .service()
+      .run((tx) => tx.select().from(s.reports).where(eq(s.reports.reporterUserId, fay)));
+    expect(after.every((r) => r.targetUserId === null && r.targetMessageId === null)).toBe(true);
+    expect(after.length).toBe(t2 ? 4 : 2);
   });
 });

@@ -8,6 +8,7 @@ import {
   REPORTS_PER_PERSON_PER_DAY,
 } from "@foundmill/shared/reports";
 import { repos } from "@foundmill/db";
+import { NotFoundError } from "@foundmill/shared";
 import { z } from "zod";
 import type { Context } from "../context";
 import { takeOrThrow } from "./rate-limit";
@@ -33,16 +34,24 @@ export const ReportInput = z.object({
 
 export type ReportCtx = Pick<Context, "db" | "limits" | "log"> & { userId: string };
 
-/** The account a target is about, or null when the reporter may not name it (it reads the same as a filed report). */
+/**
+ * The account a target is about (and a message's words, kept as evidence), or null when the reporter may not name it
+ * (it reads the same as a filed report).
+ */
 async function personOf(
   ctx: ReportCtx,
   target: z.infer<typeof ReportTarget>,
-): Promise<string | null> {
-  if (target.kind === "profile") return repos.reports.profileOwner(ctx.db, target.handle);
-  if (target.kind === "message")
-    return repos.reports.messageAuthor(ctx.db, ctx.userId, target.messageId);
+): Promise<{ about: string; messageBody: string | null } | null> {
+  if (target.kind === "profile") {
+    const owner = await repos.reports.profileOwner(ctx.db, target.handle);
+    return owner ? { about: owner, messageBody: null } : null;
+  }
+  if (target.kind === "message") {
+    const found = await repos.reports.messageAuthor(ctx.db, ctx.userId, target.messageId);
+    return found ? { about: found.authorId, messageBody: found.body } : null;
+  }
   const exists = await repos.social.existingUsers(ctx.db, [target.userId]);
-  return exists.has(target.userId) ? target.userId : null;
+  return exists.has(target.userId) ? { about: target.userId, messageBody: null } : null;
 }
 
 export async function fileReport(
@@ -52,8 +61,11 @@ export async function fileReport(
   await takeOrThrow(ctx.limits, "Report", [
     { key: `report:${ctx.userId}`, rule: { limit: REPORTS_PER_PERSON_PER_DAY, windowMs: DAY } },
   ]);
-  const about = await personOf(ctx, input.target);
-  if (!about || about === ctx.userId) return { reported: true, blocked: false };
+  // The answer is the same whatever was found: `blocked` echoes what was asked, never whether the person exists.
+  const answer = { reported: true as const, blocked: input.block };
+  const found = await personOf(ctx, input.target);
+  if (!found || found.about === ctx.userId) return answer;
+  const { about, messageBody } = found;
   const filed = await repos.reports.file(ctx.db, {
     reporterUserId: ctx.userId,
     targetKind: input.target.kind,
@@ -61,6 +73,7 @@ export async function fileReport(
     targetMessageId: input.target.kind === "message" ? input.target.messageId : null,
     reason: input.reason,
     note: input.note ?? null,
+    messageBody,
   });
   // The operator's alert in the logs: the id and the kind only, never who or what was written.
   if (filed)
@@ -68,10 +81,13 @@ export async function fileReport(
       { reportId: filed.id, kind: filed.targetKind, reason: filed.reason },
       "report filed: review within the response target",
     );
-  let blocked = false;
   if (input.block) {
-    await repos.social.blockPerson(ctx.db, ctx.userId, about);
-    blocked = true;
+    try {
+      await repos.social.blockPerson(ctx.db, ctx.userId, about);
+    } catch (err) {
+      // An account deleted between the two reads: nothing to block, and nothing to tell.
+      if (!(err instanceof NotFoundError)) throw err;
+    }
   }
-  return { reported: true, blocked };
+  return answer;
 }

@@ -26,6 +26,7 @@ const FileInput = z.object({
   targetMessageId: Id.nullable().default(null),
   reason: z.enum(REPORT_REASONS),
   note: z.string().trim().max(1000).nullable().default(null),
+  messageBody: z.string().nullable().default(null),
 });
 export type FileReportInput = z.input<typeof FileInput>;
 
@@ -42,7 +43,7 @@ export interface OpenReport {
   targetUserId: string | null;
   targetName: string | null;
   targetHandle: string | null;
-  /** The reported message as it reads now (null once deleted, or for another kind). */
+  /** The reported message as it read when the report was filed (null for another kind). */
   messageBody: string | null;
   /** Open reports about the same person, this one included: a pattern the operator should see. */
   openAboutPerson: number;
@@ -63,6 +64,7 @@ export const reportsRepo = {
         targetKind: v.targetKind,
         targetUserId: v.targetUserId,
         targetMessageId: v.targetKind === "message" ? v.targetMessageId : null,
+        messageBody: v.targetKind === "message" ? v.messageBody : null,
         reason: v.reason,
         note: v.note || null,
       })
@@ -88,11 +90,15 @@ export const reportsRepo = {
     return row?.userId ?? null;
   },
 
-  /** Who wrote a message, when the reader is or was in its thread; null otherwise (and for their own message). */
-  async messageAuthor(db: Executor, readerId: string, messageId: string): Promise<string | null> {
+  /** Who wrote a message and what it says, when the reader is or was in its thread; null otherwise (and for their own message). */
+  async messageAuthor(
+    db: Executor,
+    readerId: string,
+    messageId: string,
+  ): Promise<{ authorId: string; body: string } | null> {
     const row = maybeOne(
       await db
-        .select({ fromUser: messages.fromUser })
+        .select({ fromUser: messages.fromUser, body: messages.body })
         .from(messages)
         .innerJoin(messageThreads, eq(messageThreads.id, messages.threadId))
         .where(
@@ -107,7 +113,7 @@ export const reportsRepo = {
         .limit(1),
     );
     if (!row || row.fromUser === readerId) return null;
-    return row.fromUser;
+    return { authorId: row.fromUser, body: row.body };
   },
 
   /** Open reports, oldest first, with the names an operator needs. */
@@ -127,11 +133,10 @@ export const reportsRepo = {
           .filter((x): x is string => x !== null),
       ),
     ];
-    const messageIds = open.map((r) => r.targetMessageId).filter((x): x is string => x !== null);
     const targets = [
       ...new Set(open.map((r) => r.targetUserId).filter((x): x is string => x !== null)),
     ];
-    const [profiles, bodies, counts] = await Promise.all([
+    const [profiles, counts] = await Promise.all([
       db
         .select({
           userId: founderProfiles.userId,
@@ -140,12 +145,6 @@ export const reportsRepo = {
         })
         .from(founderProfiles)
         .where(inArray(founderProfiles.userId, people)),
-      messageIds.length
-        ? db
-            .select({ id: messages.id, body: messages.body })
-            .from(messages)
-            .where(inArray(messages.id, messageIds))
-        : Promise.resolve([]),
       targets.length
         ? db
             .select({ userId: reports.targetUserId, n: sql<number>`count(*)::int` })
@@ -155,7 +154,6 @@ export const reportsRepo = {
         : Promise.resolve([]),
     ]);
     const byUser = new Map(profiles.map((p) => [p.userId, p]));
-    const body = new Map(bodies.map((b) => [b.id, b.body]));
     const count = new Map(counts.map((c) => [c.userId, c.n]));
     return open.map((r) => ({
       id: r.id,
@@ -169,7 +167,7 @@ export const reportsRepo = {
       targetUserId: r.targetUserId,
       targetName: r.targetUserId ? (byUser.get(r.targetUserId)?.name ?? null) : null,
       targetHandle: r.targetUserId ? (byUser.get(r.targetUserId)?.handle ?? null) : null,
-      messageBody: r.targetMessageId ? (body.get(r.targetMessageId) ?? null) : null,
+      messageBody: r.targetKind === "message" ? r.messageBody : null,
       openAboutPerson: r.targetUserId ? (count.get(r.targetUserId) ?? 1) : 1,
     }));
   },

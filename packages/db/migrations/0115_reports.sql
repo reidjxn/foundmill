@@ -19,6 +19,9 @@ create table reports (
     constraint reports_target_kind_value check (target_kind in ('person', 'profile', 'message')),
   target_user_id uuid references auth.users(id) on delete set null,
   target_message_id uuid references messages(id) on delete set null,
+  -- The reported message's words when the report was filed: the evidence survives the message being deleted (its
+  -- author leaving the last thread, or deleting their account) before the review. Plain text, shown to operators only.
+  message_body text,
   -- `REPORT_REASONS`.
   reason text not null
     constraint reports_reason_value check (reason in ('spam', 'harassment', 'scam', 'asks_for_money', 'impersonation', 'personal_data', 'underage', 'other')),
@@ -36,8 +39,11 @@ create table reports (
   constraint reports_not_self check (target_user_id is null or target_user_id <> reporter_user_id)
 );
 --> statement-breakpoint
--- One open report per reporter and target: a second press while the first waits files nothing new.
-create unique index reports_open_once_key on reports (reporter_user_id, target_kind, coalesce(target_message_id, target_user_id)) where resolved_at is null;
+-- One open report per reporter and target: a second press while the first waits files nothing new. Two indexes, so a
+-- reported message that is deleted (its id set null) never collides with another key and never blocks the delete.
+create unique index reports_open_message_key on reports (reporter_user_id, target_message_id) where resolved_at is null and target_kind = 'message' and target_message_id is not null;
+--> statement-breakpoint
+create unique index reports_open_person_key on reports (reporter_user_id, target_kind, target_user_id) where resolved_at is null and target_kind <> 'message';
 --> statement-breakpoint
 -- The queue: open reports, oldest first.
 create index reports_open_idx on reports (created_at) where resolved_at is null;

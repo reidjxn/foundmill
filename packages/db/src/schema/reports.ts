@@ -21,6 +21,8 @@ export const reports = pgTable(
     targetMessageId: uuid("target_message_id").references(() => messages.id, {
       onDelete: "set null",
     }),
+    /** The message's words when the report was filed (kept if the message is deleted before the review). */
+    messageBody: text("message_body"),
     reason: text("reason", { enum: REPORT_REASONS }).notNull(),
     /** The reporter's words: untrusted, shown as plain text, never sent to a model. */
     note: text("note"),
@@ -30,9 +32,14 @@ export const reports = pgTable(
     ...timestamps(),
   },
   (t) => [
-    uniqueIndex("reports_open_once_key")
-      .on(t.reporterUserId, t.targetKind, sql`coalesce(${t.targetMessageId}, ${t.targetUserId})`)
-      .where(sql`${t.resolvedAt} is null`),
+    uniqueIndex("reports_open_message_key")
+      .on(t.reporterUserId, t.targetMessageId)
+      .where(
+        sql`${t.resolvedAt} is null and ${t.targetKind} = 'message' and ${t.targetMessageId} is not null`,
+      ),
+    uniqueIndex("reports_open_person_key")
+      .on(t.reporterUserId, t.targetKind, t.targetUserId)
+      .where(sql`${t.resolvedAt} is null and ${t.targetKind} <> 'message'`),
     index("reports_open_idx")
       .on(t.createdAt)
       .where(sql`${t.resolvedAt} is null`),

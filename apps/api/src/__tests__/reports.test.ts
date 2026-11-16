@@ -87,6 +87,7 @@ describe("reports", () => {
       ["person", ben],
       ["message", ben],
     ]);
+    // The message's words are kept with the report, as evidence.
     expect(rows[2]).toMatchObject({
       note: "Asked for cash",
       messageBody: "Pay me off the platform",
@@ -109,6 +110,25 @@ describe("reports", () => {
       outsider.report.create({ target: { kind: "message", messageId }, reason: "spam" }),
     ])
       expect(await p).toEqual({ reported: true, blocked: false });
+    // With "Also block", the answer echoes the ask whether or not anyone was found.
+    for (const p of [
+      me.report.create({
+        target: { kind: "person", userId: "00000000-0000-4000-8000-000000000000" },
+        reason: "spam",
+        block: true,
+      }),
+      me.report.create({
+        target: { kind: "profile", handle: "no-such-person" },
+        reason: "spam",
+        block: true,
+      }),
+      outsider.report.create({
+        target: { kind: "message", messageId },
+        reason: "spam",
+        block: true,
+      }),
+    ])
+      expect(await p).toEqual({ reported: true, blocked: true });
     expect((await open()).length).toBe(before);
   });
 
@@ -151,22 +171,28 @@ describe("reports", () => {
   });
 
   it("the Report control on /u/<handle>: for a signed-in visitor, never for the page's own person or a signed-out one", async () => {
-    expect(await hz.caller({ userId: ana }).report.canReportProfile({ handle: "ben-reports" })).toEqual({ canReport: true });
-    expect(await hz.caller({ userId: ben }).report.canReportProfile({ handle: "ben-reports" })).toEqual({ canReport: false });
-    expect(await hz.caller(null).report.canReportProfile({ handle: "ben-reports" })).toEqual({ canReport: false });
-    expect(await hz.caller({ userId: ana }).report.canReportProfile({ handle: "no-such-person" })).toEqual({ canReport: false });
+    expect(
+      await hz.caller({ userId: ana }).report.canReportProfile({ handle: "ben-reports" }),
+    ).toEqual({ canReport: true });
+    expect(
+      await hz.caller({ userId: ben }).report.canReportProfile({ handle: "ben-reports" }),
+    ).toEqual({ canReport: false });
+    expect(await hz.caller(null).report.canReportProfile({ handle: "ben-reports" })).toEqual({
+      canReport: false,
+    });
+    expect(
+      await hz.caller({ userId: ana }).report.canReportProfile({ handle: "no-such-person" }),
+    ).toEqual({ canReport: false });
   });
 
   it("the queue is NOT_FOUND for a founder and for a visitor; an operator lists and resolves", async () => {
     expect(await code(hz.caller({ userId: ana }).operator.reports.list())).toBe("NOT_FOUND");
     expect(
       await code(
-        hz
-          .caller({ userId: ana })
-          .operator.reports.resolve({
-            reportId: "00000000-0000-4000-8000-000000000000",
-            resolution: "no_action",
-          }),
+        hz.caller({ userId: ana }).operator.reports.resolve({
+          reportId: "00000000-0000-4000-8000-000000000000",
+          resolution: "no_action",
+        }),
       ),
     ).toBe("NOT_FOUND");
     expect(await code(hz.caller(null).operator.reports.list())).toBe("UNAUTHORIZED");

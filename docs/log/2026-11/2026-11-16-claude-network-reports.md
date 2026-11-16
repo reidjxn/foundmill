@@ -8,8 +8,9 @@ supersedes: []
 ## What changed
 The people layer is open in production (`LIVE_MODE=1` since Nov 15), so safety came first (docs/NETWORK.md F21; WP-12 T4).
 - Migration 0112 `reports`: person-level, service role only (RLS on, no policy, clients revoked), one open report per reporter and target, never about oneself; `rls/reports.test.ts`.
-- `report.create` (a `signedInProcedure`, not behind `liveGate`): a person, a public profile by handle, or a message from a thread the reporter is or was in; optional `block`; ten a day in the shared limit store. Every answer reads `{ reported: true }` whatever was stored.
-- `operator.reports.list|resolve` behind `operatorProcedure` (`OPERATOR_USER_IDS` on the api; everyone else gets NOT_FOUND). `/operator/reports` (desktop): oldest first, due time (48 hours), overdue marked, the open reports about the same person, the reported message as it reads now and the note as plain text.
+- `report.create` (a `protectedProcedure`, not behind `liveGate`): a person, a public profile by handle, or a message from a thread the reporter is or was in; optional `block`; ten a day in the shared limit store. Every answer reads the same whatever was stored (`blocked` echoes the ask). A reported message's words are kept on the report.
+- `operator.reports.list|resolve` behind `operatorProcedure` (`OPERATOR_USER_IDS` on the api; everyone else gets NOT_FOUND). `/operator/reports` (desktop): oldest first, due time (48 hours), overdue marked, the open reports about the same person, the reported message as it read when reported and the note, as plain text.
+- `/operator/reports` checks the queue on the server first, so a non-operator gets the plain not-found page.
 - Report controls: under `/u/<handle>` for a signed-in visitor who is not the person (`report.canReportProfile`), on a founder's `/profiles/founder/<id>`, and "Report someone here" in a conversation's menu (reports their latest message in view). One dialog (`components/safety/ReportPersonDialog.tsx`), with "Also block".
 - The nightly numbers gain `safety.reports_open` and `safety.reports_overdue`; each filed report writes one `warn` log line (ids only).
 - docs/DEPLOY.md: the stale `LIVE_MODE` row corrected (leaderboards are gone; it is on in production), `OPERATOR_USER_IDS`, and "Reports: who checks and how often".
@@ -25,8 +26,13 @@ A profile is resolved to its account and a message to its author before the row 
 ### The answer never tells what was stored
 An unknown handle, a private profile, oneself, a message never seen and a duplicate all answer `{ reported: true }`, as WP-12 T4 asks, so `report.create` cannot probe who exists. The handle is matched as typed, not validated, for the same reason.
 
-### Reporting works with the layer closed, and for someone refused at the door
-`signedInProcedure`, not `protectedProcedure` behind `liveGate`: stepping back never waits for anything (the rule already in `routers/live.ts`).
+### Reporting works with the layer closed, for admitted accounts
+Not behind `liveGate`: stepping back never waits for anything (the rule already in `routers/live.ts`). WP-12 T4 asked for a `signedInProcedure` so a refused stranger could report; the security review showed that lets throwaway waitlisted accounts pile reports on one public profile and fake a pattern. A refused account can reach nobody but public pages, so `protectedProcedure` it is.
+
+### The security review's other fixes
+- `blocked` echoed the result of the block, which told a caller whether an id existed: it now echoes the ask.
+- One unique index over `coalesce(message, person)` collided when a reported message was deleted, which could stop its author leaving a thread or deleting their account: two partial indexes instead, with a test of both deletes.
+- The message's words are copied onto the report when it is filed (`message_body`), so leaving the last thread or deleting the account does not destroy the evidence before the review.
 
 ### Block rides on the report
 "Also block" calls the existing `blockPerson`, which works without a connection. Block on its own already exists in a conversation's menu and the requests panel; on `/u/<handle>` it is offered only inside Report, because the public page carries no account id and a separate block-by-handle procedure would be a second way to probe handles.
@@ -40,6 +46,7 @@ As WP-12 T4 specifies. It is read on each call, tolerates spaces and case, and i
 
 ## Not done
 - The operator email alert (above). Removing access is still by hand in Supabase (DEPLOY lists the two statements).
+- A second sign-in factor for operators (the review's hardening note): Supabase `aal2` in `operatorProcedure`, once the founder's account has one.
 - Screening of messages for money requests, and new-account limits on requests (F21's rest); `takeLive` limits out of process memory (WP-12 T5).
 - `OPERATOR_USER_IDS` is not set in production yet: the founder's account id goes there (WP-12 D3).
 - The two identity systems, Find people search, open roles, trials and join requests, feedback links, referral credit and pooled credits: next changes, in that order.
