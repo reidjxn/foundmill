@@ -401,7 +401,9 @@ test.describe("agent profile", () => {
     await expect(grid).toBeVisible({ timeout: LONG });
     await expect(grid.locator("[data-skill-source]")).toHaveText(/^(Starting estimate\. Not tested yet\.|From practice tests on [A-Z][a-z]{2} \d{1,2}\.|From \d+ tasks? of real work\.)$/);
     await expect(grid.locator("[data-rating-key]")).toHaveCount(1);
-    // Founder decision 5: the figure shows with Builder view off too ("14 of 20 · Good" for a screen reader).
-    await expect(grid.locator("[data-skill-band]").first()).toHaveAttribute("aria-label", /: \d{1,2} of 20 · (Poor|Average|Good|Excellent)$/);
+    // Founder decision 5: each skill shows its figure beside its band word, with Builder view on or off.
+    const first = grid.locator("[data-skill]").first();
+    await expect(first.locator("[data-rating-figure]")).toHaveText(/^\d{1,2}$/);
+    await expect(first.locator("[data-skill-band]")).toHaveAttribute("data-skill-band", /^(Poor|Average|Good|Excellent)$/);
   });
 });
