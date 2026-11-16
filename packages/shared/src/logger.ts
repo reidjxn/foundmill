@@ -4,6 +4,10 @@ const REDACT = [
   "*.apiKey", "*.api_key", "*.token", "*.secret", "*.password", "*.authorization", "req.headers.authorization", "*.ciphertext", "*.privateKey",
   // A project's Foundmill sending address (package 1.5): as config fields and as the variables themselves.
   "*.signingSecret", "*.inboundToken", "*.eventPublicKey", "*.PLATFORM_MAIL_SIGNING_SECRET", "*.PLATFORM_MAIL_INBOUND_TOKEN", "*.PLATFORM_MAIL_EVENT_PUBLIC_KEY",
+  // WP-11 T18 (SEC-15): OAuth tokens, sealed values, and the same secrets one level deeper (a credential inside an
+  // integration). pino's `*` matches one level only.
+  "*.accessToken", "*.refreshToken", "*.sealed",
+  "*.*.apiKey", "*.*.token", "*.*.secret", "*.*.password", "*.*.authorization",
 ];
 
 /**

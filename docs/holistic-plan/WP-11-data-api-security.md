@@ -70,10 +70,10 @@ Rules for every task here (docs/holistic-plan/README.md applies in full):
 | [x] | T11 Gateway: who may mint what; a tool without hints is refused | S | |
 | [ ] | T12 An api-only service token secret | M | F5 |
 | [x] | T13 One JWT verifier for the api and the stream | M | |
-| [ ] | T14 Supabase settings: declared and watched | S | WP-00 S10 |
-| [ ] | T15 ingest: bounded webhook bodies; mail routes on `/health` | S | WP-00 S2 |
+| [x] | T14 Supabase settings: declared and watched | S | WP-00 S10 |
+| [x] | T15 ingest: bounded webhook bodies; mail routes on `/health` | S | WP-00 S2 |
 | [ ] | T16 Account export and closing, by request | M | F6 |
-| [ ] | T17 The service connection: the rule as it is, and a pinned list | S | |
+| [x] | T17 The service connection: the rule as it is, and a pinned list | S | |
 | [ ] | T18 The P3 items in one change | S | |
 | [ ] | T19 A dated decision for every item left open | S | WP-00 S16 |
 | [ ] | T20 A founder's own Stripe: store the webhook signing secret | M | WP-00 S8; WP-07 and WP-08 wait for it |
@@ -398,7 +398,7 @@ Not done: `apps/collab` keeps its copy (not deployed; WP-12 decides its future).
 Tests: `packages/shared/src/auth-verifier.test.ts`, `packages/shared/src/allowlist.test.ts`, `apps/stream/src/__tests__/auth.test.ts` (a password-only token and an unconfirmed listed address are refused at the upgrade).
 Done when: a password-only session and an unconfirmed listed address get no socket, and `grep -rn "jwtVerify" apps/api/src apps/stream/src` finds no call outside tests.
 
-### T14: Supabase settings: declared and watched            [size S] [ships alone] [production switch: WP-00 S10] Review: security-reviewer
+### [x] T14: Supabase settings: declared and watched            [size S] [ships alone] [production switch: WP-00 S10] Review: security-reviewer
 Why: A8-11, SEC-8 (accepted only while the Data API is off), a11 C11, a11 S10, a11 S11. The setting lives in a dashboard and nothing notices if it flips.
 Files: create `apps/api/src/services/data-api-probe.ts`, `apps/api/src/__tests__/data-api-probe.test.ts`; modify `apps/api/src/context.ts`, `apps/api/src/index.ts`, `apps/api/src/app.ts` (`/health`), `supabase/config.toml`, `scripts/supabase-config.test.mjs`, docs/DEPLOY.md §4.
 Interfaces: consumes the shape of `createConfirmEmailGuard` (`apps/api/src/services/confirm-email.ts`) and `CONFIRM_EMAIL_REFRESH_MS`. Produces `createDataApiProbe(opts: { supabaseUrl: string; anonKey: string | undefined; log: ApiLogger; fetchImpl?: typeof fetch; timeoutMs?: number }): { state(): "off" | "on" | "unknown"; start(): { stop(): void } }`: `GET {supabaseUrl}/rest/v1/` with the `apikey` header at boot (never awaited) and every 10 minutes; a 2xx is `on` and logs one error; 503 or 404 is `off`; anything else keeps the last value. `/health` adds `dataApi`. It reports and never fails readiness.
@@ -409,7 +409,7 @@ Steps:
 Tests: `data-api-probe.test.ts` (the four answers of step 1); `scripts/supabase-config.test.mjs` (the four keys).
 Done when: `https://api.foundmill.com/health` shows `dataApi: "off"`, and turning the Data API on would log an error within 10 minutes.
 
-### T15: ingest: bounded webhook bodies; mail routes on `/health`            [size S] [ships alone] Review: security-reviewer
+### [x] T15: ingest: bounded webhook bodies; mail routes on `/health`            [size S] [ships alone] Review: security-reviewer
 Why: A8-22, N2, `audits/e0-production-evidence.md` "Live configuration". `apps/ingest/src/webhooks.ts` (`ctx.req.clone().text()`) and `apps/ingest/src/billing.ts` (`req.text()`) read a body of any size on a public service; only `/mail/*` is capped.
 Files: modify `apps/ingest/src/app.ts`, `apps/ingest/src/webhooks.ts`, `apps/ingest/src/billing.ts` (constants), `apps/ingest/src/__tests__/webhooks.test.ts`, `apps/ingest/src/__tests__/billing.test.ts`, `apps/ingest/CLAUDE.md`, docs/DEPLOY.md §3 (ingest row) and §5.7.
 Interfaces: consumes the existing `tooLarge(maxSize)` in `app.ts` (hono `bodyLimit`; answers 413 `payload_too_large`). Produces `WEBHOOK_MAX_BYTES = 1024 * 1024`, `WEBHOOK_MAX_BYTES_BY_CONNECTOR: Record<string, number> = { github: 25 * 1024 * 1024 }`, `BILLING_WEBHOOK_MAX_BYTES = 1024 * 1024`; `/health` adds `platformMail: { domain: boolean; inbound: boolean; events: boolean }` (`inbound`: the token is set; `events`: the event key and the signing secret are set; booleans only).
@@ -439,7 +439,7 @@ Steps:
 Tests: `account-portability.test.ts` (every foreign key to `auth.users` is classified; an export holds one account only; after the auth user is deleted only classified columns keep the id), on both engines.
 Done when: a test account is exported, closed and verified end to end, and the orphan query returns no row on production.
 
-### T17: The service connection: the rule as it is, and a pinned list            [size S] [ships alone]
+### [x] T17: The service connection: the rule as it is, and a pinned list            [size S] [ships alone]
 Why: A8-16. `apps/api/CLAUDE.md` says every user-originated query runs under RLS. In `apps/api/src/routers`, 201 lines use `ctx.db` and 206 use `ctx.rls(`. Recorded 2026-10-07 "apps/api: RLS runner for user work, service db only for service-written tables, never nested" covers part of it; the person-level routers came later. Moving 201 call sites under RLS is not a hygiene task: the rule is written as it is and a new use becomes visible in review.
 Files: create `apps/api/src/__tests__/service-connection.test.ts`; modify `apps/api/CLAUDE.md` (the first invariant), docs/ARCHITECTURE.md §13 (one paragraph), docs/DECISIONS.md.
 Interfaces: produces `SERVICE_CONNECTION_ROUTERS: Readonly<Record<string, { lines: number; why: "person" | "signed_out" | "service_written" | "mixed"; note: string }>>`. At `04a0a509`: `live.ts` 61, `idea.ts` 26, `founder.ts` 15, `email.ts` 15, `agent.ts` 14, `business.ts` 14, `integrations.ts` 10, `import.ts` 9, `product.ts` 5, `distribution.ts` 5, `team.ts` 5, `logo.ts` 5, `idea-box.ts` 5, `billing.ts` 4, `legal.ts` 3, `founder-businesses.ts` 2, `dev.ts` 1, `team-call.ts` 1, `people.ts` 1.

@@ -46,8 +46,10 @@ export function wwwTwinOrigin(origin: string): string | null {
   return url.origin;
 }
 
-export function allowedOrigins(env: { APP_URL: string }): string[] {
-  const origins = new Set<string>(["http://localhost:3000", "http://127.0.0.1:3000"]);
+export function allowedOrigins(env: { APP_URL: string; APP_ENV: string }): string[] {
+  // The local web origins only on a local stack (WP-11 T18, A8-27): staging and production answer their own site alone.
+  const local = env.APP_ENV === "development" || env.APP_ENV === "test";
+  const origins = new Set<string>(local ? ["http://localhost:3000", "http://127.0.0.1:3000"] : []);
   for (const raw of [env.APP_URL, process.env.NEXT_PUBLIC_APP_URL]) {
     if (!raw) continue;
     try {
@@ -251,6 +253,8 @@ export function createApp(deps: ApiDeps) {
         transactions: deps.txGate?.stats() ?? null,
         worker,
         vault: deps.vault !== null,
+        // Supabase's Data API: "off" is the only safe answer (services/data-api-probe.ts); reported, never failed on.
+        dataApi: deps.dataApi?.state() ?? "unknown",
         modelBilling: billingRefusal ? { ok: false, ...billingRefusal } : { ok: true },
         time: new Date().toISOString(),
       },

@@ -45,8 +45,11 @@ function trimSlash(url: string): string {
 }
 
 export function parsePublicEnv(raw: Record<string, string | undefined>): PublicEnv {
-  const appEnvRaw = raw.NEXT_PUBLIC_APP_ENV ?? "development";
-  const appEnv = (APP_ENVS as readonly string[]).includes(appEnvRaw) ? (appEnvRaw as PublicAppEnv) : "development";
+  // A production build with no known NEXT_PUBLIC_APP_ENV is production, never development (WP-11 T18, A8-23): a missing
+  // variable must not turn on the development affordances.
+  const fallback: PublicAppEnv = raw.NODE_ENV === "production" ? "production" : "development";
+  const appEnvRaw = raw.NEXT_PUBLIC_APP_ENV ?? fallback;
+  const appEnv = (APP_ENVS as readonly string[]).includes(appEnvRaw) ? (appEnvRaw as PublicAppEnv) : fallback;
   return {
     appEnv,
     apiUrl: trimSlash(raw.NEXT_PUBLIC_API_URL || "http://localhost:4000"),
@@ -71,6 +74,7 @@ let cached: PublicEnv | undefined;
 export function publicEnv(): PublicEnv {
   if (cached) return cached;
   cached = parsePublicEnv({
+    NODE_ENV: process.env.NODE_ENV,
     NEXT_PUBLIC_APP_ENV: process.env.NEXT_PUBLIC_APP_ENV,
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
     NEXT_PUBLIC_STREAM_URL: process.env.NEXT_PUBLIC_STREAM_URL,
