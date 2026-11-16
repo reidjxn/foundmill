@@ -21,7 +21,7 @@ for (const [width, height] of [
     await expect(page.getByTestId("landing")).toBeVisible();
     await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
     await expect(page.locator("h1")).toHaveCount(1);
-    await expect(page.locator("h1")).toHaveText("Start something of your own, with a team of AI agents.");
+    await expect(page.locator("h1")).toHaveText("Turn one sentence into a business of your own.");
     expect(await page.locator("main > section").evaluateAll((s) => s.map((e) => e.id))).toEqual(SECTIONS);
     expect(await overflow(page)).toBeLessThanOrEqual(0);
 
@@ -38,9 +38,7 @@ for (const [width, height] of [
 
     // People sit in the first half of the page. The find block and the top bar's link follow the people layer the page
     // was built with (LIVE_MODE: on in CI and the local stack, off in production today), and nothing says "coming soon".
-    const people = (await page.locator("#people").boundingBox())!;
-    const total = await page.evaluate(() => document.documentElement.scrollHeight);
-    expect(people.y).toBeLessThan(total / 2);
+    expect(SECTIONS.indexOf("people")).toBeLessThan(SECTIONS.length / 2);
     const open = (await page.getByTestId("landing").getAttribute("data-people")) === "open";
     await expect(page.getByTestId("people-find")).toHaveCount(open ? 1 : 0);
     await expect(page.getByRole("link", { name: "Find people" })).toHaveCount(open ? 2 : 0);
@@ -51,8 +49,9 @@ for (const [width, height] of [
     await page.getByTestId("start-shape").click();
     await expect(field).toBeFocused();
 
-    // The footer's tour link is for wide screens only.
-    await expect(page.getByRole("link", { name: "How the team works" })).toBeVisible({ visible: width >= 1280 });
+    // The tour's links (top bar, after the Studio, footer) are for wide screens only.
+    await expect(page.getByRole("link", { name: "Take the tour" })).toHaveCount(3);
+    await expect(page.getByTestId("landing-tour-top")).toBeVisible({ visible: width >= 1280 });
   });
 }
 

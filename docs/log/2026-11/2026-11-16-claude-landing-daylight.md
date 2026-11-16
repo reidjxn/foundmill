@@ -36,7 +36,7 @@ Nothing reads an experiment today (no analytics on the site). The seam is built 
 `github`, `hackernews` and `producthunt` go to `builder` (s2 §9.3 calls their readers technical). Every other channel gets the default until a campaign says otherwise.
 
 ## Not done
-- Playwright was not run (no local stack): `landing.spec.ts`, `idea-box.spec.ts`, `first-timer.spec.ts` and `first-timer-proof.spec.ts` had their strings, section list and one selector updated by hand, so CI is their first run. The proof spec's axe pass has not seen the light zone.
+- Playwright runs only in CI. Its first run failed three specs on stale assertions (the old headline, the old tour link name, and `#hero [data-idea-card]` matching both the example and the visitor's own idea); the idea box's phone test failed with them because the retries used up the address's three ideas an hour. Fixed in the specs; the page was not changed.
 - "Card" remains after sign-in: the keep step (`/new/card/keep`, "Keep this card"), the "Your card" titles, the account email "Your card for … is saved", and the console's "concept card".
 - `docs/holistic-plan/landing/DIRECTION.md` sections 3, 4 and 7 describe the earlier page; its claims and switch tables (section 6) still hold. The home share image still draws the earlier dark look.
 - `pnpm --filter @foundmill/web typecheck` fails on this laptop only on `packages/modules/src/product/roadmap/Board.ts` against `board.ts` (a case-insensitive disk); nothing in this change.
