@@ -90,8 +90,8 @@ describe("channelAvailability", () => {
     expect(channelMayRun(social, false)).toBe(true);
     expect(channelTeamRuns(social)).toBe(false);
     expect(channelEngineMayRun(social, false)).toBe(false);
-    // Offline tracking is the founder's own choice and runs as before.
-    expect(channelEngineMayRun(social, true)).toBe(true);
+    // Offline tracking no longer starts an engine for a real project either (WP-08 T9).
+    expect(channelEngineMayRun(social, true)).toBe(false);
     expect(channelAvailabilityRows(facts()).social.sentence).toBe(CHANNEL_BY_TAP_SENTENCE);
   });
 

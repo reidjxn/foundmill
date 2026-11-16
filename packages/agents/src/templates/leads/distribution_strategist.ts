@@ -53,6 +53,5 @@ export const distributionStrategist = defineTemplate({
   ],
   skills: withCoreSkills(["channel_fit_scoring", "budget_allocation", "positioning", "experiment_design"]),
   autonomy: AUTONOMY_INHERIT,
-  schedule: { cron: "0 7 * * 1", triggers: ["channel.threshold_breached", "campaign.launched", "customer.converted"] },
   neverDoes: ["Spend beyond the monthly distribution budget", "Approve a contract or insertion order", "Recommend channels that break marketing law", "Report unattributed results as attributed"],
 });

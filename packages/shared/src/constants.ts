@@ -303,8 +303,8 @@ export const CHANNEL_META: Record<ChannelKey, { label: string; line: ChannelLine
   geo: { label: "GEO", line: "defence", coreMetric: "AI answer share", kitModeByDefault: false },
   content: { label: "Content marketing", line: "defence", coreMetric: "Leads from content", kitModeByDefault: false },
   direct_mail: { label: "Direct mail", line: "wings", coreMetric: "Response rate", kitModeByDefault: false },
-  print: { label: "Print", line: "wings", coreMetric: "Code redemptions", kitModeByDefault: true },
-  broadcast: { label: "Broadcast", line: "wings", coreMetric: "Vanity URL visits, lift", kitModeByDefault: true },
+  print: { label: "Print", line: "wings", coreMetric: "Code redemptions", kitModeByDefault: false },
+  broadcast: { label: "Broadcast", line: "wings", coreMetric: "Vanity URL visits, lift", kitModeByDefault: false },
   outdoor: { label: "Outdoor", line: "wings", coreMetric: "QR scans, geo-lift", kitModeByDefault: false },
 };
 

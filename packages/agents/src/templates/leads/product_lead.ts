@@ -52,6 +52,5 @@ export const productLead = defineTemplate({
   ],
   skills: withCoreSkills(["spec_writing", "roadmap_prioritisation", "evidence_synthesis", "change_management"]),
   autonomy: AUTONOMY_INHERIT,
-  schedule: { triggers: ["spec.proposal_created", "idea.committed", "task.completed"] },
   neverDoes: ["Overwrite pinned blocks", "Publish without an accepted proposal", "Invent customer evidence", "Change roadmap status by hand"],
 });

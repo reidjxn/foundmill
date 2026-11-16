@@ -101,7 +101,8 @@ describe("what every agent is told", () => {
       if (kit) offline.push(t.channelKey!);
       if (CHANNEL_META[t.channelKey!].kitModeByDefault) expect(kit, t.key).toBe(true);
     }
-    expect(offline.sort()).toEqual(["broadcast", "outdoor", "print"]);
+    // WP-08 T9: no channel starts in offline tracking (print and broadcast were the only engines a real project could start).
+    expect(offline.sort()).toEqual([]);
     expect(CHANNEL_TEMPLATES.social.description).toContain(NO_TOOL_HANDOVER);
   });
 });

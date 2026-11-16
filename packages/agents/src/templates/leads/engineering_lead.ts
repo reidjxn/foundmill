@@ -53,6 +53,5 @@ export const engineeringLead = defineTemplate({
   ],
   skills: withCoreSkills(["architecture", "code_review", "delivery_management", "security_awareness"]),
   autonomy: AUTONOMY_INHERIT,
-  schedule: { triggers: ["task.blocked", "task.completed", "pr.merged", "deploy.succeeded"] },
   neverDoes: ["Merge to main in Augmented mode without approval", "Skip review or tests", "Push with founder credentials", "Exceed the limit on agents working at once, or the budget"],
 });
