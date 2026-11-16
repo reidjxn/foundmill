@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { startDestination } from "../start-destination";
+import { keepCardPathFor, startDestination } from "../start-destination";
 
 const A = "11111111-1111-4111-8111-111111111111";
 const B = "22222222-2222-4222-8222-222222222222";
@@ -30,3 +30,20 @@ describe("startDestination (the routing table for a person just signed in)", () 
     expect(startDestination({ profileComplete: true, businesses: [{ id: EXAMPLE, isExample: true }], lastBusinessId: EXAMPLE })).toBe(`/b/${EXAMPLE}/today`);
   });
 });
+
+describe("keepCardPathFor: the waiting card's keep step", () => {
+  it("is null with no card, and carries the link's claim token only for a card that came by the link", () => {
+    expect(keepCardPathFor(null, { claim: "c", studio: true })).toBeNull();
+    expect(keepCardPathFor({ source: "browser", then: null }, { claim: null, studio: false })).toBe("/new/card/keep");
+    expect(keepCardPathFor({ source: "link", then: null }, { claim: "abc", studio: false })).toBe("/new/card/keep?claim=abc");
+    expect(keepCardPathFor({ source: "browser", then: null }, { claim: "abc", studio: false })).toBe("/new/card/keep");
+  });
+
+  it("goes on to the Studio when the address chose it, or when the waitlist kept that choice with its card (0124)", () => {
+    expect(keepCardPathFor({ source: "link", then: null }, { claim: "abc", studio: true })).toBe("/new/card/keep?claim=abc&then=studio");
+    // Let in from the waitlist, signing in on any browser with no link: the choice the waitlist kept.
+    expect(keepCardPathFor({ source: "waitlist", then: "studio" }, { claim: null, studio: false })).toBe("/new/card/keep?then=studio");
+    expect(keepCardPathFor({ source: "waitlist", then: null }, { claim: null, studio: false })).toBe("/new/card/keep");
+  });
+});
+

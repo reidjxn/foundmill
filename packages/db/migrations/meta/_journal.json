@@ -736,6 +736,13 @@
       "when": 1796139720000,
       "tag": "0123_glm_model_key",
       "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1796240060000,
+      "tag": "0124_waitlist_card_then",
+      "breakpoints": true
     }
   ]
 }

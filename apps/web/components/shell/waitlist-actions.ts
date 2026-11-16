@@ -14,14 +14,15 @@ import { viaToHandOver } from "@/lib/via";
 
 export type WaitlistJoinState = { status: "idle" } | { status: "joined"; cardKept: boolean; shareUrl?: string | null } | { status: "error" };
 
-export async function joinWaitlist(_previous: WaitlistJoinState): Promise<WaitlistJoinState> {
+/** `then`: "studio" when the visitor chose "Shape it in the Ideation Studio"; the api keeps it with the card (0124). */
+export async function joinWaitlist(_previous: WaitlistJoinState, then: "studio" | null = null): Promise<WaitlistJoinState> {
   const server = await serverApi();
   if (!server) return { status: "error" };
   try {
     const jar = await cookies();
     const token = jar.get(IDEA_COOKIE)?.value ?? null;
     const via = viaToHandOver(jar.get(VIA_COOKIE)?.value);
-    const res = await server.api.waitlist.join.mutate({ token: token && /^[A-Za-z0-9_-]{43}$/.test(token) ? token : null, via });
+    const res = await server.api.waitlist.join.mutate({ token: token && /^[A-Za-z0-9_-]{43}$/.test(token) ? token : null, via, ...(then === "studio" ? { then } : {}) });
     return { status: "joined", cardKept: res.cardKept, shareUrl: res.shareUrl };
   } catch {
     return { status: "error" };

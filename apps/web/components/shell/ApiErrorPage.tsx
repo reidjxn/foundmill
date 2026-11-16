@@ -10,8 +10,12 @@ import { NotInvitedPage } from "./NotInvitedPage";
 import { OnWaitlistPage } from "./OnWaitlistPage";
 import { UnreachablePage } from "./UnreachablePage";
 
-export function ApiErrorPage({ error, email, fallback = "The API did not answer." }: { error: unknown; email?: string | null; fallback?: string }) {
-  if (isOnWaitlist(error)) return <OnWaitlistPage email={email ?? null} emails={waitlistEmails(error)} />;
-  if (isNotInvited(error)) return <NotInvitedPage message={errorMessage(error)} email={email} unconfirmed={notInvitedReason(error) === "email_unconfirmed"} emails={waitlistEmails(error)} />;
+/**
+ * `keepThen`: where the waiting card should go once the person is let in ("studio", the idea box's "Shape it in the
+ * Ideation Studio"), saved with it when the waitlist keeps it (0124). Only /start knows it, from its address.
+ */
+export function ApiErrorPage({ error, email, fallback = "The API did not answer.", keepThen = null }: { error: unknown; email?: string | null; fallback?: string; keepThen?: "studio" | null }) {
+  if (isOnWaitlist(error)) return <OnWaitlistPage email={email ?? null} emails={waitlistEmails(error)} keepThen={keepThen} />;
+  if (isNotInvited(error)) return <NotInvitedPage message={errorMessage(error)} email={email} unconfirmed={notInvitedReason(error) === "email_unconfirmed"} emails={waitlistEmails(error)} keepThen={keepThen} />;
   return <UnreachablePage message={errorMessage(error, fallback)} />;
 }
