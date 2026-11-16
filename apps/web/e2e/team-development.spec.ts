@@ -1,5 +1,5 @@
 import { expect, test, type Page, type PlaywrightWorkerArgs } from "@playwright/test";
-import { COACHMARK_CARD, LONG, chooseTableView, departmentBase as departmentBaseFor, devApi, dismissCoachmarks, openBusiness, openExplainer, setBuilderView } from "./helpers";
+import { COACHMARK_CARD, LONG, NORTHWIND_BUSINESS_ID, chooseTableView, departmentBase as departmentBaseFor, devApi, dismissCoachmarks, openBusiness, openExplainer, setBuilderView } from "./helpers";
 
 // Builder view on for this file (it reads the Code, Health and Hierarchy tabs, ratings out of 20 and the cycle number); global-setup.ts starts every run with it off. Restored afterwards.
 let builderViewBefore = false;
@@ -446,6 +446,36 @@ for (const width of [1280, 1440]) {
     });
   });
 }
+
+test("Development › Plan: a done research task shows its Result, the report the agent saved (WP-05 T7)", async ({ page, playwright }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const api = await devApi(playwright);
+  const res = await api.get(`/trpc/dev.tasks.list?input=${encodeURIComponent(JSON.stringify({ json: { businessId: NORTHWIND_BUSINESS_ID, limit: 500 } }))}`);
+  expect(res.ok(), `dev.tasks.list answered ${res.status()}`).toBe(true);
+  const items = ((await res.json()) as { result: { data: { json: { items: { id: string; title: string; status: string }[] } } } }).result.data.json.items;
+  await api.dispose();
+  const task = items.find((t) => t.title === "Reaction report synthesis Q3");
+  expect(task, "the seed has Northwind's research synthesis").toBeDefined();
+  expect(task!.status).toBe("done");
+
+  await openBusiness(page);
+  await page.goto(`${departmentBaseFor("development")}/plan?task=${task!.id}`);
+  await expect(page.getByTestId("module-screen")).toHaveAttribute("data-module", "development/plan", { timeout: LONG });
+  await closeTours(page);
+  const result = page.getByTestId("task-result");
+  await expect(result).toBeVisible({ timeout: LONG });
+  await expect(result.getByRole("heading", { name: "Result" })).toBeVisible();
+  await expect(result.getByRole("heading", { name: "Reaction reports Q3: three claims" })).toBeVisible();
+  await expect(result.getByRole("heading", { name: "What I found" })).toBeVisible({ timeout: LONG });
+  await expect(result.getByText(/Fragrance is the trigger/)).toBeVisible();
+  // The researcher's mention is an entity link; the source opens in a new tab; a real report carries no simulated notice.
+  await expect(result.locator("[data-entity-id]").first()).toBeVisible();
+  const source = result.getByRole("link", { name: /Support desk: reaction reports, Q3/ });
+  await expect(source).toHaveAttribute("href", "https://northwindskincare.example/support/reaction-reports");
+  await expect(source).toHaveAttribute("target", "_blank");
+  await expect(result.getByText("Simulated: sample data, nothing real was read")).toHaveCount(0);
+  expect(await result.evaluate((el) => el.scrollWidth <= el.clientWidth + 1), "the Result panel fits at 1280").toBe(true);
+});
 
 test.describe("saved table views on module screens", () => {
   test("Team › Agents: a view saved as new comes back after a reload, and deleting it sticks (audit #204)", async ({ page }) => {

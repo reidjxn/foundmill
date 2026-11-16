@@ -17,6 +17,7 @@ import { EXAMPLE_CARD, EXAMPLE_PERSON, EXAMPLE_PROJECT } from "./first-timer-exa
 import { SWITCHES_OFF, TOUR_ENABLED, type LandingSwitches } from "./flags";
 import { LandingHero } from "./LandingHero";
 import { SIGN_IN } from "./parts";
+import { HomeJsonLd } from "./seo";
 import { StartButton } from "./StartButton";
 import { LANDING_WORDS as W } from "./words";
 
@@ -34,6 +35,7 @@ export function LandingPage({ switches = SWITCHES_OFF, renderDay }: LandingPageP
   const year = (renderDay ?? new Date().toISOString()).slice(0, 4);
   return (
     <div className="landing-page" data-testid="landing" data-landing="" data-people={switches.peopleOpen ? "open" : "closed"}>
+      <HomeJsonLd />
       <TopBar peopleOpen={switches.peopleOpen} />
       <main>
         <LandingHero signupOpen={switches.signupOpen} />

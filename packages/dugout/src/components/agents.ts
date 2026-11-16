@@ -15,6 +15,7 @@ export * from "./agents/TileGrid";
 export * from "./agents/SessionScrubber";
 export * from "./agents/TaskGraph";
 export * from "./agents/TaskRunState";
+export * from "./agents/TaskResult";
 export * from "./agents/formation";
 export * from "./agents/ChannelToken";
 export * from "./agents/ChannelProfileCard";

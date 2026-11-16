@@ -7,7 +7,8 @@
 import { FLAGS, INPUT_LIMITS, isSimulateEnv } from "@foundmill/config";
 import { REPOSITORY_FULL_NAME, TaskListFilter, codeRepositoryOf, repos, type AgentSession, type DbTx, type Executor, type Task } from "@foundmill/db";
 import { SESSION_EVENT_KINDS, sessionStreamKey } from "@foundmill/events";
-import { boundedRecord, ForbiddenError, NotFoundError, ValidationError, connectorMode, hasSectionAccess, sessionSections } from "@foundmill/shared";
+import { boundedRecord, ForbiddenError, NotFoundError, ValidationError, connectorMode, hasSectionAccess, sessionSections, type EntityKind } from "@foundmill/shared";
+import { buildManifest, extractEntityIds, stripInvalidMentions, type ManifestEntityInput } from "@foundmill/entity-linker";
 import { z } from "zod";
 import { verifyCodeRepository } from "../services/code-repository";
 import { replaySession } from "../services/replay";
@@ -68,6 +69,26 @@ async function readableSession(tx: Executor, ctx: Pick<BusinessContext, "busines
   return session;
 }
 
+/**
+ * The task's latest report (WP-05 T7), as the founder reads it on the task. Read in the caller's RLS transaction, so a
+ * collaborator gets null (`task_reports` is closed to them). The body is agent-written and may quote web pages: every
+ * mention that does not name something this reader can open is stripped to text (`stripInvalidMentions`). The manifest
+ * holds the records the body names: the business's agents, and its CRM entities only for a reader with CRM read (as
+ * the conversation's `manifestFor`).
+ */
+async function taskReportFor(tx: DbTx, ctx: Pick<BusinessContext, "businessId" | "membership">, taskId: string) {
+  const row = await repos.taskReports.latestForTask(tx, ctx.businessId, taskId);
+  if (!row) return null;
+  const ids = extractEntityIds(row.bodyMd).filter((id) => Id.safeParse(id).success);
+  const [crm, agents] = ids.length === 0 ? [[], []] : await Promise.all([hasSectionAccess(ctx.membership, "crm", "read") ? repos.entities.manifest(tx, ctx.businessId, { ids }) : Promise.resolve([]), repos.agents.list(tx, ctx.businessId, { limit: 200 }).then((p) => p.items)]);
+  const entries: ManifestEntityInput[] = [
+    ...crm.map((e) => ({ id: e.id, kind: e.kind as EntityKind, name: e.displayName, aliases: e.aliases })),
+    ...agents.map((a) => ({ id: a.id, kind: "agent" as const, name: a.name, aliases: [], role: a.role })),
+  ];
+  const bodyMd = stripInvalidMentions(row.bodyMd, buildManifest(entries, { strictKinds: false }));
+  return { id: row.id, title: row.title, bodyMd, sources: row.sources, simulated: row.simulated, createdAt: row.createdAt.toISOString() };
+}
+
 /** A merged pull request row: GitHub's `pr.merged` payload (repo, PR number, diff stats…) or the merge queue's own fields. */
 type MergedPr = Record<string, unknown> & { eventId: string | null; occurredAt: Date; source: "github" | "merge_queue"; taskId?: unknown; title?: unknown };
 
@@ -115,8 +136,8 @@ export const devRouter = router({
     get: read.input(z.object({ taskId: Id })).query(({ ctx, input }) =>
       ctx.rls(async (tx) => {
         const task = await repos.tasks.get(tx, ctx.businessId, input.taskId);
-        const sessions = await repos.agents.listSessions(tx, ctx.businessId, { taskId: task.id, limit: 20 });
-        return { task, sessions: sessions.items, branch: agentBranch(task.id) };
+        const [sessions, report] = await Promise.all([repos.agents.listSessions(tx, ctx.businessId, { taskId: task.id, limit: 20 }), taskReportFor(tx, ctx, task.id)]);
+        return { task, sessions: sessions.items, branch: agentBranch(task.id), report };
       }),
     ),
 
