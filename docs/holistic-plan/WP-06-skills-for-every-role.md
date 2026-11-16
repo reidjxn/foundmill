@@ -247,7 +247,7 @@ readSkill(caller: PlatformCaller, args: PlatformArgs<"read_skill">): Promise<Pla
 
 **Tests and evals:** as above. **Done when:** Done-when 4. **Does not cover:** multi-file skill bundles (cut, see Not now); how often agents load the right skill on real tasks (read `agent.skills.read` audit rows after a week).
 
-### T5: One hire implementation   [S] [ships alone]
+### [x] T5: One hire implementation   [S] [ships alone]
 
 **Why:** TS-14; planner's decision 3 needs one place to attach defaults. (OUTLINE.md lists TS-14 under WP-04; it is done here because T6 depends on it. WP-04 changes how many agents commit hires, not how one is written.)
 

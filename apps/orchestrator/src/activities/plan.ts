@@ -16,11 +16,11 @@
 import { recordExpiredApprovals } from "@foundmill/events";
 import { LIMITS } from "@foundmill/config";
 import { channelRefusal } from "@foundmill/connectors";
-import { getTemplate, getTemplateByAgentType, initialVersionFromTemplate, type AgentTemplate } from "@foundmill/agents";
-import { changeAgentModels, repos, type Agent, type Business, type Entity, type PlanAction as PlanActionRow } from "@foundmill/db";
+import { getTemplate, getTemplateByAgentType, type AgentTemplate } from "@foundmill/agents";
+import { changeAgentModels, hireFromTemplate, repos, type Agent, type Business, type Entity, type PlanAction as PlanActionRow } from "@foundmill/db";
 import { PRICING_CURRENCY, resolveRoadmapItem, roadmapPatchFrom, SetAgentModelParams, UpdateRoadmapParams } from "@foundmill/models";
 import { agentPrincipal, evaluate, type ToolCtxInput } from "@foundmill/policy";
-import { CHANNEL_KEYS, CHANNEL_META, CreatePlaybookParams, MODEL_KEYS, TASK_KINDS, uuid, type ChannelKey, type ModelKey, type PlanActionType, type PolicyOutcome, type TaskKind } from "@foundmill/shared";
+import { CHANNEL_KEYS, CHANNEL_META, CreatePlaybookParams, MODEL_KEYS, TASK_KINDS, type ChannelKey, type ModelKey, type PlanActionType, type PolicyOutcome, type TaskKind } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 import type { GatewayCallResponse } from "../gateway-client";
@@ -515,11 +515,18 @@ export function createPlanActivities(deps: OrchestratorDeps) {
         const key = str(p.template_key, str(p.agent_type));
         const template: AgentTemplate | undefined = key ? (getTemplateByAgentType(key) ?? safeTemplate(key)) : undefined;
         if (!template) throw new Error(`unknown agent template "${key}"`);
-        const agentId = uuid();
-        const spec = initialVersionFromTemplate(template, agentId);
-        const departmentIds = typeof p.department_id === "string" ? [p.department_id] : [];
-        const created = await repos.agents.create(db, businessId, { name: str(p.name, template.name).slice(0, 80), role: template.role, agentType: template.agentType, layer: template.layer, descriptionMd: template.description, departmentIds, modelKey: template.modelKey, status: "idle", autonomy: spec.autonomy, wageCapMinor: template.wageCapMinor, currency, avatarSeed: agentId, initialVersion: { instructions: spec.instructions, tools: spec.tools, modelKey: spec.modelKey } });
-        await repos.skills.upsertForAgent(db, businessId, created.id, template.skills.map((skillKey) => ({ skillKey, group: skillGroupFor(skillKey, template), tested: template.baselineRating, proven: null, nLive: 0, displayed: template.baselineRating, potential: template.baselineRating })));
+        const departmentId = typeof p.department_id === "string" ? p.department_id : null;
+        // The same rows as Recruitment's `team.agents.hire` (one implementation, packages/db `hire.ts`; WP-06 T5): the
+        // department's membership, its lead as line manager, and an audit row naming the agent that planned the hire.
+        const created = await db.transaction(async (tx) => {
+          const department = departmentId ? await repos.departments.get(tx, businessId, departmentId) : null;
+          if (department?.archivedAt) throw new Error(`${department.name} has been archived; hire into a live department`);
+          const lead = department?.leadAgentId ? (await repos.agents.byIds(tx, businessId, [department.leadAgentId]))[0] : undefined;
+          const h = await hireFromTemplate(tx, businessId, template.key, { departmentIds: department ? [department.id] : [], lineManagerId: lead && !lead.archivedAt ? lead.id : null, name: str(p.name, template.name).slice(0, 80) });
+          if (department) await repos.departments.addMember(tx, businessId, department.id, { memberKind: "agent", memberId: h.agent.id });
+          await repos.audit.append(tx, businessId, { actorKind: "agent", actorId: action.agentId ?? (await repos.agents.chiefOfStaff(tx, businessId))?.id ?? null, action: "team.agents.hire", target: { kind: "agent", id: h.agent.id }, details: { templateKey: template.key, departmentId: department?.id ?? null, planActionId: action.id } });
+          return h.agent;
+        });
         return { result: { agentId: created.id, templateKey: template.key }, spawn: [] };
       }
       case "train_agent": {
@@ -595,13 +602,6 @@ export function createPlanActivities(deps: OrchestratorDeps) {
     } catch {
       return undefined;
     }
-  }
-
-  function skillGroupFor(skillKey: string, template: AgentTemplate): "craft" | "judgement" | "execution" {
-    void template;
-    if (/^(planning|scope_control|prioritisation|risk_awareness|knowing_when_to_ask)/.test(skillKey)) return "judgement";
-    if (/^(speed|reliability|tool_use|cost_efficiency|communication)/.test(skillKey)) return "execution";
-    return "craft";
   }
 }
 
