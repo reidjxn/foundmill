@@ -33,7 +33,7 @@
 - [ ] T7 One first-day story; guidance on Today (M)
 - [ ] T8 Note budget and the day's digest (M)
 - [ ] T9 The founder's own task and tomorrow's reason (M)
-- [ ] T10 Chief of Staff as mentor, with founder context (M)
+- [x] T10 Chief of Staff as mentor, with founder context (M)
 - [ ] T11 Lifecycle email for a started project (M, needs setup)
 - [ ] T12 Email for a person with a card and no project (M, needs setup)
 - [ ] T13 Single-key shortcuts off by default (S)
@@ -246,7 +246,7 @@ export function founderTaskOf(f: FounderTaskFacts): FounderTask | null
 **Tests and evals:** above; Storybook states (each task, done, none).
 **Done when:** Today always names one thing the founder can finish in minutes, and says what happens next.
 
-### T10: Chief of Staff as mentor, with founder context   [M] [ships alone]
+### [x] T10: Chief of Staff as mentor, with founder context   [M] [ships alone]
 
 **Why:** TS-06, TS-13 (examples), FR-16 row 2, a3b §3.3 (Composer and conversation rows), THESIS §12.6.
 
