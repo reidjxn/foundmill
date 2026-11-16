@@ -4,7 +4,7 @@
  * schemas, so a renamed key fails a test rather than turning a founder's instruction into a no-op reported as done.
  * `PLAN_ACTION_PARAMS` is the per-action param list the live compiler is given with its input.
  */
-import { CHANNEL_KEYS, CHOOSABLE_MODEL_KEYS, CreatePlaybookParams, MODEL_KEYS, ROADMAP_HORIZONS, TASK_KINDS, type PlanActionType, type RoadmapHorizon } from "@foundmill/shared";
+import { CHANNEL_KEYS, CHOOSABLE_MODEL_KEYS, CreatePlaybookParams, ROADMAP_HORIZONS, TASK_KINDS, type PlanActionType, type RoadmapHorizon } from "@foundmill/shared";
 import { z } from "zod";
 
 /** Every action's params, by name, as the plan compiler must write them. */
