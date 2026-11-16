@@ -20,7 +20,7 @@
  *   result type's count goes up by one: no answers, no address, no time is kept.
  */
 import { pageQuizReadiness, runPageQuizDraft, PAGE_QUIZ_USAGE_KIND, type PageQuizFacts } from "@foundmill/agents";
-import { repos, type DbTx, type PageQuiz } from "@foundmill/db";
+import { repos, resolveAgentPrompt, type DbTx, type PageQuiz } from "@foundmill/db";
 import {
   ForbiddenError,
   PAGE_QUIZ_MIN_CUSTOMERS,
@@ -133,13 +133,15 @@ export async function draftPageQuiz(ctx: BusinessContext): Promise<PageQuizDraft
   if (existing && existing.status !== "draft" && !canApproveQuiz(ctx)) throw new ForbiddenError(PAGE_QUIZ_EDIT_APPROVED_MESSAGE);
   // The contacts' names and addresses, on the service connection: taken out of what the model reads, and refused in a
   // draft. They are never sent anywhere.
-  const [stored, page, terms] = await Promise.all([repos.pageQuizzes.facts(ctx.db, ctx.businessId), ctx.rls((tx) => pageFacts(tx, ctx)), repos.pageQuizzes.personalTerms(ctx.db, ctx.businessId)]);
+  // The Product lead as it is now (its live instructions and skills) frames the draft (WP-06 T1).
+  const [stored, page, terms, agent] = await Promise.all([repos.pageQuizzes.facts(ctx.db, ctx.businessId), ctx.rls((tx) => pageFacts(tx, ctx)), repos.pageQuizzes.personalTerms(ctx.db, ctx.businessId), resolveAgentPrompt(ctx.db, ctx.businessId, { templateKey: "product_lead" })]);
   const facts: PageQuizFacts = {
     businessName: ctx.business.name,
     page: { pitch: page.content.pitch, about: page.content.about, forWhom: page.content.forWhom, followForm: page.followForm },
     customers: stored.customers,
     offers: stored.offers,
     totals: stored.totals,
+    agent,
   };
   const result = await runPageQuizDraft(ctx.models, facts, { businessId: ctx.businessId, kind: PAGE_QUIZ_USAGE_KIND }, terms);
   if (result.outcome === "refused") {

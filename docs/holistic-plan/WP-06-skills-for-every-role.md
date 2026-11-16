@@ -55,7 +55,7 @@ Migrations: each takes the next free number when its branch is cut (0108, journa
 
 ## Tasks
 
-### T1: One resolver, so skills and the live version follow an agent into every call   [M] [ships alone]
+### [x] T1: One resolver, so skills and the live version follow an agent into every call   [M] [ships alone]
 
 **Why:** TS-01 (P0). Only `session.ts:1449`, `conversation.ts:845` and `training.ts:210` pass the agent's own version and skills; ten other builders call `buildSystemPrompt` with the static template.
 

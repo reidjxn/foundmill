@@ -332,8 +332,10 @@
   /* ---------- The landing page (DESIGN §9a; docs/holistic-plan/landing/DIRECTION.md §7) ---------- */
   /* Its own type scale, so the console's 13 px root and every token it reads never move. Body 16 px is the size an
      iPhone does not zoom a field at; headings scale with the page's width between a phone and 1440 px. */
-  --fs-landing-h1: clamp(36px, 4.6vw + 18px, 72px);
-  --lh-landing-h1: 1.04;
+  --fs-landing-h1: clamp(42px, 5vw + 22px, 92px);
+  --lh-landing-h1: 0.98;
+  --fs-landing-h3: clamp(22px, 1vw + 18px, 30px);
+  --lh-landing-h3: 1.14;
   --fs-landing-h2: clamp(26px, 1.8vw + 19px, 40px);
   --lh-landing-h2: 1.12;
   --fs-landing-lede: clamp(17px, 0.3vw + 16px, 19px);
@@ -348,6 +350,31 @@
   --landing-field-h: 56px; /* the idea field and its button, side by side from 640 px */
   --landing-gen-h: 52px; /* the idea button, full width under the field on a phone */
   --line-control: rgba(255, 255, 255, 0.34); /* a field's edge on the landing page: 3 : 1 against the canvas (s1 §2, WCAG 1.4.11) */
+
+  /* ---------- Daylight: the top of the landing page only (founder, 2026-11-16; DESIGN §9a) ----------
+     The landing page opens in daylight and descends into the product's night. These are the only light values in the
+     system, read through the `landing-day` scope (landing.css), which points the semantic tokens at them; nothing in
+     the console reads them. Ink is the canvas's own blue-black, so the two halves share one hue. Contrast on
+     day-canvas: ink 17.0 : 1, ink-2 8.6 : 1, ink-3 5.4 : 1, day-accent 5.9 : 1, day-good 5.2 : 1 (tokens.test.ts). */
+  --day-canvas: #f1f5fb; /* the page in daylight */
+  --day-surface-1: #ffffff; /* the idea field, raised tiles */
+  --day-surface-2: #e6ecf5; /* secondary buttons, hover */
+  --day-surface-3: #d9e1ee; /* active */
+  --day-surface-4: #cbd5e5; /* pressed */
+  --day-ink: #0a1322; /* content */
+  --day-ink-2: #3a4759; /* secondary text */
+  --day-ink-3: #566273; /* captions, placeholders */
+  --day-ink-4: #9aa4b2; /* disabled only */
+  --day-line-faint: rgba(10, 19, 34, 0.06);
+  --day-line: rgba(10, 19, 34, 0.1);
+  --day-line-strong: rgba(10, 19, 34, 0.18);
+  --day-line-control: rgba(10, 19, 34, 0.52); /* a field's edge: 3 : 1 against day-canvas */
+  --day-accent: #1b58bd; /* links and focus in daylight */
+  --day-good: #0c7446; /* the assurance icons in daylight */
+  --day-warn: #855600;
+  --day-bad: #b3262d;
+  --day-shadow: 0 1px 2px rgba(10, 19, 34, 0.08), 0 18px 40px -18px rgba(21, 50, 94, 0.35); /* a tile lifted off the day canvas */
+  --day-screen-shadow: 0 2px 6px rgba(10, 19, 34, 0.18), 0 40px 80px -30px rgba(21, 50, 94, 0.6); /* a dark product screen standing in daylight */
 }
 
 /*

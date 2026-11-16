@@ -54,7 +54,8 @@ import { openApprovalNote } from "./approvals";
 import { aboutBusiness } from "./brief";
 import { LoopDetector } from "./loop";
 import { CREDITS_USED_UP_SUMMARY, keptModelForRun, SessionCredits, sessionKeepsModelOnLowCredits, unbookedTokens } from "./session-credits";
-import { budgetSummary, LIMIT_WORDS, sessionBudget, type SessionBudget } from "./session-budget";
+import { MIN_SESSION_CAP_MINOR } from "../cycle-contract";
+import { budgetSummary, LIMIT_WORDS, sessionBudget, UNDER_FLOOR_SUMMARY, type SessionBudget } from "./session-budget";
 import { archiveSessionRecording } from "./recording";
 import { createSessionWorkspace, guardToolCall, hookOutputFor, removeSessionWorkspace, sdkEnvFor, sdkToolPolicyFor } from "./sdk-isolation";
 import { commitShaOf, describePush, pushWorkspace, type PushContext } from "./workspace-push";
@@ -1516,6 +1517,8 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   // A task with nothing left does not start.
   const budget = await sessionBudget(deps, { business: live.business, task, agentId: agent.id, sessionId: input.sessionId, spendCapMinor: input.spendCapMinor ?? null });
   if (budget.remainingMinor <= 0) return { outcome: "blocked", reason: `model budget exhausted: ${LIMIT_WORDS[budget.limit].used}`, blockedReason: "budget", approvalId: null, summary: budgetSummary(budget.limit, budget), providerSessionId: null };
+  // A share of a capped cycle under the floor pays for nothing that finishes (WP-05 T15): it does not start.
+  if (typeof input.spendCapMinor === "number" && input.spendCapMinor < MIN_SESSION_CAP_MINOR) return { outcome: "blocked", reason: "model budget exhausted: what is left of Autopilot's own spend for today is too little for a session", blockedReason: "budget", approvalId: null, summary: UNDER_FLOOR_SUMMARY, providerSessionId: null };
   // Everything that can fail without a workspace runs before one exists (no restored code left on disk, no token).
   const systemPrompt = buildSystemPrompt({ businessName: live.business.name, appName: APP_NAME, template: { instructions: instructionsFor(live.version, live.template), description: live.template.description }, brief: live.briefText ?? undefined, glossary: live.business.glossary, skills: live.skills });
   if (!hasClubRulesPrefix(systemPrompt)) throw new Error("house rules missing from the system prompt");

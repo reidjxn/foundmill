@@ -214,6 +214,17 @@ export interface EnsureGoalResult {
 }
 
 /**
+ * The goal waits for the page (WP-04 T8): nothing is proposed while the project is under a day old and its page is not
+ * live, so day one's notes are the page and the plan. Whichever ends first lifts it: the page going live, or the day
+ * passing. A business never committed is not held here (the first goal's own conditions apply).
+ */
+async function goalWaitsForPage(tx: DbTx, ctx: BusinessContext, now: Date): Promise<boolean> {
+  const committedAt = ctx.business.committedAt;
+  if (!committedAt || now.getTime() - committedAt.getTime() >= 24 * 60 * 60 * 1000) return false;
+  return repos.pages.isUnpublished(tx, ctx.businessId);
+}
+
+/**
  * Home's once-per-visit call. A reader who cannot write gets the views and nothing is written. Never throws for the
  * screen's sake on a missing Chief of Staff or a business still drafting: it just proposes nothing.
  */
@@ -234,6 +245,7 @@ export async function ensureGoal(ctx: BusinessContext, options: { now?: Date } =
     await repos.goals.lock(tx, ctx.businessId);
     const current = await repos.goals.current(tx, ctx.businessId);
     if (current.proposed) return false;
+    if (await goalWaitsForPage(tx, ctx, now)) return false;
     const today = todayOf(ctx, now);
     const counters = await goalCounters(tx, ctx.businessId, now);
 

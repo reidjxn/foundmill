@@ -12,7 +12,7 @@
 import { z } from "zod";
 import { APP_NAME } from "@foundmill/config";
 import { ASSET_KINDS, CHANNEL_META, type AssetKind, type ChannelKey } from "@foundmill/shared";
-import { buildSystemPrompt } from "./club-rules";
+import { agentPromptFields, buildSystemPrompt, type AgentPromptParts } from "./club-rules";
 import { inertJson, plainModelText } from "./foundations";
 import { channelCreativePrompt } from "./prompts/channel-creative";
 import { getChannelTemplate } from "./registry";
@@ -63,6 +63,8 @@ export interface ChannelCreativeInput {
   /** One paragraph on the business and its customers (the spec's summary, the idea's pitch). */
   brief?: string | null;
   weeklyBudget?: { amountMinor: number; currency: string } | null;
+  /** The business's agent of this channel as it is now (its live instructions and skills); the template when absent. */
+  agent?: AgentPromptParts;
 }
 
 export interface ChannelCreativeRequest {
@@ -88,7 +90,7 @@ export function buildChannelCreativeRequest(input: ChannelCreativeInput): Channe
   };
   return {
     route: "worker",
-    system: [buildSystemPrompt({ businessName: input.businessName, appName: APP_NAME, template: getChannelTemplate(input.channelKey) })],
+    system: [buildSystemPrompt({ businessName: input.businessName, appName: APP_NAME, ...agentPromptFields(input.agent, getChannelTemplate(input.channelKey)) })],
     messages: [{ role: "user", content: `${prompt}\n\n\`\`\`json\n${inertJson(data)}\n\`\`\`` }],
     schema: ChannelCreativeOutput,
     maxTokens: CHANNEL_CREATIVE_MAX_TOKENS,

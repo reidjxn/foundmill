@@ -11,12 +11,16 @@
  * redirect or a rewrite); a visitor who already carries one keeps it, and a value that is not a reference changes
  * nothing. No database write and no API call: the api records it once, when the visitor becomes a person. A shared
  * post's code (`s.<code>`, item 8) is also kept in `fm_post` as the last touch (a newer one replaces it), for the Follow form.
+ *
+ * The landing page's variants (lib/landing-variant.ts): a signed-out `/` is served the page its link asks for (`?lp=`,
+ * or the channel in `utm_source`), else the one this browser was given before (`fm_lp`), each a prerendered route.
  */
 import { VIA_COOKIE, VIA_PARAM } from "@foundmill/shared/via";
 import { NextResponse, type NextRequest } from "next/server";
 import { LAST_BUSINESS_COOKIE } from "@/lib/auth/constants";
 import { decideRedirect } from "@/lib/auth/redirects";
 import { isDevLike } from "@/lib/env";
+import { LANDING_VARIANT_COOKIE, LANDING_VARIANT_MAX_AGE, landingVariantSignal } from "@/lib/landing-variant";
 import { updateSession } from "@/lib/supabase/middleware";
 import { postCookie, postToRemember, viaCookie, viaToRemember } from "@/lib/via";
 
@@ -28,13 +32,18 @@ export async function proxy(request: NextRequest) {
   // A shared post's code is also kept as the last touch (`fm_post`, 7 days): a newer one replaces it; `fm_via` is untouched.
   const post = postToRemember(param);
   if (post) answer.cookies.set(postCookie(post, !isDevLike()));
+  // The landing page a link asks for (`?lp=`, or its channel) is kept, so this browser sees one page when it returns.
+  const variant = request.nextUrl.pathname === "/" ? landingVariantSignal(request.nextUrl.search) : null;
+  if (variant && variant !== request.cookies.get(LANDING_VARIANT_COOKIE)?.value) {
+    answer.cookies.set({ name: LANDING_VARIANT_COOKIE, value: variant, path: "/", maxAge: LANDING_VARIANT_MAX_AGE, sameSite: "lax", secure: !isDevLike() });
+  }
   return answer;
 }
 
 /** The session refresh and the redirect rules: what the request is answered with. */
 async function route(request: NextRequest): Promise<NextResponse> {
   const { response, authenticated } = await updateSession(request);
-  const decision = decideRedirect({ pathname: request.nextUrl.pathname, search: request.nextUrl.search, authenticated, lastBusinessId: request.cookies.get(LAST_BUSINESS_COOKIE)?.value });
+  const decision = decideRedirect({ pathname: request.nextUrl.pathname, search: request.nextUrl.search, authenticated, lastBusinessId: request.cookies.get(LAST_BUSINESS_COOKIE)?.value, landingVariant: request.cookies.get(LANDING_VARIANT_COOKIE)?.value });
   if (decision.kind === "next") return response;
   const forget = decision.kind === "rewrite" && decision.forgetLastBusiness;
   // The rewritten render must not read the stale business either (it picks from the request's cookies).

@@ -7,6 +7,17 @@ export const LIMITS = {
   hardMaxConcurrentAgents: 64,
   inboxRefreshDebounceMs: 3000,
   inboxBufferSize: 3,
+  /**
+   * The first week's note budget (WP-04 T8, `noteVerdict` in @foundmill/shared): for this many days after commit an
+   * agent's plain update is folded into the Chief of Staff's "What your team did today". Lower it (to 3, say) if
+   * founders miss updates; 0 turns the fold off.
+   */
+  firstWeekDays: 7,
+  /**
+   * The most open notes a project left alone should hold on a day of its first week (WP-04 Done-when 3). Nothing counts
+   * against it when a note is written: the fold above holds it, and the note-budget tests check it.
+   */
+  firstWeekNotesPerDay: 3,
   /** Longest one composer note may take (Opus call, re-ask, entity sweep) before it is abandoned with nothing written. */
   composerDeadlineMs: 150_000,
   /** How long the api and the orchestrator wait for the composer: above the deadline, so they never give up on a note still being written. */

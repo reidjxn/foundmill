@@ -392,7 +392,9 @@ export async function approveFromInbox(page: Page, bid: string, subject: string)
 export async function approveBothSignoffs(page: Page, bid: string): Promise<void> {
   await approveFromInbox(page, bid, SPEC_SIGNOFF);
   await approveFromInbox(page, bid, ROADMAP_SIGNOFF);
-  await expect(inboxRow(page, /Building starts:/)).toBeVisible({ timeout: LONG });
+  // In the project's first week the Product lead's "Building starts: …" is folded into the Chief of Staff's note of the
+  // day (WP-04 T8); the update itself is kept in Archive.
+  await expect(inboxRow(page, "What your team did today")).toBeVisible({ timeout: LONG });
 }
 
 /**

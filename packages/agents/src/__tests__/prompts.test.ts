@@ -5,6 +5,17 @@ import { PLAN_ACTION_TYPES } from "@foundmill/shared";
 import { COMPOSER_PLUMBING_WORDS, PROMPTS, PROMPT_LIST, dropPlatformDuties, founderExperienceFrom, getPrompt, platformDutyReason } from "../prompts";
 import { PromptRenderError, definePrompt, extractPlaceholders, formatVariable } from "../prompts/template";
 import { ROUTE_DEFAULT_MODEL } from "../types";
+import { buildChannelCreativeRequest } from "../channel-creative";
+import { getChannelTemplate } from "../registry";
+import { agentParts, expectFollowsAgent } from "./agent-parts.fixtures";
+
+describe("buildChannelCreativeRequest follows the business's channel agent (WP-06 T1)", () => {
+  it("with `agent`, its instructions and skills; without, the template as before", () => {
+    const template = getChannelTemplate("paid_ads");
+    const input = { businessName: "Shiftly", channelKey: "paid_ads" as const, campaignName: "First cafes", objective: "Ten cafes post a shift", learnings: [], kitMode: false };
+    expectFollowsAgent(buildChannelCreativeRequest({ ...input, agent: agentParts(template) }).system[0]!, buildChannelCreativeRequest(input).system[0]!, template, "Shiftly");
+  });
+});
 
 const REQUIRED_KEYS = [
   "club_rules",

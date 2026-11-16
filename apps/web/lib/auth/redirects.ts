@@ -13,6 +13,7 @@
  *   app/(live)/layout.tsx, because only the API knows whether the profile exists; the proxy only knows who is signed in.
  */
 import { exampleRoute } from "@/components/landing/examples/ids";
+import { landingVariant, landingVariantRoute } from "@/lib/landing-variant";
 import { NEXT_PARAM } from "./constants";
 import { STALE_BUSINESS_PARAM, lastBusinessHome } from "./last-business";
 
@@ -23,7 +24,7 @@ import { STALE_BUSINESS_PARAM, lastBusinessHome } from "./last-business";
  * `/i/<token>` (an invitation to a project) is opened by people who may have no account yet: the page says "Sign in"
  * itself and comes back with `next`.
  */
-const PUBLIC_PREFIXES = ["/login", "/auth/", "/_next/", "/brand/", "/favicon", "/icon", "/apple-icon", "/opengraph-image", "/robots.txt", "/sitemap.xml", "/health", "/examples/", "/p/", "/u/", "/m/", "/a/", "/email/pause", "/email/unsubscribe", "/terms", "/privacy", "/i/", "/tour"];
+const PUBLIC_PREFIXES = ["/login", "/auth/", "/_next/", "/brand/", "/favicon", "/icon", "/apple-icon", "/opengraph-image", "/robots.txt", "/sitemap.xml", "/health", "/examples/", "/p/", "/u/", "/m/", "/a/", "/email/pause", "/email/unsubscribe", "/terms", "/privacy", "/i/", "/tour", "/lp/"];
 
 /** The signed-in index (app/start/page.tsx): a signed-in `/` the proxy cannot answer itself is rewritten here. */
 export const SIGNED_IN_INDEX = "/start";
@@ -82,7 +83,7 @@ export function signedInDestination(target: string, lastBusinessId: string | nul
   return target === "/" ? (lastBusinessHome(lastBusinessId) ?? target) : target;
 }
 
-export function decideRedirect(input: { pathname: string; search?: string; authenticated: boolean; lastBusinessId?: string | null }): RedirectDecision {
+export function decideRedirect(input: { pathname: string; search?: string; authenticated: boolean; lastBusinessId?: string | null; landingVariant?: string | null }): RedirectDecision {
   const { pathname, authenticated, lastBusinessId } = input;
   const search = input.search ?? "";
   if (authenticated && pathname === "/login") {
@@ -94,7 +95,10 @@ export function decideRedirect(input: { pathname: string; search?: string; authe
     if (pathname === "/") {
       // The landing page; a deep link to another example business is that business's own prerendered page.
       const example = exampleRoute(search);
-      return example ? { kind: "rewrite", to: example } : { kind: "next" };
+      if (example) return { kind: "rewrite", to: example };
+      // One of the landing page's other variants (lib/landing-variant.ts): its own prerendered page, under `/`.
+      const variant = landingVariantRoute(landingVariant(search, input.landingVariant));
+      return variant ? { kind: "rewrite", to: variant } : { kind: "next" };
     }
     return { kind: "redirect", to: `/login?${NEXT_PARAM}=${encodeURIComponent(`${pathname}${search}`)}` };
   }

@@ -161,7 +161,7 @@ describe("POST /idea-box/draft", () => {
     const { app } = await setup();
     for (let i = 0; i < IDEA_BOX_LIMITS.perAddressHour.limit; i++) expect(last((await draft(app, idea, { address: "203.0.113.5" })).events).type).toBe("card");
     // WP-03 T1: a refusal never sends a signed-out visitor to sign in as if that let them keep going.
-    expect((await draft(app, idea, { address: "203.0.113.5" })).events[0]).toMatchObject({ type: "error", code: "limit", message: "That is all the cards from this connection today. Come back tomorrow for another." });
+    expect((await draft(app, idea, { address: "203.0.113.5" })).events[0]).toMatchObject({ type: "error", code: "limit", message: "That is all the ideas from this connection today. Come back tomorrow for another." });
     expect(last((await draft(app, idea, { address: "203.0.113.6" })).events).type).toBe("card");
   });
 

@@ -28,7 +28,7 @@
 import { recordExpiredApprovals } from "@foundmill/events";
 import { buildChannelCreativeRequest, docText, finaliseCreative, getChannelTemplate } from "@foundmill/agents";
 import { LIMITS } from "@foundmill/config";
-import { repos } from "@foundmill/db";
+import { repos, resolveAgentPrompt } from "@foundmill/db";
 import { stableHash } from "@foundmill/models";
 import { assertMockResultsAllowed, CHANNEL_KEYS, CHANNEL_META, mockResultsAllowed, type BusinessMode, type ChannelAvailability, type ChannelKey } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
@@ -192,7 +192,8 @@ export function createChannelActivities(deps: OrchestratorDeps) {
           let failure: string | null = null;
           try {
             const result = await deps.models.complete({
-              ...buildChannelCreativeRequest({ businessName: business.name, channelKey: key, campaignName: campaign.name, objective: campaign.goal, learnings: state.learnings, kitMode: channel.kitMode, brief: await creativeBrief(businessId), weeklyBudget: budgetMinor > 0 ? { amountMinor: budgetMinor, currency } : null }),
+              // The channel's agent as it is now: its live instructions and skills (WP-06 T1).
+              ...buildChannelCreativeRequest({ businessName: business.name, channelKey: key, campaignName: campaign.name, objective: campaign.goal, learnings: state.learnings, kitMode: channel.kitMode, brief: await creativeBrief(businessId), weeklyBudget: budgetMinor > 0 ? { amountMinor: budgetMinor, currency } : null, agent: await resolveAgentPrompt(db, businessId, { channelKey: key }) }),
               scope: `channel-creative:${businessId}`,
               attribution: { businessId, ...(owner ? { agentId: owner.id } : {}), kind: "channel_creative" },
             });

@@ -85,11 +85,11 @@ describe("IdeaBox", () => {
   });
 
   it("shows a refusal's one line under the field and stays ready", async () => {
-    draftEvents = [{ type: "error", code: "limit", message: "That is all the cards from this connection today." }];
+    draftEvents = [{ type: "error", code: "limit", message: "That is all the ideas from this connection today." }];
     renderBox();
     fireEvent.change(screen.getByTestId("idea-input"), { target: { value: "Something to try" } });
     fireEvent.click(screen.getByTestId("idea-generate"));
-    await waitFor(() => expect(screen.getByTestId("idea-error").textContent).toMatch(/all the cards/));
+    await waitFor(() => expect(screen.getByTestId("idea-error").textContent).toMatch(/all the ideas/));
     expect(screen.getByTestId("idea-generate")).toBeTruthy();
   });
 
@@ -133,12 +133,12 @@ describe("IdeaBox", () => {
     expect((init as RequestInit).signal?.aborted).toBe(true);
   });
 
-  it("says what keeping the card does today, and what it costs", async () => {
+  it("says what keeping the idea does today, and what it costs", async () => {
     mine = { ...landedEvent, again: true };
     renderBox();
     await waitFor(() => expect(screen.getByTestId("idea-keep")).toBeTruthy());
-    expect(IDEA_BOX_WORDS.keepLead).toBe(`Sign in to keep this card. ${APP_NAME} lets new people in a few at a time. If your place is not open yet, we hold your card for 90 days.`);
-    expect(IDEA_BOX_WORDS.freeLine).toMatch(/^Free to start\. Your plan includes \$\d+\.\d{2} of agent work every month\. You never enter a card\.$/);
+    expect(IDEA_BOX_WORDS.keepLead).toBe(`Sign in to keep this idea. ${APP_NAME} lets new people in a few at a time. If your place is not open yet, we hold your idea for 90 days.`);
+    expect(IDEA_BOX_WORDS.freeLine).toMatch(/^Free to start\. Your plan includes \$\d+\.\d{2} of agent work every month\. You never enter payment details\.$/);
     expect(screen.getByText(IDEA_BOX_WORDS.keepLead)).toBeTruthy();
     expect(screen.getByText(IDEA_BOX_WORDS.freeLine)).toBeTruthy();
     // The team cannot check numbers against real sources yet (a1 FR-06): nothing on the box says it does.

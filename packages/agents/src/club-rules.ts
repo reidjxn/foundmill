@@ -36,6 +36,26 @@ export interface AgentSkillPrompt {
   instructionsMd: string;
 }
 
+/**
+ * What a call made in an agent's name renders of that agent (WP-06 T1): its live instructions, the description and its
+ * skills. packages/db `resolveAgentPrompt` fills it from the business's own agent; a builder given none falls back to
+ * its template exactly as before.
+ */
+export interface AgentPromptParts {
+  instructions: AgentInstructions;
+  description?: string;
+  skills: readonly AgentSkillPrompt[];
+}
+
+/**
+ * The `template` and `skills` of `buildSystemPrompt` for a builder: the agent's own parts when given, else the
+ * template alone (so the prompt is byte for byte what it was before agents were passed).
+ */
+export function agentPromptFields(agent: AgentPromptParts | undefined, template: { instructions: AgentInstructions; description?: string }): Pick<BuildSystemPromptInput, "template" | "skills"> {
+  if (!agent) return { template };
+  return { template: { instructions: agent.instructions, description: agent.description }, skills: agent.skills };
+}
+
 export const CLUB_RULES_HEADER = "## House rules";
 export const INSTRUCTIONS_HEADER = "## Your instructions";
 export const SKILLS_HEADER = "## Skills";
