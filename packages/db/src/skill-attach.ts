@@ -63,6 +63,8 @@ export async function attachAddedSkills(
   onAdded: (definition: SkillDefinition, skill: ResolvedSkill) => Promise<void>,
 ): Promise<AddedAgentSkill[]> {
   if (skills.length === 0) return [];
+  // Lock the agent first, so two adds at once cannot both pass the count and index limits (they run one after the other).
+  await repos.agents.lockForUpdate(tx, businessId, agent.id);
   const [existing, ratings] = await Promise.all([repos.skills.listAddedForAgent(tx, businessId, agent.id, agent.agentType), repos.skills.listForAgent(tx, businessId, agent.id)]);
   const seen: { key: string; name: string }[] = existing.map((e) => ({ key: e.skillKey, name: e.name }));
   // The ratings the agent carries, by their catalog name ("Debugging"): an added skill may not read as one of them,

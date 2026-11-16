@@ -189,6 +189,15 @@ describe("agent.skills.add / remove", () => {
     await expect(owner().agent.skills.add({ businessId: hz.A.businessId, agentId: agent.id, skills: [{ source: "library", key: longest[40]!.key }] })).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringMatching(/at most 40/) });
   });
 
+  it("two adds at once cannot take an agent past 40 (the agent row is locked first; security review L3)", async () => {
+    const agent = await owner().team.agents.hire({ businessId: hz.A.businessId, templateKey: TEMPLATE, departmentId: hz.A.departmentId, name: "Racer" });
+    const keys = [...SKILL_LIBRARY].sort((a, b) => b.instructionsMd.length - a.instructionsMd.length).slice(0, 41).map((s) => s.key);
+    for (let i = 0; i < 39; i += 8) await owner().agent.skills.add({ businessId: hz.A.businessId, agentId: agent.id, skills: keys.slice(i, Math.min(i + 8, 39)).map((key) => ({ source: "library" as const, key })) });
+    const both = await Promise.allSettled([keys[39]!, keys[40]!].map((key) => owner().agent.skills.add({ businessId: hz.A.businessId, agentId: agent.id, skills: [{ source: "library", key }] })));
+    expect(both.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(await owner().agent.skills.added({ businessId: hz.A.businessId, agentId: agent.id })).toHaveLength(40);
+  });
+
   it("refuses a skill that would take the agent's skills index past 8,000 characters (WP-06 T4)", async () => {
     const agent = await owner().team.agents.hire({ businessId: hz.A.businessId, templateKey: TEMPLATE, departmentId: hz.A.departmentId, name: "Wordy" });
     // Uploads with long names and descriptions: about 300 characters of index each, so the index limit comes first.

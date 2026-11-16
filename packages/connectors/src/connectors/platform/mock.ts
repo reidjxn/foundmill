@@ -206,8 +206,8 @@ export function createMemoryPlatformHost(): PlatformHost {
       // The same lookup as the gateway's: only a skill this agent carries, in this business's world.
       const found = (world(caller.businessId).skills.get(caller.agentId) ?? []).find((x) => x.skillKey === skillKey);
       if (!found) throw new PlatformToolError("not_found", `You have no skill ${skillKey}: use a key from your skills list`);
-      const source = found.source === "upload" ? "uploaded file" : "library";
-      return { skillKey: found.skillKey, name: found.name, text: `<skill name="${found.name}" source="${source}">\n# ${found.name}\n\nMock instructions for ${found.name}.\n</skill>`, notice: READ_SKILL_NOTICE };
+      const source = found.source === "upload" ? ("upload" as const) : ("library" as const);
+      return { skillKey: found.skillKey, name: found.name, source, text: `<skill name="${found.name}" source="${source === "upload" ? "uploaded file" : "library"}">\n# ${found.name}\n\nMock instructions for ${found.name}.\n</skill>`, notice: READ_SKILL_NOTICE };
     },
     async removeSkill(caller, { agentId, skillKey }) {
       const w = world(caller.businessId);

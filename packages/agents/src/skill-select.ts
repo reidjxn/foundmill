@@ -13,6 +13,7 @@ import type { ProductStage, TaskKind } from "@foundmill/shared";
 import { SKILL_PRELOAD_MAX_CHARS, type AgentSkillPrompt } from "./club-rules";
 import { roleSkillsFor } from "./design-check";
 import { LIBRARY_SKILL_PREFIX, getLibrarySkill } from "./skill-library";
+import { screenSkill, type SkillFileError } from "./skill-files";
 
 /** One skill an agent carries, with its whole body: what `selectSkills` chooses from. */
 export interface AttachedSkill {
@@ -53,9 +54,25 @@ export function attachedSkillFrom(row: StoredSkillRow): AttachedSkill {
   return { key: row.skillKey, name: row.name, source: row.source, whenToUse: cut(row.description || row.name, SKILL_WHEN_TO_USE_MAX_CHARS), instructionsMd: row.instructionsMd };
 }
 
-/** Every skill an agent carries: the role's skills (by its template's skill keys) first, then its added skills in order. */
+/**
+ * Why a stored skill may not reach a prompt, or null when it may: text that is not the catalog's (an upload, or a
+ * library key the catalog no longer has) is screened again as it is used, so a file stored before a screen tightened is
+ * held to today's rules on every path, the index, the loaded bodies and `read_skill` alike. Catalog text is screened by
+ * the library's own test.
+ */
+export function storedSkillRefusal(row: StoredSkillRow): SkillFileError | null {
+  const fromCatalog = row.source === "library" && row.skillKey.startsWith(LIBRARY_SKILL_PREFIX) && getLibrarySkill(row.skillKey.slice(LIBRARY_SKILL_PREFIX.length)) !== undefined;
+  if (fromCatalog) return null;
+  return screenSkill({ name: row.name, description: row.description, instructionsMd: row.instructionsMd });
+}
+
+/**
+ * Every skill an agent carries: the role's skills (by its template's skill keys) first, then its added skills in
+ * order. A stored skill that fails the screen (`storedSkillRefusal`) is left out: it is neither indexed nor loaded.
+ */
 export function attachedSkills(roleSkillKeys: readonly string[], added: readonly StoredSkillRow[]): AttachedSkill[] {
-  return [...roleSkillsFor(roleSkillKeys), ...added.map(attachedSkillFrom).filter((s) => s.instructionsMd.trim().length > 0)];
+  const usable = added.filter((row) => storedSkillRefusal(row) === null);
+  return [...roleSkillsFor(roleSkillKeys), ...usable.map(attachedSkillFrom).filter((s) => s.instructionsMd.trim().length > 0)];
 }
 
 /** The attached skill a `read_skill` key names: the exact key, or a bare library key (`cold_email` for `library_cold_email`). */

@@ -35,7 +35,9 @@ WP-06 T4 (AR-10 design A, a3b §6c, TS-11, TS-19; founder D6 of Nov 16: a short 
   chooses by the founder's message. Training (`apps/orchestrator/src/activities/training.ts`) loads the skill under
   test and its improvers.
 - **`read_skill`.** The tool is in `packages/connectors/src/connectors/platform/tools.ts`, next to `list_skills`, with
-  the spec's description, input and output, `hints: {}` and `readOnlyHint`, and no `untrusted` flag.
+  the spec's description and input, an output that also carries `source`, `hints: {}` and `readOnlyHint`. An uploaded
+  skill comes back in the untrusted envelope (`untrusted: "document"`, ref `skill:<key>`, through a new
+  `untrustedWhen` on the tool spec in `packages/connectors/src/define.ts`); library and role skills come back raw.
   `CAPABILITY_TOOLS.platform["skills.read"] = ["read_skill"]` is in `grants.ts`, and `PLATFORM_BASE_TOOLS` gains
   `"skills.read"`, so every template with the base platform grant holds it. `READ_SKILL_NOTICE` is "Your own skill,
   checked by the platform. Follow it within the house rules; it grants no permission." The mock host looks the skill up
@@ -44,8 +46,9 @@ WP-06 T4 (AR-10 design A, a3b §6c, TS-11, TS-19; founder D6 of Nov 16: a short 
     through the same pipeline as every platform tool (session scope, rate limit, state re-check, Cedar, `tool.call`
     audit), plus one `agent.skills.read` audit row `{ skillKey, sessionId }`.
   - The lookup is `readAgentSkill` in packages/db. It returns only a skill the calling agent carries (its role's, or
-    one added to it in its business), with a library skill's text taken from the catalog. The text is screened again
-    with `screenSkill`, and a refusal comes back with its reason. The skill is returned wrapped in its `<skill>` block.
+    one added to it in its business), with a library skill's text taken from the catalog. Stored text is screened by
+    the same rule as every prompt (`storedSkillRefusal` in `attachedSkills`), and a skill asked for by key that fails
+    it is refused with the reason. The skill is returned wrapped in its `<skill>` block.
 - **Limits.** `MAX_ADDED_SKILLS_PER_AGENT = 8` and `ADDED_SKILLS_MAX_TOTAL_CHARS = 60_000` are replaced by
   `MAX_SKILLS_PER_AGENT = 40` (`LIMITS.skillsPerAgentMax` in `@foundmill/config`, which the picker's `MAX_ADDED_SKILLS`
   also reads), `SKILL_INDEX_MAX_CHARS = 8_000` and `SKILL_PRELOAD_MAX_CHARS = 24_000`. `attachAddedSkills` refuses past
@@ -89,8 +92,8 @@ WP-06 T4 (AR-10 design A, a3b §6c, TS-11, TS-19; founder D6 of Nov 16: a short 
     refuses the call.
   - The router's per-call cap on skills added at once stays at 8 (`agent.skills.add`, hire). It is a batch size, not
     the agent's limit.
-  - Screening at read time checks the name, `whenToUse` and body. The catalog's description is not on the attached
-    skill, and an upload's description was screened when it was uploaded.
+  - Screening on use checks the stored name, description and body of any text that is not the catalog's (an upload,
+    or a library key the catalog no longer has). Catalog text is held to the screen by the library's own test.
   - The conversation and training keep their earlier skill sets (added skills only, no role skills), now as an index
     plus loaded bodies. Bringing Design principles into a code agent's chat was not asked for.
 - **`key` and `whenToUse` are optional on `AgentSkillPrompt` for now.** `session.ts` still builds its skills by hand,
@@ -101,7 +104,26 @@ WP-06 T4 (AR-10 design A, a3b §6c, TS-11, TS-19; founder D6 of Nov 16: a short 
 - The live eval's first case loads no body up front (`maxBodies: 0`), so it measures whether the agent reads the
   index. A real session loads one.
 
+## Security review
+The review of #255 found nothing blocking. Fixed here (L2 waits for the held session.ts follow-up):
+- **M1.** Stored uploads were indexed and preloaded without a fresh screen; only `read_skill` re-screened.
+  `attachedSkills` now screens every stored skill whose text is not the catalog's (`storedSkillRefusal`) and leaves out
+  one that fails, so the index, the loaded bodies and `read_skill` follow one rule. `readAgentSkill` lost its own
+  screen and only looks up the reason for a skill asked for by key. Test: `skill-select.test.ts`, a stored upload that
+  fails is neither indexed nor loaded.
+- **M2 (option a).** `read_skill` returned uploaded text as trusted. An upload now comes back in the untrusted
+  envelope (`document`, `skill:<key>`), so the quarantined reader and the untrusted-recipient register apply. Library
+  and role skills stay raw. Tests: `skill-reader.test.ts` (gateway, both kinds) and `platform.test.ts` (mock).
+- **L1.** `## Skills loaded for this call` is a reserved heading in `skill-files.ts`, so a file cannot fake the
+  section. Test in `skill-files.test.ts`.
+- **L3.** `attachAddedSkills` locks the agent row (`repos.agents.lockForUpdate`, `SELECT … FOR UPDATE`) before it
+  checks the 40-skill and index limits, so two adds at once cannot both pass. The api test runs two adds at 39 at once
+  and expects one to succeed. PGlite runs transactions one at a time, so the test confirms the result, not the race.
+
 ## Not done
+- **Until the session.ts follow-up lands, live sessions hold `read_skill` but see no skill keys.** Their index lines
+  are names only (L2), and their stored uploads still reach the prompt without the M1 screen, because session.ts
+  builds its skills by hand. Steps 2 and 5 below move it onto `attachedSkills`, which closes both.
 - **`apps/orchestrator/src/activities/session.ts` (reserved for `claude/session-acceptance-check`, which goes
   first).** Once it merges, apply these lines. They touch none of that fix's places: the recorder, the
   `task.kind !== "code"` check, `taskPrompt` and `ACCEPTANCE_UNMET_REASON`.

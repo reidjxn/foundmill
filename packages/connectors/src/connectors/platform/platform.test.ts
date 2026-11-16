@@ -122,6 +122,12 @@ describe("read_skill (WP-06 T4)", () => {
     const mine = ok<{ skillKey: string; text: string; notice: string }>(await as(A, WORKER)("read_skill", { skillKey: "library:cold_email" }));
     expect(mine.text.startsWith('<skill name="cold_email" source="library">')).toBe(true);
     expect(mine.notice).toBe(READ_SKILL_NOTICE);
+    // A library skill comes back raw; an uploaded file in the untrusted envelope, `skill:<key>` (security review M2).
+    expect((await as(A, WORKER)("read_skill", { skillKey: "library:cold_email" })).untrusted).toBeFalsy();
+    ok(await as(A, LEAD)("assign_skill", { agentIds: [WORKER], file: "skills/branch-rules.md" }));
+    const upload = await as(A, WORKER)("read_skill", { skillKey: "upload:skills/branch-rules.md" });
+    expect(upload.untrusted).toBe(true);
+    expect(upload.data).toMatchObject({ source: { kind: "document", ref: "skill:upload:skills/branch-rules.md" }, content: { source: "upload" } });
     expect((await as(A, LEAD)("read_skill", { skillKey: "library:cold_email" })).error).toMatchObject({ code: "not_found" });
     expect((await as(B, WORKER)("read_skill", { skillKey: "library:cold_email" })).error).toMatchObject({ code: "not_found" });
   });

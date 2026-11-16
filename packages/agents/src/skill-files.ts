@@ -215,7 +215,7 @@ const HIDDEN_CHARS = /[\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEF
 const CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
 
 /** The section headers the runtime writes around an agent's instructions; a skill may not imitate them. */
-const RESERVED_HEADERS = /^#{1,6}\s*(house rules|your instructions|what you do|glossary|business brief|skills|training)\s*:?$/i;
+const RESERVED_HEADERS = /^#{1,6}\s*(house rules|your instructions|what you do|glossary|business brief|skills|skills loaded for this call|training)\s*:?$/i;
 
 /**
  * Prompt-injection phrasing: overrides, identity and delimiter spoofing, exfiltration and attempts to widen authority.

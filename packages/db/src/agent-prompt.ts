@@ -7,7 +7,7 @@
  * by the system still follows the template, so a template change reaches every agent nobody has edited. The skills are
  * the session's too: the template's role skills first, then the library and file skills the agent carries.
  */
-import { AgentInstructions, NO_TOOL_LOOP_PRELOAD_BODIES, attachedSkills, findAttachedSkill, getChannelTemplate, getTemplate, getTemplateByAgentType, listTemplates, renderSkillBlock, screenSkill, selectSkills, type AgentPromptParts, type AgentTemplate } from "@foundmill/agents";
+import { AgentInstructions, NO_TOOL_LOOP_PRELOAD_BODIES, attachedSkills, findAttachedSkill, getChannelTemplate, getTemplate, getTemplateByAgentType, listTemplates, renderSkillBlock, selectSkills, storedSkillRefusal, type AgentPromptParts, type AgentTemplate } from "@foundmill/agents";
 import type { ChannelKey } from "@foundmill/shared";
 import { agentsRepo } from "./repos/agents";
 import { skillsRepo } from "./repos/skills";
@@ -57,20 +57,24 @@ export async function resolveAgentPrompt(db: Executor, businessId: string, targe
 }
 
 /** What `read_skill` answers: the skill as its block, or why it is not given. */
-export type ReadAgentSkillResult = { ok: true; skillKey: string; name: string; text: string } | { ok: false; code: "not_found" | "refused"; message: string };
+export type ReadAgentSkillResult = { ok: true; skillKey: string; name: string; source: "library" | "upload" | "role"; text: string } | { ok: false; code: "not_found" | "refused"; message: string };
 
 /**
  * One of an agent's own skills in full, for the gateway's `read_skill` (WP-06 T4): only a skill the agent carries (its
  * role's, or one added to it in this business), never another agent's or another business's. A library skill reads as
- * the catalog has it. The text is screened again as it is read; one that no longer passes is refused with the reason.
- * It comes inside its `<skill>` block, so its text cannot open or close another.
+ * the catalog has it. A stored skill is screened by the same rule as every prompt (`attachedSkills` leaves out one
+ * that fails `storedSkillRefusal`); asked for by key, it is refused with the reason. It comes inside its `<skill>` block,
+ * so its text cannot open or close another.
  */
 export async function readAgentSkill(db: Executor, businessId: string, agentId: string, skillKey: string): Promise<ReadAgentSkillResult> {
   const agent = await agentsRepo.get(db, businessId, agentId);
   const added = await skillsRepo.listAddedForAgent(db, businessId, agent.id, agent.agentType);
   const skill = findAttachedSkill(attachedSkills(agentTemplateOf(agent).skills, added), skillKey);
-  if (!skill) return { ok: false, code: "not_found", message: `You have no skill ${skillKey.slice(0, 200)}: use a key from your skills list` };
-  const refusal = screenSkill({ name: skill.name, description: skill.whenToUse, instructionsMd: skill.instructionsMd });
-  if (refusal) return { ok: false, code: "refused", message: `The skill ${skill.name} did not pass the platform's check, so it was not loaded: ${refusal.message}` };
-  return { ok: true, skillKey: skill.key, name: skill.name, text: renderSkillBlock(skill) };
+  if (!skill) {
+    const held = added.find((a) => a.skillKey === skillKey.trim());
+    const refusal = held ? storedSkillRefusal(held) : null;
+    if (held && refusal) return { ok: false, code: "refused", message: `The skill ${held.name} did not pass the platform's check, so it was not loaded: ${refusal.message}` };
+    return { ok: false, code: "not_found", message: `You have no skill ${skillKey.slice(0, 200)}: use a key from your skills list` };
+  }
+  return { ok: true, skillKey: skill.key, name: skill.name, source: skill.source, text: renderSkillBlock(skill) };
 }

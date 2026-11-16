@@ -298,12 +298,17 @@ export const platformTools = [
     annotations: { readOnlyHint: true },
   }),
   // WP-06 T4: an agent's own skills load on demand (the prompt holds their index). Read-only: a skill grants nothing.
+  // A skill file someone uploaded came from outside the platform: it comes back in the untrusted envelope, like a
+  // repository document or the positioning notes; library and role skills are the platform's own text and come back raw.
   defineTool({
     name: "read_skill",
     description: "One of your own skills: its full instructions. Call it with the key from your skills list before work the skill covers.",
     input: z.object({ skillKey: z.string().trim().min(1).max(200) }),
-    output: z.object({ skillKey: z.string(), name: z.string(), text: z.string(), notice: z.string() }),
+    output: z.object({ skillKey: z.string(), name: z.string(), source: z.enum(["library", "upload", "role"]), text: z.string(), notice: z.string() }),
     hints: {},
+    untrusted: "document",
+    untrustedRef: (a) => `skill:${a.skillKey}`,
+    untrustedWhen: (d) => d.source === "upload",
     annotations: { readOnlyHint: true },
   }),
   defineTool({

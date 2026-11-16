@@ -78,14 +78,18 @@ const asAllow = (r: CallResponse): AllowResponse => {
   return r as AllowResponse;
 };
 const read = async (d: Desk, skillKey: string) => asAllow(await client.call(await tokenFor(d), { connector: "platform", tool: "read_skill", args: { skillKey } })).result;
-type ReadOut = { skillKey: string; name: string; text: string; notice: string };
+type ReadOut = { skillKey: string; name: string; source: string; text: string; notice: string };
+type Envelope = { untrusted: true; source: { connector: string; kind: string; ref?: string }; content: ReadOut };
 
 describe("read_skill", () => {
-  it("returns the agent's own skill in its block, outside any untrusted envelope, with the notice, and audits the read", async () => {
+  it("returns the agent's own uploaded skill in its block inside the untrusted envelope, with the notice, and audits the read", async () => {
     const r = await read(theo, uploadKey);
-    expect(r.untrusted).toBeFalsy();
-    const out = r.data as ReadOut;
-    expect(out).toMatchObject({ skillKey: uploadKey, name: "Branch rules", notice: READ_SKILL_NOTICE });
+    // An uploaded file came from outside the platform: it is third-party text, like a repository document (M2).
+    expect(r.untrusted).toBe(true);
+    const env = r.data as Envelope;
+    expect(env).toMatchObject({ untrusted: true, source: { connector: "platform", kind: "document", ref: `skill:${uploadKey}` } });
+    const out = env.content;
+    expect(out).toMatchObject({ skillKey: uploadKey, name: "Branch rules", source: "upload", notice: READ_SKILL_NOTICE });
     expect(out.text.startsWith('<skill name="Branch rules" source="uploaded file">\n')).toBe(true);
     expect(out.text).toContain("Work on the task's own branch.");
     expect(out.text).not.toContain("Ledgerly style");
@@ -93,9 +97,13 @@ describe("read_skill", () => {
     expect(audit[0]).toMatchObject({ actorKind: "agent", actorId: theo.agentId, details: { skillKey: uploadKey, sessionId: theo.sessionId } });
   });
 
-  it("reads a role skill and a library skill by its bare key", async () => {
-    expect((await read(theo, "design_principles")).data as ReadOut).toMatchObject({ name: "Design principles", text: expect.stringContaining("# Design principles") });
-    expect(((await read(theo, "release_notes")).data as ReadOut).skillKey).toBe("library_release_notes");
+  it("reads a role skill and a library skill (by its bare key) raw: the platform's own text, no envelope", async () => {
+    const role = await read(theo, "design_principles");
+    expect(role.untrusted).toBeFalsy();
+    expect(role.data as ReadOut).toMatchObject({ name: "Design principles", source: "role", text: expect.stringContaining("# Design principles") });
+    const lib = await read(theo, "release_notes");
+    expect(lib.untrusted).toBeFalsy();
+    expect(lib.data as ReadOut).toMatchObject({ skillKey: "library_release_notes", source: "library" });
   });
 
   it("a library skill reads as the catalog has it when the stored copy differs", async () => {
