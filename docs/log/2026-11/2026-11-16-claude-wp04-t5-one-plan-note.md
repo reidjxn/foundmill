@@ -92,3 +92,7 @@ supersedes: []
 - The seeded demo businesses keep their two approved rounds and no plan note, as they did (they never had open notes).
 - `chief_of_staff` prompts still say "signed off the specification and the roadmap": that is what the rounds record,
   and it is not shown to the founder.
+- `docs/ARCHITECTURE.md` on main carried committed conflict markers (the invitations and waitlist lines, from the
+  merge of main into WP-03 T10's branch in #213). This change resolves them: the invitations line from main (with
+  WP-03 T8's `address_key`) and the waitlist line from T10 (with `code` and `referred_by_entry_id`). No check catches
+  committed conflict markers yet.
