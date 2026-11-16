@@ -233,6 +233,12 @@ const Env = z.object({
   /** apps/api: with SIGNUP_OPEN, how many new accounts are admitted per UTC day before the rest are refused with `on_waitlist`. */
   SIGNUP_DAILY_CEILING: z.coerce.number().int().min(0).max(1_000_000).default(200),
   /**
+   * apps/api: with SIGNUP_OPEN, how many new accounts open sign-up admits per UTC day from one private email domain
+   * (WP-03 T8). The large mailbox providers (@foundmill/shared `COMMON_MAIL_DOMAINS`) are not counted by domain. Past
+   * it a new person waits with `on_waitlist`. 5 is an Estimate (founder, Nov 15, 2026, D7).
+   */
+  SIGNUP_PER_DOMAIN_PER_DAY: z.coerce.number().int().min(1).max(10_000).default(5),
+  /**
    * apps/api: with SIGNUP_OPEN, the cutover for "a person from before open sign-up" (an ISO timestamp): only an account
    * whose founder profile was created before it is admitted without counting toward SIGNUP_DAILY_CEILING. Unset: the
    * moment migration 0093 ran, which the database stores (`admission_existing_before()`).
