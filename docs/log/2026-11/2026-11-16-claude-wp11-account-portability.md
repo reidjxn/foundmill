@@ -39,4 +39,5 @@ No hard-gate bypass and no injection path: table and column names come only from
 - **Note:** a purge by `fm_purge_business` skips the 7-day wait and is founder-only, on a request in writing.
 
 ## Not done
+- T16's tick in the WP-11 plan comes with the T6 and T9 pull request, so this one shares no file with #238.
 - F6, and a test account closed end to end on production, are the founder's.

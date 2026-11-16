@@ -72,7 +72,7 @@ Rules for every task here (docs/holistic-plan/README.md applies in full):
 | [x] | T13 One JWT verifier for the api and the stream | M | |
 | [x] | T14 Supabase settings: declared and watched | S | WP-00 S10 |
 | [x] | T15 ingest: bounded webhook bodies; mail routes on `/health` | S | WP-00 S2 |
-| [x] | T16 Account export and closing, by request | M | F6 |
+| [ ] | T16 Account export and closing, by request | M | F6 |
 | [x] | T17 The service connection: the rule as it is, and a pinned list | S | |
 | [ ] | T18 The P3 items in one change | S | |
 | [x] | T19 A dated decision for every item left open | S | WP-00 S16 |
@@ -422,7 +422,7 @@ Steps:
 Tests: `webhooks.test.ts` and `billing.test.ts` (the three cases of step 1; `/health` carries `platformMail` as three booleans).
 Done when: an oversized delivery costs ingest nothing, and one request to `/health` says whether mail events can arrive.
 
-### [x] T16: Account export and closing, by request            [size M] [ships alone] [needs the founder: F6] Review: security-reviewer
+### T16: Account export and closing, by request            [size M] [ships alone] [needs the founder: F6] Review: security-reviewer
 Why: A8-13, a11 S12, a11 S13, a11 C10. The Privacy Policy says "Closing your account and exporting all your data is done by request for now" and "When you ask us to delete it, we delete it within 30 days" (`apps/web/content/legal/privacy.ts`); recorded 2026-11-13 "The Terms and the Privacy Policy (founder)". So the promise is an operator path that works, not a button. Today the only way is the dashboard, which strands projects (`fm_memberships_keep_owner`, 0092, lets the last owner go with the auth user) and leaves the Redis stream.
 Files: create `packages/db/src/repos/account-portability.ts`, `packages/db/src/__tests__/repos/account-portability.test.ts`, `apps/api/src/scripts/account.ts`; modify `packages/db/src/repos.ts`, `apps/api/package.json` (`"account": "tsx src/scripts/account.ts"`), docs/DEPLOY.md §4 ("Closing an account by request").
 Interfaces: consumes `portableValue` (`packages/db/src/repos/portability.ts`), `deleteAccountStream(redis, userId)` (`packages/events/src/outbox/account-relay.ts`), `createApiDeps` (`apps/api/src/context.ts`). Produces, as `repos.accountPortability`:
