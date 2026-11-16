@@ -5,10 +5,11 @@
  * untested; additions and removals are audited; another business sees and changes nothing; and the desk conversation's
  * system prompt carries the skill after the house rules.
  */
-import { CLUB_RULES_HEADER, INSTRUCTIONS_HEADER, SKILLS_HEADER, SKILL_LIBRARY, getTemplate } from "@foundmill/agents";
+import { CLUB_RULES_HEADER, INSTRUCTIONS_HEADER, SKILLS_HEADER, SKILL_LIBRARY, defaultSkillKeysFor, getLibrarySkill, getTemplate, librarySkillKey } from "@foundmill/agents";
 import { repos } from "@foundmill/db";
 import { MockModelClient, type CompleteRequest } from "@foundmill/models";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { backfillDefaultSkillsOnBoot } from "../services/default-skills-backfill";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
@@ -18,6 +19,10 @@ beforeAll(async () => {
 afterAll(() => hz.close());
 
 const TEMPLATE = "docs_writer";
+/** A role that comes with no default skills (WP-06 T6), for the limit tests: only the skills a test adds count. */
+const PLAIN_TEMPLATE = "channel_paid_ads";
+/** The skills a founder or the Chief of Staff added: what these tests are about (the role's defaults have their own). */
+const notDefault = <T extends { addedBy?: string | null }>(rows: readonly T[]) => rows.filter((r) => r.addedBy !== "template");
 const SKILL_MD = [
   "---",
   "name: changelog-digest",
@@ -107,14 +112,15 @@ describe("hiring with skills", () => {
     expect(models.history).toHaveLength(0);
     const baseline = getTemplate(TEMPLATE).baselineRating;
     const ratings = await repos.skills.listForAgent(hz.db, hz.A.businessId, agent.id);
-    const added = ratings.filter((r) => r.skillKey.startsWith("library_") || r.skillKey.startsWith("upload_"));
+    const added = notDefault(ratings.filter((r) => r.skillKey.startsWith("library_") || r.skillKey.startsWith("upload_")));
     expect(added).toHaveLength(2);
+    expect(added.every((r) => r.addedBy === "founder")).toBe(true);
     expect(added.map((r) => r.skillKey)).toEqual(expect.arrayContaining(["library_newsletter_writing", expect.stringMatching(/^upload_changelog_digest_[0-9a-f]{8}$/)]));
     expect(added.every((r) => r.tested === null && r.displayed === baseline)).toBe(true);
     // The template's own skills are there too, as before.
-    expect(ratings.length).toBe(getTemplate(TEMPLATE).skills.length + 2);
+    expect(ratings.length).toBe(getTemplate(TEMPLATE).skills.length + 2 + defaultSkillKeysFor(TEMPLATE).length);
 
-    const listed = await owner().agent.skills.added({ businessId: hz.A.businessId, agentId: agent.id });
+    const listed = notDefault(await owner().agent.skills.added({ businessId: hz.A.businessId, agentId: agent.id }));
     expect(listed.map((s) => [s.name, s.source, s.untested])).toEqual([
       ["Newsletter writing", "library", true],
       ["Changelog digest", "upload", true],
@@ -125,7 +131,8 @@ describe("hiring with skills", () => {
 
     // The profile's attributes name them as the founder chose them, with their source.
     const profile = await owner().agent.profile.get({ businessId: hz.A.businessId, agentId: agent.id });
-    expect(profile.skills.filter((s) => s.source === "library" || s.source === "upload").map((s) => s.name).sort()).toEqual(["Changelog digest", "Newsletter writing"]);
+    const defaultNames = defaultSkillKeysFor(TEMPLATE).map((k) => getLibrarySkill(k)!.attribute.name);
+    expect(profile.skills.filter((s) => (s.source === "library" || s.source === "upload") && !defaultNames.includes(s.name ?? "")).map((s) => s.name).sort()).toEqual(["Changelog digest", "Newsletter writing"]);
 
     const audits = (await repos.audit.list(hz.db, hz.A.businessId, { action: "agent.skills.add" })).items.filter((a) => (a.details as { agentId?: string }).agentId === agent.id);
     expect(audits.map((a) => (a.details as { source: string }).source).sort()).toEqual(["library", "upload"]);
@@ -167,7 +174,7 @@ describe("agent.skills.add / remove", () => {
 
     const removed = await owner().agent.skills.remove({ businessId: hz.A.businessId, agentId: agent.id, skillKey: "library_meeting_notes" });
     expect(removed).toEqual({ removed: "library_meeting_notes" });
-    expect(await owner().agent.skills.added({ businessId: hz.A.businessId, agentId: agent.id })).toEqual([]);
+    expect(notDefault(await owner().agent.skills.added({ businessId: hz.A.businessId, agentId: agent.id }))).toEqual([]);
     expect((await repos.skills.listForAgent(hz.db, hz.A.businessId, agent.id)).some((r) => r.skillKey === "library_meeting_notes")).toBe(false);
     await expect(owner().agent.skills.remove({ businessId: hz.A.businessId, agentId: agent.id, skillKey: "library_meeting_notes" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     // A template skill is not removed here: only library and file skills come off this way.
@@ -176,11 +183,11 @@ describe("agent.skills.add / remove", () => {
     expect(removal.details).toMatchObject({ agentId: agent.id, skillKey: "library_meeting_notes", source: "library" });
     // Added again later, it comes back on the same definition.
     await owner().agent.skills.add({ businessId: hz.A.businessId, agentId: agent.id, skills: [{ source: "library", key: "meeting_notes" }] });
-    expect((await owner().agent.skills.added({ businessId: hz.A.businessId, agentId: agent.id })).map((s) => s.skillKey)).toEqual(["library_meeting_notes"]);
+    expect(notDefault(await owner().agent.skills.added({ businessId: hz.A.businessId, agentId: agent.id })).map((s) => s.skillKey)).toEqual(["library_meeting_notes"]);
   });
 
   it("caps an agent at 40 added skills, whatever the length of their bodies (WP-06 T4)", async () => {
-    const agent = await owner().team.agents.hire({ businessId: hz.A.businessId, templateKey: TEMPLATE, departmentId: hz.A.departmentId, name: "Busy" });
+    const agent = await owner().team.agents.hire({ businessId: hz.A.businessId, templateKey: PLAIN_TEMPLATE, departmentId: hz.A.departmentId, name: "Busy" });
     // The 41 longest bodies: they pass the old 60,000-character limit many times over, and the index stays under 8,000.
     const longest = [...SKILL_LIBRARY].sort((a, b) => b.instructionsMd.length - a.instructionsMd.length).slice(0, 41);
     expect(longest.slice(0, 40).reduce((n, s) => n + s.instructionsMd.length, 0)).toBeGreaterThan(60_000);
@@ -190,7 +197,7 @@ describe("agent.skills.add / remove", () => {
   });
 
   it("two adds at once cannot take an agent past 40 (the agent row is locked first; security review L3)", async () => {
-    const agent = await owner().team.agents.hire({ businessId: hz.A.businessId, templateKey: TEMPLATE, departmentId: hz.A.departmentId, name: "Racer" });
+    const agent = await owner().team.agents.hire({ businessId: hz.A.businessId, templateKey: PLAIN_TEMPLATE, departmentId: hz.A.departmentId, name: "Racer" });
     const keys = [...SKILL_LIBRARY].sort((a, b) => b.instructionsMd.length - a.instructionsMd.length).slice(0, 41).map((s) => s.key);
     for (let i = 0; i < 39; i += 8) await owner().agent.skills.add({ businessId: hz.A.businessId, agentId: agent.id, skills: keys.slice(i, Math.min(i + 8, 39)).map((key) => ({ source: "library" as const, key })) });
     const both = await Promise.allSettled([keys[39]!, keys[40]!].map((key) => owner().agent.skills.add({ businessId: hz.A.businessId, agentId: agent.id, skills: [{ source: "library", key }] })));
@@ -199,7 +206,7 @@ describe("agent.skills.add / remove", () => {
   });
 
   it("refuses a skill that would take the agent's skills index past 8,000 characters (WP-06 T4)", async () => {
-    const agent = await owner().team.agents.hire({ businessId: hz.A.businessId, templateKey: TEMPLATE, departmentId: hz.A.departmentId, name: "Wordy" });
+    const agent = await owner().team.agents.hire({ businessId: hz.A.businessId, templateKey: PLAIN_TEMPLATE, departmentId: hz.A.departmentId, name: "Wordy" });
     // Uploads with long names and descriptions: about 300 characters of index each, so the index limit comes first.
     const upload = (n: number) => ({ source: "upload" as const, fileName: `skill-${n}.md`, content: ["---", `name: Long careful skill number ${String(n).padStart(2, "0")} for writing the weekly report`, `description: ${"Use when the weekly report needs careful writing for the founders. ".repeat(4)}`, "---", "", `# Skill ${n}`, "", "Say what changed this week, and why it matters."].join("\n") });
     let refused: unknown = null;
@@ -213,12 +220,14 @@ describe("agent.skills.add / remove", () => {
     await owner().agent.skills.add({ businessId: hz.A.businessId, agentId: planner.id, skills: [{ source: "library", key: "acceptance_criteria" }] });
     const profile = await owner().agent.profile.get({ businessId: hz.A.businessId, agentId: planner.id });
     expect(profile.skills.filter((s) => s.name === "Acceptance criteria")).toEqual([expect.objectContaining({ skillKey: "acceptance_criteria" })]);
-    expect((await owner().agent.skills.added({ businessId: hz.A.businessId, agentId: planner.id })).map((s) => s.name)).toEqual(["Acceptance criteria"]);
+    expect(notDefault(await owner().agent.skills.added({ businessId: hz.A.businessId, agentId: planner.id })).map((s) => s.name)).toEqual(["Acceptance criteria"]);
 
     const backend = await owner().team.agents.hire({ businessId: hz.A.businessId, templateKey: "backend_engineer", departmentId: hz.A.departmentId, name: "Tracer" });
     const debugging = SKILL_MD.replace("name: changelog-digest", "name: Debugging");
     await expect(owner().agent.skills.add({ businessId: hz.A.businessId, agentId: backend.id, skills: [upload(debugging)] })).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/already has a skill called "Debugging"/) });
-    // A library skill that names the rating it sharpens is not a duplicate of it.
+    // A library skill that names the rating it sharpens is not a duplicate of it: the Backend Engineer comes with one.
+    expect((await owner().agent.skills.added({ businessId: hz.A.businessId, agentId: backend.id })).map((s) => s.skillKey)).toContain("library_systematic_debugging");
+    await owner().agent.skills.remove({ businessId: hz.A.businessId, agentId: backend.id, skillKey: "library_systematic_debugging" });
     await owner().agent.skills.add({ businessId: hz.A.businessId, agentId: backend.id, skills: [{ source: "library", key: "systematic_debugging" }] });
   });
 
@@ -226,7 +235,7 @@ describe("agent.skills.add / remove", () => {
     const agent = await owner().team.agents.hire({ businessId: hz.A.businessId, templateKey: TEMPLATE, departmentId: hz.A.departmentId, name: "Private", skills: [{ source: "library", key: "nda_review" }] });
     await expect(hz.caller({ userId: hz.A.viewerId }).agent.skills.add({ businessId: hz.A.businessId, agentId: agent.id, skills: [{ source: "library", key: "release_notes" }] })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(hz.caller({ userId: hz.A.viewerId }).agent.skills.remove({ businessId: hz.A.businessId, agentId: agent.id, skillKey: "library_nda_review" })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    expect((await hz.caller({ userId: hz.A.viewerId }).agent.skills.added({ businessId: hz.A.businessId, agentId: agent.id })).map((s) => s.skillKey)).toEqual(["library_nda_review"]);
+    expect(notDefault(await hz.caller({ userId: hz.A.viewerId }).agent.skills.added({ businessId: hz.A.businessId, agentId: agent.id })).map((s) => s.skillKey)).toEqual(["library_nda_review"]);
     // Business B names A's agent under its own business: not found, nothing written or removed.
     const B = hz.caller({ userId: hz.B.ownerId });
     await expect(B.agent.skills.added({ businessId: hz.B.businessId, agentId: agent.id })).rejects.toMatchObject({ code: "NOT_FOUND" });
@@ -234,7 +243,29 @@ describe("agent.skills.add / remove", () => {
     await expect(B.agent.skills.remove({ businessId: hz.B.businessId, agentId: agent.id, skillKey: "library_nda_review" })).rejects.toMatchObject({ code: "NOT_FOUND" });
     // And under A's business it is not a member.
     await expect(B.agent.skills.added({ businessId: hz.A.businessId, agentId: agent.id })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    expect((await repos.skills.listForAgent(hz.db, hz.A.businessId, agent.id)).filter((r) => r.skillKey.startsWith("library_")).map((r) => r.skillKey)).toEqual(["library_nda_review"]);
+    expect(notDefault((await repos.skills.listForAgent(hz.db, hz.A.businessId, agent.id)).filter((r) => r.skillKey.startsWith("library_"))).map((r) => r.skillKey)).toEqual(["library_nda_review"]);
     expect((await repos.skills.listDefinitions(hz.db, hz.B.businessId)).some((d) => d.source !== null)).toBe(false);
+  });
+});
+
+describe("default skills per role (WP-06 T6)", () => {
+  it("a hire comes with its role's skills, marked as having come with it, removable, and the catalogue says which", async () => {
+    const agent = await owner().team.agents.hire({ businessId: hz.A.businessId, templateKey: TEMPLATE, departmentId: hz.A.departmentId, name: "Comes with" });
+    const expected = defaultSkillKeysFor(TEMPLATE).map(librarySkillKey);
+    expect(expected.length).toBeGreaterThan(0);
+    const listed = await owner().agent.skills.added({ businessId: hz.A.businessId, agentId: agent.id });
+    expect(listed.filter((s) => s.addedBy === "template").map((s) => s.skillKey).sort()).toEqual([...expected].sort());
+    expect(listed.every((s) => s.untested)).toBe(true);
+    const catalogue = await owner().team.agents.catalogue({ businessId: hz.A.businessId });
+    expect(catalogue.find((t) => t.key === TEMPLATE)!.defaultSkills.map((d) => librarySkillKey(d.key))).toEqual(expected);
+    expect(catalogue.find((t) => t.key === PLAIN_TEMPLATE)!.defaultSkills).toEqual([]);
+
+    // The founder takes one off; the next boot's backfill never puts it back.
+    await owner().agent.skills.remove({ businessId: hz.A.businessId, agentId: agent.id, skillKey: expected[0]! });
+    const log = { info: () => undefined, warn: () => undefined };
+    expect(await backfillDefaultSkillsOnBoot({ db: hz.db, log })).toMatchObject({ status: "done", failed: 0 });
+    const after = (await owner().agent.skills.added({ businessId: hz.A.businessId, agentId: agent.id })).map((s) => s.skillKey);
+    expect(after).not.toContain(expected[0]);
+    expect(after).toEqual(expect.arrayContaining(expected.slice(1)));
   });
 });

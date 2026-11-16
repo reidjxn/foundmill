@@ -7,7 +7,7 @@ attribute_name: Customer replies
 attribute_group: craft
 when_to_use: Use when a customer or follower writes in with a question, a problem, a complaint, or a request for a refund, a replacement or to cancel.
 roles: chief_of_staff, operations_lead
-default_for:
+default_for: chief_of_staff
 stage: first_followers, first_sale, growing
 needs: email_send, payments
 adapted_from: original, marketing-skills:churn-prevention

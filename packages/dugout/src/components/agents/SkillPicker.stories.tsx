@@ -50,6 +50,7 @@ export const FilePreview: Story = {
 
 function ChosenDemo() {
   const [items, setItems] = useState<ChosenSkill[]>([
+    { id: "library_plain_human_writing", name: "Plain writing", source: "library", detail: "Removes the patterns that make text read as machine-written and rewrites it plainly from the facts.", untested: true, cameWithRole: true },
     { id: "library_newsletter_writing", name: "Newsletter writing", source: "library", detail: "Writes a regular customer newsletter with one main story.", untested: true },
     { id: "upload_changelog_digest_ab12cd34", name: "Changelog digest", source: "upload", detail: "SKILL.md", untested: true },
   ]);

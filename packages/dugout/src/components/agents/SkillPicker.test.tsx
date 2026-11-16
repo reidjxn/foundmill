@@ -67,6 +67,16 @@ describe("SkillFilePreview and ChosenSkillList", () => {
     expect(onRemove).toHaveBeenCalledWith("b");
   });
 
+  it("marks a skill that came with the agent's role, still removable (WP-06 T6)", () => {
+    const onRemove = vi.fn();
+    render(<ChosenSkillList items={[{ id: "library_week_one_plan", name: "Week one plan", source: "library", untested: true, cameWithRole: true }, { id: "library_meeting_notes", name: "Meeting notes", source: "library" }]} onRemove={onRemove} />);
+    const [first, second] = within(screen.getByRole("list", { name: "Chosen skills" })).getAllByRole("listitem");
+    expect(within(first!).getByText("Came with the role")).toBeTruthy();
+    expect(within(second!).queryByText("Came with the role")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Remove Week one plan" }));
+    expect(onRemove).toHaveBeenCalledWith("library_week_one_plan");
+  });
+
   it("says so when nothing is chosen", () => {
     render(<ChosenSkillList items={[]} emptyText="No skills added yet." />);
     expect(screen.getByText("No skills added yet.")).toBeTruthy();

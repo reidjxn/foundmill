@@ -261,7 +261,7 @@ readSkill(caller: PlatformCaller, args: PlatformArgs<"read_skill">): Promise<Pla
 
 **Done when:** `grep -rn "repos.agents.create(" apps` finds no hire outside `packages/db/src/hire.ts`.
 
-### T6: Default skills at hire, at commit and by backfill   [M] [after T3, T4, T5]
+### [x] T6: Default skills at hire, at commit and by backfill   [M] [after T3, T4, T5]
 
 **Why:** TS-04; planner's decision 3 and 7.
 

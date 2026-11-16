@@ -249,6 +249,10 @@ export type SkillGroup = (typeof SKILL_GROUPS)[number];
 export const ADDED_SKILL_SOURCES = ["library", "upload"] as const;
 export type AddedSkillSource = (typeof ADDED_SKILL_SOURCES)[number];
 
+/** Who put an added skill on an agent (`agent_skills.added_by`, 0143): it came with the role, the founder, or the Chief of Staff. */
+export const SKILL_ADDED_BY = ["template", "founder", "chief_of_staff"] as const;
+export type SkillAddedBy = (typeof SKILL_ADDED_BY)[number];
+
 export const AGENT_VERSION_STATES = ["draft", "live", "retired"] as const;
 export type AgentVersionState = (typeof AGENT_VERSION_STATES)[number];
 

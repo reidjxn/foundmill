@@ -267,6 +267,35 @@ export const agentsRepo = {
     return one(await tx.select().from(agents).where(scoped(businessId, agentId)).limit(1).for("update"), "agent", agentId);
   },
 
+  /** Records the release of role defaults these agents were given (0143); never lowers it. */
+  async setDefaultSkillsVersion(db: Executor, businessId: string, agentIds: readonly string[], version: number): Promise<void> {
+    if (agentIds.length === 0) return;
+    await db
+      .update(agents)
+      .set({ defaultSkillsVersion: version })
+      .where(and(eq(agents.businessId, businessId), inArray(agents.id, [...agentIds]), sql`${agents.defaultSkillsVersion} < ${version}`));
+  },
+
+  /** Businesses with a live agent on an older release of role defaults than `version` (the boot backfill, 0143). */
+  async businessesBehindOnDefaults(db: Executor, version: number): Promise<string[]> {
+    const rows = await db
+      .selectDistinct({ businessId: agents.businessId })
+      .from(agents)
+      .where(and(isNull(agents.archivedAt), sql`${agents.defaultSkillsVersion} < ${version}`))
+      .orderBy(asc(agents.businessId));
+    return rows.map((r) => r.businessId);
+  },
+
+  /** Locks and returns the business's live agents on an older release of role defaults than `version` (0143). */
+  async lockBehindOnDefaults(tx: Executor, businessId: string, version: number): Promise<Pick<Agent, "id" | "agentType" | "defaultSkillsVersion">[]> {
+    return tx
+      .select({ id: agents.id, agentType: agents.agentType, defaultSkillsVersion: agents.defaultSkillsVersion })
+      .from(agents)
+      .where(and(eq(agents.businessId, businessId), isNull(agents.archivedAt), sql`${agents.defaultSkillsVersion} < ${version}`))
+      .orderBy(asc(agents.createdAt))
+      .for("update");
+  },
+
   /** Agents by ids (only those in the business). */
   async byIds(db: Executor, businessId: string, ids: readonly string[]): Promise<Agent[]> {
     if (ids.length === 0) return [];

@@ -120,10 +120,14 @@ test.describe("agent skills from the library and files", () => {
     // Keys never show: the attributes read as words.
     expect(await skills.innerText()).not.toMatch(/library_|upload_/);
 
-    // Training tab: the same two under "Skills from the library or files", and one comes off again.
+    // Training tab: the same two under "Skills from the library or files", next to the skills its role came with
+    // (WP-06 T6: marked, removable), and one comes off again.
     await page.getByRole("tab", { name: "Training" }).click();
     const added = page.getByTestId("added-skills");
-    await expect(added.getByRole("list", { name: "Chosen skills" }).getByRole("listitem")).toHaveCount(2, { timeout: LONG });
+    const chosenItems = added.getByRole("list", { name: "Chosen skills" }).getByRole("listitem");
+    await expect(chosenItems.filter({ hasText: "Came with the role" }).first()).toBeVisible({ timeout: LONG });
+    const founderAdded = chosenItems.filter({ hasNotText: "Came with the role" });
+    await expect(founderAdded).toHaveCount(2, { timeout: LONG });
     await expect(added).toContainText("SKILL.md");
     // Opened from the agent's profile, the library suggests for that agent's role too.
     await added.getByTestId("add-library-skill").click();
@@ -132,7 +136,7 @@ test.describe("agent skills from the library and files", () => {
     await fromProfile.getByRole("button", { name: "Cancel" }).click();
     await expect(fromProfile).toBeHidden();
     await added.getByRole("button", { name: "Remove Changelog digest" }).click();
-    await expect(added.getByRole("list", { name: "Chosen skills" }).getByRole("listitem")).toHaveCount(1, { timeout: LONG });
+    await expect(founderAdded).toHaveCount(1, { timeout: LONG });
     await expect(added).toContainText("Newsletter writing");
   });
 });

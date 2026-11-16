@@ -1,5 +1,5 @@
 /** team.agents.* / team.humans.* / team.responsibilities.* (BUILD §11.9; AC-11.9.2 responsibilities route approvals). */
-import { TEMPLATE_KEYS, getTemplate, hasTemplate, listTemplates } from "@foundmill/agents";
+import { TEMPLATE_KEYS, defaultSkillKeysFor, getLibrarySkill, getTemplate, hasTemplate, listTemplates } from "@foundmill/agents";
 import { CREDITS_CURRENCY, INPUT_LIMITS } from "@foundmill/config";
 import { SectionPermissions, membershipEnded, repos, type AgentRosterActivity } from "@foundmill/db";
 import { ADMIN_ROLES, DECISION_TYPES, DEFAULT_AGENT_STYLE, eventAsSeenBy, ForbiddenError, hasSectionAccess, isOwnerRole, MEMBERSHIP_ROLES, NotFoundError, ValidationError, agentTier, characterFor, leadAgentIds } from "@foundmill/shared";
@@ -17,6 +17,13 @@ import { SIGNALS, workflowIds } from "../services/temporal";
 import { Id, audit, businessProcedure, emit, router, sectionAdmin, sectionRead, sectionWrite, writeProcedure } from "../trpc";
 
 const read = sectionRead("team");
+
+/** The library skills a template comes with (WP-06 T6), for the catalogue's "Comes with" (WP-10 renders it). */
+const defaultSkillsView = (templateKey: string) =>
+  defaultSkillKeysFor(templateKey).map((key) => {
+    const s = getLibrarySkill(key)!;
+    return { key, name: s.attribute.name, whenToUse: s.whenToUse };
+  });
 const write = sectionWrite("team");
 /** Staff and their permissions: owners and admins who may write to the Team section (a wall on Team holds for admins too). */
 const staffAdmin = sectionAdmin("team");
@@ -173,7 +180,7 @@ export const teamRouter = router({
     catalogue: read.input(z.object({ family: z.enum(["assistant", "lead", "worker", "channel", "specialist", "utility"]).optional() })).query(({ input }) =>
       listTemplates(input ?? {})
         .filter((t) => t.family !== "assistant" && (t.family !== "utility" || input?.family === "utility"))
-        .map((t) => ({ key: t.key, name: t.name, role: t.role, family: t.family, layer: t.layer, module: t.module, channelKey: t.channelKey ?? null, modelKey: t.modelKey, description: t.description, skills: t.skills, wageCapMinor: t.wageCapMinor, wageLabel: "Estimate" as const, traits: t.traits })),
+        .map((t) => ({ key: t.key, name: t.name, role: t.role, family: t.family, layer: t.layer, module: t.module, channelKey: t.channelKey ?? null, modelKey: t.modelKey, description: t.description, skills: t.skills, wageCapMinor: t.wageCapMinor, wageLabel: "Estimate" as const, traits: t.traits, defaultSkills: defaultSkillsView(t.key) })),
     ),
 
     /**

@@ -63,6 +63,8 @@ describe("the Chief of Staff's skill tools", () => {
     const added = await repos.skills.listAddedForAgent(db, chief.businessId, engineers[0]!, "backend_engineer");
     expect(added.map((a) => a.name)).toEqual(["Repository and branch rules"]);
     expect(added[0]!.instructionsMd).toContain("Keep every test passing");
+    // Recorded as the Chief of Staff's, not the founder's and not the role's (WP-06 T6).
+    expect(added[0]!.addedBy).toBe("chief_of_staff");
     const audit = (await repos.audit.list(db, chief.businessId, { action: "agent.skills.add", limit: 10 })).items;
     expect(audit).toHaveLength(2);
     expect(audit[0]).toMatchObject({ actorKind: "agent", actorId: chief.agentId });

@@ -51,6 +51,22 @@ export function suggestFor(templateKey: string, stage: ProductStage): string[] {
   return [...forRole.filter((s) => s.stages.includes(stage)), ...forRole.filter((s) => !s.stages.includes(stage))].map((s) => s.key);
 }
 
+/**
+ * The release of the role defaults (WP-06 T6): the highest `defaultSince` in the catalog. An agent records the release
+ * it was given (`agents.default_skills_version`); a later release that adds a default gives it the next integer, so the
+ * backfill offers only that one and never a default the founder removed.
+ */
+export const DEFAULT_SKILLS_VERSION: number = Math.max(0, ...SKILL_LIBRARY.filter((s) => s.defaultFor.length > 0).map((s) => s.defaultSince));
+
+/**
+ * The library skills an agent of `templateKey` comes with (founder, Nov 16, 2026: every role gets its defaults at hire,
+ * marked "Came with the role" and removable), in catalog order; with `sinceVersion`, only those added after that
+ * release. `library` is for tests.
+ */
+export function defaultSkillKeysFor(templateKey: string, sinceVersion = 0, library: readonly LibrarySkill[] = SKILL_LIBRARY): string[] {
+  return library.filter((s) => s.defaultFor.includes(templateKey) && s.defaultSince > sinceVersion).map((s) => s.key);
+}
+
 /** The agent's skill key for a library skill (`press_releases` → `library_press_releases`). */
 export function librarySkillKey(key: string): string {
   return `${LIBRARY_SKILL_PREFIX}${key}`;

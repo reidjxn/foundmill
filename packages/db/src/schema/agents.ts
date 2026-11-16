@@ -1,6 +1,6 @@
 /** 0004 — agents, versions, skills, training, departments, screens, dashboards, tasks, playbooks, holidays. */
 import {
-  ADDED_SKILL_SOURCES, AGENT_LAYERS, AGENT_PAUSE_REASONS, AGENT_STATUSES, AGENT_VERSION_STATES, DEPT_COLOUR_TOKENS, MODEL_KEYS, SKILL_GROUPS, TASK_KINDS, TASK_PHASES, TASK_STATUSES,
+  ADDED_SKILL_SOURCES, AGENT_LAYERS, AGENT_PAUSE_REASONS, AGENT_STATUSES, AGENT_VERSION_STATES, DEPT_COLOUR_TOKENS, MODEL_KEYS, SKILL_ADDED_BY, SKILL_GROUPS, TASK_KINDS, TASK_PHASES, TASK_STATUSES,
 } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { boolean, date, index, integer, jsonb, numeric, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
@@ -51,6 +51,8 @@ export const agents = pgTable(
      * sets it (trigger `fm_agents_speech_accent_guard`).
      */
     speechAccent: text("speech_accent"),
+    /** 0143 — the release of role defaults the agent was given (`DEFAULT_SKILLS_VERSION`, packages/agents); 0 before. */
+    defaultSkillsVersion: integer("default_skills_version").notNull().default(0),
     ...timestampsWithArchive(),
   },
   (t) => [
@@ -246,6 +248,8 @@ export const agentSkills = pgTable(
     nLive: integer("n_live").notNull().default(0),
     displayed: integer("displayed").notNull().default(1),
     potential: integer("potential").notNull().default(1),
+    /** 0143 — who added a library or uploaded skill (`template`: came with the role); null for a rated template skill. */
+    addedBy: text("added_by", { enum: SKILL_ADDED_BY }),
     ...timestamps(),
   },
   (t) => [

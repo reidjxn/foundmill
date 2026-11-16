@@ -2,11 +2,12 @@
  * Hiring agents from templates (packages/agents), the one implementation (WP-06 T5): one `agents` row, its first live
  * `agent_versions` row from the template, and `agent_skills` at the template's baseline rating (AC-11.1.6 "initial
  * skills from template baselines"). Recruitment (`team.agents.hire`), commit (`hireMany`) and the plan's `hire_agent`
- * all write through here. Run it on the service connection: `agent_skills` is service-written (docs/DECISIONS.md
+ * all write through here. Each hire also gets its role's default library skills ("Came with the role", WP-06 T6). Run it on the service connection: `agent_skills` is service-written (docs/DECISIONS.md
  * packages/db).
  */
 import { getSkillDefinition, getTemplate, type AgentTemplate } from "@foundmill/agents";
 import { repos } from "./repos";
+import { attachDefaultSkills } from "./skill-attach";
 import type { Executor } from "./repos/_shared";
 import type { Agent, AgentVersion } from "./schema";
 
@@ -76,6 +77,7 @@ export async function hireFromTemplate(tx: Executor, businessId: string, templat
     lineManagerId: opts.lineManagerId ?? null,
   });
   await repos.skills.upsertForAgent(tx, businessId, agent.id, baselineSkills(template));
+  await attachDefaultSkills(tx, businessId, [{ id: agent.id, agentType: agent.agentType, templateKey: template.key }]);
   return { agent, template, skillKeys: [...template.skills] };
 }
 
@@ -96,5 +98,6 @@ export async function hireMany(tx: Executor, businessId: string, plans: PlannedH
     businessId,
     withSkills.map(({ template, agentId }) => ({ agentId, skills: baselineSkills(template) })),
   );
+  await attachDefaultSkills(tx, businessId, agents.map((agent, i) => ({ id: agent.id, agentType: agent.agentType, templateKey: templates[i]!.key })));
   return agents.map((agent, i) => ({ agent, template: templates[i]!, skillKeys: [...templates[i]!.skills] }));
 }

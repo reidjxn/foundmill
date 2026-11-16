@@ -7,10 +7,11 @@
  * Callers audit each addition under their own actor.
  */
 import { createHash } from "node:crypto";
-import { LIBRARY_SKILL_PREFIX, MAX_SKILLS_PER_AGENT, SKILL_INDEX_MAX_CHARS, SKILL_LIBRARY, attachedSkills, renderSkillIndex, SKILL_LIBRARY_CATEGORY_LABELS, getLibrarySkill, getSkillDefinition, getTemplateByAgentType, librarySkillKey, parseSkillFile, uploadSkillKey } from "@foundmill/agents";
-import { ConflictError, ValidationError, type AddedSkillSource, type SkillGroup } from "@foundmill/shared";
+import { DEFAULT_SKILLS_VERSION, LIBRARY_SKILL_PREFIX, MAX_SKILLS_PER_AGENT, SKILL_LIBRARY as CATALOG, defaultSkillKeysFor, type LibrarySkill, SKILL_INDEX_MAX_CHARS, SKILL_LIBRARY, attachedSkills, renderSkillIndex, SKILL_LIBRARY_CATEGORY_LABELS, getLibrarySkill, getSkillDefinition, getTemplateByAgentType, librarySkillKey, parseSkillFile, uploadSkillKey } from "@foundmill/agents";
+import { ConflictError, ValidationError, type AddedSkillSource, type SkillAddedBy, type SkillGroup } from "@foundmill/shared";
 import { repos, type AddedAgentSkill } from "./repos";
 import type { Agent, SkillDefinition } from "./schema";
+import type { Db } from "./client";
 import type { Executor } from "./repos/_shared";
 
 /** A skill ready to attach: what the definition stores. */
@@ -61,6 +62,7 @@ export async function attachAddedSkills(
   agent: Pick<Agent, "id" | "name" | "agentType">,
   skills: readonly ResolvedSkill[],
   onAdded: (definition: SkillDefinition, skill: ResolvedSkill) => Promise<void>,
+  addedBy: Exclude<SkillAddedBy, "template"> = "founder",
 ): Promise<AddedAgentSkill[]> {
   if (skills.length === 0) return [];
   // Lock the agent first, so two adds at once cannot both pass the count and index limits (they run one after the other).
@@ -90,7 +92,80 @@ export async function attachAddedSkills(
     await onAdded(definition, s);
   }
   // Untested: no tested rating until a training run scores the skill; displayed at the template's baseline meanwhile.
-  await repos.skills.upsertForAgent(tx, businessId, agent.id, skills.map((s) => ({ skillKey: s.skillKey, group: s.group, tested: null, proven: null, nLive: 0, displayed: baseline, potential: baseline })));
+  await repos.skills.upsertForAgent(tx, businessId, agent.id, skills.map((s) => ({ skillKey: s.skillKey, group: s.group, tested: null, proven: null, nLive: 0, displayed: baseline, potential: baseline, addedBy })));
   const added = await repos.skills.listAddedForAgent(tx, businessId, agent.id, agent.agentType);
   return added.filter((a) => skills.some((s) => s.skillKey === a.skillKey));
+}
+
+/** An agent to give its role's default skills: `defaultSkillsVersion` is the release it already has (0: none). */
+export interface DefaultSkillsTarget {
+  id: string;
+  agentType: string;
+  templateKey: string;
+  defaultSkillsVersion?: number;
+}
+
+/**
+ * Gives agents the library skills their role comes with (WP-06 T6; founder, Nov 16, 2026: D3), in the caller's
+ * (service) transaction: the definitions for each agent type in one statement, the rating rows (`added_by =
+ * 'template'`, untested, at the template's baseline) in another, then each agent's `default_skills_version`. Only
+ * defaults newer than an agent's version are offered, and a skill the agent already carries is left as it is, so a
+ * default the founder removed never comes back. `library` and `version` are for tests. Returns the rows written.
+ */
+export async function attachDefaultSkills(
+  tx: Executor,
+  businessId: string,
+  agents: readonly DefaultSkillsTarget[],
+  options: { library?: readonly LibrarySkill[]; version?: number } = {},
+): Promise<number> {
+  const library = options.library ?? CATALOG;
+  const version = options.version ?? DEFAULT_SKILLS_VERSION;
+  const byKey = new Map(library.map((s) => [s.key, s] as const));
+  const wanted = agents.flatMap((a) => defaultSkillKeysFor(a.templateKey, a.defaultSkillsVersion ?? 0, library).map((key) => ({ agent: a, skill: byKey.get(key)! })));
+  await repos.skills.upsertAddedDefinitions(
+    tx,
+    businessId,
+    wanted.map(({ agent, skill }) => ({ agentType: agent.agentType, skillKey: librarySkillKey(skill.key), name: skill.attribute.name, description: skill.description, group: skill.attribute.group, source: "library" as const, instructionsMd: skill.instructionsMd, fileName: null, contentHash: null })),
+  );
+  const written = await repos.skills.addTemplateDefaults(
+    tx,
+    businessId,
+    wanted.map(({ agent, skill }) => ({ agentId: agent.id, skillKey: librarySkillKey(skill.key), group: skill.attribute.group, displayed: getTemplateByAgentType(agent.agentType)?.baselineRating ?? 8 })),
+  );
+  await repos.agents.setDefaultSkillsVersion(tx, businessId, agents.map((a) => a.id), version);
+  return written;
+}
+
+export interface DefaultSkillsBackfillResult {
+  businesses: number;
+  agents: number;
+  attached: number;
+  failed: { businessId: string; error: string }[];
+}
+
+/**
+ * Gives the agents hired before a release of defaults the ones they lack (founder, Nov 16, 2026: D3), one business per
+ * transaction, at api boot after the migrations (apps/api `default-skills-backfill.ts`). Idempotent by
+ * `default_skills_version`: an agent already on the release is skipped, so every boot of every replica may run it, and
+ * the agents are locked so two replicas never work on the same business at once. Archived agents are left alone.
+ */
+export async function backfillDefaultSkills(db: Db, options: { library?: readonly LibrarySkill[]; version?: number } = {}): Promise<DefaultSkillsBackfillResult> {
+  const version = options.version ?? DEFAULT_SKILLS_VERSION;
+  const pending = await repos.agents.businessesBehindOnDefaults(db, version);
+  const result: DefaultSkillsBackfillResult = { businesses: 0, agents: 0, attached: 0, failed: [] };
+  for (const businessId of pending) {
+    try {
+      const done = await db.transaction(async (tx) => {
+        const rows = await repos.agents.lockBehindOnDefaults(tx, businessId, version);
+        const targets = rows.map((r) => ({ ...r, templateKey: getTemplateByAgentType(r.agentType)?.key ?? "" }));
+        return { agents: rows.length, attached: await attachDefaultSkills(tx, businessId, targets, { ...options, version }) };
+      });
+      result.businesses += 1;
+      result.agents += done.agents;
+      result.attached += done.attached;
+    } catch (err) {
+      result.failed.push({ businessId, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  return result;
 }

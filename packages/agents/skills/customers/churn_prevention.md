@@ -7,7 +7,7 @@ attribute_name: Customer retention
 attribute_group: judgement # us-english-allow
 when_to_use: Use when customers cancel, go quiet, stop reordering or have a payment fail, or when asked to design a cancel step or a failed-payment notice.
 roles: chief_of_staff, product_lead, channel_email_automation
-default_for:
+default_for: chief_of_staff
 stage: first_sale, growing
 needs: email_send, payments
 adapted_from: marketing-skills:churn-prevention
