@@ -386,7 +386,7 @@ alter table training_runs add column skill_keys text[];
 
 **Done when:** an instruction edit reaches the next session at no model cost.
 
-### T12: Two honesty fixes in Recruitment and Training copy   [S] [ships alone]
+### [x] T12: Two honesty fixes in Recruitment and Training copy   [S] [ships alone]
 
 **Why:** TS-08. The real builder and a wired Coach are under Not now.
 
