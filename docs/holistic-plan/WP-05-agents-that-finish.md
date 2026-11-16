@@ -289,7 +289,7 @@ Steps:
 2. Build; run the `security-reviewer` agent on the diff. verify: gateway tests; the reviewer's findings answered.
 Done when: a retried run cannot send, post or ask twice.
 
-### T15: A capped night gets one session it can afford [S] [session.ts chain 9; patched]
+### [x] T15: A capped night gets one session it can afford [S] [session.ts chain 9; patched]
 Why: AR-06 (the floor only; the preset's number is WP-09's, from measured cost).
 Files: modify `apps/orchestrator/src/cycle-contract.ts`, `src/workflows/businessCycle.ts`, `src/activities/session.ts`; tests `workflows/businessCycle.test.ts` and a replay fixture in `src/__tests__/workflows/fixtures`.
 Interfaces, consumes: `OVERNIGHT_SHIFT.ownSpendCeilingMinor = 15` (`packages/shared/src/autopilot.ts:397`) becomes `budgetCapMinor`; `taskReserveMinor(budgetMinor, budgetRemaining, freeSlots)` (`businessCycle.ts:44`) splits it across free slots; `maxConcurrent` (`:207`); `sessionBudget(...)` and the `budget.remainingMinor <= 0` refusal in `runLiveSession`.
