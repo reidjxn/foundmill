@@ -13,7 +13,7 @@
 import { APP_NAME } from "@foundmill/config";
 import { type Archetype, type ResearchArtifactKind } from "@foundmill/shared";
 import { RESEARCH_PLAN_KINDS, ResearchPlanOutput } from "@foundmill/models/schemas";
-import { buildSystemPrompt } from "./club-rules";
+import { agentPromptFields, buildSystemPrompt, type AgentPromptParts } from "./club-rules";
 import { describeModelFailure, escapeMarkdown, inertJson, labelFigures, numbersIn, plainLine, plainModelText, untrustedBlock } from "./foundations";
 import { productResearchPlanPrompt } from "./prompts/product-research";
 import { getTemplate } from "./registry";
@@ -48,6 +48,8 @@ export interface ResearchPlanInputs {
   /** The agent the plan is attributed to: the Product Researcher, else the Researcher, else the Product lead. */
   researcherAgentId: string | null;
   researcherName: string | null;
+  /** The business's Product Researcher as it is now (its live instructions and skills); the template when absent. */
+  agent?: AgentPromptParts;
 }
 
 export const RESEARCH_PLAN_ROUTE = "worker" as const satisfies RouteKey;
@@ -112,7 +114,7 @@ export function researchPlanUntrustedBlock(inputs: ResearchPlanInputs): string {
  * for every business's plan up to the variables), the trusted inputs and the specification as the user turn.
  */
 export function buildResearchPlanRequest(inputs: ResearchPlanInputs): ResearchPlanRequest {
-  const system = buildSystemPrompt({ businessName: inputs.businessName, appName: APP_NAME, template: getTemplate(RESEARCH_PLAN_TEMPLATE_KEY) });
+  const system = buildSystemPrompt({ businessName: inputs.businessName, appName: APP_NAME, ...agentPromptFields(inputs.agent, getTemplate(RESEARCH_PLAN_TEMPLATE_KEY)) });
   const prompt = productResearchPlanPrompt.render(researchPlanVariables(inputs));
   return {
     route: RESEARCH_PLAN_ROUTE,

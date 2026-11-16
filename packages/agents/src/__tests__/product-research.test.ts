@@ -17,6 +17,16 @@ import { productResearchPlanPrompt } from "../prompts/product-research";
 import { getArchetypeSeed } from "../archetypes";
 import { getTemplate, getTemplateByAgentType } from "../registry";
 import { ARCHETYPES } from "@foundmill/shared";
+import { agentParts, expectFollowsAgent } from "./agent-parts.fixtures";
+
+describe("buildResearchPlanRequest follows the business's Product Researcher (WP-06 T1)", () => {
+  it("with `agent`, its instructions and skills; without, the template as before", () => {
+    const template = getTemplate("product_researcher");
+    const inputs = researchInputs();
+    const withAgent = buildResearchPlanRequest({ ...inputs, agent: agentParts(template) }).system[0]!;
+    expectFollowsAgent(withAgent, buildResearchPlanRequest(inputs).system[0]!, template, inputs.businessName, false);
+  });
+});
 
 const wordsOf = (s: string) => s.split(/\s+/).filter(Boolean).length;
 

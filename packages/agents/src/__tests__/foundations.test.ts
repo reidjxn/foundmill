@@ -22,6 +22,19 @@ import {
 } from "../foundations";
 
 import { BLOCK, OUTLINE, ideationInputs, importInputs } from "./foundations.fixtures";
+import { buildFoundationsSkeletonRequest } from "../foundations-staged";
+import { getTemplate } from "../registry";
+import { agentParts, expectFollowsAgent } from "./agent-parts.fixtures";
+
+describe("the foundations calls follow the business's Product lead (WP-06 T1)", () => {
+  it("with `agent`, its instructions and skills; without, the template as before", () => {
+    const template = getTemplate("product_lead");
+    const inputs = ideationInputs();
+    const agent = agentParts(template);
+    expectFollowsAgent(buildFoundationsRequest({ ...inputs, agent }).system[0]!, buildFoundationsRequest(inputs).system[0]!, template, inputs.businessName);
+    expectFollowsAgent(buildFoundationsSkeletonRequest({ ...inputs, agent }).system[0]!, buildFoundationsSkeletonRequest(inputs).system[0]!, template, inputs.businessName);
+  });
+});
 
 describe("buildFoundationsRequest", () => {
   it("sends the house rules first, the Product lead's instructions, the prompt and the inputs on the foundations route", () => {

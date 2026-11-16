@@ -20,7 +20,7 @@ import { APP_NAME } from "@foundmill/config";
 import type { CompleteResult, ModelClient, UsageAttribution } from "@foundmill/models";
 import { PostDraftOutput } from "@foundmill/models/schemas";
 import { TEAM_POST_CAPS, TEAM_POST_SUBJECT_LABELS, TEAM_POST_TEXT_MIN, teamPostFits, teamPostTextBudget, type PageStage, type TeamPostSubject, type TeamPostTrigger } from "@foundmill/shared";
-import { buildSystemPrompt } from "./club-rules";
+import { agentPromptFields, buildSystemPrompt, type AgentPromptParts } from "./club-rules";
 import { inertJson, plainModelText, untrustedBlock } from "./foundations";
 import { postDraftPrompt } from "./prompts/post-draft";
 import { getChannelTemplate } from "./registry";
@@ -113,6 +113,8 @@ export interface PostDraftFacts {
    * post: the check reads none of it, so a figure from here is refused as one the facts do not give.
    */
   learned: string[];
+  /** The business's social agent as it is now (its live instructions and skills); the template when absent. */
+  agent?: AgentPromptParts;
 }
 
 export interface PostDraftFactsInput {
@@ -129,6 +131,8 @@ export interface PostDraftFactsInput {
   link: string | undefined;
   /** What earlier posts led to (`PostDraftFacts.learned`). */
   learned?: readonly string[];
+  /** `PostDraftFacts.agent`. */
+  agent?: AgentPromptParts;
 }
 
 const usDate = (at: Date, timeZone?: string | null): string => {
@@ -159,6 +163,7 @@ export function postDraftFacts(input: PostDraftFactsInput): PostDraftFacts {
     fact: { trigger: input.trigger, subject: input.subject, label: TEAM_POST_SUBJECT_LABELS[input.subject], sentence: postFactSentence(input.trigger, input.subject, on), on },
     maxChars: teamPostTextBudget(input.link),
     learned: (input.learned ?? []).slice(0, 3).map((l) => l.replace(/\s+/g, " ").trim().slice(0, 300)),
+    ...(input.agent ? { agent: input.agent } : {}),
   };
 }
 
@@ -215,7 +220,7 @@ export function buildPostDraftRequest(facts: PostDraftFacts, options: { retry?: 
   parts.push("Draft the post now.");
   return {
     route: POST_DRAFT_ROUTE,
-    system: [buildSystemPrompt({ businessName: facts.projectName, appName: APP_NAME, template: getChannelTemplate(POST_DRAFT_CHANNEL) }), postDraftPrompt.render({ business_name: facts.projectName, APP_NAME, max_chars: facts.maxChars })],
+    system: [buildSystemPrompt({ businessName: facts.projectName, appName: APP_NAME, ...agentPromptFields(facts.agent, getChannelTemplate(POST_DRAFT_CHANNEL)) }), postDraftPrompt.render({ business_name: facts.projectName, APP_NAME, max_chars: facts.maxChars })],
     messages: [{ role: "user", content: parts.join("\n\n") }],
     schema: PostDraftOutput,
     reserveTokens: POST_DRAFT_RESERVE_TOKENS,

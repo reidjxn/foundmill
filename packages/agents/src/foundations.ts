@@ -16,7 +16,7 @@ import { z } from "zod";
 import { APP_NAME } from "@foundmill/config";
 import { ARCHETYPE_LABELS, type Archetype, ENTITY_MARKUP_RE, type FoundationsDoor, ROADMAP_HORIZONS, type RoadmapHorizon } from "@foundmill/shared";
 import { FoundationsOutput, type FoundationsRoadmapItem, type FoundationsSection, type FoundationsVision, IDEA_ATTRIBUTE_LABELS, type FigureLabel, type IdeaAttributeKey, type TiptapBlock, type TiptapDoc, type TiptapParagraph, type TiptapText } from "@foundmill/models/schemas";
-import { buildSystemPrompt } from "./club-rules";
+import { agentPromptFields, buildSystemPrompt, type AgentPromptParts } from "./club-rules";
 import { modelBillingFacts, modelBillingMessage } from "./model-billing";
 import { foundationsPrompt } from "./prompts/foundations";
 import { getTemplate } from "./registry";
@@ -108,6 +108,8 @@ export interface FoundationsInputs {
   importedSources: FoundationsImportedSource[];
   /** The agent the drafting is attributed to: the Product lead, else the Chief of Staff. */
   authorAgentId: string | null;
+  /** The business's Product lead as it is now (its live instructions and skills); the template when absent. */
+  agent?: AgentPromptParts;
 }
 
 /** Attribute key → display label (the idea's attributes are stored by key). */
@@ -158,9 +160,12 @@ export interface FoundationsRequest {
   maxTokens: number;
 }
 
-/** The system prompt every foundations call starts with: the house rules and the Product lead's instructions. */
-export function foundationsSystem(inputs: Pick<FoundationsInputs, "businessName">): string {
-  return buildSystemPrompt({ businessName: inputs.businessName, appName: APP_NAME, template: getTemplate(FOUNDATIONS_TEMPLATE_KEY) });
+/**
+ * The system prompt every foundations call starts with: the house rules and the Product lead's instructions (the
+ * business's own lead and its skills when `agent` is given).
+ */
+export function foundationsSystem(inputs: Pick<FoundationsInputs, "businessName" | "agent">): string {
+  return buildSystemPrompt({ businessName: inputs.businessName, appName: APP_NAME, ...agentPromptFields(inputs.agent, getTemplate(FOUNDATIONS_TEMPLATE_KEY)) });
 }
 
 /** The variables the foundations prompts share (business, archetype, door, outline). */
