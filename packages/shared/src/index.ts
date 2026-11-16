@@ -44,6 +44,7 @@ export * from "./notify-email";
 export * from "./empty-why";
 export * from "./first-week";
 export * from "./goals";
+export * from "./note-budget";
 export * from "./today-words";
 export * from "./chief-answers";
 export * from "./team-can-do";

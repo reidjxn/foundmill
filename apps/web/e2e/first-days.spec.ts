@@ -94,6 +94,10 @@ test.describe("first days", () => {
     await page.goto(`/b/${bid}/inbox`);
     await expect(inboxRow(page, SPEC_SIGNOFF)).toBeVisible({ timeout: LONG });
     await approveFromInbox(page, bid, ROADMAP_SIGNOFF);
+    // In the project's first week the Product lead's "Building starts: …" is folded into the Chief of Staff's note of the
+    // day (WP-04 T8); the update itself is kept in Archive.
+    await expect(inboxRow(page, "What your team did today")).toBeVisible({ timeout: LONG });
+    await page.goto(`/b/${bid}/inbox?tab=archive`);
     const building = inboxRow(page, /Building starts: \d+ tasks? planned/);
     await expect(building).toBeVisible({ timeout: LONG });
     await building.click();
@@ -145,6 +149,8 @@ test.describe("first days", () => {
     await openBoardQuestion(page, bid, boardItemId);
     // The Board's question waits in Needs you; it never holds Continue (Nov 7, 2026).
     await expect(page.getByRole("button", { name: /^Continue$/ })).toBeVisible({ timeout: LONG });
+    // Folded into the note of the day in the first week (WP-04 T8): the update itself is in Archive.
+    await page.goto(`/b/${bid}/inbox?tab=archive`);
     await expect(inboxRow(page, "Distribution has started")).toBeVisible({ timeout: LONG });
     await page.goto(`/b/${bid}/d/distribution/channels`);
     await expect(channels).toBeVisible({ timeout: LONG });
@@ -182,8 +188,10 @@ test.describe("first days", () => {
     await page.goto(`/b/${bid}/d/development/plan`);
     await expect(page.getByRole("grid", { name: "Tasks" }).getByRole("row").filter({ hasText: /Revise the specification from your notes/ })).toHaveCount(1, { timeout: LONG });
     // The Inbox note was answered by the tab's decision and the follow-up says so.
-    await page.goto(`/b/${bid}/inbox`);
+    // In the first week that follow-up is folded into the note of the day (WP-04 T8) and kept in Archive.
+    await page.goto(`/b/${bid}/inbox?tab=archive`);
     await expect(inboxRow(page, "Changes requested: the specification")).toBeVisible({ timeout: LONG });
+    await page.goto(`/b/${bid}/inbox`);
     await inboxRow(page, SPEC_SIGNOFF).click();
     await expect(page.getByTestId("inbox-item")).toHaveAttribute("data-state", "answered", { timeout: LONG });
     await expect(page.getByTestId("signoff-panel")).toContainText("Changes requested by you");
