@@ -10,7 +10,8 @@ supersedes: []
 - `STRIPE_CONNECT_FIELDS` gains an optional secret field `webhookSecret` ("Webhook signing secret", `whsec_…`). Its hint says where to find it.
 - The gateway's `WEBHOOK_SECRET_FIELDS` (`apps/gateway/src/integrations.ts`) holds one entry, `stripe`. The field is taken out of the input before `connector.connect` sees it, and a value that does not start with `whsec_` is a 400 (`invalid_webhook_secret`) before Stripe is called.
 - After the main key is stored, the secret is sealed as a second `credentials` row of kind `stripe_webhook_secret` on the same integration, in the same transaction, under the row-bound AAD. It is never echoed, and the audit row names only its kind.
-- Tests: `service-routes.test.ts` (two rows, with the secret sealed and absent from the answer, the audit and the logs; one row without it; `abc` refused) and `staging-webhooks.test.ts` (staging with `stripe` live: a delivery signed with the stored secret writes `payment.received`, another secret is 401, and the same delivery at another project's address writes nothing there). `connect-fields.test.ts` lists the new field.
+- Tests: `service-routes.test.ts` (two rows, with the secret sealed and absent from the answer, the audit and the logs; one row without it; `abc` refused) and `staging-webhooks.test.ts` (staging with `stripe` live: a delivery signed with the stored secret writes `payment.received`, another secret is 401, and the same delivery at another project's address writes nothing there).
+  `connect-fields.test.ts` lists the new field.
 - docs/DEPLOY.md §5 item 5 (the founder's steps in Stripe) and docs/SECURITY_REVIEW.md N2.
 
 ## Decisions

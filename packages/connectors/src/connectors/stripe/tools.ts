@@ -18,7 +18,7 @@ export const STRIPE_CONNECT_FIELDS: ConnectField[] = [
   { name: "apiKey", label: "Restricted key", secret: true, required: true, placeholder: "rk_live_…", hint: "A restricted key from your Stripe dashboard with read access plus write access to customers, invoices and Checkout. Stripe fees stay on your account." },
   // WP-11 T20 (N2): the signing secret of the webhook endpoint the founder adds in their own Stripe account, so its
   // deliveries verify at ingest and a payment reaches the project. Sealed by the gateway as its own credential; optional.
-  { name: "webhookSecret", label: "Webhook signing secret", secret: true, required: false, placeholder: "whsec_…", hint: "In Stripe, Developers › Webhooks: add an endpoint at your project's Foundmill webhook address and paste its signing secret here, so payments reach your project." },
+  { name: "webhookSecret", label: "Webhook signing secret", secret: true, required: false, placeholder: "whsec_…", hint: "In Stripe, Developers › Webhooks: add an endpoint at your project's webhook address and paste its signing secret here, so payments reach your project." },
 ];
 export const STRIPE_API_VERSION = "2025-09-30.clover";
 export const STRIPE_DASHBOARD_URL = "https://dashboard.stripe.com";
