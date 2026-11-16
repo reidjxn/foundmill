@@ -259,6 +259,7 @@ describe("dugout.css", () => {
     expect(well).toMatch(/&:focus-within \{\s*outline: 2px solid transparent;/);
     expect(dugoutCss).toMatch(/@media \(forced-colors: active\) \{[\s\S]*?\.surface-panel[\s\S]*?border: 1px solid CanvasText;/);
     expect(utility("hit-target")).toContain("var(--target-size)");
+  });
   it("keeps a transparent outline under the focus rings, so forced-colors mode draws them (WP-10 T5)", () => {
     for (const name of ["focus-ring", "focus-within-ring"]) {
       expect(utility(name), name).toContain("outline: 2px solid transparent");
