@@ -26,6 +26,7 @@ import {
   describeFoundationsFailure,
   finaliseFoundations,
   foundationsSignoffNotes,
+  planRoadmapHref,
   PROJECT_PAGE_ROUTE,
   PROJECT_PAGE_USAGE_KIND,
   progressEventPayload,
@@ -263,10 +264,9 @@ export function createFoundationsActivities(deps: OrchestratorDeps) {
         if (!progress) throw ApplicationFailure.create({ message: "The drafting finished but could not be saved. Try again.", type: FOUNDATIONS_DRAFT_ERROR, nonRetryable: true });
         draft = assembleFoundationsDraft(progress, inputs);
       }
-      const door = input.door ?? inputs.door;
       const res = await repos.foundations.apply(deps.db, input.businessId, input.attempt, draft, {
-        // The two sign-off notes (founder, 2026-10-18): the specification and the roadmap, each a decision from the Product lead.
-        signoffs: { spec: (stats) => foundationsSignoffNotes(draft, door, stats).spec, roadmap: (stats) => foundationsSignoffNotes(draft, door, stats).roadmap },
+        // The one plan note (WP-04 T5): both rounds, the specification's and the roadmap's, are answered from it.
+        signoffs: { plan: foundationsSignoffNotes(draft, { roadmapHref: planRoadmapHref(input.businessId) }).plan },
         model: input.model,
         // The Inbox events go through the outbox in the same transaction as the items (a retried apply writes neither).
         onInboxItem: async (tx, item) => {

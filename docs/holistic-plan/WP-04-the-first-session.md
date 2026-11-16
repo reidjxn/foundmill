@@ -28,7 +28,7 @@
 - [ ] T2 Commit as name and go, at any width (M)
 - [ ] T3 What commit starts on the free plan (M)
 - [ ] T4 The starting team, as shown (S)
-- [ ] T5 One plan note, one approval (M)
+- [x] T5 One plan note, one approval (M)
 - [ ] T6 Check, publish and share the page on any screen (M)
 - [ ] T7 One first-day story; guidance on Today (M)
 - [ ] T8 Note budget and the day's digest (M)
@@ -138,7 +138,7 @@ Order: T1, T2, T3 first (the path), then T6, T5, T4, T7, T8; T9 to T16 in any or
 **Tests and evals:** unit test; `CommitForm.test.tsx` (the line); `apps/web/e2e/first-days.spec.ts` (Agents tab lists at most 5 rows before "Show all").
 **Done when:** no first-run surface shows more than 5 agents unasked.
 
-### T5: One plan note, one approval   [M] [ships alone]
+### [x] T5: One plan note, one approval   [M] [ships alone]
 
 **Why:** A4-16, FR-07, THESIS 1.3; e0 (founders answered 0 to 1 decisions).
 

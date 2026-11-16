@@ -3,7 +3,8 @@
  * The founder's sign-off of the specification or the roadmap, or Ready to start selling (founder, 2026-10-18): the
  * note's DecisionBar carries Approve and Request changes (or Start distribution now and Not yet); this panel carries
  * the founder's notes, required for Request changes (they become the Product lead's revision task) and optional with
- * an approval, and reads back how the round was answered. The same decision can be taken on the Product tabs.
+ * an approval, and reads back how the round was answered. The same decision can be taken on the Product tabs. The one
+ * plan note (WP-04 T5, `signoff.plan`) carries both rounds and speaks of the plan: Approve the plan or Ask for changes.
  */
 import { Field, Panel, StatusPill, Textarea, fieldDescribedBy, useBuilderView, useFormatters, type StatusTone } from "@foundmill/dugout";
 import type { RouterOutputs } from "@/lib/trpc";
@@ -45,16 +46,19 @@ export function SignoffPanel({ signoff, notes, onNotesChange, answered, needsNot
   const status = signoffPanelStatus(signoff, chosenOption, formatDate, signoff.decidedAt, useBuilderView());
   const open = !answered && (signoff.status === "pending" || signoff.status === "changes_requested");
   const ready = signoff.kind === "ready_to_sell";
+  const plan = signoff.plan === true;
   return (
-    <Panel title={ready ? "Your decision" : "Your sign-off"} help={ready ? undefined : "A sign-off is your yes on a document. The specification says what the product is and does; the roadmap says what comes when. The team builds from them once you approve."} span={12} actions={<StatusPill tone={status.tone}>{status.word}</StatusPill>} data-testid="signoff-panel" data-signoff-kind={signoff.kind} data-signoff-status={signoff.status}>
+    <Panel title={ready || plan ? "Your decision" : "Your sign-off"} help={ready ? undefined : plan ? "Your plan is the specification (what the product is and does) and the roadmap (what comes when). The team builds from it once you approve." : "A sign-off is your yes on a document. The specification says what the product is and does; the roadmap says what comes when. The team builds from them once you approve."} span={12} actions={<StatusPill tone={status.tone}>{status.word}</StatusPill>} data-testid="signoff-panel" data-signoff-kind={signoff.kind} data-signoff-status={signoff.status}>
       <div className="flex flex-col gap-3">
         <p className="text-body text-secondary">
           {ready
             ? "Start distribution now and the channel engines start; Not yet keeps building, and you can start it any time from Customers › Board."
-            : `Approve ${KIND_WORDS[signoff.kind]} and the team builds from it, or ask for changes in your own words: they become the Product lead's revision task and you are asked to sign off again. You can also decide on the Product tabs.`}
+            : plan
+              ? "Approve the plan and your team starts building the first item. Or ask for changes in your own words: the Product lead revises the plan and asks you again."
+              : `Approve ${KIND_WORDS[signoff.kind]} and the team builds from it, or ask for changes in your own words: they become the Product lead's revision task and you are asked to sign off again. You can also decide on the Product tabs.`}
         </p>
         {open ? (
-          <Field htmlFor={SIGNOFF_NOTES_ID} label={ready ? "Notes (optional)" : "Notes"} hint={ready ? "Kept with your answer." : "Required for Request changes; optional with Approve."} error={needsNotes ? "Say what should change, in a sentence or two, so the Product lead can revise it." : undefined}>
+          <Field htmlFor={SIGNOFF_NOTES_ID} label={ready ? "Notes (optional)" : "Notes"} hint={ready ? "Kept with your answer." : plan ? "Required for Ask for changes; optional with Approve the plan." : "Required for Request changes; optional with Approve."} error={needsNotes ? "Say what should change, in a sentence or two, so the Product lead can revise it." : undefined}>
             <Textarea id={SIGNOFF_NOTES_ID} value={notes} onChange={(e) => onNotesChange(e.target.value)} maxLength={2000} rows={3} aria-describedby={fieldDescribedBy(SIGNOFF_NOTES_ID, { hint: true, error: needsNotes })} aria-invalid={needsNotes || undefined} data-testid="signoff-notes" />
           </Field>
         ) : signoff.notes ? (

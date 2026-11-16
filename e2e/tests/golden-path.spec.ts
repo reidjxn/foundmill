@@ -3,8 +3,8 @@ import { expect, test, type Page } from "@playwright/test";
 /**
  * The golden path (BUILD §17.1, Gate 1) in mock mode against the PGlite-backed local stack (e2e/playwright.config.ts,
  * apps/web/e2e/README.md): sign in through the dev bypass as the seed owner → founder profile → Ideation Studio →
- * shortlist and compare → Commit ("Take charge") → Home with the welcome note while the foundations draft → the two
- * sign-off notes in the Inbox, approved by button → Continue → the first build on Development › Plan → Start
+ * shortlist and compare → Commit ("Take charge") → Home with the welcome note while the foundations draft → the one
+ * plan note in the Inbox (WP-04 T5), approved by one button → Continue → the first build on Development › Plan → Start
  * distribution from the Board → its question decided by free text (with the "Here is what will happen" confirmation)
  * → the seeded Customer Update → Product Changes → CRM search → NeedsLargerWindow. Test names carry the
  * acceptance-criteria ids they cover.
@@ -43,7 +43,7 @@ async function ensureDeck(page: Page, minimum = 2): Promise<void> {
 /**
  * Commits the first drafted concept as a new business. Take charge lands on Today (founder, 2026-10-18: the first days
  * are about the product), where the vision, specification and roadmap draft in the background; the helper waits for
- * them so the two sign-off notes are in the Inbox when the test looks.
+ * them so the plan note is in the Inbox when the test looks.
  */
 async function commitFreshBusiness(page: Page, name: string): Promise<{ bid: string }> {
   await ensureDeck(page, 1);
@@ -56,21 +56,25 @@ async function commitFreshBusiness(page: Page, name: string): Promise<{ bid: str
   const bid = page.url().match(new RegExp(`/b/(${UUID})/today`))![1]!;
   await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
   // The foundations banner shows "ready" only when the drafting finishes during this visit, and a quick mock draft can
-  // finish before Today's first read: wait for what the drafting leaves instead, the specification's sign-off note.
+  // finish before Today's first read: wait for what the drafting leaves instead, the plan note.
   await expect(page.getByTestId("today-screen")).toBeVisible({ timeout: LONG });
   await page.goto(`/b/${bid}/inbox`);
-  await expect(page.getByTestId("inbox-list").getByRole("option").filter({ hasText: "Sign off the product specification" }).first()).toBeVisible({ timeout: LONG });
+  await expect(page.getByTestId("inbox-list").getByRole("option").filter({ hasText: PLAN_NOTE }).first()).toBeVisible({ timeout: LONG });
   return { bid };
 }
 
 const WELCOME_NOTE = "Your team is drafting your page and your plan";
-const SPEC_SIGNOFF = "Sign off the product specification";
-const ROADMAP_SIGNOFF = "Sign off the product roadmap";
+/** The Chief of Staff's note of the day in a project's first week (WP-04 T8, `DIGEST_SUBJECT`): it replaces the welcome note once an agent's update is folded into it. */
+const DIGEST_NOTE = "What your team did today";
+/** Whichever of the two is there: both are updates with no decision. */
+const FIRST_NOTE = new RegExp(`${WELCOME_NOTE}|${DIGEST_NOTE}`);
+/** The one plan note (WP-04 T5, `PLAN_READY_NOTE.subject`): both sign-off rounds are answered from it. */
+const PLAN_NOTE = "Your plan is ready";
 
 /** The Inbox row of a note by its subject. */
 const inboxRow = (page: Page, subject: string | RegExp) => page.getByTestId("inbox-list").getByRole("option").filter({ hasText: subject }).first();
 
-/** Opens a sign-off note from the Inbox list and approves it with its recommended option (the first button). */
+/** Opens a decision note from the Inbox list and approves it with its recommended option (the first button). */
 async function approveFromInbox(page: Page, bid: string, subject: string): Promise<void> {
   await page.goto(`/b/${bid}/inbox`);
   await expect(page.getByTestId("inbox-list")).toBeVisible({ timeout: LONG });
@@ -89,10 +93,9 @@ async function approveFromInbox(page: Page, bid: string, subject: string): Promi
   await expect(page.getByTestId("answered-panel")).toBeVisible({ timeout: LONG });
 }
 
-/** Both sign-offs approved: the second approval starts the build and the Product lead's follow-up says so. */
-async function approveBothSignoffs(page: Page, bid: string): Promise<void> {
-  await approveFromInbox(page, bid, SPEC_SIGNOFF);
-  await approveFromInbox(page, bid, ROADMAP_SIGNOFF);
+/** The plan approved: one press starts the build and the Product lead's follow-up says so (WP-04 T5). */
+async function approvePlan(page: Page, bid: string): Promise<void> {
+  await approveFromInbox(page, bid, PLAN_NOTE);
   await expect(inboxRow(page, /Building starts:/)).toBeVisible({ timeout: LONG });
 }
 
@@ -250,50 +253,50 @@ test.describe("golden path", () => {
     await expect(page.getByTestId("app-shell")).toBeVisible();
     await expect(page.getByTestId("kit-bar")).toContainText(name);
     // The foundations draft in the mock model in moments. The foundations banner shows only while a draft is in progress (or
-    // when it turns ready during this visit), so the outcome is checked where it lands: the two sign-off notes below.
+    // when it turns ready during this visit), so the outcome is checked where it lands: the plan note below.
     // Today: the goal waits for the Chief of Staff (it is proposed after the sign-offs and a round of work).
     await expect(page.getByTestId("today-screen")).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("goal-panel")).toHaveAttribute("data-goal", "waiting", { timeout: LONG });
     // The sidebar carries the areas over the departments the commit created (each links to a department tab).
     expect(await page.locator("[data-testid=app-shell] nav a[href*='/d/']").count()).toBeGreaterThanOrEqual(1);
-    // The Inbox opens on the Chief of Staff's welcome note: an Update, with no decision to take.
+    // The Inbox opens on the Chief of Staff's welcome note, or its note of the day once an agent's update was folded into it
+    // (WP-04 T8): an Update, with no decision to take.
     await page.goto(`/b/${bid}/inbox`);
-    await expect(inboxRow(page, WELCOME_NOTE)).toBeVisible({ timeout: LONG });
-    await inboxRow(page, WELCOME_NOTE).click();
+    await expect(inboxRow(page, FIRST_NOTE)).toBeVisible({ timeout: LONG });
+    await inboxRow(page, FIRST_NOTE).click();
     const item = page.getByTestId("inbox-item");
     await expect(item).toBeVisible({ timeout: LONG });
     await expect(item).toHaveAttribute("data-type", "update");
     await expect(page.getByTestId("decision-bar")).toHaveCount(0);
   });
 
-  test("the sign-off notes wait in Needs you without holding Continue; approving both starts the build and Continue runs a cycle step", async ({ page }) => {
+  test("the plan note waits in Needs you without holding Continue; one approval starts the build and Continue runs a cycle step", async ({ page }) => {
     test.skip(!bid, "the Commit step did not produce a business");
     await signIn(page);
     await page.goto(`/b/${bid}/inbox`);
-    await expect(inboxRow(page, SPEC_SIGNOFF)).toBeVisible({ timeout: LONG });
-    await expect(inboxRow(page, ROADMAP_SIGNOFF)).toBeVisible({ timeout: LONG });
-    // Since Nov 7, 2026 a decision never holds Continue: the Inbox counts them (the two sign-offs and, since package 1.3,
+    // One plan note (WP-04 T5), not two sign-offs.
+    await expect(inboxRow(page, PLAN_NOTE)).toBeVisible({ timeout: LONG });
+    await expect(inboxRow(page, /Sign off the product/)).toHaveCount(0);
+    // Since Nov 7, 2026 a decision never holds Continue: the Inbox counts them (the plan and, since package 1.3,
     // "Your project's page is ready") and the button stays Continue.
     await expect(inboxRow(page, "Your project's page is ready")).toBeVisible({ timeout: LONG });
-    await expect(inboxLink(page)).toContainText("3", { timeout: LONG });
+    await expect(inboxLink(page)).toContainText("2", { timeout: LONG });
     await expect(continueIdle(page)).toBeVisible({ timeout: LONG });
 
-    // The specification first: a sign-off note is a decision from the Product lead with Approve and Request changes.
-    await inboxRow(page, SPEC_SIGNOFF).click();
+    // The plan note is a decision from the Product lead with Approve the plan and Ask for changes; one press starts the build.
+    await inboxRow(page, PLAN_NOTE).click();
     const item = page.getByTestId("inbox-item");
     await expect(item).toHaveAttribute("data-type", "decision", { timeout: LONG });
     const options = page.getByTestId("decision-bar").getByRole("group", { name: "Options" });
     await expect(options.getByRole("button")).toHaveCount(2);
+    await expect(options.getByRole("button", { name: /Approve the plan/ })).toBeVisible();
     await expect(page.getByTestId("signoff-panel")).toHaveAttribute("data-signoff-kind", "spec");
     const recommended = options.locator("button[data-recommended]").first();
     await ((await recommended.count()) ? recommended : options.getByRole("button").first()).click();
     await expect(item).toHaveAttribute("data-state", "answered", { timeout: LONG });
     await expect(page.getByTestId("answered-panel")).toBeVisible();
-    await expect(inboxLink(page)).toContainText("2", { timeout: LONG });
-
-    // The roadmap: the second approval starts the build.
-    await approveFromInbox(page, bid, ROADMAP_SIGNOFF);
     await expect(inboxRow(page, /Building starts:/)).toBeVisible({ timeout: LONG });
+    await expect(inboxLink(page)).toContainText("1", { timeout: LONG });
     await expect(continueIdle(page)).toBeVisible({ timeout: LONG });
 
     // One press of Continue → business.continue (in-process cycle step without Temporal) → a toast says what happened.
@@ -301,7 +304,7 @@ test.describe("golden path", () => {
     await expect(page.getByText(/(cycle \d+|round of work) started|cannot run right now|(cycle \d+|round of work) resumed|already running/i).first()).toBeVisible({ timeout: LONG });
   });
 
-  test("First days: approving both sign-offs plans the first build; distribution waits for Start distribution", async ({ page }) => {
+  test("First days: approving the plan plans the first build; distribution waits for Start distribution", async ({ page }) => {
     test.skip(!bid, "the Commit step did not produce a business");
     await signIn(page);
     // The sign-offs read Signed off on the Product tabs; the specification's approval published a version.
@@ -325,7 +328,7 @@ test.describe("golden path", () => {
     await expect(channels.getByRole("row").filter({ hasText: "Waiting for the product" }).first()).toBeVisible({ timeout: LONG });
     await expect(channels.getByRole("row").filter({ hasText: /Starting|Running/ })).toHaveCount(0);
     await page.goto(`/b/${bid}/inbox`);
-    await expect(inboxRow(page, WELCOME_NOTE)).toBeVisible({ timeout: LONG });
+    await expect(inboxRow(page, FIRST_NOTE)).toBeVisible({ timeout: LONG });
     // Nothing waits for an answer but the Chief of Staff's goal (proposed once the sign-offs and a round of work are done,
     // founder 2026-11-07) and the Product lead's "Your project's page is ready" (package 1.3): the Board's question is not
     // asked before distribution starts.
@@ -360,7 +363,7 @@ test.describe("golden path", () => {
 
 /**
  * Free text decides the Board's question ("Where should the first customer come from?"), which Start distribution
- * posts once the product is signed off (founder, 2026-10-18): each test commits a business, approves both sign-offs
+ * posts once the product is signed off (founder, 2026-10-18): each test commits a business, approves the plan
  * with their recommended option and starts distribution from the Board before answering in the founder's own words.
  */
 test.describe("free-text decisions", () => {
@@ -368,7 +371,7 @@ test.describe("free-text decisions", () => {
 
   async function boardQuestionOf(page: Page, name: string): Promise<void> {
     const { bid } = await commitFreshBusiness(page, name);
-    await approveBothSignoffs(page, bid);
+    await approvePlan(page, bid);
     await startDistributionFromBoard(page, bid);
   }
 
