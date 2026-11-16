@@ -34,6 +34,5 @@ export const channelSeo = defineChannelTemplate({
   ],
   craftSkills: ["keyword_research", "technical_seo", "content_briefs", "internal_linking"],
   spendCapMinor: 10_000,
-  triggers: ["deploy.succeeded", "signup.created", "channel.threshold_breached"],
   neverDoes: ["build link schemes or doorway pages", "publish directly to the live site", "report rankings as results", "scrape against a site's terms"],
 });

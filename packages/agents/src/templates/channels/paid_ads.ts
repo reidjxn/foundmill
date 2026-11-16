@@ -27,6 +27,5 @@ export const channelPaidAds = defineChannelTemplate({
   ],
   craftSkills: ["audience_targeting", "creative_testing", "bid_pacing", "conversion_tracking", "ad_policy_compliance"],
   spendCapMinor: 150_000,
-  triggers: ["campaign.launched", "channel.threshold_breached", "customer.converted", "payment.received"],
   neverDoes: ["target special categories", "run without caps", "keep a breaching campaign live past 48 hours", "launch above threshold without approval"],
 });

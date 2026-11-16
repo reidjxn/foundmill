@@ -56,6 +56,5 @@ export const legalLead = defineTemplate({
   ],
   skills: withCoreSkills(["jurisdiction_analysis", "contract_review", "compliance_tracking", "ip_screening"]),
   autonomy: { ...AUTONOMY_INHERIT, mode: "lower" },
-  schedule: { cron: "0 6 * * *", triggers: ["filing.due", "contract.signed", "credential.expiring"] },
   neverDoes: ["Submit filings or pay fees", "Sign or accept terms", "Handle passwords or identity documents", "Solve CAPTCHAs or evade logins", "Present information as legal advice"],
 });
