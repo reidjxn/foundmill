@@ -5,6 +5,7 @@
 import { buildMockConnector } from "../../define";
 import { MOCK_NOW, mockHealth, mockIntegrationRecord, perBusiness, uuidFromSeed } from "../../mock-utils";
 import type { ToolContext } from "../../contract";
+import { acceptanceLines, acceptanceRefusal } from "./acceptance";
 import { PLATFORM_KEY, PLATFORM_RATE_LIMITS, platformTools, PlatformToolError, type AgentMessageT, type PlatformCaller, type PlatformHost, type PlatformResult, type TaskDetailT } from "./tools";
 
 /** A report in the in-memory world: what read_report answers, plus the session that saved it. */
@@ -110,11 +111,18 @@ export function createMemoryPlatformHost(): PlatformHost {
       await this.sendMessage(caller, { toAgentId, type: "inform", subject: `Handed over: ${t.title}`.slice(0, 200), body: note, taskId });
       return summary(touch(t, { assigneeAgentId: toAgentId }));
     },
-    async completeTask(caller, { taskId, summary: text }) {
+    async completeTask(caller, { taskId, summary: text, acceptance }) {
       const t = mustTask(caller, taskId);
       if (t.assigneeAgentId !== caller.agentId) throw new PlatformToolError("not_yours", "only the agent working on a task can complete it");
       const saved = world(caller.businessId).reports.get(t.id);
-      if (!saved || saved.sessionId !== caller.sessionId) report(caller, t, { title: t.title, bodyMd: text, sources: [] });
+      const own = saved && saved.sessionId === caller.sessionId ? saved : null;
+      // The same acceptance rule as the gateway's host: one result per line, and a line not met keeps the task open.
+      const lines = acceptanceLines(t);
+      const refusal = acceptanceRefusal(lines, acceptance, own ? own.bodyMd : null);
+      if (refusal) throw new PlatformToolError("invalid_state", refusal);
+      if (!own) report(caller, t, { title: t.title, bodyMd: text, sources: [] });
+      // Its session sets the status when it ends (the mock host has no sessions to judge by).
+      if (lines.length > 0) return summary(t);
       return summary(touch(t, { status: t.kind === "code" ? "review" : "done", progress: 1 }));
     },
     async saveReport(caller, { taskId, title, bodyMd, sources }) {
