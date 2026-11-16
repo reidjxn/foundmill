@@ -65,8 +65,13 @@ export function invitationEmail(f: { appName: string; inviterName: string | null
   });
 }
 
-/** The footer link of the waitlist's email: the platform-wide stop (the same link and page as "Don't send me invitations"). */
-export const ACCOUNT_EMAIL_OFF_LINK_LABEL = "Stop email from Foundmill to this address";
+/**
+ * The footer link of the waitlist's email: the platform-wide stop (the same token as "Don't send me invitations"; its
+ * page is the `joining` variant, `joiningOffPage`). It says what that stop covers for this sender: email about joining
+ * (invitations and this one); the page adds that the projects built here stop too. A person's own notices about their
+ * projects are not covered, so the words never promise every email.
+ */
+export const accountEmailOffLinkLabel = (appName: string): string => `Don't email this address about joining ${appName}`;
 
 /**
  * To a person on the waitlist, once, when their place opens (WP-03 T2; `ACCOUNT_EMAIL_KINDS`). `cardName` is the card
@@ -79,7 +84,7 @@ export function waitlistAdmittedEmail(f: { appName: string; cardName: string | n
     paragraphs: [`Your place is open. Sign in with this address to pick up where you left off.`, ...(cardName ? [`Your card for ${cardName} is saved in your account.`] : []), "Your place does not expire."],
     button: { label: `Open ${f.appName}`, href: f.link },
     footer: `You get this because you saved your place on ${f.appName} with this address.`,
-    footerLinks: [{ label: ACCOUNT_EMAIL_OFF_LINK_LABEL, href: f.offLink }],
+    footerLinks: [{ label: accountEmailOffLinkLabel(f.appName), href: f.offLink }],
   });
 }
 

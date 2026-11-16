@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { isAdminRole, isOwnerRole, MEMBERSHIP_ROLES } from "./constants";
 import { hasSectionAccess, SECTIONS } from "./permissions";
-import { ACCOUNT_EMAIL_OFF_LINK_LABEL, emailDate, INVITATIONS_OFF_LINK_LABEL, invitationAcceptedEmail, invitationEmail, waitlistAdmittedEmail } from "./people-email";
+import { accountEmailOffLinkLabel, emailDate, INVITATIONS_OFF_LINK_LABEL, invitationAcceptedEmail, invitationEmail, waitlistAdmittedEmail } from "./people-email";
 import { COLLABORATOR_SECTIONS, INVITATION_ROLE_SENTENCE, invitationMembership, invitationNeedsEmail, invitationRolePhrase, isPeopleTokenShape, maskedAddress, mayMakeInvitation, rolesThatMayInvite } from "./people";
 
 describe("what an invitation offers (THESIS_REVIEW 3.1, 3.3)", () => {
@@ -92,7 +92,8 @@ describe("the emails about people", () => {
     expect(e.text).toContain("Your card for Tutorlane is saved in your account.");
     expect(e.text).toContain("Your place does not expire.");
     expect(e.text).toContain("Open Foundmill: https://foundmill.com/start");
-    expect(e.text).toContain(`${ACCOUNT_EMAIL_OFF_LINK_LABEL}: ${off}`);
+    expect(e.text).toContain(`Don't email this address about joining Foundmill: ${off}`);
+    expect(accountEmailOffLinkLabel("Acme")).toBe("Don't email this address about joining Acme");
     expect(e.html).toContain(`href="${off}"`);
     expect(`${e.subject} ${e.text}`).not.toMatch(/\bjobs?\b|employ|career|unemploy/i);
     const plain = waitlistAdmittedEmail({ appName: "Foundmill", cardName: null, link: "https://foundmill.com/start", offLink: off });

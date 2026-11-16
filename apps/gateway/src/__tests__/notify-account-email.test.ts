@@ -11,7 +11,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createPlatformNotifyMock, suppressionHashOfEmail } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
 import * as s from "@foundmill/db";
-import { ACCOUNT_EMAIL_OFF_LINK_LABEL, NOTIFY_PER_PERSON_PER_DAY } from "@foundmill/shared";
+import { APP_NAME } from "@foundmill/config";
+import { accountEmailOffLinkLabel, NOTIFY_PER_PERSON_PER_DAY } from "@foundmill/shared";
 import { DEV_PLATFORM_MAIL_SECRET, type PlatformMailConfig } from "../platform-mail";
 import { NOTIFY_EMAIL_ROUTE, PLATFORM_NOTIFY_CEILING_KEY } from "../notify-email";
 import { notifyAddressDayKey } from "../notify-address-email";
@@ -78,8 +79,11 @@ describe("the waitlist's email (gateway)", () => {
     expect(mail!.text).toContain("Your place is open. Sign in with this address to pick up where you left off.");
     expect(mail!.text).toContain("http://localhost:3000/start");
     expect(mail!.text).not.toContain("Your card");
-    const off = new RegExp(`${ACCOUNT_EMAIL_OFF_LINK_LABEL}: (http://localhost:4005/mail/invitations/off\\?t=\\S+)`).exec(mail!.text)?.[1];
+    expect(accountEmailOffLinkLabel(APP_NAME)).toBe(`Don't email this address about joining ${APP_NAME}`);
+    const off = new RegExp(`${accountEmailOffLinkLabel(APP_NAME)}: (http://localhost:4005/mail/invitations/off\\?t=\\S+)`).exec(mail!.text)?.[1];
     expect(off).toBeDefined();
+    // The page it opens speaks of joining (the same platform-wide stop as "Don't send me invitations").
+    expect(off).toMatch(/&for=joining$/);
     expect((mail!.body as { headers?: Record<string, string> }).headers).toEqual({ "List-Unsubscribe": `<${off}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" });
     expect((await ask(body(e))).body.reason).toBe("already_sent");
     expect(logged.join("\n")).not.toContain(e.email);

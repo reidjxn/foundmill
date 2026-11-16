@@ -1,9 +1,11 @@
 /**
  * The waitlist's sweep (WP-03 T2; schedule `waitlist-admissions`, every 15 minutes). Two steps:
  *   (a) admit today's number. In one transaction, under open sign-up's advisory lock (`repos.admissions.lockOpenCount`,
- *       the same lock apps/api counts under): room = WAITLIST_ADMIT_PER_DAY less the entries admitted since the start
- *       of the UTC day (the sweep's and the operator's alike); under SIGNUP_OPEN also at most what is left of
- *       SIGNUP_DAILY_CEILING. The oldest sign-ups with an account are admitted as `open` (`repos.waitlist.admitNext`), and
+ *       the same lock apps/api counts under): room = WAITLIST_ADMIT_PER_DAY less the new `waitlist` admissions since the
+ *       start of the UTC day (the sweep's and the operator's alike); under SIGNUP_OPEN also at most what is left of
+ *       SIGNUP_DAILY_CEILING, which counts them too. SIGNUP_OPEN and SIGNUP_DAILY_CEILING are read here, so they carry
+ *       the api's values (`waitlistEnvWarning` at boot). The oldest sign-ups with an account are admitted as `waitlist`
+ *       (`repos.waitlist.admitNext`; an account already in is closed as told and takes no place), and
  *       the funnel's `account.admitted` (WP-02 T9's event, the same idempotency key the profile step uses, so it is
  *       written once per account) is written for each new admission in the same transaction. Unset means 0: nobody.
  *   (b) email everyone admitted in the last 7 days who was not told yet (the operator's admissions too), through the
@@ -29,6 +31,16 @@ export const WAITLIST_NOTIFY_BATCH = 50;
  */
 export const WAITLIST_RETRY_REASONS: ReadonlySet<string> = new Set([...RETRY_REASONS, "per_address", "simulated"]);
 
+/**
+ * The boot warning (security review of WP-03 T2, M2): the sweep reads SIGNUP_OPEN and SIGNUP_DAILY_CEILING from the
+ * orchestrator's own env, so with the waitlist admitting by number and SIGNUP_OPEN not on here, a deployment whose api
+ * has opened sign-up would admit outside the api's ceiling. Null when there is nothing to say.
+ */
+export function waitlistEnvWarning(env: { WAITLIST_ADMIT_PER_DAY?: number; SIGNUP_OPEN?: string; SIGNUP_ALLOWLIST?: string }): string | null {
+  if ((env.WAITLIST_ADMIT_PER_DAY ?? 0) <= 0 || signupMode(env) === "open") return null;
+  return "WAITLIST_ADMIT_PER_DAY is set but SIGNUP_OPEN is not on the orchestrator: the waitlist sweep admits without SIGNUP_DAILY_CEILING. If the api has SIGNUP_OPEN on, set SIGNUP_OPEN and SIGNUP_DAILY_CEILING here to the api's values (docs/DEPLOY.md §4).";
+}
+
 /** The start of the UTC day `at` falls in (the one line of apps/api services/access.ts `utcDayStart`). */
 const utcDayStart = (at: Date): Date => new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate()));
 
@@ -51,7 +63,7 @@ export function createWaitlistActivities(deps: OrchestratorDeps) {
           const rows = await repos.waitlist.admitNext(tx, { limit: room, now });
           for (const row of rows) {
             if (!row.newAdmission || !row.userId) continue;
-            const eventId = await writeAccountEvent(tx as unknown as Parameters<typeof writeAccountEvent>[0], { userId: row.userId, type: "account.admitted", actor: { kind: "system", id: "waitlist" }, payload: { how: "open" }, idempotencyKey: "account.admitted" });
+            const eventId = await writeAccountEvent(tx as unknown as Parameters<typeof writeAccountEvent>[0], { userId: row.userId, type: "account.admitted", actor: { kind: "system", id: "waitlist" }, payload: { how: "waitlist" }, idempotencyKey: "account.admitted" });
             if (eventId) result.eventIds.push(eventId);
           }
           return rows;

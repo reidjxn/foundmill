@@ -78,7 +78,7 @@ export async function sendAccountEmail(deps: GatewayDeps, input: AccountEmailReq
   const emailHash = suppressionHashOfEmail(email);
   // The nil business: only platform-scope rows can match.
   if (await repos.channels.isSuppressed(deps.db, NIL_ID, { emailHash })) return notSent("suppressed");
-  const offUrl = invitationsOffUrl(config.unsubscribeBase, invitationsOffToken(secret, emailHash));
+  const offUrl = invitationsOffUrl(config.unsubscribeBase, invitationsOffToken(secret, emailHash), "joining");
   const words = waitlistAdmittedEmail({ appName: APP_NAME, cardName: entry.cardName, link: `${appUrl}/start`, offLink: offUrl });
 
   // 4. Once, then the counts, shared by every replica.

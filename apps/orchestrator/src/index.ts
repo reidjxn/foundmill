@@ -35,6 +35,7 @@ import { MemoryRedis } from "@foundmill/events";
 import { onShutdown } from "@foundmill/shared/shutdown";
 import { installTelemetry, parseOtlpHeaders } from "@foundmill/shared/telemetry";
 import { createActivities } from "./activities";
+import { waitlistEnvWarning } from "./activities/waitlist";
 import { MemoryControlBus } from "./control-bus";
 import { prepareDb } from "./db-boot";
 import { createDeps, type OrchestratorDeps } from "./deps";
@@ -251,6 +252,8 @@ export async function main(): Promise<void> {
   const deps = createDeps({ env, ...(backend.kind === "memory" ? { redis: new MemoryRedis(), control: new MemoryControlBus() } : {}) });
   deps.log[backend.level]({ redis: backend.kind }, backend.message);
   installRejectionLogger(deps.log);
+  const waitlistWarning = waitlistEnvWarning(env);
+  if (waitlistWarning) deps.log.warn({ waitlistAdmitPerDay: env.WAITLIST_ADMIT_PER_DAY }, waitlistWarning);
   installTemporalRuntime(deps.log, { otlpEndpoint: env.OTEL_EXPORTER_OTLP_ENDPOINT ?? null, otlpHeaders: parseOtlpHeaders(env.OTEL_EXPORTER_OTLP_HEADERS), serviceName: "orchestrator" });
   const abort = new AbortController();
   let connection: NativeConnectionType | null = null;

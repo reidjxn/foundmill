@@ -6,7 +6,7 @@
 import { repos } from "@foundmill/db";
 import * as s from "@foundmill/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createWaitlistActivities } from "../activities/waitlist";
+import { createWaitlistActivities, waitlistEnvWarning } from "../activities/waitlist";
 import type { AccountEmailRequest, GatewayClient, NotifyEmailResponse } from "../gateway-client";
 import { setupOrchestratorHarness, type OrchestratorTestHarness } from "./harness";
 
@@ -33,12 +33,22 @@ function gatewayAnswering(answer: NotifyEmailResponse): GatewayClient & { asked:
 }
 const sweep = (env: Partial<typeof t.deps.env>, gateway: GatewayClient = t.gateway) => createWaitlistActivities({ ...t.deps, gateway, env: { ...t.deps.env, ...env } });
 
+describe("waitlistEnvWarning (the orchestrator's boot)", () => {
+  it("warns only when the waitlist admits by number and SIGNUP_OPEN is not on here", () => {
+    expect(waitlistEnvWarning({ WAITLIST_ADMIT_PER_DAY: 5 })).toMatch(/SIGNUP_OPEN and SIGNUP_DAILY_CEILING here to the api's values/);
+    expect(waitlistEnvWarning({ WAITLIST_ADMIT_PER_DAY: 5, SIGNUP_ALLOWLIST: "a@b.test" })).not.toBeNull();
+    expect(waitlistEnvWarning({ WAITLIST_ADMIT_PER_DAY: 5, SIGNUP_OPEN: "1" })).toBeNull();
+    expect(waitlistEnvWarning({ WAITLIST_ADMIT_PER_DAY: 0 })).toBeNull();
+    expect(waitlistEnvWarning({})).toBeNull();
+  });
+});
+
 describe("waitlistSweep", () => {
   it("with the number unset (0) admits nobody, and still emails someone the operator admitted by hand", async () => {
     const at = "2030-01-01T12:00:00.000Z";
     const nobody = await waiting("2029-12-01T00:00:00.000Z");
     const byHand = await waiting("2029-12-02T00:00:00.000Z");
-    await repos.admissions.record(t.db, { userId: byHand.userId!, how: "open" });
+    await repos.admissions.record(t.db, { userId: byHand.userId!, how: "waitlist", at: new Date("2030-01-01T11:00:00Z") });
     await t.h.pg.query("update waitlist_entries set admitted_at = $1 where id = $2", [new Date("2030-01-01T11:00:00Z"), byHand.id]);
     const gateway = gatewayAnswering({ sent: true, simulated: true, eventId: null });
     await sweep({ WAITLIST_ADMIT_PER_DAY: 0 }, gateway).waitlistSweep({ at });
@@ -62,10 +72,10 @@ describe("waitlistSweep", () => {
     expect((await entryOf(a.id)).admitted_at).not.toBeNull();
     expect((await entryOf(b.id)).admitted_at).not.toBeNull();
     expect((await entryOf(c.id)).admitted_at).toBeNull();
-    expect(gateway.asked.map((r) => r.data.waitlistEntryId)).toEqual([a.id, b.id]);
-    expect((await repos.admissions.forUser(t.db, a.userId!))?.how).toBe("open");
-    const events = await t.h.pg.query<{ n: number }>("select count(*)::int as n from account_events where user_id = $1 and type = 'account.admitted'", [a.userId]);
-    expect(events.rows[0]!.n).toBe(1);
+    expect(gateway.asked.map((r) => r.data.waitlistEntryId).sort()).toEqual([a.id, b.id].sort());
+    expect((await repos.admissions.forUser(t.db, a.userId!))?.how).toBe("waitlist");
+    const events = await t.h.pg.query<{ how: string }>("select payload->>'how' as how from account_events where user_id = $1 and type = 'account.admitted'", [a.userId]);
+    expect(events.rows.map((r) => r.how)).toEqual(["waitlist"]);
     // The day's two are taken: a later sweep the same day admits nobody more.
     await sweep({ WAITLIST_ADMIT_PER_DAY: 2 }, gateway).waitlistSweep({ at: "2030-01-02T18:00:00.000Z" });
     expect((await entryOf(c.id)).admitted_at).toBeNull();
@@ -84,6 +94,21 @@ describe("waitlistSweep", () => {
     await sweep({ WAITLIST_ADMIT_PER_DAY: 5, SIGNUP_OPEN: "1", SIGNUP_DAILY_CEILING: 0 }).waitlistSweep({ at: "2030-01-06T12:00:00.000Z" });
     expect((await entryOf(b.id)).admitted_at).toBeNull();
     await t.h.pg.query("update waitlist_entries set admitted_at = $1, notified_at = $1 where id = $2", [new Date("2029-01-01T00:00:00Z"), b.id]);
+  });
+
+  it("an entry whose account was already in takes no place of the day and is not emailed", async () => {
+    const at = "2030-01-07T12:00:00.000Z";
+    const already = await waiting("2029-12-09T00:00:00.000Z");
+    const next = await waiting("2029-12-10T00:00:00.000Z");
+    await repos.admissions.record(t.db, { userId: already.userId!, how: "existing" });
+    const gateway = gatewayAnswering({ sent: true, simulated: true, eventId: null });
+    const result = await sweep({ WAITLIST_ADMIT_PER_DAY: 1 }, gateway).waitlistSweep({ at });
+    expect(result.eventIds).toHaveLength(0);
+    expect((await entryOf(already.id)).notified_at).not.toBeNull();
+    // The one place of the day is still free: the next sweep the same day admits the next person, and only they are told.
+    await sweep({ WAITLIST_ADMIT_PER_DAY: 1 }, gateway).waitlistSweep({ at: "2030-01-07T12:15:00.000Z" });
+    expect((await entryOf(next.id)).admitted_at).not.toBeNull();
+    expect(gateway.asked.map((r) => r.data.waitlistEntryId)).toEqual([next.id]);
   });
 
   it("a refusal that may pass leaves the entry to be asked again; one that will not is recorded", async () => {

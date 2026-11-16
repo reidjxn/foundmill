@@ -84,7 +84,7 @@ const fromBeforeCutover = async (userId: string, name: string) => {
 };
 const membershipOf = (businessId: string, userId: string) => repos.memberships.get(hz.db, businessId, userId);
 /** A new admin of A (so their invitations have a daily number of their own), admitted as `how` when given. */
-const freshInviter = async (tag: string, how?: "open" | "existing") => {
+const freshInviter = async (tag: string, how?: "open" | "existing" | "waitlist") => {
   const p = await person(tag);
   await repos.memberships.add(hz.db, hz.A.businessId, { userId: p.userId, role: "admin" });
   if (how) await repos.admissions.record(hz.db, { userId: p.userId, how });
@@ -195,6 +195,33 @@ describe("admitOrWait: invite-only", () => {
     const p = await person("lock-order");
     await callerIn(INVITE_ONLY, p).invitation.accept({ confirmAdult: true, token: tokenOf(link) });
     expect(order).toEqual(["lock", "count", "record"]);
+  });
+});
+
+describe("an inviter the waitlist let in (security review of WP-03 T2, M1)", () => {
+  it("under invite-only lets no new account in by invitation (only someone already in), and is itself in", async () => {
+    const inviter = await freshInviter("waitlist-inviter", "waitlist");
+    expect(await refusal(callerIn(INVITE_ONLY, inviter).founder.preferences.get())).toBeNull();
+    const link = await collaboratorLink(inviter.userId);
+    const fresh = await person("waitlist-invitee");
+    expect(await refusal(callerIn(INVITE_ONLY, fresh).invitation.accept({ confirmAdult: true, token: link }))).toMatchObject({ code: "FORBIDDEN", appCode: "invitation_cannot_admit", message: INVITATION_CANNOT_ADMIT_MESSAGE });
+    expect(await repos.admissions.has(hz.db, fresh.userId)).toBe(false);
+    expect(await membershipOf(hz.A.businessId, fresh.userId)).toBeNull();
+    expect(await hz.caller(null).invitation.byToken({ token: link })).toMatchObject({ state: "pending" });
+    const listed = { userId: await hz.h.createUser(`listed-w${++n}@people.test`), email: `listed-w${n}@people.test` };
+    expect(await callerIn({ SIGNUP_ALLOWLIST: `${INVITE_ONLY.SIGNUP_ALLOWLIST as string} ${listed.email}` }, listed).invitation.accept({ confirmAdult: true, token: link })).toEqual({ businessId: hz.A.businessId, already: false });
+  });
+
+  it("under open sign-up lets people in while the day's ceiling has room, like an inviter open sign-up let in", async () => {
+    const inviter = await freshInviter("waitlist-open-inviter", "waitlist");
+    const [under, at] = [await collaboratorLink(inviter.userId), await collaboratorLink(inviter.userId)];
+    const before = await repos.admissions.openSince(hz.db, todayStart());
+    const OPEN = { SIGNUP_OPEN: "1", SIGNUP_DAILY_CEILING: before + 1 };
+    const a = await person("waitlist-open-a");
+    expect(await callerIn(OPEN, a).invitation.accept({ confirmAdult: true, token: under })).toEqual({ businessId: hz.A.businessId, already: false });
+    expect(await repos.admissions.forUser(hz.db, a.userId)).toMatchObject({ how: "invitation" });
+    const b = await person("waitlist-open-b");
+    expect(await refusal(callerIn(OPEN, b).invitation.accept({ confirmAdult: true, token: at }))).toMatchObject({ appCode: "on_waitlist", reason: "ceiling" });
   });
 });
 

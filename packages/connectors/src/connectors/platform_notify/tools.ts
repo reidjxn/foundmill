@@ -137,4 +137,6 @@ export function readInvitationsOffToken(secret: string, token: string): { emailH
   return safeEqual(sig, invitationsMac(secret, [v, h])) ? { emailHash: h } : null;
 }
 
-export const invitationsOffUrl = (base: string, token: string): string => `${base.replace(/\/+$/, "")}${PLATFORM_INVITATIONS_OFF_PATH}?t=${encodeURIComponent(token)}`;
+/** `variant` changes only the page's words (`joining`: the waitlist's email); the token alone decides what stops. */
+export const invitationsOffUrl = (base: string, token: string, variant?: "joining"): string =>
+  `${base.replace(/\/+$/, "")}${PLATFORM_INVITATIONS_OFF_PATH}?t=${encodeURIComponent(token)}${variant ? `&for=${variant}` : ""}`;

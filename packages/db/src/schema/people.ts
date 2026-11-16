@@ -16,8 +16,8 @@ import { authUsers } from "drizzle-orm/supabase";
 import { id, timestamps, tstz } from "./_common";
 import { businessId } from "./_refs";
 
-/** How an account was admitted when the invite list did not name it (services/access.ts `decideAdmission`). */
-export const ADMISSION_KINDS = ["invitation", "open", "existing"] as const;
+/** How an account was admitted when the invite list did not name it (services/access.ts `decideAdmission`; `waitlist`, 0111). */
+export const ADMISSION_KINDS = ["invitation", "open", "existing", "waitlist"] as const;
 export type AdmissionKind = (typeof ADMISSION_KINDS)[number];
 
 export const invitations = pgTable(

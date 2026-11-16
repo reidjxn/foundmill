@@ -46,6 +46,20 @@ export const INVITATIONS_OFF_PAGE = {
   done: "Done. We won't email this address again.",
   invalid: "This link is not valid, so nothing changed.",
 } as const;
+/**
+ * The same page opened from the waitlist's email (`?for=joining`, `JOINING_OFF_VARIANT`): the same platform-wide stop,
+ * in words about joining rather than invitations alone.
+ */
+export const JOINING_OFF_VARIANT = "joining";
+export function joiningOffPage(appName: string): { title: string; body: string; button: string; done: string; invalid: string } {
+  return {
+    title: `Stop email about joining ${appName}`,
+    body: `Stop email to this address about joining ${appName}? That also stops invitations to it, and email from the projects built here.`,
+    button: "Stop it",
+    done: `Done. We won't email this address about joining ${appName}, and the projects built here won't email it.`,
+    invalid: INVITATIONS_OFF_PAGE.invalid,
+  };
+}
 
 const oneLine = (value: string, max: number): string => {
   const v = value.replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();

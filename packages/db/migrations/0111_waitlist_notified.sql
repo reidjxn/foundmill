@@ -10,3 +10,10 @@ alter table waitlist_entries add column notified_at timestamptz;
 create index waitlist_entries_waiting_idx on waitlist_entries (created_at) where admitted_at is null and user_id is not null;
 --> statement-breakpoint
 create index waitlist_entries_to_notify_idx on waitlist_entries (admitted_at) where notified_at is null;
+--> statement-breakpoint
+-- An admission from the waitlist is its own kind (`waitlist`), not `open`: under invite-only it gives the account no
+-- standing to let others in by invitation (apps/api services/access.ts `inviterStanding`), and the sweep's daily number
+-- counts these rows alone (`repos.waitlist.admittedSince`). Under open sign-up the ceiling counts them (`openSince`).
+alter table account_admissions drop constraint account_admissions_how_value;
+--> statement-breakpoint
+alter table account_admissions add constraint account_admissions_how_value check (how in ('invitation', 'open', 'existing', 'waitlist'));

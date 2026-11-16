@@ -46,7 +46,7 @@
 import { DEV_PLATFORM_MAIL_SECRET, PLATFORM_INVITATIONS_OFF_PATH, PLATFORM_NOTIFY_OFF_PATH, readInvitationsOffToken, readNotifyOffToken, followConfirmNonceHash, platformMailSenderName, readFollowConfirmToken, inboundSenderVerified, normaliseInboundMail, normalisePlatformMailEvents, PLATFORM_MAIL_FOOTER_MARKERS, platformInboundLocalParts, readInboundMail, readPlatformUnsubscribeToken, safeEqual, stableHash, suppressionHashOfEmail, verifySendgridSignature, withinTolerance, type SgEvent } from "@foundmill/connectors";
 import { APP_NAME, tierShowsBuiltOnMark } from "@foundmill/config";
 import { repos, awardFirstFollowerMilestone } from "@foundmill/db";
-import { FOLLOW_CONFIRM_PAGE, INVITATIONS_OFF_PAGE, NOTIFY_OFF_PAGE, notifyOffBody, PLATFORM_MAIL_SECRET_MIN_LENGTH, UNSUBSCRIBE_CONFIRM_BODY, UNSUBSCRIBE_CONFIRM_BUTTON, UNSUBSCRIBE_CONFIRM_TITLE, UNSUBSCRIBE_DONE_BODY, UNSUBSCRIBE_INVALID_BODY, builtOnWords } from "@foundmill/shared";
+import { FOLLOW_CONFIRM_PAGE, INVITATIONS_OFF_PAGE, JOINING_OFF_VARIANT, joiningOffPage, NOTIFY_OFF_PAGE, notifyOffBody, PLATFORM_MAIL_SECRET_MIN_LENGTH, UNSUBSCRIBE_CONFIRM_BODY, UNSUBSCRIBE_CONFIRM_BUTTON, UNSUBSCRIBE_CONFIRM_TITLE, UNSUBSCRIBE_DONE_BODY, UNSUBSCRIBE_INVALID_BODY, builtOnWords } from "@foundmill/shared";
 import { ingestPlatformEvents, writeEventRow } from "./ingest";
 import { writeCreditEvent } from "./post-outcomes";
 import { nonceKey } from "./nonce-store";
@@ -274,9 +274,14 @@ export async function handleNotifyOff(deps: Deps, req: Request): Promise<Unsubsc
   return { status: 200, html: notifyOffPage(NOTIFY_OFF_PAGE.done) };
 }
 
-/** The page behind "Don't send me invitations" (the same look as the unsubscribe page). */
-export function invitationsOffPage(body: string, form?: { token: string }): string {
-  return mailPage(INVITATIONS_OFF_PAGE.title, body, form ? { action: `${PLATFORM_INVITATIONS_OFF_PATH}?t=${encodeURIComponent(form.token)}`, button: INVITATIONS_OFF_PAGE.button } : undefined);
+/**
+ * The page behind "Don't send me invitations" (the same look as the unsubscribe page), or, opened from the waitlist's
+ * email (`?for=joining`), its words about joining. Only the words differ.
+ */
+export function invitationsOffPage(body: string, form?: { token: string }, joining = false): string {
+  const words = joining ? joiningOffPage(APP_NAME) : INVITATIONS_OFF_PAGE;
+  const action = form ? `${PLATFORM_INVITATIONS_OFF_PATH}?t=${encodeURIComponent(form.token)}${joining ? `&for=${JOINING_OFF_VARIANT}` : ""}` : "";
+  return mailPage(words.title, body, form ? { action, button: words.button } : undefined);
 }
 
 /**
@@ -287,15 +292,19 @@ export function invitationsOffPage(body: string, form?: { token: string }): stri
  * Idempotent. Nothing here knows or logs the address or its hash.
  */
 export async function handleInvitationsOff(deps: Deps, req: Request): Promise<UnsubscribeResult> {
-  if (!deps.platformMail?.domain) return { status: 404, html: invitationsOffPage(INVITATIONS_OFF_PAGE.invalid) };
+  const url = new URL(req.url);
+  const joining = url.searchParams.get("for") === JOINING_OFF_VARIANT;
+  const words = joining ? joiningOffPage(APP_NAME) : INVITATIONS_OFF_PAGE;
+  const page = (body: string, form?: { token: string }) => invitationsOffPage(body, form, joining);
+  if (!deps.platformMail?.domain) return { status: 404, html: page(words.invalid) };
   const secret = signingSecretFor(deps);
-  const token = new URL(req.url).searchParams.get("t") ?? "";
+  const token = url.searchParams.get("t") ?? "";
   const named = secret ? readInvitationsOffToken(secret, token) : null;
-  if (!named) return { status: 400, html: invitationsOffPage(INVITATIONS_OFF_PAGE.invalid) };
-  if (req.method === "GET") return { status: 200, html: invitationsOffPage(INVITATIONS_OFF_PAGE.body, { token }) };
+  if (!named) return { status: 400, html: page(words.invalid) };
+  if (req.method === "GET") return { status: 200, html: page(words.body, { token }) };
   const written = await repos.channels.suppressEverywhere(deps.db, { emailHash: named.emailHash, reason: "asked for no invitations", source: "invitation_link" });
   deps.log.info({ written }, "invitations stopped for an address from its link");
-  return { status: 200, html: invitationsOffPage(INVITATIONS_OFF_PAGE.done) };
+  return { status: 200, html: page(words.done) };
 }
 
 /** The project's name as the confirmation email showed it (never one that reads as Foundmill's own). */

@@ -9,7 +9,7 @@
  * (a claimed card lives on as the idea).
  */
 import { and, count, eq, gt, gte, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
-import { ideaDrafts, waitlistEntries, type IdeaDraftRow, type WaitlistEntryRow } from "../schema";
+import { accountAdmissions, ideaDrafts, waitlistEntries, type IdeaDraftRow, type WaitlistEntryRow } from "../schema";
 import { ideasRepo, type CreateIdeaInput } from "./ideas";
 import { admissionsRepo } from "./people";
 import { Id, maybeOne, parseInput, type Executor } from "./_shared";
@@ -243,8 +243,10 @@ export const waitlistRepo = {
   /**
    * Admits the next `limit` people who wait (WP-03 T2), in `WAITLIST_ORDER`: entries with an account and no
    * `admitted_at`, each row locked (`for update skip locked`, so two sweeps never take the same person). For each, the
-   * admission is recorded as `open` (`repos.admissions.record`; an account that already has one keeps it, and
-   * `newAdmission` is false) and `admitted_at` is set. Run it inside the transaction that holds `lockOpenCount`.
+   * admission is recorded as `waitlist` (`repos.admissions.record`) and `admitted_at` is set. An account that already
+   * had an admission keeps it (`newAdmission` false): its entry is closed as told (`notified_at` set), so it gets no
+   * "Your place is open" email and takes none of the day's number (`admittedSince` counts new admissions only). Run it
+   * inside the transaction that holds `lockOpenCount`.
    */
   async admitNext(tx: Executor, input: { limit: number; now?: Date }): Promise<WaitlistAdmitted[]> {
     const limit = Math.max(0, Math.min(Math.floor(input.limit), 1_000));
@@ -259,10 +261,10 @@ export const waitlistRepo = {
       .for("update", { skipLocked: true });
     const out: WaitlistAdmitted[] = [];
     for (const entry of next) {
-      const recorded = await admissionsRepo.record(tx, { userId: entry.userId!, how: "open" });
+      const recorded = await admissionsRepo.record(tx, { userId: entry.userId!, how: "waitlist", at: now });
       const [row] = await tx
         .update(waitlistEntries)
-        .set({ admittedAt: now, updatedAt: now })
+        .set({ admittedAt: now, updatedAt: now, ...(recorded === null ? { notifiedAt: now } : {}) })
         .where(and(eq(waitlistEntries.id, entry.id), isNull(waitlistEntries.admittedAt)))
         .returning();
       if (row) out.push({ ...row, newAdmission: recorded !== null });
@@ -270,9 +272,15 @@ export const waitlistRepo = {
     return out;
   },
 
-  /** Entries admitted since `since` (the start of the UTC day): the sweep's and the operator's alike. */
+  /**
+   * New accounts the waitlist let in since `since` (the start of the UTC day): `waitlist` admissions, the sweep's and the
+   * operator's alike. An entry whose account was already in is not one.
+   */
   async admittedSince(db: Executor, since: Date): Promise<number> {
-    const [row] = await db.select({ n: count() }).from(waitlistEntries).where(gte(waitlistEntries.admittedAt, since));
+    const [row] = await db
+      .select({ n: count() })
+      .from(accountAdmissions)
+      .where(and(eq(accountAdmissions.how, "waitlist"), gte(accountAdmissions.createdAt, since)));
     return Number(row?.n ?? 0);
   },
 

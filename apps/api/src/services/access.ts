@@ -16,7 +16,8 @@
  *     a person is refused with `on_waitlist`.
  *
  * An invitation admits a new account (`admitThroughInvitation`, inside `invitation.accept`'s transaction) only when its
- * inviter was let in by the list, by open sign-up or as a person from before (never by an invitation: an account an
+ * inviter was let in by the list, by open sign-up (or the waitlist while open sign-up is on) or as a person from before
+ * (never by an invitation, nor by the waitlist under invite-only: an account an
  * invitation let in cannot let others in), and at most `INVITATION_ADMISSIONS_PER_INVITER_PER_DAY` a UTC day per
  * inviter, counted under the same advisory lock. Under open sign-up an invitation's admission counts toward the day's
  * ceiling, and only an inviter the list or the time before let in may go past it, within
@@ -35,7 +36,7 @@
  *   then does the web's saved line promise the email.
  * Nothing here stores a person who waits: joining the waitlist is `waitlist.join` (routers/idea-box.ts), and letting
  * people in from it and the email when their place opens are the orchestrator's `waitlist-admissions` sweep (WP-03 T2),
- * which records each admission as `open`, so step 3 lets them in on their next request. apps/stream and apps/collab refuse the same accounts' sockets (`liveChannelAdmit`: the list, or an
+ * which records each admission as `waitlist`, so step 3 lets them in on their next request. apps/stream and apps/collab refuse the same accounts' sockets (`liveChannelAdmit`: the list, or an
  * admission row).
  */
 import { APP_NAME } from "@foundmill/config";
@@ -273,9 +274,12 @@ export const INVITATION_ADMISSIONS_LIMIT_MESSAGE = "The person who invited you h
  *   - `trusted`: an account the list names (its address in `auth.users`), the development bypass user, or one admitted
  *     as a person from before (`existing`). Under open sign-up its invitations may go past the day's ceiling, within
  *     `INVITATION_ADMISSIONS_PAST_CEILING_PER_DAY` for everyone together;
- *   - `open`: admitted by open sign-up. It lets people in, but under open sign-up only while the day's ceiling has room,
- *     like any sign-up (every such account is an inviter, so past the ceiling it would grow the day's cap without end);
- *   - `none`: let in by an invitation, or never admitted. It adds people to its projects only when they are already in.
+ *   - `open`: admitted by open sign-up, or by the waitlist (`waitlist`) while open sign-up is on. It lets people in, but
+ *     under open sign-up only while the day's ceiling has room, like any sign-up (every such account is an inviter, so
+ *     past the ceiling it would grow the day's cap without end);
+ *   - `none`: let in by an invitation, by the waitlist under invite-only (else each day's number would let in three
+ *     times as many again by invitation, outside WAITLIST_ADMIT_PER_DAY), or never admitted. It adds people to its
+ *     projects only when they are already in.
  */
 export type InviterStanding = "trusted" | "open" | "none";
 export async function inviterStanding(ctx: Pick<AdmissionContext, "env">, db: Executor, inviterUserId: string): Promise<InviterStanding> {
@@ -284,7 +288,11 @@ export async function inviterStanding(ctx: Pick<AdmissionContext, "env">, db: Ex
   if (list && allowlisted(list, await repos.founders.emailOf(db, inviterUserId))) return "trusted";
   const admission = await repos.admissions.forUser(db, inviterUserId);
   if (admission?.how === "existing") return "trusted";
-  return admission?.how === "open" ? "open" : "none";
+  if (admission?.how === "open") return "open";
+  // The waitlist's daily number is not open sign-up: it lets others in only while open sign-up is on (its ceiling then
+  // bounds them), never under invite-only, where the list and its inviters are the only way in.
+  if (admission?.how === "waitlist") return signupMode(ctx.env) === "open" ? "open" : "none";
+  return "none";
 }
 
 /** Whether `inviterUserId` may let a new account in through an invitation at all (`inviterStanding` is not `none`). */
