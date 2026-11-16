@@ -29,6 +29,8 @@ export function platformHandlers(host: PlatformHost) {
     list_messages: async (args: Parameters<PlatformHost["listMessages"]>[1], ctx: ToolContext) => host.listMessages(caller(ctx), args),
     read_business: async (_args: unknown, ctx: ToolContext) => host.readBusiness(caller(ctx)),
     search_entities: async (args: Parameters<PlatformHost["searchEntities"]>[1], ctx: ToolContext) => host.searchEntities(caller(ctx), args),
+    create_entity: async (args: Parameters<PlatformHost["createEntity"]>[1], ctx: ToolContext) => host.createEntity(caller(ctx), args),
+    log_interaction: async (args: Parameters<PlatformHost["logInteraction"]>[1], ctx: ToolContext) => host.logInteraction(caller(ctx), args),
     list_approvals: async (args: Parameters<PlatformHost["listApprovals"]>[1], ctx: ToolContext) => host.listApprovals(caller(ctx), args),
     list_sessions: async (args: Parameters<PlatformHost["listSessions"]>[1], ctx: ToolContext) => host.listSessions(caller(ctx), args),
     check_contact: async (args: Parameters<PlatformHost["checkContact"]>[1], ctx: ToolContext) => host.checkContact(caller(ctx), args),
@@ -52,7 +54,7 @@ export function createMemoryPlatformHost(): PlatformHost {
   const world = perBusiness((businessId) => {
     const task = (n: number, title: string, kind: TaskDetailT["kind"], status: TaskDetailT["status"]): TaskDetailT => ({ id: uuidFromSeed("mock-platform", businessId, "task", n), title, kind, status, priority: 10 * n, progress: 0, assigneeAgentId: null, updatedAt: MOCK_NOW.toISOString(), goalMd: `${title}.`, acceptance: [], fileScope: [], dependsOn: [], lastReport: null, lastBlock: null });
     const tasks = new Map<string, TaskDetailT>([task(1, "Draft the pricing page", "code", "ready"), task(2, "Research three competitors", "research", "ready"), task(3, "Reconcile last month's bank feed", "finance", "planned")].map((t) => [t.id, t]));
-    return { tasks, messages: [] as AgentMessageT[], reports: new Map<string, MockReport>(), proposals: 0, skills: new Map<string, { skillKey: string; name: string; source: string }[]>() };
+    return { tasks, messages: [] as AgentMessageT[], reports: new Map<string, MockReport>(), proposals: 0, entities: new Map<string, string>(), interactions: 0, skills: new Map<string, { skillKey: string; name: string; source: string }[]>() };
   });
   const summary = ({ goalMd: _g, acceptance: _a, fileScope: _f, dependsOn: _d, lastReport: _r, lastBlock: _b, ...s }: TaskDetailT) => s;
   const report = (caller: PlatformCaller, t: TaskDetailT, input: { title: string; bodyMd: string; sources: { url: string; title: string }[] }) => {
@@ -143,6 +145,21 @@ export function createMemoryPlatformHost(): PlatformHost {
     async searchEntities(_caller, { query, limit }) {
       const all = [{ id: uuidFromSeed("mock-platform", "entity", "maja"), kind: "person", name: "Maja Lindgren" }, { id: uuidFromSeed("mock-platform", "entity", "hallbergs"), kind: "organisation", name: "Hallbergs Hud AB" }];
       return { items: all.filter((e) => e.name.toLowerCase().includes(query.toLowerCase())).slice(0, limit) };
+    },
+    async createEntity(caller, { kind, name }) {
+      const w = world(caller.businessId);
+      const key = `${kind}:${name.toLowerCase()}`;
+      const found = w.entities.get(key);
+      if (found) return { entityId: found, created: false };
+      const entityId = uuidFromSeed("mock-platform", caller.businessId, "entity", w.entities.size, key);
+      w.entities.set(key, entityId);
+      return { entityId, created: true };
+    },
+    async logInteraction(caller, { entityId }) {
+      const w = world(caller.businessId);
+      if (![...w.entities.values()].includes(entityId)) throw new PlatformToolError("not_found", `record ${entityId} is not in this business's records`);
+      w.interactions += 1;
+      return { interactionId: uuidFromSeed("mock-platform", caller.businessId, "interaction", w.interactions) };
     },
     async listApprovals() {
       return { items: [] };

@@ -75,6 +75,8 @@ export interface DbPlatformHostOptions {
   repository?: () => RepositoryFiles | null;
 }
 
+const CONTACT_DETAIL = /\S+@\S+\.\S+|\+?\d[\d\s().-]{7,}\d/;
+
 export function createDbPlatformHost({ db, log, now = () => new Date(), repository = () => null }: DbPlatformHostOptions): PlatformHost {
   const notFound = (what: string, id: string) => new PlatformToolError("not_found", `${what} ${id} is not part of this business`);
   const taskOf = async (caller: PlatformCaller, taskId: string): Promise<Task> => {
@@ -134,6 +136,11 @@ export function createDbPlatformHost({ db, log, now = () => new Date(), reposito
       repos.audit.latestMatching(db, caller.businessId, AUDIT_ACTION_REPORT_READ, { sessionId: caller.sessionId, simulated: true }, since),
     ]);
     return mocked !== null || readSimulated !== null;
+  };
+  /** An invented company would otherwise get a real-looking address: with simulated sources, no email address or phone number goes in a record. */
+  const refuseContactDetailsWhenSimulated = async (caller: PlatformCaller, text: string) => {
+    if (!CONTACT_DETAIL.test(text)) return;
+    if (await sessionSimulated(caller)) throw new PlatformToolError("invalid_state", "this session's sources were simulated, so no email address or phone number can be recorded; record the name and the page only");
   };
   const saveReport = async (caller: PlatformCaller, t: Task, input: { title: string; bodyMd: string; sources: { url: string; title: string }[] }, simulated: boolean, tx: Executor = db) =>
     repos.taskReports.save(tx, caller.businessId, { taskId: t.id, sessionId: caller.sessionId, agentId: caller.agentId, ...input, simulated });
@@ -285,6 +292,37 @@ export function createDbPlatformHost({ db, log, now = () => new Date(), reposito
     async searchEntities(caller, { query, limit }) {
       const result = await repos.entities.search(db, caller.businessId, { q: query, limit });
       return { items: result.hits.map((h) => ({ id: h.entity.id, kind: h.entity.kind, name: h.entity.displayName })) };
+    },
+    async createEntity(caller, { kind, name, role, sourceUrl, note }) {
+      const displayName = name.trim().replace(/\s+/g, " ");
+      await refuseContactDetailsWhenSimulated(caller, displayName);
+      // The same name and kind is one record (case does not matter): it is returned, not duplicated.
+      const near = await repos.entities.search(db, caller.businessId, { q: displayName, kinds: [kind], limit: 10 });
+      const same = near.hits.find((h) => h.entity.displayName.toLowerCase() === displayName.toLowerCase());
+      if (same) return { entityId: same.entity.id, created: false };
+      const created = await db.transaction(async (tx) => {
+        const e = await repos.entities.create(tx, caller.businessId, { kind, displayName, identifiers: { sourceUrl, ...(note ? { note } : {}) }, source: "agent research", agentId: caller.agentId });
+        await repos.entities.addRole(tx, caller.businessId, e.id, { role, ownerRef: { kind: "agent", id: caller.agentId } });
+        await repos.audit.append(tx, caller.businessId, { actorKind: "agent", actorId: caller.agentId, action: "platform.entity.created", target: { kind: "entity", id: e.id }, details: { sessionId: caller.sessionId, role, sourceUrl } });
+        return e;
+      });
+      return { entityId: created.id, created: true };
+    },
+    async logInteraction(caller, { entityId, summary, sourceUrl }) {
+      // Another business's record reads as not found, like every platform id.
+      try {
+        await repos.entities.get(db, caller.businessId, entityId);
+      } catch (e) {
+        if (e instanceof NotFoundError) throw new PlatformToolError("not_found", `record ${entityId} is not in this business's records`);
+        throw e;
+      }
+      await refuseContactDetailsWhenSimulated(caller, summary);
+      const text = sourceUrl ? `${summary} (${sourceUrl})` : summary;
+      return db.transaction(async (tx) => {
+        const i = await repos.entities.createInteraction(tx, caller.businessId, { kind: "note", entityIds: [entityId], summary: text.slice(0, 4000), agentId: caller.agentId, direction: "internal" });
+        await repos.audit.append(tx, caller.businessId, { actorKind: "agent", actorId: caller.agentId, action: "platform.interaction.logged", target: { kind: "interaction", id: i.id }, details: { sessionId: caller.sessionId, entityId } });
+        return { interactionId: i.id };
+      });
     },
     async listApprovals(caller, { limit }) {
       const pending = await repos.approvals.pending(db, caller.businessId, limit);

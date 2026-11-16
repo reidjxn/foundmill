@@ -177,6 +177,21 @@ export const platformTools = [
     annotations: { readOnlyHint: true },
   }),
   defineTool({
+    name: "create_entity",
+    description:
+      "Record a supplier, lab or contact you found in the business's records (Customers), with the page it was found on. A record with the same name and kind is returned, not duplicated. It writes inside the project only: it contacts no one. Put no email address or phone number in the name.",
+    input: z.object({ kind: z.enum(["person", "organisation"]), name: Text(200), role: z.enum(["supplier", "lab", "contact"]), sourceUrl: z.url({ protocol: /^https?$/ }), note: z.string().trim().max(500).optional() }),
+    output: z.object({ entityId: z.string(), created: z.boolean() }),
+    hints: {},
+  }),
+  defineTool({
+    name: "log_interaction",
+    description: "Add a short note to a record's history in Customers (what you found or learned about it), optionally with the page it came from. It writes inside the project only: it contacts no one.",
+    input: z.object({ entityId: Id, summary: Text(1000), sourceUrl: z.url({ protocol: /^https?$/ }).optional() }),
+    output: z.object({ interactionId: z.string() }),
+    hints: {},
+  }),
+  defineTool({
     name: "list_approvals",
     description: "Approvals waiting for the founder: what each one is for and since when.",
     input: z.object({ limit: z.number().int().min(1).max(100).default(20) }),
@@ -351,6 +366,8 @@ export interface PlatformHost {
   listMessages(caller: PlatformCaller, args: PlatformArgs<"list_messages">): Promise<PlatformResult<"list_messages">>;
   readBusiness(caller: PlatformCaller): Promise<PlatformResult<"read_business">>;
   searchEntities(caller: PlatformCaller, args: PlatformArgs<"search_entities">): Promise<PlatformResult<"search_entities">>;
+  createEntity(caller: PlatformCaller, args: PlatformArgs<"create_entity">): Promise<PlatformResult<"create_entity">>;
+  logInteraction(caller: PlatformCaller, args: PlatformArgs<"log_interaction">): Promise<PlatformResult<"log_interaction">>;
   listApprovals(caller: PlatformCaller, args: PlatformArgs<"list_approvals">): Promise<PlatformResult<"list_approvals">>;
   listSessions(caller: PlatformCaller, args: PlatformArgs<"list_sessions">): Promise<PlatformResult<"list_sessions">>;
   checkContact(caller: PlatformCaller, args: PlatformArgs<"check_contact">): Promise<PlatformResult<"check_contact">>;

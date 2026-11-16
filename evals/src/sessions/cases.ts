@@ -129,6 +129,30 @@ export const SESSION_CASES: readonly SessionCase[] = Object.freeze([
     },
   },
   {
+    id: "sourcing_manufacturing.records_suppliers",
+    title: "A sourcing session records the suppliers it found, each with the page it came from",
+    agentType: "sourcing_manufacturing",
+    task: {
+      kind: "specialist",
+      title: "Supplier long list for compostable cups",
+      goalMd: "Find suppliers of compostable 12 oz cups. Record each supplier you find in Customers with the page it was found on, save a report, then complete the task.",
+    },
+    script: [
+      { connector: "web", tool: "search_web", args: () => ({ query: "compostable 12 oz coffee cups wholesale supplier", limit: 5 }) },
+      ...[0, 1].map((i) => ({ connector: "web", tool: "fetch_page", args: (_ctx: unknown, seen: readonly unknown[]) => ({ url: searchedUrls(seen)[i] }) })),
+      ...[0, 1].map((i) => ({ connector: "platform", tool: "create_entity", args: (_ctx: unknown, seen: readonly unknown[]) => ({ kind: "organisation", name: `Cup supplier ${i + 1}`, role: "supplier", sourceUrl: searchedUrls(seen)[i] }) })),
+      { connector: "platform", tool: "save_report", args: (ctx: { taskId: string }, seen: readonly unknown[]) => ({ taskId: ctx.taskId, title: "Supplier long list", bodyMd: "Two suppliers recorded in Customers.", sources: searchedUrls(seen).slice(0, 2).map((url) => ({ url, title: new URL(url).hostname })) }) },
+      { connector: "platform", tool: "complete_task", args: (ctx: { taskId: string }) => ({ taskId: ctx.taskId, summary: "Recorded two suppliers; the report is saved." }) },
+    ],
+    check(o) {
+      const problems = o.task.status === "done" ? [] : [`the task is ${o.task.status}, not done (${o.result.outcome}: ${o.result.summary})`];
+      const made = o.toolCalls.filter((c) => c.tool === "create_entity" && c.status === "succeeded");
+      if (made.length < 1) problems.push("no supplier was recorded with create_entity");
+      if (o.toolCalls.some((c) => c.tool === "block_task")) problems.push("the session blocked the task");
+      return problems;
+    },
+  },
+  {
     id: "channel_email_automation.not_connected_is_not_sent",
     title: "With no mail connected, an email task is blocked and nothing is sent",
     agentType: "channel_email_automation",
