@@ -49,7 +49,7 @@ export const shopifyTools = [
   defineTool({ name: "list_products", description: "Products with variants, prices and inventory.", input: z.object({ status: z.enum(["active", "draft", "archived"]).optional(), limit: Limit }), output: z.object({ items: z.array(Product) }), hints: {}, untrusted: "api", untrustedRef: (a) => `products:${a.status ?? "all"}`, annotations: { readOnlyHint: true } }),
   defineTool({ name: "list_customers", description: "Customers; filter by exact email.", input: z.object({ email: z.email().optional(), limit: Limit }), output: z.object({ items: z.array(Customer) }), hints: {}, untrusted: "api", untrustedRef: (a) => `customers:${a.email ?? "all"}`, annotations: { readOnlyHint: true } }),
   defineTool({
-    name: "create_draft_order",
+    name: "create_draft_order", annotations: { readOnlyHint: false },
     description: "Create a draft order (e.g. a seeding kit for an influencer, 100% discount allowed). Nothing ships or charges until a human completes it in Shopify.",
     input: z.object({ email: z.email(), lineItems: z.array(z.object({ variantId: z.string().regex(/^\d+$/).optional(), title: z.string().min(1).max(255).optional(), quantity: z.number().int().positive().default(1), priceMinor: z.number().int().nonnegative().optional() }).refine((l) => l.variantId || (l.title && l.priceMinor !== undefined), { message: "variantId or title + priceMinor" })).min(1).max(50), discountPercent: z.number().min(0).max(100).optional(), note: z.string().max(5000).optional(), tags: z.array(z.string().max(40)).max(20).default([]) }),
     output: DraftOrder,

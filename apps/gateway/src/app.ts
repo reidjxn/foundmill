@@ -299,6 +299,9 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     const input = MintSessionTokenRequest.parse(await c.req.json());
     const ttl = Math.min(maxTtl, input.ttlSeconds ?? defaultTtl);
     const { ttlSeconds: _ttl, untrusted, ...claims } = input;
+    // Who may mint what (A7-15, SEC-17), before the business is read.
+    const refusal = mintRefusal(c.var.service.svc, { sessionId: claims.sessionId, allowedTools: claims.allowedTools, kitMode: claims.kitMode ?? false });
+    if (refusal) throw new GatewayError(refusal.code, refusal.message, 403);
     // The business and the agent must exist: a token can only be minted for a real session of a real club.
     const business = await repos.businesses.get(deps.db, claims.businessId, { includeArchived: true }).catch(() => {
       throw new GatewayError("business_not_found", `business ${claims.businessId} is not available to this gateway`, 404);
@@ -385,4 +388,26 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   });
 
   return app;
+}
+
+/**
+ * Who may mint a session token, and for what (WP-11 T11; A7-15, SEC-17). Only the orchestrator (agent sessions and the
+ * platform's own steps) and the api (one tool call outside a session, `services/gateway.ts` `toolCall`) mint. Nobody gets
+ * the bare `*`. The api gets exactly one tool, no wildcard, no session and no offline tracking. The mint does not
+ * intersect with the agent's grants and does not refuse an ended session: the orchestrator's workspace push, merge and
+ * checkout mint for tools the agent does not hold, some after the session ended (WP-11 "Corrections to the audits" 4).
+ * A third caller is added here with its reason.
+ */
+export const MINTING_SERVICES: ReadonlySet<string> = new Set(["orchestrator", "api"]);
+
+export function mintRefusal(svc: string, claims: { sessionId: string | null; allowedTools: string[]; kitMode: boolean }): { code: "forbidden_service" | "mint_scope_refused"; message: string } | null {
+  if (!MINTING_SERVICES.has(svc)) return { code: "forbidden_service", message: `Service ${svc} does not mint session tokens` };
+  if (claims.allowedTools.includes("*")) return { code: "mint_scope_refused", message: "A session token never allows every tool" };
+  if (svc === "api") {
+    if (claims.sessionId !== null) return { code: "mint_scope_refused", message: "The api mints only outside an agent session" };
+    if (claims.allowedTools.length !== 1) return { code: "mint_scope_refused", message: "The api mints for exactly one tool" };
+    if (claims.allowedTools[0]!.includes("*")) return { code: "mint_scope_refused", message: "The api mints for one named tool, never a wildcard" };
+    if (claims.kitMode) return { code: "mint_scope_refused", message: "The api never mints in offline tracking" };
+  }
+  return null;
 }

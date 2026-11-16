@@ -165,6 +165,12 @@ test.describe("agent profile", () => {
     } else {
       await expect(explainer).toHaveCount(0);
     }
+    // Focus: the instruction edits come from fixed code, so they are "Suggested edits", never a Coach's (WP-06 T12).
+    const sections = page.getByRole("tablist", { name: "Training sections" });
+    await sections.getByRole("tab", { name: /^Focus/ }).click();
+    await expect(page.getByTestId("coach-proposals")).toContainText("Suggested edits");
+    await expect(page.getByTestId("agent-training")).not.toContainText(/Coach proposals|The Coach proposes/);
+    await sections.getByRole("tab", { name: "Instructions" }).click();
     const liveChip = page.getByText(/^Live v\d+$/);
     const before = (await liveChip.count()) ? await liveChip.first().textContent() : null;
     const goals = page.locator("[data-instructions-editor]").getByRole("region", { name: "Goals" });

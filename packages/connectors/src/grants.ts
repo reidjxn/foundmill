@@ -253,6 +253,9 @@ export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, r
     "skills.manage": ["list_skills", "assign_skill", "remove_skill"],
     // WP-06 T4: every agent reads its own skills' full text on demand (the prompt carries their index).
     "skills.read": ["read_skill"],
+    // The project's positioning notes (WP-08 T1): every marketing role reads them; two leads may propose a new version.
+    "positioning.read": ["read_positioning"],
+    "positioning.propose": ["propose_positioning_change"],
   },
   web: { search: ["search_web"], fetch: ["fetch_page"] },
   quarantine: { read_untrusted: ["read_untrusted"] },
