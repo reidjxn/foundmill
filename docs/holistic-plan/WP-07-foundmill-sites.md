@@ -294,7 +294,7 @@ Before (`archetypes.ts:455`): "At least 20 suppliers recorded as CRM entities". 
 
 ### T10: The proof: idea to published site to a sign-up in Customers   [S] [ships alone] [after T6]
 
-- [ ] done
+- [x] done (in one process; see the log entry)
 
 **Why:** §8 "Done when"; A4 §6.2 gaps 2 and 8; THESIS 1.8.
 **Files:** `apps/web/e2e/site.spec.ts` (complete it as the golden path), `e2e/tests/golden-path.spec.ts` (one added stage behind `SITES_DOMAIN`), docs/DEPLOY.md (the production check), a line for WP-02's `scripts/check-production.mjs`: `GET https://<canary-slug>.<SITES_DOMAIN>/` is 200 with the CSP header, and a preview host is `noindex`.

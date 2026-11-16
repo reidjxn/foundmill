@@ -312,6 +312,7 @@ WP-00's steps "record in docs/DEPLOY.md" mean: change the row here.
 | Nightly numbers | A `platform_metric_days` row for yesterday | Table not built yet (WP-02 T10) | `manual: Desktop` |
 | Waitlist | Admits and emails after WP-00 S1 and S2: `WAITLIST_ADMIT_PER_DAY` set on the orchestrator, or entries admitted by hand, and `WAITLIST_EMAILS=1` on the api so the page promises the email (§4) | Not deployed (WP-03 T2); `WAITLIST_ADMIT_PER_DAY` unset (0), `WAITLIST_EMAILS` unset (the page says it cannot email yet) | `manual: Desktop` |
 | Hosting plan, spend limits, DMARC | WP-00 S13 to S15 | Vercel Pro; spend limits not recorded; DMARC `p=none` | `manual: founder` |
+| Foundmill Sites | With `--sites https://<canary>.foundmill.app/`: 200, `content-security-policy` with `default-src 'none'`, no `set-cookie`; with `--preview`, `x-robots-tag: noindex` | Off: `SITES_DOMAIN` unset (WP-07) | `sites-headers` |
 <!-- production-record:end -->
 
 ### Nov 15, 2026: read and changed through the connectors (cloud session, on the founder's go)

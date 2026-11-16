@@ -10,6 +10,7 @@
  *   node scripts/check-production.mjs --json
  *   node scripts/check-production.mjs --only api-health
  *   node scripts/check-production.mjs --base https://foundmill.com --api https://api.foundmill.com --ingest https://ingest.foundmill.com
+ *   node scripts/check-production.mjs --only sites-headers --sites https://<canary>.foundmill.app/ --preview https://p-<token>.foundmill.app/
  */
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -92,6 +93,21 @@ export const CHECKS = {
     const to = (www.headers.get ? www.headers.get("location") : null) ?? "";
     return www.status >= 300 && www.status < 400 && to.startsWith(ctx.base) ? ok() : differs(`www redirects to ${ctx.base}`, `${www.status} ${to}`);
   },
+  // Foundmill Sites (WP-07 T10): with --sites <canary site address> (and --preview <a preview address>), the site answers
+  // 200 with the site header set and a preview is never indexed. Without --sites (SITES_DOMAIN unset) it is skipped.
+  async "sites-headers"(ctx) {
+    if (!ctx.sites) return { status: "manual", detail: "skipped: no --sites address (SITES_DOMAIN unset)" };
+    const res = await get(ctx, ctx.sites);
+    const csp = res.headers.get ? (res.headers.get("content-security-policy") ?? "") : "";
+    if (res.status !== 200) return differs("200", String(res.status));
+    if (!csp.includes("default-src 'none'")) return differs("content-security-policy default-src 'none'", csp || "none");
+    if (res.headers.get("set-cookie")) return differs("no set-cookie", "a cookie");
+    if (ctx.preview) {
+      const p = await get(ctx, ctx.preview, { method: "HEAD" });
+      if (!/noindex/.test(p.headers.get("x-robots-tag") ?? "")) return differs("preview x-robots-tag noindex", p.headers.get("x-robots-tag") ?? "none");
+    }
+    return ok();
+  },
   async "service-health"(ctx) {
     const hosts = [ctx.api, ctx.ingest, ctx.stream];
     for (const host of hosts) {
@@ -103,8 +119,8 @@ export const CHECKS = {
 };
 
 /** Run every row (or one, with `only`); returns the results and the exit code. */
-export async function runChecks(rows, { fetch = globalThis.fetch, base = "https://foundmill.com", api = "https://api.foundmill.com", ingest = "https://ingest.foundmill.com", stream = "https://stream.foundmill.com", only = null } = {}) {
-  const ctx = { fetch, base, api, ingest, stream };
+export async function runChecks(rows, { fetch = globalThis.fetch, base = "https://foundmill.com", api = "https://api.foundmill.com", ingest = "https://ingest.foundmill.com", stream = "https://stream.foundmill.com", sites = null, preview = null, only = null } = {}) {
+  const ctx = { fetch, base, api, ingest, stream, sites, preview };
   const results = [];
   for (const row of rows) {
     if (only && row.check !== only) continue;
@@ -131,7 +147,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const flag = (name) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
   const root = join(dirname(fileURLToPath(import.meta.url)), "..");
   const rows = parseRecord(readFileSync(join(root, "docs/DEPLOY.md"), "utf8"));
-  const options = { ...(flag("--base") ? { base: flag("--base") } : {}), ...(flag("--api") ? { api: flag("--api") } : {}), ...(flag("--ingest") ? { ingest: flag("--ingest") } : {}), only: flag("--only") ?? null };
+  const options = { ...(flag("--base") ? { base: flag("--base") } : {}), ...(flag("--api") ? { api: flag("--api") } : {}), ...(flag("--ingest") ? { ingest: flag("--ingest") } : {}), ...(flag("--sites") ? { sites: flag("--sites") } : {}), ...(flag("--preview") ? { preview: flag("--preview") } : {}), only: flag("--only") ?? null };
   const { results, exitCode } = await runChecks(rows, options);
   if (args.includes("--json")) console.log(JSON.stringify(results.map(({ area, check, status, detail }) => ({ area, check, status, detail })), null, 2));
   else for (const r of results) console.log(`${r.status === "ok" ? "ok     " : r.status === "manual" ? "manual " : "differs"}  ${r.area}${r.detail ? `: ${r.status === "differs" ? "" : ""}${r.detail}` : ""}`);
