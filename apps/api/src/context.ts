@@ -18,6 +18,7 @@ import { createDefaultRegistry, type ConnectorRegistry } from "@foundmill/connec
 import { createAuthVerifier, type AuthVerifier } from "./auth";
 import { parseSignupAllowlist } from "./services/access";
 import { createConfirmEmailGuard, type ConfirmEmailGuard } from "./services/confirm-email";
+import { createDataApiProbe, type DataApiProbe } from "./services/data-api-probe";
 import { requestIdFrom } from "./request-id";
 import { createComposerClient, type ComposerClient } from "./services/composer";
 import { createDevUserBootstrap } from "./services/dev-users";
@@ -63,6 +64,8 @@ export interface ApiDeps {
    * confirmed address. Absent (tests, no list, no SUPABASE_URL): tokens alone decide.
    */
   confirmEmail?: ConfirmEmailGuard | null;
+  /** Watches that Supabase's Data API stays off (services/data-api-probe.ts; index.ts starts it). Absent without SUPABASE_URL. */
+  dataApi?: DataApiProbe | null;
   log: ApiLogger;
   /** Mock sandbox recordings for session replays without Redis (null when the sandbox package is not linked). */
   recordings: RecordingResolver | null;
@@ -193,6 +196,7 @@ export function createApiDeps(options: CreateApiDepsOptions = {}): ApiDeps {
 
   // The allow-list's confirmed-address rule rests on Supabase's "Confirm email": watched only while there is a list.
   const confirmEmail = env.SUPABASE_URL && parseSignupAllowlist(env.SIGNUP_ALLOWLIST) ? createConfirmEmailGuard({ supabaseUrl: env.SUPABASE_URL, anonKey: env.SUPABASE_ANON_KEY, log }) : null;
+  const dataApi = env.SUPABASE_URL ? createDataApiProbe({ supabaseUrl: env.SUPABASE_URL, anonKey: env.SUPABASE_ANON_KEY, log }) : null;
 
   const health = {
     db: async () => {
@@ -233,7 +237,7 @@ export function createApiDeps(options: CreateApiDepsOptions = {}): ApiDeps {
     },
   });
 
-  return { env, db, redis, limits, temporal, models, composer, vault, connectors, auth, confirmEmail, log, recordings, ingest, gateway, health, txGate };
+  return { env, db, redis, limits, temporal, models, composer, vault, connectors, auth, confirmEmail, dataApi, log, recordings, ingest, gateway, health, txGate };
 }
 
 /** Per-request context factory for `trpcServer({ createContext })`. */
