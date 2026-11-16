@@ -84,10 +84,11 @@ supersedes: []
   outcome ("A new account reaches the first result without help."), not as something to open.
 
 ## Not done
-- `apps/web/e2e/commit.spec.ts` "AC-11.1.6" failed twice here at `foundations-status` on Today (the line this change did
-  not touch): the panel shows a ready state only when the visit saw the drafting, and on this machine the mock drafting
-  finished before Today's first read. Not checked against main. `landing.spec.ts` "prerendered pages" fails under
-  `next dev` (every page is `no-store`); it needs the production server CI runs.
+- `apps/web/e2e/commit.spec.ts` "AC-11.1.6" fails here at `foundations-status` on Today (a line this change did not
+  touch): the panel shows a ready state only when the visit saw the drafting, and on this machine the mock drafting can
+  finish before Today's first read. On a clean origin/main (e8c06d84) with the same setup it fails the same way: one
+  pass and one failure at that line in three runs (the third timed out under load). `landing.spec.ts` "prerendered
+  pages" fails under `next dev` (every page is `no-store`); it needs the production server CI runs.
 - The seeded demo businesses keep their two approved rounds and no plan note, as they did (they never had open notes).
 - `chief_of_staff` prompts still say "signed off the specification and the roadmap": that is what the rounds record,
   and it is not shown to the founder.
