@@ -7,7 +7,7 @@
 import { FLAGS, INPUT_LIMITS, isSimulateEnv } from "@foundmill/config";
 import { REPOSITORY_FULL_NAME, TaskListFilter, codeRepositoryOf, repos, type AgentSession, type DbTx, type Executor, type Task } from "@foundmill/db";
 import { SESSION_EVENT_KINDS, sessionStreamKey } from "@foundmill/events";
-import { boundedRecord, ForbiddenError, NotFoundError, ValidationError, connectorMode, hasSectionAccess, sessionSections, type EntityKind } from "@foundmill/shared";
+import { TASK_STATUSES, boundedRecord, ForbiddenError, NotFoundError, ValidationError, connectorMode, hasSectionAccess, sessionSections, type EntityKind } from "@foundmill/shared";
 import { buildManifest, extractEntityIds, stripInvalidMentions, type ManifestEntityInput } from "@foundmill/entity-linker";
 import { z } from "zod";
 import { verifyCodeRepository } from "../services/code-repository";
@@ -132,6 +132,9 @@ export const devRouter = router({
         return { ...page, edges, counts };
       }),
     ),
+
+    /** How many of the business's tasks are in one status (the Inbox's "Tasks running" tile; WP-10 T12). */
+    count: read.input(z.object({ status: z.enum(TASK_STATUSES) })).query(({ ctx, input }) => ctx.rls(async (tx) => ({ count: (await repos.tasks.countByStatus(tx, ctx.businessId))[input.status] }))),
 
     get: read.input(z.object({ taskId: Id })).query(({ ctx, input }) =>
       ctx.rls(async (tx) => {

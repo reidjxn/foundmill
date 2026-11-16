@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AppShell, KIT_VARIABLES, PROCESSING_LINE_MIN_PX, processingLineText, sidebarItemForTarget, withSidebarKeys, type AppShellProps } from "./AppShell";
 import { GuidanceProvider } from "../guidance/GuidanceProvider";
@@ -33,8 +33,8 @@ function shellProps(over: Partial<AppShellProps> = {}): AppShellProps {
 }
 
 describe("AppShell", () => {
-  it("renders NeedsLargerWindow only, below 1280 px", () => {
-    render(<AppShell {...shellProps({ viewportWidth: 1279 })} />);
+  it("renders NeedsLargerWindow only, below 640 px", () => {
+    render(<AppShell {...shellProps({ viewportWidth: 639 })} />);
     expect(screen.getByTestId("needs-larger-window")).toBeTruthy();
     // The note's own words (WP-03 T3: no pixel line by default; NeedsLargerWindow.test.tsx).
     expect(screen.getByText(NEEDS_LARGER_WINDOW_WORDS.title)).toBeTruthy();
@@ -44,6 +44,19 @@ describe("AppShell", () => {
     expect(svgs.length).toBe(1);
     expect(screen.queryByTestId("app-shell")).toBeNull();
     expect(screen.queryByText("Content")).toBeNull();
+  });
+
+  it("between 640 and 1279 px renders the console at its 1280 px floor in a sideways-scrolling shell, with a note dismissed once (decision 3)", () => {
+    window.sessionStorage.clear();
+    const { unmount } = render(<AppShell {...shellProps({ viewportWidth: 1152 })} />);
+    expect(screen.queryByTestId("needs-larger-window")).toBeNull();
+    expect(screen.getByTestId("scroll-shell").className).toContain("overflow-x-auto");
+    expect(screen.getByTestId("app-shell").className).toContain("min-w-(--min-viewport)");
+    fireEvent.click(screen.getByRole("button", { name: "Hide this note" }));
+    expect(screen.queryByTestId("narrow-window-note")).toBeNull();
+    unmount();
+    render(<AppShell {...shellProps({ viewportWidth: 1152 })} />);
+    expect(screen.queryByTestId("narrow-window-note")).toBeNull();
   });
 
   describe("phone mode (package 2.1)", () => {

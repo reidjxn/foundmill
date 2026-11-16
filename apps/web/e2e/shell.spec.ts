@@ -236,8 +236,16 @@ test.describe("shell", () => {
     await expect(page.getByTestId("kit-bar").locator("xpath=following-sibling::*[@role='status']")).toHaveAttribute("aria-label", /(are|is) working|The team is idle/);
   });
 
-  test("shows NeedsLargerWindow below 1280 px (BUILD §2.1 rule 10)", async ({ page }) => {
-    await page.setViewportSize({ width: 1279, height: 900 });
+  test("from 640 to 1279 px the console scrolls sideways at its 1280 px layout; below 640 px it asks for a larger window (founder decision 3)", async ({ page }) => {
+    await page.setViewportSize({ width: 1152, height: 800 });
+    await expect(page.getByTestId("scroll-shell")).toBeVisible();
+    await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
+    expect(await page.getByTestId("app-shell").evaluate((el) => el.getBoundingClientRect().width)).toBeGreaterThanOrEqual(1280);
+    const scroller = page.getByTestId("scroll-shell");
+    expect(await scroller.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+    await page.getByTestId("narrow-window-note").getByRole("button", { name: "Hide this note" }).click();
+    await expect(page.getByTestId("narrow-window-note")).toHaveCount(0);
+    await page.setViewportSize({ width: 600, height: 900 });
     await expect(page.getByTestId("needs-larger-window")).toBeVisible();
     await expect(page.getByTestId("app-shell")).toHaveCount(0);
     await page.setViewportSize({ width: 1440, height: 900 });

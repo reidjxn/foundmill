@@ -29,7 +29,18 @@ describe("desktop only (audit PAS-4: a phone rendered a 390 px slice of a 1280 p
     expect((viewport as { width?: unknown }).width).toBeUndefined();
   });
 
-  it("shows only NeedsLargerWindow below 1280 px on a desktop route", () => {
+  it("renders a desktop route from 640 px: the console scrolls sideways instead (founder decision 3)", () => {
+    setWidth(1152);
+    render(
+      <DesktopOnly>
+        <p>Console</p>
+      </DesktopOnly>,
+    );
+    expect(screen.queryByTestId("needs-larger-window")).toBeNull();
+    expect(screen.getByText("Console")).toBeTruthy();
+  });
+
+  it("shows only NeedsLargerWindow below 640 px on a desktop route", () => {
     setWidth(390);
     render(
       <DesktopOnly>
@@ -42,15 +53,15 @@ describe("desktop only (audit PAS-4: a phone rendered a 390 px slice of a 1280 p
     expect(screen.queryByText("Sign in")).toBeNull();
   });
 
-  it("renders the page from 1280 px up, and again when the window is widened", () => {
-    setWidth(1000);
+  it("renders the page from 640 px up, and again when the window is widened", () => {
+    setWidth(600);
     render(
       <DesktopOnly>
         <p>Sign in</p>
       </DesktopOnly>,
     );
     expect(screen.queryByText("Sign in")).toBeNull();
-    setWidth(1280);
+    setWidth(640);
     expect(screen.getByText("Sign in")).toBeTruthy();
     expect(screen.queryByTestId("needs-larger-window")).toBeNull();
   });

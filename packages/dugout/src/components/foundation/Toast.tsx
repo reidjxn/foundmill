@@ -60,6 +60,17 @@ export const TOAST_TONES: Record<ToastTone, { icon: IconComponent; tone: string 
   info: { icon: Info, tone: "tone-status-info" },
 };
 
+/**
+ * How long a toast stays (WP-10 T12, audit A2-27): its own `duration` when given; a warning, an error or a toast with an
+ * action stays until dismissed (its dismiss button is there), so nothing a founder must read or act on times out; others
+ * take the provider's default.
+ */
+export function toastDuration(record: Pick<ToastOptions, "duration" | "tone" | "action">, fallback: number): number {
+  if (record.duration !== undefined) return record.duration;
+  if (record.tone === "warn" || record.tone === "bad" || record.action) return Infinity;
+  return fallback;
+}
+
 /** Where the stack sits. Bottom left of the content column (the default) never covers a primary action. */
 export type ToastPosition = "bottom-left" | "bottom-right" | "top-right";
 
@@ -215,7 +226,7 @@ export function ToastProvider({ children, duration = 5000, position: fixedPositi
               record={t}
               index={stack[t.id]?.index ?? 0}
               offset={stack[t.id]?.offset ?? 0}
-              duration={t.duration ?? duration}
+              duration={toastDuration(t, duration)}
               frontHeight={frontHeight}
               onOpenChange={(open) => (open ? undefined : dismiss(t.id))}
               onRemoved={() => remove(t.id)}
@@ -292,7 +303,7 @@ function Toast({ record, index, offset, duration, frontHeight, onOpenChange, onR
     <ToastPrimitive.Root
       open={record.open}
       onOpenChange={onOpenChange}
-      duration={record.duration}
+      duration={duration}
       type={record.type ?? "foreground"}
       data-tone={record.tone ?? "neutral"}
       data-front={index === 0 || undefined}
