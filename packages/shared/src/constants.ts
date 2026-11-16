@@ -235,9 +235,9 @@ export type AgentLayer = (typeof AGENT_LAYERS)[number];
 export const MODEL_KEYS = ["opus", "sonnet", "haiku", "glm"] as const;
 export type ModelKey = (typeof MODEL_KEYS)[number];
 /**
- * The models an agent can be set to (the model dialog, a plan's model change, a draft). GLM is not one: it is the
- * model every call runs on for an account not on a paid plan, decided when the call runs (WP-13, founder D3), while
- * the agent keeps its chosen model for after an upgrade or with the founder's own key.
+ * The models an agent can be set to today (the model dialog, a plan's model change, a draft). GLM joins on the free
+ * plan when WP-13 T7 (the picker by plan) and T4 (sessions on the chosen model) land (founder, Nov 16, 2026: a free
+ * founder chooses Haiku 5.5 or GLM-5.3 Flash per agent); until then an agent cannot be set to it.
  */
 export const CHOOSABLE_MODEL_KEYS = ["opus", "sonnet", "haiku"] as const satisfies readonly ModelKey[];
 export type ChoosableModelKey = (typeof CHOOSABLE_MODEL_KEYS)[number];

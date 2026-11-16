@@ -21,7 +21,15 @@ What this changes below:
 - **T4 is the only place GLM runs**, and it carries the $0.019 gate.
 - **D5 is moot:** the readers run on Haiku 5.5, and the injection suites must pass on it (T8).
 - **T9:** the privacy policy names Z.ai for agent work only.
-- **Open question for the founder (T6):** does the $600 monthly cap cover all free-plan spend (Haiku 5.5 and GLM together) or only the Z.ai key?
+- **T6, answered by the founder the same day:** the $600 monthly cap covers all free-plan spend, Haiku 5.5 and GLM together.
+- **Free-plan model choice, founder the same day:** on the free plan the founder chooses, per agent, between Haiku 5.5 and GLM-5.3 Flash. This replaces D3's "GLM is not chosen per agent".
+  - Opus and Sonnet stay visible, slightly grayed, with the upgrade prompt.
+  - The choice is the model the agent's work sessions run on. Platform tasks stay on Haiku 5.5.
+  - A new free agent starts on the default above: GLM if a measured session costs at most $0.019, else Haiku 5.5.
+  - An agent's stored Opus or Sonnet choice is kept for after an upgrade, and runs on the free default meanwhile.
+  - T7 builds the picker and the server check on which keys each plan may choose. T4 runs the session on the chosen model.
+  - Until both land, the api keeps refusing `glm` as an agent's model (`CHOOSABLE_MODEL_KEYS`).
+  - Assumption to confirm in T7: GLM is offered only on the free plan; a paid plan chooses among the Claude models.
 
 The sections below were written for the first design (GLM for everything). Where they disagree with this revision, this revision wins. Each task's own pull request records what it actually did.
 
