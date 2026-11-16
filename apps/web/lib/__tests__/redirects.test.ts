@@ -225,4 +225,19 @@ describe("onboardingNext (WP-04 T1): where the three questions go on to", () => 
     expect(onboardingNext("")).toBeNull();
     expect(onboardingNext(undefined)).toBeNull();
   });
+
+  it("lets an address that is no app route reach Next's 404, and still sends app routes to sign-in", () => {
+    for (const pathname of ["/pricing-nope", "/.well-known/nope", "/llms.txt"]) expect(decideRedirect({ pathname, authenticated: false }), pathname).toEqual({ kind: "next" });
+    for (const pathname of ["/b/x", "/home", "/start", "/new", "/onboarding", "/network", "/communities", "/businesses", "/public-profile", "/integrations/github/callback"]) {
+      expect(decideRedirect({ pathname, authenticated: false }).kind, pathname).toBe("redirect");
+    }
+    expect(isPublicPath("/llms.txt")).toBe(true);
+  });
+
+  it("the 404 rule leaves every public address open to a signed-out visitor", () => {
+    const id = "00000000-0000-4000-8000-000000000000";
+    for (const pathname of ["/p/sole-revival", "/p/sole-revival/story", `/m/${id}`, "/u/maya-okafor", `/i/${"x".repeat(43)}`, `/a/${"x".repeat(43)}`, "/email/pause", "/email/unsubscribe", "/terms", "/privacy", "/tour", "/robots.txt", "/sitemap.xml", "/llms.txt"]) {
+      expect(decideRedirect({ pathname, authenticated: false }), pathname).toEqual({ kind: "next" });
+    }
+  });
 });

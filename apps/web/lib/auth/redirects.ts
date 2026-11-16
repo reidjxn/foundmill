@@ -24,7 +24,7 @@ import { STALE_BUSINESS_PARAM, lastBusinessHome } from "./last-business";
  * `/i/<token>` (an invitation to a project) is opened by people who may have no account yet: the page says "Sign in"
  * itself and comes back with `next`.
  */
-const PUBLIC_PREFIXES = ["/login", "/auth/", "/_next/", "/brand/", "/favicon", "/icon", "/apple-icon", "/opengraph-image", "/robots.txt", "/sitemap.xml", "/health", "/examples/", "/p/", "/u/", "/m/", "/a/", "/email/pause", "/email/unsubscribe", "/terms", "/privacy", "/i/", "/tour", "/lp/"];
+const PUBLIC_PREFIXES = ["/login", "/auth/", "/_next/", "/brand/", "/favicon", "/icon", "/apple-icon", "/opengraph-image", "/robots.txt", "/sitemap.xml", "/llms.txt", "/health", "/examples/", "/p/", "/u/", "/m/", "/a/", "/email/pause", "/email/unsubscribe", "/terms", "/privacy", "/i/", "/tour", "/lp/"];
 
 /** The signed-in index (app/start/page.tsx): a signed-in `/` the proxy cannot answer itself is rewritten here. */
 export const SIGNED_IN_INDEX = "/start";
@@ -116,6 +116,8 @@ export function decideRedirect(input: { pathname: string; search?: string; authe
       const variant = landingVariantRoute(landingVariant(search, input.landingVariant));
       return variant ? { kind: "rewrite", to: variant } : { kind: "next" };
     }
+    // An address that is no app route reaches Next's 404 (with the right status) instead of a sign-in that leads nowhere.
+    if (!isFounderPath(pathname) && pathname !== SIGNED_IN_INDEX && !pathname.startsWith("/integrations/")) return { kind: "next" };
     return { kind: "redirect", to: `/login?${NEXT_PARAM}=${encodeURIComponent(`${pathname}${search}`)}` };
   }
   if (pathname === "/") {
