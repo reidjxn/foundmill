@@ -96,6 +96,25 @@ function keptSettings(row: { settings: unknown } | null, externalAccountId: stri
   return Object.fromEntries(Object.entries(settings).filter(([k]) => k === "repo" || k === "writeEnabled" || k === "repoId"));
 }
 
+/**
+ * Connect fields that carry a webhook signing secret, sealed as a second credential of `kind` on the same integration
+ * (WP-11 T20, N2): ingest reads that kind to verify the project's own deliveries (apps/ingest secrets.ts).
+ */
+export const WEBHOOK_SECRET_FIELDS: Readonly<Record<string, { field: string; kind: "stripe_webhook_secret"; prefix: string }>> = {
+  stripe: { field: "webhookSecret", kind: "stripe_webhook_secret", prefix: "whsec_" },
+};
+
+function takeWebhookSecret(connectorKey: string, connectInput: unknown): { input: unknown; secret: { kind: "stripe_webhook_secret"; value: string } | null } {
+  const spec = Object.hasOwn(WEBHOOK_SECRET_FIELDS, connectorKey) ? WEBHOOK_SECRET_FIELDS[connectorKey]! : null;
+  if (!spec || !connectInput || typeof connectInput !== "object") return { input: connectInput, secret: null };
+  const { [spec.field]: raw, ...rest } = connectInput as Record<string, unknown>;
+  const value = typeof raw === "string" ? raw.trim() : "";
+  if (raw !== undefined && raw !== null && value !== "" && (!value.startsWith(spec.prefix) || value.length < spec.prefix.length + 8 || /\s/.test(value))) {
+    throw new GatewayError("invalid_webhook_secret", `A webhook signing secret starts with ${spec.prefix}: copy it from the endpoint in your vendor's dashboard`, 400, { connector: connectorKey, field: spec.field });
+  }
+  return { input: rest, secret: value ? { kind: spec.kind, value } : null };
+}
+
 export async function connectIntegration(deps: GatewayDeps, input: ConnectInput, service: string): Promise<ConnectIntegrationResponse> {
   const connector = connectableConnector(deps, input.connector);
   await requireBusiness(deps, input.businessId);
@@ -123,6 +142,10 @@ export async function connectIntegration(deps: GatewayDeps, input: ConnectInput,
       connectInput = { key: given.key, hostedSlug: page.slug };
     }
   }
+  // A webhook signing secret given beside the key (WP-11 T20) is checked here, taken out before the connector sees the
+  // input, and sealed below as its own credential row: never echoed, audited by kind only.
+  const webhook = takeWebhookSecret(connector.key, connectInput);
+  connectInput = webhook.input;
   const record = await connector.connect(input.businessId, connectInput).catch((e: unknown) => vendorFailure(e, connector.key));
   const safe = stripSecret(record);
 
@@ -150,6 +173,7 @@ export async function connectIntegration(deps: GatewayDeps, input: ConnectInput,
   // The row id is part of the AAD and exists only after the insert: seal under the provisional AAD first (outside the
   // transaction, so the vault's lazy initialization never runs inside it), store, then re-seal under the row-bound AAD.
   const provisional = await encryptJson(vault, credential, buildAad(input.businessId, "credentials", PROVISIONAL_AAD_ROW));
+  const webhookProvisional = webhook.secret ? await encryptJson(vault, { secret: webhook.secret.value }, buildAad(input.businessId, "credentials", PROVISIONAL_AAD_ROW)) : null;
   const stored = await deps.db.transaction(async (tx: Executor) => {
     // The account the credential belongs to is written with it, so the row never pairs a new credential with the
     // previous account's settings, even if the api's own write after this one fails. The api writes the same settings
@@ -160,9 +184,13 @@ export async function connectIntegration(deps: GatewayDeps, input: ConnectInput,
     const meta = await repos.credentials.store(tx, input.businessId, { integrationId: row.id, kind: INTEGRATION_CREDENTIAL_KIND, record: provisional, expiresAt });
     const bound = await encryptJson(vault, credential, buildAad(input.businessId, "credentials", meta.id));
     await repos.credentials.rotate(tx, input.businessId, meta.id, bound);
+    if (webhook.secret && webhookProvisional) {
+      const hook = await repos.credentials.store(tx, input.businessId, { integrationId: row.id, kind: webhook.secret.kind, record: webhookProvisional, expiresAt: null });
+      await repos.credentials.rotate(tx, input.businessId, hook.id, await encryptJson(vault, { secret: webhook.secret.value }, buildAad(input.businessId, "credentials", hook.id)));
+    }
     return { integrationId: row.id, credentialId: meta.id };
   });
-  await auditIntegration(deps, input.businessId, "gateway.integration.connect", connector.key, { service, mode, status: record.status, secretStored: true, integrationId: stored.integrationId, credentialId: stored.credentialId });
+  await auditIntegration(deps, input.businessId, "gateway.integration.connect", connector.key, { service, mode, status: record.status, secretStored: true, integrationId: stored.integrationId, credentialId: stored.credentialId, ...(webhook.secret ? { webhookSecretStored: webhook.secret.kind } : {}) });
   return { mode, record: safe, integrationId: stored.integrationId, credential: { stored: true, credentialId: stored.credentialId, hint: redactSecret(credential.secret) } };
 }
 

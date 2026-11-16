@@ -76,7 +76,7 @@ Rules for every task here (docs/holistic-plan/README.md applies in full):
 | [x] | T17 The service connection: the rule as it is, and a pinned list | S | |
 | [ ] | T18 The P3 items in one change | S | |
 | [ ] | T19 A dated decision for every item left open | S | WP-00 S16 |
-| [ ] | T20 A founder's own Stripe: store the webhook signing secret | M | WP-00 S8; WP-07 and WP-08 wait for it |
+| [x] | T20 A founder's own Stripe: store the webhook signing secret | M | WP-00 S8; WP-07 and WP-08 wait for it |
 
 Sizes: S under a day, M one to three days, L up to a week. 13 S and 7 M: about four to five weeks of one session in sequence (Estimate). T3, T8 and the founder steps run beside the rest; T11 to T20 do not depend on each other. T20 is last in the list only because another package sets its date: start it when WP-07's `create_payment_link` task starts.
 
@@ -475,7 +475,7 @@ Steps:
 Tests: none (documents); the two greps in steps 1 and 2 are the check.
 Done when: every id in `audits/a8-data-api-security.md` §4 and `audits/a11-roadmap-status.md` §7.0 has a row.
 
-### T20: A founder's own Stripe: store the webhook signing secret            [size M] [ships alone] [production switch: WP-00 S8] Review: security-reviewer
+### [x] T20: A founder's own Stripe: store the webhook signing secret            [size M] [ships alone] [production switch: WP-00 S8] Review: security-reviewer
 Why: N2 (the Stripe half). The Stripe connector verifies a delivery with the project's own `stripe_webhook_secret` and falls back to the platform's (`packages/connectors/src/connectors/stripe/index.ts` `secretFor`); ingest reads that credential (`apps/ingest/src/secrets.ts` `WEBHOOK_SECRET_NAMES`); nothing ever stores it. A founder's own Stripe account signs with its own endpoint secret, so its deliveries fail verification and `payment.received` never arrives. WP-07's pay link and WP-08's first payment both wait for that event.
 Files: modify `packages/connectors/src/connectors/stripe/tools.ts` (`STRIPE_CONNECT_FIELDS`), `apps/gateway/src/integrations.ts`, `apps/gateway/src/__tests__/live-integrations.test.ts`, `apps/ingest/src/__tests__/staging-webhooks.test.ts`, docs/DEPLOY.md §5.5, docs/SECURITY_REVIEW.md (N2).
 Interfaces: consumes `ConnectField` (`packages/connectors/src/contract.ts`), `connectIntegration(deps: GatewayDeps, input: ConnectInput, service: string)` and its provisional-then-bound sealing (`encryptJson`, `buildAad`, `repos.credentials.store`, `repos.credentials.rotate`), `createBusinessSecretResolver` (ingest, unchanged). Produces: a second field `{ name: "webhookSecret", label: "Webhook signing secret", secret: true, required: false, placeholder: "whsec_…", hint }`; in the gateway `WEBHOOK_SECRET_FIELDS: Readonly<Record<string, { field: string; kind: "stripe_webhook_secret" }>>` with the one entry `stripe`; after the main credential is stored, a field named there is sealed as a second `credentials` row of that kind on the same integration, in the same transaction, never echoed, and audited by kind only. A value that does not start with `whsec_` is a 400 before the vendor is called. The field is taken out of the input before `connector.connect` sees it.
