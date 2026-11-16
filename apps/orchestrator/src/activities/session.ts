@@ -33,7 +33,7 @@ import path from "node:path";
 import type { Query } from "@anthropic-ai/claude-agent-sdk";
 import { AgentInstructions, buildSystemPrompt, docText, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, restoredWorkspaceNote, roleSkillsFor, ToolGrant, type AgentSkillPrompt, type AgentTemplate } from "@foundmill/agents";
 import { APP_NAME, CREDITS_CURRENCY, sandboxCostMicroMinor } from "@foundmill/config";
-import { BUILTIN_CONNECTOR_FACTORIES, CONNECTOR_FACTORIES, firstChannelToOpen, resolveGrants } from "@foundmill/connectors";
+import { ALWAYS_LIVE_CONNECTORS, BUILTIN_CONNECTOR_FACTORIES, channelAvailabilityFacts, CONNECTOR_FACTORIES, firstChannelToOpen, resolveGrants, unusableConnectors } from "@foundmill/connectors";
 import { bookUsage, buildDestinationOf, checkPlatformCredits, closeApprovalItem, loadByokApiKey, MICRO_PER_MINOR, repos, signoffDecisionBlock, type Agent, type AgentVersion, type Approval, type Business, type Task } from "@foundmill/db";
 import { publishSessionEvent, readSessionEvents, type SessionEvent, type SessionEventInput } from "@foundmill/events";
 import { meter, MODEL_PRICING, resolveModel, type ModelId, type RouteKey } from "@foundmill/models";
@@ -1502,6 +1502,15 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   // A second read's revision keeps only the document tools (./second-read): its goal carries another agent's notes.
   const grants = await sessionGrantsFor(deps.db, input.businessId, task.id, resolveGrants(parseGrants(live.version, live.template)));
   if (grants.unresolved.length > 0) deps.log.info({ sessionId: input.sessionId, unresolved: grants.unresolved.map((u) => `${u.connectorKey}.${u.capability}`).slice(0, 50) }, "granted capabilities no tool serves yet");
+  // What the gateway would refuse as not connected (WP-05 T12, the gateway's own rule): the agent is told, and a research
+  // or channel task whose every outside connector is refused does not start, before any workspace, token or SDK exists.
+  // A sample business, development and test keep their simulated answers, as after the session (T2).
+  const unusable = mockResultsAllowed(deps.env.APP_ENV, live.business.isDemo) ? [] : unusableConnectors(grants.servers, channelAvailabilityFacts(deps.env, live.business, await repos.integrations.list(deps.db, input.businessId)));
+  const outsideServers = grants.servers.filter((key) => !ALWAYS_LIVE_CONNECTORS.has(key));
+  if ((task.kind === "research" || task.kind === "channel") && outsideServers.length > 0 && outsideServers.every((key) => unusable.includes(key))) {
+    return { outcome: "blocked", reason: `not connected: ${unusable.join(", ")}`, blockedReason: "not_connected", approvalId: null, summary: `Blocked: ${namesList(unusable.map(connectorName))} not connected for this project, so nothing real was read or sent.`.slice(0, 1800), providerSessionId: null };
+  }
+  const notConnectedNote = unusable.length > 0 ? `Not connected for this project: ${namesList(unusable.map(connectorName))}. Calls to them are refused. If the task cannot be done without one, call block_task now and name it.` : "";
   // What the session may spend (./session-budget): the task's budget less its earlier sessions, the credits left when the
   // platform key pays, and what is left of the agent's wage cap and the business's monthly model budget (either key).
   // A task with nothing left does not start.
@@ -1604,7 +1613,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
       deps.log.warn({ err: (err as Error).message, sessionId: input.sessionId }, "could not read the session's earlier tool calls");
     }
   }
-  const taskPrompt = [`# Task: ${task.title}`, task.goalMd || "", Array.isArray(task.acceptance) && task.acceptance.length ? `## Acceptance criteria\n${task.acceptance.map((a) => `- ${typeof a === "string" ? a : JSON.stringify(a)}`).join("\n")}` : "", policy.fileTools ? codeTaskNote(launch.branch, buildDestinationOf(await repos.integrations.codeRepository(deps.db, input.businessId))) : "Keep every action inside the tools you were given; this task has no file access.", continuing, resumed, alreadyDone, "Keep every external action inside the tools you were given. If a tool you need is missing or not connected, call block_task in your first turn and name it; do not explore. When the work is finished, call complete_task with what you found or made. A session that ends without complete_task or block_task is not counted as done."].filter(Boolean).join("\n\n");
+  const taskPrompt = [`# Task: ${task.title}`, task.goalMd || "", Array.isArray(task.acceptance) && task.acceptance.length ? `## Acceptance criteria\n${task.acceptance.map((a) => `- ${typeof a === "string" ? a : JSON.stringify(a)}`).join("\n")}` : "", policy.fileTools ? codeTaskNote(launch.branch, buildDestinationOf(await repos.integrations.codeRepository(deps.db, input.businessId))) : "Keep every action inside the tools you were given; this task has no file access.", continuing, resumed, alreadyDone, notConnectedNote, "Keep every external action inside the tools you were given. If a tool you need is missing or not connected, call block_task in your first turn and name it; do not explore. When the work is finished, call complete_task with what you found or made. A session that ends without complete_task or block_task is not counted as done."].filter(Boolean).join("\n\n");
 
   const waits = founderWaits(deps);
   /**

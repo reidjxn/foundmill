@@ -253,7 +253,7 @@ Steps:
 2. `runLogOf`, the read (a failed read logs a warning and the run starts as today), the prompt section. verify: named tests.
 Done when: after a deploy, a session carries on without reading or sending again.
 
-### T12: The agent is told what is not connected; hopeless sessions do not start [M] [session.ts chain 8]
+### [x] T12: The agent is told what is not connected; hopeless sessions do not start [M] [session.ts chain 8]
 Why: A7-01 step 2.
 Files: modify `packages/connectors/src/channel-availability.ts`, `session.ts` (`runLiveSession`, before the workspace is created at `:1455`), `apps/gateway/src/pipeline.ts` (reuse the rule); tests a `packages/connectors` unit test, `session.test.ts`, `session-live.test.ts`.
 Interfaces, consumes: `channelAvailabilityFacts(env, business, integrations): ChannelAvailabilityFacts` (`{ liveConnectors, connectedConnectors, mockResultsAllowed }`, `channel-availability.ts:152`); `grants.servers`; T1's refusal rule; T2's `not_connected`.
