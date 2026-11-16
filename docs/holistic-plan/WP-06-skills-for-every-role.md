@@ -89,7 +89,7 @@ export async function resolveAgentPrompt(db: Executor, businessId: string, targe
 
 **Tests and evals:** as in steps 1, 3, 5. **Done when:** Done-when 5 above. **Does not cover:** whether a skill improves the output (T8).
 
-### T2: The library as Markdown with a generated catalog; the five bodies fixed   [M] [ships alone]
+### [x] T2: The library as Markdown with a generated catalog; the five bodies fixed   [M] [ships alone]
 
 **Why:** planner's decision 1; TS-07; decision 7 (the tools-that-exist test).
 

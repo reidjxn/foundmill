@@ -19,6 +19,7 @@ import { ALL_TEMPLATES, CHANNEL_TEMPLATES } from "../templates";
 import { CHANNEL_PLATFORM_TOOLS, NO_TOOL_HANDOVER } from "../templates/channels/_channel";
 import { CHANNEL_COMMON_RULES } from "../templates/_shared";
 import { SPECIALIST_PLATFORM_TOOLS } from "../templates/specialists/_specialist";
+import { UNBUILT_VENDOR } from "./tool-patterns";
 
 /** The per-template sections of PLANNED_GRANTS.md (a `##` heading with the template key as code), each with its `connector.capability` rows. */
 function plannedGrants(): Map<string, string[]> {
@@ -115,7 +116,7 @@ describe("template text names no tool the agent does not hold", () => {
   });
 
   it("no instruction sends an agent to a vendor whose connector is not built", () => {
-    const vendors = /\b(Browserbase|Search Console|DataForSEO|Lighthouse|Spotify Ad Studio)\b/;
+    const vendors = UNBUILT_VENDOR;
     for (const t of ALL_TEMPLATES) {
       const i = t.instructions;
       // An example's input is what the agent is handed (a founder's words, a report); its output is what it does.
