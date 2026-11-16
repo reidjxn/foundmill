@@ -22,7 +22,7 @@ import { createDataApiProbe, type DataApiProbe } from "./services/data-api-probe
 import { requestIdFrom } from "./request-id";
 import { createComposerClient, type ComposerClient } from "./services/composer";
 import { createDevUserBootstrap } from "./services/dev-users";
-import { createApiModelClient } from "./services/models";
+import { createApiModelClient, freePlanSlowCheck } from "./services/models";
 import { createRateLimitStore, type RateLimitStore, type RedisLimitClient } from "./services/rate-limit";
 import { createRedis } from "./services/redis";
 import type { RelaySupervisor } from "./services/relay";
@@ -91,6 +91,11 @@ export interface ApiDeps {
    * Absent for the in-process caller.
    */
   txGate?: TransactionGate | null;
+  /**
+   * Whether a request's model calls run on the free plan while the month's free-plan spend is past 80% of its cap
+   * (WP-13 T6): `modelLimited` then gives it a quarter of its usual allowances. Absent (tests, the in-process caller): never.
+   */
+  freePlanSlow?: ((scope: { userId: string; businessId?: string | null }) => Promise<boolean>) | null;
 }
 
 export interface Context extends ApiDeps {
@@ -168,6 +173,7 @@ export function createApiDeps(options: CreateApiDepsOptions = {}): ApiDeps {
   const temporal = createTemporalService({ address: env.TEMPORAL_ADDRESS, namespace: env.TEMPORAL_NAMESPACE, taskQueue: env.TEMPORAL_TASK_QUEUE, log });
   // Calls made for a business are booked to its usage ledger through the client (services/models.ts).
   const models = createApiModelClient(env, log, { db });
+  const freePlanSlow = freePlanSlowCheck(db, env.FREE_PLAN_MONTHLY_CAP_CENTS);
   const composer = createComposerClient({ url: env.COMPOSER_URL, db, models, log, timeoutMs: env.COMPOSER_TIMEOUT_MS, allowFallback: env.APP_ENV === "development" || env.APP_ENV === "test" });
 
   let vault: Vault | null = null;
@@ -241,7 +247,7 @@ export function createApiDeps(options: CreateApiDepsOptions = {}): ApiDeps {
     },
   });
 
-  return { env, db, redis, limits, temporal, models, composer, vault, connectors, auth, confirmEmail, dataApi, log, recordings, ingest, gateway, health, txGate };
+  return { env, db, redis, limits, temporal, models, composer, vault, connectors, auth, confirmEmail, dataApi, log, recordings, ingest, gateway, health, txGate, freePlanSlow };
 }
 
 /** Per-request context factory for `trpcServer({ createContext })`. */

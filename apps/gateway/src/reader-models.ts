@@ -10,7 +10,7 @@
  * web search is refused until the free plan has its own search (WP-13 T5). An own-key business's reader never reaches
  * this client; its web search follows its plan.
  */
-import { assertPlatformCredits, cachedModelFundingOf, type Db } from "@foundmill/db";
+import { assertPlatformCredits, cachedModelFundingOf, freeCapCheck, type Db } from "@foundmill/db";
 import { enforceModelFunding, gateModelClient, type ModelCallGate, type ModelClient } from "@foundmill/models";
 import { AppError } from "@foundmill/shared";
 
@@ -25,6 +25,7 @@ export function creditsGate(db: Db, live: boolean): ModelCallGate {
 }
 
 /** The platform client, gated on the business's credits (live credits only when the client itself runs live) and on who pays. */
-export function gatePlatformModels(models: ModelClient, db: Db): ModelClient {
-  return enforceModelFunding(gateModelClient(models, creditsGate(db, models.mode === "live")), cachedModelFundingOf(db, { ownKeyServed: false }));
+export function gatePlatformModels(models: ModelClient, db: Db, freeCapCents?: number): ModelClient {
+  const freeCap = freeCapCents === undefined ? undefined : freeCapCheck(db, freeCapCents);
+  return enforceModelFunding(gateModelClient(models, creditsGate(db, models.mode === "live")), cachedModelFundingOf(db, { ownKeyServed: false }), { freeCap });
 }

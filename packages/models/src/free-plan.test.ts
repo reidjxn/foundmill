@@ -38,3 +38,21 @@ describe("who pays decides the model (WP-13)", () => {
     expect(free.cost.breakdown.webSearch).toBe(WEB_SEARCH_USD_PER_SEARCH * 100);
   });
 });
+
+describe("the month's free-plan cap (WP-13 T6)", () => {
+  it("refuses a free call and a free search while the cap is held, with its message, before anything is spent; a paid plan never asks", async () => {
+    const events: UsageEvent[] = [];
+    let asked = 0;
+    const freeCap = async () => {
+      asked += 1;
+      return { state: "held" as const, heldMessage: "Free AI is busy for the rest of the month. It is back on Dec 1. To keep going now, connect your own Anthropic key." };
+    };
+    const client = enforceModelFunding(new MockModelClient({ onUsage: (e) => void events.push(e) }), fundingBy({ free: "free_plan", pro: "paid_plan" }), { freeCap });
+    await expect(client.complete(ask("free"))).rejects.toMatchObject({ code: "not_funded", reason: "free_cap", message: expect.stringContaining("back on Dec 1") });
+    await expect(client.searchWeb!({ query: "q", limit: 1, attribution: { businessId: "free", kind: "x" } })).rejects.toMatchObject({ reason: "free_cap" });
+    expect(events).toHaveLength(0);
+    asked = 0;
+    await client.complete(ask("pro"));
+    expect([asked, events.length]).toEqual([0, 1]);
+  });
+});

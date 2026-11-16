@@ -15,6 +15,7 @@ export { APPROVAL_OPTIONS, BATCHED_TOOLS, RELEASE_FOLLOW_UP, founderReworkDetail
 export { ASK_FOR_DETAILS_NOTE, approvalWhatExactly, argLabel, channelWords, reviewRows, type ApprovalReview, type ApprovalWhat, type ApprovalWhatContext, type ApprovalWhatKind, type ApprovalWhatRow } from "./approval-content";
 export { MOCK_TOP_UP_LABEL, settleCreditCheckout, type SettleCheckoutInput, type SettleCheckoutResult } from "./payments";
 export { cachedModelFundingOf, modelFundingOf, type ModelFundingOptions } from "./model-funding";
+export { cachedFreeCap, capMonth, freeCapCheck, freeCapHeldMessage, freeCapState, freePlanSpendMicro, FREE_CAP_SLOW_SCALE, FREE_CAP_SLOW_SHARE, type FreeCap, type FreeCapState } from "./free-plan-cap";
 export { assertBusinessAllowance, assertConcurrencyRoom, assertSeatAvailable, businessAllowance, concurrencyAllowance, includedCreditPool, OPEN_SESSION_WINDOW_HOURS, seatAllowance, type BusinessAllowance, type BusinessAllowanceOptions, type ConcurrencyAllowance, type IncludedCreditPool } from "./tiers";
 export { MIGRATIONS_DIR, MIGRATIONS_SCHEMA, MIGRATIONS_TABLE, readJournal, readMigrations } from "./migrations";
 export type { Journal, JournalEntry, MigrationFile } from "./migrations";
