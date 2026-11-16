@@ -17,6 +17,8 @@ import { Id, maybeOne, parseInput, type Executor } from "./_shared";
 
 const Hex64 = z.string().regex(/^[0-9a-f]{64}$/);
 const Address = z.email().max(254).transform((e) => e.trim().toLowerCase());
+/** A key @foundmill/shared `addressKey` made: one `@`, lower case. */
+const AddressKey = z.string().max(254).regex(/^[^@\s]+@[^@\s]+$/);
 
 /* ---------------------------------------------------------------------------------------------------------------- */
 /* account_admissions                                                                                                */
@@ -37,13 +39,14 @@ export const admissionsRepo = {
 
   /**
    * Records an admission once: the row written, or null when the account already had one (the first stays). `at` is its
-   * time (the waitlist sweep's clock; default the database's).
+   * time (the waitlist sweep's clock; default the database's). `addressKey` (0112, @foundmill/shared `addressKey`) is
+   * kept for an `open` admission only: open sign-up's guards read it (`keyTaken`, `openSinceForDomain`).
    */
-  async record(db: Executor, input: { userId: string; how: AdmissionKind; invitationId?: string | null; at?: Date }): Promise<AccountAdmission | null> {
-    const v = parseInput(z.object({ userId: Id, how: z.enum(ADMISSION_KINDS), invitationId: Id.nullable().default(null), at: z.date().optional() }), input, "admission");
+  async record(db: Executor, input: { userId: string; how: AdmissionKind; invitationId?: string | null; addressKey?: string | null; at?: Date }): Promise<AccountAdmission | null> {
+    const v = parseInput(z.object({ userId: Id, how: z.enum(ADMISSION_KINDS), invitationId: Id.nullable().default(null), addressKey: AddressKey.nullable().default(null), at: z.date().optional() }), input, "admission");
     const rows = await db
       .insert(accountAdmissions)
-      .values({ userId: v.userId, how: v.how, invitationId: v.how === "invitation" ? v.invitationId : null, ...(v.at ? { createdAt: v.at, updatedAt: v.at } : {}) })
+      .values({ userId: v.userId, how: v.how, invitationId: v.how === "invitation" ? v.invitationId : null, addressKey: v.how === "open" ? v.addressKey : null, ...(v.at ? { createdAt: v.at, updatedAt: v.at } : {}) })
       .onConflictDoNothing({ target: accountAdmissions.userId })
       .returning();
     return rows[0] ?? null;
@@ -61,6 +64,22 @@ export const admissionsRepo = {
    */
   async openSince(db: Executor, since: Date): Promise<number> {
     const [row] = await db.select({ n: count() }).from(accountAdmissions).where(and(inArray(accountAdmissions.how, ["open", "invitation", "waitlist"]), gte(accountAdmissions.createdAt, since)));
+    return Number(row?.n ?? 0);
+  },
+
+  /** Whether an account was already admitted by open sign-up from the mailbox `key` (0112; any day). */
+  async keyTaken(db: Executor, key: string): Promise<boolean> {
+    const rows = await db.select({ id: accountAdmissions.id }).from(accountAdmissions).where(eq(accountAdmissions.addressKey, parseInput(AddressKey, key, "address key"))).limit(1);
+    return rows.length > 0;
+  },
+
+  /** Accounts open sign-up admitted since `since` from addresses at `domain` exactly (0112; a subdomain is another domain). */
+  async openSinceForDomain(db: Executor, since: Date, domain: string): Promise<number> {
+    const d = parseInput(z.string().min(1).max(253), domain, "domain").toLowerCase();
+    const [row] = await db
+      .select({ n: count() })
+      .from(accountAdmissions)
+      .where(and(eq(accountAdmissions.how, "open"), gte(accountAdmissions.createdAt, since), sql`split_part(${accountAdmissions.addressKey}, '@', 2) = ${d}`));
     return Number(row?.n ?? 0);
   },
 

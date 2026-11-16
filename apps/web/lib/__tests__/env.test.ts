@@ -48,4 +48,12 @@ describe("public env", () => {
     expect(googleSignInEnabled(parsePublicEnv({ NEXT_PUBLIC_AUTH_GOOGLE: "on" }))).toBe(true);
     expect(googleSignInEnabled(parsePublicEnv({ NEXT_PUBLIC_AUTH_GOOGLE: " ON " }))).toBe(true);
   });
+
+  it("checks the sign-in browser only when NEXT_PUBLIC_SIGNIN_BOT_CHECK is on and a Turnstile site key is set (WP-03 T8)", () => {
+    expect(parsePublicEnv({}).signInBotCheck).toBe(false);
+    expect(parsePublicEnv({ NEXT_PUBLIC_TURNSTILE_SITE_KEY: "k" }).signInBotCheck).toBe(false);
+    expect(parsePublicEnv({ NEXT_PUBLIC_SIGNIN_BOT_CHECK: "on" }).signInBotCheck).toBe(false);
+    expect(parsePublicEnv({ NEXT_PUBLIC_SIGNIN_BOT_CHECK: "true", NEXT_PUBLIC_TURNSTILE_SITE_KEY: "k" }).signInBotCheck).toBe(false);
+    expect(parsePublicEnv({ NEXT_PUBLIC_SIGNIN_BOT_CHECK: " ON ", NEXT_PUBLIC_TURNSTILE_SITE_KEY: "k" }).signInBotCheck).toBe(true);
+  });
 });

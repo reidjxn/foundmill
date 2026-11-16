@@ -51,6 +51,16 @@ describe("account_admissions 0091: the service role's only", () => {
     expect(await svc.run((tx) => repos.admissions.has(tx, who))).toBe(true);
     const start = new Date(new Date().toISOString().slice(0, 10) + "T00:00:00Z");
     expect(await svc.run((tx) => repos.admissions.openSince(tx, start))).toBeGreaterThanOrEqual(1);
+    // 0112: an `open` admission keeps its mailbox's key; any other kind never does. The guards' two reads see it.
+    const keyed = await h.createUser("people-keyed@test.local");
+    const other = await h.createUser("people-keyed-2@test.local");
+    expect(await svc.run((tx) => repos.admissions.record(tx, { userId: keyed, how: "open", addressKey: "keyed@guards.test" }))).toMatchObject({ addressKey: "keyed@guards.test" });
+    expect(await svc.run((tx) => repos.admissions.record(tx, { userId: other, how: "waitlist", addressKey: "other@guards.test" }))).toMatchObject({ addressKey: null });
+    expect(await svc.run((tx) => repos.admissions.keyTaken(tx, "keyed@guards.test"))).toBe(true);
+    expect(await svc.run((tx) => repos.admissions.keyTaken(tx, "other@guards.test"))).toBe(false);
+    expect(await svc.run((tx) => repos.admissions.openSinceForDomain(tx, start, "guards.test"))).toBe(1);
+    expect(await svc.run((tx) => repos.admissions.openSinceForDomain(tx, start, "sub.guards.test"))).toBe(0);
+    expect(await svc.run((tx) => repos.admissions.openSinceForDomain(tx, new Date(Date.now() + 86_400_000), "guards.test"))).toBe(0);
     // 0111 adds `waitlist` to the kinds; anything else is still refused.
     await expect(svc.execute(sql`insert into account_admissions (user_id, how) values (${outsider}, 'list')`)).rejects.toThrow(/how_value/);
     // The person's own email kinds gain `invitation_accepted` on their record (0083's check, widened here).
@@ -61,6 +71,8 @@ describe("account_admissions 0091: the service role's only", () => {
   it("no client role reads or writes a row, the account's own included", async () => {
     for (const [runner, who] of [[h.anon(), outsider], [h.asUser(outsider), outsider], [h.asUser(A.ownerId), outsider]] as const) {
       await expect(runner.execute(sql`select id from account_admissions`)).rejects.toThrow(/permission denied/);
+      await expect(runner.execute(sql`select address_key from account_admissions`)).rejects.toThrow(/permission denied/);
+      await expect(runner.run((tx) => repos.admissions.keyTaken(tx, "keyed@guards.test"))).rejects.toThrow(/permission denied/);
       await expect(runner.execute(sql`insert into account_admissions (user_id, how) values (${who}, 'open')`)).rejects.toThrow(/permission denied/);
       await expect(runner.execute(sql`update account_admissions set how = 'existing'`)).rejects.toThrow(/permission denied/);
       await expect(runner.execute(sql`delete from account_admissions`)).rejects.toThrow(/permission denied/);

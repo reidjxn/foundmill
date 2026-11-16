@@ -13,7 +13,10 @@
  *     people who were here before open sign-up (a founder profile created before the cutover, `existingBefore`), then
  *     anyone with a confirmed address until the UTC day's new admissions (open sign-up's and invitations') reach
  *     SIGNUP_DAILY_CEILING (default 200; counted with a query at sign-in, under an advisory lock, never a timer). Past it
- *     a person is refused with `on_waitlist`.
+ *     a person is refused with `on_waitlist`. Two guards (WP-03 T8) stop one person taking many of the day's places:
+ *     one place per mailbox (`addressKey`: the `+tag` and Gmail's dots do not make a new one), and at most
+ *     SIGNUP_PER_DOMAIN_PER_DAY (default 5, an Estimate) from one private domain a UTC day (the large providers,
+ *     `COMMON_MAIL_DOMAINS`, are not counted by domain). Either one waits with the same `on_waitlist`.
  *
  * An invitation admits a new account (`admitThroughInvitation`, inside `invitation.accept`'s transaction) only when its
  * inviter was let in by the list, by open sign-up (or the waitlist while open sign-up is on) or as a person from before
@@ -40,7 +43,7 @@
  * admission row).
  */
 import { APP_NAME } from "@foundmill/config";
-import { AppError, allowlisted, ON_WAITLIST_CODE, ON_WAITLIST_WORDS, parseSignupAllowlist, signupMode, type SignupAllowlist, type SignupMode, waitlistEmails } from "@foundmill/shared";
+import { AppError, addressKey, allowlisted, COMMON_MAIL_DOMAINS, domainOfKey, ON_WAITLIST_CODE, ON_WAITLIST_WORDS, parseSignupAllowlist, signupMode, type SignupAllowlist, type SignupMode, waitlistEmails } from "@foundmill/shared";
 import { repos, type Db, type Executor } from "@foundmill/db";
 
 // The list itself is @foundmill/shared's (allowlist.ts): apps/stream and apps/collab admit people by the same rules.
@@ -80,7 +83,16 @@ export interface AdmissionFacts {
   admittedToday: number;
   /** Open sign-up only: SIGNUP_DAILY_CEILING. */
   ceiling: number;
+  /** Open sign-up only (WP-03 T8): another account was already admitted by open sign-up from the same mailbox (`addressKey`). */
+  sameAddressAdmitted: boolean;
+  /** Open sign-up only: accounts open sign-up admitted since the start of the UTC day from the address's domain. */
+  domainAdmittedToday: number;
+  /** Open sign-up only: SIGNUP_PER_DOMAIN_PER_DAY, or null for a large mailbox provider (`COMMON_MAIL_DOMAINS`). */
+  domainCeiling: number | null;
 }
+
+/** The guards' facts with nothing to say: invite-only, the answers without the database, an invitation's own admission. */
+export const NO_ADDRESS_GUARDS = { sameAddressAdmitted: false, domainAdmittedToday: 0, domainCeiling: null } as const satisfies Pick<AdmissionFacts, "sameAddressAdmitted" | "domainAdmittedToday" | "domainCeiling">;
 
 export type AdmissionDecision =
   /** In. `record`: the admission to write (null when the list, the bypass or an earlier admission already answers). */
@@ -98,8 +110,11 @@ export type AdmissionDecision =
  *   4. invite-only: refuse (`not_listed`), as before. A valid invitation is how such a person gets in (step 3, after
  *      `invitation.accept`, which needs only a confirmed sign-in).
  *   5. open sign-up, an address not proved: refuse (`email_unconfirmed`).
- *   6. open sign-up: a person from before admits without counting (`existing`); otherwise admit while the day's count
- *      is under the ceiling (`open`), else wait (`ceiling`).
+ *   6. open sign-up: a person from before admits without counting (`existing`).
+ *   7. open sign-up's guards (WP-03 T8): a mailbox open sign-up already admitted, or a private domain at its daily number,
+ *      waits (`ceiling`, the same `on_waitlist` as the ceiling: the person stays on the waitlist and can be let in by
+ *      hand or by the waitlist's daily number).
+ *   8. open sign-up: admit while the day's count is under the ceiling (`open`), else wait (`ceiling`).
  */
 export function decideAdmission(f: AdmissionFacts): AdmissionDecision {
   if (f.mode === "unrestricted" || f.devUser) return { outcome: "admit", record: null };
@@ -108,6 +123,7 @@ export function decideAdmission(f: AdmissionFacts): AdmissionDecision {
   if (f.mode === "invite_only") return { outcome: "refuse", reason: "not_listed" };
   if (!f.emailConfirmed) return { outcome: "refuse", reason: "email_unconfirmed" };
   if (f.existingPerson) return { outcome: "admit", record: "existing" };
+  if (f.sameAddressAdmitted || (f.domainCeiling !== null && f.domainAdmittedToday >= f.domainCeiling)) return { outcome: "wait", reason: "ceiling" };
   if (f.admittedToday < f.ceiling) return { outcome: "admit", record: "open" };
   return { outcome: "wait", reason: "ceiling" };
 }
@@ -144,7 +160,7 @@ export function forgetAdmittedMemo(): void {
 }
 
 export interface AdmissionContext {
-  env: { SIGNUP_ALLOWLIST?: string; SIGNUP_OPEN?: string; SIGNUP_DAILY_CEILING?: number; SIGNUP_EXISTING_BEFORE?: string; DEV_AUTH_USER_ID?: string } & Parameters<typeof waitlistEmails>[0];
+  env: { SIGNUP_ALLOWLIST?: string; SIGNUP_OPEN?: string; SIGNUP_DAILY_CEILING?: number; SIGNUP_PER_DOMAIN_PER_DAY?: number; SIGNUP_EXISTING_BEFORE?: string; DEV_AUTH_USER_ID?: string } & Parameters<typeof waitlistEmails>[0];
   db: Db;
   /** One answer per HTTP request and person, so a batch asks once (a fresh map per request; absent in tests). */
   admissionMemo?: Map<string, Promise<void>>;
@@ -210,7 +226,7 @@ async function decideAndApply(ctx: AdmissionContext, user: AdmissionUser): Promi
   const devUser = !!ctx.env.DEV_AUTH_USER_ID && user.userId.toLowerCase() === ctx.env.DEV_AUTH_USER_ID.toLowerCase();
   const list = listFor(ctx.env.SIGNUP_ALLOWLIST);
   const listed = !!list && allowlisted(list, user.email);
-  const base: AdmissionFacts = { mode, devUser, listed, emailConfirmed: user.emailConfirmed === true, admitted: false, existingPerson: false, admittedToday: 0, ceiling: ctx.env.SIGNUP_DAILY_CEILING ?? 200 };
+  const base: AdmissionFacts = { mode, devUser, listed, emailConfirmed: user.emailConfirmed === true, admitted: false, existingPerson: false, admittedToday: 0, ceiling: ctx.env.SIGNUP_DAILY_CEILING ?? 200, ...NO_ADDRESS_GUARDS };
   // Answered without the database: unrestricted, the bypass, or the list (either way).
   if (mode === "unrestricted" || devUser || listed) {
     const d = decideAdmission(base);
@@ -220,6 +236,7 @@ async function decideAndApply(ctx: AdmissionContext, user: AdmissionUser): Promi
   if (admittedRecently(user.userId)) return;
 
   const now = new Date();
+  const key = user.email ? addressKey(user.email) : null;
   const decision = await ctx.db.transaction(async (tx) => {
     const admitted = await repos.admissions.has(tx, user.userId);
     let facts: AdmissionFacts = { ...base, admitted };
@@ -228,15 +245,28 @@ async function decideAndApply(ctx: AdmissionContext, user: AdmissionUser): Promi
       if (!facts.existingPerson) {
         // The count and the admission it allows are one decision: two sign-ins at the last place cannot both take it.
         await repos.admissions.lockOpenCount(tx);
-        facts = { ...facts, admittedToday: await repos.admissions.openSince(tx, utcDayStart(now)) };
+        facts = { ...facts, ...(await addressGuards(ctx, tx, key, utcDayStart(now))), admittedToday: await repos.admissions.openSince(tx, utcDayStart(now)) };
       }
     }
     const d = decideAdmission(facts);
-    if (d.outcome === "admit" && d.record) await repos.admissions.record(tx, { userId: user.userId, how: d.record });
+    if (d.outcome === "admit" && d.record) await repos.admissions.record(tx, { userId: user.userId, how: d.record, addressKey: d.record === "open" ? key : null });
     return d;
   });
   if (decision.outcome !== "admit") throw refusalFor(decision, ctx.env);
   rememberAdmitted(user.userId);
+}
+
+/**
+ * Open sign-up's guards (WP-03 T8), read under the lock `lockOpenCount` takes: whether the mailbox was admitted already,
+ * and the day's open admissions from its domain (not read for a large provider, whose number is null). An address that
+ * yields no key (it does not parse) meets only the day's ceiling.
+ */
+async function addressGuards(ctx: Pick<AdmissionContext, "env">, tx: Executor, key: string | null, since: Date): Promise<Pick<AdmissionFacts, "sameAddressAdmitted" | "domainAdmittedToday" | "domainCeiling">> {
+  if (!key) return NO_ADDRESS_GUARDS;
+  const sameAddressAdmitted = await repos.admissions.keyTaken(tx, key);
+  const domain = domainOfKey(key);
+  if (COMMON_MAIL_DOMAINS.has(domain)) return { sameAddressAdmitted, domainAdmittedToday: 0, domainCeiling: null };
+  return { sameAddressAdmitted, domainAdmittedToday: await repos.admissions.openSinceForDomain(tx, since, domain), domainCeiling: ctx.env.SIGNUP_PER_DOMAIN_PER_DAY ?? 5 };
 }
 
 /**
@@ -308,7 +338,8 @@ export type InvitationAdmission = "already_in" | "admitted";
  * advisory lock open sign-up's count is taken under, taken before any count, so two accepts at an inviter's last place
  * (or the day's last place) cannot both take it:
  *   - open sign-up, the day's ceiling not reached: the invitation's admission (`how = 'invitation'`) when the inviter may
- *     let people in and is under their daily number, else open sign-up's own (`how = 'open'`), as at sign-in;
+ *     let people in and is under their daily number, else open sign-up's own (`how = 'open'`), as at sign-in, with its
+ *     guards (one place per mailbox, the private domain's daily number);
  *   - open sign-up, the ceiling reached: only a `trusted` inviter under their daily number goes past it, while the day's
  *     admissions past the ceiling are under `INVITATION_ADMISSIONS_PAST_CEILING_PER_DAY`; anyone else waits
  *     (`on_waitlist`, the same words as at sign-in) and the invitation stays pending;
@@ -337,10 +368,15 @@ export async function admitThroughInvitation(
   if (mode === "open" && accepter.emailConfirmed === true) {
     const ceiling = ctx.env.SIGNUP_DAILY_CEILING ?? 200;
     const admittedToday = await repos.admissions.openSince(tx, since);
-    const decision = decideAdmission({ mode, devUser: false, listed: false, emailConfirmed: true, admitted: false, existingPerson: false, admittedToday, ceiling });
+    const facts: AdmissionFacts = { mode, devUser: false, listed: false, emailConfirmed: true, admitted: false, existingPerson: false, admittedToday, ceiling, ...NO_ADDRESS_GUARDS };
+    const decision = decideAdmission(facts);
     if (decision.outcome === "admit") {
       if (underInviterNumber) return byInvitation();
-      await repos.admissions.record(tx, { userId: accepter.userId, how: "open" });
+      // Not the invitation's admission but open sign-up's own: open sign-up's guards apply (WP-03 T8), under the same lock.
+      const key = accepter.email ? addressKey(accepter.email) : null;
+      const guarded = decideAdmission({ ...facts, ...(await addressGuards(ctx, tx, key, since)) });
+      if (guarded.outcome !== "admit") throw refusalFor(guarded, ctx.env);
+      await repos.admissions.record(tx, { userId: accepter.userId, how: "open", addressKey: key });
       return "admitted";
     }
     if (standing === "trusted" && underInviterNumber && admittedToday - ceiling < INVITATION_ADMISSIONS_PAST_CEILING_PER_DAY) return byInvitation();
