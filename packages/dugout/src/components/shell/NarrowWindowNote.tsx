@@ -1,4 +1,3 @@
-"use client";
 /**
  * The note over the sideways-scrolling console (founder decision 3, Nov 16, 2026): between 640 and 1279 px the console
  * keeps its 1280 px layout and the window scrolls sideways; this one line says so, once, and goes when dismissed. It
