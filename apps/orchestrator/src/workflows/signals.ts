@@ -42,6 +42,8 @@ export interface FounderSubmitPayload extends ByPayload {
 export interface ContinueRunPayload extends ByPayload {
   runId: string;
   cycleNumber: number | null;
+  /** The press's own cycle starts with these (WP-09 T11: round 1 of a free project on credits is capped). */
+  cycleInput?: { budgetCapMinor?: number; maxConcurrent?: number };
 }
 
 /** Pause (the run ends; Continue starts a new one) or Stop all agents. `runId` absent: whatever run is open. */
