@@ -46,6 +46,24 @@ A default's row is untested, displayed at the template's baseline, and shows "Un
 ### Tests about founder-added skills
 Where the existing api tests counted founder-added skills, they now filter out the role's defaults, and the three limit tests hire `channel_paid_ads` (a role with no defaults) so only the skills a test adds count. The TS-12 case now removes the Backend Engineer's default `systematic_debugging` and adds it back, so the `improves` exception is still exercised.
 
+### Security review fixes
+A security review of the change found nothing blocking. Fixed in the same change:
+- A skill picked in the hire dialog that the role already comes with would have made the hire fail with a 409. `team.agents.hire` now attaches only the picked skills the role does not already have.
+- Removals made before 0143 would have come back, since every older agent starts at release 0. The backfill now skips any skill an `agent.skills.remove` audit row took off that agent (`repos.audit.removedSkills`).
+- The backfill also skips a default whose name the agent already carries, and any that would take the agent past 40 skills or its index past 8,000 characters.
+- The backfill writes one `agent.skills.add_defaults` audit row (actor `system`) per agent it gave skills to.
+- `attachDefaultSkills` refuses agents that are not the business's own, because the agent_skills foreign key does not know tenants.
+- Each business's backfill transaction sets `lock_timeout` to 5 seconds.
+- A trigger (`fm_agents_default_skills_version_guard`, like 0082's speech-accent guard) stops an app role from setting or changing `default_skills_version`.
+- The fixtures for the migration-point tests now insert agents by named columns.
+
+### The release number is per skill, not per role
+`defaultSince` belongs to the skill. Two cases need care when a later release adds a role to an existing default's `default_for`:
+- If it also raises `defaultSince`, roles already listed would be offered the skill again. The removal guard catches removals that left an audit row, but not every case.
+- If it leaves `defaultSince` alone, that role's older agents never get the skill.
+
+The later release should record its release per role (for example `role@2`) when it adds `default_since` to the generator. Nothing changes until then.
+
 ### Model note
 The defaults are plain Markdown instructions, and nothing depends on the model key (Haiku 5.5, GLM or a paid model).
 

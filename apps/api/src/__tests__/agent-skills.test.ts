@@ -268,4 +268,12 @@ describe("default skills per role (WP-06 T6)", () => {
     expect(after).not.toContain(expected[0]);
     expect(after).toEqual(expect.arrayContaining(expected.slice(1)));
   });
+
+  it("picking a skill in the hire dialog that the role already comes with hires once, with no conflict", async () => {
+    const key = defaultSkillKeysFor(TEMPLATE)[0]!;
+    const agent = await owner().team.agents.hire({ businessId: hz.A.businessId, templateKey: TEMPLATE, departmentId: hz.A.departmentId, name: "Picked twice", skills: [{ source: "library", key }, { source: "library", key: "meeting_notes" }] });
+    const listed = await owner().agent.skills.added({ businessId: hz.A.businessId, agentId: agent.id });
+    expect(listed.filter((s) => s.skillKey === librarySkillKey(key))).toEqual([expect.objectContaining({ addedBy: "template" })]);
+    expect(listed.find((s) => s.skillKey === "library_meeting_notes")?.addedBy).toBe("founder");
+  });
 });

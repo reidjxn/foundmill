@@ -93,6 +93,8 @@ describe("skill_definitions added from the library or a file (0061)", () => {
     expect(await h.asUser(B.ownerId).run((tx) => tx.select({ v: s.agents.defaultSkillsVersion }).from(s.agents).where(eq(s.agents.id, A.agentId)))).toHaveLength(0);
     // Another business cannot reset A's release (which would make the backfill re-add a removed default).
     expect(await h.asUser(B.ownerId).run((tx) => tx.update(s.agents).set({ defaultSkillsVersion: 0 }).where(eq(s.agents.id, A.agentId)).returning())).toHaveLength(0);
+    // Nor can the business's own owner, by writing the table directly (security review L2).
+    await expect(h.asUser(A.ownerId).run((tx) => tx.update(s.agents).set({ defaultSkillsVersion: 0 }).where(eq(s.agents.id, A.agentId)))).rejects.toThrow(/default skills is set by the platform/);
     // Inside the business the rating rows stay service-written: no app role relabels a skill.
     expect(await h.asUser(A.ownerId).run((tx) => tx.update(s.agentSkills).set({ addedBy: "founder" }).where(eq(s.agentSkills.agentId, A.agentId)).returning())).toHaveLength(0);
     const [agent] = await h.db.select({ v: s.agents.defaultSkillsVersion }).from(s.agents).where(eq(s.agents.id, A.agentId));

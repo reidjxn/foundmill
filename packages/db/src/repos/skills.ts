@@ -288,16 +288,17 @@ export const skillsRepo = {
 
   /**
    * Adds skills that came with the role (0143 `added_by = 'template'`), untested, in one statement. A skill the agent
-   * already carries keeps its row as it is (whoever added it). Returns how many rows were written.
+   * already carries keeps its row as it is (whoever added it). Returns the rows written. The caller checks the agents
+   * are the business's own (`attachDefaultSkills`).
    */
-  async addTemplateDefaults(db: Executor, businessId: string, rows: readonly { agentId: string; skillKey: string; group: SkillGroup; displayed: number }[]): Promise<number> {
-    if (rows.length === 0) return 0;
+  async addTemplateDefaults(db: Executor, businessId: string, rows: readonly { agentId: string; skillKey: string; group: SkillGroup; displayed: number }[]): Promise<{ agentId: string; skillKey: string }[]> {
+    if (rows.length === 0) return [];
     const written = await db
       .insert(agentSkills)
       .values(rows.map((r) => ({ businessId, agentId: r.agentId, skillKey: r.skillKey, group: r.group, tested: null, proven: null, nLive: 0, displayed: r.displayed, potential: r.displayed, addedBy: "template" as const })))
       .onConflictDoNothing({ target: [agentSkills.agentId, agentSkills.skillKey] })
-      .returning({ id: agentSkills.id });
-    return written.length;
+      .returning({ agentId: agentSkills.agentId, skillKey: agentSkills.skillKey });
+    return written;
   },
 
   /** The library and uploaded skills an agent carries, oldest first, with the instructions its prompt reads. */

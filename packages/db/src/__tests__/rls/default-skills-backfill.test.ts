@@ -9,7 +9,7 @@ import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { hireFromTemplate } from "../../hire";
 import { repos } from "../../repos";
-import { backfillDefaultSkills } from "../../skill-attach";
+import { attachDefaultSkills, backfillDefaultSkills } from "../../skill-attach";
 import { createTestDb, type TestHarness } from "../../testing/pglite";
 import { createBusinessFixture, type BusinessFixture } from "./fixtures";
 
@@ -75,5 +75,26 @@ describe("default skills backfill (0143)", () => {
     expect(now).not.toContain(removed);
     expect((await repos.agents.get(h.db, A.businessId, planner.agent.id)).defaultSkillsVersion).toBe(2);
     expect((await backfillDefaultSkills(h.db, { library, version: 2 })).attached).toBe(0);
+  });
+
+  it("never gives back a skill removed before 0143, and records what it gave in the audit log", async () => {
+    const qa = await hiredBefore0143(B.businessId, "qa_engineer");
+    // As the founder's removal of one, before 0143, left it: an agent.skills.remove audit row.
+    const removed = expected("qa_engineer")[1]!;
+    await repos.audit.append(h.db, B.businessId, { actorKind: "user", actorId: B.ownerId, action: "agent.skills.remove", target: { kind: "skill_definition", id: B.agentId }, details: { agentId: qa.id, skillKey: removed, source: "library" } });
+    expect((await backfillDefaultSkills(h.db)).failed).toEqual([]);
+    const now = await defaults(B.businessId, qa.id, qa.agentType);
+    expect(now).not.toContain(removed);
+    expect(now).toEqual(expected("qa_engineer").filter((k) => k !== removed));
+    const entry = (await repos.audit.list(h.db, B.businessId, { action: "agent.skills.add_defaults" })).items.find((e) => (e.target as { id?: string }).id === qa.id);
+    expect(entry).toMatchObject({ actorKind: "system", details: { version: 1 } });
+    expect([...(entry!.details as { skillKeys: string[] }).skillKeys].sort()).toEqual(now);
+  });
+
+  it("refuses to give defaults to another business's agent", async () => {
+    const theirs = await hiredBefore0143(B.businessId, "planner");
+    await expect(h.db.transaction((tx) => attachDefaultSkills(tx, A.businessId, [{ id: theirs.id, agentType: theirs.agentType, templateKey: "planner" }]))).rejects.toThrow(/own agents/);
+    expect(await defaults(B.businessId, theirs.id, theirs.agentType)).toEqual([]);
+    await backfillDefaultSkills(h.db);
   });
 });

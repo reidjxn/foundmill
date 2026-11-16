@@ -88,13 +88,10 @@ export async function createBusinessFixture(h: TestHarness, slug: string): Promi
   await db.execute(sql`insert into memberships (business_id, user_id, role) values
     (${businessId}, ${ownerId}, 'owner'), (${businessId}, ${adminId}, 'admin'), (${businessId}, ${memberId}, 'member'), (${businessId}, ${viewerId}, 'viewer')`);
 
-  const [agent, agent2] = await db
-    .insert(s.agents)
-    .values([
-      { businessId, name: `${slug} Chief of Staff`, agentType: "chief_of_staff", layer: "assistant", status: "healthy" },
-      { businessId, name: `${slug} Engineer`, agentType: "engineer", layer: "worker" },
-    ])
-    .returning({ id: s.agents.id });
+  // Named columns here too: the migration-point suites run before 0143 added `agents.default_skills_version`.
+  const [agent, agent2] = ((await db.execute(sql`insert into agents (business_id, name, agent_type, layer, status) values
+    (${businessId}, ${`${slug} Chief of Staff`}, 'chief_of_staff', 'assistant', 'healthy'),
+    (${businessId}, ${`${slug} Engineer`}, 'engineer', 'worker', 'idle') returning id`)) as unknown as { rows: { id: string }[] }).rows;
   if (!agent || !agent2) throw new Error("fixture: agents");
 
   const agentVersion = first(

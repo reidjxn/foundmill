@@ -288,6 +288,8 @@ export const agentsRepo = {
 
   /** Locks and returns the business's live agents on an older release of role defaults than `version` (0143). */
   async lockBehindOnDefaults(tx: Executor, businessId: string, version: number): Promise<Pick<Agent, "id" | "agentType" | "defaultSkillsVersion">[]> {
+    // A boot job: never wait long on a lock another transaction holds (that business is tried again next boot).
+    await tx.execute(sql`set local lock_timeout = '5s'`);
     return tx
       .select({ id: agents.id, agentType: agents.agentType, defaultSkillsVersion: agents.defaultSkillsVersion })
       .from(agents)

@@ -1,5 +1,5 @@
 /** team.agents.* / team.humans.* / team.responsibilities.* (BUILD §11.9; AC-11.9.2 responsibilities route approvals). */
-import { TEMPLATE_KEYS, defaultSkillKeysFor, getLibrarySkill, getTemplate, hasTemplate, listTemplates } from "@foundmill/agents";
+import { TEMPLATE_KEYS, defaultSkillKeysFor, getLibrarySkill, getTemplate, hasTemplate, librarySkillKey, listTemplates } from "@foundmill/agents";
 import { CREDITS_CURRENCY, INPUT_LIMITS } from "@foundmill/config";
 import { SectionPermissions, membershipEnded, repos, type AgentRosterActivity } from "@foundmill/db";
 import { ADMIN_ROLES, DECISION_TYPES, DEFAULT_AGENT_STYLE, eventAsSeenBy, ForbiddenError, hasSectionAccess, isOwnerRole, MEMBERSHIP_ROLES, NotFoundError, ValidationError, agentTier, characterFor, leadAgentIds } from "@foundmill/shared";
@@ -202,7 +202,9 @@ export const teamRouter = router({
           const h = await hireFromTemplate(tx, ctx.businessId, input.templateKey, { departmentIds: [department.id], lineManagerId: lead && !lead.archivedAt ? lead.id : null, name: input.name, createdBy: ctx.userId });
           await repos.departments.addMember(tx, ctx.businessId, department.id, { memberKind: "agent", memberId: h.agent.id });
           await audit(tx, ctx, { action: "team.agents.hire", target: { kind: "agent", id: h.agent.id }, details: { templateKey: input.templateKey, departmentId: department.id, skills: skills.map((s) => s.skillKey) } });
-          await attachSkills(tx, ctx, h.agent, skills);
+          // A skill picked in the dialog that the role already comes with is there already, not a duplicate (WP-06 T6).
+          const comesWith = new Set(defaultSkillKeysFor(input.templateKey).map(librarySkillKey));
+          await attachSkills(tx, ctx, h.agent, skills.filter((s) => !comesWith.has(s.skillKey)));
           return h;
         });
         return hired.agent;

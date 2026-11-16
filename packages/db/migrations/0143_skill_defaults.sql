@@ -6,7 +6,22 @@
 --   packages/agents). The boot backfill offers an agent only defaults newer than it, so a default a founder removed is
 --   never added again.
 --
--- RLS unchanged: both tables keep their business policies (0004); agent_skills stays read-only for app roles.
+-- RLS unchanged: both tables keep their business policies (0004); agent_skills stays read-only for app roles. An app
+-- role never sets or changes default_skills_version (resetting it would make the backfill re-add defaults a founder
+-- removed): only service code does, as 0082 guards speech_accent. Not security definer, so `current_user` is the caller.
 alter table agent_skills add column added_by text check (added_by in ('template','founder','chief_of_staff'));
 --> statement-breakpoint
 alter table agents add column default_skills_version integer not null default 0;
+--> statement-breakpoint
+create function fm_agents_default_skills_version_guard() returns trigger
+language plpgsql set search_path = public as $$
+begin
+  if current_user in ('authenticated', 'anon')
+     and ((tg_op = 'INSERT' and new.default_skills_version <> 0) or (tg_op = 'UPDATE' and new.default_skills_version is distinct from old.default_skills_version)) then
+    raise exception 'permission denied: the release of default skills is set by the platform' using errcode = '42501';
+  end if;
+  return new;
+end;
+$$;
+--> statement-breakpoint
+create trigger agents_default_skills_version_guard before insert or update of default_skills_version on agents for each row execute function fm_agents_default_skills_version_guard();
