@@ -32,18 +32,21 @@ and one red; §6 the 8 px grid claim struck; §7 Continue's blocked state as the
 sidebar and top bar, Today's first-week pieces, `ReassuranceLine` in `text-2`, `RatingKey` and `SkillCard`; §9 the
 rating rule; §10 two more engine → founder rows.
 
-## Judgment calls
+## Decisions
 - Rules for pieces not built yet (T1 by-stage tabs, T2 top bar, T3 `EXPLAINERS`, T8 `SkillCard`, T9 `RatingKey` and
   the source line) are written in DESIGN.md as rules and each says "not yet in the code", so no line describes the
   product falsely. Decision 5 (a figure without Builder view) and 6 (streak days) are not written as decided.
 - §8 Guidance: the package asked to replace `NextStep` with what WP-04 shipped on Today. WP-04 is still building, so
   the new line names what Today has now (`FirstWeekTimeline`, `GoalPanel`, `NeedsYouList`, `WeekPlan`,
   `StreakStrip`) and leaves the `NextStep` and checklist entries, which still render on Details.
-- Not done from T6's file list: `docs/UX_AUDIT_AND_PLAN.md` "mark the three built items done" and `docs/GATES.md` "date
-  the UX gates". Both would state a gate passed, and this change ran nothing that shows it.
-- Not done from T5: step 6 (prune the story axe baseline). The baseline lives on the unmerged
-  `claude/blissful-fermat-q03yq1` branch; main has no story axe run.
 - The package says to record the §1 decision in docs/DECISIONS.md; that file is frozen (CLAUDE.md), so this entry is
   the record.
 - The comfortable default overwrites a text size chosen before the first profile save only when that choice was
   `standard`, which cannot be told apart from the column default. Choosing it again in Preferences sticks.
+
+## Not done
+- T6: `docs/UX_AUDIT_AND_PLAN.md` "mark the three built items done" and `docs/GATES.md` "date
+  the UX gates". Both would state a gate passed, and this change ran nothing that shows it.
+- T5 step 6 (prune the story axe baseline). The baseline lives on the unmerged
+  `claude/blissful-fermat-q03yq1` branch; main has no story axe run.
+- Standard no-clip at 1440 and the rest of the Playwright suite were left to CI.
