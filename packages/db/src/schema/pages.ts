@@ -26,6 +26,8 @@ export const projectPages = pgTable(
     publishedBy: uuid("published_by").references(() => authUsers.id, { onDelete: "set null" }),
     /** When it was taken down; null while it is live or was never published. */
     unpublishedAt: tstz("unpublished_at"),
+    /** 0119: when the published copy last changed (the page's dateModified and sitemap lastmod); the database's for a client role. */
+    contentPublishedAt: tstz("content_published_at"),
     ...timestamps(),
     updatedBy: uuid("updated_by").references(() => authUsers.id, { onDelete: "set null" }),
   },
@@ -54,6 +56,8 @@ export const publicProjectPages = pgView("public_project_pages", {
   kitPrimary: text("kit_primary").notNull(),
   kitSecondary: text("kit_secondary").notNull(),
   founderNames: text("founder_names").array().notNull(),
+  /** 0119: when the published copy last changed. */
+  contentPublishedAt: tstz("content_published_at"),
 }).existing();
 export type PublicProjectPage = typeof publicProjectPages.$inferSelect;
 
@@ -76,4 +80,4 @@ export type PublicProjectMilestone = typeof publicProjectMilestones.$inferSelect
 export const PUBLIC_PROJECT_MILESTONE_COLUMNS = ["id", "slug", "key", "label", "achieved_at"] as const;
 
 /** The columns `public_project_pages` exposes, in order (the view's test compares the catalog with this list). */
-export const PUBLIC_PROJECT_PAGE_COLUMNS = ["slug", "published", "published_at", "name", "logo_version", "kit_primary", "kit_secondary", "founder_names"] as const;
+export const PUBLIC_PROJECT_PAGE_COLUMNS = ["slug", "published", "published_at", "name", "logo_version", "kit_primary", "kit_secondary", "founder_names", "content_published_at"] as const;

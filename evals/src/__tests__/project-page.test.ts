@@ -5,7 +5,7 @@
  */
 import { createModelClient } from "@foundmill/models";
 import { describe, expect, it } from "vitest";
-import { PROJECT_PAGE_CASES, projectPageProblems, runProjectPageCase } from "../project-page";
+import { PROJECT_PAGE_CASES, projectPageFirstSentenceProblem, projectPageProblems, runProjectPageCase } from "../project-page";
 
 const silent = { debug() {}, info() {}, warn() {}, error() {} };
 const shiftly = PROJECT_PAGE_CASES[0]!;
@@ -27,6 +27,11 @@ describe("project page eval", () => {
     expect(projectPageProblems(shiftly, { ...good, about: `${shiftly.founderWords} We organise it all.` }).join()).toMatch(/British spelling/);
     const candles = PROJECT_PAGE_CASES[1]!;
     expect(projectPageProblems(candles, { pitch: "Hand-poured candles that smell like a walk in the woods.", about: candles.founderWords, forWhom: "Busy professionals", stage: "idea", showFounders: false, followForm: true }).join()).toMatch(/named an audience/);
+  });
+
+  it("the first-sentence check (WP-08 T7) wants the project named", () => {
+    expect(projectPageFirstSentenceProblem(shiftly, { ...good, about: "Shiftly finds students same-day cafe shifts in Manchester." })).toBeNull();
+    expect(projectPageFirstSentenceProblem(shiftly, good)).toMatch(/does not name/);
   });
 
   it("the mock route passes every case through the product's request and check", async () => {
