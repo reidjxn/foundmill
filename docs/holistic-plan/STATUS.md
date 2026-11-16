@@ -186,7 +186,7 @@ One row per task of docs/holistic-plan/WP-*.md. Updated before a task starts and
 | WP-13 | T2 | The GLM key, the provider seam and the guard | pull request open (#250) | auto-merge on; CI waiting on Actions billing |
 | WP-13 | T3 | Api, composer, gateway readers and the idea box choose by who pays | built locally | pushed after #250 merges |
 | WP-13 | T4 | Free projects' agent sessions run on GLM | not started | T2; a word from the plan-execution session on `session.ts` |
-| WP-13 | T5 | Free web search through Z.ai's Web Search API | not started | T2 |
+| WP-13 | T5 | Free web search through Z.ai's Web Search API | in #260: on Haiku 5.5 instead (founder, Nov 16) | production switch WP-00 S6 |
 | WP-13 | T6 | The $600 monthly cap, and slowing down at it | not started | T3 |
 | WP-13 | T7 | The model dialog shows GLM, and Anthropic models offer an upgrade | not started | T2 |
 | WP-13 | T8 | Evals on GLM-5.3 Flash | not started | T3, T4 |
