@@ -5,6 +5,14 @@ description: Describes a change so a reviewer understands why, what and how it w
 category: engineering
 attribute_name: Pull request write-ups
 attribute_group: craft
+when_to_use: Use when a change is ready for review and needs a description of why, what and how it was tested.
+roles: backend_engineer, frontend_engineer, data_engineer, infra_engineer, design_to_code, integration_agent
+default_for:
+stage: idea, building, page_live, first_followers, first_sale, growing
+needs: repo
+adapted_from: original
+license_note: original
+improves: communication
 version: 2
 ---
 # Pull request descriptions

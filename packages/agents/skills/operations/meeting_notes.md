@@ -5,6 +5,14 @@ description: Turns a meeting into short notes: decisions, action items with owne
 category: operations
 attribute_name: Meeting notes
 attribute_group: execution
+when_to_use: Use when a meeting or call happened and needs short notes: decisions, action items with owners and open questions.
+roles: chief_of_staff, operations_lead
+default_for:
+stage: idea, building, page_live, first_followers, first_sale, growing
+needs: none
+adapted_from: original
+license_note: original
+improves: communication
 version: 2
 ---
 # Meeting notes and action items

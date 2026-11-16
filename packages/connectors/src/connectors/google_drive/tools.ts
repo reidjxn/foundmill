@@ -43,8 +43,8 @@ export const googleDriveTools = [
     untrustedRef: (a) => `doc:${a.documentId}`,
     annotations: { readOnlyHint: true },
   }),
-  defineTool({ name: "create_doc", description: "Create a Google Doc with a title and body text.", input: z.object({ title: z.string().min(1).max(200), text: z.string().max(200_000).default("") }), output: z.object({ documentId: z.string(), url: z.string() }), hints: {} }),
-  defineTool({ name: "append_to_doc", description: "Append text to the end of a Google Doc.", input: z.object({ documentId: FileId, text: z.string().min(1).max(200_000) }), output: z.object({ documentId: z.string(), appendedChars: z.number().int() }), hints: {} }),
+  defineTool({ name: "create_doc", annotations: { readOnlyHint: false }, description: "Create a Google Doc with a title and body text.", input: z.object({ title: z.string().min(1).max(200), text: z.string().max(200_000).default("") }), output: z.object({ documentId: z.string(), url: z.string() }), hints: {} }),
+  defineTool({ name: "append_to_doc", annotations: { readOnlyHint: false }, description: "Append text to the end of a Google Doc.", input: z.object({ documentId: FileId, text: z.string().min(1).max(200_000) }), output: z.object({ documentId: z.string(), appendedChars: z.number().int() }), hints: {} }),
   defineTool({
     name: "share_file",
     description: "Share a file with an email address (reader/commenter/writer). Sends Google's notification email to the recipient.",

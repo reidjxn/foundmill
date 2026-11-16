@@ -5,11 +5,17 @@ import userEvent from "@testing-library/user-event";
 import { GuidanceProvider } from "../guidance/GuidanceProvider";
 import { DECISION_GUIDED_LINE, DecisionBar, NOT_STATED, costText, optionConsequence, optionDescription, optionSubline, optionWeight, reversibilityText } from "./DecisionBar";
 import { REORDER_OPTIONS } from "./fixtures";
+import { DECISION_BAR_ATTRIBUTE } from "./keyboard";
 
 /** Guidance off: the operator's view (key caps, no guided line). Outside a provider guidance reads as on. */
 const quiet = (ui: ReactElement) => <GuidanceProvider value={{ guidance: "off" }}>{ui}</GuidanceProvider>;
 
 describe("DecisionBar", () => {
+  it("marks its root as a decision bar, so the shell's 1–4 act only with focus inside it (WP-04 T13)", () => {
+    render(<DecisionBar options={REORDER_OPTIONS} onChoose={() => {}} hotkeys={false} />);
+    expect(screen.getByRole("group", { name: "Decision" }).hasAttribute(DECISION_BAR_ATTRIBUTE)).toBe(true);
+  });
+
   it("formats cost and reversibility without colour, and never says 'unknown' (UX plan B11)", () => {
     expect(costText(undefined)).toBe(NOT_STATED);
     expect(costText(null)).toBe("No cost");

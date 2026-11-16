@@ -31,11 +31,12 @@ describe("composer eval corpus (AC-11.3.1, 100 notes)", () => {
     expect(corpusId("customer", 7)).not.toBe(corpusId("customer", 8));
   });
 
-  it("renders the house rules and the Composer rules with the case's founder experience", () => {
+  it("renders the house rules and the Composer rules, and sends the case's founder experience in the inputs", () => {
     const first = COMPOSER_CORPUS[0]!;
     const [rules, composer] = composerSystemPrompt(first);
     expect(rules).toMatch(/^You are an AI agent working for Ledgerly/);
-    expect(composer).toContain(`Founder experience: ${first.founderExperience}.`);
+    expect(composer).toContain("Founder experience: `founder.experience` in the inputs");
+    expect((first.input.founder as { experience: string }).experience).toBe(first.founderExperience);
     expect(composer).toContain(`in the voice of ${first.voice.name}, ${first.voice.role}`);
   });
 });

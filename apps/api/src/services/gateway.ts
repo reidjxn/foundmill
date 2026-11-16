@@ -366,7 +366,7 @@ export function createApiGatewayClient(opts: CreateApiGatewayClientOptions): Api
   const timeoutMs = opts.timeoutMs ?? 30_000;
 
   const post = async <T>(path: string, body: unknown, callTimeoutMs = timeoutMs): Promise<T> => {
-    if (!opts.secret || opts.secret.length < 16) throw new AppError("config", "SESSION_TOKEN_SECRET is not set on the api, so it cannot call the gateway", 412);
+    if (!opts.secret || opts.secret.length < 16) throw new AppError("config", "Neither API_SERVICE_TOKEN_SECRET nor SESSION_TOKEN_SECRET is set on the api, so it cannot call the gateway", 412);
     const token = await signApiServiceToken(opts.secret);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), callTimeoutMs);
@@ -390,7 +390,7 @@ export function createApiGatewayClient(opts: CreateApiGatewayClientOptions): Api
 
   /** Like `post`, but answers the gateway's streamed body; the timeout covers only the wait for the first byte. */
   const stream = async (path: string, body: unknown, signal?: AbortSignal): Promise<Response> => {
-    if (!opts.secret || opts.secret.length < 16) throw new AppError("config", "SESSION_TOKEN_SECRET is not set on the api, so it cannot call the gateway", 412);
+    if (!opts.secret || opts.secret.length < 16) throw new AppError("config", "Neither API_SERVICE_TOKEN_SECRET nor SESSION_TOKEN_SECRET is set on the api, so it cannot call the gateway", 412);
     const token = await signApiServiceToken(opts.secret);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), Math.max(timeoutMs, SPEECH_CLIENT_TIMEOUT_MS));

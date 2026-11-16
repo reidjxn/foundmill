@@ -51,6 +51,15 @@ const researcherScript: SessionCase["script"] = [
   { connector: "platform", tool: "complete_task", args: (ctx) => ({ taskId: ctx.taskId, summary: "Compared three compostable cup suppliers; the report is saved." }) },
 ];
 
+/** `researcher.unmet_line_is_not_done`: the second line needs a send, and a researcher has no mail tool. */
+export const SAMPLE_LINES = ["Two suppliers compared on price, minimum order and shipping time", "A sample request sent to the cheapest supplier"] as const;
+
+const SAMPLE_REPORT = "## Suppliers compared\n\n| Supplier | 12 oz price | Minimum order | Ships in |\n| --- | --- | --- | --- |\n| GreenCup Supply | $0.11 | 1,000 | 5 business days |\n| Leafware | $0.16 | 500 | 10 business days |\n\n## Sample request\n\nA draft asking GreenCup Supply for ten sample cups.";
+
+/** `sourcing_manufacturing.records_suppliers`: the lines the supplier task's agent reports one by one. */
+export const SUPPLIER_LINES = ["At least two suppliers recorded in Customers, each with the page it was found on", "An RFQ pack drafted in the report; nothing is sent"] as const;
+const SUPPLIER_REPORT = "## Suppliers recorded\n\nTwo suppliers are in Customers, each with its page.\n\n## RFQ pack draft\n\nIdentical questions for every supplier: price at 10,000 and 50,000 units, minimum order, lead time. Nothing has been sent.";
+
 const notDone = (o: SessionObservation): string[] => (o.task.status === "done" ? [`the task is done (${o.result.summary})`] : []);
 
 /** The codebase of `backend_engineer.fixes_failing_test`: a sales tax setting of 80% where the test expects 8%. */
@@ -129,20 +138,38 @@ export const SESSION_CASES: readonly SessionCase[] = Object.freeze([
     },
   },
   {
+    id: "researcher.unmet_line_is_not_done",
+    title: "An agent that calls a task done with an acceptance line unmet does not end it done, and the line is named",
+    agentType: "researcher",
+    task: { kind: "research", title: "Compare cup suppliers and ask for samples", goalMd: RESEARCH_GOAL, acceptance: [...SAMPLE_LINES] },
+    // The mock agent claims every line, the second on a send it never made: the runner must not take its word.
+    script: [
+      ...researcherScript.filter((s) => s.tool !== "complete_task").map((s) => (s.tool === "save_report" ? { ...s, args: (ctx: Parameters<typeof s.args>[0], seen: readonly unknown[]) => ({ ...s.args(ctx, seen), bodyMd: SAMPLE_REPORT }) } : s)),
+      { connector: "platform", tool: "complete_task", args: (ctx) => ({ taskId: ctx.taskId, summary: "Compared suppliers and asked the cheapest for samples.", acceptance: [{ line: 1, met: true, reportSection: "Suppliers compared" }, { line: 2, met: true, tool: "send_mail" }] }) },
+    ],
+    check(o) {
+      const problems = notDone(o);
+      if (!o.result.summary?.includes(`“${SAMPLE_LINES[1]}”`)) problems.push(`the summary does not name the unmet line (${o.result.summary})`);
+      else if (o.result.summary.split(SAMPLE_LINES[1]).length - 1 !== 1) problems.push("the unmet line is named more than once");
+      return problems;
+    },
+  },
+  {
     id: "sourcing_manufacturing.records_suppliers",
-    title: "A sourcing session records the suppliers it found, each with the page it came from",
+    title: "A sourcing session records the suppliers it found, each with the page it came from, and reports each acceptance line",
     agentType: "sourcing_manufacturing",
     task: {
       kind: "specialist",
       title: "Supplier long list for compostable cups",
-      goalMd: "Find suppliers of compostable 12 oz cups. Record each supplier you find in Customers with the page it was found on, save a report, then complete the task.",
+      goalMd: "Find suppliers of compostable 12 oz cups. Record each supplier you find in Customers with the page it was found on, draft an RFQ pack in the report, save the report, then complete the task.",
+      acceptance: [...SUPPLIER_LINES],
     },
     script: [
       { connector: "web", tool: "search_web", args: () => ({ query: "compostable 12 oz coffee cups wholesale supplier", limit: 5 }) },
       ...[0, 1].map((i) => ({ connector: "web", tool: "fetch_page", args: (_ctx: unknown, seen: readonly unknown[]) => ({ url: searchedUrls(seen)[i] }) })),
       ...[0, 1].map((i) => ({ connector: "platform", tool: "create_entity", args: (_ctx: unknown, seen: readonly unknown[]) => ({ kind: "organisation", name: `Cup supplier ${i + 1}`, role: "supplier", sourceUrl: searchedUrls(seen)[i] }) })),
-      { connector: "platform", tool: "save_report", args: (ctx: { taskId: string }, seen: readonly unknown[]) => ({ taskId: ctx.taskId, title: "Supplier long list", bodyMd: "Two suppliers recorded in Customers.", sources: searchedUrls(seen).slice(0, 2).map((url) => ({ url, title: new URL(url).hostname })) }) },
-      { connector: "platform", tool: "complete_task", args: (ctx: { taskId: string }) => ({ taskId: ctx.taskId, summary: "Recorded two suppliers; the report is saved." }) },
+      { connector: "platform", tool: "save_report", args: (ctx: { taskId: string }, seen: readonly unknown[]) => ({ taskId: ctx.taskId, title: "Supplier long list", bodyMd: SUPPLIER_REPORT, sources: searchedUrls(seen).slice(0, 2).map((url) => ({ url, title: new URL(url).hostname })) }) },
+      { connector: "platform", tool: "complete_task", args: (ctx: { taskId: string }) => ({ taskId: ctx.taskId, summary: "Recorded two suppliers and drafted the RFQ pack; the report is saved.", acceptance: [{ line: 1, met: true, reportSection: "Suppliers recorded" }, { line: 2, met: true, reportSection: "RFQ pack draft" }] }) },
     ],
     check(o) {
       const problems = o.task.status === "done" ? [] : [`the task is ${o.task.status}, not done (${o.result.outcome}: ${o.result.summary})`];

@@ -23,7 +23,7 @@ import { departmentsRepo } from "./departments";
 import { foundersRepo } from "./founders";
 import { ideasRepo } from "./ideas";
 import { productRepo } from "./product";
-import { productSignoffsRepo, signoffDecisionBlock } from "./product-signoffs";
+import { planDecisionBlock, productSignoffsRepo } from "./product-signoffs";
 import { Id, JsonObject, maybeOne, one, parseInput, type Executor } from "./_shared";
 
 export const CreateFoundationsInput = z.object({
@@ -56,7 +56,7 @@ export function pmText(doc: unknown): string {
 const META_KIND = "foundmill:meta";
 const str = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
 
-/** The words of a sign-off note (the option blocks are fixed: `signoffDecisionBlock`). */
+/** The words of the plan note (the option block is fixed: `planDecisionBlock`). */
 export interface NoteDraft {
   subject: string;
   bodyMd: string;
@@ -64,11 +64,11 @@ export interface NoteDraft {
 
 export interface ApplyFoundationsOptions {
   /**
-   * The two decision notes the Product lead posts when the foundations are ready (founder, 2026-10-18): "Sign off the
-   * product specification" and "Sign off the product roadmap", each opening a `product_signoffs` round that blocks
-   * Continue until the founder answers. Null posts none (tests).
+   * The one decision note the Product lead posts when the foundations are ready, "Your plan is ready" (WP-04 T5; founder,
+   * 2026-11-16 D3, replacing the two sign-off notes of 2026-10-18): both `product_signoffs` rounds, the specification's
+   * and the roadmap's, point at it, so one answer decides both. Null posts none (tests).
    */
-  signoffs: { spec: (stats: FoundationsNoteStats) => NoteDraft; roadmap: (stats: FoundationsNoteStats) => NoteDraft } | null;
+  signoffs: { plan: NoteDraft } | null;
   /** Model metadata kept in the summary (route, model id, mode, cost in minor units as an Estimate). */
   model?: Record<string, unknown>;
   /**
@@ -84,7 +84,7 @@ export interface ApplyFoundationsResult {
   applied: boolean;
   row: BusinessFoundationsRow | null;
   stats: FoundationsNoteStats | null;
-  /** The sign-off notes, specification first (empty when none were asked for). */
+  /** The plan note (empty when none was asked for, or when a retried apply found it already open). */
   inboxItems: InboxItem[];
   writtenBlockIds: string[];
   roadmapItemIds: string[];
@@ -294,8 +294,8 @@ export const foundationsRepo = {
 
   /**
    * drafting → ready with every write in one transaction: spec blocks through `repos.product` (never a pinned block,
-   * never a block someone already wrote), roadmap items through `repos.product`, the vision on the row, the two
-   * sign-off notes with their rounds, and the audit entry. Applies only while `attempt` is the current drafting
+   * never a block someone already wrote), roadmap items through `repos.product`, the vision on the row, the plan note
+   * with its two rounds, and the audit entry. Applies only while `attempt` is the current drafting
    * attempt; otherwise writes nothing.
    */
   async apply(db: Executor, businessId: string, attempt: number, draft: FoundationsDraft, options: ApplyFoundationsOptions): Promise<ApplyFoundationsResult> {
@@ -362,26 +362,22 @@ export const foundationsRepo = {
         importedIssues: draft.roadmap.filter((r) => r.imported).length,
       };
 
-      // The two sign-off notes (founder, 2026-10-18): decision items from the Product lead that block Continue until the
-      // founder approves or asks for changes, each tied to its `product_signoffs` round. The roadmap round keeps a
-      // snapshot of what was asked about, so a later reorder is visible against it.
+      // The one plan note (WP-04 T5): a decision from the Product lead, never holding Continue (decisions do not, Nov 7,
+      // 2026), with the specification round and the roadmap round both tied to it. The roadmap round keeps a snapshot of
+      // what was asked about, so a later reorder is visible against it.
       const inboxItems: InboxItem[] = [];
       if (options.signoffs && author) {
         const roadmapNow = await productRepo.listRoadmap(tx, businessId);
-        const asks = [
-          { kind: "spec" as const, note: options.signoffs.spec(stats), snapshot: null },
-          { kind: "roadmap" as const, note: options.signoffs.roadmap(stats), snapshot: { items: roadmapNow.map((i) => ({ id: i.id, title: i.title, horizon: i.horizon, position: i.position })) } },
-        ];
-        for (const ask of asks) {
-          const opened = await productSignoffsRepo.open(tx, businessId, {
-            kind: ask.kind,
-            snapshot: ask.snapshot,
-            item: { type: "decision", from_agent_id: author, subject: ask.note.subject.slice(0, 80), body_md: ask.note.bodyMd, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: signoffDecisionBlock(ask.kind), blocks_continue: true, source_event_ids: [], entity_ids: [] },
-          });
-          if (opened.created && opened.item) {
-            inboxItems.push(opened.item);
-            if (options.onInboxItem) await options.onInboxItem(tx, opened.item);
-          }
+        const note = options.signoffs.plan;
+        const spec = await productSignoffsRepo.open(tx, businessId, {
+          kind: "spec",
+          snapshot: null,
+          item: { type: "decision", from_agent_id: author, subject: note.subject.slice(0, 80), body_md: note.bodyMd, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: planDecisionBlock(), blocks_continue: false, source_event_ids: [], entity_ids: [] },
+        });
+        if (spec.item) await productSignoffsRepo.open(tx, businessId, { kind: "roadmap", snapshot: { items: roadmapNow.map((i) => ({ id: i.id, title: i.title, horizon: i.horizon, position: i.position })) }, inboxItemId: spec.item.id });
+        if (spec.created && spec.item) {
+          inboxItems.push(spec.item);
+          if (options.onInboxItem) await options.onInboxItem(tx, spec.item);
         }
       }
 

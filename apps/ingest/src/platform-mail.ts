@@ -83,7 +83,7 @@ const fail = (status: MailRouteResult["status"], error: string, message: string)
 const OFF = fail(404, "not_found", "No route for this address");
 
 /** The secret custom args and unsubscribe links verify with, or null when none may be used here. */
-function signingSecretFor(deps: Deps): string | null {
+export function signingSecretFor(deps: Deps): string | null {
   const configured = deps.platformMail?.signingSecret?.trim();
   if (configured && configured.length >= PLATFORM_MAIL_SECRET_MIN_LENGTH) return configured;
   return deps.env.APP_ENV === "development" || deps.env.APP_ENV === "test" ? DEV_PLATFORM_MAIL_SECRET : null;

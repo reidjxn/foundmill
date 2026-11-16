@@ -5,6 +5,14 @@ description: Reviews a non-disclosure agreement against the business's playbook 
 category: legal
 attribute_name: NDA review
 attribute_group: craft
+when_to_use: Use when someone sent the project a non-disclosure agreement to review before the founder decides on it.
+roles: legal_lead
+default_for:
+stage: idea, building, page_live, first_followers, first_sale, growing
+needs: none
+adapted_from: original
+license_note: original
+improves: contract_review, compliance_tracking
 version: 1
 ---
 # NDA review

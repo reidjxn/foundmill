@@ -272,6 +272,9 @@ for (const width of [1280, 1440]) {
       await openTab(page, team, "recruitment", "team/recruitment");
       const draft = page.getByTestId("draft-agent");
       await expect(draft).toBeVisible({ timeout: LONG });
+      // The button finds the closest template by its words; no screen says an agent drafts anything (WP-06 T12).
+      await expect(draft).toContainText("Find the closest role");
+      await expect(page.locator("[data-module-screen='team/recruitment']")).not.toContainText(/Draft this agent|Agent builder/);
       await expect(draft).toBeDisabled();
       // The tab's explainer sits in the builder panel while guided; the key cap on the generate button is for
       // operators only (the shortcut works in both states).

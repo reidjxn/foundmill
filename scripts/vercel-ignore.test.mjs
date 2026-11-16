@@ -39,3 +39,11 @@ test("apps/web/vercel.json runs the script and builds no agent branch", () => {
   assert.equal(config.ignoreCommand, "bash ../../scripts/vercel-ignore.sh");
   assert.deepEqual(config.git?.deploymentEnabled, { "agent/**": false });
 });
+
+test("a previous deployment's commit the clone does not know (a rebased branch) builds instead of failing", async () => {
+  // Vercel reads exit 1 as "build" and exit 0 as "skip"; any other code fails the deployment. A force-pushed branch
+  // names a previous commit git no longer has, and `git diff` then exits 128 (seen on reidjxn/foundmill#250).
+  const { spawnSync } = await import("node:child_process");
+  const run = spawnSync("bash", ["../../scripts/vercel-ignore.sh"], { cwd: join(root, "apps/web"), env: { ...process.env, VERCEL_GIT_PREVIOUS_SHA: "0123456789abcdef0123456789abcdef01234567" }, encoding: "utf8" });
+  assert.equal(run.status, 1, run.stderr);
+});

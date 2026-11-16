@@ -30,3 +30,9 @@ export const Sample: Story = { args: { sample: true } };
 export const FounderFitKnown: Story = { args: { founderFitKnown: true, justIn: false } };
 /** An example with a mark of its own (the landing page's examples): the logo replaces the initials tile. */
 export const WithLogo: Story = { args: { logo: SAMPLE_LOGOS.orbit } };
+/** The landing page's result (founder, 2026-11-16): the card fills its column; from 576 px the ratings sit beside the pitch. */
+export const Wide: Story = {
+  args: { wide: true },
+  parameters: { layout: "padded" },
+  decorators: [(Story) => <div className="w-full max-w-160">{Story()}</div>],
+};

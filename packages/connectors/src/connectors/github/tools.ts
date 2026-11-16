@@ -425,7 +425,7 @@ export const githubTools = [
     annotations: { readOnlyHint: true },
   }),
   defineTool({
-    name: "update_branch",
+    name: "update_branch", annotations: { readOnlyHint: false },
     description: "Bring a pull request's branch up to date with its base: GitHub merges the base branch into the pull request's branch as one commit (the branch's own commits are untouched; nothing reaches the base). Refused (422) when the branch conflicts with the base, and when expectedHeadSha is given and the branch moved. Already up to date → updated: false. Spends no money.",
     input: RepoRef.extend({ prNumber: z.number().int().positive(), expectedHeadSha: z.string().min(7).max(64).optional() }),
     output: z.object({ updated: z.boolean(), headSha: z.string().nullable(), message: z.string() }),

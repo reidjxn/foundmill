@@ -64,9 +64,22 @@ test.describe("agent skills from the library and files", () => {
     await step.getByRole("button", { name: "Add from library" }).click();
     const library = page.getByTestId("skill-library-dialog");
     await expect(library).toBeVisible();
+    // WP-06 T7: the skills that fit the role being hired come first.
+    await expect(library.locator("[data-skill-group=suggested]")).toBeVisible({ timeout: LONG });
+    await expect(library.locator("[data-skill-library] h3").first()).toContainText("Suggested for this agent");
     await library.getByRole("textbox", { name: "Search skills" }).fill("newsletter");
     await expect(library.getByText("Shows as Craft · Newsletter writing")).toBeVisible({ timeout: LONG });
     await library.getByRole("checkbox", { name: /Newsletter writing/ }).click();
+    // Its whole text, in the product (founder, Nov 16, 2026: D6): rendered, then back with the choice and search kept.
+    await library.getByRole("button", { name: "Read the skill: Newsletter writing" }).click();
+    const reader = library.getByRole("region", { name: "Newsletter writing" });
+    await expect(reader.getByRole("heading", { name: "Newsletter writing" })).toBeVisible({ timeout: LONG });
+    await expect(reader.locator("[data-skill-text] li").first()).toContainText("One main story per issue");
+    await expect(reader).toContainText("Version 1");
+    await reader.getByRole("button", { name: "Back to the library" }).click();
+    await expect(reader).toBeHidden();
+    await expect(library.getByRole("textbox", { name: "Search skills" })).toHaveValue("newsletter");
+    await expect(library.getByRole("checkbox", { name: /Newsletter writing/ })).toBeChecked();
     await library.getByTestId("skill-library-add").click();
     await expect(library).toBeHidden();
     await expect(step.getByRole("list", { name: "Chosen skills" })).toContainText("Newsletter writing");
@@ -112,6 +125,12 @@ test.describe("agent skills from the library and files", () => {
     const added = page.getByTestId("added-skills");
     await expect(added.getByRole("list", { name: "Chosen skills" }).getByRole("listitem")).toHaveCount(2, { timeout: LONG });
     await expect(added).toContainText("SKILL.md");
+    // Opened from the agent's profile, the library suggests for that agent's role too.
+    await added.getByTestId("add-library-skill").click();
+    const fromProfile = page.getByTestId("skill-library-dialog");
+    await expect(fromProfile.locator("[data-skill-group=suggested]")).toBeVisible({ timeout: LONG });
+    await fromProfile.getByRole("button", { name: "Cancel" }).click();
+    await expect(fromProfile).toBeHidden();
     await added.getByRole("button", { name: "Remove Changelog digest" }).click();
     await expect(added.getByRole("list", { name: "Chosen skills" }).getByRole("listitem")).toHaveCount(1, { timeout: LONG });
     await expect(added).toContainText("Newsletter writing");

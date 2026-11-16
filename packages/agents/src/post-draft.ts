@@ -21,6 +21,7 @@ import type { CompleteResult, ModelClient, UsageAttribution } from "@foundmill/m
 import { PostDraftOutput } from "@foundmill/models/schemas";
 import { TEAM_POST_CAPS, TEAM_POST_SUBJECT_LABELS, TEAM_POST_TEXT_MIN, teamPostFits, teamPostTextBudget, type PageStage, type TeamPostSubject, type TeamPostTrigger } from "@foundmill/shared";
 import { agentPromptFields, buildSystemPrompt, type AgentPromptParts } from "./club-rules";
+import { positioningBlock } from "./positioning";
 import { inertJson, plainModelText, untrustedBlock } from "./foundations";
 import { postDraftPrompt } from "./prompts/post-draft";
 import { getChannelTemplate } from "./registry";
@@ -115,6 +116,8 @@ export interface PostDraftFacts {
   learned: string[];
   /** The business's social agent as it is now (its live instructions and skills); the template when absent. */
   agent?: AgentPromptParts;
+  /** The positioning notes the founders approved, as a data block; none until they approve. The check below does not read it. */
+  positioning?: string | null;
 }
 
 export interface PostDraftFactsInput {
@@ -133,6 +136,8 @@ export interface PostDraftFactsInput {
   learned?: readonly string[];
   /** `PostDraftFacts.agent`. */
   agent?: AgentPromptParts;
+  /** `PostDraftFacts.positioning`. */
+  positioning?: string | null;
 }
 
 const usDate = (at: Date, timeZone?: string | null): string => {
@@ -164,6 +169,7 @@ export function postDraftFacts(input: PostDraftFactsInput): PostDraftFacts {
     maxChars: teamPostTextBudget(input.link),
     learned: (input.learned ?? []).slice(0, 3).map((l) => l.replace(/\s+/g, " ").trim().slice(0, 300)),
     ...(input.agent ? { agent: input.agent } : {}),
+    ...(input.positioning ? { positioning: input.positioning } : {}),
   };
 }
 
@@ -216,6 +222,8 @@ export function buildPostDraftRequest(facts: PostDraftFacts, options: { retry?: 
     },
   };
   const parts = ["```json\n" + inertJson(trusted) + "\n```", untrustedBlock("project_page", { project_page: { pitch: facts.page.pitch, about: facts.page.about, for_whom: facts.page.forWhom, stage: facts.page.stage } })];
+  const block = positioningBlock(facts.positioning);
+  if (block) parts.push(block);
   if (options.retry) parts.push(POST_DRAFT_RETRY_NOTES[options.retry]);
   parts.push("Draft the post now.");
   return {

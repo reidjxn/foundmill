@@ -1,6 +1,6 @@
 /** inbox.list/get/refresh/decide/markRead/archive + plan.preview/confirm/status (BUILD §11.3). */
 import { InboxListFilter, isApprovalOption, repos } from "@foundmill/db";
-import { ValidationError } from "@foundmill/shared";
+import { isPlanReadyDecision, ValidationError } from "@foundmill/shared";
 import { z } from "zod";
 import { approvalView } from "../services/approvals";
 import { confirmPlan, decideInboxItem, pendingConfirmation, planContextFor } from "../services/decide";
@@ -59,8 +59,9 @@ export const inboxRouter = router({
       // A plan still waiting for its go-ahead comes back with what it needs (audit OL-01): the Inbox offers the
       // confirmation from this, after a reload or on another device, never from what the page that decided remembers.
       const confirmation = plan ? pendingConfirmation(ctx.membership, plan) : null;
-      // A sign-off note (founder, 2026-10-18): the reading pane shows its notes field and status beside the options.
-      const signoff = signoffRow ? { id: signoffRow.id, kind: signoffRow.kind, round: signoffRow.round, status: signoffRow.status, notes: signoffRow.notes, decidedAt: signoffRow.decidedAt } : null;
+      // A sign-off note (founder, 2026-10-18): the reading pane shows its notes field and status beside the options; `plan`
+      // marks the one plan note (WP-04 T5), whose two rounds are answered together.
+      const signoff = signoffRow ? { id: signoffRow.id, kind: signoffRow.kind, round: signoffRow.round, status: signoffRow.status, notes: signoffRow.notes, decidedAt: signoffRow.decidedAt, plan: isPlanReadyDecision(item.decision) } : null;
       return { item: redactInboxItem(item, source), decisions: redactDecisions(decisions, source, noteMask(item)), plan: plan ? redactPlan(plan, source, noteMask(item)) : null, confirmation, fromAgent, entities: entityStubs(entities, walls), approval, signoff };
     }),
   ),

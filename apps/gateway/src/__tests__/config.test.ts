@@ -32,3 +32,14 @@ describe("gatewayConfig: SESSION_TOKEN_SECRET", () => {
     expect(() => gatewayConfig(envWith({ APP_ENV: "test", SESSION_TOKEN_SECRET: "short" }), "test")).toThrow(/at least 16/);
   });
 });
+
+describe("gatewayConfig: API_SERVICE_TOKEN_SECRET (WP-11 T12)", () => {
+  const base = { APP_ENV: "staging", SESSION_TOKEN_SECRET: "shared-session-token-secret-0123456789" };
+  it("refuses a secret shorter than 32 characters, and reads the legacy flag", () => {
+    expect(() => gatewayConfig(envWith({ ...base, API_SERVICE_TOKEN_SECRET: "a".repeat(31) }), "production")).toThrow(/at least 32/);
+    const config = gatewayConfig(envWith({ ...base, API_SERVICE_TOKEN_SECRET: "a".repeat(32), API_SERVICE_TOKEN_LEGACY: "1" }), "production");
+    expect(config).toMatchObject({ apiServiceTokenSecret: "a".repeat(32), apiServiceTokenLegacy: true });
+    expect(gatewayConfig(envWith(base), "production")).toMatchObject({ apiServiceTokenSecret: null, apiServiceTokenLegacy: false });
+    expect(() => gatewayConfig(envWith({ ...base, API_SERVICE_TOKEN_SECRET: base.SESSION_TOKEN_SECRET }), "production")).toThrow(/must differ/);
+  });
+});

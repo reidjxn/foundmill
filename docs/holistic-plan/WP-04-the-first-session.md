@@ -24,26 +24,26 @@
 
 ## Tasks
 
-- [ ] T1 Profile as three questions; the card keeps its thread (M)
+- [x] T1 Profile as three questions; the card keeps its thread (M)
 - [ ] T2 Commit as name and go, at any width (M)
 - [x] T3 What commit starts on the free plan (M)
 - [ ] T4 The starting team, as shown (S)
-- [ ] T5 One plan note, one approval (M)
+- [x] T5 One plan note, one approval (M)
 - [x] T6 Check, publish and share the page on any screen (M)
 - [ ] T7 One first-day story; guidance on Today (M)
 - [x] T8 Note budget and the day's digest (M)
 - [ ] T9 The founder's own task and tomorrow's reason (M)
-- [ ] T10 Chief of Staff as mentor, with founder context (M)
+- [x] T10 Chief of Staff as mentor, with founder context (M)
 - [ ] T11 Lifecycle email for a started project (M, needs setup)
 - [ ] T12 Email for a person with a card and no project (M, needs setup)
-- [ ] T13 Single-key shortcuts off by default (S)
+- [x] T13 Single-key shortcuts off by default (S)
 - [x] T14 The one-click answer page on a phone (S)
 - [ ] T15 A phone start without a card (S)
 - [ ] T16 Win-back for the 11 stalled projects (S, needs the founder)
 
 Order: T1, T2, T3 first (the path), then T6, T5, T4, T7, T8; T9 to T16 in any order after T7.
 
-### T1: Profile as three questions; the card keeps its thread   [M] [ships alone]
+### [x] T1: Profile as three questions; the card keeps its thread   [M] [ships alone]
 
 **Why:** FR-05, FR-08, FR-03 item 1, FR-19 (`ideaDraftToken`), A9-P0-2 item 1, s2 §4.1, s1 §3.4.
 
@@ -138,7 +138,7 @@ Order: T1, T2, T3 first (the path), then T6, T5, T4, T7, T8; T9 to T16 in any or
 **Tests and evals:** unit test; `CommitForm.test.tsx` (the line); `apps/web/e2e/first-days.spec.ts` (Agents tab lists at most 5 rows before "Show all").
 **Done when:** no first-run surface shows more than 5 agents unasked.
 
-### T5: One plan note, one approval   [M] [ships alone]
+### [x] T5: One plan note, one approval   [M] [ships alone]
 
 **Why:** A4-16, FR-07, THESIS 1.3; e0 (founders answered 0 to 1 decisions).
 
@@ -246,7 +246,7 @@ export function founderTaskOf(f: FounderTaskFacts): FounderTask | null
 **Tests and evals:** above; Storybook states (each task, done, none).
 **Done when:** Today always names one thing the founder can finish in minutes, and says what happens next.
 
-### T10: Chief of Staff as mentor, with founder context   [M] [ships alone]
+### [x] T10: Chief of Staff as mentor, with founder context   [M] [ships alone]
 
 **Why:** TS-06, TS-13 (examples), FR-16 row 2, a3b §3.3 (Composer and conversation rows), THESIS §12.6.
 
@@ -312,7 +312,7 @@ Bodies are s2 §6.3's, edited to the emails skill (reason first, one action, no 
 3. Counts toward the person's three a day; the pause link and the kind's switch apply.
 **Done when:** the mock sweep records the two emails for a card-holder and nothing for anyone else.
 
-### T13: Single-key shortcuts off by default   [S] [ships alone]
+### [x] T13: Single-key shortcuts off by default   [S] [ships alone]
 
 **Why:** A2-03 (an accidental Space starts paid work; 1 to 4 answer a decision; WCAG 2.1.4).
 

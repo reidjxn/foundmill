@@ -123,7 +123,7 @@ export async function resolveAgentPrompt(db: Executor, businessId: string, targe
 
 **Tests and evals:** steps 1, 2, 5; `evals/src/__tests__/skills.test.ts` unchanged and green (`skills.prompt.library_newsletter`, `…library_nda`). **Done when:** Done-when 1 and 2 for the 20 skills.
 
-### T3: The library type grows; the drafts move in   [L] [ships alone]
+### [x] T3: The library type grows; the drafts move in   [L] [ships alone]
 
 **Why:** TS-05, TS-10 (the rewrite each outside text needs), TS-12, §6e provenance (before any adapted skill ships), planner's decisions 6 and 7.
 
@@ -296,7 +296,7 @@ repos.skills.backfillDefaultSkills(db): Promise<{ businesses: number; agents: nu
 
 **Done when:** Done-when 3 and 7. **Does not cover:** the welcome note saying the team arrives with skills (WP-04 owns first notes).
 
-### T7: Picker data: suggestions, the body on request, availability   [S] [after T3]
+### [x] T7: Picker data: suggestions, the body on request, availability   [S] [after T3]
 
 **Why:** TS-09; a3b §6b (api), §6f (the two cases kept apart). WP-10 owns the look.
 
@@ -386,7 +386,7 @@ alter table training_runs add column skill_keys text[];
 
 **Done when:** an instruction edit reaches the next session at no model cost.
 
-### T12: Two honesty fixes in Recruitment and Training copy   [S] [ships alone]
+### [x] T12: Two honesty fixes in Recruitment and Training copy   [S] [ships alone]
 
 **Why:** TS-08. The real builder and a wired Coach are under Not now.
 

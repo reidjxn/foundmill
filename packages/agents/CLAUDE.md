@@ -31,6 +31,6 @@ Owns the agent templates, the prompt templates (BUILD §12), skill definitions, 
 - `src/club-rules.ts`: `buildSystemPrompt`, `detectClubRuleViolation`
 - `src/connectors.ts`: connector keys a grant may name
 - `src/registry.ts`: template lookup by key, type, module, family or channel
-- `skills/<category>/<key>.md`: the skills library's source (front matter + body); `src/skill-library/catalog.generated.ts` is generated from it, never edited
+- `skills/<category>/<key>.md`: the skills library's source (front matter + body; the authoring spec and field mapping are `skills/README.md`, adapted text is credited in `skills/THIRD_PARTY_NOTICES.md`); `src/skill-library/catalog.generated.ts` is generated from it, never edited
 - `src/types.ts`: `AgentTemplate`, `AgentInstructions`
 - `evals/src/`: eval suites per template and skill

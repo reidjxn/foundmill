@@ -303,7 +303,7 @@ Before (`archetypes.ts:455`): "At least 20 suppliers recorded as CRM entities". 
 
 ### T11: A founder who has a repository can choose it without Builder view   [S] [ships alone] [no go-ahead needed]
 
-- [ ] done
+- [x] done
 
 **Why:** A4-04 fix 1. The chooser exists only on Development › Code (`packages/modules/src/development/CodeScreen.tsx:227`), a Builder-only tab (`constants.ts:82-83`).
 **Files:** modify `apps/web/components/settings/IntegrationsTab.tsx` (the GitHub block, by the string "Connect installation"), `apps/web/components/settings/__tests__/github-install.test.tsx`, `apps/web/e2e/code.spec.ts`.
