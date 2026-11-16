@@ -77,3 +77,25 @@ export function withFooter(html: string, footer: string): string {
   const at = html.toLowerCase().lastIndexOf("</body>");
   return at < 0 ? `${html}${footer}` : `${html.slice(0, at)}${footer}${html.slice(at)}`;
 }
+
+/** The sign-up confirmation page (WP-07 T6): the address the visitor typed, the platform's own consent sentence with an
+ * unticked box, the hidden field and the bot check. Never the agent's HTML, so a site cannot weaken or pre-tick consent. */
+export function followFormPage(input: { email: string; consentText: string; turnstileSiteKey: string | null; mockToken: string | null }): string {
+  const check = input.turnstileSiteKey
+    ? `<div class="cf-turnstile" data-sitekey="${escapeHtml(input.turnstileSiteKey)}" data-action="page_follow"></div><script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>`
+    : input.mockToken
+      ? `<input type="hidden" name="cf-turnstile-response" value="${escapeHtml(input.mockToken)}">`
+      : "";
+  return platformPage(
+    "Sign up",
+    `<h1>Sign up</h1><form method="post" action="/_fm/follow/confirm">` +
+      `<p>Your email address: <strong>${escapeHtml(input.email)}</strong></p><input type="hidden" name="email" value="${escapeHtml(input.email)}">` +
+      `<p><label style="display:flex;gap:8px;align-items:flex-start;font-weight:400"><input type="checkbox" name="consent" value="yes" required> <span>${escapeHtml(input.consentText)}</span></label></p>` +
+      `<div aria-hidden="true" style="position:absolute;left:-10000px"><label>Website <input type="text" name="website" tabindex="-1" autocomplete="off"></label></div>` +
+      `${check}<button type="submit">Sign up</button></form>`,
+  );
+}
+
+export const FOLLOW_CHECK_INBOX_PAGE = platformPage("Check your inbox", "<h1>Check your inbox</h1><p>We sent you an email. Open the link in it to confirm, and you are signed up.</p>");
+export const FOLLOW_PREVIEW_PAGE = platformPage("Not published yet", "<h1>Not published yet</h1><p>Sign-ups open when the site is published.</p>");
+export const followRefusedPage = (sentence: string): string => platformPage("Not signed up", `<h1>Not signed up yet</h1><p>${escapeHtml(sentence)}</p><p><a href="/">Back to the site</a></p>`);

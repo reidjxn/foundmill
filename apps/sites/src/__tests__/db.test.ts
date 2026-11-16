@@ -37,7 +37,7 @@ beforeAll(async () => {
       await tx.execute(sql`set local role sites_reader`);
       return fn(tx as never);
     });
-  app = createSitesApp(sitesDeps({ env: { APP_ENV: "test", APP_URL: "http://localhost:3000", SITES_DOMAIN: DOMAIN }, run: asReader, log: { info: () => {}, warn: () => {} } }));
+  app = createSitesApp(sitesDeps({ env: { APP_ENV: "test", APP_URL: "http://localhost:3000", SITES_DOMAIN: DOMAIN, SITES_API_URL: "http://api.test", SITES_TURNSTILE_SITE_KEY: undefined }, run: asReader, log: { info: () => {}, warn: () => {} } }));
 }, 120_000);
 afterAll(() => h?.close());
 

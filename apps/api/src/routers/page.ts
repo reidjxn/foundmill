@@ -27,7 +27,7 @@ import { FOLLOW_EMAIL_MAX, PAGE_ABOUT_MAX, PAGE_FOR_WHOM_MAX, PAGE_PITCH_MAX, PA
 import { VIA_MAX_LENGTH } from "@foundmill/shared/via";
 import { z } from "zod";
 import { publicCardById, publicStoryBySlug } from "../services/milestones";
-import { followPage, pageView, publicIndexNowKeyFile, publicPageBySlug, publishPage, savePageDraft, setPageSlug, unpublishPage } from "../services/pages";
+import { followPage, pageView, siteFollowConsent, publicIndexNowKeyFile, publicPageBySlug, publishPage, savePageDraft, setPageSlug, unpublishPage } from "../services/pages";
 import { recordPostVisit } from "../services/post-attribution";
 import { publicProcedure, router, sectionAdmin, sectionRead, sectionWrite } from "../trpc";
 
@@ -68,8 +68,12 @@ export const publicPageRouter = router({
         turnstile: z.string().max(4096).nullish(),
         /** The last post code the visitor arrived with (the web's `fm_post` cookie), or nothing. A hint, never trusted. */
         post: z.string().max(40).nullish(),
+        /** The project's site's form (apps/sites, WP-07 T6) instead of its public page. */
+        via: z.enum(["page", "site"]).optional(),
       }),
     )
     .mutation(({ ctx, input }) => followPage(ctx, input)),
+  /** The sentence a site's sign-up form shows beside its box (apps/sites, WP-07 T6): the same one the record keeps. */
+  siteConsent: publicProcedure.input(z.object({ slug: z.string().max(PAGE_SLUG_MAX * 2) })).query(({ ctx, input }) => siteFollowConsent(ctx, input.slug)),
   visited: publicProcedure.input(z.object({ via: z.string().max(VIA_MAX_LENGTH * 2) })).mutation(({ ctx, input }) => recordPostVisit(ctx, input)),
 });

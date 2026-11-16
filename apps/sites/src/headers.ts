@@ -1,6 +1,7 @@
 /**
  * The response headers of every site response (WP-07 T4). A site is static and runs no script: the policy below is
- * what enforces that, whatever a release contains. No response ever sets a cookie.
+ * what enforces that, whatever a release contains. The one exception is the platform's own sign-up page (T6), which
+ * may load Cloudflare Turnstile's script (apps/sites `app.ts`). No response ever sets a cookie.
  */
 
 export type SiteKind = "live" | "preview";

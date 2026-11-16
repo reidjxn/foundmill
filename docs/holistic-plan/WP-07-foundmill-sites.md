@@ -204,7 +204,7 @@ Before (`archetypes.ts:455`): "At least 20 suppliers recorded as CRM entities". 
 
 ### T6: The waitlist form   [M] [ships alone] [needs go-ahead A; switched on after WP-00 S2]
 
-- [ ] done
+- [x] done (code; switched on after WP-00 S2; the starter's form block and the session note come with T3, the Playwright steps with T10)
 
 **Why:** §8 item 6; A4-03; §1.5 row "Sign-ups reaching Customers".
 
