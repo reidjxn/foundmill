@@ -49,8 +49,8 @@ describe("FoundationsStatus", () => {
     const user = userEvent.setup();
     const onOpen = vi.fn();
     const onInbox = vi.fn();
-    render(<FoundationsStatus state="ready" readyLine="Your vision, specification and roadmap are drafted. Two notes in the Inbox ask for your sign-off." onOpen={onOpen} secondaryAction={{ label: "Open the Inbox", onClick: onInbox }} />);
-    expect(screen.getByRole("status").textContent).toContain("Two notes in the Inbox ask for your sign-off.");
+    render(<FoundationsStatus state="ready" readyLine="Your vision, specification and roadmap are drafted. One note in the Inbox asks you to approve your plan." onOpen={onOpen} secondaryAction={{ label: "Open the Inbox", onClick: onInbox }} />);
+    expect(screen.getByRole("status").textContent).toContain("One note in the Inbox asks you to approve your plan.");
     await user.click(screen.getByRole("button", { name: "Open the Inbox" }));
     expect(onInbox).toHaveBeenCalledTimes(1);
     expect(onOpen).not.toHaveBeenCalled();
