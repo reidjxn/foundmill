@@ -30,7 +30,7 @@ import { APP_NAME } from "@foundmill/config";
 import { AppError, UnauthorizedError } from "@foundmill/shared";
 import { repos } from "@foundmill/db";
 import { cedarVersion, getPolicyEngine } from "@foundmill/policy";
-import { bearerToken, mintSessionToken, sessionKey, verifyServiceToken, verifySessionToken, type ServiceToken, type SessionToken } from "./tokens";
+import { apiServiceTokenMode, bearerToken, mintSessionToken, sessionKey, verifyServiceTokenFor, verifySessionToken, type ServiceToken, type SessionToken } from "./tokens";
 import { GatewayError, safeError, type GatewayDeps } from "./pipeline";
 import { connectIntegration, integrationHealth } from "./integrations";
 import { KEYS_VALIDATE_ROUTE, ValidateKeyRequest, validateFounderKey } from "./keys";
@@ -57,6 +57,9 @@ import { DEFAULT_SESSION_TTL_SECONDS, MAX_SESSION_TTL_SECONDS } from "./config";
 
 export interface GatewayAppOptions {
   sessionTokenSecret: string;
+  /** API_SERVICE_TOKEN_SECRET and API_SERVICE_TOKEN_LEGACY (WP-11 T12); absent in tests that do not need them. */
+  apiServiceTokenSecret?: string | null;
+  apiServiceTokenLegacy?: boolean;
   sessionTokenTtlSeconds?: number;
   sessionTokenMaxTtlSeconds?: number;
   /** For `/health`: the rate-limit store in use (a function reads it per request; memory while a Redis store falls back). */
@@ -79,6 +82,7 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   const app = new Hono<{ Variables: Variables }>();
   const now = deps.now ?? (() => new Date());
   const secret = options.sessionTokenSecret;
+  const serviceSecrets = { shared: secret, api: options.apiServiceTokenSecret ?? null, legacy: options.apiServiceTokenLegacy ?? false };
   const defaultTtl = options.sessionTokenTtlSeconds ?? DEFAULT_SESSION_TTL_SECONDS;
   const maxTtl = options.sessionTokenMaxTtlSeconds ?? MAX_SESSION_TTL_SECONDS;
 
@@ -128,6 +132,7 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
       db,
       mode: deps.mode,
       liveConnectors: [...(deps.liveConnectors ?? [])],
+      apiServiceToken: apiServiceTokenMode(serviceSecrets),
       connectors: deps.registry.keys().length,
       policy: { cedar: cedarVersion(), policies: Object.keys(engine.policySet.byId).length },
       vault: deps.vault?.kind ?? "none",
@@ -144,7 +149,7 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   const requireService = async (c: { req: { header(name: string): string | undefined }; set(key: "service", value: ServiceToken): void }, next: () => Promise<void>) => {
     const token = bearerToken(c.req.header("authorization"));
     if (!token) throw new UnauthorizedError("A service Bearer token is required");
-    c.set("service", await verifyServiceToken(secret, token));
+    c.set("service", await verifyServiceTokenFor(serviceSecrets, token));
     await next();
   };
   app.use("/v1/session-tokens", requireService);

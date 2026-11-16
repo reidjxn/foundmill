@@ -183,7 +183,11 @@ export function createApiDeps(options: CreateApiDepsOptions = {}): ApiDeps {
   const connectors = createDefaultRegistry({ secrets: {} });
   const recordings = options.recordings === undefined ? createSandboxRecordingResolver() : options.recordings;
   const ingest = createIngestClient({ url: env.INGEST_URL, secret: env.SESSION_TOKEN_SECRET ?? null });
-  const gateway = createApiGatewayClient({ url: env.GATEWAY_URL, secret: env.SESSION_TOKEN_SECRET ?? null });
+  // The api signs its gateway calls with its own secret when it has one (WP-11 T12), else the shared one.
+  const apiServiceSecret = env.API_SERVICE_TOKEN_SECRET?.trim() || null;
+  if (apiServiceSecret && apiServiceSecret.length < 32) throw new Error("API_SERVICE_TOKEN_SECRET must be at least 32 characters");
+  if (apiServiceSecret && apiServiceSecret === env.SESSION_TOKEN_SECRET?.trim()) throw new Error("API_SERVICE_TOKEN_SECRET must differ from SESSION_TOKEN_SECRET");
+  const gateway = createApiGatewayClient({ url: env.GATEWAY_URL, secret: apiServiceSecret ?? env.SESSION_TOKEN_SECRET ?? null });
   const auth = createAuthVerifier({
     supabaseUrl: env.SUPABASE_URL ?? null,
     jwtSecret: env.SUPABASE_JWT_SECRET ?? null,
