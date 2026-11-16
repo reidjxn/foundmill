@@ -26,7 +26,7 @@ WP-10 T13 (docs/holistic-plan/WP-10-console-and-design.md; audit A2-15, A2-20, A
    grow; a shrunk count is printed as a note. `PhoneBar`'s `max-w-[85vw]` becomes the token `--phone-menu-max`. In CI
    next to the focus-ring check.
 
-## Judgment calls
+## Decisions
 - **The `matchday` Continue state stays.** The package called it unreachable; the landing deck uses it
   (`apps/web/components/landing/cycle.ts`, DESIGN §9a's gold Continue). `screenTitle ?? "Home"` was already gone.
 - **The bundle guard is a unit test, not a byte budget in `speed.spec.ts`.** The e2e stack runs `next dev`, whose
@@ -36,4 +36,8 @@ WP-10 T13 (docs/holistic-plan/WP-10-console-and-design.md; audit A2-15, A2-20, A
 - `BusinessSwitcher.tsx` `#1b4fd8` and `IdeaCard.tsx` `#3a87ff`, two of the four "cheapest" fixes, were already gone on
   main. The scanner counts more than the audit's 15 files / 45 values because it also reads comments and `.ts` data
   files; the allowlist holds them all so the line holds from today.
-- `optimizePackageImports` not added: the target was met without it.
+
+## Not done
+- `optimizePackageImports`: not added, the target was met without it.
+- A byte budget in `speed.spec.ts` (see Decisions). The rest of the Playwright suite was left to CI; `today.spec.ts` and
+  `phone-today.spec.ts` ran locally (7 passed).
