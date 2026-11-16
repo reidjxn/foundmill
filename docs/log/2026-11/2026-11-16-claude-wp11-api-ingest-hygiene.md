@@ -20,6 +20,8 @@ supersedes: []
   - The logger redacts `accessToken`, `refreshToken`, `sealed`, and secrets two levels down.
 - docs/DEPLOY.md: §3 gets ingest's webhooks, the platform address's bounces (WP-00 S2) and GitHub's deliveries; §4 gets the declared settings and the Data API check.
 
+- docs/DEPLOY.md's production record: `domains` is in `LIVE_CONNECTORS` on the gateway and the api since Nov 16, 2026. Another session set it at the founder's request, and `/health` lists it in both. `scripts/check-production.mjs` pins no connector list, so it is unchanged.
+
 ## Decisions
 ### T17's `why` is honest about what was read
 I classified the clear files: `person` for live, idea and founder-businesses; `signed_out` for the email links and people pages; `service_written` for billing. The rest are `mixed`, and the note says "not classified line by line" where I did not read each use. The count is what fails the test; the label is for review.
