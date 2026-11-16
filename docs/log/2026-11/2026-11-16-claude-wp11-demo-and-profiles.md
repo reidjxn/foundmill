@@ -27,5 +27,8 @@ The real and the sample business share the fixture's members and agents and the 
 
   fter three days in production, the three `ms` figures go in DEPLOY §6. Above 60 seconds, the founder chooses between the off switch and a weekly roll. That reading is not done here.
 
+### security_invoker on the view (security review)
+The view reads `businesses` with the caller's rights. Only `service_role` may select it, and that role bypasses RLS, so nothing changes today; a later grant to a client role could never read past RLS. It also keeps the advisor's lint 0010 (security definer view) quiet.
+
 ## Not done
 - T9 step 4 (read the house's id on production) is F3, the Desktop session's or the founder's.

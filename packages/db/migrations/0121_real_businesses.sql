@@ -5,7 +5,9 @@
 -- The view carries no column of businesses but `id`, so a column added later never makes it stale. Foundmill's own
 -- project (HOUSE_BUSINESS_ID, packages/config showcase.ts) appears with is_house true: some figures count it, the
 -- "outside" ones leave it out.
-create view real_businesses as
+-- security_invoker: the view reads businesses with the caller's rights, so a grant to a client role later could never
+-- read past RLS (Supabase advisor lint 0010, security definer view).
+create view real_businesses with (security_invoker = true) as
   select b.id, (b.id = 'f0f0f0f0-0000-4000-8000-00000000f00d'::uuid) as is_house from businesses b where not b.is_demo;
 --> statement-breakpoint
 revoke all on real_businesses from public, anon, authenticated, service_role;
