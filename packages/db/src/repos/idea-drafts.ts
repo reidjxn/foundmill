@@ -67,6 +67,38 @@ export const ideaDraftsRepo = {
     return row!;
   },
 
+  /**
+   * "Try another idea" (WP-03 T7): puts a new card in the browser's live draft, under the same token. The claim token
+   * is replaced (the old link stops working), the card gets a fresh 7 days, and its cost is added to what the draft
+   * already cost, dated now, so the day's ceiling counts every card made (a redraw of yesterday's card counts it again
+   * today: more cautious, never less). Null when the draft is claimed, past its time or unknown.
+   */
+  async replace(
+    db: Executor,
+    tokenHash: string,
+    input: Omit<CreateIdeaDraftInput, "tokenHash">,
+  ): Promise<IdeaDraftRow | null> {
+    if (!isHash(tokenHash) || !isHash(input.claimHash))
+      throw new Error("idea draft tokens must be SHA-256 hex");
+    const now = input.now ?? new Date();
+    const [row] = await db
+      .update(ideaDrafts)
+      .set({
+        claimHash: input.claimHash,
+        prompt: input.prompt.slice(0, 500),
+        interest: input.interest?.slice(0, 60) ?? null,
+        card: input.card,
+        modelMode: input.modelMode,
+        costMicro: sql`${ideaDrafts.costMicro} + ${Math.max(0, Math.round(input.costMicro))}`,
+        expiresAt: new Date(now.getTime() + IDEA_DRAFT_TTL_MS),
+        createdAt: now,
+        updatedAt: now,
+      })
+      .where(and(eq(ideaDrafts.tokenHash, tokenHash), live(now)))
+      .returning();
+    return row ?? null;
+  },
+
   /** The live draft an email link's claim token points at, or null. */
   async liveByClaim(db: Executor, claimHash: string, now = new Date()): Promise<IdeaDraftRow | null> {
     if (!isHash(claimHash)) return null;

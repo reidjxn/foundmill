@@ -86,6 +86,29 @@ describe("idea_drafts and waitlist_entries", () => {
     expect(await ideaDraftsRepo.liveByToken(h.db, hash("t-released"), later)).toBeNull();
   });
 
+  it("replaces a live draft under the same token: a new card and claim token, a fresh 7 days, the cost added up", async () => {
+    const then = new Date("2026-11-13T10:00:00Z");
+    const row = await draft("redraw", then);
+    const later = new Date(then.getTime() + 60 * 60_000);
+    const other = { ...card, name: "Lenscraft" };
+    const replaced = await ideaDraftsRepo.replace(h.db, hash("t-redraw"), { claimHash: hash("c-redraw-2"), prompt: "film cameras", interest: null, card: other, modelMode: "mock", costMicro: 800, now: later });
+    expect(replaced?.id).toBe(row.id);
+    expect([replaced!.prompt, (replaced!.card as typeof card).name, replaced!.claimHash, replaced!.costMicro]).toEqual(["film cameras", "Lenscraft", hash("c-redraw-2"), 2000]);
+    expect(replaced!.expiresAt.getTime() - later.getTime()).toBe(IDEA_DRAFT_TTL_MS);
+    // Today's spend counts both cards (the first one was paid for too).
+    expect(await ideaDraftsRepo.spentSince(h.db, new Date(later.getTime() - 1))).toBeGreaterThanOrEqual(2000);
+    // The old claim token is gone; the new one finds the card.
+    expect(await ideaDraftsRepo.liveByClaim(h.db, hash("c-redraw"), later)).toBeNull();
+    expect((await ideaDraftsRepo.liveByClaim(h.db, hash("c-redraw-2"), later))?.id).toBe(row.id);
+    // A claimed, expired or unknown draft is not replaced.
+    await ideaDraftsRepo.claim(h.db, { userId: ada, hash: hash("t-redraw"), by: "token", toIdea, now: later });
+    expect(await ideaDraftsRepo.replace(h.db, hash("t-redraw"), { claimHash: hash("c-redraw-3"), prompt: "x", interest: null, card, modelMode: "mock", costMicro: 1, now: later })).toBeNull();
+    await draft("redraw-old", then);
+    const gone = new Date(then.getTime() + IDEA_DRAFT_TTL_MS + 1);
+    expect(await ideaDraftsRepo.replace(h.db, hash("t-redraw-old"), { claimHash: hash("c-redraw-4"), prompt: "x", interest: null, card, modelMode: "mock", costMicro: 1, now: gone })).toBeNull();
+    expect(await ideaDraftsRepo.replace(h.db, hash("t-nobody"), { claimHash: hash("c-redraw-5"), prompt: "x", interest: null, card, modelMode: "mock", costMicro: 1, now: later })).toBeNull();
+  });
+
   it("adds up what today's drafts cost", async () => {
     const since = new Date(Date.now() - 60_000);
     const before = await ideaDraftsRepo.spentSince(h.db, since);
