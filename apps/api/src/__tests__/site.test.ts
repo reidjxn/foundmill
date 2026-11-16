@@ -120,6 +120,13 @@ describe("site.publish", () => {
     expect(await code(p.owner.site.publish({ businessId: p.id, releaseId: p.preview.id }))).toBe(`BAD_REQUEST: ${SITE_PUBLISH_LIMIT_MESSAGE}`);
   }, 60_000);
 
+  it("refuses a taken-down site, and offers no Publish on it", async () => {
+    const p = await project(hz);
+    await hz.db.execute(sql`update sites set status = 'taken_down', taken_down_reason = 'test' where business_id = ${p.id}`);
+    expect(await code(p.owner.site.publish({ businessId: p.id, releaseId: p.preview.id }))).toMatch(/taken down/);
+    expect((await p.owner.site.get({ businessId: p.id })).canPublish).toBe(false);
+  });
+
   it("refuses a sample business", async () => {
     const p = await project(hz, { demo: true });
     expect(await code(p.owner.site.publish({ businessId: p.id, releaseId: p.preview.id }))).toMatch(/sample business/);

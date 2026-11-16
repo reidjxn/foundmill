@@ -43,10 +43,22 @@ describe("screenSiteFiles", () => {
     ["swallows_footer", [html("<p>hi</p><!--")]],
     ["swallows_footer", [html("<plaintext>")]],
     ["swallows_footer", withIndex({ path: "a.css", size: 10, text: "[data-fm-footer]{display:none!important}" })],
+    ["swallows_footer", [html("<p>ok</p>").text ? { ...html("<p>ok</p>"), text: `${html("<p>ok</p>").text}<!-- </body> -->` } : html("")]],
+    ["swallows_footer", [html("<p>a</p><!-- one --><p>b</p><!--")]],
+    ["swallows_footer", [html("<textarea><p>b</p></title>")]],
+    ["swallows_footer", [html("<template><p>b</p>")]],
+    ["swallows_footer", withIndex({ path: "a.css", size: 10, text: "body{transform:scale(0)}" })],
+    ["swallows_footer", withIndex({ path: "a.css", size: 10, text: "[data-fm-foote\\72]{display:none}" })],
+    ["unreadable", withIndex({ path: "about.html", size: 10 })],
     ["markup_text", [html("<p>&lt;script&gt; is shown, and so is javascript: here</p>")]],
     ["personal_data", [html("<p>Call us on 555-201-3344</p>")]],
   ])("flags %s", (rule, files) => {
     expect(rules(files)).toContain(rule);
+  });
+
+  it("passes ordinary comments, a closed textarea and transforms on other elements", () => {
+    expect(rules([html("<!-- nav --><p>a</p><!-- end --><textarea name=x></textarea>")])).toEqual([]);
+    expect(rules([CLEAN, { path: "a.css", size: 10, text: ".card:hover{transform:scale(1.02)} body{color:#222}" }])).toEqual([]);
   });
 
   it("reads tags in any case and with odd spacing", () => {

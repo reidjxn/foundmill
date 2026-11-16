@@ -16,6 +16,8 @@ export const SITE_SLUG_TAKEN = "That address is taken. Try another one.";
 export const SITE_PUBLISH_LIMIT_MESSAGE = `A site can be published ${SITE_LIMITS.publishesPerDay} times a day. Try again tomorrow.`;
 export const SITE_RELEASE_NOT_PREVIEW = "That version cannot be published. Choose a version that is ready to look at.";
 const OFF_MESSAGE = "Sites are not available yet.";
+export const SITE_TAKEN_DOWN_MESSAGE = "This site was taken down and cannot be published again.";
+const takenDown = () => new AppError("site_taken_down", SITE_TAKEN_DOWN_MESSAGE, 409);
 
 export interface SiteReleaseView {
   id: string;
@@ -57,6 +59,7 @@ export async function siteView(ctx: BusinessContext): Promise<SiteView> {
   return ctx.rls(async (tx) => {
     const site = await repos.sites.get(tx, ctx.businessId);
     if (!site) return { enabled: true, site: null, releases: [], canPublish };
+    const mayPublish = canPublish && site.status !== "taken_down";
     const releases = await repos.sites.listReleases(tx, ctx.businessId, 20);
     const taskIds = [...new Set(releases.map((r) => r.taskId).filter((id): id is string => id !== null))];
     const titles = new Map((taskIds.length ? await repos.tasks.byIds(ctx.db, ctx.businessId, taskIds) : []).map((t) => [t.id, t.title]));
@@ -86,7 +89,7 @@ export async function siteView(ctx: BusinessContext): Promise<SiteView> {
           isLive: r.id === site.liveReleaseId && site.status === "live",
         };
       }),
-      canPublish,
+      canPublish: mayPublish,
     };
   });
 }
@@ -96,11 +99,14 @@ export async function publishSite(ctx: BusinessContext, input: { releaseId: stri
   const domain = domainOf(ctx);
   if (ctx.business.isDemo) throw new AppError("site_sample_business", SITE_SAMPLE_MESSAGE, 409);
   if (!canPublishSite(ctx)) throw new ForbiddenError(SITE_PUBLISH_ROLE_MESSAGE);
-  const release = (await repos.sites.listReleases(ctx.db, ctx.businessId, 100)).find((r) => r.id === input.releaseId);
+  const release = await repos.sites.getRelease(ctx.db, ctx.businessId, input.releaseId);
   if (!release) throw new ValidationError(SITE_RELEASE_NOT_PREVIEW, { field: "releaseId" });
   if (release.state === "held") return { outcome: "held", flags: flagsOf(release), view: await siteView(ctx) };
-  if ((await repos.sites.publishPressesToday(ctx.db, ctx.businessId)) >= SITE_LIMITS.publishesPerDay) throw new ValidationError(SITE_PUBLISH_LIMIT_MESSAGE, { field: "releaseId" });
+  if ((await repos.sites.get(ctx.db, ctx.businessId))?.status === "taken_down") throw takenDown();
   const url = await ctx.rls(async (tx) => {
+    // Counted under a per-business lock, so two presses at once cannot pass the daily limit together.
+    await repos.sites.lockPublishes(tx, ctx.businessId);
+    if ((await repos.sites.publishPressesToday(tx, ctx.businessId)) >= SITE_LIMITS.publishesPerDay) throw new ValidationError(SITE_PUBLISH_LIMIT_MESSAGE, { field: "releaseId" });
     const { site, release: published } = await repos.sites.publish(tx, ctx.businessId, { releaseId: release.id, userId: ctx.userId });
     const url = siteUrl(domain, site.slug);
     await emit(tx, ctx, { type: "site.published", payload: { siteId: site.id, releaseId: published.id, number: published.number, slug: site.slug, url } });
@@ -114,6 +120,7 @@ export async function publishSite(ctx: BusinessContext, input: { releaseId: stri
 /** `site.unpublish`: the site stops answering (the releases stay). A site that is not live changes nothing. */
 export async function unpublishSite(ctx: BusinessContext): Promise<SiteView> {
   const domain = domainOf(ctx);
+  if (ctx.business.isDemo) throw new AppError("site_sample_business", SITE_SAMPLE_MESSAGE, 409);
   if (!canPublishSite(ctx)) throw new ForbiddenError(SITE_PUBLISH_ROLE_MESSAGE);
   const current = await repos.sites.get(ctx.db, ctx.businessId);
   if (!current || current.status !== "live") return siteView(ctx);

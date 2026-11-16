@@ -38,6 +38,14 @@ supersedes: []
 - **D4 and D5 (the founder, Nov 16, 2026): yes to both.** Pay links on sites accept `buy.stripe.com` only at first; only
   the finance lead agent may call `create_payment_link`, asking first. Built in T7 and T8. The same day: agent code
   still never moves money out; an "inbound payment power" for autopilot and vacations is WP-11's (default off).
+- **Security review (security-reviewer agent), fixed here:** the footer is fixed to the bottom of the window with
+  every property `!important`, so site CSS can neither hide nor cover it; screening holds an unclosed comment (read in
+  order), a raw-text element without its own closing tag, `<template>`, content after `</html>`, CSS escapes, and a
+  transform, filter, clip or mask on `html` or `body`; a page, drawing or stylesheet with no readable text is held
+  (`unreadable`); an SVG is served only as an image (a top-level SVG would carry no footer); previews send
+  `Referrer-Policy: no-referrer` (their host is the token); the daily publish limit is counted under a per-business
+  lock inside the transaction; a taken-down site offers no Publish and refuses one with a 409; Take down refuses a
+  sample business; a release is looked up by id, not among the newest 100.
 
 ## Not done
 - Left for T3, which writes the releases: the Needs you note "Your site is ready to look at" and its "Publish it"
@@ -45,3 +53,6 @@ supersedes: []
   neither the note nor the lines can appear yet.
 - No Storybook story: module screens have none in this repo (the module test covers empty, preview, held and live).
 - The Playwright golden path with SITES_DOMAIN set is T10's.
+- From the review, open: an address a site gave up can be taken by another project at once (a hold on released
+  addresses is a later change); `https:` links to other sites are allowed by design (the report link and takedown are
+  the answer); for T6, `/_fm/follow` must take a strict email address and ignore every other field.

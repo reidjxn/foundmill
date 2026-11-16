@@ -193,6 +193,16 @@ export const sitesRepo = {
     return site;
   },
 
+  /** One release of the business, or null (another business's id reads as null). */
+  async getRelease(db: Executor, businessId: string, releaseId: string): Promise<SiteRelease | null> {
+    return maybeOne(await db.select().from(siteReleases).where(and(eq(siteReleases.businessId, businessId), eq(siteReleases.id, releaseId))).limit(1));
+  },
+
+  /** Serializes the publishes of one business inside the caller's transaction (the daily limit counts under it). */
+  async lockPublishes(tx: Executor, businessId: string): Promise<void> {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext('site_publish'), hashtext(${businessId}))`);
+  },
+
   /** The business's releases, newest first. */
   async listReleases(db: Executor, businessId: string, limit = 20): Promise<SiteRelease[]> {
     const n = Math.min(Math.max(Math.trunc(limit), 1), 100);

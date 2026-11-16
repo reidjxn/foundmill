@@ -31,6 +31,7 @@ export type SiteRule =
   | "css_import"
   | "css_outside_url"
   | "swallows_footer"
+  | "unreadable"
   | "markup_text"
   | "personal_data";
 
@@ -60,6 +61,7 @@ export const SITE_RULE_WORDS: Readonly<Record<SiteRule, string>> = {
   css_import: "a stylesheet that loads another stylesheet",
   css_outside_url: "a stylesheet that loads files from another site",
   swallows_footer: "markup that would hide the platform's footer",
+  unreadable: "a page the platform could not read",
   markup_text: "code shown as text on the page",
   personal_data: "a phone number or similar personal detail",
 };
@@ -115,11 +117,27 @@ function screenMarkup(path: string, html: string, isSvg: boolean): SiteFlag[] {
       } else if (linkProblem(value) && !(attr === "src" && /^data:image\//i.test(value))) flag("link_scheme", `${attr}="${value.slice(0, 80)}"`);
     }
   }
-  // Markup that turns the rest of the page, and the footer the platform appends, into a comment or raw text.
-  const opens = (html.match(/<!--/g) ?? []).length;
-  const closes = (html.match(/-->/g) ?? []).length;
-  if (opens > closes || /<\s*(?:plaintext|xmp|noembed|noframes|noscript)\b/i.test(html) || /<\s*(?:textarea|title|style)\b(?![\s\S]*<\/\s*(?:textarea|title|style)\s*>)/i.test(html))
-    flag("swallows_footer", "an unclosed comment or raw-text element");
+  // Markup that turns the rest of the page, and the footer the platform appends, into a comment, raw text or an inert
+  // template: an unclosed comment (read in order), a raw-text element without its own closing tag, any <template>,
+  // anything after </html>.
+  let at = 0;
+  for (;;) {
+    const open = html.indexOf("<!--", at);
+    if (open < 0) break;
+    const close = html.indexOf("-->", open + 4);
+    if (close < 0) {
+      flag("swallows_footer", "an unclosed comment");
+      break;
+    }
+    at = close + 3;
+  }
+  for (const tag of ["textarea", "title", "style", "xmp", "noembed", "noframes", "noscript"]) {
+    const opens = (html.match(new RegExp(String.raw`<\s*${tag}\b`, "gi")) ?? []).length;
+    const closes = (html.match(new RegExp(String.raw`<\s*/\s*${tag}\s*>`, "gi")) ?? []).length;
+    if (opens > closes) flag("swallows_footer", `an unclosed <${tag}>`);
+  }
+  if (/<\s*(?:plaintext|template)\b/i.test(html)) flag("swallows_footer", "a <plaintext> or <template> element");
+  if (/<\/\s*html\s*>\s*\S/i.test(html)) flag("swallows_footer", "content after </html>");
   if (/data-fm-footer/i.test(html)) flag("swallows_footer", "it targets the platform's footer");
   if (!isSvg) {
     // An email address is allowed (mailto: links are); other personal details and code shown as text are not.
@@ -140,7 +158,11 @@ function screenCss(path: string, css: string): SiteFlag[] {
     if (/^data:(?:image|font)\//i.test(url) || url.startsWith("#")) continue;
     if (/^[a-z][a-z0-9+.-]*:/i.test(url) || url.startsWith("//")) flags.push({ rule: "css_outside_url", path, detail: `url(${url.slice(0, 80)})` });
   }
-  if (/data-fm-footer/i.test(css)) flags.push({ rule: "swallows_footer", path, detail: "it targets the platform's footer" });
+  if (/data-fm-footer|\\[0-9a-f]{1,6}/i.test(css)) flags.push({ rule: "swallows_footer", path, detail: "it targets the platform's footer or uses CSS escapes" });
+  // A transform, filter, clip or mask on html or body would carry the fixed footer with it out of the window.
+  for (const m of css.matchAll(/(^|[},])\s*(?:html|body|:root)\b[^{]*\{([^}]*)\}/gi)) {
+    if (/\b(?:transform|filter|clip-path|clip|mask|perspective|contain|zoom|backdrop-filter)\s*:/i.test(m[2] ?? "")) flags.push({ rule: "swallows_footer", path, detail: "html or body is transformed, clipped or filtered" });
+  }
   return flags;
 }
 
@@ -165,7 +187,11 @@ export function screenSiteFiles(files: readonly SiteScreenFile[]): { flags: Site
       flags.push({ rule: "file_type", path, detail: ext || "no extension" });
       continue;
     }
-    if (file.text === undefined) continue;
+    if (file.text === undefined) {
+      // A page, drawing or stylesheet the screen could not read is never passed unscreened.
+      if (ext === ".html" || ext === ".svg" || ext === ".css") flags.push({ rule: "unreadable", path, detail: "the text could not be read as UTF-8" });
+      continue;
+    }
     if (ext === ".html" || ext === ".svg") flags.push(...screenMarkup(path, file.text, ext === ".svg"));
     else if (ext === ".css") flags.push(...screenCss(path, file.text));
   }
