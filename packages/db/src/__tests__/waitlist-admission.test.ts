@@ -203,6 +203,22 @@ describe("the waitlist's order: who brought whom (WP-03 T10, 0113)", () => {
     expect(b2.referredByEntryId).toBe(a.id);
   });
 
+  it("another address for the same mailbox, and someone already let in, bring no one", async () => {
+    const now = new Date("2026-11-16T12:00:00Z");
+    const local = `maya.ref${++n}`;
+    const mayaUser = await h.createUser(`${local}@gmail.com`);
+    const maya = await repos.waitlist.join(h.db, { userId: mayaUser, email: `${local}@gmail.com`, ideaDraftId: null, now });
+    for (const alias of [`${local}+1@gmail.com`, `${local.replace(".", "")}@googlemail.com`]) {
+      const aliasUser = await h.createUser(alias);
+      const entry = await repos.waitlist.join(h.db, { userId: aliasUser, email: alias, ideaDraftId: null, referrerCode: maya.code, now });
+      expect(entry.referredByEntryId).toBeNull();
+    }
+    const inUser = await h.createUser(`ref-in-${++n}@test.local`);
+    await repos.admissions.record(h.db, { userId: inUser, how: "existing" });
+    const admitted = await repos.waitlist.join(h.db, { userId: inUser, email: `ref-in-${n}@test.local`, ideaDraftId: null, referrerCode: maya.code, now });
+    expect(admitted.referredByEntryId).toBeNull();
+  });
+
   it("the database refuses a self-reference and a malformed code", async () => {
     const row = await waiting(new Date("2026-08-10T00:00:00Z"));
     await expect(h.pg.query("update waitlist_entries set referred_by_entry_id = id where id = $1", [row.id])).rejects.toThrow(/waitlist_entries_not_self/);

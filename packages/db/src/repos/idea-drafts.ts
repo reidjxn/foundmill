@@ -14,6 +14,7 @@ import { ideasRepo, type CreateIdeaInput } from "./ideas";
 import { admissionsRepo } from "./people";
 import { newPostCode } from "./post-attributions";
 import { isPostCode } from "@foundmill/shared/via";
+import { addressKey } from "@foundmill/shared";
 import { Id, maybeOne, parseInput, type Executor } from "./_shared";
 
 /** How long an unclaimed card is kept (founder, 2026-11-13). */
@@ -244,7 +245,8 @@ export const waitlistRepo = {
    * Adds the signed-in person (once; joining again updates the draft they keep). One row per address. The entry gets
    * its share code here (0113; an entry made before 0113 gets one on its next join). `referrerCode` is the code of the
    * link the person came through (`?via=w.<code>`, WP-03 T10): it is recorded only when the entry is first made, only
-   * when it names another person's entry, and never changes after; anything else is ignored without an error.
+   * when it names another person's entry, and never changes after; anything else is ignored without an error. Another
+   * person means another mailbox (`addressKey`: `maya+1@` and `maya@` are one), and someone already let in brings no one.
    */
   async join(
     db: Executor,
@@ -252,7 +254,7 @@ export const waitlistRepo = {
   ): Promise<WaitlistEntryRow> {
     const now = input.now ?? new Date();
     const email = input.email.trim().toLowerCase().slice(0, 320);
-    const referrer = isPostCode(input.referrerCode)
+    const referrer = isPostCode(input.referrerCode) && !(await admissionsRepo.has(db, input.userId))
       ? maybeOne(
           await db
             .select({ id: waitlistEntries.id, userId: waitlistEntries.userId, email: waitlistEntries.email })
@@ -261,7 +263,9 @@ export const waitlistRepo = {
             .limit(1),
         )
       : null;
-    const referredByEntryId = referrer && referrer.userId !== input.userId && referrer.email !== email ? referrer.id : null;
+    const ownKey = addressKey(email);
+    const sameMailbox = (other: string) => !ownKey || addressKey(other) === ownKey;
+    const referredByEntryId = referrer && referrer.userId !== input.userId && !sameMailbox(referrer.email) ? referrer.id : null;
     const [row] = await db
       .insert(waitlistEntries)
       .values({ userId: input.userId, email, ideaDraftId: input.ideaDraftId, code: newPostCode(), referredByEntryId, createdAt: now, updatedAt: now })

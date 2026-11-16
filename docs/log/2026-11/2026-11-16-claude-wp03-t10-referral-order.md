@@ -32,7 +32,9 @@ docs/ARCHITECTURE.md §4 and the schedules row describe the order. T10 is ticked
   Nobody is told to bring anyone; the share line is an offer.
 - The referrer is fixed when the entry is first made. A later join with another link changes nothing, and an existing
   entry never takes one, so two people cannot point at each other to both move up. An unknown code, the person's own
-  code (same account or address) and any other reference kind are ignored without an error.
+  code (same account, or the same mailbox by T8's `addressKey`, so `maya+1@gmail.com` cannot bring `maya@gmail.com`)
+  and any other reference kind are ignored without an error. Someone already let in (an `account_admissions` row)
+  brings no one, so an admitted account calling `waitlist.join` cannot credit a friend (security review).
 - A referral counts only when the person brought has an account (`user_id` set), as the sweep admits only those.
 - Codes are minted on join, not backfilled in SQL: an entry from before 0113 gets one the next time its person opens
   the page, which is the only place the link shows. `newPostCode` from `post-attributions.ts` is reused (same shape).
@@ -53,6 +55,6 @@ docs/ARCHITECTURE.md §4 and the schedules row describe the order. T10 is ticked
 - 0112 is WP-03 T8's (`0112_admission_address_key`, journal idx 100, branch claude/wp03-t8-signup-guards), so this
   is 0113 (idx 101) and merges after T8. The journal and `migrations.test.ts` list then take T8's 0112 line.
 - No event for "someone joined through your link" and no email to the referrer: nothing tells a person they moved.
-- A person could make a second confirmed address to bring themselves; the order is plain and the gain small, so no
-  guard is added. WP-09's per-account ceiling and the sign-up guards (T8) are where that would go.
+- A person could make a second confirmed address at another mailbox to bring themselves; the order is plain and the
+  gain small, so no guard is added. WP-09's per-account ceiling and the sign-up guards (T8) are where that would go.
 - The e2e check of the share link runs only on the invite-only stack (`E2E_SIGNUP_ALLOWLIST=1`), as T1's spec does.
