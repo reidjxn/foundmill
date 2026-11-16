@@ -149,6 +149,8 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
   let readiness: DbReadiness | null = null;
   const app = createGatewayApp(deps, {
     sessionTokenSecret: config.sessionTokenSecret,
+    apiServiceTokenSecret: config.apiServiceTokenSecret,
+    apiServiceTokenLegacy: config.apiServiceTokenLegacy,
     sessionTokenTtlSeconds: config.sessionTokenTtlSeconds,
     sessionTokenMaxTtlSeconds: config.sessionTokenMaxTtlSeconds,
     rateLimitStoreKind: rateLimitStoreInUse,

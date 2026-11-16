@@ -68,7 +68,7 @@ Rules for every task here (docs/holistic-plan/README.md applies in full):
 | [ ] | T9 Demo data out of every cross-project number | S | F3 |
 | [ ] | T10 Measure the api under 100 Today loads | M | F3, F4 |
 | [x] | T11 Gateway: who may mint what; a tool without hints is refused | S | |
-| [ ] | T12 An api-only service token secret | M | F5 |
+| [x] | T12 An api-only service token secret | M | F5 |
 | [x] | T13 One JWT verifier for the api and the stream | M | |
 | [ ] | T14 Supabase settings: declared and watched | S | WP-00 S10 |
 | [ ] | T15 ingest: bounded webhook bodies; mail routes on `/health` | S | WP-00 S2 |
@@ -369,7 +369,7 @@ Tests and evals: `service-routes.test.ts` (the mint table of step 1), `policy-ha
 verify for all: `pnpm --filter @foundmill/gateway test`, `pnpm --filter @foundmill/connectors test`, `pnpm --filter @foundmill/policy test`, `pnpm --filter @foundmill/orchestrator test grants-contract session`.
 Done when: only the two services mint, the api only one tool at a time, and a tool with empty hints is either read-only or on a reviewed list.
 
-### T12: An api-only service token secret            [size M] [ships alone] [production switch: F5] Review: security-reviewer
+### [x] T12: An api-only service token secret            [size M] [ships alone] [production switch: F5] Review: security-reviewer
 Why: N4, A8-09 (first step), a11 C4, a11 S1. Recorded: 2026-11-11 "SEC-14: the calls made" ("needs a new variable set on the api and the gateway on Railway at the same deploy; doing it in code alone would break production"). This task writes the code so it merges first and the switch is three safe steps.
 Files: modify `packages/shared/src/env.ts`, `.env.example`, `apps/gateway/src/config.ts`, `apps/gateway/src/tokens.ts`, `apps/gateway/src/app.ts` (`requireService`, `/health`), `apps/api/src/services/gateway.ts`, `apps/api/src/context.ts`, `apps/gateway/src/__tests__/tokens.test.ts`, docs/DEPLOY.md §3 (variable table) and §6, docs/SECURITY_REVIEW.md (N4).
 Interfaces: consumes `verifyServiceToken(secret: string, token: string): Promise<ServiceToken>`, `signServiceToken(secret, svc, ttlSeconds)`, `gatewayConfig(env, nodeEnv)`. Produces:

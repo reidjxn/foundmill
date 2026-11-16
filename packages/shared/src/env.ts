@@ -75,6 +75,10 @@ const Env = z.object({
   KMS_KEY_ID: z.string().optional(),
   DEV_MASTER_KEY: z.string().optional(),
   SESSION_TOKEN_SECRET: z.string().optional(),
+  /** The api's own service-token secret for its calls to the gateway (WP-11 T12, N4); 32+ characters. Unset: the shared one. */
+  API_SERVICE_TOKEN_SECRET: z.string().optional(),
+  /** "1" while the switch to API_SERVICE_TOKEN_SECRET is in progress: the gateway still accepts the api signed with the shared secret. */
+  API_SERVICE_TOKEN_LEGACY: z.string().optional(),
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
   /**
