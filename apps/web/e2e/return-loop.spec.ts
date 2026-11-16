@@ -64,6 +64,7 @@ test.describe("the return loop", () => {
     await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
     const box = await page.getByTestId("brand-panel").boundingBox();
     expect(box && box.x >= 0 && box.x + box.width <= 390).toBe(true);
+    expect((await page.getByRole("link", { name: "Open Needs you" }).boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
     await page.goto("/email/pause?t=forged.token");
     await expect(page.getByTestId("email-pause")).toBeVisible({ timeout: LONG });
     // The landing page is one page for every width from 390 px (DESIGN §9a); the app itself still asks for a larger
@@ -72,6 +73,32 @@ test.describe("the return loop", () => {
     await expect(page.getByTestId("landing")).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("idea-input")).toBeVisible();
     await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
+    await context.close();
+  });
+
+  test("on a phone, the one-click answer is a 44 px button, and a failed answer says so with Try again (WP-04 T14)", async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const page = await context.newPage();
+    // A real ready link needs a sent email; the read is replayed as ready and the answer is cut off, as a lost connection would.
+    await page.route(/\/trpc\/[^?]*email\.action\.get/, async (route) => {
+      const response = await route.fetch();
+      const procedures = decodeURIComponent(new URL(route.request().url()).pathname.split("/trpc/")[1] ?? "").split(",");
+      const body = (await response.json()) as { result?: { data?: { json?: Record<string, unknown> } } }[];
+      const view = body[procedures.indexOf("email.action.get")]?.result?.data?.json;
+      if (view) Object.assign(view, { state: "ready", subject: "Pick a launch day", optionLabel: "Tuesday" });
+      await route.fulfill({ response, json: body });
+    });
+    await page.route(/\/trpc\/[^?]*email\.action\.answer/, (route) => route.abort());
+    await page.goto(`/a/${"x".repeat(43)}`);
+    const card = page.getByTestId("email-answer");
+    await expect(card).toHaveAttribute("data-state", "ready", { timeout: LONG });
+    const answer = card.getByRole("button", { name: "Answer “Tuesday”" });
+    const box = await answer.boundingBox();
+    expect(box && box.height >= 44 && box.x >= 0 && box.x + box.width <= 390).toBe(true);
+    await answer.click();
+    await expect(card.getByRole("alert")).toHaveText("That did not go through. Try again.", { timeout: LONG });
+    const retry = card.getByRole("button", { name: "Try again" });
+    expect((await retry.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
     await context.close();
   });
 

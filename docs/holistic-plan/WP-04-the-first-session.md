@@ -37,7 +37,7 @@
 - [ ] T11 Lifecycle email for a started project (M, needs setup)
 - [ ] T12 Email for a person with a card and no project (M, needs setup)
 - [ ] T13 Single-key shortcuts off by default (S)
-- [ ] T14 The one-click answer page on a phone (S)
+- [x] T14 The one-click answer page on a phone (S)
 - [ ] T15 A phone start without a card (S)
 - [ ] T16 Win-back for the 11 stalled projects (S, needs the founder)
 
@@ -322,7 +322,7 @@ Bodies are s2 §6.3's, edited to the emails skill (reason first, one action, no 
 **Steps:** 1. Tests first: with the preference off only `/`, the command palette chord, `?` and Esc act; "Space on Today scrolls and never starts work"; "a digit outside the decision bar does nothing". 2. Whatever the preference, delete the page-level Space binding (`keyboard.ts:152-160`): Space presses Continue only when Continue has focus; 1 to 4 act only with focus inside the decision bar. 3. Settings switch "Keyboard shortcuts" with the list behind `?`. verify: the three specs pass.
 **Done when:** a new guided account cannot start work or answer a note with one stray key.
 
-### T14: The one-click answer page on a phone   [S] [ships alone]
+### [x] T14: The one-click answer page on a phone   [S] [ships alone]
 
 **Why:** A2-12. **Files:** `apps/web/components/email/EmailAnswer.tsx`, its test, `apps/web/e2e/return-loop.spec.ts`.
 **Steps:** 1. Test first: a failed `email.action.answer` renders an inline `role="alert"` line "That did not go through. Try again." with a Try again button; at 390 the answer button is at least 44 px tall. 2. Both buttons `size="lg" className="min-h-tap w-full @page-wide:w-auto"`; add `onError`; replace bare "Loading…" with a three-line skeleton. verify: both tests pass.
