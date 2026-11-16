@@ -24,7 +24,8 @@ The plan says the cost report and the metric facts join the view in whichever pa
 The real and the sample business share the fixture's members and agents and the same commit date, so a report that forgot the filter shows the difference (the test proves it by turning the sample real).
   A report that counts only activity the fixture does not create, such as usage rows, is not exercised; a new entry can add its own activity.
 ### The roll's timing
-After three days in production, the three `ms` figures go in DEPLOY §6. Above 60 seconds, the founder chooses between the off switch and a weekly roll. That reading is not done here.
+
+  fter three days in production, the three `ms` figures go in DEPLOY §6. Above 60 seconds, the founder chooses between the off switch and a weekly roll. That reading is not done here.
 
 ## Not done
 - T9 step 4 (read the house's id on production) is F3, the Desktop session's or the founder's.
