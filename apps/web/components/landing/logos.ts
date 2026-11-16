@@ -10,6 +10,9 @@ export const GLITCHWICK_LOGO = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cD
 /** Northwind Skincare: a cream serum drop with a gold bead on the brand green (the colours of the founder's own Northwind). */
 export const NORTHWIND_LOGO = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIiB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiI+PHJlY3Qgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiIHJ4PSIyMiIgZmlsbD0iIzJmNmY1ZSIvPjxwYXRoIGQ9Ik01MCAxNSBDNTggMjYgNzQgNDIgNzQgNTkgQTI0IDI0IDAgMCAxIDI2IDU5IEMyNiA0MiA0MiAyNiA1MCAxNSBaIiBmaWxsPSIjZjZmNGVmIi8+PGNpcmNsZSBjeD0iNTAiIGN5PSI2MCIgcj0iOCIgZmlsbD0iI2YyYzk0YyIvPjwvc3ZnPg==";
 
+/** Sole Revival (the first-timer's example project): a cream sneaker on a gold sole with a sparkle, on its brand green. */
+export const SOLE_REVIVAL_LOGO = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIiB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiI+PHJlY3Qgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiIHJ4PSIyMiIgZmlsbD0iIzFmNmY1YyIvPjxwYXRoIGQ9Ik0xNiA2NiBMMTYgNDIgUTE2IDM2IDIyIDM2IEwzNiAzNiBMNTAgNTAgTDcyIDU0IFE4NCA1NiA4NCA2NCBMODQgNjYgWiIgZmlsbD0iI2YyZWZlNiIvPjxyZWN0IHg9IjE0IiB5PSI2NiIgd2lkdGg9IjcyIiBoZWlnaHQ9IjkiIHJ4PSI0LjUiIGZpbGw9IiNmMmM5NGMiLz48cGF0aCBkPSJNNzIgMTYgTDc1IDI1IEw4NCAyOCBMNzUgMzEgTDcyIDQwIEw2OSAzMSBMNjAgMjggTDY5IDI1IFoiIGZpbGw9IiNmMmVmZTYiLz48L3N2Zz4=";
+
 /**
  * The six example logos in the landing page's brand picker: marks from the mock logo designer
  * (packages/models/src/mock/logoDesigner.ts), one family each, drawn for Tutorlane in each option's brand colours
