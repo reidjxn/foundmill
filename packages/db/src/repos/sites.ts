@@ -12,6 +12,9 @@ import { createHash, randomBytes } from "node:crypto";
 import { and, count, desc, eq, gte, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { auditLog, siteReleases, sites, type Site, type SiteRelease, type SiteScreening } from "../schema";
+import { SITE_TAB } from "@foundmill/shared/sites";
+import { departmentsRepo } from "./departments";
+import { screensRepo } from "./screens";
 import { Id, maybeOne, parseInput, rowsOf, type Executor } from "./_shared";
 
 const ManifestEntry = z.object({
@@ -68,10 +71,27 @@ export const sitesRepo = {
   /** The business's site, created as a draft with this slug when it has none (an existing site keeps its slug). */
   async ensure(db: Executor, businessId: string, input: { slug: string }): Promise<Site> {
     const [created] = await db.insert(sites).values({ businessId, slug: input.slug }).onConflictDoNothing({ target: sites.businessId }).returning();
-    if (created) return created;
+    if (created) {
+      await sitesRepo.ensureTab(db, businessId);
+      return created;
+    }
     const existing = await sitesRepo.get(db, businessId);
     if (!existing) throw new Error("sites.ensure: no site after insert");
     return existing;
+  },
+
+  /**
+   * The Product › Site tab, added to the department that holds the Product module when the business's site is created
+   * (WP-07 T5). It is not in `MODULE_TABS`, so no business gets it at Commit: a project has the tab only once the
+   * platform made it a site, which happens only where SITES_DOMAIN is set. Idempotent; a business without a Product
+   * department gets no tab.
+   */
+  async ensureTab(db: Executor, businessId: string): Promise<void> {
+    const product = (await departmentsRepo.list(db, businessId)).find((d) => d.moduleKeys.includes("product"));
+    if (!product) return;
+    const tabs = await screensRepo.list(db, businessId, product.id);
+    if (tabs.some((t) => t.tabSlug === SITE_TAB.slug)) return;
+    await screensRepo.upsert(db, businessId, { departmentId: product.id, tabSlug: SITE_TAB.slug, title: SITE_TAB.title, layout: { widgets: [{ key: `module:product/${SITE_TAB.slug}`, x: 0, y: 0, w: 12, h: 60, settings: {} }] } });
   },
 
   /** The newest `preview` release, or null. */

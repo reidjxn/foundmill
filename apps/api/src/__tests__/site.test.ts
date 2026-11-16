@@ -57,6 +57,16 @@ describe("site.get", () => {
     expect(view.releases[1]!.previewUrl).toBe(`http://p-${p.preview.previewToken}.sites.localhost/`);
   });
 
+  it("adds the Product › Site tab when the site is created, once, and no tab without a site", async () => {
+    const p = await project(hz, { site: false });
+    const dept = await repos.departments.create(hz.db, p.id, { name: "Product", moduleKeys: ["product"] });
+    const siteTabs = async () => (await repos.screens.list(hz.db, p.id, dept.id)).filter((t) => t.tabSlug === "site");
+    expect(await siteTabs()).toEqual([]);
+    await repos.sites.ensure(hz.db, p.id, { slug: `tab-${n}` });
+    await repos.sites.ensure(hz.db, p.id, { slug: `tab-${n}` });
+    expect((await siteTabs()).map((t) => [t.title, (t.layout as { widgets: { key: string }[] }).widgets[0]!.key])).toEqual([["Site", "module:product/site"]]);
+  });
+
   it("is off, with nothing in it, while SITES_DOMAIN is unset", async () => {
     const p = await project(off, { site: false });
     expect(await p.owner.site.get({ businessId: p.id })).toEqual({ enabled: false, site: null, releases: [], canPublish: false });

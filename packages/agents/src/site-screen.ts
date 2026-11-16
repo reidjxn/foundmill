@@ -76,6 +76,7 @@ const tagsOf = (html: string, name: string): string[] => html.match(new RegExp(S
 
 /** A link target a site may hold: https, mailto, a fragment or a path on the site itself. */
 function linkProblem(url: string): boolean {
+  // eslint-disable-next-line no-control-regex
   const u = url.replace(/[\s\u0000-\u001f]/g, "").toLowerCase();
   if (u === "" || u.startsWith("#") || u.startsWith("mailto:") || u.startsWith("https://")) return false;
   if (u.startsWith("//")) return true;
@@ -154,6 +155,7 @@ export function screenSiteFiles(files: readonly SiteScreenFile[]): { flags: Site
     const { path } = file;
     if (file.size > SITE_LIMITS.maxFileBytes) flags.push({ rule: "file_too_large", path, detail: `${file.size} bytes` });
     const segments = path.split("/");
+    // eslint-disable-next-line no-control-regex
     if (path.startsWith("/") || segments.some((s) => s === "" || s.startsWith(".")) || path.startsWith("_fm/") || /[\\\u0000-\u001f]/.test(path)) {
       flags.push({ rule: "path", path, detail: "a hidden, platform or malformed path" });
       continue;

@@ -171,7 +171,7 @@ Before (`archetypes.ts:455`): "At least 20 suppliers recorded as CRM entities". 
 
 ### T5: Screening, Publish, the Site tab and the note in Needs you   [L] [ships alone] [needs go-ahead A]
 
-- [ ] done
+- [x] done (the note, "Live product" and the first-week line come with T3)
 
 **Why:** A4-03 ("where is my product?"); §8 items 4 and 5 and "Screens"; CLAUDE.md small-screen rule (Needs you works from 390 px).
 
