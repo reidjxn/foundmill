@@ -227,6 +227,8 @@ export const NON_TENANT_TABLES = [
   // 0109: the nightly numbers, one row per day of counts across projects (no business_id, no ids; service role only);
   // covered by rls/platform-metric-days.test.ts.
   "platform_metric_days",
+  // 0112: reports of a person, a profile or a message (person-level, service role only); covered by rls/reports.test.ts.
+  "reports",
   // 0086 the idea box (docs/IDEA_BOX.md): a signed-out visitor's card and the waitlist; the api's alone (no client
   // role, RLS on, no policy); covered by rls/idea-drafts.test.ts.
   "idea_drafts",

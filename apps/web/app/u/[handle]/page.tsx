@@ -3,13 +3,15 @@
  * (lib/auth/redirects.ts `PUBLIC_PREFIXES`), from 390 px (components/providers/DesktopOnly.tsx `SMALL_SCREEN_PREFIXES`),
  * and indexable while it is public (the root layout says noindex for everything else; not found stays noindex). The
  * content is what the person published, read through the API's public view; an unknown handle and a profile that is
- * not public are the same not-found. No contact button yet (connecting is a later package).
+ * not public are the same not-found. No contact button yet (connecting is a later package). A signed-in visitor who is
+ * not the person sees Report under the page (components/safety/ProfileReportControl.tsx; docs/NETWORK.md F21).
  */
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { APP_NAME } from "@foundmill/config";
 import { PersonPage } from "@foundmill/dugout";
 import { personDescription, personTitle } from "@foundmill/shared/person-profile";
+import { ProfileReportControl } from "@/components/safety/ProfileReportControl";
 import { publicPerson } from "@/lib/public-person.server";
 
 // Read on every request: a profile taken down is gone at once, and changes show as soon as they are saved.
@@ -38,15 +40,18 @@ export default async function PublicPersonRoute({ params }: Props) {
   const person = await publicPerson(handle);
   if (!person) notFound();
   return (
-    <PersonPage
-      name={person.displayName}
-      headline={person.headline}
-      about={person.about}
-      strengths={person.strengths}
-      wantsToLearn={person.wantsToLearn}
-      lookingFor={person.lookingFor}
-      place={person.place}
-      projects={person.projects.map((p) => ({ slug: p.slug, name: p.name, pitch: p.pitch, href: p.path }))}
-    />
+    <>
+      <PersonPage
+        name={person.displayName}
+        headline={person.headline}
+        about={person.about}
+        strengths={person.strengths}
+        wantsToLearn={person.wantsToLearn}
+        lookingFor={person.lookingFor}
+        place={person.place}
+        projects={person.projects.map((p) => ({ slug: p.slug, name: p.name, pitch: p.pitch, href: p.path }))}
+      />
+      <ProfileReportControl handle={handle} name={person.displayName} />
+    </>
   );
 }

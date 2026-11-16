@@ -14,6 +14,7 @@ import { sql } from "drizzle-orm";
 import { platformMetricDays } from "../schema";
 import { rowsOf, type Executor } from "./_shared";
 import { presenceRepo } from "./presence";
+import { reportsRepo } from "./reports";
 
 const DAY_MS = 86_400_000;
 const HOUSE = `'${HOUSE_BUSINESS_ID}'`;
@@ -259,6 +260,8 @@ export interface MetricFacts {
     fabricated_left: { mock_leads: number; estimate_rows: number; mock_integrations: number; live_campaigns: number; stale_launch_approvals: number };
     simulated_outcomes_excluded: number;
   };
+  /** Reports of people, profiles and messages waiting for review, and those past the response target (0112). */
+  safety: { reports_open: number; reports_overdue: number };
 }
 
 /** The start of the UTC day after `asOf`'s UTC day: every window ends there. */
@@ -342,6 +345,7 @@ export const metricsRepo = {
     const notes = await one("agent_notes_day_one");
     const fabricated = await one("honesty_fabricated_left");
     const simulated = await one("honesty_simulated");
+    const reports = await reportsRepo.counts(db, end);
 
     return {
       day: dayKey(new Date(end.getTime() - DAY_MS)),
@@ -376,6 +380,7 @@ export const metricsRepo = {
         fabricated_left: { mock_leads: num(fabricated.mock_leads), estimate_rows: num(fabricated.estimate_rows), mock_integrations: num(fabricated.mock_integrations), live_campaigns: num(fabricated.live_campaigns), stale_launch_approvals: num(fabricated.stale_launch_approvals) },
         simulated_outcomes_excluded: num(simulated.simulated_outcomes_excluded),
       },
+      safety: { reports_open: reports.open, reports_overdue: reports.overdue },
     };
   },
 

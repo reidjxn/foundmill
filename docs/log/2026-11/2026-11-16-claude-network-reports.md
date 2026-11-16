@@ -1,0 +1,45 @@
+---
+date: 2026-11-16
+branch: claude/network-reports
+title: Report a person, a profile or a message, block in the same step, and a platform review queue
+areas: [db, api, web, network, safety, docs]
+supersedes: []
+---
+## What changed
+The people layer is open in production (`LIVE_MODE=1` since Nov 15), so safety came first (docs/NETWORK.md F21; WP-12 T4).
+- Migration 0112 `reports`: person-level, service role only (RLS on, no policy, clients revoked), one open report per reporter and target, never about oneself; `rls/reports.test.ts`.
+- `report.create` (a `signedInProcedure`, not behind `liveGate`): a person, a public profile by handle, or a message from a thread the reporter is or was in; optional `block`; ten a day in the shared limit store. Every answer reads `{ reported: true }` whatever was stored.
+- `operator.reports.list|resolve` behind `operatorProcedure` (`OPERATOR_USER_IDS` on the api; everyone else gets NOT_FOUND). `/operator/reports` (desktop): oldest first, due time (48 hours), overdue marked, the open reports about the same person, the reported message as it reads now and the note as plain text.
+- Report controls: under `/u/<handle>` for a signed-in visitor who is not the person (`report.canReportProfile`), on a founder's `/profiles/founder/<id>`, and "Report someone here" in a conversation's menu (reports their latest message in view). One dialog (`components/safety/ReportPersonDialog.tsx`), with "Also block".
+- The nightly numbers gain `safety.reports_open` and `safety.reports_overdue`; each filed report writes one `warn` log line (ids only).
+- docs/DEPLOY.md: the stale `LIVE_MODE` row corrected (leaderboards are gone; it is on in production), `OPERATOR_USER_IDS`, and "Reports: who checks and how often".
+Tests: db `rls/reports.test.ts`, `metrics.test.ts`; api `reports.test.ts`; web `PublicProfiles.test.tsx`, `NetworkScreen.test.tsx`; e2e `reports.spec.ts` (390 px report and block, owner and signed-out see no control, operator resolves, non-operator gets not found).
+
+## Decisions
+### One queue for the platform, apart from community moderation
+A community post keeps `live.posts.report`, which goes to that community's moderators. People, profiles and messages are not any community's, so they go to the platform's operators. The `target_kind` check can grow (an ask, an answer, a project page) without a new table.
+
+### Every report names the person it is about
+A profile is resolved to its account and a message to its author before the row is written, so the queue can show a pattern across kinds ("3 open reports") and a report survives the profile being taken down. A message can be named only by someone in its thread: nobody can file a report about a message id they guessed.
+
+### The answer never tells what was stored
+An unknown handle, a private profile, oneself, a message never seen and a duplicate all answer `{ reported: true }`, as WP-12 T4 asks, so `report.create` cannot probe who exists. The handle is matched as typed, not validated, for the same reason.
+
+### Reporting works with the layer closed, and for someone refused at the door
+`signedInProcedure`, not `protectedProcedure` behind `liveGate`: stepping back never waits for anything (the rule already in `routers/live.ts`).
+
+### Block rides on the report
+"Also block" calls the existing `blockPerson`, which works without a connection. Block on its own already exists in a conversation's menu and the requests panel; on `/u/<handle>` it is offered only inside Report, because the public page carries no account id and a separate block-by-handle procedure would be a second way to probe handles.
+
+### The operator alert is a log line for now
+An email to operators needs a new safety kind on the one sender and a `founder_notifications` row with no business (`business_id` is not null), which is its own change.
+Until then: a `warn` line per report for a Railway log alert, the nightly counts, and DEPLOY's "open the queue at least once a day". WP-12 T6 condition 1 asks for the email before the switch; the switch was already thrown, so this is the stopgap and the email is the next safety change.
+
+### The operator list is an api variable, never a database role
+As WP-12 T4 specifies. It is read on each call, tolerates spaces and case, and ignores anything that is not an account id.
+
+## Not done
+- The operator email alert (above). Removing access is still by hand in Supabase (DEPLOY lists the two statements).
+- Screening of messages for money requests, and new-account limits on requests (F21's rest); `takeLive` limits out of process memory (WP-12 T5).
+- `OPERATOR_USER_IDS` is not set in production yet: the founder's account id goes there (WP-12 D3).
+- The two identity systems, Find people search, open roles, trials and join requests, feedback links, referral credit and pooled credits: next changes, in that order.

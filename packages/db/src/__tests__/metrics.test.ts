@@ -80,6 +80,10 @@ describe("repos.metrics.snapshot", () => {
     });
   });
 
+  it("safety: open reports and those past the review target (0112)", () => {
+    expect(m.safety).toEqual({ reports_open: 0, reports_overdue: 0 });
+  });
+
   it("honesty: T4's five counts, and the simulated outcomes the north star left out", () => {
     expect(m.honesty).toEqual({ fabricated_left: { mock_leads: 0, estimate_rows: 0, mock_integrations: 0, live_campaigns: 0, stale_launch_approvals: 1 }, simulated_outcomes_excluded: 2 });
   });
