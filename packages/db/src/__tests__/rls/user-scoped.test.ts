@@ -354,7 +354,9 @@ describe("public views (LIVE only)", () => {
     await h.db.update(s.businesses).set({ gameMode: "live", committedAt: new Date() }).where(eq(s.businesses.id, A.businessId));
     await h.db.insert(s.founderProfiles).values({ userId: A.memberId, displayName: "Private member", visibility: "private" });
     await h.db.insert(s.founderProfiles).values({ userId: A.adminId, displayName: "Public admin", visibility: "public" });
-    const rows = await h.anon().run((tx) => tx.select().from(s.publicProfiles));
+    // 0122: the view is the service's alone (repos/social.ts reads it); a client role is refused.
+    await expect(h.anon().run((tx) => tx.select().from(s.publicProfiles))).rejects.toThrow(RLS_DENIED);
+    const rows = await h.service().run((tx) => tx.select().from(s.publicProfiles));
     expect(rows.filter((r) => r.kind === "business").map((r) => r.businessId)).toEqual([A.businessId]);
     expect(rows.filter((r) => r.kind === "founder").map((r) => r.displayName)).toEqual(["Public admin"]);
     expect(rows.some((r) => r.businessId === B.businessId)).toBe(false);

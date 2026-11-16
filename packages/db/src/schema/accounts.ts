@@ -77,6 +77,9 @@ export interface PublicPersonProject {
  * through it. Rows only while the profile is public and not archived. `projects`
  * lists the person's published project pages, only where they are an owner and the page names its founders.
  */
+/** 0121: every project that is not a sample; `is_house` marks Foundmill's own. Cross-project queries join this. */
+export const realBusinesses = pgView("real_businesses", { id: uuid("id").notNull(), isHouse: boolean("is_house").notNull() }).existing();
+
 export const publicPersonProfiles = pgView("public_person_profiles", {
   handle: text("handle").notNull(),
   displayName: text("display_name").notNull(),

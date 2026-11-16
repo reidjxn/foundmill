@@ -215,3 +215,15 @@ describe("structural: what the client roles may call and create", () => {
     });
   }
 });
+
+describe("public_profiles is the service's alone (0122)", () => {
+  for (const role of CLIENT_ROLES) {
+    it(`${role} has no privilege on public_profiles`, async () => {
+      for (const priv of ["select", "insert", "update", "delete"]) expect(await tablePriv(role, "public_profiles", priv), `${role} ${priv}`).toBe(false);
+    });
+  }
+  it("service_role reads it", async () => {
+    expect(await tablePriv("service_role", "public_profiles", "select")).toBe(true);
+  });
+});
+

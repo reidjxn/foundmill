@@ -743,6 +743,20 @@
       "when": 1796143800000,
       "tag": "0120_split_write_policies",
       "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1796144400000,
+      "tag": "0121_real_businesses",
+      "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1796145000000,
+      "tag": "0122_public_profiles_service_only",
+      "breakpoints": true
     }
   ]
 }

@@ -34,10 +34,12 @@ export interface DemoRollState {
  * the journey's daily rows when anything moved now or a refresh failed before.
  */
 export async function rollDemoBusinesses(deps: DemoRollDeps, now: Date = new Date(), state: DemoRollState = { refreshPending: false }): Promise<DemoRollResult[]> {
+  const started = performance.now();
   const moved = await rollDemoForward(deps.db, { now, refreshDaily: false, log: (message) => deps.log.info({}, message) });
   if (moved.length) {
     state.refreshPending = true;
-    deps.log.info({ moved }, "sample businesses rolled forward with the calendar");
+    // `ms`: how long the roll took (WP-11 T9; read in production for three days, docs/DEPLOY.md §6).
+    deps.log.info({ moved, ms: Math.round(performance.now() - started) }, "sample businesses rolled forward with the calendar");
   }
   if (state.refreshPending) {
     try {

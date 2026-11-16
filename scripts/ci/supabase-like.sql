@@ -24,6 +24,8 @@ create table auth.users (
   raw_user_meta_data jsonb not null default '{}',
   created_at timestamptz not null default now()
 );
+-- Supabase's own column; the nightly numbers read it (repos.metrics). PGLITE_BOOTSTRAP_SQL adds it too.
+alter table auth.users add column if not exists last_sign_in_at timestamptz;
 create or replace function auth.uid() returns uuid language sql stable as $$
   select coalesce(
     nullif(current_setting('request.jwt.claim.sub', true), ''),

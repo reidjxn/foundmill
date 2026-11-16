@@ -65,7 +65,7 @@ Rules for every task here (docs/holistic-plan/README.md applies in full):
 | [x] | T6 Migration: split the `for all` write policies | M | T1, T2 |
 | [x] | T7 Migration: six foreign-key indexes | S | T1 |
 | [ ] | T8 `bak_20261013` and the production schema check | S | F3, WP-00 S16 (founder) |
-| [ ] | T9 Demo data out of every cross-project number | S | F3 |
+| [x] | T9 Demo data out of every cross-project number | S | F3 |
 | [ ] | T10 Measure the api under 100 Today loads | M | F3, F4 |
 | [ ] | T11 Gateway: who may mint what; a tool without hints is refused | S | |
 | [ ] | T12 An api-only service token secret | M | F5 |
@@ -74,7 +74,7 @@ Rules for every task here (docs/holistic-plan/README.md applies in full):
 | [ ] | T15 ingest: bounded webhook bodies; mail routes on `/health` | S | WP-00 S2 |
 | [ ] | T16 Account export and closing, by request | M | F6 |
 | [ ] | T17 The service connection: the rule as it is, and a pinned list | S | |
-| [ ] | T18 The P3 items in one change | S | |
+| [x] | T18 The P3 items in one change | S | |
 | [ ] | T19 A dated decision for every item left open | S | WP-00 S16 |
 | [ ] | T20 A founder's own Stripe: store the webhook signing secret | M | WP-00 S8; WP-07 and WP-08 wait for it |
 
@@ -309,7 +309,7 @@ select count(*) from bak_20261013.credentials;
 Tests: none (no code). The check is step 6's query, kept in DEPLOY §4.
 Done when: step 6 answers 0, or DECISIONS records why the founder kept it.
 
-### T9: Demo data out of every cross-project number            [size S] [ships alone]
+### [x] T9: Demo data out of every cross-project number            [size S] [ships alone]
 Why: A8-06. Per-project numbers are scoped by `business_id` and covered by the cross-tenant suites; the gap is SQL that reads across projects, which today must remember `not is_demo` by hand.
 Recorded decisions: 2026-11-09 "A first-week timeline on Today…" item 3 and 2026-11-10 "The sample's roll-forward…" chose the in-place hourly roll over shifting at read time and over re-seeding. This task does not stop the roll: it measures it, and leaves the off switch (`DEMO_ROLL_FORWARD=off`) to the founder.
 Files: create `packages/db/migrations/0112_real_businesses.sql`, `packages/db/src/__tests__/repos/demo-isolation.test.ts`; modify `meta/_journal.json`, `packages/db/src/schema/accounts.ts` (`export const realBusinesses = pgView("real_businesses", { id: uuid("id").notNull(), isHouse: boolean("is_house").notNull() }).existing()`), `packages/db/src/__tests__/migrations.test.ts` (the view list near line 221), `packages/db/src/repos/presence.ts` (`retentionReport`), `packages/db/CLAUDE.md`, `apps/api/src/services/demo-roll-forward.ts`.
@@ -450,7 +450,7 @@ Steps:
 Tests: `service-connection.test.ts` (the per-file counts equal the constant).
 Done when: the document matches the code and the test fails on the next unlisted use.
 
-### T18: The P3 items in one change            [size S] [ships alone] Review: security-reviewer
+### [x] T18: The P3 items in one change            [size S] [ships alone] Review: security-reviewer
 Why: A8-21 (a11 S10), A8-23, A8-27 (CORS part), SEC-15 (redaction part).
 Files: create `packages/db/migrations/0113_public_profiles_service_only.sql`, `packages/shared/src/logger.test.ts`; modify `meta/_journal.json`, `packages/db/src/__tests__/rls/client-grants.test.ts`, `apps/web/lib/env.ts`, `apps/web/lib/__tests__/env.test.ts`, `apps/api/src/app.ts` (`allowedOrigins`), `apps/api/src/__tests__/health.test.ts`, `packages/shared/src/logger.ts`, docs/DECISIONS.md.
 Interfaces: `allowedOrigins(env: { APP_URL: string; APP_ENV: string }): string[]` (gains `APP_ENV`); `parsePublicEnv(raw)` unchanged in shape; no other name changes.
