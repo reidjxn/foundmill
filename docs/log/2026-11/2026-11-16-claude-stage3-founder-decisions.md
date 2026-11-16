@@ -47,3 +47,6 @@ WP-09, models and money:
 - D10 Live evals in this package may spend **$40 in total** (Estimate).
 - D8 (Pro price), D9 (a fourth model key) and D11 (training checks default to the batch route on the free plan) were
   not answered. T15 and T16 wait for them; T9 and T10 keep today's default until D11 is answered.
+
+## Not done
+- WP-04 D6's signer, WP-06 D6, and WP-09 D2, D8, D9 and D11 wait for the founder's answer.
