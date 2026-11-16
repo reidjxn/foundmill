@@ -133,6 +133,8 @@ export const EVENT_WALLS = {
   "post.drafted": { sections: ["distribution"] },
   // The page quiz approved, turned on or off (0105): ids and its shape, never the words. The Public page tab follows.
   "quiz.approved": { sections: ["product"] },
+  // The positioning notes approved (0117, WP-08 T1): the version and the names of the sections that changed, never the words.
+  "positioning.approved": { sections: ["product"] },
   "quiz.published": { sections: ["product"] },
   "quiz.unpublished": { sections: ["product"] },
   // Invitations to the project: the People tab (Settings, under the Team section).

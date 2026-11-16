@@ -45,7 +45,7 @@ export const distributionStrategist = defineTemplate({
     ],
   },
   tools: [
-    grant("platform", [...PLATFORM_LEAD_TOOLS, "campaigns.list"]),
+    grant("platform", [...PLATFORM_LEAD_TOOLS, "campaigns.list", "positioning.read", "positioning.propose"]),
     grant("web", WEB_TOOLS),
     grant("quarantine", QUARANTINE_TOOLS),
     // The founder's own PostHog project when connected.

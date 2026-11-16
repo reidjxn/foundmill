@@ -94,7 +94,9 @@ export async function draftTeamPost(deps: TeamPostDraftDeps, businessId: string,
   const learned = await repos.postAttributions.weekSummary(deps.db, businessId, { since: new Date(now.getTime() - TEAM_POST_WEEK_MS), until: now, week: null });
   // The social agent as it is now: its live instructions and its skills (WP-06 T1).
   const agent = await resolveAgentPrompt(deps.db, businessId, { channelKey: POST_DRAFT_CHANNEL });
-  const facts = postDraftFacts({ businessName: src.business.name, page, trigger: ref.trigger, subject: ref.subject, at: src.at ?? now, timeZone: src.business.timeZone, link, learned, agent });
+  // The positioning notes the founders approved (WP-08 T1); none until they approve.
+  const positioning = await repos.positioning.approvedText(deps.db, businessId);
+  const facts = postDraftFacts({ businessName: src.business.name, page, trigger: ref.trigger, subject: ref.subject, at: src.at ?? now, timeZone: src.business.timeZone, link, learned, agent, positioning });
   const model = (usage: PostDraftUsage) => ({ route: POST_DRAFT_ROUTE, model: usage.model, mode: usage.mode, calls: usage.calls, costMinor: usage.costMinor, costLabel: "Estimate" });
   const store: PostDraftStore = {
     async write({ text, usage }) {

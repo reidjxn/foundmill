@@ -9,7 +9,8 @@
  * Errors the agent can act on come back as `PlatformToolError`s; any other failure is logged without its parameters
  * and answered with a plain "try again".
  */
-import { AppError, ConflictError, NotFoundError, filingWindow, uuid, type TaskStatus } from "@foundmill/shared";
+import { CREDITS_CURRENCY } from "@foundmill/config";
+import { AppError, ConflictError, NotFoundError, filingWindow, positioningFromInput, renderPositioning, uuid, type TaskStatus } from "@foundmill/shared";
 import { attachAddedSkills, repos, resolveLibrarySkill, resolveSkillFile, skillLibraryEntries, type Agent, type Db, type Executor, type ResolvedSkill, type Task } from "@foundmill/db";
 import { PlatformToolError, type PlatformCaller, type PlatformHost, type TaskSummaryT } from "@foundmill/connectors";
 import { writeGatewayEvent } from "./events";
@@ -444,6 +445,26 @@ export function createDbPlatformHost({ db, log, now = () => new Date(), reposito
         await repos.audit.append(tx, caller.businessId, { actorKind: "agent", actorId: caller.agentId, action: "agent.skills.remove", target: { kind: "skill_definition", id: added.definitionId }, details: { agentId: agent.id, skillKey, source: added.source, fileName: added.fileName, sessionId: caller.sessionId } });
       });
       return { removed: true as const, name: added.name };
+    },
+    async readPositioning(caller) {
+      const [copies, heard] = await Promise.all([repos.positioning.get(db, caller.businessId), repos.positioning.heard(db, caller.businessId, 20)]);
+      const notes = copies.approved ?? copies.draft;
+      return { approved: !!copies.approved, version: notes?.version ?? null, text: notes ? renderPositioning(notes) : "", heard };
+    },
+    async proposePositioningChange(caller, { notes, reason }) {
+      const copies = await repos.positioning.get(db, caller.businessId);
+      const proposed = positioningFromInput(notes, copies.approved, now().toISOString().slice(0, 10));
+      const out = await db.transaction(async (tx) => {
+        const written = await repos.positioning.writeDraft(tx, caller.businessId, { notes: proposed, agentId: caller.agentId, note: true });
+        if (!written.written) throw new PlatformToolError("invalid_state", "This project has no positioning notes to change yet");
+        await repos.audit.append(tx, caller.businessId, { actorKind: "agent", actorId: caller.agentId, action: "positioning.proposed", target: { kind: "business", id: caller.businessId }, details: { reason: reason.slice(0, 1000), sessionId: caller.sessionId } });
+        if (written.item) {
+          const item = written.item;
+          await writeGatewayEvent(tx, { businessId: caller.businessId, type: "inbox.item_created", actor: { kind: "agent", id: caller.agentId }, payload: { inboxItemId: item.id, type: item.type, fromAgentId: item.fromAgentId, subject: item.subject, blocksContinue: item.blocksContinue, sourceEventIds: [], cost: { amountMinor: 0, currency: CREDITS_CURRENCY } } });
+        }
+        return written;
+      });
+      return { draftVersion: out.written ? (copies.approved?.version ?? 0) + 1 : 0 };
     },
   };
 

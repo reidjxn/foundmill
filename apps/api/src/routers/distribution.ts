@@ -1,7 +1,7 @@
 /** distribution.recommend / channels.* / campaigns.* / assets.* (BUILD §11.7; AC-11.7.2 enable/disable re-scores). */
 import { recordExpiredApprovals } from "@foundmill/events";
 import { CreateCampaignInput, UpdateCampaignInput, hasLaunched, repos } from "@foundmill/db";
-import { HOUSE_STYLE, POST_DRAFT_CHANNEL } from "@foundmill/agents";
+import { HOUSE_STYLE, POST_DRAFT_CHANNEL, distributionStrategistMessage } from "@foundmill/agents";
 import { AppError, CAMPAIGN_STATUSES, CHANNEL_KEYS, CHANNEL_LINES, CHANNEL_META, CHANNEL_WINDOW_DAYS, ChannelKey, CurrencyCode, dayKeyIn, isTeamPost, mockResultsAllowed, ValidationError, type ChannelLine } from "@foundmill/shared";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
@@ -66,7 +66,7 @@ export const distributionRouter = router({
    * never a starter, and the Strategist is told which those are so it never writes that the team posts there.
    */
   recommend: write.use(modelLimited("recommend")).mutation(async ({ ctx }) => {
-    const [profile, enabled, availability] = await Promise.all([repos.founders.get(ctx.db, ctx.userId), repos.channels.list(ctx.db, ctx.businessId), channelRowsFor(ctx.db, ctx)]);
+    const [profile, enabled, availability, positioning] = await Promise.all([repos.founders.get(ctx.db, ctx.userId), repos.channels.list(ctx.db, ctx.businessId), channelRowsFor(ctx.db, ctx), repos.positioning.approvedText(ctx.db, ctx.businessId)]);
     if (availability.teamRuns.length === 0) {
       return { channels: enabled.map((c) => ({ ...c, recommended: false })), recommendation: [] as ScoredChannel[], cpaLabel: "Estimate" as const, note: availability.noneSentence };
     }
@@ -74,7 +74,7 @@ export const distributionRouter = router({
       route: "leadRecommendation",
       schema: Recommendation,
       system: `You are the Distribution Strategist. Score all 15 channels 1-20 on fit and pick 3-6 starters with potential, a cost-per-customer range (minor units of the business currency, low at most high, Estimate), a three-sentence why, and kit_mode_required for channels that cannot be automated within their terms. Pick starters only from available_channels: the other channels cannot run for this business yet, so score them and never recommend them; with fewer than three available, pick from those only. A channel in founder_posts_channels is posted by the founder with one press on a draft that is ready for them: no agent publishes there, so never pick it as a starter, and when you write about it say the founder posts it, never the team. ${HOUSE_STYLE}`,
-      messages: [{ role: "user", content: "```json\n" + JSON.stringify({ business: { name: ctx.business.name, archetype: ctx.business.archetype, business_mode: ctx.business.businessMode }, founder: profile ? { skills: profile.skills, budget_minor: profile.budgetMinor, target_markets: profile.targetMarkets } : null, channels: CHANNEL_KEYS, available_channels: availability.teamRuns, founder_posts_channels: availability.available.filter((k) => !availability.teamRuns.includes(k)), currently_enabled: enabled.filter((c) => c.enabled).map((c) => c.channelKey) }) + "\n```" }],
+      messages: [{ role: "user", content: distributionStrategistMessage({ business: { name: ctx.business.name, archetype: ctx.business.archetype, business_mode: ctx.business.businessMode }, founder: profile ? { skills: profile.skills, budget_minor: profile.budgetMinor, target_markets: profile.targetMarkets } : null, channels: CHANNEL_KEYS, available_channels: availability.teamRuns, founder_posts_channels: availability.available.filter((k) => !availability.teamRuns.includes(k)), currently_enabled: enabled.filter((c) => c.enabled).map((c) => c.channelKey) }, positioning) }],
       attribution: { businessId: ctx.businessId, kind: "distribution_strategist" },
     });
     const scored = normaliseRecommendation(result.json, new Set(availability.teamRuns));

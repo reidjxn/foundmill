@@ -52,3 +52,4 @@ export {
   type AgentNamingHit,
   type PlainLanguageHit,
 } from "./composer";
+export { POSITIONING_CASES, POSITIONING_EVAL_IDS, positioningProblems as positioningEvalProblems, runPositioningCase, type PositioningCaseResult } from "./positioning";
