@@ -89,8 +89,12 @@ export type IdeaBoxEvent =
   | { type: "started" }
   | { type: "partial"; card: IdeaBoxPartialCard }
   | { type: "rating"; index: number; rating: IdeaBoxRating }
-  /** `claim`: the one-time token the sign-in link carries so another device can claim the card (`/start?claim=`). */
-  | { type: "card"; card: IdeaBoxCard; prompt: string; interest: string | null; sample: boolean; again: boolean; claim: string | null }
+  /**
+   * `claim`: the one-time token the sign-in link carries so another device can claim the card (`/start?claim=`).
+   * `redrawsLeft`: how many more times "Try another idea" can replace this card today (of
+   * `IDEA_BOX_REDRAWS_PER_BROWSER`); null when the api could not tell. The per-address and daily limits still apply.
+   */
+  | { type: "card"; card: IdeaBoxCard; prompt: string; interest: string | null; sample: boolean; again: boolean; claim: string | null; redrawsLeft: number | null }
   | { type: "error"; code: IdeaBoxErrorCode; message: string };
 
 /** What each refusal reads. Plain, short, never the vendor's or the model's own words. */

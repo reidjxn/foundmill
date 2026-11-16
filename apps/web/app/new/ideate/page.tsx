@@ -13,6 +13,7 @@ export default async function IdeatePage() {
   if (result.kind === "signed_out") redirect("/login?next=%2Fnew%2Fideate");
   if (result.kind === "unreachable") return <ApiErrorPage error={result.error} email={result.email} />;
   const { viewer } = result;
-  if (!viewer.complete) redirect("/onboarding");
+  // The three questions go on to the Studio (a card kept with "Shape it in the Ideation Studio" keeps its thread).
+  if (!viewer.complete) redirect("/onboarding?next=%2Fnew%2Fideate");
   return <IdeationStudio viewer={{ email: viewer.email }} profileLine={profileLineOf(viewer.profile)} constraints={viewer.profile?.constraints ?? []} />;
 }

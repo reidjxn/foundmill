@@ -17,14 +17,19 @@ async function clearIdeaCookie(): Promise<void> {
   store.set({ name: IDEA_COOKIE, value: "", path: "/", maxAge: 0, httpOnly: true, sameSite: "lax", ...(domain ? { domain } : {}) });
 }
 
-export async function keepCard(form: FormData): Promise<void> {
+/**
+ * Keeps the card, then its own page (and on to Commit), or with `studio` (the idea box's "Shape it in the Ideation
+ * Studio") the Studio, where the kept card leads the deck. The page binds `studio` from its own `?then=`.
+ */
+export async function keepCard(studio: boolean, form: FormData): Promise<void> {
   const server = await serverApi();
   if (!server) redirect("/login?next=%2Fstart");
   const claim = form.get(IDEA_CLAIM_PARAM);
   const token = (await cookies()).get(IDEA_COOKIE)?.value ?? null;
   const res = await server.api.ideaBox.claim.mutate({ token, claim: typeof claim === "string" && claim ? claim : null }).catch(() => null);
   await clearIdeaCookie();
-  redirect(res ? `/new/card/${res.ideaId}` : "/start");
+  if (!res) redirect("/start");
+  redirect(studio ? "/new/ideate" : `/new/card/${res.ideaId}`);
 }
 
 export async function notMine(): Promise<void> {
