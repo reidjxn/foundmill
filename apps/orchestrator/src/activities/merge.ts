@@ -58,6 +58,8 @@ interface CompletedPayload {
   acceptanceTests: number;
   branch?: string | null;
   summary?: string;
+  /** `saved_only`: the session had no repository to push to (WP-05 T8), so its branch never reached GitHub. */
+  landed?: "saved_only" | null;
 }
 
 interface PullRequestSummary {
@@ -251,7 +253,9 @@ export function createMergeActivities(deps: OrchestratorDeps) {
       for (const task of waiting) {
         const done = latest.get(task.id);
         if (!done || settled.has(task.id) || mergedTasks.has(task.id) || heldForSetup.has(done.sessionId)) continue;
-        if (done.branch !== `agent/${task.id}`) continue;
+        // Saved with nowhere to push (WP-05 T8): its branch was never pushed, so a repository connected later has nothing
+        // of it to merge.
+        if (done.branch !== `agent/${task.id}` || done.landed === "saved_only") continue;
         const tests = done.acceptanceTests ?? 0;
         if (tests > 0 && (done.acceptanceTestsPassing ?? 0) < tests) continue;
         if (task.assigneeAgentId && task.assigneeAgentId !== done.assigneeAgentId) continue;

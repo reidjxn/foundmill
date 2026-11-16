@@ -413,9 +413,9 @@ describe("askMerge, awaitChecks and completeMerge", () => {
 
 describe("pendingMerges", () => {
   /** A code task in review whose last session finished on its branch with these tests, as `finishSession` records it. */
-  async function finishedInReview(title: string, tests: { passing: number; total: number }, options: { branch?: string; reason?: string } = {}) {
+  async function finishedInReview(title: string, tests: { passing: number; total: number }, options: { branch?: string; reason?: string; landed?: "saved_only" } = {}) {
     const { task, input } = await reviewTask(title);
-    await repos.events.write(t.db, t.businessId, { type: "task.completed", actor: { kind: "agent", id: t.workerId }, payload: { taskId: task.id, kind: "code", title, assigneeAgentId: t.workerId, sessionId: input.sessionId, outcome: "success", durationMs: 1000, cost: { amountMinor: 1, currency: "USD" }, acceptanceTestsPassing: tests.passing, acceptanceTests: tests.total, prNumber: null, branch: options.branch ?? input.branch, summary: `${title} done` } });
+    await repos.events.write(t.db, t.businessId, { type: "task.completed", actor: { kind: "agent", id: t.workerId }, payload: { taskId: task.id, kind: "code", title, assigneeAgentId: t.workerId, sessionId: input.sessionId, outcome: "success", durationMs: 1000, cost: { amountMinor: 1, currency: "USD" }, acceptanceTestsPassing: tests.passing, acceptanceTests: tests.total, prNumber: null, branch: options.branch ?? input.branch, summary: `${title} done`, ...(options.landed ? { landed: options.landed } : {}) } });
     await repos.audit.append(t.db, t.businessId, { actorKind: "agent", actorId: t.workerId, action: "session.finish", target: { kind: "session", id: input.sessionId }, details: { outcome: "done", reason: options.reason ?? null, taskStatus: "review" } });
     return { task, input };
   }
@@ -448,6 +448,14 @@ describe("pendingMerges", () => {
     for (const left of [failing, otherBranch, setup, rejected, doneMerged]) expect(ids).not.toContain(left.task.id);
     expect(found.find((m) => m.taskId === passed.task.id)).toEqual({ ...passed.input, acceptance: { passing: 145, total: 145 }, summary: "Hydration fix done" });
     expect(found.find((m) => m.taskId === docs.task.id)?.acceptance).toBeNull();
+  });
+
+  it("a change saved with nowhere to push is not offered, even once a repository is connected (WP-05 T8)", async () => {
+    const { acts } = githubGateway();
+    const saved = await finishedInReview("Saved before the repository", { passing: 3, total: 3 }, { landed: "saved_only" });
+    await repos.tasks.setStatus(t.db, t.businessId, saved.task.id, "done", { force: true });
+    await connectRepo();
+    expect((await acts.pendingMerges({ businessId: t.businessId })).map((m) => m.taskId)).not.toContain(saved.task.id);
   });
 
   it("a change the founder sent back is offered again once its agent finished the rework (WP-05 T16)", async () => {

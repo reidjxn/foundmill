@@ -17,7 +17,7 @@ import { fitColumns, fitToGrow, humanise, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
 import { useBusinessStage } from "../stage";
 import { OpenInClaudeCodeDialog } from "./dialogs";
-import { WhatChanged, toFounderChangeRows, toFounderLiveRows } from "./founder-views";
+import { SAVED_ONLY_LINE, SAVED_ONLY_WORD, WhatChanged, toFounderChangeRows, toFounderLiveRows } from "./founder-views";
 import { useDevScreenOptions } from "./options";
 import { SIMPLE_VIEW_ID, Screen, WhatExistsNow, agentHref, shortSha, toDate, toTileAgent, useAgentIndex, useAgents, useDefaultViewId, useDevDepartment, useRepository } from "./shared";
 import type { AgentRow, MergedPrRow, OpenPrRow, PrsListResponse } from "./types";
@@ -265,10 +265,11 @@ export function PullRequestsScreen({ businessId, departmentId }: ModuleScreenPro
             <span className="block min-w-0 truncate text-body-strong" title={row.original.title ?? undefined}>
               {row.original.title ?? "—"}
             </span>
-            {/* Nothing to open anywhere: no pull request, no commit, no repository. The word is "No artifact yet", never "Merged". */}
-            {!pushed && !row.original.url && !row.original.prNumber && !row.original.mergeCommitSha ? (
-              <StatusPill tone="warn" data-testid="no-artifact">
-                No artifact yet
+            {/* Nothing to open anywhere: no pull request, no commit, no repository, or a task finished with nowhere to push
+                (WP-05 T8). The words are "Saved, not live anywhere", never "Merged". */}
+            {row.original.landed === "saved_only" || (!pushed && !row.original.url && !row.original.prNumber && !row.original.mergeCommitSha) ? (
+              <StatusPill tone="warn" data-testid="no-artifact" title={SAVED_ONLY_LINE}>
+                {SAVED_ONLY_WORD}
               </StatusPill>
             ) : null}
           </span>

@@ -566,7 +566,7 @@ class SessionRecorder {
     this.outside.total += 1;
     this.outside.connectors.add(key);
     if (/"simulated"\s*:\s*true/.test(text)) this.outside.simulated += 1;
-    else if (/integration_not_connected/.test(text)) this.outside.notConnected += 1;
+    else if (/integration_not_connected/.test(text) || (call.policyOutcome === "deny" && notSwitchedOnDeny(text))) this.outside.notConnected += 1;
   }
 
   /**
@@ -994,6 +994,7 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       await archiveSessionRecording({ db, redis: deps.redis, log: deps.log }, input);
 
       let taskStatus: TaskStatus;
+      let landed: "saved_only" | null = null;
       const cost = { amountMinor: Math.round(result.costMinor), currency: CREDITS_CURRENCY }; // model cost: US cents (DECISIONS 2026-10-12)
       // How many sessions of this task in a row ended failed or blocked, this one included (it is ended above).
       const blockedStreak = Math.max(1, failureStreak(await repos.agents.recentOutcomes(db, input.businessId, { taskIds: [task.id], limit: 12 }), ["failed", "blocked"]).failures);
@@ -1016,6 +1017,13 @@ export function createSessionActivities(deps: OrchestratorDeps) {
           const testsRun = result.progress.acceptanceTests;
           const onOwnBranch = task.kind === "code" && launch.branch === `agent/${task.id}` && (testsRun === 0 || result.progress.acceptanceTestsPassing >= testsRun);
           taskStatus = result.review ? "review" : result.progress.merged ? "done" : onOwnBranch || result.progress.reviewPassed || result.progress.phase === "review" || result.progress.phase === "merge" ? "review" : "done";
+          // With no repository to push to, or pushing off, there is no merge to ask for (WP-05 T8, D3): the code task ends
+          // done, its work saved with the task, so the tasks after it can start instead of waiting on a review nobody can
+          // answer. A session held for the founder's look at the test setup (`result.review`) still waits.
+          if (taskStatus === "review" && task.kind === "code" && !result.review && !(await repos.integrations.codeRepository(db, input.businessId))?.writeEnabled) {
+            taskStatus = "done";
+            landed = "saved_only";
+          }
           // The report this session saved on the task (WP-05 T3): the event names it, and for a task that is not code the
           // founder's note quotes it (its title, then the start of its body) instead of the run's count of tool calls.
           const saved = await repos.taskReports.latestForTask(db, input.businessId, task.id);
@@ -1025,7 +1033,7 @@ export function createSessionActivities(deps: OrchestratorDeps) {
             businessId: input.businessId,
             type: "task.completed",
             actor: { kind: "agent", id: agent.id },
-            payload: { taskId: task.id, kind: task.kind, title: task.title, assigneeAgentId: agent.id, sessionId: input.sessionId, outcome: result.progress.progress >= 0.999 ? "success" : "partial", durationMs: Math.max(0, Math.round(result.durationMs)), cost, acceptanceTestsPassing: result.progress.acceptanceTestsPassing, acceptanceTests: result.progress.acceptanceTests, prNumber: result.prNumber, branch: launch.branch, summary: summary.slice(0, 2000), reportId: report?.id ?? null, simulated: Boolean(report?.simulated) || (result.simulatedResults ?? 0) > 0 },
+            payload: { taskId: task.id, kind: task.kind, title: task.title, assigneeAgentId: agent.id, sessionId: input.sessionId, outcome: result.progress.progress >= 0.999 ? "success" : "partial", durationMs: Math.max(0, Math.round(result.durationMs)), cost, acceptanceTestsPassing: result.progress.acceptanceTestsPassing, acceptanceTests: result.progress.acceptanceTests, prNumber: result.prNumber, branch: launch.branch, summary: summary.slice(0, 2000), reportId: report?.id ?? null, simulated: Boolean(report?.simulated) || (result.simulatedResults ?? 0) > 0, landed },
           }, { idempotencyKey: `task.completed:${input.sessionId}` });
           eventIds.push(ev.id);
           break;
@@ -2558,6 +2566,21 @@ export const REPORT_TURN = "You ended without reporting. Call complete_task with
 export const NO_RESULT_REASON = "no result: the session ended without complete_task or block_task";
 /** How much of a report's body `task.completed.summary` carries after its title (the schema allows 2,000 in all). */
 export const REPORT_SUMMARY_BODY_CHARS = 1_700;
+
+/**
+ * The gateway's deny policy ids that mean "sending is not switched on for this project", not "this call was refused":
+ * the project's Foundmill address is off, the deployment cannot sign its mail, or a mock send on a real project
+ * (apps/gateway platform-mail.ts `platformMailSwitchRefusal`). Counted like `integration_not_connected` (WP-05 T8). An
+ * ordinary deny (untrusted recipient, spend cap, daily cap, a suppressed address) is not.
+ */
+export const NOT_SWITCHED_ON_POLICY_IDS: ReadonlySet<string> = new Set(["platform-mail-off", "platform-mail-unconfigured", "platform-mail-simulated"]);
+
+/** A deny whose every policy id is one of `NOT_SWITCHED_ON_POLICY_IDS`. */
+function notSwitchedOnDeny(text: string): boolean {
+  const m = /"policyIds"\s*:\s*\[([^\]]*)\]/.exec(text);
+  const ids = m ? [...m[1]!.matchAll(/"([^"]+)"/g)].map((x) => x[1]!) : [];
+  return ids.length > 0 && ids.every((id) => NOT_SWITCHED_ON_POLICY_IDS.has(id));
+}
 
 /** A connector's display name for the founder, or its key when the catalog does not know it. */
 const connectorNames = new Map<string, string>();

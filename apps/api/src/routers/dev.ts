@@ -368,7 +368,13 @@ export const devRouter = router({
      */
     list: read.query(({ ctx }) =>
       ctx.rls(async (tx) => {
-        const [tasks, events] = await Promise.all([repos.tasks.list(tx, ctx.businessId, { kind: "code", status: ["review", "merging", "done"], limit: 200 }), repos.events.list(tx, ctx.businessId, { type: "pr.merged", limit: 200 })]);
+        const [tasks, events, completed] = await Promise.all([repos.tasks.list(tx, ctx.businessId, { kind: "code", status: ["review", "merging", "done"], limit: 200 }), repos.events.list(tx, ctx.businessId, { type: "pr.merged", limit: 200 }), repos.events.list(tx, ctx.businessId, { type: "task.completed", limit: 200 })]);
+        // A task's latest completion (newest first) says whether its work was saved with nowhere to push (WP-05 T8).
+        const landedOf = new Map<string, unknown>();
+        for (const e of completed.items) {
+          const p = e.payload as { taskId?: unknown; landed?: unknown };
+          if (typeof p.taskId === "string" && !landedOf.has(p.taskId)) landedOf.set(p.taskId, p.landed ?? null);
+        }
         // Each merged row carries its task's founder title and agent (Builder view off reads "Gone live: <founder title>").
         const byTask = new Map(tasks.items.map((t) => [t.id, t]));
         const fromGitHub: MergedPr[] = events.items.map((e) => {
@@ -379,7 +385,7 @@ export const devRouter = router({
         const reported = new Set(fromGitHub.map((m) => m.taskId).filter((id): id is string => typeof id === "string"));
         const fromQueue: MergedPr[] = tasks.items
           .filter((t) => t.status === "done" && !reported.has(t.id))
-          .map((t) => ({ eventId: null, occurredAt: t.endedAt ?? t.updatedAt, source: "merge_queue" as const, taskId: t.id, title: t.title, founderTitle: t.founderTitle, agentId: t.assigneeAgentId, branch: agentBranch(t.id), mergedBy: t.assigneeAgentId ? { kind: "agent", id: t.assigneeAgentId } : { kind: "system", id: null } }));
+          .map((t) => ({ eventId: null, occurredAt: t.endedAt ?? t.updatedAt, source: "merge_queue" as const, taskId: t.id, title: t.title, founderTitle: t.founderTitle, agentId: t.assigneeAgentId, branch: agentBranch(t.id), mergedBy: t.assigneeAgentId ? { kind: "agent", id: t.assigneeAgentId } : { kind: "system", id: null }, landed: landedOf.get(t.id) === "saved_only" ? ("saved_only" as const) : null }));
         return {
           open: tasks.items.filter((t) => t.status !== "done").map((t) => ({ taskId: t.id, title: t.title, founderTitle: t.founderTitle, status: t.status, kind: t.kind, branch: agentBranch(t.id), agentId: t.assigneeAgentId })),
           merged: [...fromGitHub, ...fromQueue].sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime()),

@@ -4,14 +4,15 @@
  * "Builder view"; founder, Nov 8, 2026). The data is the same as the builder's tables; the words are the founder's:
  *
  *   - **What changed** (Pull requests): "Waiting for your go-ahead" (a change being checked or ready for the founder's
- *     yes) and "Gone live" (what the team put live, and when). No PR number, branch, lines or commit.
+ *     yes) and "Gone live" (what the team put live, and when). No PR number, branch, lines or commit. A change finished
+ *     with nowhere to publish (WP-05 T8) is listed under "Saved, not live anywhere" instead of "Gone live".
  *   - **Live product** (Environments): "Your live product" (its address and when it last changed) and "Previews of
  *     changes" (each change's own copy to try). No branch, commit or hosting provider.
  *
  * Titles are the task's founder title (0070), else the deterministic rewrite of @foundmill/shared (`founderPhrase`).
  */
 import { useMemo } from "react";
-import { CircleCheck, Clock, Globe, MonitorPlay, Network, Radio, SearchCheck, Sparkles } from "lucide-react";
+import { CircleCheck, CircleDashed, Clock, Globe, MonitorPlay, Network, Radio, SearchCheck, Sparkles } from "lucide-react";
 import { Avatar, DataTable, EmptyState, EntityLink, KeyValueList, Panel, StatusPill, useFormatters, type DataTableColumn, type IconComponent, type RowAction, type StatusTone } from "@foundmill/dugout";
 import { founderPhrase, type TaskStatus } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -50,7 +51,13 @@ export interface FounderLiveRow {
   agent: AgentRow | undefined;
   agentName: string;
   liveAt: Date | null;
+  /** Finished with nowhere to push (WP-05 T8): listed under "Saved, not live anywhere", never as gone live. */
+  savedOnly?: boolean;
 }
+
+/** A finished code change that had nowhere to publish (WP-05 T8, founder decision D3), in the founder's words. */
+export const SAVED_ONLY_WORD = "Saved, not live anywhere";
+export const SAVED_ONLY_LINE = "The work is kept with this task. It goes live once the project has a place to publish.";
 
 /** The open changes as the founder reads them (code tasks only, like the builder's table). */
 export function toFounderChangeRows(open: readonly OpenPrRow[], agents: Map<string, AgentRow>, previews: Map<string, string>, nameFor: (agent: AgentRow) => string = (a) => a.name): FounderChangeRow[] {
@@ -68,7 +75,7 @@ export function toFounderLiveRows(merged: readonly MergedPrRow[], agents: Map<st
     .map((m) => {
       const agentId = m.agentId ?? (m.mergedBy?.kind === "agent" ? m.mergedBy.id : null);
       const agent = agentId ? agents.get(agentId) : undefined;
-      return { id: m.eventId ?? `task:${m.taskId ?? String(m.occurredAt)}`, taskId: m.taskId ?? null, title: founderTitleOf(m.founderTitle, m.title), agent, agentName: agent ? nameFor(agent) : "The team", liveAt: toDate(m.occurredAt) };
+      return { id: m.eventId ?? `task:${m.taskId ?? String(m.occurredAt)}`, taskId: m.taskId ?? null, title: founderTitleOf(m.founderTitle, m.title), agent, agentName: agent ? nameFor(agent) : "The team", liveAt: toDate(m.occurredAt), savedOnly: m.landed === "saved_only" };
     })
     .sort((a, b) => (b.liveAt?.getTime() ?? 0) - (a.liveAt?.getTime() ?? 0));
 }
@@ -173,6 +180,27 @@ export function WhatChanged({ businessId, deptSlug, open, live, loading, error, 
   ];
   const liveActions = (row: FounderLiveRow): RowAction<FounderLiveRow>[] => [{ id: "task", label: "Show in Plan", icon: Network, disabled: !row.taskId, onSelect: (r) => r.taskId && navigate(planHref(r.taskId)) }];
   const ready = open.filter((r) => r.status === "merging").length;
+  const gone = useMemo(() => live.filter((r) => !r.savedOnly), [live]);
+  const saved = useMemo(() => live.filter((r) => r.savedOnly), [live]);
+  // The saved list: the change, its agent and its state (no "Put live" date: it is not live anywhere).
+  const savedColumns = useMemo<DataTableColumn<FounderLiveRow>[]>(
+    () => [
+      ...liveColumns.slice(0, 2),
+      {
+        id: "state",
+        accessorFn: () => SAVED_ONLY_WORD,
+        header: "State",
+        size: 240,
+        meta: { filter: false },
+        cell: () => (
+          <StatusPill tone="warn" icon={CircleDashed} title={SAVED_ONLY_LINE}>
+            {SAVED_ONLY_WORD}
+          </StatusPill>
+        ),
+      },
+    ],
+    [liveColumns],
+  );
 
   return (
     <Screen name="development/pull-requests">
@@ -196,11 +224,20 @@ export function WhatChanged({ businessId, deptSlug, open, live, loading, error, 
         </div>
       </Panel>
 
-      <Panel span={12} title="Gone live" flush loading={loading} error={error} onRetry={onRetry} meta={live.length ? <span>{live.length} put live</span> : undefined} data-testid="what-changed-live">
+      <Panel span={12} title="Gone live" flush loading={loading} error={error} onRetry={onRetry} meta={gone.length ? <span>{gone.length} put live</span> : undefined} data-testid="what-changed-live">
         <div className="min-w-0">
-          <DataTable<FounderLiveRow> data={live} columns={liveColumns} rowActions={liveActions} height={live.length ? 360 : 240} exportFileName="changes-gone-live" empty={{ icon: CircleCheck, children: "Changes the team put live are listed here, newest first." }} aria-label="Gone live" className="border-0" />
+          <DataTable<FounderLiveRow> data={gone} columns={liveColumns} rowActions={liveActions} height={gone.length ? 360 : 240} exportFileName="changes-gone-live" empty={{ icon: CircleCheck, children: "Changes the team put live are listed here, newest first." }} aria-label="Gone live" className="border-0" />
         </div>
       </Panel>
+
+      {/* Finished with nowhere to publish (WP-05 T8, D3): kept with the task, never listed as gone live. */}
+      {saved.length ? (
+        <Panel span={12} title={SAVED_ONLY_WORD} flush meta={<span>{saved.length} saved</span>} footer={<span>{SAVED_ONLY_LINE}</span>} data-testid="what-changed-saved">
+          <div className="min-w-0">
+            <DataTable<FounderLiveRow> data={saved} columns={savedColumns} rowActions={liveActions} height={Math.min(320, Math.max(3, saved.length) * 28 + 42)} exportFileName="changes-saved" aria-label={SAVED_ONLY_WORD} className="border-0" />
+          </div>
+        </Panel>
+      ) : null}
     </Screen>
   );
 }

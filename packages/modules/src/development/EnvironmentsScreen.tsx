@@ -17,7 +17,7 @@ import { RelativeDateText } from "../dates";
 import { fitColumns, fitToGrow, humanise, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
 import { moduleTabHref, useDepartments } from "@foundmill/widgets/shared/departments";
-import { LiveProduct, deploymentAt, founderTitleOf, liveProductOf, type FounderPreviewRow } from "./founder-views";
+import { LiveProduct, SAVED_ONLY_LINE, SAVED_ONLY_WORD, deploymentAt, founderTitleOf, liveProductOf, type FounderPreviewRow } from "./founder-views";
 import { useDevScreenOptions } from "./options";
 import { SIMPLE_VIEW_ID, Screen, WhatExistsNow, agentBranch, shortSha, toDate, useAgentIndex, useAgents, useDefaultViewId, useDevDepartment, useRepository } from "./shared";
 import type { AgentRow, DeploymentsListResponse, PrsListResponse, TaskRow, TasksListResponse } from "./types";
@@ -34,7 +34,10 @@ export interface Deployment {
   occurredAt: Date;
 }
 
-/** `no_artifact`: the task is done but nothing was pushed or deployed anywhere (no repository connected), so there is nothing to open. */
+/**
+ * `no_artifact`: the task is done but nothing was pushed or deployed anywhere (no repository connected, or the task
+ * finished with nowhere to push, `landed: "saved_only"`), so there is nothing to open. Reads "Saved, not live anywhere".
+ */
 export type EnvironmentState = "live" | "awaiting" | "merged" | "no_artifact" | "stopped";
 
 export interface EnvironmentRow {
@@ -62,7 +65,8 @@ export const ENVIRONMENT_STATE_META: Record<EnvironmentState, { tone: StatusTone
   awaiting: { tone: "info", word: "Awaiting deployment", icon: Hourglass },
   merged: { tone: "neutral", word: "Merged", icon: GitMerge },
   // First-time founder report (Nov 8, 2026): "Merged" with no URL, no commit and no repository read as shipped work that did not exist.
-  no_artifact: { tone: "warn", word: "No artifact yet", icon: CircleDashed },
+  // WP-05 T8 (D3): code finished with nowhere to publish is saved with its task, and the row says where it is.
+  no_artifact: { tone: "warn", word: SAVED_ONLY_WORD, icon: CircleDashed },
   stopped: { tone: "neutral", word: "Stopped", icon: CircleStop },
 };
 
@@ -73,7 +77,7 @@ export const ENVIRONMENT_FIT: Record<string, ColumnFit> = {
   branch: { min: 220, grow: 1 },
   title: { min: 280, grow: 4 },
   environment: { min: 112 },
-  state: { min: 184 },
+  state: { min: 216 },
   agentName: { min: 168, grow: 1 },
   url: { min: 200, grow: 2 },
   provider: { min: 104 },
@@ -184,9 +188,11 @@ export function toEnvironmentRows(tasks: readonly TaskRow[], prs: PrsListRespons
     if (!prev || d.occurredAt.getTime() >= prev.occurredAt.getTime()) latest.set(key, d);
   }
   const rows = new Map<string, EnvironmentRow>();
-  const stateFor = (status: TaskStatus | null, d: Deployment | undefined): EnvironmentState => {
+  // Finished with nowhere to push (WP-05 T8): saved with the task, whatever repository was connected afterwards.
+  const savedOnly = new Set((prs?.merged ?? []).flatMap((m) => (m.landed === "saved_only" && m.taskId ? [m.taskId] : [])));
+  const stateFor = (status: TaskStatus | null, d: Deployment | undefined, taskId: string | null): EnvironmentState => {
     // Done with nothing deployed and no repository to hold the code: there is no artifact to open, and the row says so.
-    if (status === "done") return d?.url || pushed ? "merged" : "no_artifact";
+    if (status === "done") return d?.url ? "merged" : (taskId && savedOnly.has(taskId)) || !pushed ? "no_artifact" : "merged";
     if (status === "stopped" || status === "failed") return "stopped";
     return d?.url ? "live" : "awaiting";
   };
@@ -195,14 +201,14 @@ export function toEnvironmentRows(tasks: readonly TaskRow[], prs: PrsListRespons
     const branch = agentBranch(t.id);
     const d = latest.get(branch) ?? latest.get(agentBranch(t.id));
     const agent = t.assigneeAgentId ? agents.get(t.assigneeAgentId) : undefined;
-    rows.set(branch, { id: branch, branch, branchName: readableBranch(branch, t.title), taskId: t.id, title: t.title, founderTitle: t.founderTitle ?? null, taskStatus: t.status, agentName: agent ? nameFor(agent) : "Unassigned", environment: d?.environment ?? "preview", state: stateFor(t.status, d), url: d?.url ?? null, provider: d?.provider ?? null, commitSha: d?.commitSha ?? null, deployedAt: d?.occurredAt ?? null });
+    rows.set(branch, { id: branch, branch, branchName: readableBranch(branch, t.title), taskId: t.id, title: t.title, founderTitle: t.founderTitle ?? null, taskStatus: t.status, agentName: agent ? nameFor(agent) : "Unassigned", environment: d?.environment ?? "preview", state: stateFor(t.status, d, t.id), url: d?.url ?? null, provider: d?.provider ?? null, commitSha: d?.commitSha ?? null, deployedAt: d?.occurredAt ?? null });
   }
   for (const pr of prs?.open ?? []) {
     // A non-code task never has a branch to preview, whatever the API sends.
     if (rows.has(pr.branch) || (pr.kind !== undefined && pr.kind !== "code")) continue;
     const d = latest.get(pr.branch);
     const agent = pr.agentId ? agents.get(pr.agentId) : undefined;
-    rows.set(pr.branch, { id: pr.branch, branch: pr.branch, branchName: readableBranch(pr.branch, pr.title), taskId: pr.taskId, title: pr.title, founderTitle: pr.founderTitle ?? null, taskStatus: pr.status, agentName: agent ? nameFor(agent) : "Unassigned", environment: d?.environment ?? "preview", state: stateFor(pr.status, d), url: d?.url ?? null, provider: d?.provider ?? null, commitSha: d?.commitSha ?? null, deployedAt: d?.occurredAt ?? null });
+    rows.set(pr.branch, { id: pr.branch, branch: pr.branch, branchName: readableBranch(pr.branch, pr.title), taskId: pr.taskId, title: pr.title, founderTitle: pr.founderTitle ?? null, taskStatus: pr.status, agentName: agent ? nameFor(agent) : "Unassigned", environment: d?.environment ?? "preview", state: stateFor(pr.status, d, pr.taskId), url: d?.url ?? null, provider: d?.provider ?? null, commitSha: d?.commitSha ?? null, deployedAt: d?.occurredAt ?? null });
   }
   for (const [key, d] of latest) {
     if (rows.has(key)) continue;
@@ -305,7 +311,7 @@ export function EnvironmentsScreen({ businessId, departmentId }: ModuleScreenPro
         cell: ({ row }) => {
           const meta = ENVIRONMENT_STATE_META[row.original.state];
           return (
-            <StatusPill tone={meta.tone} icon={meta.icon}>
+            <StatusPill tone={meta.tone} icon={meta.icon} title={row.original.state === "no_artifact" ? SAVED_ONLY_LINE : undefined}>
               {meta.word}
             </StatusPill>
           );
@@ -381,11 +387,16 @@ export function EnvironmentsScreen({ businessId, departmentId }: ModuleScreenPro
         meta={
           rows.length ? (
             <span data-testid="env-counts">
-              {live} live · {rows.length - live - merged - noArtifact} awaiting · {noArtifact ? `${noArtifact} with no artifact yet` : `${merged} merged`}
+              {live} live · {rows.length - live - merged - noArtifact} awaiting · {noArtifact ? `${noArtifact} saved, not live anywhere` : `${merged} merged`}
             </span>
           ) : undefined
         }
-        footer={<span>Every agent branch gets its own preview deployment once it passes the quality checks; the URL, provider and commit appear with the first one. Production releases show on the Journey.</span>}
+        footer={
+          <span>
+            {noArtifact ? <span data-testid="env-saved-only">{`${SAVED_ONLY_WORD}: ${SAVED_ONLY_LINE} `}</span> : null}
+            Every agent branch gets its own preview deployment once it passes the quality checks; the URL, provider and commit appear with the first one. Production releases show on the Journey.
+          </span>
+        }
       >
         <div className="min-w-0">
           <DataTable<EnvironmentRow> data={rows} columns={columns} {...savedViews} defaultViewId={defaultViewId} rowActions={rowActions} onRowOpen={(r) => r.url && window.open(r.url, "_blank", "noopener")} height={Math.min(520, Math.max(4, rows.length) * 28 + 42)} hideEmptyColumns exportFileName="environments" empty={{ icon: Boxes, children: "Environments appear here as code tasks start: one preview deployment per agent branch.", action: { label: "Go to Plan", onClick: () => navigate(routes.department(businessId, deptSlug, "plan")) } }} aria-label="Environments" className="border-0" />
