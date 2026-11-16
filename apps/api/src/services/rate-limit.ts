@@ -43,6 +43,8 @@ export interface RateLimitStore {
   take(entries: readonly LimitEntry[]): Promise<StoreTake>;
   /** Gives a granted hit back (the call it paid for failed before reaching the model). */
   refund(ticket: LimitTicket): Promise<void>;
+  /** How many hits `entry` still has in its window, recording nothing (the idea box's redraws left). */
+  peek(entry: LimitEntry): Promise<number>;
 }
 
 /** The in-process window engine (synchronous): the memory store and the Redis store's fallback. */
@@ -117,6 +119,16 @@ export class MemoryRateLimitStore implements RateLimitStore {
     this.limiter.refund(ticket.keys, ticket.at);
   }
 
+  async peek(entry: LimitEntry): Promise<number> {
+    return this.peekNow(entry);
+  }
+
+  /** The same as `peek`, synchronously (the Redis store's fallback). */
+  peekNow(entry: LimitEntry): number {
+    const r = this.limiter.peek(entry.key, entry.rule);
+    return r.ok ? r.remaining : 0;
+  }
+
   /** Forgets every window (tests start each case with a full allowance). */
   reset(): void {
     this.limiter.reset();
@@ -152,6 +164,14 @@ for i = 1, #KEYS do
 end
 if remaining < 0 then remaining = 0 end
 return {1, remaining}
+`;
+
+/** KEYS[1]: one window. ARGV: now (ms), limit, window (ms). Answers the hits left, recording nothing. */
+export const PEEK_SCRIPT = `
+local count = redis.call('ZCOUNT', KEYS[1], '(' .. (tonumber(ARGV[1]) - tonumber(ARGV[3])), '+inf')
+local left = tonumber(ARGV[2]) - count
+if left < 0 then left = 0 end
+return left
 `;
 
 /** The ioredis surface the Redis store uses (structural, so tests can stub it). */
@@ -208,6 +228,19 @@ export class RedisRateLimitStore implements RateLimitStore {
       if (!this.isDegraded) this.options.onFallback?.(err);
       this.degradedUntil = this.now() + this.coolDownMs;
       return this.fallback.takeNow(entries);
+    }
+  }
+
+  async peek(entry: LimitEntry): Promise<number> {
+    if (this.isDegraded) return this.fallback.peekNow(entry);
+    try {
+      const answer = Number(await this.redis.eval(PEEK_SCRIPT, 1, this.prefix + entry.key, this.now(), entry.rule.limit, entry.rule.windowMs));
+      if (!Number.isFinite(answer)) throw new Error("unexpected answer from the rate-limit peek");
+      return answer;
+    } catch (err) {
+      if (!this.isDegraded) this.options.onFallback?.(err);
+      this.degradedUntil = this.now() + this.coolDownMs;
+      return this.fallback.peekNow(entry);
     }
   }
 

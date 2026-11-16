@@ -65,6 +65,12 @@ reads it too). Only the token's SHA-256 (lowercase hex) is stored.
   person's waitlist entry holds. It sends the person to `/new/card/keep`, which shows the card and the words it was
   drafted from. Only "Keep this card" (a Server Action) claims it (`ideaBox.claim`), then `/new/card/<ideaId>`; "Not
   mine" leaves it. Both clear the cookie (security review 2026-11-13).
+- The box offers two ways on (founder, 2026-11-16), both through sign-in and this same keep step: "Start building it
+  now" (`/login?next=/start?claim=…`, then `/new/card/<ideaId>` and Commit) and "Shape it in the Ideation Studio"
+  (the same with `then=studio`: `/start` passes it to `/new/card/keep`, whose `keepCard` then opens `/new/ideate`,
+  where the kept card leads the deck; with no profile yet, the three questions go on to the Studio). A waitlisted
+  person's intent is not kept across admission: on admission they keep the card as above, and the Studio is one link
+  away on `/new/card/<ideaId>` ("See more directions").
 - `claimIdeaDraft(tx, userId, tokenHash)`: in one transaction, the draft is unclaimed and live (not past `expires_at`
   unless `held_until` is later): create the idea in the person's deck (`repos.ideas.create`, `ideaFromCard` with the
   provenance `{ brief, idea_box: true }`), mark the draft claimed (`claimed_by`, `claimed_at`, `idea_id`). Claiming
@@ -86,7 +92,11 @@ A daily sweep deletes drafts past `greatest(expires_at, held_until)` that nobody
 - `components/landing/IdeaBox.tsx` (client): the field with the typing placeholder (42 ms a character, 1.8 s hold,
   erased at 16 ms; reduced motion: the first idea, still; stops when the visitor focuses the field), "Shape my idea"
   (dark, white 1 px outline), "Surprise me" opening the interests row, the drafting state (the card filling in), the
-  card (design-system `ConceptCard` in its landing variant), the weak line, and "Keep this card" (sign in).
+  card (design-system `IdeaCard`, `wide`: it fills the hero's column and from 576 px puts the ratings beside the
+  pitch), and beside it from an 880 px result (under it before) the design system's `IdeaNextSteps`: "Shape it in the
+  Ideation Studio", "Start building it now", what signing in does today, and "Try another idea" behind an inline
+  warning that the card on screen will be discarded. The card event carries `redrawsLeft` (the limit store's `peek`,
+  recording nothing); at 0 the box says no new ideas are left today instead of offering the button.
 - Turnstile's script loads only when the visitor first focuses the field or taps Surprise me.
 - The hero works from 390 px: `/` is on the small-screen list as an exact path; the sections below the hero still ask
   for a larger window on a small screen, with the card above them.

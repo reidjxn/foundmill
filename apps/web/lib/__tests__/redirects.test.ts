@@ -201,6 +201,8 @@ describe("onboardingNext (WP-04 T1): where the three questions go on to", () => 
     expect(onboardingNext(`/new/commit/${ID}`)).toBe(`/new/commit/${ID}`);
     expect(onboardingNext(`/new/card/${ID}`)).toBe(`/new/card/${ID}`);
     expect(onboardingNext(`/new/commit/${ID.toUpperCase()}`)).toBe(`/new/commit/${ID.toUpperCase()}`);
+    // A card kept with "Shape it in the Ideation Studio" goes on to the Studio.
+    expect(onboardingNext("/new/ideate")).toBe("/new/ideate");
   });
 
   it("returns null for anything else: off-site, another app path, a path that is not an id, or nothing", () => {
@@ -209,7 +211,12 @@ describe("onboardingNext (WP-04 T1): where the three questions go on to", () => 
     expect(onboardingNext("/\\evil.example")).toBeNull();
     expect(onboardingNext("/b/x")).toBeNull();
     expect(onboardingNext("/new")).toBeNull();
-    expect(onboardingNext("/new/ideate")).toBeNull();
+    expect(onboardingNext("/new/ideate/x")).toBeNull();
+    expect(onboardingNext("/new/ideate?x=1")).toBeNull();
+    expect(onboardingNext("/new/ideate.evil")).toBeNull();
+    expect(onboardingNext("/new/ideatex")).toBeNull();
+    expect(onboardingNext("//evil/new/ideate")).toBeNull();
+    expect(onboardingNext("https://evil.example/new/ideate")).toBeNull();
     expect(onboardingNext("/new/commit/not-an-id")).toBeNull();
     expect(onboardingNext(`/new/commit/${ID}/extra`)).toBeNull();
     expect(onboardingNext(`/new/commit/${ID}?x=1`)).toBeNull();
