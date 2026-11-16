@@ -28,6 +28,11 @@ supersedes: []
 - Labels for `glm` where a record of every key is required (design-system tables and mocks, web and modules dialogs,
   training names).
 
+- `scripts/vercel-ignore.sh` (WP-01 T5's Ignored Build Step) exits 1 whenever `git diff` does not exit 0.
+  - Vercel reads only exit 1 as "build" and fails the deployment on any other code.
+  - After this branch was rebased, the clone no longer had the previous preview's commit. `git diff` exited 128 ("bad object") and failed #250's preview.
+  - A test in `scripts/vercel-ignore.test.mjs` covers it.
+
 ## Decisions
 - Founder, Nov 16 about 3:30 PM UTC: Haiku 5.5 before sign-up and for platform tasks; GLM for agent sessions only if a
   session costs about $0.019 with caching. Z.ai caching was tested the same day: automatic on a 12k-token prompt (12,032
