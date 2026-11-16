@@ -7,7 +7,7 @@ const REDACT = [
   // WP-11 T18 (SEC-15): OAuth tokens, sealed values, and the same secrets one level deeper (a credential inside an
   // integration). pino's `*` matches one level only.
   "*.accessToken", "*.refreshToken", "*.sealed",
-  "*.*.apiKey", "*.*.token", "*.*.secret", "*.*.password", "*.*.authorization",
+  "*.*.apiKey", "*.*.token", "*.*.secret", "*.*.password", "*.*.authorization", "*.*.accessToken", "*.*.refreshToken",
 ];
 
 /**

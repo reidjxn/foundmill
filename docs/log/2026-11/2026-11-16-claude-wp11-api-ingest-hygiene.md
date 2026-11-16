@@ -30,5 +30,14 @@ The session has no Supabase CLI. The four key names are the CLI's documented one
 ### The billing case is in webhooks.test.ts
 It sits beside the two webhook cases and shares their in-process request helper. Over a socket, an early answer closed the connection before 2 MB was uploaded.
 
+### Security review (security-reviewer agent)
+- **Fixed, it blocked merge.** The first version looked the segment up as `WEBHOOK_MAX_BYTES_BY_CONNECTOR[segment]`. For `constructor`, `__proto__` or `toString` that returns an `Object.prototype` member, so `??` never fell back and the cap was skipped, with a chunked body read whole before the 404.
+  - The larger limit now applies only when the webhook mounted at that segment is GitHub's, read as an own key. Every other segment gets 1 MiB.
+  - One middleware on `/webhooks/:connector/*` covers both routes; the two registrations had buffered the body twice.
+  - Tests cover `constructor`, `__proto__`, `toString`, an unmounted segment and `GITHUB`.
+- **Low, not changed.** The probe reads the `/rest/v1/` root, as the plan says. If Supabase ever answers that root with 401 or 403 for the anon key, the probe stays `unknown` and does not report `on`. Probing a table path would catch that case; it is a follow-up if production shows `unknown`.
+- **Low, added.** `accessToken` and `refreshToken` are now also redacted two levels down.
+- **Medium, for the founder.** `supabase config push` lays the file over the CLI's defaults, so undeclared settings may be pushed too. The DEPLOY §4 check (the diff shows these four settings and nothing else) is a required step.
+
 ## Not done
 - WP-00 S2 and S10 are the founder's.

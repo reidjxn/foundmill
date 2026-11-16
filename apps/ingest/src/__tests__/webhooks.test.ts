@@ -240,6 +240,10 @@ describe("bounded bodies (WP-11 T15)", () => {
     expect((await post("/webhooks/stripe")).status).toBe(413);
   });
 
+  it("caps a segment that names an Object property, and an unmounted one, at the default", async () => {
+    for (const path of ["/webhooks/constructor", `/webhooks/__proto__/${hz.A.businessId}`, "/webhooks/toString", "/webhooks/nope", "/webhooks/GITHUB"]) expect((await post(path)).status, path).toBe(413);
+  });
+
   it("lets 2 MB through to GitHub, whose own cap is 25 MB, and judges it by its signature", async () => {
     const res = await post(`/webhooks/github/${hz.A.businessId}`, { "x-github-event": "ping", "x-hub-signature-256": "sha256=00", "x-github-delivery": "d-1" });
     expect(res.status).not.toBe(413);

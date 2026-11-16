@@ -80,14 +80,17 @@ export function createIngestApp(deps: IngestDeps): CreatedIngestApp {
   // Bodies are capped before they are read (WP-11 T15): registered above the routes, since hono runs middleware in the
   // order it was added. The limit is chosen from the path segment after /webhooks/.
   const tooLarge = (maxSize: number) => bodyLimit({ maxSize, onError: (c) => c.json({ ok: false, error: "payload_too_large", message: `Request body is larger than ${Math.round(maxSize / (1024 * 1024))} MB` }, 413) });
+  // The larger limit only for a webhook this deployment mounts at that segment, looked up as an own key (a segment
+  // such as `constructor` or `__proto__` must not reach Object.prototype and skip the cap).
   const webhookLimits = new Map<number, ReturnType<typeof tooLarge>>();
   const webhookLimit = (segment: string) => {
-    const max = WEBHOOK_MAX_BYTES_BY_CONNECTOR[segment] ?? WEBHOOK_MAX_BYTES;
+    const connector = mounted.find((m) => m.segment === segment)?.connector;
+    const max = connector && Object.hasOwn(WEBHOOK_MAX_BYTES_BY_CONNECTOR, connector) ? WEBHOOK_MAX_BYTES_BY_CONNECTOR[connector]! : WEBHOOK_MAX_BYTES;
     let limiter = webhookLimits.get(max);
     if (!limiter) webhookLimits.set(max, (limiter = tooLarge(max)));
     return limiter;
   };
-  app.use("/webhooks/:connector", (c, next) => webhookLimit(c.req.param("connector"))(c, next));
+  // hono's `/webhooks/:connector/*` also matches `/webhooks/<connector>`: one registration covers both routes.
   app.use("/webhooks/:connector/*", (c, next) => webhookLimit(c.req.param("connector"))(c, next));
   app.use(BILLING_WEBHOOK_PATH, tooLarge(BILLING_WEBHOOK_MAX_BYTES));
 
