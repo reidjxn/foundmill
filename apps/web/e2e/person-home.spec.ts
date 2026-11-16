@@ -56,10 +56,15 @@ test.describe("the home of a person with no project (2.4)", () => {
     await expect(page).toHaveURL(/\/home$/, { timeout: LONG });
     await expect(page.getByTestId("person-home")).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
-    await expect(page.getByTestId("home-start-link")).toBeVisible();
+    // WP-03 T3 (a stopgap WP-04 removes): the studio is desktop-only, so Start something offers the link by email.
+    await expect(page.getByTestId("home-start-link")).toHaveCount(0);
+    await expect(page.getByTestId("home-start").getByText("The next step needs a computer for now.")).toBeVisible();
+    const startButton = page.getByTestId("home-start").getByRole("button", { name: "Email me a link" });
+    await expect(startButton).toBeVisible();
+    expect(await page.locator('a[href="/new"], a[href^="/new/"]').count()).toBe(0);
     await expect(page.getByTestId("home-find")).toBeVisible();
     expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0);
-    const start = await page.getByTestId("home-start-link").boundingBox();
+    const start = await startButton.boundingBox();
     expect(start && start.x >= 0 && start.x + start.width <= 390).toBe(true);
     // A finger's target (DESIGN §6 tap-target), and one column: the find card sits under Start something.
     expect(start!.height).toBeGreaterThanOrEqual(44);

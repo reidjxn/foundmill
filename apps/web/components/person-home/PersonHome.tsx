@@ -11,16 +11,20 @@
  *   with no link, and nothing waiting is read.
  * - Works from 390 px (CLAUDE.md "Small screens", DESIGN §6): one column inside the frame's container, two from
  *   `page-wide`; every link a finger presses is at least `tap-target` high.
+ * - On a small screen nothing here links into a desktop-only page (the studio, Commit): "Start something" and each
+ *   concept's Continue offer the link by email instead (`NextStepOnComputer`, `EmailMeALink`; WP-03 T3). A stopgap:
+ *   WP-04 removes it when it makes the studio's first steps work on a phone.
  */
 import { ArrowRight, Inbox, Lightbulb, Users } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { Chip, Icon, Panel, type IconComponent } from "@foundmill/dugout";
+import { Chip, Icon, Panel, isViewportTooSmall, useViewportWidth, type IconComponent } from "@foundmill/dugout";
 import { plural } from "@/lib/format";
 import { useTRPC } from "@/lib/trpc-react";
 import { LinkButton } from "@/components/new/LinkButton";
 import { StudioFrame } from "@/components/new/StudioFrame";
 import { commitHref, toConcept } from "@/components/new/ideate/concepts";
+import { CONTINUE_LATER_WORDS, EmailMeALink, NextStepOnComputer } from "@/components/providers/ContinueLater";
 
 export interface PersonHomeProps {
   viewer: { email: string | null };
@@ -121,6 +125,8 @@ export function PersonHome({ viewer, displayName, liveMode }: PersonHomeProps) {
   );
   const ideas = ideasQ.data?.items ?? [];
   const waiting = liveMode ? waitingLines(summaryQ.data) : [];
+  // WP-03 T3 stopgap (WP-04 deletes it): no link from a phone into the studio or Commit, which are desktop-only.
+  const small = isViewportTooSmall(useViewportWidth());
   return (
     <StudioFrame
       title={homeTitle(displayName)}
@@ -138,6 +144,9 @@ export function PersonHome({ viewer, displayName, liveMode }: PersonHomeProps) {
           title="Start something"
           lede="Bring an idea, or none yet, or something you already run. Your team shapes it with you and starts on the work."
           action={
+            small ? (
+              <NextStepOnComputer path="/new" />
+            ) : (
             <LinkButton
               variant="primary"
               href="/new"
@@ -147,6 +156,7 @@ export function PersonHome({ viewer, displayName, liveMode }: PersonHomeProps) {
             >
               Start something
             </LinkButton>
+            )
           }
         />
         <HomeCard
@@ -209,6 +219,7 @@ export function PersonHome({ viewer, displayName, liveMode }: PersonHomeProps) {
             onRetry={() => ideasQ.refetch()}
             data-testid="home-concepts"
           >
+            {small ? <p className="mb-3 text-body text-secondary">{CONTINUE_LATER_WORDS.nextStep}</p> : null}
             <ul className="flex flex-col gap-2">
               {ideas.map((idea) => {
                 const c = toConcept(idea);
@@ -223,19 +234,23 @@ export function PersonHome({ viewer, displayName, liveMode }: PersonHomeProps) {
                         <p className="mt-1 line-clamp-2 text-small text-secondary">{c.pitch}</p>
                       ) : null}
                     </div>
-                    <LinkButton
-                      size="sm"
-                      variant="default"
-                      href={commitHref(idea.id)}
-                      className="min-h-tap"
-                    >
-                      Continue
-                    </LinkButton>
+                    {small ? (
+                      <EmailMeALink path={commitHref(idea.id)} signedIn />
+                    ) : (
+                      <LinkButton
+                        size="sm"
+                        variant="default"
+                        href={commitHref(idea.id)}
+                        className="min-h-tap"
+                      >
+                        Continue
+                      </LinkButton>
+                    )}
                   </li>
                 );
               })}
             </ul>
-            {ideasQ.data?.nextCursor ? (
+            {ideasQ.data?.nextCursor && !small ? (
               <div className="mt-3 flex justify-end">
                 <LinkButton variant="ghost" size="sm" href="/new/ideate" className="min-h-tap">
                   See every concept in the studio

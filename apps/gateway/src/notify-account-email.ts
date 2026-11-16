@@ -15,12 +15,20 @@
  * platform-wide suppression of `invitationsOffToken`). Mock mode answers `simulated: true` in development and test and
  * is refused elsewhere (`simulated`), so a simulated send is never recorded as the email on staging or production; the
  * orchestrator sets `notified_at`. No audit row (there is no project) and no event. The address never reaches a log line.
+ *
+ * `continue_link` (WP-03 T3): the link a person asked for from a small screen, to open a desktop-only page on a
+ * computer. Only the api asks, with the signed-in person's own id and a path; step 2 is instead `isContinuePath` again
+ * (in the request's schema, so a bad path is refused before any count) and the link is `APP_URL + path`. No once-marker
+ * (a person may ask again for another page); three a day per person (`pn:acct-link:<userId>:day`) before the per-address
+ * count and the ceiling.
  */
 import { z } from "zod";
 import { APP_NAME } from "@foundmill/config";
 import { repos } from "@foundmill/db";
 import {
   ACCOUNT_EMAIL_KINDS,
+  continueLinkEmail,
+  isContinuePath,
   mockResultsAllowed,
   NOTIFY_EMAIL_REFUSALS,
   NOTIFY_ITEM_MARKER_MS,
@@ -39,10 +47,19 @@ import { modeFor, vendorRefusedOutright, type GatewayDeps } from "./pipeline";
 import { PLATFORM_MAIL_CEILING_KEY, PLATFORM_NOTIFY_DEFAULT_CEILING } from "./platform-mail";
 import { DAY_MS } from "./rate-limit";
 
-export const AccountEmailRequest = z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("waitlist_admitted"), userId: z.guid(), data: z.strictObject({ waitlistEntryId: z.guid() }) })]);
+export const AccountEmailRequest = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("waitlist_admitted"), userId: z.guid(), data: z.strictObject({ waitlistEntryId: z.guid() }) }),
+  z.strictObject({ kind: z.literal("continue_link"), userId: z.guid(), data: z.strictObject({ path: z.string().refine(isContinuePath) }) }),
+]);
 export type AccountEmailRequest = z.infer<typeof AccountEmailRequest>;
 
 export const isAccountEmailKind = (kind: unknown): kind is AccountEmailKind => typeof kind === "string" && (ACCOUNT_EMAIL_KINDS as readonly string[]).includes(kind);
+
+/** Who may ask for each kind: the orchestrator's sweep for the waitlist, the api (a person's press) for a link. */
+export const ACCOUNT_EMAIL_SERVICE: Readonly<Record<AccountEmailKind, string>> = { waitlist_admitted: "orchestrator", continue_link: "api" };
+
+/** The day's count of links one person asked for (`continue_link`). */
+export const notifyAccountLinkDayKey = (userId: string): string => `pn:acct-link:${userId.toLowerCase()}:day`;
 
 /** The marker that this kind of email went out for this row. */
 export const notifyAccountItemKey = (kind: AccountEmailKind, id: string): string => `pn:acct-item:${kind}:${id.toLowerCase()}`;
@@ -52,7 +69,7 @@ const NIL_ID = "00000000-0000-0000-0000-000000000000";
 export async function sendAccountEmail(deps: GatewayDeps, input: AccountEmailRequest, service: string): Promise<NotifyEmailResponse> {
   const now = deps.now?.() ?? new Date();
   const config = deps.platformMail;
-  const rowId = input.data.waitlistEntryId;
+  const rowId = input.kind === "waitlist_admitted" ? input.data.waitlistEntryId : null;
   const notSent = (reason: NotifyEmailNotSent): NotifyEmailResponse => {
     deps.log.info({ kind: input.kind, rowId, reason }, "account email not sent");
     return { sent: false, reason, message: NOTIFY_EMAIL_REFUSALS[reason] };
@@ -67,9 +84,13 @@ export async function sendAccountEmail(deps: GatewayDeps, input: AccountEmailReq
   const appUrl = config.appUrl ?? "";
   if (!secret || !config.notifyLocalPart || !appUrl || (strict && (!/^https:\/\//.test(appUrl) || !/^https:\/\//.test(config.unsubscribeBase)))) return notSent("unconfigured");
 
-  // 2. The entry: this person's, admitted, not yet emailed.
-  const entry = await repos.waitlist.forEmail(deps.db, rowId, now);
-  if (!entry || entry.userId?.toLowerCase() !== input.userId.toLowerCase() || !entry.admittedAt || entry.notifiedAt) return notSent("not_pending");
+  // 2. The waitlist: the entry is this person's, admitted, not yet emailed. A link: the path was checked by the schema.
+  let cardName: string | null = null;
+  if (rowId) {
+    const entry = await repos.waitlist.forEmail(deps.db, rowId, now);
+    if (!entry || entry.userId?.toLowerCase() !== input.userId.toLowerCase() || !entry.admittedAt || entry.notifiedAt) return notSent("not_pending");
+    cardName = entry.cardName;
+  }
   if (mode === "mock" && deps.appEnv !== undefined && !mockResultsAllowed(deps.appEnv, false)) return notSent("simulated");
 
   // 3. The address, from the account, and the platform's suppression list.
@@ -79,16 +100,16 @@ export async function sendAccountEmail(deps: GatewayDeps, input: AccountEmailReq
   // The nil business: only platform-scope rows can match.
   if (await repos.channels.isSuppressed(deps.db, NIL_ID, { emailHash })) return notSent("suppressed");
   const offUrl = invitationsOffUrl(config.unsubscribeBase, invitationsOffToken(secret, emailHash), "joining");
-  const words = waitlistAdmittedEmail({ appName: APP_NAME, cardName: entry.cardName, link: `${appUrl}/start`, offLink: offUrl });
+  const words = input.kind === "continue_link" ? continueLinkEmail({ appName: APP_NAME, link: `${appUrl}${input.data.path}`, offLink: offUrl }) : waitlistAdmittedEmail({ appName: APP_NAME, cardName, link: `${appUrl}/start`, offLink: offUrl });
 
   // 4. Once, then the counts, shared by every replica.
   const shared = () => devStack || deps.rateLimits.durable === true;
-  const itemKey = notifyAccountItemKey(input.kind, rowId);
+  const itemKey = rowId ? notifyAccountItemKey(input.kind, rowId) : null;
   let marked = false;
   const counted: string[] = [];
   const release = async () => {
     for (const key of counted.splice(0)) await deps.rateLimits.release?.(key, DAY_MS, now.getTime());
-    if (marked) {
+    if (marked && itemKey) {
       marked = false;
       await deps.rateLimits.unclaim?.(itemKey);
     }
@@ -96,12 +117,12 @@ export async function sendAccountEmail(deps: GatewayDeps, input: AccountEmailReq
   if (!deps.rateLimits.claim || !deps.rateLimits.count) {
     if (!devStack) return notSent("store");
   } else {
-    marked = await deps.rateLimits.claim(itemKey, NOTIFY_ITEM_MARKER_MS, now.getTime());
+    if (itemKey) marked = await deps.rateLimits.claim(itemKey, NOTIFY_ITEM_MARKER_MS, now.getTime());
     if (!shared()) {
       await release();
       return notSent("store");
     }
-    if (!marked) return notSent("already_sent");
+    if (itemKey && !marked) return notSent("already_sent");
     const projectMail = await deps.rateLimits.count(PLATFORM_MAIL_CEILING_KEY, DAY_MS, now.getTime());
     if (projectMail > config.ceiling * NOTIFY_PROJECT_MAIL_HEADROOM) {
       await release();
@@ -110,6 +131,7 @@ export async function sendAccountEmail(deps: GatewayDeps, input: AccountEmailReq
   }
   const ceiling = config.notifyCeiling ?? PLATFORM_NOTIFY_DEFAULT_CEILING;
   const caps: [string, number, NotifyEmailNotSent][] = [
+    ...(input.kind === "continue_link" ? [[notifyAccountLinkDayKey(input.userId), NOTIFY_PER_PERSON_PER_DAY, "per_person"] as [string, number, NotifyEmailNotSent]] : []),
     [notifyAddressDayKey(secret, email), NOTIFY_PER_PERSON_PER_DAY, "per_address"],
     [PLATFORM_NOTIFY_CEILING_KEY, ceiling, "ceiling"],
   ];

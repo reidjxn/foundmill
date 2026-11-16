@@ -238,6 +238,13 @@ export type GatewayNotifyEmailRequest =
  */
 export type GatewayAddressEmailRequest = { kind: "invitation"; data: { invitationId: string; token: string } };
 
+/**
+ * The same sender's email to an account about the account itself that the api asks for (`ACCOUNT_EMAIL_KINDS`; WP-03
+ * T3): the link a person asked for from a small screen. The gateway reads the address from the account and checks the
+ * path again (`isContinuePath`).
+ */
+export type GatewayAccountEmailRequest = { kind: "continue_link"; userId: string; data: { path: string } };
+
 /** Sent (on the mock: simulated), or not, with the gateway's reason and a plain sentence; never an error for "not sent". */
 export type GatewayNotifyEmailResult = { sent: true; simulated: boolean; eventId: string | null; /** A founder notice: whether the email that went carried a one-click cancel. */ offersCancel?: boolean } | { sent: false; reason: string; message: string };
 
@@ -319,6 +326,8 @@ export interface ApiGatewayClient {
   notifyEmail(input: GatewayNotifyEmailRequest): Promise<GatewayNotifyEmailResult>;
   /** The same sender (`POST /v1/notify/email`) to an address rather than an account: an invitation. Absent (test doubles): not sent. */
   addressEmail?(input: GatewayAddressEmailRequest): Promise<GatewayNotifyEmailResult>;
+  /** The same sender to an account about itself: the link to continue on a computer. Absent (test doubles): not sent. */
+  accountEmail?(input: GatewayAccountEmailRequest): Promise<GatewayNotifyEmailResult>;
   /**
    * One agent turn spoken in a speech accent (Team call). Asked only when `elevenlabs` runs live; the gateway checks the
    * accent (400 `unknown_speech_accent`), the words (1 to 600 characters) and the business's day of spoken characters
@@ -416,6 +425,7 @@ export function createApiGatewayClient(opts: CreateApiGatewayClientOptions): Api
     verifyTurnstile: (input) => post<GatewayTurnstileResult>("/v1/turnstile/verify", input, Math.min(timeoutMs, TURNSTILE_CLIENT_TIMEOUT_MS)),
     notifyEmail: (input) => post<GatewayNotifyEmailResult>("/v1/notify/email", input, Math.min(timeoutMs, CONFIRM_FOLLOW_TIMEOUT_MS)),
     addressEmail: (input) => post<GatewayNotifyEmailResult>("/v1/notify/email", input, Math.min(timeoutMs, CONFIRM_FOLLOW_TIMEOUT_MS)),
+    accountEmail: (input) => post<GatewayNotifyEmailResult>("/v1/notify/email", input, Math.min(timeoutMs, CONFIRM_FOLLOW_TIMEOUT_MS)),
     synthesizeSpeech: (input) => post<GatewaySpeech>("/v1/speech/synthesize", input, Math.max(timeoutMs, SPEECH_CLIENT_TIMEOUT_MS)),
     transcribeSpeech: (input) => post<GatewayTranscript>("/v1/speech/transcribe", input, Math.max(timeoutMs, TRANSCRIBE_CLIENT_TIMEOUT_MS)),
     validateKey: (businessId, apiKey) => post<GatewayKeyValidation>("/v1/keys/validate", { businessId, apiKey }),

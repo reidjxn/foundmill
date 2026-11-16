@@ -88,6 +88,20 @@ export function waitlistAdmittedEmail(f: { appName: string; cardName: string | n
   });
 }
 
+/**
+ * The link a person asked for from a small screen, to open a desktop-only page on a computer (WP-03 T3;
+ * `ACCOUNT_EMAIL_KINDS`). `link` is `APP_URL` and a path `isContinuePath` accepts, built by the gateway. The footer
+ * carries the same platform-wide stop as the waitlist's email.
+ */
+export function continueLinkEmail(f: { appName: string; link: string; offLink: string }): NotifyEmailText {
+  return render("Your link to continue on a computer", {
+    paragraphs: ["You asked for this link from your phone. Open it on a computer to continue. It opens after you sign in with this address."],
+    button: { label: `Continue on ${f.appName}`, href: f.link },
+    footer: `You get this because you asked for this link on ${f.appName}.`,
+    footerLinks: [{ label: accountEmailOffLinkLabel(f.appName), href: f.offLink }],
+  });
+}
+
 /** To the person who invited someone: they joined. One of the person's own kinds (`invitation_accepted`), with its off link. */
 export function invitationAcceptedEmail(f: { appName: string; recipientName: string | null; personName: string | null; projectName: string; role: InvitationRole; link: string; offLink: string; pauseLink: string }): NotifyEmailText {
   const project = oneLine(f.projectName, 120);

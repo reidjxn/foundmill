@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { isAdminRole, isOwnerRole, MEMBERSHIP_ROLES } from "./constants";
 import { hasSectionAccess, SECTIONS } from "./permissions";
-import { accountEmailOffLinkLabel, emailDate, INVITATIONS_OFF_LINK_LABEL, invitationAcceptedEmail, invitationEmail, waitlistAdmittedEmail } from "./people-email";
+import { accountEmailOffLinkLabel, continueLinkEmail, emailDate, INVITATIONS_OFF_LINK_LABEL, invitationAcceptedEmail, invitationEmail, waitlistAdmittedEmail } from "./people-email";
 import { COLLABORATOR_SECTIONS, INVITATION_ROLE_SENTENCE, invitationMembership, invitationNeedsEmail, invitationRolePhrase, isPeopleTokenShape, maskedAddress, mayMakeInvitation, rolesThatMayInvite } from "./people";
 
 describe("what an invitation offers (THESIS_REVIEW 3.1, 3.3)", () => {
@@ -102,5 +102,17 @@ describe("the emails about people", () => {
     expect(sneaky.text).not.toContain("evil.example");
     expect(sneaky.html).not.toContain("<b>");
     expect(sneaky.text).toContain("Your card for Go to (link) now <b> is saved");
+  });
+
+  it("the link to continue on a computer (WP-03 T3): one purpose, the link the gateway built, and the way to stop email", () => {
+    const off = "https://in.foundmill.com/mail/invitations/off?t=abc";
+    const link = "https://foundmill.com/b/11111111-1111-4111-8111-111111111111/product/page";
+    const e = continueLinkEmail({ appName: "Foundmill", link, offLink: off });
+    expect(e.subject).toBe("Your link to continue on a computer");
+    expect(e.text).toContain("You asked for this link from your phone. Open it on a computer to continue. It opens after you sign in with this address.");
+    expect(e.text).toContain(`Continue on Foundmill: ${link}`);
+    expect(e.text).toContain(`Don't email this address about joining Foundmill: ${off}`);
+    expect(e.html).toContain(`href="${link}"`);
+    expect(`${e.subject} ${e.text}`).not.toMatch(/\bjobs?\b|employ|career|unemploy/i);
   });
 });

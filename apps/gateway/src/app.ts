@@ -44,7 +44,7 @@ import { CONFIRM_FOLLOW_ROUTE, ConfirmFollowRequest, sendFollowConfirmation } fr
 import { TURNSTILE_ROUTE, TurnstileVerifyRequest, verifyTurnstile } from "./turnstile";
 import { NOTIFY_EMAIL_ROUTE, NotifyEmailRequest, sendNotifyEmail } from "./notify-email";
 import { AddressEmailRequest, isAddressEmailKind, sendAddressEmail } from "./notify-address-email";
-import { AccountEmailRequest, isAccountEmailKind, sendAccountEmail } from "./notify-account-email";
+import { ACCOUNT_EMAIL_SERVICE, AccountEmailRequest, isAccountEmailKind, sendAccountEmail } from "./notify-account-email";
 import { FounderNoticeRequest, isAccountSafetyKind, sendFounderNotice } from "./notify-founder-notice";
 import { handleMcpRequest } from "./mcp";
 import { ARCHIVE_ROUTE, ArchiveRequest, routeOnlyCall, serveArchive } from "./archive";
@@ -267,9 +267,11 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
       if (!parsed.success) throw new GatewayError("validation", "Send a kind of email and the ids (and the token) that kind needs", 400);
       return c.json(await sendAddressEmail(deps, parsed.data, c.var.service.svc));
     }
-    // An email to an account about the account itself (the waitlist's place is open): the orchestrator's only.
-    if (isAccountEmailKind((body as { kind?: unknown } | null)?.kind)) {
-      if (c.var.service.svc !== "orchestrator") throw new GatewayError("forbidden_service", "Only the orchestrator asks for an email about an account", 403);
+    // An email to an account about the account itself: the waitlist's place is open (the orchestrator's only), or the
+    // link a person asked for from a small screen (the api's only).
+    const accountKind = (body as { kind?: unknown } | null)?.kind;
+    if (isAccountEmailKind(accountKind)) {
+      if (c.var.service.svc !== ACCOUNT_EMAIL_SERVICE[accountKind]) throw new GatewayError("forbidden_service", `Only the ${ACCOUNT_EMAIL_SERVICE[accountKind]} asks for this email about an account`, 403);
       const parsed = AccountEmailRequest.safeParse(body);
       if (!parsed.success) throw new GatewayError("validation", "Send a kind of email, a user id and the ids that kind needs", 400);
       return c.json(await sendAccountEmail(deps, parsed.data, c.var.service.svc));
