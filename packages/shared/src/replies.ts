@@ -43,6 +43,8 @@ export const REPLY_WORDS = {
   answerLabel: "Your answer",
   answerButton: "Send answer",
   answered: "Answered",
+  /** Who an answer is shown from: any of the founders may have written it. */
+  answerFrom: "Your project",
   sent: "Answer sent.",
   simulated: "Simulated: email is not switched on here, so nothing was sent.",
   plainNote: "Shown exactly as they wrote it. Links are not clickable.",

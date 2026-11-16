@@ -40,7 +40,18 @@ No agent tool returns interactions today, and this change adds none, so the text
 ### The Playwright case lives in entity-profile.spec.ts
 The plan named `crm.spec.ts`; the reply thread is on the profile, and that spec already opens a record. The e2e stack runs no gateway or mail, so the case replays a kept reply into the api's answer and records the answer call.
 
+### Security review, and what was fixed here
+The security-reviewer agent found no hard-gate bypass, and these were fixed:
+- The reply's `interactionId` seed now includes the project, so one message to two projects is two rows; a conflicting id rolls back the person it created.
+- An address whose record was erased (its "Deletion requested" suppression) is never imported again when the person writes; an archived record is reused.
+- A record merged away is not answered from.
+- A per-project advisory lock keeps the day's count and the find-or-create sound under concurrent mail.
+- `crm.replies.answer` carries `modelLimited("replyAnswer")` (10 a minute and 100 a day per member).
+- The contact's data export includes the kept words.
+- An answer shows as from "Your project", since any of the founders may have written it.
+
 ## Not done
+- From the review, left open: one note per reply (a spammer with 200 verified addresses a day makes 200 notes; the cap bounds it), no idempotency key on Send (a timed-out answer pressed again may send twice), and `lead.replied.summary` still names the sender's address (as before this change).
 - Switching it on in production: needs WP-00 S1 (a real follow and its email) and S2 (SendGrid's Event Webhook to `https://ingest.foundmill.com/mail/events`, signed, domain verified), recorded in docs/DEPLOY.md.
 - Also for production: SendGrid Inbound Parse for `mail.foundmill.com` posting to `https://ingest.foundmill.com/mail/inbound?token=<PLATFORM_MAIL_INBOUND_TOKEN>`.
 - No code switch: the routes are on once `PLATFORM_MAIL_*` is set, which it is.

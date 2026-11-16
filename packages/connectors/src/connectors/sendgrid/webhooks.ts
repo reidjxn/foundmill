@@ -265,7 +265,9 @@ export function normaliseInboundMail(mail: InboundMail, businessId: string, now:
         entityId,
         channelKey: "email_automation",
         campaignId: null,
-        interactionId: uuidFromSeed("interaction", SENDGRID_KEY, "inbound", key),
+        // The project is in the seed: one message to two projects' addresses is two rows, and a sender who reuses a
+        // Message-ID cannot take another project's row (interaction ids are unique across projects; WP-08 T2 review).
+        interactionId: uuidFromSeed("interaction", SENDGRID_KEY, "inbound", businessId, key),
         sentiment,
         summary: `Email reply from ${from} (${words} words, ${mail.attachments} attachment${mail.attachments === 1 ? "" : "s"}${mail.dkim?.includes("pass") ? ", DKIM pass" : ""}); body quarantined for the reader.`,
         requestsMeeting: sentiment === "neutral" && MEETING_RE.test(own),

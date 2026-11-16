@@ -39,7 +39,7 @@ export function ReplyThread({ businessId, entityId }: { businessId: string; enti
           <li key={m.id} className="flex flex-col gap-0.5" data-testid="reply-message" data-direction={m.direction}>
             <span className="inline-flex flex-wrap items-center gap-2 text-small text-secondary">
               <Icon icon={Mail} size="inline" />
-              {m.direction === "inbound" ? m.from : "You"} · {formatDateTime(m.receivedAt)}
+              {m.direction === "inbound" ? m.from : REPLY_WORDS.answerFrom} · {formatDateTime(m.receivedAt)}
               {m.answered ? <Chip tone="good">{REPLY_WORDS.answered}</Chip> : null}
             </span>
             {m.subject ? <span className="text-body text-primary">{m.subject}</span> : null}

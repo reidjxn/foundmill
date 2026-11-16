@@ -92,4 +92,27 @@ describe("repos.replies", () => {
     expect(purged.purged).toContain(r.entityId);
     expect(await H.svc((tx) => tx.select().from(s.interactions).where(eq(s.interactions.id, interactionId)))).toEqual([]);
   });
+
+  it("an address whose record was erased is never imported again, even when the person writes", async () => {
+    const r = await store(H.A.businessId, { email: "erased@example.com" });
+    await H.svc((tx) => repos.entities.requestDeletion(tx, H.A.businessId, r.entityId!, { delayDays: 0 }));
+    await H.svc((tx) => repos.entities.purge(tx, H.A.businessId, r.entityId!));
+    expect(await store(H.A.businessId, { email: "erased@example.com" })).toEqual({ status: "deleted", entityId: null });
+    expect(await H.svc((tx) => repos.entities.findByIdentifier(tx, H.A.businessId, "email", "erased@example.com"))).toBeNull();
+  });
+
+  it("an id another project holds is a duplicate and leaves no stray person behind", async () => {
+    const interactionId = randomUUID();
+    await store(H.B.businessId, { interactionId, email: "both@example.com" });
+    expect(await store(H.A.businessId, { interactionId, email: "both@example.com" })).toEqual({ status: "duplicate", entityId: null });
+    expect(await H.svc((tx) => repos.entities.findByIdentifier(tx, H.A.businessId, "email", "both@example.com"))).toBeNull();
+  });
+
+  it("a reply on a record merged away is not answered from it", async () => {
+    const interactionId = randomUUID();
+    const r = await store(H.A.businessId, { interactionId, email: "merged.away@example.com" });
+    const kept = await H.svc((tx) => repos.entities.create(tx, H.A.businessId, { kind: "person", displayName: "Kept" }));
+    await H.svc((tx) => tx.update(s.entities).set({ mergedIntoId: kept.id }).where(eq(s.entities.id, r.entityId!)));
+    expect(await H.svc((tx) => repos.replies.forAnswer(tx, H.A.businessId, interactionId))).toBeNull();
+  });
 });

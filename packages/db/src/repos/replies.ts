@@ -4,8 +4,9 @@
  * `storeInbound` is ingest's: one row per verified reply to the project's Foundmill address, with the id the
  * `lead.replied` event names (`interactionId`), so the event points at it. The sender's record is found by address, or
  * created (a person named with the address masked, source `reply`, no lawful basis: writing to the project is not
- * consent to marketing). A record whose deletion was requested gets nothing. At most `dailyCap` rows a project in a UTC
- * day. Idempotent on the id.
+ * consent to marketing); an archived record with the address is reused. A record whose deletion was requested gets
+ * nothing, and neither does an address whose record was erased (its deletion suppression stays: never imported again).
+ * At most `dailyCap` rows a project in a UTC day, counted under a per-project lock. Idempotent on the id.
  *
  * `list` and `answer` are the api's (inside `withRls`, behind `sectionRead/Write("crm")`); `forAnswer` is the gateway's,
  * the one place an address is read to send the founder's answer. The text is a stranger's: callers show it as plain
@@ -13,8 +14,9 @@
  */
 import { REPLY_BODY_MAX, REPLY_CONTACT_LABEL, REPLY_SOURCE, followerDisplayName } from "@foundmill/shared";
 import { and, desc, eq, gte, inArray, isNotNull, lt, sql } from "drizzle-orm";
-import { entities, interactions, type Interaction } from "../schema";
-import { entitiesRepo } from "./entities";
+import { entities, interactions, suppressionList, type Interaction } from "../schema";
+import { suppressionHash } from "./channels";
+import { ENTITY_DELETION_REASON, entitiesRepo } from "./entities";
 import { maybeOne, type Executor } from "./_shared";
 
 export type StoreInboundStatus = "stored" | "duplicate" | "over_cap" | "deleted";
@@ -46,12 +48,22 @@ export interface ReplyMessage {
   answered: boolean;
 }
 
+/** An archived record with this address (`findByIdentifier` reads live records only): reused rather than duplicated. */
+async function archivedByEmail(db: Executor, businessId: string, email: string) {
+  const [row] = await db.select().from(entities).where(and(eq(entities.businessId, businessId), sql`lower(${entities.identifiers}->>'email') = ${email}`, isNotNull(entities.archivedAt), sql`${entities.mergedIntoId} is null`)).limit(1);
+  return row ?? null;
+}
+
 const startOfUtcDay = (d: Date): Date => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
 const kept = and(eq(interactions.kind, "email"), isNotNull(interactions.bodyUntrusted));
 
 export const repliesRepo = {
   async storeInbound(db: Executor, businessId: string, input: StoreInboundInput): Promise<{ status: StoreInboundStatus; entityId: string | null }> {
-    return db.transaction(async (tx) => {
+    const conflict = new Error("interaction id taken");
+    try {
+      return await db.transaction(async (tx) => {
+      // One reply at a time per project: the day's count and the find-or-create of the sender hold under concurrency.
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext('crm.reply'), hashtext(${businessId}))`);
       const [existing] = await tx.select({ entityIds: interactions.entityIds }).from(interactions).where(and(eq(interactions.businessId, businessId), eq(interactions.id, input.interactionId))).limit(1);
       if (existing) return { status: "duplicate" as const, entityId: existing.entityIds[0] ?? null };
       const day = startOfUtcDay(input.occurredAt);
@@ -61,7 +73,9 @@ export const repliesRepo = {
         .where(and(eq(interactions.businessId, businessId), kept, eq(interactions.direction, "inbound"), gte(interactions.occurredAt, day), lt(interactions.occurredAt, new Date(day.getTime() + 86_400_000))));
       if (Number(count?.n ?? 0) >= input.dailyCap) return { status: "over_cap" as const, entityId: null };
       const email = input.email.trim().toLowerCase();
-      const found = await entitiesRepo.findByIdentifier(tx, businessId, "email", email);
+      const erased = await tx.select({ id: suppressionList.id }).from(suppressionList).where(and(eq(suppressionList.businessId, businessId), eq(suppressionList.emailHash, suppressionHash("email", email)), eq(suppressionList.reason, ENTITY_DELETION_REASON))).limit(1);
+      if (erased.length) return { status: "deleted" as const, entityId: null };
+      const found = (await entitiesRepo.findByIdentifier(tx, businessId, "email", email)) ?? (await archivedByEmail(tx, businessId, email));
       if (found?.deletionRequestedAt) return { status: "deleted" as const, entityId: null };
       const entity = found ?? (await entitiesRepo.create(tx, businessId, { kind: "person", displayName: followerDisplayName(email, REPLY_CONTACT_LABEL), identifiers: { email }, source: REPLY_SOURCE, lawfulBasis: null }));
       const subject = input.subject.replace(/[\r\n]+/g, " ").trim().slice(0, 200);
@@ -70,10 +84,15 @@ export const repliesRepo = {
         .values({ id: input.interactionId, businessId, kind: "email", direction: "inbound", occurredAt: input.occurredAt, entityIds: [entity.id], summary: subject, bodyUntrusted: input.body.slice(0, REPLY_BODY_MAX) })
         .onConflictDoNothing()
         .returning({ id: interactions.id });
-      if (rows.length === 0) return { status: "duplicate" as const, entityId: entity.id };
+      // The id is taken by another project's row (ids are unique across projects): roll back the person just made.
+      if (rows.length === 0) throw conflict;
       await input.onStored?.(tx, { interactionId: input.interactionId, entityId: entity.id, displayName: entity.displayName });
       return { status: "stored" as const, entityId: entity.id };
-    });
+      });
+    } catch (e) {
+      if (e === conflict) return { status: "duplicate", entityId: null };
+      throw e;
+    }
   },
 
   /** Kept email (replies and the founders' answers), newest first, for one record or the whole project. */
@@ -107,7 +126,7 @@ export const repliesRepo = {
     if (!row || !entityId) return null;
     const entity = maybeOne(await db.select().from(entities).where(and(eq(entities.businessId, businessId), eq(entities.id, entityId))).limit(1));
     const email = typeof entity?.identifiers?.email === "string" ? entity.identifiers.email : null;
-    if (!entity || !email || entity.deletionRequestedAt) return null;
+    if (!entity || !email || entity.deletionRequestedAt || entity.mergedIntoId) return null;
     return { interactionId: row.id, entityId, email, subject: row.summary };
   },
 
