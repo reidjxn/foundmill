@@ -50,7 +50,7 @@ Solo guard: this task is the guard. Every later task adds its own case to these 
 Done when: both suites run in CI and pass.
 
 ### T1: Draft a public page for every project committed before the feature            [S] [ships alone; merges after D6]
-- [ ] merged
+- [x] merged
 
 Why: A9-P0-3; e0 (`project_pages` 0 rows, 13 real projects). Chosen over "a prompt on Today" because Today already shows its quiet page line for these projects (see Corrections 1) and 11 of 13 founders have not opened Today since day one: the missing piece is the draft and its note, not a prompt.
 Files: modify `packages/db/src/repos/pages.ts`, `apps/orchestrator/src/activities/foundations.ts`, `apps/orchestrator/src/workflows/schedules.ts`, `apps/orchestrator/src/workflows/index.ts`, `apps/orchestrator/src/schedules.ts`, `docs/ARCHITECTURE.md` §10 (the schedule list). Create `apps/orchestrator/src/__tests__/page-catch-up.test.ts`.

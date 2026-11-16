@@ -46,6 +46,8 @@ export const ComposerDecision = z
      * same open decision twice (audit CML-02). Set by the composer service; absent on every other note.
      */
     key: z.string().min(1).max(200).optional(),
+    /** The page catch-up's note (WP-12 T1): never emailed about unless `PAGE_CATCH_UP_EMAIL` allows it. */
+    catch_up: z.literal(true).optional(),
   })
   .refine((d) => d.options.filter((o) => o.recommended).length === 1, { message: "exactly one option must be recommended", path: ["options"] })
   .refine((d) => new Set(d.options.map((o) => o.id)).size === d.options.length, { message: "option ids must be unique", path: ["options"] });

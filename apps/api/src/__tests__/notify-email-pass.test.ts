@@ -76,6 +76,18 @@ describe("the notify email pass", () => {
     }
   });
 
+  it("the page catch-up's note is never emailed about unless PAGE_CATCH_UP_EMAIL is on (WP-12 T1, D6)", async () => {
+    const decision = { options: [], free_text: false, expires_at: null, key: "project_page.ready", catch_up: true };
+    const id = await note(hz.A.businessId, { decision });
+    const gateway = { ...hz.deps.gateway, notifyEmail: async (input: GatewayNotifyEmailRequest) => (asked.push(input), answer(input)) };
+    await runNotifyEmailPass({ db: hz.db, log: hz.deps.log, gateway }, NOW);
+    await runNotifyEmailPass({ db: hz.db, log: hz.deps.log, gateway, env: { PAGE_CATCH_UP_EMAIL: "off" } }, NOW);
+    expect(asked).toEqual([]);
+    await runNotifyEmailPass({ db: hz.db, log: hz.deps.log, gateway, env: { PAGE_CATCH_UP_EMAIL: "on" } }, NOW);
+    expect(asked.length).toBeGreaterThan(0);
+    expect(asked.every((a) => a.data.inboxItemId === id)).toBe(true);
+  });
+
   it("only notes that ask for an answer, a day to a week old", async () => {
     await note(hz.B.businessId, { type: "update", subject: "Shipped" });
     await note(hz.B.businessId, { createdAt: new Date(NOW.getTime() - 3 * HOURS) });
