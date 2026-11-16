@@ -1,41 +1,52 @@
 "use client";
 /**
- * The first-timer's hero (DESIGN §9a; DIRECTION §4 "1. Hero"): the h1, the lede, the idea box, and the line about the
- * door while sign-up is closed. When a card lands the h1 becomes "<name> is yours to keep." and the page is told
- * (`data-landed` on the landing root), so section 2's example card steps aside for the visitor's own.
+ * The landing page's hero (DESIGN §9a): the variant's h1 and lede, the idea box, and the line about the door while
+ * sign-up is closed, with a real example beside them from 1024 px (`example`, rendered on the server). When the
+ * visitor's own idea lands the h1 becomes "<name> is yours to keep." and the page is told (`data-landed` on the
+ * landing root), so the example steps aside for it.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { IdeaBox, type IdeaBoxLanded } from "./idea-box/IdeaBox";
-import { LANDING_WORDS } from "./words";
+import { LANDING_WORDS, type VariantWords } from "./words";
 
 const W = LANDING_WORDS.hero;
 
-export function LandingHero({ signupOpen }: { signupOpen: boolean }) {
+export interface LandingHeroProps {
+  signupOpen: boolean;
+  words: Pick<VariantWords, "title" | "lede" | "label" | "ideas" | "surpriseOpen">;
+  /** The example result beside the box (under it before 1024 px). */
+  example: ReactNode;
+}
+
+export function LandingHero({ signupOpen, words, example }: LandingHeroProps) {
   const [landed, setLanded] = useState<IdeaBoxLanded | null>(null);
   useEffect(() => {
     document.querySelector("[data-landing]")?.toggleAttribute("data-landed", landed !== null);
   }, [landed]);
   return (
-    <section id="hero" aria-labelledby="hero-title" className="pb-14 pt-10 @page-wide:pb-20 @page-wide:pt-16">
-      <div className="landing-col flex flex-col items-center gap-6 @page-wide:text-center">
-        <div className="flex flex-col gap-5 motion-safe:animate-rise-in @page-wide:items-center">
-          <h1 id="hero-title" className="t-landing-h1 max-w-4xl text-primary">
-            {landed ? W.landedTitle(landed.name) : W.title}
-          </h1>
-          {!landed ? (
-            <p className="t-landing-lede landing-measure" data-testid="hero-lede">
-              {W.lede} {signupOpen ? W.ledeOpen : W.ledeClosed}
+    <section id="hero" aria-labelledby="hero-title" className="world-day landing-daylight pb-16 pt-10 @page-wide:pb-20 @page-wide:pt-16">
+      <div className="landing-col landing-hero-grid">
+        <div className="flex min-w-0 flex-col gap-8">
+          <div className="flex flex-col gap-5 motion-safe:animate-rise-in">
+            <h1 id="hero-title" className="t-landing-h1 text-primary">
+              {landed ? W.landedTitle(landed.name) : words.title}
+            </h1>
+            {!landed ? (
+              <p className="t-landing-lede landing-measure" data-testid="hero-lede">
+                {words.lede} {signupOpen ? W.ledeOpen : W.ledeClosed}
+              </p>
+            ) : null}
+          </div>
+          <div className="landing-measure w-full motion-safe:animate-rise-in">
+            <IdeaBox onLanded={setLanded} label={words.label} ideas={words.ideas} surpriseOpen={words.surpriseOpen} align="start" />
+          </div>
+          {!signupOpen ? (
+            <p className="t-landing-small landing-measure text-secondary" data-testid="hero-door">
+              {W.door}
             </p>
           ) : null}
         </div>
-        <div className="landing-measure w-full motion-safe:animate-rise-in">
-          <IdeaBox onLanded={setLanded} />
-        </div>
-        {!signupOpen ? (
-          <p className="t-landing-small landing-measure text-secondary" data-testid="hero-door">
-            {W.door}
-          </p>
-        ) : null}
+        {example}
       </div>
     </section>
   );

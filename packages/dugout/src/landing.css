@@ -1,6 +1,8 @@
-/* ---------- The landing page (DESIGN §9a; docs/holistic-plan/landing/DIRECTION.md §7) ---------- */
-/* The page's root: Foundmill's own look on the canvas, the landing type scale, and a container the sections lay
-   themselves out from (so a 390 px frame inside Storybook renders as a 390 px phone does). */
+/* ---------- The landing page (DESIGN §9a; founder, 2026-11-16: light at the top, the product's night below) ---------- */
+/* The page's root: the landing type scale, and a container the sections lay themselves out from (so a 390 px frame
+   inside Storybook renders as a 390 px phone does). The root itself is night, like the rest of the product; the top
+   of the page stands in daylight (`world-day`) and the page descends through the brand's blue (`landing-dusk`) into
+   the canvas. */
 @utility landing-page {
   container-type: inline-size;
   min-height: 100dvh;
@@ -11,6 +13,225 @@
   line-height: var(--lh-landing-body);
   & p {
     text-wrap: pretty;
+  }
+}
+
+/* ---------- The two worlds ----------
+   Root tokens resolve at :root, so the night values are kept here under their own names: a dark product screen
+   standing inside the daylight zone (`world-night`) reads them back. No color literal lives in this file. */
+:root {
+  --night-canvas: var(--canvas);
+  --night-surface-1: var(--surface-1);
+  --night-surface-2: var(--surface-2);
+  --night-surface-3: var(--surface-3);
+  --night-surface-4: var(--surface-4);
+  --night-text-1: var(--text-1);
+  --night-text-2: var(--text-2);
+  --night-text-3: var(--text-3);
+  --night-text-4: var(--text-4);
+  --night-reading: var(--reading);
+  --night-accent: var(--accent);
+  --night-line-faint: var(--line-faint);
+  --night-line: var(--line);
+  --night-line-strong: var(--line-strong);
+  --night-line-control: var(--line-control);
+  --night-status-good: var(--status-good);
+  --night-status-warn: var(--status-warn);
+  --night-status-bad: var(--status-bad);
+  --night-kit-lift: var(--kit-lift);
+  --night-elev-1: var(--elev-1);
+  --night-elev-2: var(--elev-2);
+}
+/* Daylight: the semantic tokens (and the aliases the utilities read) point at the day values, so every component
+   inside it (the idea box, buttons, assurances) takes the light without knowing. */
+@utility world-day {
+  --canvas: var(--day-canvas);
+  --surface-1: var(--day-surface-1);
+  --surface-2: var(--day-surface-2);
+  --surface-3: var(--day-surface-3);
+  --surface-4: var(--day-surface-4);
+  --text-1: var(--day-ink);
+  --text-2: var(--day-ink-2);
+  --text-3: var(--day-ink-3);
+  --text-4: var(--day-ink-4);
+  --reading: var(--day-ink);
+  --accent: var(--day-accent);
+  --line-faint: var(--day-line-faint);
+  --line: var(--day-line);
+  --line-strong: var(--day-line-strong);
+  --line-control: var(--day-line-control);
+  --status-good: var(--day-good);
+  --status-warn: var(--day-warn);
+  --status-bad: var(--day-bad);
+  --kit-lift: var(--kit-primary);
+  --elev-1: var(--day-shadow);
+  --elev-2: var(--day-shadow);
+  --bg-base: var(--canvas);
+  --bg-panel: var(--surface-1);
+  --bg-panel-alt: var(--surface-2);
+  --line-subtle: var(--line);
+  --text-primary: var(--text-1);
+  --text-secondary: var(--text-2);
+  --accent-link: var(--accent);
+  --focus-ring: 2px solid var(--accent);
+  color: var(--text-1);
+  & ::selection {
+    background: var(--kit-primary);
+    color: var(--kit-on-primary);
+  }
+  /* The idea field in daylight: a white field with an ink edge, the page's loudest object after the headline. */
+  & .idea-field {
+    min-height: 64px;
+    border: 2px solid var(--text-1);
+    background: var(--surface-1);
+    box-shadow: var(--day-shadow);
+    &:focus-within {
+      border-color: var(--kit-primary);
+      box-shadow:
+        0 0 0 4px color-mix(in oklab, var(--kit-primary) 22%, transparent),
+        var(--day-shadow);
+    }
+  }
+  & .idea-field-quiet {
+    border-color: var(--line-strong);
+    box-shadow: none;
+  }
+  & .idea-caret {
+    box-shadow: none;
+  }
+}
+/* Night again, for a product screen shown inside the daylight zone. */
+@utility world-night {
+  --canvas: var(--night-canvas);
+  --surface-1: var(--night-surface-1);
+  --surface-2: var(--night-surface-2);
+  --surface-3: var(--night-surface-3);
+  --surface-4: var(--night-surface-4);
+  --text-1: var(--night-text-1);
+  --text-2: var(--night-text-2);
+  --text-3: var(--night-text-3);
+  --text-4: var(--night-text-4);
+  --reading: var(--night-reading);
+  --accent: var(--night-accent);
+  --line-faint: var(--night-line-faint);
+  --line: var(--night-line);
+  --line-strong: var(--night-line-strong);
+  --line-control: var(--night-line-control);
+  --status-good: var(--night-status-good);
+  --status-warn: var(--night-status-warn);
+  --status-bad: var(--night-status-bad);
+  --kit-lift: var(--night-kit-lift);
+  --elev-1: var(--night-elev-1);
+  --elev-2: var(--night-elev-2);
+  --bg-base: var(--canvas);
+  --bg-panel: var(--surface-1);
+  --bg-panel-alt: var(--surface-2);
+  --line-subtle: var(--line);
+  --text-primary: var(--text-1);
+  --text-secondary: var(--text-2);
+  --accent-link: var(--accent);
+  --focus-ring: 2px solid var(--accent);
+  color: var(--text-1);
+}
+
+/* ---------- The descent: daylight, the brand's blue, the night ---------- */
+/* The hero's zone. */
+@utility landing-daylight {
+  background: var(--canvas);
+}
+/* The middle of the page: one field of the brand's blue, falling from the primary to its deepest tone. Text on it is
+   white at every size (4.8 : 1 on the primary, more below it); secondary text is not grayed here. */
+@utility landing-dusk {
+  --text-2: var(--white);
+  --text-secondary: var(--white);
+  --line: color-mix(in oklab, var(--white) 26%, transparent);
+  color: var(--white);
+  background: linear-gradient(180deg, var(--kit-primary) 0%, var(--kit-lo) 58%, var(--kit-deep) 100%);
+  border-top: 0;
+  /* The main action on the blue is the reverse of itself: white, with the brand's deepest tone for its words. */
+  & .idea-gen-filled {
+    color: var(--kit-deep);
+    background: var(--white);
+    box-shadow: none;
+    &:hover:not(:disabled) {
+      background: color-mix(in oklab, var(--white) 90%, var(--kit-primary));
+    }
+    &:focus-visible {
+      outline-color: var(--white);
+    }
+  }
+}
+/* The page's close: the same blue rising back out of the night, so the page ends where the offer is. */
+@utility landing-dawn {
+  background: linear-gradient(180deg, var(--canvas) 0, var(--kit-deep) 120px, var(--kit-lo) 60%, var(--kit-primary) 100%);
+}
+/* The first night section takes the blue's last tone and lets it fall to the canvas. */
+@utility landing-nightfall {
+  background: linear-gradient(180deg, var(--kit-deep) 0, var(--canvas) 360px);
+  border-top: 0;
+}
+/* The hero: the words and the box; from 1024 px a real result stands beside them. */
+@utility landing-hero-grid {
+  display: grid;
+  gap: 48px;
+  @container (min-width: 1024px) {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 380px);
+    align-items: start;
+    gap: 72px;
+  }
+}
+/* A dark product screen standing in daylight: its own night, lifted off the page by one deep, offset shadow. */
+@utility landing-screen-lit {
+  border-radius: var(--r-md);
+  box-shadow: var(--day-screen-shadow);
+}
+/* A way in: its name large on the left, what it does on the right from 800 px; a hairline above each. */
+@utility landing-way {
+  display: grid;
+  gap: 12px;
+  padding-block: 28px;
+  border-top: 1px solid var(--line);
+  @container (min-width: 800px) {
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    gap: 48px;
+    padding-block: 36px;
+  }
+}
+@utility t-landing-h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: var(--fs-landing-h3);
+  line-height: var(--lh-landing-h3);
+  text-wrap: balance;
+}
+/* Two short sections side by side from 800 px (you stay in charge, what it costs). */
+@utility landing-pair {
+  display: grid;
+  gap: 48px;
+  @container (min-width: 800px) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 72px;
+  }
+}
+/* The Studio's example ideas: one on a phone, two from 640 px, three from 1024 px. */
+@utility landing-ideas {
+  display: grid;
+  gap: 20px;
+  justify-items: center;
+  & > :nth-child(n + 2) {
+    display: none;
+  }
+  @container (min-width: 640px) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    & > :nth-child(2) {
+      display: flex;
+    }
+  }
+  @container (min-width: 1024px) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    & > :nth-child(3) {
+      display: flex;
+    }
   }
 }
 /* The content column: 16 px gutters on a phone, 32 px from 640 px, never wider than the landing column. */
@@ -31,7 +252,7 @@
   font-weight: 600;
   font-size: var(--fs-landing-h1);
   line-height: var(--lh-landing-h1);
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
   text-wrap: balance;
 }
 @utility t-landing-h2 {

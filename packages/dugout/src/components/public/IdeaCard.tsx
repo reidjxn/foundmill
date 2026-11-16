@@ -57,7 +57,7 @@ export const IDEA_CARD_WORDS = {
   raise: "What would raise it most",
   unmeasured: "Not measured yet",
   founderFit: "Founder fit comes after three questions about you.",
-  sample: "Sample card: the practice model wrote it, not a real read.",
+  sample: "Sample idea: the practice model wrote it, not a real read.",
   drafting: "Your team is shaping it",
 } as const;
 
@@ -88,7 +88,7 @@ export function IdeaCard({ card, drafting = false, justIn = false, sample = fals
   const low = complete ? lowestRating(card, founderFitKnown) : null;
   return (
     <article
-      aria-label={name ? `${name}: concept card` : "Concept card"}
+      aria-label={name ? `${name}: rated idea` : "Rated idea"}
       aria-busy={drafting || undefined}
       data-idea-card=""
       data-drafting={drafting || undefined}

@@ -27,6 +27,34 @@ export const EXAMPLE_CARD: IdeaCardData = {
   attributes: RATINGS.map(([key, value, evidence]) => ({ key, value, evidence })),
 };
 
+const KEYS = RATINGS.map(([key]) => key);
+/** Ten ratings in the card's order; `weakest` is the reason shown for the lowest one ("What would raise it most"). */
+const rated = (values: readonly number[], weakest: string): IdeaCardData["attributes"] => KEYS.map((key, i) => ({ key, value: values[i] ?? 10, evidence: weakest }));
+
+/**
+ * Three ideas the Ideation Studio could draft from one brief ("Something with sneakers at my college"): the example
+ * above and two others, so the section shows a set to compare, not one answer.
+ */
+export const EXAMPLE_STUDIO: readonly IdeaCardData[] = [
+  EXAMPLE_CARD,
+  {
+    name: "Lace Lab",
+    pitch: "Custom laces and charms for sneakers, made to order and sold at campus events and online.",
+    archetype: "dtc_physical",
+    stars_current: 2.5,
+    stars_potential: 4,
+    attributes: rated([11, 9, 8, 13, 15, 14, 10, 9, 17, 11], "Plenty of shops already sell laces; a campus-only design would set it apart."),
+  },
+  {
+    name: "Kick Swap",
+    pitch: "A monthly sneaker swap for students: bring a pair, trade a pair, with a small fee at the door.",
+    archetype: "marketplace",
+    stars_current: 2.5,
+    stars_potential: 3.5,
+    attributes: rated([12, 6, 13, 15, 17, 9, 10, 7, 14, 13], "One campus is a small market; a second campus doubles it."),
+  },
+];
+
 export const EXAMPLE_PERSON: PersonPageProps = {
   name: "Ama Mensah",
   headline: "Shoe care, campus pickups, good with a sewing machine",

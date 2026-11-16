@@ -8,7 +8,7 @@ import { expect, test, type Page } from "@playwright/test";
  */
 test.use({ storageState: { cookies: [], origins: [] } });
 
-const SECTIONS = ["hero", "card", "people", "first-week", "control", "cost", "questions", "start"];
+const SECTIONS = ["hero", "result", "ways", "studio", "people", "first-week", "control", "questions", "start"];
 const overflow = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 
 for (const [width, height] of [
@@ -32,7 +32,7 @@ for (const [width, height] of [
     await expect(button).toBeInViewport();
     expect((await button.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await expect(page.locator("header .idea-gen-filled, header button")).toHaveCount(0);
-    for (const a of ["Your first card is free and needs no sign-up", "Your idea stays private until you choose to share it", "Nothing spends money or signs in your name without you"]) {
+    for (const a of ["Shaping your first idea is free and needs no sign-up", "Your idea stays private until you choose to share it", "Nothing spends money or signs in your name without you"]) {
       await expect(page.getByText(a, { exact: true })).toBeVisible();
     }
 
