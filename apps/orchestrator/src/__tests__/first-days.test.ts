@@ -240,17 +240,17 @@ describe("Ready to start selling?", () => {
     expect(body).not.toContain("are waiting for the product");
     expect(body).not.toMatch(/\bposted\b/);
 
-    // Print in offline tracking is honest by design, so it is named.
+    // Print in offline tracking runs no weekly engine for a real project (WP-08 T9), so it is not named as waiting.
     const offline = await shipped("Print Runs Co");
     await repos.channels.upsert(t.db, offline.w.id, { channelKey: "print", line: CHANNEL_META.print.line, enabled: true, kitMode: true });
     await repos.channels.upsert(t.db, offline.w.id, { channelKey: "social", line: CHANNEL_META.social.line, enabled: true, kitMode: false });
     const second = await offerReadyToSellAfterTask(staging, offline.w.id, offline.task);
-    expect((await repos.inbox.get(t.db, offline.w.id, second!.inboxItemId)).bodyMd).toContain("The channels on the board (Print) are waiting for the product.");
+    expect((await repos.inbox.get(t.db, offline.w.id, second!.inboxItemId)).bodyMd).not.toContain("(Print) are waiting for the product");
   });
 });
 
 describe("a plan never turns on a channel that cannot run (founder, 2026-11-11)", () => {
-  it("on staging enable_channel fails with the founder's sentence and the channel stays off; offline tracking may be turned on", async () => {
+  it("on staging enable_channel fails with the founder's sentence and the channel stays off, print included", async () => {
     const plans = createPlanActivities({ ...t.deps, env: { ...t.deps.env, APP_ENV: "staging", LIVE_CONNECTORS: "" } });
     const w = await waitingBusiness("Plan Refuse Co");
     const plan = await repos.plans.create(t.db, w.id, {
@@ -265,10 +265,10 @@ describe("a plan never turns on a channel that cannot run (founder, 2026-11-11)"
     expect(refused.result).toMatchObject({ error: "Affiliate is not available yet: the team cannot publish there yet." });
     expect(refused.spawn).toEqual([]);
     expect((await repos.channels.getByKey(t.db, w.id, "affiliate"))?.enabled ?? false).toBe(false);
-    // Print is in offline tracking by default: the agent prepares, the founder submits.
-    const offline = await plans.executePlanAction({ businessId: w.id, planId: plan.id, actionId: plan.actions[1]!.id, workflowId: `plan:${plan.id}` });
-    expect(offline.result).toMatchObject({ enabled: true });
-    expect(await repos.channels.getByKey(t.db, w.id, "print")).toMatchObject({ enabled: true, kitMode: true });
+    // Print no longer starts in offline tracking (WP-08 T9): with no publisher it is refused like any other.
+    const print = await plans.executePlanAction({ businessId: w.id, planId: plan.id, actionId: plan.actions[1]!.id, workflowId: `plan:${plan.id}` });
+    expect(print.status).toBe("failed");
+    expect((await repos.channels.getByKey(t.db, w.id, "print"))?.enabled ?? false).toBe(false);
   });
 
   it("tap-to-post: on staging a plan may put social on the board, and no engine is recorded or started for it; a budget never puts it there", async () => {

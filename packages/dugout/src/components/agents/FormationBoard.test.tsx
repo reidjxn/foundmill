@@ -299,12 +299,13 @@ describe("ChannelProfileCard", () => {
     const { unmount } = render(<ChannelProfileCard channel={{ ...paid, key: "outdoor", kitMode: true }} />);
     expect(screen.getByText("Offline tracking")).toBeTruthy();
     unmount();
-    // Print is offline by default; turned off, the card no longer claims it.
+    // Turned off, the card no longer claims it.
     const off = render(<ChannelProfileCard channel={{ ...paid, key: "print", kitMode: false }} />);
     expect(screen.queryByText("Offline tracking")).toBeNull();
     off.unmount();
+    // No channel is offline by default any more (WP-08 T9), so a channel with no setting of its own shows none.
     render(<ChannelProfileCard channel={{ ...paid, key: "print" }} />);
-    expect(screen.getByText("Offline tracking")).toBeTruthy();
+    expect(screen.queryByText("Offline tracking")).toBeNull();
   });
 
   it("a channel the Strategist has not scored shows no fit, potential or cost range, and an empty range is never shown", () => {

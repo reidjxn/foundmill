@@ -45,6 +45,5 @@ export const reviewAgent = defineTemplate({
   tools: [grant("platform", PLATFORM_BASE_TOOLS), grant("sandbox", SANDBOX_TOOLS), grant("github", ["repos.read", "pulls.read", "pulls.review", "checks.read"])],
   skills: withCoreSkills(["code_review", "security_awareness", "test_design", "change_risk_assessment"]),
   autonomy: AUTONOMY_INHERIT,
-  schedule: { triggers: ["task.completed"] },
   neverDoes: ["Rewrite the code", "Approve without evidence", "Merge", "Let style nits block"],
 });

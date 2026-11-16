@@ -174,12 +174,15 @@ describe("POST /idea-box/draft", () => {
 
   it("reserves the ceiling card by card at the worst case, before any model call", async () => {
     expect(IDEA_BOX_CARD_RESERVE_MICRO).toBeGreaterThan(0);
-    const oneCard = Math.ceil(IDEA_BOX_CARD_RESERVE_MICRO / 1_000_000);
-    expect(ideaBoxDailyCards(oneCard)).toBe(1);
+    // The smallest ceiling, one cent, buys a few cards on the free plan's model (WP-13: Haiku 5.5): every one of them
+    // runs, and the next draft rests.
+    const cards = ideaBoxDailyCards(1);
+    expect(cards).toBe(Math.floor(1_000_000 / IDEA_BOX_CARD_RESERVE_MICRO));
+    expect(cards).toBeGreaterThanOrEqual(1);
     expect(ideaBoxDailyCards(0)).toBe(0);
-    const { app } = await setup({ IDEA_BOX_DAILY_CEILING_CENTS: String(oneCard) });
-    expect(last((await draft(app, idea, { address: "203.0.113.20" })).events).type).toBe("card");
-    expect((await draft(app, idea, { address: "203.0.113.21" })).events[0]).toMatchObject({ type: "error", code: "resting" });
+    const { app } = await setup({ IDEA_BOX_DAILY_CEILING_CENTS: "1" });
+    for (let i = 0; i < cards; i++) expect(last((await draft(app, idea, { address: `203.0.113.${20 + i}` })).events).type).toBe("card");
+    expect((await draft(app, idea, { address: "203.0.113.19" })).events[0]).toMatchObject({ type: "error", code: "resting" });
   });
 
   it("a visitor who closes the stream early still spends a card (security review P1-1): nothing is given back", async () => {
@@ -199,8 +202,8 @@ describe("POST /idea-box/draft", () => {
   });
 
   it("a model call that never answers ends in one failed line at the deadline, and its card stays spent (WP-03 T7)", async () => {
-    const oneCard = Math.ceil(IDEA_BOX_CARD_RESERVE_MICRO / 1_000_000);
-    const { hz } = await setup({ IDEA_BOX_DAILY_CEILING_CENTS: String(oneCard) });
+    const cards = ideaBoxDailyCards(1);
+    const { hz } = await setup({ IDEA_BOX_DAILY_CEILING_CENTS: "1" });
     // The worst case: a model that never answers and ignores the abort.
     const stalled = { mode: "mock", streamStructured: () => new Promise<never>(() => {}) } as unknown as ModelClient;
     const deps = { db: hz.deps.db, models: stalled, limits: hz.deps.limits, env: hz.deps.env, gateway: hz.deps.gateway, log: hz.deps.log };
@@ -220,8 +223,15 @@ describe("POST /idea-box/draft", () => {
       vi.useRealTimers();
     }
     expect(await hz.db.select().from(s.ideaDrafts)).toHaveLength(0);
-    // The reserved card is not given back (security review P1-1): the day's one card is gone.
-    const after = await planIdeaBoxDraft({ ...deps, models: hz.deps.models }, { body: idea, cookieToken: null, address: "203.0.113.41", hostname: null });
+    // The reserved card is not given back (security review P1-1): only the day's other cards remain.
+    const live = { ...deps, models: hz.deps.models };
+    for (let i = 1; i < cards; i++) {
+      const plan = await planIdeaBoxDraft(live, { body: idea, cookieToken: null, address: `203.0.113.${50 + i}`, hostname: null });
+      const events = [];
+      for await (const e of plan.events) events.push(e);
+      expect(events.at(-1)?.type).toBe("card");
+    }
+    const after = await planIdeaBoxDraft(live, { body: idea, cookieToken: null, address: "203.0.113.41", hostname: null });
     expect((await after.events.next()).value).toMatchObject({ type: "error", code: "resting" });
   });
 });

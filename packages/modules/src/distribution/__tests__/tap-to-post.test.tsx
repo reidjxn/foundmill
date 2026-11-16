@@ -87,8 +87,8 @@ describe("the Board", () => {
     // Email, social and print (offline tracking) are shown; email and print run, social is the founder's.
     expect(screen.getByText("2 of 3 running · 1 you post")).toBeTruthy();
     expect(within(board).getByRole("group", { name: /^Off the board: 2 channels can run now, 1 you post yourself/ })).toBeTruthy();
-    // Not in "Not available yet", and nothing says it was posted.
-    expect(screen.queryByTestId("channels-not-available")).toBeNull();
+    // Not in "Not now", and nothing says it was posted.
+    expect(screen.getByTestId("channels-not-available").querySelector('[data-channel-unavailable="social"]')).toBeNull();
     expect(document.body.textContent).not.toMatch(/\bposted\b/i);
   });
 
