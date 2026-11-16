@@ -10,7 +10,8 @@ import { closeDb, createServiceDb, repos, type Executor } from "@foundmill/db";
 import { loadEnv, sitesDomain, type Env } from "@foundmill/shared";
 import { createLogger } from "@foundmill/shared/logger";
 import { drainHttpServer, onShutdown } from "@foundmill/shared/shutdown";
-import { createSitesApp, SITES_SERVICE, type SitesDeps, type SitesLogger } from "./app";
+import { createFollowApi } from "./api-client";
+import { createSitesApp, SITES_SERVICE, type SitesDeps, type SitesFollowApi, type SitesLogger } from "./app";
 
 export * from "./app";
 export * from "./headers";
@@ -23,9 +24,11 @@ const tierOf = (value: string): TierKey => (TIERS.includes(value as TierKey) ? (
 /**
  * The app's database calls. `run` wraps each one (tests run them as `sites_reader` to prove the login is enough).
  */
-export function sitesDeps(options: { env: Pick<Env, "APP_ENV" | "APP_URL" | "SITES_DOMAIN">; run: <T>(fn: (db: Executor) => Promise<T>) => Promise<T>; log: SitesLogger }): SitesDeps {
+export function sitesDeps(options: { env: Pick<Env, "APP_ENV" | "APP_URL" | "SITES_DOMAIN" | "SITES_API_URL" | "SITES_TURNSTILE_SITE_KEY">; run: <T>(fn: (db: Executor) => Promise<T>) => Promise<T>; log: SitesLogger; follow?: SitesFollowApi }): SitesDeps {
   const { env, run, log } = options;
   return {
+    follow: options.follow ?? createFollowApi({ apiUrl: env.SITES_API_URL }),
+    turnstileSiteKey: env.SITES_TURNSTILE_SITE_KEY?.trim() || null,
     env: { APP_ENV: env.APP_ENV, APP_URL: env.APP_URL, SITES_DOMAIN: sitesDomain(env) },
     resolve: async (label) => {
       const host = await run((db) => repos.sites.resolveHost(db, label));

@@ -29,6 +29,7 @@
  */
 import { communityScreenLocalFlags } from "@foundmill/agents";
 import { tierShowsBuiltOnMark } from "@foundmill/config";
+import { siteSlugProblem, sitesDomain } from "@foundmill/shared/sites";
 import { createHash, createHmac, randomBytes } from "node:crypto";
 import { awardPageLiveMilestone, repos, type DbTx, type InboxItem, type ProjectPage } from "@foundmill/db";
 import {
@@ -480,6 +481,11 @@ export interface FollowInput {
   turnstile?: string | null;
   /** The last post code the visitor arrived with (the web's `fm_post` cookie): kept only for the project's own visited link. */
   post?: string | null;
+  /**
+   * Where the form is (WP-07 T6): the project's public page (the default) or its site's sign-up form, posted by
+   * apps/sites. With `site`, `slug` is the site's address and the bot check expects the site's own host.
+   */
+  via?: "page" | "site";
 }
 
 /** The token the web sends without a Turnstile site key (development stacks); the gateway's mock passes it. */
@@ -514,7 +520,7 @@ function followTurnstileHostname(env: Pick<Env, "APP_ENV" | "APP_URL">): string 
  * recorded or sent. The visitor's address is not sent: through the web's Server Action the api sees the web's address,
  * not the visitor's. A development or test stack on mock integrations without the gateway passes the mock token only.
  */
-async function checkFollowTurnstile(ctx: Pick<Context, "gateway" | "env" | "log">, token: string | null | undefined): Promise<void> {
+async function checkFollowTurnstile(ctx: Pick<Context, "gateway" | "env" | "log">, token: string | null | undefined, hostname: string | null = followTurnstileHostname(ctx.env)): Promise<void> {
   const t = typeof token === "string" ? token.trim() : "";
   if (!t || t.length > 2048) throw followRefusal("follow_unverified");
   const mockPasses = devStack(ctx.env.APP_ENV) && ctx.env.INTEGRATIONS_MODE === "mock" && t === FOLLOW_MOCK_TURNSTILE_TOKEN;
@@ -522,7 +528,7 @@ async function checkFollowTurnstile(ctx: Pick<Context, "gateway" | "env" | "log"
     if (mockPasses) return;
     throw followRefusal("follow_unavailable");
   }
-  const check = await ctx.gateway.verifyTurnstile({ token: t, remoteIp: null, hostname: followTurnstileHostname(ctx.env), action: FOLLOW_TURNSTILE_ACTION }).catch((err: unknown) => {
+  const check = await ctx.gateway.verifyTurnstile({ token: t, remoteIp: null, hostname, action: FOLLOW_TURNSTILE_ACTION }).catch((err: unknown) => {
     if (mockPasses) return { ok: true, reason: "ok" as const, simulated: true };
     ctx.log.warn({ err: err instanceof Error ? err.message : String(err) }, "follow: turnstile check failed");
     return { ok: false, reason: "unavailable" as const, simulated: false };
@@ -566,13 +572,15 @@ export async function followPage(ctx: FollowContext, input: FollowInput): Promis
   if (followEmailProblem(email) || !EmailShape.safeParse(email).success) throw followRefusal("follow_email");
   if (input.consent !== true) throw followRefusal("follow_consent");
   const slug = input.slug.trim().toLowerCase();
-  if (pageSlugProblem(slug)) throw followRefusal("follow_closed");
+  const site = input.via === "site";
+  const domain = sitesDomain(ctx.env);
+  if (site ? !domain || siteSlugProblem(slug) : pageSlugProblem(slug)) throw followRefusal("follow_closed");
   if (ctx.clientAddress) await takeOrThrow(ctx.limits, "Follow", [{ key: followLimitKeys.caller(ctx.env, ctx.clientAddress), rule: PAGE_FOLLOW_LIMITS.perCaller }]);
-  // Before anything a real person's address or the page's budget could lose.
-  await checkFollowTurnstile(ctx, input.turnstile);
+  // Before anything a real person's address or the page's budget could lose. A site's widget runs on the site's host.
+  await checkFollowTurnstile(ctx, input.turnstile, site ? (followTurnstileHostname(ctx.env) === null ? null : `${slug}.${domain}`) : followTurnstileHostname(ctx.env));
 
   // Repeats are dropped before anything else is spent or read.
-  if (!(await ctx.limits.take([{ key: followLimitKeys.perAddress(ctx.env, slug, email), rule: PAGE_FOLLOW_LIMITS.perAddress }])).ok) return ok;
+  if (!(await ctx.limits.take([{ key: followLimitKeys.perAddress(ctx.env, site ? `site:${slug}` : slug, email), rule: PAGE_FOLLOW_LIMITS.perAddress }])).ok) return ok;
   const confirmSlot = await ctx.limits.take([{ key: followLimitKeys.confirmAnyProject(ctx.env, email), rule: PAGE_FOLLOW_LIMITS.confirmAnyProject }]);
   if (!confirmSlot.ok) return ok;
   let slotKept = false;
@@ -584,15 +592,16 @@ export async function followPage(ctx: FollowContext, input: FollowInput): Promis
   slotKept = true;
 
   try {
-    const target = await repos.followers.target(ctx.db, slug);
+    const target = site ? await repos.followers.siteTarget(ctx.db, slug) : await repos.followers.target(ctx.db, slug);
     if (!target || !target.followForm || !followAvailable(ctx.env)) {
       await giveSlotBack();
       await takeOrThrow(ctx.limits, "Follow", [{ key: followLimitKeys.closed, rule: PAGE_FOLLOW_LIMITS.closed }]);
       throw followRefusal("follow_closed");
     }
     await takeOrThrow(ctx.limits, "Follow", [
-      { key: followLimitKeys.perPageHour(target.pageId), rule: PAGE_FOLLOW_LIMITS.perPageHour },
-      { key: followLimitKeys.perPageDay(target.pageId), rule: PAGE_FOLLOW_LIMITS.perPageDay },
+      // A project's page and site share its caps (one budget per project, whichever form).
+      { key: followLimitKeys.perPageHour(target.pageId ?? `site:${target.businessId}`), rule: PAGE_FOLLOW_LIMITS.perPageHour },
+      { key: followLimitKeys.perPageDay(target.pageId ?? `site:${target.businessId}`), rule: PAGE_FOLLOW_LIMITS.perPageDay },
       { key: followLimitKeys.all, rule: PAGE_FOLLOW_LIMITS.all },
     ]);
     const consentText = followConsentText(target.name);
@@ -602,7 +611,7 @@ export async function followPage(ctx: FollowContext, input: FollowInput): Promis
       // The post the visitor last arrived through, when it is this project's own, real and was visited (item 8). The
       // follow is credited to it only once the person confirms from their inbox.
       const postLinkId = await repos.postLinks.followable(tx, target.businessId, input.post);
-      const recorded = await repos.followers.record(tx, target.businessId, { pageId: target.pageId, slug: target.slug, email, consentText, postLinkId });
+      const recorded = await repos.followers.record(tx, target.businessId, { pageId: target.pageId, slug: target.slug, sourceRef: site ? `site:${target.slug}` : target.slug, email, consentText, postLinkId });
       if (recorded.status === "nothing") return null;
       if (recorded.status === "new") {
         await repos.audit.append(tx, target.businessId, {
@@ -610,7 +619,7 @@ export async function followPage(ctx: FollowContext, input: FollowInput): Promis
           actorId: null,
           action: "page.follow_requested",
           target: { kind: "entity", id: recorded.entityId },
-          details: { pageId: target.pageId, slug: target.slug, consentId: recorded.consentId, newContact: recorded.entityCreated },
+          details: { pageId: target.pageId, slug: target.slug, via: site ? "site" : "page", consentId: recorded.consentId, newContact: recorded.entityCreated },
         });
       }
       return (await repos.followers.reserveConfirmation(tx, target.businessId, recorded.consentId, { tokenHash })) ? recorded.consentId : null;
@@ -641,3 +650,16 @@ export async function followPage(ctx: FollowContext, input: FollowInput): Promis
     throw e;
   }
 }
+
+/**
+ * `publicPage.siteConsent` (WP-07 T6): the consent sentence for the live site at `slug`, as its sign-up page shows it
+ * and as `followPage` records it, or null when the site is not live (or Sites are off). Only the project's name, which
+ * the live site shows anyway.
+ */
+export async function siteFollowConsent(ctx: Pick<Context, "db" | "env">, slug: string): Promise<{ consentText: string } | null> {
+  const clean = slug.trim().toLowerCase();
+  if (!sitesDomain(ctx.env) || siteSlugProblem(clean)) return null;
+  const target = await repos.followers.siteTarget(ctx.db, clean);
+  return target ? { consentText: followConsentText(target.name) } : null;
+}
+
