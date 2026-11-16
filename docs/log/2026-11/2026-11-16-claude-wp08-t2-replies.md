@@ -6,7 +6,7 @@ areas: [db, ingest, gateway, api, web, shared, connectors, evals]
 supersedes: []
 ---
 ## What changed
-- Migration 0124 adds `interactions.body_untrusted` (plain text, at most 20,000 characters; RLS unchanged, the table's tenant policy). The schema comment on `content_ref` no longer claims an encrypted body store exists.
+- Migration 0125 adds `interactions.body_untrusted` (plain text, at most 20,000 characters; RLS unchanged, the table's tenant policy). The schema comment on `content_ref` no longer claims an encrypted body store exists.
 - `repos.replies`: `storeInbound` (ingest), `list` and `isInbound` (api, under RLS), `forAnswer` (gateway only: the one place the address is read), `recordAnswer`. Test: `packages/db/src/__tests__/repos/replies.test.ts`, including business B reading nothing of A's text and the text going with `repos.entities.purge`.
 - Ingest's `POST /mail/inbound` now keeps a verified reply's own words (`inboundReplyText`: quoted original and footer left out) on the row whose id the `lead.replied` event already names, on a person found by address or created as "Contact (sa***@example.com)" with source `reply` and no lawful basis.
 - One Inbox note from the Chief of Staff names the record and none of the text. At most 200 replies are kept a project a UTC day.
