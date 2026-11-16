@@ -21,5 +21,8 @@ The work package asked to remove it, but specialists still hold a `google_drive`
 ### Another business's record reads as not found
 `log_interaction` checks the record first and answers `not_found`, like every platform id, instead of the repository's validation error.
 
+### The RFQ line says what the task produces
+A non-code task is done once the agent calls `complete_task` (session.ts), so an RFQ acceptance line with no tool behind it could pass unchecked. The supplier task now says the RFQ pack is drafted in the report and nothing is sent, and its goal asks for a draft for the founder to send. No orchestrator or gateway change.
+
 ## Not done
 "RFQ pack" acceptance has no tool yet (PLANNED_GRANTS.md rows for it stay). Operations lead and channel templates still lack the two grants.
