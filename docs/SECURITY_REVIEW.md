@@ -251,3 +251,35 @@ The remaining non-critical advisories (dev tools, the test DOM, the agent and MC
 |---|---|---|---|
 | GHSA-mrhx-c7xc-m3w5 through `publicQuiz.answer` (signed out): a 2 MB body of junk keys made zod build an issue per key (about 83 MB per request), and the error sent back listed every key (6.9 MB) | P1 | Fixed: the input's keys are counted before zod reads them; every procedure's error is bounded (`boundedIssues` in `trpc.ts`); zod 4.6.7 | #139 |
 | The same shape on signed-in inputs: lists without `.max()` first and records without a count first, reachable by any signed-in person | P3 | Fixed: every list an api input can reach has a `.max()` first and every record a key count (`boundedRecord`, `INPUT_LIMITS`); `input-limits.test.ts` fails on a new unbounded input | #139 follow-up (`claude/tips-zod-limits`) |
+
+## Status of every open item, Nov 16, 2026 (WP-11 T19)
+
+One row per id that `docs/holistic-plan/audits/a8-data-api-security.md` §4 and `audits/a11-roadmap-status.md` §7.0 left open. "Fixed in T<n>" points at the WP-11 task and its pull request or branch, which the founder merges; "accepted" points at the dated decision in `docs/log/2026-11/2026-11-16-claude-wp11-decisions.md`. No row reads open without one of the two.
+
+| Id | State |
+| --- | --- |
+| SEC-8 | Accepted while the Data API is off; now watched (T14: `supabase/config.toml` declares it off, the api's `/health` reports `dataApi`) |
+| SEC-9 | Fixed in T13: no development bypass in a process with `NODE_ENV=production`, and the api and the stream log a warning at boot while it is on |
+| SEC-11 | Accepted (Dropbox Sign's scheme) until `dropbox_sign` enters any `LIVE_CONNECTORS` |
+| SEC-15 | Redaction fixed in T18 (two levels, OAuth tokens, sealed values); `approvals.args` holding raw arguments accepted (a founder reads what they approve) |
+| SEC-17 | Mint scope fixed in T11 (only the orchestrator and the api mint; the api one tool, no session); a deny-list accepted (trigger: tokens leave the orchestrator's process); full closure needs T12's switch |
+| SEC-18 | Closed: no `disable trigger` in the seeds (`grep -rn "disable trigger" packages/db/src/seed packages/db/src/seed.ts` finds nothing) |
+| SEC-19 | Accepted: the table stays, no screen claims it |
+| N2 | Stripe half fixed in T20 (a founder's own endpoint secret stored at connect); SendGrid half accepted until a founder's own SendGrid is offered, `sendgrid` out of ingest's list |
+| N3 | Accepted until Stripe Connect is wanted; WP-07's pay link runs on the founder's own key |
+| N4 | Fixed in T12 in code; closed once the founder runs F5 (gateway `/health` shows `apiServiceToken: "own"`) |
+| Nov 13 redirect wildcard | Fixed in file; the dashboard step is WP-00 S10's push (T14 lists what the diff must show) |
+| #131 P3 | Accepted: defense in depth; no collaborator exists yet |
+| #132 P3s | Accepted: same reason |
+| A8-09 | First step fixed in T12; the wider split accepted (trigger: a second service gains a route only it may call) |
+| A8-10 | Accepted: the vault on KMS and the api's seal moved into the gateway wait for ten stored keys or the first paid plan; who holds the key is in DEPLOY §3 |
+| A8-11 | Fixed in T14 |
+| A8-12 | Fixed in T13 for the api and the stream; apps/collab keeps its copy (not deployed; WP-12) |
+| A8-21 | Fixed in T18 (0122: `public_profiles` is the service's) |
+| A8-22 | Fixed in T15 (bounded webhook bodies) |
+| A8-23 | Fixed in T18 (`parsePublicEnv` falls back to production in a production build) |
+| A8-24 | Fixed in T13 (the dev bypass needs `NODE_ENV` not production) |
+| A8-25 | Accepted: outbox rows never pruned, fine at 3,500 events (trigger: one million rows) |
+| A8-26 | WP-01's (required security scans) |
+| A8-27 | CORS part fixed in T18; `/health` detail without sign-in, the `iss` claim and `GET /v1/connectors` without a token accepted |
+
