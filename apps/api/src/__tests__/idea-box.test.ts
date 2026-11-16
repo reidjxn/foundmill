@@ -5,9 +5,10 @@
  * (same browser or another device, once), and the waitlist for someone not on the invite list.
  */
 import { eq } from "drizzle-orm";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import * as s from "@foundmill/db";
-import { IDEA_COOKIE, type IdeaBoxEvent } from "@foundmill/shared";
+import type { ModelClient } from "@foundmill/models";
+import { IDEA_BOX_DEADLINE_MS, IDEA_BOX_ERRORS, IDEA_COOKIE, type IdeaBoxEvent } from "@foundmill/shared";
 import { createApp } from "../app";
 import type { GatewayTurnstileResult } from "../services/gateway";
 import { IDEA_BOX_CARD_RESERVE_MICRO, IDEA_BOX_LIMITS, ideaBoxDailyCards, ideaTokenHash, limitAddress, planIdeaBoxDraft } from "../services/idea-box";
@@ -113,13 +114,14 @@ describe("POST /idea-box/draft", () => {
   it("per address: three an hour, then the limit line", async () => {
     const { app } = await setup();
     for (let i = 0; i < IDEA_BOX_LIMITS.perAddressHour.limit; i++) expect(last((await draft(app, idea, { address: "203.0.113.5" })).events).type).toBe("card");
-    expect((await draft(app, idea, { address: "203.0.113.5" })).events[0]).toMatchObject({ type: "error", code: "limit" });
+    // WP-03 T1: a refusal never sends a signed-out visitor to sign in as if that let them keep going.
+    expect((await draft(app, idea, { address: "203.0.113.5" })).events[0]).toMatchObject({ type: "error", code: "limit", message: "That is all the cards from this connection today. Come back tomorrow for another." });
     expect(last((await draft(app, idea, { address: "203.0.113.6" })).events).type).toBe("card");
   });
 
   it("the day's ceiling across every visitor: resting once spent", async () => {
     const { app } = await setup({ IDEA_BOX_DAILY_CEILING_CENTS: "0" });
-    expect((await draft(app, idea)).events[0]).toMatchObject({ type: "error", code: "resting" });
+    expect((await draft(app, idea)).events[0]).toMatchObject({ type: "error", code: "resting", message: "The idea box is resting until tomorrow. Come back then and it will shape your idea." });
   });
 
   it("reserves the ceiling card by card at the worst case, before any model call", async () => {
@@ -146,6 +148,33 @@ describe("POST /idea-box/draft", () => {
     const after = await planIdeaBoxDraft(deps, { body: idea, cookieToken: null, address: "203.0.113.30", hostname: null });
     expect((await after.events.next()).value).toMatchObject({ type: "error", code: "limit" });
     expect(await hz.db.select().from(s.ideaDrafts)).toHaveLength(0);
+  });
+
+  it("a model call that never answers ends in one failed line at the deadline, and its card stays spent (WP-03 T7)", async () => {
+    const oneCard = Math.ceil(IDEA_BOX_CARD_RESERVE_MICRO / 1_000_000);
+    const { hz } = await setup({ IDEA_BOX_DAILY_CEILING_CENTS: String(oneCard) });
+    // The worst case: a model that never answers and ignores the abort.
+    const stalled = { mode: "mock", streamStructured: () => new Promise<never>(() => {}) } as unknown as ModelClient;
+    const deps = { db: hz.deps.db, models: stalled, limits: hz.deps.limits, env: hz.deps.env, gateway: hz.deps.gateway, log: hz.deps.log };
+    const plan = await planIdeaBoxDraft(deps, { body: idea, cookieToken: null, address: "203.0.113.40", hostname: null });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      expect((await plan.events.next()).value).toEqual({ type: "started" });
+      const pending = plan.events.next();
+      let settled = false;
+      void pending.then(() => (settled = true));
+      await vi.advanceTimersByTimeAsync(IDEA_BOX_DEADLINE_MS - 1);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect((await pending).value).toEqual({ type: "error", code: "failed", message: IDEA_BOX_ERRORS.failed });
+      expect((await plan.events.next()).done).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(await hz.db.select().from(s.ideaDrafts)).toHaveLength(0);
+    // The reserved card is not given back (security review P1-1): the day's one card is gone.
+    const after = await planIdeaBoxDraft({ ...deps, models: hz.deps.models }, { body: idea, cookieToken: null, address: "203.0.113.41", hostname: null });
+    expect((await after.events.next()).value).toMatchObject({ type: "error", code: "resting" });
   });
 });
 

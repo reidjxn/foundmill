@@ -198,7 +198,8 @@ test.describe("open sign-up past the day's ceiling", () => {
     await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("You're on the list.");
     await expect(panel.getByText("We'll let you in as soon as there is room. Come back tomorrow to check.")).toBeVisible();
-    await expect(panel.getByText(/email you/i)).toHaveCount(0);
+    // No email is promised ("we cannot email you yet", under the card since WP-03 T1, says the opposite).
+    await expect(panel.getByText(/email you when/i)).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Look around an example" })).toHaveAttribute("href", /^\/examples\//);
     await noHorizontalScroll(page);

@@ -198,6 +198,30 @@ describe("admitOrWait: invite-only", () => {
   });
 });
 
+describe("the refusals say whether the waitlist emails here (WP-03 T2)", () => {
+  const MAIL_LIVE = { PLATFORM_MAIL_DOMAIN: "mail.people.test", LIVE_CONNECTORS: "sendgrid" };
+  const emailsFlag = async (p: Promise<unknown>) => {
+    try {
+      await p;
+      return "admitted";
+    } catch (err) {
+      return ((err as TRPCError).cause as { details?: { waitlistEmails?: unknown } } | undefined)?.details?.waitlistEmails;
+    }
+  };
+  it("not_listed and ceiling carry waitlistEmails: true only with WAITLIST_EMAILS on and platform mail live", async () => {
+    const p = await person("emails-flag");
+    expect(await emailsFlag(callerIn({ ...INVITE_ONLY, ...MAIL_LIVE, WAITLIST_EMAILS: "1" }, p).founder.preferences.get())).toBe(true);
+    expect(await emailsFlag(callerIn({ ...INVITE_ONLY, ...MAIL_LIVE }, p).founder.preferences.get())).toBe(false);
+    // Switched on while platform mail is not live (no domain, or SendGrid on its mock): no promise.
+    expect(await emailsFlag(callerIn({ ...INVITE_ONLY, WAITLIST_EMAILS: "1", PLATFORM_MAIL_DOMAIN: undefined }, p).founder.preferences.get())).toBe(false);
+    expect(await emailsFlag(callerIn({ ...INVITE_ONLY, PLATFORM_MAIL_DOMAIN: "mail.people.test", INTEGRATIONS_MODE: "mock", LIVE_CONNECTORS: "", WAITLIST_EMAILS: "1" }, p).founder.preferences.get())).toBe(false);
+    const full = { SIGNUP_OPEN: "1", SIGNUP_DAILY_CEILING: 0 };
+    const w = await person("emails-flag-ceiling");
+    expect(await emailsFlag(callerIn({ ...full, ...MAIL_LIVE, WAITLIST_EMAILS: "on" }, w).founder.preferences.get())).toBe(true);
+    expect(await emailsFlag(callerIn(full, w).founder.preferences.get())).toBe(false);
+  });
+});
+
 describe("admitOrWait: open sign-up with a daily ceiling", () => {
   it("admits new accounts until the day's ceiling, then refuses with on_waitlist; people from before and the list never count", async () => {
     const before = await repos.admissions.openSince(hz.db, todayStart());

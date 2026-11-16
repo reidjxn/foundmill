@@ -15,17 +15,36 @@ const RESEARCH_GOAL = [
   "order and shipping time, citing the page each fact comes from as a source. Then complete the task.",
 ].join(" ");
 
+type Rec = Record<string, unknown>;
+const field = (v: unknown, key: string): unknown => (v && typeof v === "object" ? (v as Rec)[key] : undefined);
+
+/**
+ * The addresses the session's searches returned, as the agent received them: the typed read (`facts`) next to the
+ * quarantined reader's digest, or the raw results for an agent that reads them raw. Never the fixture's own list: the
+ * live run of Nov 15, 2026 failed because an agent on the digest got no addresses, which a script that knew them hid.
+ */
+export function searchedUrls(seen: readonly unknown[]): string[] {
+  return seen.flatMap((r) => {
+    const data = field(field(r, "result"), "data");
+    if (!String(field(field(data, "source"), "ref") ?? "").startsWith("search:")) return [];
+    const results = field(field(data, "facts"), "results") ?? field(field(data, "content"), "results");
+    return Array.isArray(results) ? results.map((x) => field(x, "url")).filter((u): u is string => typeof u === "string") : [];
+  });
+}
+
+/** The first three search results, read and then cited: what the agent can know, not what the fixture holds. */
+const READ_COUNT = 3;
 const researcherScript: SessionCase["script"] = [
   { connector: "web", tool: "search_web", args: () => ({ query: "compostable 12 oz coffee cups wholesale supplier", limit: 5 }) },
-  ...FIXTURE_PAGES.map((p) => ({ connector: "web", tool: "fetch_page", args: () => ({ url: p.url }) })),
+  ...Array.from({ length: READ_COUNT }, (_, i) => ({ connector: "web", tool: "fetch_page", args: (_ctx: unknown, seen: readonly unknown[]) => ({ url: searchedUrls(seen)[i] }) })),
   {
     connector: "platform",
     tool: "save_report",
-    args: (ctx) => ({
+    args: (ctx, seen) => ({
       taskId: ctx.taskId,
       title: "Compostable cup suppliers compared",
       bodyMd: "| Supplier | 12 oz price | Minimum order | Ships in |\n| --- | --- | --- | --- |\n| GreenCup Supply | $0.11 | 1,000 | 5 business days |\n| Leafware | $0.16 | 500 | 10 business days |\n| Northbay Packaging | $0.08 | 10,000 | 3 weeks |\n\nRecommendation: start with GreenCup Supply.",
-      sources: FIXTURE_PAGES.map((p) => ({ url: p.url, title: p.title })),
+      sources: searchedUrls(seen).slice(0, READ_COUNT).map((url) => ({ url, title: new URL(url).hostname })),
     }),
   },
   { connector: "platform", tool: "complete_task", args: (ctx) => ({ taskId: ctx.taskId, summary: "Compared three compostable cup suppliers; the report is saved." }) },

@@ -10,6 +10,7 @@ import { LONG, NORTHWIND_BUSINESS_ID, expectTapTarget } from "./helpers";
  * runner and the web server.
  */
 const GOOGLE_ON = process.env.NEXT_PUBLIC_AUTH_GOOGLE?.trim().toLowerCase() === "on";
+const SUPABASE_STUB = process.env.E2E_SUPABASE_STUB === "1";
 const WIDTHS = [
   { width: 1280, height: 900 },
   { width: 390, height: 844 },
@@ -92,6 +93,35 @@ for (const { width, height } of WIDTHS) {
         await expect(page).toHaveURL(/\/login\?error=(not_configured|signups_closed)&next=%2Fb%2Fx$/, { timeout: LONG });
         await expect(page.getByTestId("login-link-problem")).toBeVisible();
         await expectFits(page, width, "the callback's notice");
+      } finally {
+        await close();
+      }
+    });
+
+    test("once the email is sent: at 390 px the code field comes before the link sentence; on a desktop the link comes first (WP-03 T4)", async ({ browser }) => {
+      // The stack has no Supabase, so the form cannot send. With a web built against a stand-in Supabase address
+      // (E2E_SUPABASE_STUB=1, e2e/README.md) the browser's send is answered here and the sent state is shown.
+      test.skip(!SUPABASE_STUB, "needs the web built with NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY (and E2E_SUPABASE_STUB=1 here)");
+      const { page, close } = await visitor(browser, width, height);
+      try {
+        await page.route("**/auth/v1/otp**", (route) => route.fulfill({ status: 200, contentType: "application/json", body: "{}" }));
+        await page.goto("/login");
+        await page.waitForLoadState("networkidle");
+        await page.getByLabel("Email").fill("new-person@example.com");
+        await page.getByRole("button", { name: "Send sign-in link" }).click();
+        const sent = page.getByTestId("login-sent");
+        await expect(sent).toBeVisible({ timeout: LONG });
+        await expect(sent.getByText("Check your email")).toBeVisible();
+        const code = (await page.getByTestId("login-code").boundingBox())!;
+        if (width < 1280) {
+          await expect(sent.getByText("Type the 6-digit code we sent to new-person@example.com.")).toBeVisible();
+          const link = (await sent.getByText("Or open the link in that email on this device.").boundingBox())!;
+          expect(code.y + code.height).toBeLessThanOrEqual(link.y);
+        } else {
+          const link = (await sent.getByText(/for a sign-in link and open it in this browser/).boundingBox())!;
+          expect(link.y + link.height).toBeLessThanOrEqual(code.y);
+        }
+        await expectFits(page, width, "the sent state");
       } finally {
         await close();
       }

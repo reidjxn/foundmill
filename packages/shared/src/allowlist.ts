@@ -98,9 +98,9 @@ export function liveChannelAdmit(
 export const ON_WAITLIST_CODE = "on_waitlist";
 export const ON_WAITLIST_WORDS = { title: "You're on the list.", body: "We'll let you in as soon as there is room. Come back tomorrow to check." } as const;
 /**
- * The line that promises an email, for when the waitlist records who is waiting and sends it. The waitlist sends it
- * since WP-03 T2 (the `waitlist-admissions` sweep), but the ceiling's page (`OnWaitlistPage`) still stores nobody: it
- * offers no join, so no email would come to a person refused there. Switch `ON_WAITLIST_WORDS.body` to it in the change
- * that stores that person (WP-03 T1 step 3).
+ * The line that promises an email. The waitlist sends it since WP-03 T2 (the `waitlist-admissions` sweep) and the
+ * ceiling's page stores the person since WP-03 T1, but production does not email yet (WP-00 S1/S2). The saved line under
+ * the card promises it only where the api says it is sent (`waitlistEmails`, apps/web `WAITLIST_WORDS`); the card's body
+ * stays without a promise.
  */
 export const ON_WAITLIST_EMAIL_PROMISE = "We'll email you when you're in.";

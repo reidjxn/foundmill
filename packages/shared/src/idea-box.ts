@@ -13,6 +13,11 @@ export const IDEA_COOKIE_MAX_AGE_S = 7 * 24 * 60 * 60;
 export const IDEA_BOX_PROMPT_MAX = 500;
 /** The shortest line worth drafting from. */
 export const IDEA_BOX_PROMPT_MIN = 3;
+/**
+ * The longest a card's model call may take (WP-03 T7): past it the api stops the call and answers the `failed` line.
+ * The page's own timer waits 5 seconds longer, for a stream that stalls on the way.
+ */
+export const IDEA_BOX_DEADLINE_MS = 30_000;
 /** The query parameter the sign-in link carries to /start so another device can claim the card. */
 export const IDEA_CLAIM_PARAM = "claim";
 
@@ -85,8 +90,8 @@ export type IdeaBoxEvent =
 export const IDEA_BOX_ERRORS: Record<IdeaBoxErrorCode, string> = {
   invalid: "Write your idea in a sentence, up to 500 characters.",
   bot: "We could not check this browser. Reload the page and try again.",
-  limit: "That is all the cards from this connection today. Sign in to keep going with your team.",
-  resting: "The idea box is resting until tomorrow. Sign in and your team can shape it with you.",
+  limit: "That is all the cards from this connection today. Come back tomorrow for another.",
+  resting: "The idea box is resting until tomorrow. Come back then and it will shape your idea.",
   unavailable: "The idea box is not open right now. Try again in a minute.",
   refused: "That one cannot become a card. Try another idea.",
   failed: "The card could not be finished. Try again.",

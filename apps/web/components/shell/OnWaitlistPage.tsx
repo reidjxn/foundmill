@@ -7,23 +7,26 @@
  * out, and a link onward (an example project to look around).
  *
  * `WorksOnSmallScreens` keeps the root's `DesktopOnly` from asking for a larger window on whatever route this is.
- * Self-contained: the retention team's not-invited page and its "Join the waitlist" are a separate refusal
- * (`not_invited`, NotInvitedPage.tsx).
+ * The not-invited page (`not_invited`, NotInvitedPage.tsx) is a separate refusal; both store the person on the waitlist
+ * on arrival with its `WaitlistJoin`.
  */
 import { Button, OnWaitlistCard } from "@foundmill/dugout";
 import { APP_NAME } from "@foundmill/config";
 import { WorksOnSmallScreens } from "@/components/providers/DesktopOnly";
 import { ON_WAITLIST_ONWARD_HREF } from "@/lib/people";
 import { BrandFrame } from "./BrandFrame";
+import { WaitlistJoin } from "./NotInvitedPage";
 import { SignOutButton } from "./SignOutButton";
 
 export interface OnWaitlistPageProps {
   email?: string | null;
   /** Where the link onward goes (an example project by default). */
   onwardHref?: string;
+  /** The waitlist really emails here (the API's `waitlistEmails`): the saved line may promise it. */
+  emails?: boolean;
 }
 
-export function OnWaitlistPage({ email = null, onwardHref = ON_WAITLIST_ONWARD_HREF }: OnWaitlistPageProps) {
+export function OnWaitlistPage({ email = null, onwardHref = ON_WAITLIST_ONWARD_HREF, emails = false }: OnWaitlistPageProps) {
   return (
     <BrandFrame smallScreen footer={<span>{APP_NAME} lets new people in every day.</span>}>
       <WorksOnSmallScreens />
@@ -39,6 +42,8 @@ export function OnWaitlistPage({ email = null, onwardHref = ON_WAITLIST_ONWARD_H
             </>
           }
         />
+        {/* The person refused by the day's ceiling is stored too, once, on arrival (WP-03 T1). */}
+        <WaitlistJoin email={email} emails={emails} />
       </div>
     </BrandFrame>
   );

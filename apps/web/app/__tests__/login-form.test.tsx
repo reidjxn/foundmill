@@ -54,6 +54,36 @@ beforeEach(() => {
 });
 
 describe("LoginForm", () => {
+  it("once sent, a phone puts the six-digit code first and the link second; a desktop keeps the link first (WP-03 T4)", async () => {
+    const original = window.innerWidth;
+    const at = (width: number) => Object.defineProperty(window, "innerWidth", { value: width, configurable: true });
+    try {
+      at(390);
+      const phone = render(<LoginForm />);
+      await sendLink("new@example.com");
+      const sent = screen.getByTestId("login-sent");
+      expect(sent.textContent).toContain("Check your email");
+      expect(sent.textContent).not.toContain("Link sent");
+      const typeLine = screen.getByText((_, el) => el?.tagName === "P" && el.textContent === "Type the 6-digit code we sent to new@example.com.");
+      const code = screen.getByTestId("login-code");
+      const linkLine = screen.getByText("Or open the link in that email on this device.");
+      // In document order: the line, the code field, then the link sentence.
+      expect(typeLine.compareDocumentPosition(code) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(code.compareDocumentPosition(linkLine) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      phone.unmount();
+
+      at(1440);
+      render(<LoginForm />);
+      await sendLink("new@example.com");
+      expect(screen.getByTestId("login-sent").textContent).toContain("Check your email");
+      const desktopLink = screen.getByText(/for a sign-in link and open it in this browser/);
+      expect(desktopLink.compareDocumentPosition(screen.getByTestId("login-code")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(screen.queryByText("Or open the link in that email on this device.")).toBeNull();
+    } finally {
+      at(original);
+    }
+  });
+
   it("asked for on www, the magic link still returns to https://foundmill.com", async () => {
     onHost("https://www.foundmill.com/login?next=%2Fb%2Fabc%2Finbox");
     render(<LoginForm nextParam="/b/abc/inbox" />);
@@ -98,6 +128,8 @@ describe("LoginForm", () => {
     expect(html).toContain("Send sign-in link");
     expect(html).toContain("Email");
     expect(html).toContain("No password, no card. We email you a link.");
+    // WP-03 T1: what signing in does for a new address, said before it happens.
+    expect(html).toContain("New here? Foundmill lets new people in a few at a time. Signing in saves your place.");
     expect(html).toContain("you@example.com");
     expect(html).toContain("Link expired");
     expect(html).not.toContain("BAILOUT_TO_CLIENT_SIDE_RENDERING");

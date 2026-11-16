@@ -48,6 +48,9 @@ export const SMALL_SCREEN_PREFIXES: readonly string[] = [
   "/profiles/",
   // An invitation to a project (THESIS_REVIEW 3.1).
   "/i/",
+  // The signed-in index (WP-03 T1): it redirects, or renders in place the landing page or the gate's pages (not
+  // invited, on the waitlist, the server unreachable), each of which works from 390 px.
+  "/start",
 ];
 
 /**

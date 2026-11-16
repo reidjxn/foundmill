@@ -10,11 +10,12 @@
  * under it points to the email link, which stays usable throughout.
  *
  * Works from 390 px (CLAUDE.md "Small screens"): the frame renders at every width, every control is at least 44 px tall.
+ * Once sent, a small screen shows the six-digit code first and the link second (WP-03 T4); a desktop the link first.
  */
 import { Mail, Send, Unlink, Wrench } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { APP_NAME } from "@foundmill/config";
-import { Button, Field, GoogleSignInButton, Input, Separator, StatusPill } from "@foundmill/dugout";
+import { Button, Field, GoogleSignInButton, Input, Separator, StatusPill, isViewportTooSmall, useViewportWidth } from "@foundmill/dugout";
 import { magicLinkCallbackUrl } from "@/lib/auth/canonical-origin";
 import { NEXT_PARAM } from "@/lib/auth/constants";
 import { startGoogleSignIn } from "@/lib/auth/google";
@@ -45,6 +46,7 @@ export function LoginForm({ nextParam = null, errorParam = null, google = google
   const [email, setEmail] = useState("");
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const [googlePhase, setGooglePhase] = useState<GooglePhase>("idle");
+  const width = useViewportWidth();
   const supabaseReady = hasSupabase();
   const devBypass = isDevLike();
   // The Supabase client loads on demand; start it once the form is on screen so sending the link never waits for it.
@@ -101,15 +103,31 @@ export function LoginForm({ nextParam = null, errorParam = null, google = google
         {phase.kind === "sent" ? (
           <div className="flex flex-col gap-2" role="status" data-testid="login-sent">
             <StatusPill tone="good" icon={Mail}>
-              Link sent
+              Check your email
             </StatusPill>
-            <p className="text-body">
-              Check <span className="font-medium text-primary">{phase.email}</span> for a sign-in link and open it in this browser: it signs you in to {APP_NAME} here. Reading it on another device? Type the code from the email below.
-            </p>
-            <Button variant="ghost" size="sm" className="min-h-tap" onClick={() => setPhase({ kind: "idle" })}>
-              Use a different address
-            </Button>
-            <SignInCode email={phase.email} next={next} />
+            {/* A phone types the code from the email it is reading (WP-03 T4): the code first, the link second. */}
+            {isViewportTooSmall(width) ? (
+              <>
+                <p className="text-body">
+                  Type the 6-digit code we sent to <span className="font-medium text-primary">{phase.email}</span>.
+                </p>
+                <SignInCode email={phase.email} next={next} first />
+                <p className="text-body text-secondary">Or open the link in that email on this device.</p>
+                <Button variant="ghost" size="sm" className="min-h-tap" onClick={() => setPhase({ kind: "idle" })}>
+                  Use a different address
+                </Button>
+              </>
+            ) : (
+              <>
+                <p className="text-body">
+                  Check <span className="font-medium text-primary">{phase.email}</span> for a sign-in link and open it in this browser: it signs you in to {APP_NAME} here. Reading it on another device? Type the code from the email below.
+                </p>
+                <Button variant="ghost" size="sm" className="min-h-tap" onClick={() => setPhase({ kind: "idle" })}>
+                  Use a different address
+                </Button>
+                <SignInCode email={phase.email} next={next} />
+              </>
+            )}
           </div>
         ) : (
           <div className="flex flex-col gap-4">
@@ -155,6 +173,11 @@ export function LoginForm({ nextParam = null, errorParam = null, google = google
                 // ReassuranceLine's Undo / Settings icons mean "you can change this later", which this line is not.
                 <p className="text-small text-secondary" data-testid="login-reassurance">
                   No password, no card. We email you a link.
+                </p>
+              ) : null}
+              {supabaseReady ? (
+                <p className="text-small text-secondary" data-testid="login-new-here">
+                  {`New here? ${APP_NAME} lets new people in a few at a time. Signing in saves your place.`}
                 </p>
               ) : null}
             </form>

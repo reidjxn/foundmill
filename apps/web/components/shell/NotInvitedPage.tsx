@@ -1,29 +1,34 @@
 "use client";
 /**
  * Rendered by server pages when the API refuses the signed-in account because this deployment is invite-only (the API's
- * SIGNUP_ALLOWLIST, appCode `not_invited`): says so plainly, names the address that signed in, and offers to sign out
- * so the founder can use an address that is on the list. A listed address the sign-in did not show as confirmed
- * (`unconfirmed`) is asked to confirm it first.
+ * SIGNUP_ALLOWLIST, appCode `not_invited`): says plainly that people are let in a few at a time, names the address that
+ * signed in, saves their place on arrival (no press: the sign-in page said signing in does), and offers Sign out. A
+ * listed address the sign-in did not show as confirmed (`unconfirmed`) is asked to confirm it first, and nothing is
+ * joined. Works from 390 px wherever it is shown (`WorksOnSmallScreens`; WP-03 T1). The saved line promises the email
+ * the waitlist sends when the place opens (WP-03 T2) only when the API says it is really sent here (`emails`, the API's
+ * `waitlistEmails`: WAITLIST_EMAILS on and platform mail live); otherwise it says it cannot email yet.
  */
-import { useActionState } from "react";
+import { startTransition, useActionState, useEffect, useRef } from "react";
 import { ListPlus, MailX } from "lucide-react";
 import { APP_NAME } from "@foundmill/config";
 import { Button, EmptyState, StatusPill } from "@foundmill/dugout";
+import { WorksOnSmallScreens } from "@/components/providers/DesktopOnly";
 import { joinWaitlist, type WaitlistJoinState } from "./waitlist-actions";
 import { BrandFrame } from "./BrandFrame";
 import { SignOutButton } from "./SignOutButton";
 
-export function NotInvitedPage({ message, email, unconfirmed = false }: { message: string; email?: string | null; unconfirmed?: boolean }) {
-  const title = unconfirmed ? (email ? `Confirm ${email} first` : "Confirm your address first") : email ? `${email} is not on the list` : "This address is not on the list";
+export function NotInvitedPage({ message, email, unconfirmed = false, emails = false }: { message: string; email?: string | null; unconfirmed?: boolean; emails?: boolean }) {
+  const title = unconfirmed ? (email ? `Confirm ${email} first` : "Confirm your address first") : email ? `${email} has a place in line` : "This address has a place in line";
   return (
-    <BrandFrame title="Invite only for now" footer={<span>{APP_NAME} is open to invited founders while it is in preview.</span>}>
+    <BrandFrame smallScreen title="A few people at a time" footer={<span>{APP_NAME} lets new people in a few at a time.</span>}>
+      <WorksOnSmallScreens />
       <div data-testid="not-invited" data-reason={unconfirmed ? "email_unconfirmed" : "not_listed"}>
         <EmptyState icon={MailX} title={title}>
           {message}
         </EmptyState>
-        {!unconfirmed ? <WaitlistJoin email={email ?? null} /> : null}
+        {!unconfirmed ? <WaitlistJoin email={email ?? null} emails={emails} /> : null}
         <div className="mt-3 flex justify-end">
-          <SignOutButton variant="default" />
+          <SignOutButton variant="default" className="min-h-tap" />
         </div>
       </div>
     </BrandFrame>
@@ -31,39 +36,60 @@ export function NotInvitedPage({ message, email, unconfirmed = false }: { messag
 }
 
 /**
- * The words of the waitlist offer. The joined lines promise the email the waitlist sends when the place opens
- * (WP-03 T2: the orchestrator's `waitlist-admissions` sweep and the gateway's `waitlist_admitted`), to the address that
- * signed in.
+ * The words of the waitlist join. `joined` and `joinedWithCard` are what is true while the waitlist cannot email; the
+ * `…Email` lines promise the email (WP-03 T2: the orchestrator's `waitlist-admissions` sweep and the gateway's
+ * `waitlist_admitted`) to the address that signed in, and are shown only where the API says it is sent.
  */
 export const WAITLIST_WORDS = {
-  offer: "Join the waitlist and we will let you in as soon as there is room. If you made a card on the home page, it is kept for you.",
-  join: "Join the waitlist",
-  joinedWithCard: (email: string | null) => `Your place is saved, and your card is kept for 90 days. We email ${email ?? "you"} the day your place opens.`,
-  joined: (email: string | null) => `Your place is saved. We email ${email ?? "you"} the day it opens.`,
+  offer: "We are saving your place.",
+  join: "Save my place",
+  joinedWithCard: "Your place is saved, and your card is kept for 90 days. Come back to check; we cannot email you yet.",
+  joined: "Your place is saved. Come back to check; we cannot email you yet.",
+  joinedWithCardEmail: (email: string | null) => `Your place is saved, and your card is kept for 90 days. We email ${email ?? "you"} the day your place opens.`,
+  joinedEmail: (email: string | null) => `Your place is saved. We email ${email ?? "you"} the day it opens.`,
   error: "That did not go through. Try again in a minute.",
 } as const;
 
-/** "Join the waitlist" (docs/IDEA_BOX.md): a Server Action keeps the idea box's card with the entry. */
-function WaitlistJoin({ email }: { email: string | null }) {
+/** The saved line for this deployment: the email promise only when `emails`. */
+export function waitlistJoinedLine({ cardKept, email, emails }: { cardKept: boolean; email: string | null; emails: boolean }): string {
+  if (!emails) return cardKept ? WAITLIST_WORDS.joinedWithCard : WAITLIST_WORDS.joined;
+  return cardKept ? WAITLIST_WORDS.joinedWithCardEmail(email) : WAITLIST_WORDS.joinedEmail(email);
+}
+
+/**
+ * The person's place on the waitlist (docs/IDEA_BOX.md): a Server Action keeps the idea box's card with the entry. It
+ * runs once on arrival; "Save my place" is shown only to try again after it failed. `emails`: see `waitlistJoinedLine`.
+ */
+export function WaitlistJoin({ email = null, emails = false }: { email?: string | null; emails?: boolean }) {
   const [state, action, pending] = useActionState<WaitlistJoinState, FormData>((prev) => joinWaitlist(prev), { status: "idle" });
+  const started = useRef(false);
+  useEffect(() => {
+    if (started.current) return;
+    started.current = true;
+    startTransition(() => action(new FormData()));
+  }, [action]);
   if (state.status === "joined") {
     return (
       <StatusPill tone="good" role="status" className="mt-3" data-testid="waitlist-joined">
-        {state.cardKept ? WAITLIST_WORDS.joinedWithCard(email) : WAITLIST_WORDS.joined(email)}
+        {waitlistJoinedLine({ cardKept: state.cardKept, email, emails })}
       </StatusPill>
+    );
+  }
+  if (state.status !== "error") {
+    return (
+      <p role="status" className="mt-3 text-body text-secondary" data-testid="waitlist-saving">
+        {WAITLIST_WORDS.offer}
+      </p>
     );
   }
   return (
     <form action={action} className="mt-3 flex flex-col gap-2" data-testid="waitlist-join">
-      <p className="text-body text-secondary">{WAITLIST_WORDS.offer}</p>
+      <StatusPill tone="bad" role="alert">
+        {WAITLIST_WORDS.error}
+      </StatusPill>
       <Button type="submit" variant="glass" icon={ListPlus} loading={pending} className="min-h-tap self-start">
         {WAITLIST_WORDS.join}
       </Button>
-      {state.status === "error" ? (
-        <StatusPill tone="bad" role="alert">
-          {WAITLIST_WORDS.error}
-        </StatusPill>
-      ) : null}
     </form>
   );
 }

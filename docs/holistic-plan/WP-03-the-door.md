@@ -39,7 +39,7 @@ Migrations: take the next free number when the branch is cut (0108, journal idx 
 
 Order: T1, T4, T7 and T9 can start at once. T2, then T3 (T3 reuses T2's gateway module). T5, then T6. T8 after T2. T10 last, after Decision 5.
 
-### T1: The gate tells the truth at any width [S] [ships alone]
+### [x] T1: The gate tells the truth at any width [S] [ships alone]
 
 **Why:** FR-01 (fixes 1 and 4), FR-02, A9-P1-1, s2 §1.3 rows 1 to 3, §4.4.
 
@@ -168,7 +168,7 @@ The api admits them on their next request and the sweep emails them within 15 mi
 **Done when:** Done-when 3.
 **Needs setup:** WP-00 S1 and S2 for the email to arrive; before that the control falls back to Copy link, which is why the fallback is built.
 
-### T4: The sign-in email carries a code for a new address [S] [ships alone]
+### [x] T4: The sign-in email carries a code for a new address [S] [ships alone]
 
 **Why:** FR-13, s1 §3.3.
 
@@ -400,7 +400,7 @@ Facts:
 **Done when:** Done-when 5.
 **Needs the founder:** Decision 1 (index now) and Decision 2 (training crawlers). Until Decision 1 is yes, merge with `indexable()` returning false behind one constant `HOME_INDEXED = false` and flip it in a one-line pull request.
 
-### T7: The idea box keeps its word under load [S] [ships alone]
+### T7: The idea box keeps its word under load [S] [ships alone] (steps 1–2: step 1 built on claude/wp03-t7-idea-box-load; step 2 left for the landing session)
 
 **Why:** FR-14 (the deadline and the refusal lines; "one more try" waits on Decision 3).
 
@@ -485,6 +485,8 @@ Facts:
 14. **`CardKeepView.tsx` makes no "real sources" claim** (FR-06 lists it). Only `IdeaBox.tsx` (`keepLead`) and `CardKeptView.tsx` (`CARD_KEPT_WORDS.lede`) do.
 
 ## Decisions for the founder
+
+**Answered by the founder on Nov 15, 2026** (docs/log/2026-11/2026-11-15-claude-wp03-founder-decisions.md): 1 yes (index once T5 and T6 merge); 2 B; 3 yes, up to 2 redraws; 4 no (open sign-up needs T8 and WP-09's per-account ceiling; reporting gates `liveMode`); 5 this package builds T10 after T2; 6 the bot check only once the app sends a token; 7 the numbers as written; 8 keep `/tour` for now.
 
 1. **Let search engines index the home page when T5 and T6 merge?** Recommended: yes. The page will be true, and "Built on Foundmill" links land on it. The other choice is to hold until sign-up opens.
 2. **AI training crawlers.** (A) allow everywhere, or (B) allow on Foundmill's own pages and disallow on `/p/` and `/u/`. Recommended: B, which matches "we do not use your content to train AI models" for founders' words and costs no search presence. Either way one sentence goes in the Terms.

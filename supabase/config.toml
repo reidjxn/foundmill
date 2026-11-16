@@ -28,3 +28,9 @@ otp_expiry = 900
 [auth.email.template.magic_link]
 subject = "Sign in to Foundmill"
 content_path = "./supabase/templates/magic_link.html"
+
+# A new address gets "Confirm signup", not the magic link (WP-03 T4): the same body, the link and the six-digit code,
+# opening with "Welcome to Foundmill".
+[auth.email.template.confirmation]
+subject = "Your Foundmill sign-in code"
+content_path = "./supabase/templates/confirm_signup.html"

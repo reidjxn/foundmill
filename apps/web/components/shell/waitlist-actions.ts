@@ -1,6 +1,6 @@
 "use server";
 /**
- * "Join the waitlist" on the not-invited page (docs/IDEA_BOX.md): reads the idea box's cookie on the server (it is
+ * The waitlist join the not-invited and on-waitlist pages run on arrival (docs/IDEA_BOX.md): reads the idea box's cookie on the server (it is
  * httpOnly) and asks the api to keep the card with the waitlist entry, 90 days. Next.js checks a Server Action's Origin
  * against the Host before it runs.
  */

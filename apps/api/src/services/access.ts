@@ -31,20 +31,22 @@
  *   - `not_invited`, `details.reason` `not_listed` or `email_unconfirmed`: the web's invite-only page
  *     (components/shell/NotInvitedPage.tsx);
  *   - `on_waitlist`, `details.reason` `ceiling`: the web's "You're on the list" panel (components/shell/ApiErrorPage.tsx).
+ *   `not_listed` and `ceiling` also carry `details.waitlistEmails` (WAITLIST_EMAILS on and platform mail live): only
+ *   then does the web's saved line promise the email.
  * Nothing here stores a person who waits: joining the waitlist is `waitlist.join` (routers/idea-box.ts), and letting
  * people in from it and the email when their place opens are the orchestrator's `waitlist-admissions` sweep (WP-03 T2),
  * which records each admission as `open`, so step 3 lets them in on their next request. apps/stream and apps/collab refuse the same accounts' sockets (`liveChannelAdmit`: the list, or an
  * admission row).
  */
 import { APP_NAME } from "@foundmill/config";
-import { AppError, allowlisted, ON_WAITLIST_CODE, ON_WAITLIST_WORDS, parseSignupAllowlist, signupMode, type SignupAllowlist, type SignupMode } from "@foundmill/shared";
+import { AppError, allowlisted, ON_WAITLIST_CODE, ON_WAITLIST_WORDS, parseSignupAllowlist, signupMode, type SignupAllowlist, type SignupMode, waitlistEmails } from "@foundmill/shared";
 import { repos, type Db, type Executor } from "@foundmill/db";
 
 // The list itself is @foundmill/shared's (allowlist.ts): apps/stream and apps/collab admit people by the same rules.
 export { allowlisted, parseSignupAllowlist, type SignupAllowlist } from "@foundmill/shared";
 
 export const NOT_INVITED_CODE = "not_invited";
-export const NOT_INVITED_MESSAGE = "This address is not on the invite list yet. Ask the person who invited you to add it, or sign in with an address that is on it.";
+export const NOT_INVITED_MESSAGE = `${APP_NAME} is letting new people in a few at a time so every project gets real agent work. Your place is not open yet.`;
 export const EMAIL_UNCONFIRMED_MESSAGE = "This address is not confirmed yet. Open the link we sent to it, then sign in again.";
 /** The refusal of a signed-in person open sign-up did not admit today (`appCode`), and what it says. */
 export { ON_WAITLIST_CODE };
@@ -141,7 +143,7 @@ export function forgetAdmittedMemo(): void {
 }
 
 export interface AdmissionContext {
-  env: { SIGNUP_ALLOWLIST?: string; SIGNUP_OPEN?: string; SIGNUP_DAILY_CEILING?: number; SIGNUP_EXISTING_BEFORE?: string; DEV_AUTH_USER_ID?: string };
+  env: { SIGNUP_ALLOWLIST?: string; SIGNUP_OPEN?: string; SIGNUP_DAILY_CEILING?: number; SIGNUP_EXISTING_BEFORE?: string; DEV_AUTH_USER_ID?: string } & Parameters<typeof waitlistEmails>[0];
   db: Db;
   /** One answer per HTTP request and person, so a batch asks once (a fresh map per request; absent in tests). */
   admissionMemo?: Map<string, Promise<void>>;
@@ -175,10 +177,13 @@ export async function existingBefore(ctx: Pick<AdmissionContext, "env" | "db">, 
   return known;
 }
 
-/** The refusal for each answer that is not "admit". */
-function refusalFor(decision: Exclude<AdmissionDecision, { outcome: "admit" }>): AppError {
-  if (decision.outcome === "wait") return new AppError(ON_WAITLIST_CODE, ON_WAITLIST_MESSAGE, 403, { reason: decision.reason });
-  return decision.reason === "email_unconfirmed" ? new AppError(NOT_INVITED_CODE, EMAIL_UNCONFIRMED_MESSAGE, 403, { reason: "email_unconfirmed" }) : new AppError(NOT_INVITED_CODE, NOT_INVITED_MESSAGE, 403, { reason: "not_listed" });
+/**
+ * The refusal for each answer that is not "admit". The two that save the person's place carry `waitlistEmails`
+ * (@foundmill/shared `waitlistEmails`): whether the web's saved line may promise the email the waitlist sends.
+ */
+function refusalFor(decision: Exclude<AdmissionDecision, { outcome: "admit" }>, env: AdmissionContext["env"]): AppError {
+  if (decision.outcome === "wait") return new AppError(ON_WAITLIST_CODE, ON_WAITLIST_MESSAGE, 403, { reason: decision.reason, waitlistEmails: waitlistEmails(env) });
+  return decision.reason === "email_unconfirmed" ? new AppError(NOT_INVITED_CODE, EMAIL_UNCONFIRMED_MESSAGE, 403, { reason: "email_unconfirmed" }) : new AppError(NOT_INVITED_CODE, NOT_INVITED_MESSAGE, 403, { reason: "not_listed", waitlistEmails: waitlistEmails(env) });
 }
 
 /**
@@ -209,7 +214,7 @@ async function decideAndApply(ctx: AdmissionContext, user: AdmissionUser): Promi
   if (mode === "unrestricted" || devUser || listed) {
     const d = decideAdmission(base);
     if (d.outcome === "admit") return;
-    throw refusalFor(d);
+    throw refusalFor(d, ctx.env);
   }
   if (admittedRecently(user.userId)) return;
 
@@ -229,7 +234,7 @@ async function decideAndApply(ctx: AdmissionContext, user: AdmissionUser): Promi
     if (d.outcome === "admit" && d.record) await repos.admissions.record(tx, { userId: user.userId, how: d.record });
     return d;
   });
-  if (decision.outcome !== "admit") throw refusalFor(decision);
+  if (decision.outcome !== "admit") throw refusalFor(decision, ctx.env);
   rememberAdmitted(user.userId);
 }
 
@@ -331,7 +336,7 @@ export async function admitThroughInvitation(
       return "admitted";
     }
     if (standing === "trusted" && underInviterNumber && admittedToday - ceiling < INVITATION_ADMISSIONS_PAST_CEILING_PER_DAY) return byInvitation();
-    throw refusalFor(decision);
+    throw refusalFor(decision, ctx.env);
   }
   if (underInviterNumber) return byInvitation();
   throw standing !== "none" ? new AppError(INVITATION_ADMISSIONS_LIMIT_CODE, INVITATION_ADMISSIONS_LIMIT_MESSAGE, 429) : new AppError(INVITATION_CANNOT_ADMIT_CODE, INVITATION_CANNOT_ADMIT_MESSAGE, 403);
