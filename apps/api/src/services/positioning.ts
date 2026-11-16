@@ -8,7 +8,7 @@
  * - `positioning.requestDraft` (Product write): the Product lead's first draft from the founder's own words, for a
  *   project that has neither copy (one in-process call on the `projectPage` route, booked like the page draft).
  *
- * The foundations columns have no client write policy (0019 rule, kept by 0117), so every write here runs on the
+ * The foundations columns have no client write policy (0019 rule, kept by 0118), so every write here runs on the
  * service connection after the procedure's own section and role checks.
  */
 import { POSITIONING_USAGE_KIND, runPositioningDraft } from "@foundmill/agents";

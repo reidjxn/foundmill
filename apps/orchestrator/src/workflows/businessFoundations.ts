@@ -34,11 +34,6 @@ export const FOUNDATIONS_PAGE_PATCH = "foundations-project-page";
  * replays without the step; every new run records the marker. Never rename it: recorded histories carry it.
  */
 export const FOUNDATIONS_SECOND_READ_PATCH = "foundations-second-read";
-/**
- * The patch id of the positioning step (WP-08 T1), right after the page. A run recorded before it replays without the
- * step; every new run records the marker. Never rename it: recorded histories carry it.
- */
-export const FOUNDATIONS_POSITIONING_PATCH = "foundations-positioning";
 
 /**
  * The plan: one short call (low effort). The activity heartbeats while it waits, so a lost worker is noticed within a
@@ -99,14 +94,6 @@ export async function businessFoundations(input: BusinessFoundationsInput): Prom
       await pageActs.draftProjectPage(input);
     } catch {
       // The page tab still offers the starter draft (`page.get`) and Today its line to it.
-    }
-  }
-  // The positioning notes' first draft (WP-08 T1): one short call, never in the way, like the page.
-  if (patched(FOUNDATIONS_POSITIONING_PATCH)) {
-    try {
-      await pageActs.draftPositioning(input);
-    } catch {
-      // Product › Vision offers "Ask the team to draft it".
     }
   }
 

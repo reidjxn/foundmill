@@ -1,4 +1,4 @@
--- 0117 — the project's positioning notes (WP-08 T1; audit a5 GTM-08). One record of who the project is for, their
+-- 0118 — the project's positioning notes (WP-08 T1; audit a5 GTM-08). One record of who the project is for, their
 -- problem, what they use today and what is different, which every marketing call reads (@foundmill/shared
 -- `positioning.ts`). `positioning` is the copy the founders approved; `positioning_draft` waits for them (the team's
 -- first draft, a member's edit, or an agent's proposed change). Nothing an agent writes is used until a founder approves.

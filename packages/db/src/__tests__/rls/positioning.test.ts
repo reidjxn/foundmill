@@ -1,5 +1,5 @@
 /**
- * 0117 `business_foundations.positioning` and `positioning_draft` (WP-08 T1): columns on the foundations row, so they
+ * 0118 `business_foundations.positioning` and `positioning_draft` (WP-08 T1): columns on the foundations row, so they
  * carry its 0018 policies. Members of A read A's notes and nobody reads them from B; no app role writes them (the api
  * writes on the service connection after its own checks). The repo raises the team's note once while it is open, and an
  * approval bumps the version and clears the waiting copy.
@@ -33,7 +33,7 @@ afterAll(() => h?.close());
 
 const readNotes = (businessId: string) => (tx: DbTx) => tx.select({ positioning: businessFoundations.positioning, draft: businessFoundations.positioningDraft }).from(businessFoundations).where(eq(businessFoundations.businessId, businessId));
 
-describe("positioning notes (0117)", () => {
+describe("positioning notes (0118)", () => {
   it("writes a draft once with one note, and a first-draft run on a project that has one writes nothing", async () => {
     const agentId = await h.service().run(async (tx) => (await tx.select({ id: agents.id }).from(agents).where(eq(agents.businessId, A.businessId)).limit(1))[0]?.id ?? null);
     const first = await h.service().run((tx) => repos.positioning.writeDraft(tx, A.businessId, { notes: notesOf("alpha"), agentId, note: true, onlyIfEmpty: true }));

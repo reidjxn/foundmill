@@ -1,5 +1,5 @@
 /**
- * The project's positioning notes (0117; WP-08 T1; @foundmill/shared `positioning.ts`). Two copies on the business's
+ * The project's positioning notes (0118; WP-08 T1; @foundmill/shared `positioning.ts`). Two copies on the business's
  * foundations row: `positioning`, the one the founders approved and every marketing call reads, and
  * `positioning_draft`, one waiting for them (the team's first draft, a member's edit, or an agent's proposed change).
  * Nothing an agent writes is read by a prompt until a founder approves it.

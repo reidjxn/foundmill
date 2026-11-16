@@ -10,7 +10,7 @@ supersedes: []
   sections, names and order kept), `readPositioning` (defensive), `positioningProblems` (a one line; every line that is
   not an assumption names its source; at most eight a section), `renderPositioning` (the one text prompts get, cut on a
   line boundary), `PositioningNotesInput` (zod, for the api and the agent tool), `POSITIONING_NOTE`.
-- Migration 0117: `business_foundations.positioning` (approved), `positioning_draft` (waiting), `positioning_approved_at`,
+- Migration 0118: `business_foundations.positioning` (approved), `positioning_draft` (waiting), `positioning_approved_at`,
   `positioning_approved_by`. No new table, so no new RLS; `fm_collaborator_event_types()` gains `positioning.approved`.
   Cross-tenant and no-client-write test: `packages/db/src/__tests__/rls/positioning.test.ts`.
 - `repos.positioning`: `get`, `approvedText`, `writeDraft` (raises one note while it is open; `onlyIfEmpty` for the
@@ -21,10 +21,9 @@ supersedes: []
   `positioning?: string | null` and add it as an `<untrusted_content kind="positioning_notes">` block headed "Positioning
   notes (the founders' record; use only facts in it)". Contract test `packages/agents/src/positioning.test.ts` names
   every builder in `MARKETING_REQUEST_BUILDERS`.
-- Callers pass `repos.positioning.approvedText`: the channel engine's creative step, `draftTeamPost`, the page step,
-  `distribution.recommend`.
-- Orchestrator: `draftPositioning` after the page in `businessFoundations`, behind `patched("foundations-positioning")`,
-  failures swallowed like the page.
+- Callers pass `repos.positioning.approvedText`: the channel engine's creative step, `draftTeamPost`,
+  `distribution.recommend`. The page step's context takes it too (`ProjectPageStepContext.positioning`); its caller is
+  wired with the foundations step below.
 - Platform tools `read_positioning` (read-only, untrusted document) and `propose_positioning_change` (writes the
   waiting copy and the note; nothing changes until a founder approves). Capabilities `positioning.read` (every channel,
   the strategist, Product lead, Chief of Staff, researcher, product researcher) and `positioning.propose` (strategist and
@@ -54,6 +53,11 @@ supersedes: []
   That keeps T1 from loosening a guard; T4 changes the post prompt.
 
 ## Not done
+- The foundations step that drafts the notes on its own (`draftPositioning` after the page in `businessFoundations`,
+  behind `patched("foundations-positioning")`) is held out of this change: WP-04 T5 (#239) is rewriting
+  `apps/orchestrator/src/activities/foundations.ts`, and its session asked for those files to wait. Until it lands, the
+  founder asks for the draft from Product › Vision ("Ask the team to draft it"), which runs the same `runPositioningDraft`.
+- Migration is 0118: 0116 is held by WP-13 (the `glm` model key) and 0117 by WP-09 T2.
 - The panel edits the one line, the step and the five line sections; objections, voice and the learned log are shown
   read-only (agents propose changes to them).
 - No Storybook story: module panels have none in this repo (the stories are `packages/dugout` components); covered by
