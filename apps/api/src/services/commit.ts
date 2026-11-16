@@ -6,9 +6,11 @@
  * enabled, their engines waiting) → spec outline blocks → the foundations row (pending; Door B also links its Import
  * job: the report is snapshotted and the chosen sources become `sources`, not read yet) → the first cycle's groundwork
  * tasks → the founder's Home dashboard → the Chief of Staff's welcome note in the Inbox → `idea.committed` through the
- * outbox → audit. After commit the first businessCycle is started on Temporal, and for Door B the `importBusiness`
- * workflow that reads the sources through the gateway (both reported as `{ queued, reason }`; the business is complete
- * without them, and a source nothing will read is marked not read). The vision, specification content and roadmap are
+ * outbox → audit. After commit, for a founder with a budget, the first businessCycle is started on Temporal, and for
+ * Door B the `importBusiness` workflow that reads the sources through the gateway (both reported as `{ queued, reason }`;
+ * the business is complete without them, and a source nothing will read is marked not read). A founder with no budget
+ * (WP-04 T3; founder, 2026-11-16 D1) gets no finance or legal task and no cycle at commit: the open-questions task waits
+ * `ready` for the plan's approval, a press of Continue or the first overnight shift, whichever comes first. The vision, specification content and roadmap are
  * drafted on the first open (services/foundations.ts), and the founder is asked to sign them off; the channel engines,
  * the channel-scoring task and the Board's question wait for the founder's Start distribution (founder, 2026-10-18;
  * services/signoff.ts).
@@ -22,7 +24,7 @@
  * fails the commit (Settings › Preferences changes it any time).
  */
 import { randomUUID } from "node:crypto";
-import { DEPARTMENT_DEFAULTS, departmentTabs, getArchetypeSeed, getTemplate, prompts } from "@foundmill/agents";
+import { DEPARTMENT_DEFAULTS, departmentTabs, firstCycleTasksFor, getArchetypeSeed, getTemplate, prompts } from "@foundmill/agents";
 import { CREDITS_CURRENCY, initialModelBilling } from "@foundmill/config";
 
 /** Wage caps are model credits, counted in the credits' own currency whatever the business counts in. */
@@ -59,6 +61,11 @@ export interface CommitIdeaInput {
   spendCapMinor?: number | null;
   /** "Run on autopilot" (Commit): the business starts its own cycles (0055). Off unless chosen. */
   autopilot?: boolean;
+  /**
+   * Whether the founder's profile names a budget (`founder_profiles.budget_minor` above 0; idea.commit reads it). Without
+   * one, commit seeds no finance or legal task and starts no cycle (WP-04 T3). Absent: treated as having one.
+   */
+  hasBudget?: boolean;
   /** With `autopilot`: the overnight shift (daily cadence at about 2 AM in this zone; retention plan, 2026-11-11). */
   overnight?: { timeZone: string };
   /** The Launch step's "Anthropomorphic agents" switch: written to the founder's account preferences when given (0067). */
@@ -75,7 +82,11 @@ export interface CommitIdeaResult {
   /** The Chief of Staff's welcome note: the team is drafting the foundations, two sign-off notes follow (non-blocking). */
   firstItem: InboxItem;
   taskIds: string[];
-  cycle: { queued: boolean; workflowId: string; reason?: string };
+  /**
+   * Cycle 1's start, or null when commit started none (a founder with no budget, WP-04 T3): the first round then starts
+   * on the plan's approval, Continue or the first overnight shift.
+   */
+  cycle: TemporalResult | null;
   /** Door B: the `importBusiness` workflow reading the imported sources through the gateway (null for Door A). */
   import: { queued: boolean; workflowId: string; reason?: string } | null;
   /** Always empty since 2026-10-18: the starter channels' engines start with the founder's Start distribution. */
@@ -175,6 +186,7 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
   const importJobId = importJobIdOf(idea.current?.research);
   const importLink = importJobId ? await resolveImportLink(db, importKey(), importJobId, userId) : null;
   const seed = getArchetypeSeed(input.archetype);
+  const hasBudget = input.hasBudget ?? true;
   const businessMode = input.businessMode ?? DEFAULT_BUSINESS_MODE;
   // The business keeps its money in the currency the founder chose (their profile's unless they changed it): stored on
   // the business itself (0025), which every business amount and every screen reads, and on the rows created here. Every
@@ -327,9 +339,9 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
     // Door A: the card's citations become the business's first sources (Product › Sources, the Source Watcher).
     if (!importLink) await seedConceptSources(tx, businessId, { ideaId: idea.id, research: idea.current?.research });
 
-    // First-cycle tasks.
+    // First-cycle tasks: without a budget, no finance or legal task (WP-04 T3).
     const taskIds: string[] = [];
-    for (const t of seed.firstCycleTasks) {
+    for (const t of firstCycleTasksFor(seed, { hasBudget })) {
       const task = await repos.tasks.create(tx, businessId, {
         kind: t.kind,
         title: t.title,
@@ -399,6 +411,7 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
         agents: agentIds.length,
         spendCapMinor: input.spendCapMinor ?? null,
         autopilot: input.autopilot === true,
+        hasBudget,
         planTier,
         modelBilling,
         includedCreditsMinor: credits ? Number(credits.grantedMinor) : null,
@@ -433,13 +446,16 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
     }
   }
 
-  const cycle = await temporal.start(WORKFLOWS.businessCycle, { workflowId: workflowIds.cycle(result.business.id, 1), args: [{ businessId: result.business.id, cycleNumber: 1, trigger: "continue" }] });
+  // With a budget, cycle 1 starts now. Without one (WP-04 T3) nothing is dispatched yet: the first round starts on the
+  // plan's approval, Continue or the first overnight shift, and is still cycle 1 (cycles are numbered from history).
+  const cycle = hasBudget ? await temporal.start(WORKFLOWS.businessCycle, { workflowId: workflowIds.cycle(result.business.id, 1), args: [{ businessId: result.business.id, cycleNumber: 1, trigger: "continue" }] }) : null;
   // The first cycle exists from here on, even while the orchestrator has not picked it up: Continue shows it and Pause reaches it.
-  if (cycle.queued && !cycle.alreadyStarted) await repos.audit.append(db, result.business.id, { actorKind: "user", actorId: userId, action: QUEUE_ACTION, target: { kind: "cycle", id: cycle.workflowId }, details: { cycleNumber: 1, workflowId: cycle.workflowId, trigger: "continue" } });
+  if (cycle && cycle.queued && !cycle.alreadyStarted) await repos.audit.append(db, result.business.id, { actorKind: "user", actorId: userId, action: QUEUE_ACTION, target: { kind: "cycle", id: cycle.workflowId }, details: { cycleNumber: 1, workflowId: cycle.workflowId, trigger: "continue" } });
   // Door B: the sign-up job read nothing; this is the import that reads the sources (or marks them not read).
   const imported = result.foundations.importSourceIds.length ? await queueImportReads({ db, temporal }, result.business.id, result.foundations.importSourceIds) : null;
   // The starters are on the board, but their engines wait for the founder's Start distribution (services/signoff.ts).
-  // Autopilot starts after the first cycle, which it waits for (and for the sign-off notes, which block Continue).
+  // Autopilot starts after the first cycle, which it waits for (and for the sign-off notes, which block Continue); with no
+  // cycle at commit, its first scheduled look starts cycle 1.
   const autopilot = input.autopilot ? await startAutopilotWorkflow({ businessId: result.business.id, temporal }) : null;
   return { ...result, cycle, import: imported, engines: [], autopilot, alreadyCommitted: false };
 }
@@ -471,7 +487,7 @@ async function committedIdeaResult(db: Db, userId: string, ideaId: string): Prom
     chiefOfStaffId: receipt.chiefOfStaffId,
     firstItem,
     taskIds: receipt.taskIds ?? [],
-    cycle: { queued: false, workflowId: workflowIds.cycle(businessId, 1), reason: "already committed: the first commit started this cycle" },
+    cycle: { queued: false, workflowId: workflowIds.cycle(businessId, 1), reason: "already committed: nothing was started again" },
     import: null,
     engines: [],
     foundations: { status: "pending", door: receipt.door ?? "ideation", importSourceIds: receipt.importSourceIds ?? [] },

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ARCHETYPES, BACKGROUND_HELPER_AGENT_TYPES, CHANNEL_KEYS, MODULE_KEYS, MODULE_TABS } from "@foundmill/shared";
-import { ARCHETYPE_SEEDS, ARCHETYPE_SEED_LIST, CHANNEL_SCORING_TASK, DEPARTMENT_DEFAULTS, UTILITY_TEMPLATE_KEYS, departmentTabs, getArchetypeSeed, templateKeysForArchetype } from "../archetypes";
+import { ARCHETYPE_SEEDS, ARCHETYPE_SEED_LIST, CHANNEL_SCORING_TASK, DEPARTMENT_DEFAULTS, UTILITY_TEMPLATE_KEYS, departmentTabs, firstCycleTasksFor, getArchetypeSeed, templateKeysForArchetype } from "../archetypes";
 import { ArchetypeSeed } from "../types";
 import { getTemplate, hasTemplate } from "../registry";
 
@@ -244,5 +244,27 @@ describe("archetype seeds (BUILD §11.1, AC-11.1.6)", () => {
   it("the channel-scoring task never says 'starters' in its title or acceptance", () => {
     for (const text of [CHANNEL_SCORING_TASK.title, ...CHANNEL_SCORING_TASK.acceptance]) expect(text).not.toMatch(/\bstarters?\b/i);
     expect(CHANNEL_SCORING_TASK.title).toBe("Score the 15 channels and pick 3 to 6 to start with");
+  });
+});
+
+describe("firstCycleTasksFor (WP-04 T3; founder, 2026-11-16 D1)", () => {
+  it("without a budget, seeds no finance or legal task: b2b_saas keeps only the open-questions task", () => {
+    const seed = getArchetypeSeed("b2b_saas");
+    expect(firstCycleTasksFor(seed, { hasBudget: false }).map((t) => t.kind)).toEqual(["research"]);
+    expect(firstCycleTasksFor(seed, { hasBudget: false })[0]!.title).toBe("Answer the specification's open questions");
+  });
+
+  it("with a budget, returns the seed's own list", () => {
+    const seed = getArchetypeSeed("b2b_saas");
+    expect(firstCycleTasksFor(seed, { hasBudget: true })).toEqual(seed.firstCycleTasks);
+    expect(seed.firstCycleTasks.map((t) => t.kind)).toEqual(["research", "finance", "legal"]);
+  });
+
+  it("drops only finance and legal, for every archetype", () => {
+    for (const seed of ARCHETYPE_SEED_LIST) {
+      const kept = firstCycleTasksFor(seed, { hasBudget: false });
+      expect(kept, seed.archetype).toEqual(seed.firstCycleTasks.filter((t) => t.kind !== "finance" && t.kind !== "legal"));
+      expect(kept.some((t) => t.title === "Answer the specification's open questions"), seed.archetype).toBe(true);
+    }
   });
 });
