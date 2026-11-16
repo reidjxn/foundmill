@@ -118,6 +118,17 @@ describe("KeyboardHelp", () => {
     expect(dialog.textContent).toContain("Refresh Inbox");
     expect(dialog.querySelectorAll("kbd").length).toBeGreaterThan(20);
   });
+
+  it("says when single keys are off and where to turn them on, and still lists every shortcut (WP-04 T13)", () => {
+    const { rerender } = render(<KeyboardHelp open onOpenChange={() => {}} departments={DEPARTMENTS_FOR_KEYS} />);
+    const dialog = screen.getByTestId("keyboard-help");
+    expect(dialog.getAttribute("data-single-keys")).toBe("off");
+    expect(dialog.textContent).toContain("Single-key shortcuts are off. Turn them on in Settings › Preferences.");
+    expect(dialog.textContent).toContain("Refresh Inbox");
+    rerender(<KeyboardHelp open onOpenChange={() => {}} departments={DEPARTMENTS_FOR_KEYS} singleKeys />);
+    expect(screen.getByTestId("keyboard-help").getAttribute("data-single-keys")).toBe("on");
+    expect(screen.getByTestId("keyboard-help").textContent).not.toContain("are off");
+  });
 });
 
 describe("ProfileHeader", () => {

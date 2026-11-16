@@ -326,6 +326,29 @@ export async function setBuilderView(playwright: PlaywrightWorkerArgs["playwrigh
   }
 }
 
+/**
+ * Turns the dev founder's single-key shortcuts on or off (WP-04 T13; global-setup.ts starts every run with them on) and
+ * answers what they were, so a spec that checks the default can restore them in afterAll.
+ */
+export async function setKeyboardShortcuts(playwright: PlaywrightWorkerArgs["playwright"], on: boolean): Promise<boolean> {
+  const api = await devApi(playwright);
+  try {
+    const read = await api.get("/trpc/founder.preferences.guidance");
+    expect(read.ok(), `founder.preferences.guidance answered ${read.status()}`).toBe(true);
+    const was = ((await read.json()) as { result: { data: { json: { keyboardShortcuts?: boolean } } } }).result.data.json.keyboardShortcuts === true;
+    const res = await api.post("/trpc/founder.preferences.update", { data: { json: { keyboardShortcuts: on } } });
+    expect(res.ok(), `founder.preferences.update answered ${res.status()}: ${await res.text()}`).toBe(true);
+    return was;
+  } finally {
+    await api.dispose();
+  }
+}
+
+/** The first option of the open decision bar, focused: the shell's 1–4 choose only from inside the bar (WP-04 T13). */
+export async function focusDecisionBar(page: Page): Promise<void> {
+  await page.getByTestId("decision-bar").getByRole("group", { name: "Options" }).getByRole("button").first().focus();
+}
+
 export { DEMO_OWNER_DISPLAY_NAME, test, expect };
 
 /* ---------- The first days (founder, 2026-10-18) ---------- */
@@ -389,13 +412,13 @@ export async function approveFromInbox(page: Page, bid: string, subject: string)
   await expect(item).toHaveAttribute("data-type", "decision", { timeout: LONG });
   await expect(page.getByTestId("signoff-panel")).toBeVisible({ timeout: LONG });
   await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open");
-  // The number keys decide the note from the page (the shell's main content), not from the list row that opened it.
+  // The number keys decide the note from inside its decision bar (WP-04 T13), not from the list row that opened it.
   // On the account's first Inbox visit the Inbox tour opens, and once it closes the first-decision callout can follow
   // (UX plan §6.2, §7.9; each waits for the other): an open card holds the keys, so close what shows, then press, and
   // try again if a card opened in between. A second press after the decision landed does nothing (the bar is locked).
   await expect(async () => {
     await dismissCoachmarks(page);
-    await page.getByTestId("shell-content").focus();
+    await focusDecisionBar(page);
     await page.keyboard.press("1");
     await expect(item).toHaveAttribute("data-state", "answered", { timeout: 10_000 });
   }).toPass({ timeout: LONG * 2 });

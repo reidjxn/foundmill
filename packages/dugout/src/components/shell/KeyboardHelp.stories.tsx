@@ -33,3 +33,5 @@ export const NoDepartments: Story = { args: { departments: [] } };
 export const SomeAreas: Story = { args: { areas: ["plan", "product", "team"], departments: [] } };
 /** Before the founder areas, every department had a letter; the rule still gives module-less departments theirs. */
 export const ManyModuleLessDepartments: Story = { args: { areas: AREAS_FOR_KEYS, departments: DEPARTMENTS_FOR_KEYS } };
+/** Single keys turned on in Settings › Preferences (the default is off, and the description says where to turn them on). */
+export const SingleKeysOn: Story = { args: { singleKeys: true } };

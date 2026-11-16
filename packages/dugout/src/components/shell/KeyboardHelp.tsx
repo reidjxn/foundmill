@@ -11,6 +11,8 @@ export interface KeyboardHelpProps {
   departments?: readonly DepartmentForKeys[];
   /** The founder areas the sidebar shows, so their G chords are listed (G P Plan, G C Customers, …). */
   areas?: readonly AreaKey[];
+  /** Whether the account turned single-key shortcuts on (Settings › Preferences). Default off: the overlay says so. */
+  singleKeys?: boolean;
 }
 
 const EMPTY_DEPARTMENTS: readonly DepartmentForKeys[] = [];
@@ -27,16 +29,21 @@ export function groupShortcuts(list: readonly KeyboardShortcut[]): Array<{ group
  * The keyboard map overlay (BUILD §5.5): every shortcut with its keys, area and department chords included, in groups under data
  * labels, in two columns; each row reads the action on the left and its key caps on the right. Opens on "?", from the
  * sidebar foot's "?" cap and from the palette's Help row "Keyboard shortcuts" (B15). Always lists every shortcut,
- * whatever the guidance setting.
+ * whatever the guidance setting; while single keys are off (the default, WP-04 T13) the description says so and where
+ * to turn them on.
  */
-export function KeyboardHelp({ open, onOpenChange, departments = EMPTY_DEPARTMENTS, areas = EMPTY_AREAS }: KeyboardHelpProps) {
+export function KeyboardHelp({ open, onOpenChange, departments = EMPTY_DEPARTMENTS, areas = EMPTY_AREAS, singleKeys = false }: KeyboardHelpProps) {
   const groups = useMemo(() => groupShortcuts(shortcutList(departments, areas)), [departments, areas]);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="lg" data-testid="keyboard-help">
+      <DialogContent size="lg" data-testid="keyboard-help" data-single-keys={singleKeys ? "on" : "off"}>
         <DialogHeader>
           <DialogTitle>Keyboard shortcuts</DialogTitle>
-          <DialogDescription>Single keys work anywhere outside a text field. Chords are two keys in a row.</DialogDescription>
+          <DialogDescription>
+            {singleKeys
+              ? "Single keys work anywhere outside a text field. Chords are two keys in a row."
+              : "Single-key shortcuts are off. Turn them on in Settings › Preferences. Search, this list and Esc always work."}
+          </DialogDescription>
         </DialogHeader>
         <DialogBody className="columns-2 gap-x-6">
           {groups.map((g) => (

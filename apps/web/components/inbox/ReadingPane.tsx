@@ -57,6 +57,7 @@ import { POSTAL_ADDRESS_NOTE, isPostalAddressDecision } from "@foundmill/shared/
 import { moduleTabHref } from "@foundmill/widgets/shared/departments";
 import { humanSender, NETWORK_SENDER } from "@foundmill/widgets/shared/note-tags";
 import { routes } from "@foundmill/widgets/shared/routes";
+import { useKeyboardShortcutsOn } from "@/components/providers/guidance-context";
 import { readOnlyReason } from "@/lib/access";
 import { entityHref } from "@/lib/entity-links";
 import { isGuid } from "@/lib/ids";
@@ -448,6 +449,8 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   // An agent's desk opened as a sheet over the note (the palette's Ask, a profile's Talk) owns 1–4 while it is open:
   // the note gives the keys up, so they reach the sheet's quick replies and never decide this note underneath it.
   const sheetOpen = Boolean(useAgentDesk()?.current);
+  // The 1–4 caps show only while the keys work (single keys on, WP-04 T13) and guidance is off (DecisionBar hides them when guided).
+  const keysOn = useKeyboardShortcutsOn();
   usePageShortcuts({
     onChooseOption: options.length && !locked && !sheetOpen ? (n) => {
       // Any other dialog above the note (a confirmation, the keyboard help) holds the keys too.
@@ -667,8 +670,8 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
           executing={decide.isPending || confirm.isPending}
           answered={answered}
           hotkeys={false}
-          // The shell's keyboard map owns 1–4 here; the caps say so to operators (guidance off hides nothing else).
-          keyHints
+          // The shell's keyboard map owns 1–4 here (with focus in the bar, once single keys are on); the caps say so to operators.
+          keyHints={keysOn}
           heading={
             <span className="inline-flex items-center gap-1">
               Your decision
