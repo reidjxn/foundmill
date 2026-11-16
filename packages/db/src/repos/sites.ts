@@ -11,7 +11,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { and, count, desc, eq, gte, ne, sql } from "drizzle-orm";
 import { z } from "zod";
-import { siteReleases, sites, type Site, type SiteRelease, type SiteScreening } from "../schema";
+import { auditLog, siteReleases, sites, type Site, type SiteRelease, type SiteScreening } from "../schema";
 import { Id, maybeOne, parseInput, rowsOf, type Executor } from "./_shared";
 
 const ManifestEntry = z.object({
@@ -166,6 +166,13 @@ export const sitesRepo = {
     return site;
   },
 
+  /** A new address for the site (owner or admin under RLS). Throws when the site is missing or taken down. */
+  async setSlug(tx: Executor, businessId: string, slug: string): Promise<Site> {
+    const [site] = await tx.update(sites).set({ slug }).where(and(eq(sites.businessId, businessId), ne(sites.status, "taken_down"))).returning();
+    if (!site) throw new Error("sites.setSlug: the site is missing, taken down or not yours to change");
+    return site;
+  },
+
   /** The business's releases, newest first. */
   async listReleases(db: Executor, businessId: string, limit = 20): Promise<SiteRelease[]> {
     const n = Math.min(Math.max(Math.trunc(limit), 1), 100);
@@ -198,6 +205,18 @@ export const sitesRepo = {
       .select({ n: count() })
       .from(siteReleases)
       .where(and(eq(siteReleases.businessId, businessId), gte(siteReleases.publishedAt, utcMidnight(options.now ?? new Date()))));
+    return Number(row?.n ?? 0);
+  },
+
+  /**
+   * Presses of Publish since UTC midnight (the `site.published` audit rows apps/api writes), republishing the same
+   * release included: what `SITE_LIMITS.publishesPerDay` counts.
+   */
+  async publishPressesToday(db: Executor, businessId: string, options: { now?: Date } = {}): Promise<number> {
+    const [row] = await db
+      .select({ n: count() })
+      .from(auditLog)
+      .where(and(eq(auditLog.businessId, businessId), eq(auditLog.action, "site.published"), gte(auditLog.createdAt, utcMidnight(options.now ?? new Date()))));
     return Number(row?.n ?? 0);
   },
 };
