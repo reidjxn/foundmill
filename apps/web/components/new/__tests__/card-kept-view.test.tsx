@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 /**
- * The kept card's next step on a small screen (WP-03 T3; a stopgap WP-04 removes): no link into onboarding, Commit or
- * the studio, which are desktop-only; the step says it needs a computer and offers the link by email.
+ * The kept card's next step (WP-03 T3, WP-04 T1): the three questions work on a phone, so the card links to them with
+ * Commit as where they go on to (`?next=`). Commit and the studio are still desktop-only, so on a phone Commit is
+ * offered by email and the studio is not linked.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen } from "@testing-library/react";
@@ -20,10 +21,11 @@ vi.mock("@/lib/trpc-react", () => ({
   useTRPC: () => ({ founder: { email: { sendLink: { mutationOptions: (opts: Record<string, unknown> = {}) => ({ mutationFn: async () => ({ sent: false, reason: "off", email: null }), ...opts }) } } } }),
 }));
 
-import { CardKeptView } from "../card/CardKeptView";
+import { CARD_KEPT_WORDS, CardKeptView } from "../card/CardKeptView";
 import { CONTINUE_LATER_WORDS } from "@/components/providers/ContinueLater";
 
 const ID = "11111111-1111-4111-8111-111111111111";
+const ONBOARDING_NEXT = `/onboarding?next=/new/commit/${ID}`;
 
 function setWidth(width: number) {
   Object.defineProperty(window, "innerWidth", { value: width, configurable: true });
@@ -41,31 +43,42 @@ function renderKept(profileComplete: boolean) {
   );
 }
 
-const walled = (container: HTMLElement) => [...container.querySelectorAll("a")].map((a) => a.getAttribute("href") ?? "").filter((h) => h === "/onboarding" || h === "/new" || h.startsWith("/new/commit/") || h === "/new/ideate");
+/** Links into pages that are still desktop-only (Commit, the studio). */
+const walled = (container: HTMLElement) => [...container.querySelectorAll("a")].map((a) => a.getAttribute("href") ?? "").filter((h) => h === "/new" || h.startsWith("/new/commit/") || h === "/new/ideate");
 
 describe("CardKeptView at 390 px", () => {
   afterEach(() => setWidth(1440));
 
-  it("offers the next step by email, for onboarding or Commit, and links into neither", () => {
+  it("links to the three questions, which work on a phone, with Commit as where they go on to (WP-04 T1)", () => {
     setWidth(390);
-    for (const [complete, path] of [
-      [false, "/onboarding"],
-      [true, `/new/commit/${ID}`],
-    ] as const) {
-      const { container, unmount } = renderKept(complete);
-      expect(walled(container)).toEqual([]);
-      expect(screen.getByText(CONTINUE_LATER_WORDS.nextStep)).toBeTruthy();
-      expect(screen.getByTestId("next-step-on-computer").dataset.path).toBe(path);
-      expect(screen.getByRole("button", { name: CONTINUE_LATER_WORDS.email })).toBeTruthy();
-      unmount();
-    }
+    const { container } = renderKept(false);
+    const next = screen.getByTestId("card-kept-next");
+    expect(next.getAttribute("href")).toBe(ONBOARDING_NEXT);
+    expect(next.textContent).toBe(CARD_KEPT_WORDS.profileNext);
+    expect(screen.queryByTestId("next-step-on-computer")).toBeNull();
+    expect(walled(container)).toEqual([]);
   });
 
-  it("links to the next step on a computer", () => {
-    setWidth(1440);
+  it("offers Commit by email while Commit is desktop-only, and links into nothing walled", () => {
+    setWidth(390);
     const { container } = renderKept(true);
+    expect(walled(container)).toEqual([]);
+    expect(screen.getByText(CONTINUE_LATER_WORDS.nextStep)).toBeTruthy();
+    expect(screen.getByTestId("next-step-on-computer").dataset.path).toBe(`/new/commit/${ID}`);
+    expect(screen.getByRole("button", { name: CONTINUE_LATER_WORDS.email })).toBeTruthy();
+  });
+});
+
+describe("CardKeptView on a computer", () => {
+  it("links to Commit when the profile exists, and to the three questions with Commit as next when it does not", () => {
+    setWidth(1440);
+    const { container, unmount } = renderKept(true);
     expect(screen.getByTestId("card-kept-next").getAttribute("href")).toBe(`/new/commit/${ID}`);
     expect(walled(container)).toContain("/new/ideate");
     expect(screen.queryByTestId("next-step-on-computer")).toBeNull();
+    unmount();
+    renderKept(false);
+    expect(screen.getByTestId("card-kept-next").getAttribute("href")).toBe(ONBOARDING_NEXT);
+    expect(screen.getByText(CARD_KEPT_WORDS.profileWhy)).toBeTruthy();
   });
 });

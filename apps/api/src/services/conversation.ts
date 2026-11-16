@@ -912,8 +912,12 @@ export async function sendConversationMessage(ctx: BusinessContext, input: SendI
 
   // 4. Everything else → the conversation route, then the server-side checks.
   const model = ctxData.model ?? (await ctx.rls((tx) => replyContext(tx, ctx, p, true))).model!;
+  // Who the agent is talking with (WP-04 T10): this person's profile and the other founders' first names. The other
+  // founders' profiles are outside this person's RLS, so it reads on the service connection; the membership was checked.
+  const founder = await repos.founders.contextFor(ctx.db, ctx.businessId, ctx.userId);
   const requestInput: ConversationRequestInput = {
     ...turn,
+    founder,
     businessName: ctx.business.name,
     appName: APP_NAME,
     agent: { ...turn.agent, instructions: model.ins.instructions, description: model.ins.description, skills: model.skills },

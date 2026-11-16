@@ -44,14 +44,14 @@ export const notionTools = [
     annotations: { readOnlyHint: true },
   }),
   defineTool({
-    name: "create_page",
+    name: "create_page", annotations: { readOnlyHint: false },
     description: "Create a page under a parent page (title + paragraphs) or as a row of a data source (title property).",
     input: z.object({ parentPageId: NotionId.optional(), parentDataSourceId: NotionId.optional(), title: z.string().min(1).max(200), paragraphs: z.array(z.string().max(2000)).max(100).default([]) }).refine((v) => Boolean(v.parentPageId) !== Boolean(v.parentDataSourceId), "exactly one of parentPageId / parentDataSourceId"),
     output: z.object({ id: z.string(), url: z.string().nullable() }),
     hints: {},
   }),
   defineTool({
-    name: "append_paragraphs",
+    name: "append_paragraphs", annotations: { readOnlyHint: false },
     description: "Append paragraph blocks to a page or block.",
     input: z.object({ blockId: NotionId, paragraphs: z.array(z.string().min(1).max(2000)).min(1).max(100) }),
     output: z.object({ appended: z.number().int() }),

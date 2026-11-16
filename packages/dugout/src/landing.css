@@ -235,6 +235,19 @@
   }
 }
 /* The content column: 16 px gutters on a phone, 32 px from 640 px, never wider than the landing column. */
+/*
+ * The idea box's result (founder, 2026-11-16: "the card should be wider so as to take up more space"): the card and
+ * what to do with it, side by side once the result is 880 px wide (the hero's full column), stacked under that.
+ */
+@utility landing-result-grid {
+  display: grid;
+  gap: 32px;
+  @container (min-width: 880px) {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 380px);
+    align-items: start;
+    gap: 48px;
+  }
+}
 @utility landing-col {
   width: 100%;
   max-width: var(--landing-column);

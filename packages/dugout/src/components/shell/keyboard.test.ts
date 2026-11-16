@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { CHORD_TIMEOUT_MS, KEYBOARD_SHORTCUTS, departmentLetters, letterCandidates, shellDepartmentLetters, shortcutList, spaceBelongsTo, useKeyboardMap, type KeyboardMapContext } from "./keyboard";
+import { ALWAYS_ON_SHORTCUT_IDS, CHORD_TIMEOUT_MS, DECISION_BAR_ATTRIBUTE, KEYBOARD_SHORTCUTS, departmentLetters, letterCandidates, shellDepartmentLetters, shortcutList, spaceBelongsTo, useKeyboardMap, type KeyboardMapContext } from "./keyboard";
 import { AREAS_FOR_KEYS, DEPARTMENTS_FOR_KEYS } from "./fixtures";
 
 describe("letterCandidates", () => {
@@ -73,9 +73,19 @@ describe("shortcutList", () => {
   });
 });
 
+/** A decision bar's option, focused: the only place 1–4 choose (WP-04 T13). */
+function decisionOption(): { option: HTMLButtonElement; remove: () => void } {
+  const bar = document.createElement("div");
+  bar.setAttribute(DECISION_BAR_ATTRIBUTE, "");
+  const option = document.createElement("button");
+  option.textContent = "Approve";
+  bar.appendChild(option);
+  document.body.appendChild(bar);
+  return { option, remove: () => bar.remove() };
+}
+
 function setup(ctx: Partial<KeyboardMapContext> = {}) {
   const handlers = {
-    onContinue: vi.fn(),
     onRefreshInbox: vi.fn(),
     onGoTo: vi.fn(),
     onSearch: vi.fn(),
@@ -86,7 +96,8 @@ function setup(ctx: Partial<KeyboardMapContext> = {}) {
     onEscape: vi.fn(),
     onHelp: vi.fn(),
   };
-  const hook = renderHook(() => useKeyboardMap({ ...handlers, departments: DEPARTMENTS_FOR_KEYS, ...ctx }));
+  // Single keys on unless a test says otherwise: most tests here are about the keys an account that turned them on gets.
+  const hook = renderHook(() => useKeyboardMap({ ...handlers, departments: DEPARTMENTS_FOR_KEYS, singleKeys: true, ...ctx }));
   return { handlers, hook };
 }
 
@@ -95,16 +106,18 @@ describe("useKeyboardMap", () => {
     const user = userEvent.setup();
     const { handlers } = setup();
     document.body.focus();
-    await user.keyboard(" ");
-    expect(handlers.onContinue).toHaveBeenCalledTimes(1);
     await user.keyboard("r");
     expect(handlers.onRefreshInbox).toHaveBeenCalledTimes(1);
     await user.keyboard("j");
     await user.keyboard("k");
     expect(handlers.onNextInboxItem).toHaveBeenCalledTimes(1);
     expect(handlers.onPrevInboxItem).toHaveBeenCalledTimes(1);
+    const { option, remove } = decisionOption();
+    option.focus();
     await user.keyboard("3");
     expect(handlers.onChooseOption).toHaveBeenCalledWith(3);
+    remove();
+    document.body.focus();
     await user.keyboard("e");
     expect(handlers.onEditLayout).toHaveBeenCalledTimes(1);
     await user.keyboard("/");
@@ -202,33 +215,90 @@ describe("useKeyboardMap", () => {
     input.remove();
   });
 
-  it("leaves Space to a focused control: the checkbox toggles, the button presses, and Continue does not run", async () => {
+  it("never binds Space: a focused control keeps it, and on the page or plain content the browser scrolls (WP-04 T13)", async () => {
     const user = userEvent.setup();
-    const { handlers } = setup();
+    const onContinue = vi.fn();
+    // An old caller's onContinue is ignored: the map has no Space binding at all.
+    setup({ ...({ onContinue } as Partial<KeyboardMapContext>) });
     const box = document.createElement("button");
     box.setAttribute("role", "checkbox");
     box.setAttribute("aria-checked", "false");
     box.addEventListener("click", () => box.setAttribute("aria-checked", box.getAttribute("aria-checked") === "true" ? "false" : "true"));
-    const sw = document.createElement("div");
-    sw.setAttribute("role", "switch");
-    sw.tabIndex = 0;
     const plain = document.createElement("div");
     plain.tabIndex = -1;
     plain.textContent = "Note body";
-    document.body.append(box, sw, plain);
+    document.body.append(box, plain);
+    const prevented: boolean[] = [];
+    const watch = (e: KeyboardEvent) => {
+      if (e.key === " ") prevented.push(e.defaultPrevented);
+    };
+    document.addEventListener("keydown", watch);
     box.focus();
     await user.keyboard(" ");
     expect(box.getAttribute("aria-checked")).toBe("true");
-    sw.focus();
-    await user.keyboard(" ");
-    expect(handlers.onContinue).not.toHaveBeenCalled();
-    // Plain content (a focused note body) is not a control: Continue takes Space there.
     plain.focus();
     await user.keyboard(" ");
-    expect(handlers.onContinue).toHaveBeenCalledTimes(1);
+    document.body.focus();
+    await user.keyboard(" ");
+    expect(prevented).toEqual([false, false, false]);
+    expect(onContinue).not.toHaveBeenCalled();
+    document.removeEventListener("keydown", watch);
     box.remove();
-    sw.remove();
     plain.remove();
+  });
+
+  it("a digit outside the decision bar does nothing; with focus inside it, the digit chooses (WP-04 T13)", async () => {
+    const user = userEvent.setup();
+    const { handlers } = setup();
+    document.body.focus();
+    await user.keyboard("1");
+    const outside = document.createElement("button");
+    outside.textContent = "Elsewhere";
+    document.body.appendChild(outside);
+    outside.focus();
+    await user.keyboard("2");
+    expect(handlers.onChooseOption).not.toHaveBeenCalled();
+    const { option, remove } = decisionOption();
+    option.focus();
+    await user.keyboard("2");
+    expect(handlers.onChooseOption).toHaveBeenCalledTimes(1);
+    expect(handlers.onChooseOption).toHaveBeenCalledWith(2);
+    remove();
+    outside.remove();
+  });
+
+  it("with single keys off (the default) only /, the search chord, ? and Esc act (WP-04 T13)", async () => {
+    const user = userEvent.setup();
+    const { handlers, hook } = setup({ singleKeys: undefined, areas: AREAS_FOR_KEYS });
+    document.body.focus();
+    await user.keyboard("rjke");
+    await user.keyboard("gh");
+    expect(hook.result.current.chordPending).toBe(false);
+    const { option, remove } = decisionOption();
+    option.focus();
+    await user.keyboard("1");
+    remove();
+    document.body.focus();
+    expect(handlers.onRefreshInbox).not.toHaveBeenCalled();
+    expect(handlers.onNextInboxItem).not.toHaveBeenCalled();
+    expect(handlers.onPrevInboxItem).not.toHaveBeenCalled();
+    expect(handlers.onEditLayout).not.toHaveBeenCalled();
+    expect(handlers.onGoTo).not.toHaveBeenCalled();
+    expect(handlers.onChooseOption).not.toHaveBeenCalled();
+    await user.keyboard("/");
+    expect(handlers.onSearch).toHaveBeenCalledTimes(1);
+    await user.keyboard("{Control>}k{/Control}");
+    expect(handlers.onSearch).toHaveBeenCalledTimes(2);
+    await user.keyboard("?");
+    expect(handlers.onHelp).toHaveBeenCalledTimes(1);
+    await user.keyboard("{Escape}");
+    expect(handlers.onEscape).toHaveBeenCalledTimes(1);
+  });
+
+  it("names the shortcuts that work with single keys off: search, its chord, help and Esc", () => {
+    expect([...ALWAYS_ON_SHORTCUT_IDS].sort()).toEqual(["escape", "help", "search", "search-cmd"]);
+    const ids = KEYBOARD_SHORTCUTS.map((s) => s.id);
+    for (const id of ALWAYS_ON_SHORTCUT_IDS) expect(ids).toContain(id);
   });
 
   it("knows which elements own Space", () => {
@@ -251,8 +321,8 @@ describe("useKeyboardMap", () => {
   it("does nothing when disabled or when a callback is missing", async () => {
     const user = userEvent.setup();
     const { handlers } = setup({ enabled: false });
-    await user.keyboard(" r");
-    expect(handlers.onContinue).not.toHaveBeenCalled();
+    await user.keyboard("r/");
     expect(handlers.onRefreshInbox).not.toHaveBeenCalled();
+    expect(handlers.onSearch).not.toHaveBeenCalled();
   });
 });

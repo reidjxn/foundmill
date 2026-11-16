@@ -22,6 +22,13 @@ export const businessFoundations = pgTable(
     summary: jsonb("summary").$type<Record<string, unknown>>().notNull().default(emptyObject),
     /** 0019: what the drafting has stored so far (packages/agents `FoundationsProgress`); cleared when it turns ready. */
     progress: jsonb("progress").$type<Record<string, unknown>>(),
+    /** 0118 (WP-08 T1): the positioning notes the founders approved (@foundmill/shared `PositioningNotes`); null until then. */
+    positioning: jsonb("positioning").$type<Record<string, unknown>>(),
+    /** 0118: a copy waiting for the founders (the team's draft, a member's edit or an agent's proposal). */
+    positioningDraft: jsonb("positioning_draft").$type<Record<string, unknown>>(),
+    positioningApprovedAt: tstz("positioning_approved_at"),
+    /** Who approved it (no foreign key: the audit row keeps the record). */
+    positioningApprovedBy: uuid("positioning_approved_by"),
     error: text("error"),
     startedAt: tstz("started_at"),
     finishedAt: tstz("finished_at"),

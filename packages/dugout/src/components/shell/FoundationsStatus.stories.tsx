@@ -32,7 +32,7 @@ export const Pending: Story = { args: { state: "pending" } };
 export const Ready: Story = { args: { state: "ready", summary: "10 specification sections · 11 roadmap items, 4 in Now" } };
 export const ReadyWithSignoffs: Story = {
   name: "Ready, two sign-off notes waiting",
-  args: { state: "ready", summary: "10 specification sections · 11 roadmap items, 4 in Now", readyLine: "Your vision, specification and roadmap are drafted. Two notes in the Inbox ask for your sign-off.", secondaryAction: { label: "Open the Inbox", onClick: () => {} } },
+  args: { state: "ready", summary: "10 specification sections · 11 roadmap items, 4 in Now", readyLine: "Your vision, specification and roadmap are drafted. One note in the Inbox asks you to approve your plan.", secondaryAction: { label: "Open the Inbox", onClick: () => {} } },
 };
 export const Failed: Story = { args: { state: "failed", error: "The model service did not answer. Try again in a few minutes." } };
 export const Retrying: Story = { args: { state: "failed", error: "The drafting took too long and was stopped. Try again.", retrying: true } };

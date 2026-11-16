@@ -194,7 +194,7 @@ export function createModelClient(opts: CreateModelClientOptions = {}): ModelCli
 }
 
 /** The request fields that shape the API call (shared by `complete` and `streamStructured`). */
-type PlanInput = Pick<CompleteRequest<unknown>, "route" | "modelOverride" | "lowCredits" | "maxTokens" | "reserveTokens" | "system" | "cacheSystem" | "effort" | "temperature"> & { schema?: z.ZodType };
+type PlanInput = Pick<CompleteRequest<unknown>, "route" | "modelOverride" | "lowCredits" | "freePlan" | "maxTokens" | "reserveTokens" | "system" | "cacheSystem" | "effort" | "temperature"> & { schema?: z.ZodType };
 /** The request fields the retry policy and metering read. */
 type CallContext = Pick<CompleteRequest<unknown>, "route" | "signal" | "scope" | "attribution">;
 
@@ -373,7 +373,7 @@ export class LiveModelClient implements ModelClient {
 
   /** Model, max_tokens, reservation, effort, speed and the request body shared by every call of one request. */
   private plan(req: PlanInput): CallPlan {
-    const resolution = resolveModel(req.route, req.modelOverride, { lowCredits: req.lowCredits });
+    const resolution = resolveModel(req.route, req.modelOverride, { lowCredits: req.lowCredits, freePlan: req.freePlan });
     if (resolution.warning) this.opts.logger?.warn({ route: req.route, override: req.modelOverride }, resolution.warning);
     const sized = req.maxTokens ?? this.opts.defaultMaxTokens;
     const maxTokens = sized ?? resolution.maxTokens;
@@ -396,7 +396,7 @@ export class LiveModelClient implements ModelClient {
     if (effort) outputConfig.effort = effort;
     if (outputConfig.format || outputConfig.effort) base.output_config = outputConfig;
     if (req.temperature !== undefined) {
-      if (resolution.modelKey === "haiku") base.temperature = req.temperature;
+      if (MODEL_CAPABILITIES[resolution.modelKey].temperature) base.temperature = req.temperature;
       else this.opts.logger?.debug({ route: req.route, model: resolution.modelId }, "temperature dropped: this model rejects sampling parameters");
     }
     const fast = resolution.speed === "fast" && this.opts.fastMode === true;

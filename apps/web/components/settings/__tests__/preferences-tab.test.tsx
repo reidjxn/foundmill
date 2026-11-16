@@ -11,8 +11,8 @@ import { ToastProvider, TooltipProvider, useBuilderView, useFormatters, useGuida
 import { AGENT_STYLE_META, type AgentStyle } from "@foundmill/shared/personas";
 import type * as SharedModule from "../shared";
 
-type Guidance = { guidance: "on" | "off"; textSize: "standard" | "comfortable"; explainersSeen: Record<string, true>; toursDone: Record<string, true>; checklistDismissedAt: string | null; anthropomorphicAgents: boolean; agentStyle?: AgentStyle; builderView?: boolean };
-type Change = Partial<DateFormatPrefs> & Partial<{ guidance: Guidance["guidance"]; textSize: Guidance["textSize"]; explainersSeen: Record<string, true>; toursDone: Record<string, true>; checklistDismissed: boolean; anthropomorphicAgents: boolean; agentStyle: AgentStyle; builderView: boolean; reset: true; email: Record<string, boolean> }>;
+type Guidance = { guidance: "on" | "off"; textSize: "standard" | "comfortable"; explainersSeen: Record<string, true>; toursDone: Record<string, true>; checklistDismissedAt: string | null; anthropomorphicAgents: boolean; agentStyle?: AgentStyle; builderView?: boolean; keyboardShortcuts?: boolean };
+type Change = Partial<DateFormatPrefs> & Partial<{ guidance: Guidance["guidance"]; textSize: Guidance["textSize"]; explainersSeen: Record<string, true>; toursDone: Record<string, true>; checklistDismissed: boolean; anthropomorphicAgents: boolean; agentStyle: AgentStyle; builderView: boolean; keyboardShortcuts: boolean; reset: true; email: Record<string, boolean> }>;
 
 const BUSINESS = "b1e5e5e5-0000-4000-8000-000000000001";
 const PREFS_KEY = [["founder", "preferences", "get"], { type: "query" }];
@@ -25,7 +25,7 @@ let emailStored: Record<string, boolean> = { decision_waiting: true };
 const NOTIFICATIONS_KEY = [["founder", "preferences", "notifications"], { type: "query" }];
 const notificationsView = () => ({ notifications: { decision: true }, hideAmountsOnLockScreen: false, email: { ...emailStored } });
 async function serverUpdate(change: Change) {
-  const { date, time, guidance, textSize, explainersSeen, toursDone, checklistDismissed, anthropomorphicAgents, agentStyle, builderView, reset, email } = change;
+  const { date, time, guidance, textSize, explainersSeen, toursDone, checklistDismissed, anthropomorphicAgents, agentStyle, builderView, keyboardShortcuts, reset, email } = change;
   if (email) emailStored = { ...emailStored, ...email };
   stored = { ...stored, ...(date ? { date } : {}), ...(time ? { time } : {}) };
   const next: Guidance = { ...guidanceStored, explainersSeen: { ...guidanceStored.explainersSeen }, toursDone: { ...guidanceStored.toursDone } };
@@ -34,6 +34,7 @@ async function serverUpdate(change: Change) {
   if (anthropomorphicAgents !== undefined) next.anthropomorphicAgents = anthropomorphicAgents;
   if (agentStyle) next.agentStyle = agentStyle;
   if (builderView !== undefined) next.builderView = builderView;
+  if (keyboardShortcuts !== undefined) next.keyboardShortcuts = keyboardShortcuts;
   if (reset) Object.assign(next, { explainersSeen: {}, toursDone: {}, checklistDismissedAt: null });
   for (const id of Object.keys(explainersSeen ?? {})) next.explainersSeen[id] = true;
   for (const id of Object.keys(toursDone ?? {})) next.toursDone[id] = true;
@@ -128,7 +129,7 @@ vi.mock("../shared", async (importOriginal) => ({ ...(await importOriginal<typeo
 
 import { DateFormatHost } from "@/components/providers/DateFormatHost";
 import { GuidanceHost } from "@/components/providers/GuidanceHost";
-import { ANTHROPOMORPHIC_EXPLAINER, BUILDER_VIEW_HINT, builderViewSavedLine, PreferencesTab, anthropomorphicSavedLine, guidanceSavedLine, preferenceChange, resettable, savedLine } from "../PreferencesTab";
+import { ANTHROPOMORPHIC_EXPLAINER, BUILDER_VIEW_HINT, KEYBOARD_SHORTCUTS_HINT, builderViewSavedLine, PreferencesTab, anthropomorphicSavedLine, guidanceSavedLine, preferenceChange, resettable, savedLine } from "../PreferencesTab";
 
 /** Somewhere else on the page (the top bar, the Inbox): it must follow the choice without a reload. */
 function Elsewhere() {
@@ -294,6 +295,30 @@ describe("Builder view switch", () => {
   it("words the toasts", () => {
     expect(builderViewSavedLine(true)).toEqual({ title: "Builder view on", description: "How the platform runs the team now shows, in every business." });
     expect(builderViewSavedLine(false)).toEqual({ title: "Builder view off", description: "The technical details are hidden again, in every business." });
+  });
+});
+
+describe("Keyboard shortcuts switch (WP-04 T13)", () => {
+  it("is off by default and says what it turns on and what always works, in plain words", async () => {
+    mount();
+    const sw = await screen.findByTestId("keyboard-shortcuts-switch");
+    expect(sw.getAttribute("aria-checked")).toBe("false");
+    expect(screen.getByLabelText("Single-key shortcuts", { selector: "button" })).toBe(sw);
+    expect(screen.getByTestId("keyboard-shortcuts-panel").textContent).toContain(KEYBOARD_SHORTCUTS_HINT);
+    expect(KEYBOARD_SHORTCUTS_HINT).toBe("One key does one thing: J and K move through the Inbox, R refreshes it, G then a letter opens a page, and 1 to 4 choose in a decision. Search (/ or ⌘K), the list of shortcuts (?) and Esc always work.");
+  });
+
+  it("saves at once with a toast", async () => {
+    mount();
+    fireEvent.click(await screen.findByTestId("keyboard-shortcuts-switch"));
+    await waitFor(() => expect(update).toHaveBeenCalledWith({ keyboardShortcuts: true }));
+    await waitFor(() => expect(saved).toHaveBeenCalledTimes(1));
+    expect(saved.mock.calls[0]).toEqual(["Single-key shortcuts on", "Press ? to see them all, in every business."]);
+    expect(screen.getByTestId("keyboard-shortcuts-switch").getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(screen.getByTestId("keyboard-shortcuts-switch"));
+    await waitFor(() => expect(update).toHaveBeenLastCalledWith({ keyboardShortcuts: false }));
+    await waitFor(() => expect(saved).toHaveBeenCalledTimes(2));
+    expect(saved.mock.calls[1]).toEqual(["Single-key shortcuts off", "A stray key does nothing now. Search, ? and Esc still work."]);
   });
 });
 

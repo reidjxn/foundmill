@@ -17,7 +17,7 @@ describe("house rules block (BUILD §12.1, §9.2)", () => {
   });
 
   it("carries the founder-facing one-liner the welcome note and the Chief of Staff's profile open with (UX plan §7.19, E5)", () => {
-    expect(HOUSE_RULES_FOUNDER_LINE).toBe("I'm your Chief of Staff. I run the team so you only read and decide. Some things are always yours: money, signatures, contracts, deleting things.");
+    expect(HOUSE_RULES_FOUNDER_LINE).toBe("I'm your Chief of Staff. I run the team beside you and tell you what matters and why. Some things are always yours: money, signatures, contracts, deleting things.");
     // The founder's line is not an eighth rule: the agents' fixed block is unchanged.
     expect(clubRulesPrompt.render({ business_name: BUSINESS, APP_NAME })).not.toContain(HOUSE_RULES_FOUNDER_LINE);
     expect(chiefOfStaff.description.startsWith(HOUSE_RULES_FOUNDER_LINE)).toBe(true);

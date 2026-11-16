@@ -28,7 +28,7 @@ import { makeToolContext } from "@foundmill/connectors/testing/contract-suite";
 import { MIN_SESSION_CAP_MINOR } from "../cycle-contract";
 import { UNDER_FLOOR_SUMMARY } from "../activities/session-budget";
 import { openAgentSession } from "../activities/dispatch";
-import { ACCEPTANCE_EGRESS, ACCEPTANCE_FALLBACK_COMMAND, ACCEPTANCE_RUN_LOG, classifyTurnEnd, createSessionActivities, lastAttemptNote, NO_CHANGES_REASON, NOT_VERIFIED_NOTE, SANDBOX_TTL_MINUTES } from "../activities/session";
+import { ACCEPTANCE_BRIEF, ACCEPTANCE_EGRESS, ACCEPTANCE_FALLBACK_COMMAND, ACCEPTANCE_UNMET_REASON, ACCEPTANCE_RUN_LOG, classifyTurnEnd, createSessionActivities, lastAttemptNote, NO_CHANGES_REASON, NOT_VERIFIED_NOTE, SANDBOX_TTL_MINUTES } from "../activities/session";
 import { SessionDrain } from "../drain";
 import { emitEvent } from "../events";
 import type { SessionResult } from "../activities/types";
@@ -2308,6 +2308,130 @@ describe("honest outcomes: a task that is not code is done only when its agent r
     expect(result.simulatedResults).toBe(1);
     await acts.finishSession(input, launch, result);
     expect((await completedOf(sessionId))[0]?.payload).toMatchObject({ simulated: true });
+  });
+
+  describe("acceptance lines are checked against what the session did (founder, Nov 16, 2026)", () => {
+    const LINES = ["Two suppliers compared on price", "A sample request sent to one supplier"];
+    const linedTask = async (title: string, deps = liveDeps) => {
+      const task = await repos.tasks.create(t.db, t.businessId, { kind: "research", title, goalMd: "Find suppliers.", acceptance: LINES as never, assigneeAgentId: t.workerId, status: "ready" });
+      await repos.tasks.setStatus(t.db, t.businessId, task.id, "running", { force: true });
+      const sessionId = await openSessionRow(t, t.workerId, task.id);
+      const input = { businessId: t.businessId, agentId: t.workerId, taskId: task.id, sessionId };
+      const a = createSessionActivities(deps);
+      return { task, sessionId, input, acts: a, launch: await a.prepareSession(input) };
+    };
+    const staging = () => ({ ...liveDeps, env: { ...liveDeps.env, APP_ENV: "staging" as const } });
+    const BODY = "## Price\n\nGreenCup is $0.11 a cup; Leafware is $0.16.";
+    const REAL_PAGE = JSON.stringify({ ok: true, data: { url: "https://greencup.example", text: "GreenCup: $0.11" } });
+    const REAL_SEND = JSON.stringify({ ok: true, data: { messageId: "m-1" } });
+    const SIMULATED_SEND = JSON.stringify({ ok: true, data: { messageId: "m-1" }, simulated: true, notice: "Simulated: nothing was sent." });
+    /** A session: save_report (unless `noReport`), a page read, a send with `sendResult`, then complete_task with `acceptance`. */
+    const session = (taskId: string, sessionId: string, acceptance: unknown, opts: { noReport?: boolean; sendResult?: string } = {}) =>
+      async function* () {
+        yield { type: "system", subtype: "init", session_id: `sdk-${sessionId}` };
+        if (!opts.noReport) {
+          yield toolUse("tu-report", "mcp__platform__save_report", { taskId, title: "Suppliers compared", bodyMd: BODY });
+          yield toolResult("tu-report", JSON.stringify({ reportId: "r", taskId, title: "Suppliers compared" }));
+        }
+        yield toolUse("tu-page", "mcp__web__fetch_page", { url: "https://greencup.example" });
+        yield toolResult("tu-page", REAL_PAGE);
+        yield toolUse("tu-send", "mcp__platform_mail__send_mail", { to: "sales@greencup.example", subject: "Samples", text: "Could you send samples?" });
+        yield toolResult("tu-send", opts.sendResult ?? REAL_SEND);
+        yield toolUse("tu-done", "mcp__platform__complete_task", { taskId, summary: "Compared and asked for samples.", ...(acceptance === undefined ? {} : { acceptance }) });
+        yield toolResult("tu-done", JSON.stringify({ id: taskId, status: "done" }));
+        yield resultOf(modelUsage(10, 5, 0.01));
+      };
+    const allMet = [{ line: 1, met: true, reportSection: "Price" }, { line: 2, met: true, tool: "send_mail" }];
+
+    it("every line met, with a saved report, ends done; the brief numbers the lines and says how to report them", async () => {
+      const { task, sessionId, input, acts: a, launch } = await linedTask("Compare suppliers and ask for samples", staging());
+      let first = "";
+      const run = session(task.id, sessionId, allMet);
+      script = async function* (call) {
+        first = (await promptsOf(call).next()).value?.message.content ?? "";
+        yield* run();
+      };
+      const result = await a.runAgentSession(input, launch);
+      expect(first).toContain("## Acceptance criteria\n1. Two suppliers compared on price\n2. A sample request sent to one supplier");
+      expect(first).toContain(ACCEPTANCE_BRIEF);
+      expect(result.outcome).toBe("done");
+      expect((await a.finishSession(input, launch, result)).taskStatus).toBe("done");
+      expect((await completedOf(sessionId))[0]?.payload).toMatchObject({ outcome: "success" });
+    });
+
+    it("a line the agent marks not met ends blocked no_result, and the summary names that line once", async () => {
+      const { task, sessionId, input, acts: a, launch } = await linedTask("Compare suppliers (one line short)");
+      script = session(task.id, sessionId, [allMet[0], { line: 2, met: false }]);
+      const result = await a.runAgentSession(input, launch);
+      expect(result).toMatchObject({ outcome: "blocked", blockedReason: "no_result", reason: `${ACCEPTANCE_UNMET_REASON}: line 2` });
+      expect(result.summary).toBe(`Blocked: Test Engineer ended "${task.title}" with 1 of its 2 lines not met: “A sample request sent to one supplier”.`);
+      expect(result.summary.split("A sample request").length - 1).toBe(1);
+      expect((await a.finishSession(input, launch, result)).taskStatus).toBe("blocked");
+      expect((await repos.tasks.get(t.db, t.businessId, task.id)).status).toBe("blocked");
+      expect((await blockedOf(sessionId))[0]?.payload).toMatchObject({ reason: "no_result" });
+      expect(await completedOf(sessionId)).toEqual([]);
+    });
+
+    it("complete_task without acceptance results leaves every line unmet", async () => {
+      const { task, sessionId, input, acts: a, launch } = await linedTask("Compare suppliers (no results)");
+      script = session(task.id, sessionId, undefined);
+      const result = await a.runAgentSession(input, launch);
+      expect(result).toMatchObject({ outcome: "blocked", blockedReason: "no_result" });
+      expect(result.summary).toBe(`Blocked: Test Engineer ended "${task.title}" with all 2 of its lines not met: “Two suppliers compared on price”; “A sample request sent to one supplier”.`);
+    });
+
+    it("on a real project, a line met only on a simulated call is not met (T2's rule, per line), though other calls were real", async () => {
+      const { task, sessionId, input, acts: a, launch } = await linedTask("Compare suppliers (simulated send)", staging());
+      script = session(task.id, sessionId, allMet, { sendResult: SIMULATED_SEND });
+      const result = await a.runAgentSession(input, launch);
+      expect(result).toMatchObject({ outcome: "blocked", blockedReason: "no_result", reason: `${ACCEPTANCE_UNMET_REASON}: line 2` });
+      expect(result.summary).toContain("“A sample request sent to one supplier”");
+      expect(result.summary).not.toContain("Two suppliers compared");
+    });
+
+    it("on a sample project a simulated call still counts, as WP-05 T2 allows there", async () => {
+      const { task, sessionId, input, acts: a, launch } = await linedTask("Compare suppliers (sample, simulated send)");
+      script = session(task.id, sessionId, allMet, { sendResult: SIMULATED_SEND });
+      expect((await a.runAgentSession(input, launch)).outcome).toBe("done");
+    });
+
+    it("a line met on a tool this session never ran is not met", async () => {
+      const { task, sessionId, input, acts: a, launch } = await linedTask("Compare suppliers (tool never ran)");
+      script = session(task.id, sessionId, [allMet[0], { line: 2, met: true, tool: "mcp__sendgrid__send_mail_batch" }]);
+      const result = await a.runAgentSession(input, launch);
+      expect(result).toMatchObject({ outcome: "blocked", reason: `${ACCEPTANCE_UNMET_REASON}: line 2` });
+    });
+
+    it("a platform tool never stands behind a line, and a cited connector must be the one that ran", async () => {
+      const platform = await linedTask("Compare suppliers (platform tool cited)");
+      script = session(platform.task.id, platform.sessionId, [allMet[0], { line: 2, met: true, tool: "save_report" }]);
+      expect(await platform.acts.runAgentSession(platform.input, platform.launch)).toMatchObject({ outcome: "blocked", reason: `${ACCEPTANCE_UNMET_REASON}: line 2` });
+      const wrong = await linedTask("Compare suppliers (wrong connector)");
+      script = session(wrong.task.id, wrong.sessionId, [allMet[0], { line: 2, met: true, tool: "gmail:send_mail" }]);
+      expect(await wrong.acts.runAgentSession(wrong.input, wrong.launch)).toMatchObject({ outcome: "blocked", reason: `${ACCEPTANCE_UNMET_REASON}: line 2` });
+      const right = await linedTask("Compare suppliers (right connector)");
+      script = session(right.task.id, right.sessionId, [allMet[0], { line: 2, met: true, tool: "mcp__platform_mail__send_mail" }]);
+      expect((await right.acts.runAgentSession(right.input, right.launch)).outcome).toBe("done");
+    });
+
+    it("on a real project, a line shown only in a simulated report is not met", async () => {
+      const { task, sessionId, input, acts: a, launch } = await linedTask("Compare suppliers (simulated report)", staging());
+      const run = session(task.id, sessionId, allMet);
+      script = async function* () {
+        // The gateway marked this session's report simulated (it read through a mock connector).
+        await repos.taskReports.save(t.db, t.businessId, { taskId: task.id, sessionId, agentId: t.workerId, title: "Suppliers compared", bodyMd: BODY, simulated: true });
+        yield* run();
+      };
+      expect(await a.runAgentSession(input, launch)).toMatchObject({ outcome: "blocked", reason: `${ACCEPTANCE_UNMET_REASON}: line 1` });
+    });
+
+    it("every line marked met but no report saved with save_report ends blocked, said once", async () => {
+      const { task, sessionId, input, acts: a, launch } = await linedTask("Compare suppliers (no report)");
+      script = session(task.id, sessionId, [{ line: 1, met: true, tool: "fetch_page" }, { line: 2, met: true, tool: "send_mail" }], { noReport: true });
+      const result = await a.runAgentSession(input, launch);
+      expect(result).toMatchObject({ outcome: "blocked", blockedReason: "no_result", reason: `${ACCEPTANCE_UNMET_REASON}: no report saved; every line marked met` });
+      expect(result.summary).toBe(`Blocked: Test Engineer ended "${task.title}" without saving a report, so its result is not counted as done.`);
+    });
   });
 });
 

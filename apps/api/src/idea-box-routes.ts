@@ -71,7 +71,7 @@ export function registerIdeaBoxRoutes<E extends Env>(app: Hono<E>, deps: ApiDeps
 
   app.get("/idea-box/mine", async (c) => {
     if (!fromSite(c.req.header("origin"))) return c.json({ error: "forbidden" }, 403);
-    const event = await mineIdeaBox({ db: deps.db }, getCookie(c, IDEA_COOKIE) ?? null);
+    const event = await mineIdeaBox({ db: deps.db, limits: deps.limits }, getCookie(c, IDEA_COOKIE) ?? null);
     if (!event) return c.body(null, 204, { "cache-control": "no-store" });
     return c.json(event, 200, { "cache-control": "no-store" });
   });

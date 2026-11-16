@@ -48,6 +48,11 @@ export interface IdeaCardProps extends Omit<HTMLAttributes<HTMLElement>, "childr
   footnote?: ReactNode;
   /** The idea's logo as a checked `data:` URL (an example with a mark of its own); the initials tile otherwise. */
   logo?: string | null;
+  /**
+   * Fills the width it is given (the landing page's result, founder 2026-11-16: "the card should be wider"): no 360 px
+   * cap, and from a 576 px card the ratings sit in a column beside the pitch. Under that it is the usual one column.
+   */
+  wide?: boolean;
 }
 
 /** The words the card prints around the model's own. */
@@ -82,7 +87,7 @@ export function lowestRating(card: IdeaCardData, founderFitKnown = false): IdeaC
   return measuredRatings(card, founderFitKnown).reduce<IdeaCardRating | null>((low, a) => (!low || a.value < low.value ? a : low), null);
 }
 
-export function IdeaCard({ card, drafting = false, justIn = false, sample = false, founderFitKnown = false, footnote, logo, className, ...rest }: IdeaCardProps) {
+export function IdeaCard({ card, drafting = false, justIn = false, sample = false, founderFitKnown = false, footnote, logo, wide = false, className, ...rest }: IdeaCardProps) {
   const name = card.name?.trim() || "";
   const ratings = new Map((card.attributes ?? []).filter((a) => isKey(a.key)).map((a) => [a.key as ConceptAttributeKey, a]));
   const overall = ideaOverall(card, founderFitKnown);
@@ -94,10 +99,11 @@ export function IdeaCard({ card, drafting = false, justIn = false, sample = fals
       aria-busy={drafting || undefined}
       data-idea-card=""
       data-drafting={drafting || undefined}
-      className={cn("@container surface-panel glow-brand flex w-full max-w-[22.5rem] flex-col overflow-hidden text-left", className)}
+      data-wide={wide || undefined}
+      className={cn("@container surface-panel glow-brand flex w-full flex-col overflow-hidden text-left", !wide && "max-w-[22.5rem]", className)}
       {...rest}
     >
-      <header className="flex items-start gap-3 border-b border-line px-4 pb-3 pt-4">
+      <header className={cn("flex items-start gap-3 border-b border-line px-4 pb-3 pt-4", wide && "@xl:gap-4 @xl:px-6 @xl:pb-4 @xl:pt-5")}>
         {name ? <BusinessLogo src={logo} name={name} primary="#3a87ff" size={40} title="" /> : <Skeleton className="size-10 shrink-0 rounded-md" />}
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <div className="flex min-w-0 items-center gap-2">
@@ -122,19 +128,20 @@ export function IdeaCard({ card, drafting = false, justIn = false, sample = fals
           )}
         </div>
       </header>
-      <div className="flex flex-col gap-3 px-4 py-3">
+      {/* Wide: the pitch, the overall figure and what would raise it on the left; the ratings on the right. */}
+      <div className={cn("flex flex-col gap-3 px-4 py-3", wide && "@xl:grid @xl:grid-cols-2 @xl:content-start @xl:gap-x-8 @xl:gap-y-4 @xl:px-6 @xl:py-5")}>
         {card.pitch ? (
-          <p className="t-body text-pretty text-prose" data-idea-pitch="">
+          <p className={cn("t-body text-pretty text-prose", wide && "@xl:col-start-1 @xl:text-reading")} data-idea-pitch="">
             {card.pitch}
           </p>
         ) : (
-          <div className="flex flex-col gap-1.5">
+          <div className={cn("flex flex-col gap-1.5", wide && "@xl:col-start-1")}>
             <Skeleton index={0} />
             <Skeleton index={1} />
             <Skeleton index={2} className="w-2/3" />
           </div>
         )}
-        <div className="flex items-baseline gap-2" data-idea-overall="">
+        <div className={cn("flex items-baseline gap-2", wide && "@xl:col-start-1")} data-idea-overall="">
           <span className="t-data text-tertiary">{IDEA_CARD_WORDS.overall}</span>
           {overall !== null ? <b className={cn("t-display-sm tabular-nums", ratingClass(clampRating(overall)))}>{overall}</b> : <Skeleton className="h-4 w-6" />}
           <span className="t-small text-tertiary">{IDEA_CARD_WORDS.of20}</span>
@@ -142,7 +149,7 @@ export function IdeaCard({ card, drafting = false, justIn = false, sample = fals
             {IDEA_CARD_WORDS.firstRead}
           </Chip>
         </div>
-        <ol className="flex flex-col gap-1" aria-label="Ratings" data-idea-ratings="">
+        <ol className={cn("flex flex-col gap-1", wide && "@xl:col-start-2 @xl:row-span-4 @xl:row-start-1")} aria-label="Ratings" data-idea-ratings="">
           {CONCEPT_ATTRIBUTE_KEYS.map((key, i) => {
             const label = CONCEPT_ATTRIBUTE_LABELS[key];
             if (key === "founder_fit" && !founderFitKnown) {
@@ -164,17 +171,17 @@ export function IdeaCard({ card, drafting = false, justIn = false, sample = fals
           })}
         </ol>
         {low ? (
-          <p className="t-small text-pretty text-secondary" data-idea-raise="">
+          <p className={cn("t-small text-pretty text-secondary", wide && "@xl:col-start-1")} data-idea-raise="">
             <span className="text-primary">{IDEA_CARD_WORDS.raise}:</span> {CONCEPT_ATTRIBUTE_LABELS[low.key as ConceptAttributeKey]}, now {low.value} of 20. {low.evidence}
           </p>
         ) : null}
         {sample ? (
-          <p className="t-small text-status-warn" data-idea-sample="">
+          <p className={cn("t-small text-status-warn", wide && "@xl:col-start-1")} data-idea-sample="">
             {IDEA_CARD_WORDS.sample}
           </p>
         ) : null}
       </div>
-      <footer className="t-small border-t border-line px-4 py-2.5 text-tertiary">{drafting ? IDEA_CARD_WORDS.drafting : (footnote ?? (founderFitKnown ? null : IDEA_CARD_WORDS.founderFit))}</footer>
+      <footer className={cn("t-small border-t border-line px-4 py-2.5 text-tertiary", wide && "@xl:px-6")}>{drafting ? IDEA_CARD_WORDS.drafting : (footnote ?? (founderFitKnown ? null : IDEA_CARD_WORDS.founderFit))}</footer>
     </article>
   );
 }

@@ -724,8 +724,9 @@ export function mockModelOptions(current: ModelKey = "sonnet", opts: { chiefOfSt
     opus: { key: "opus", label: "Opus", description: "Deepest judgment; best for planning, review and hard tasks." },
     sonnet: { key: "sonnet", label: "Sonnet", description: "The default for coding, channels and specialists." },
     haiku: { key: "haiku", label: "Haiku", description: "Fast and cheap; utilities and classification." },
+    glm: { key: "glm", label: "GLM-5.3 Flash", description: "The free plan's model, for every agent." },
   };
-  const rank: Record<ModelKey, number> = { opus: 2, sonnet: 1, haiku: 0 };
+  const rank: Record<ModelKey, number> = { opus: 2, sonnet: 1, haiku: 0, glm: 0 };
   return (["opus", "sonnet", "haiku"] as const).map((key) => {
     const step = rank[key] - rank[current];
     const option: ModelOption = { ...base[key], skillDelta: step * 2.5, wageDelta: { amountMinor: step * 9_000, currency: "EUR" } };

@@ -23,6 +23,7 @@ import {
   describeFoundationsFailure,
   foundationsProgressView,
   foundationsSignoffNotes,
+  planRoadmapHref,
   PROJECT_PAGE_ROUTE,
   PROJECT_PAGE_USAGE_KIND,
   progressEventPayload,
@@ -259,7 +260,7 @@ export function projectPageStore(db: Db, businessId: string, authorAgentId: stri
 /**
  * One drafting attempt in this process: the project's page first (package 1.2, never in the way), then inputs → the
  * staged drafting (the plan, then the sections and the roadmap at
- * once, each part stored as it lands) → assemble → apply (one transaction, with the two sign-off notes) → the Inbox
+ * once, each part stored as it lands) → assemble → apply (one transaction, with the plan note) → the Inbox
  * events. Resumes from the progress an earlier attempt stored. Never throws: a failure marks the attempt failed with a
  * founder-readable reason.
  */
@@ -285,9 +286,9 @@ export async function runFoundationsLocally(deps: FoundationsDeps, businessId: s
     const progress = readFoundationsProgress((await repos.foundations.get(deps.db, businessId))?.progress);
     if (!progress) throw new FoundationsSupersededError();
     const draft = assembleFoundationsDraft(progress, inputs);
-    // The two sign-off notes (founder, 2026-10-18): the specification and the roadmap, each a decision from the Product lead.
+    // The one plan note (WP-04 T5): both rounds, the specification's and the roadmap's, are answered from it.
     const applied = await repos.foundations.apply(deps.db, businessId, attempt, draft, {
-      signoffs: { spec: (stats) => foundationsSignoffNotes(draft, inputs.door, stats).spec, roadmap: (stats) => foundationsSignoffNotes(draft, inputs.door, stats).roadmap },
+      signoffs: { plan: foundationsSignoffNotes(draft, { roadmapHref: planRoadmapHref(businessId) }).plan },
       model: { route: "foundations", model: usage.model, mode: usage.mode, costMinor: usage.costMinor, costLabel: "Estimate", repaired: usage.repaired, runner: "local", staged: true, calls: usage.calls },
       // The Inbox events are written through the outbox in the same transaction as the items.
       onInboxItem: (tx, item) =>

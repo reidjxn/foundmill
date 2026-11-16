@@ -12,6 +12,7 @@
  * scripts/build-skill-library.mjs (`pnpm --filter @foundmill/agents skills:build`) compiles them into the checked-in
  * `skill-library/catalog.generated.ts`, which carries each skill's full body, so the app can show a person its text.
  */
+import type { ProductStage } from "@foundmill/shared";
 import { SKILL_LIBRARY } from "./skill-library/catalog.generated";
 import type { LibrarySkill, SkillLibraryCategory } from "./skill-library/types";
 
@@ -38,6 +39,16 @@ const LIBRARY_BY_KEY: ReadonlyMap<string, LibrarySkill> = new Map(SKILL_LIBRARY.
 
 export function getLibrarySkill(key: string): LibrarySkill | undefined {
   return LIBRARY_BY_KEY.get(key);
+}
+
+/**
+ * The library skills the picker suggests for an agent of `templateKey` (WP-06 T7): those whose `roles` hold the
+ * template, the ones that fit the project's stage first, catalog order within each part. Chosen locally, with no model
+ * call (as the agent builder ranks templates, 2026-10-07).
+ */
+export function suggestFor(templateKey: string, stage: ProductStage): string[] {
+  const forRole = SKILL_LIBRARY.filter((s) => s.roles.includes(templateKey));
+  return [...forRole.filter((s) => s.stages.includes(stage)), ...forRole.filter((s) => !s.stages.includes(stage))].map((s) => s.key);
 }
 
 /** The agent's skill key for a library skill (`press_releases` → `library_press_releases`). */

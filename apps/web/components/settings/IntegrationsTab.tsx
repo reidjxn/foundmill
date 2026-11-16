@@ -36,10 +36,10 @@ import { simulatePanelAvailable } from "@/lib/env";
 import { formatDateTime, plainWords, plural } from "@/lib/format";
 import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
-import { moduleTabLabel } from "@foundmill/widgets/shared/departments";
 import { useBusiness } from "@/components/shell/business-context";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { RefreshFailedNotice, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
+import { GitHubRepositoryPanel } from "./GitHubRepositoryPanel";
 import { OAuthFinish } from "./OAuthFinish";
 import { useInvalidateRouters } from "./SettingsScreen";
 import { AdminOnly, Hint, SettingsSection, useSettingsToast } from "./shared";
@@ -354,9 +354,7 @@ export function PlatformMailSection({ data, businessId }: { data: PlatformMailVi
 
 export function IntegrationsTab() {
   const datePrefs = useDateFormat();
-  const { businessId, departments } = useBusiness();
-  // The Code tab by the department over the Development module, as the founder named it ("Formulation Lab › Code").
-  const codeTab = moduleTabLabel(departments, "development", "code") ?? "the Code tab";
+  const { businessId } = useBusiness();
   const trpc = useTRPC();
   const invalidate = useInvalidateRouters();
   const t = useSettingsToast();
@@ -421,7 +419,7 @@ export function IntegrationsTab() {
             {installCode && installState ? (
               <>
                 <Hint>
-                  GitHub installation {pendingInstallation} is ready. Connect it to this business so agents can push their code to their own <Term id="branch">branches</Term>. GitHub confirms you can manage it first. Then choose the <Term id="repository">repository</Term> on {codeTab}.
+                  GitHub installation {pendingInstallation} is ready. Connect it to this business so agents can push their code to their own <Term id="branch">branches</Term>. GitHub confirms you can manage it first. Then choose the <Term id="repository">repository</Term> below.
                 </Hint>
                 <Button variant="primary" icon={FolderGit2} loading={connect.isPending} onClick={confirmInstallation}>
                   Connect installation
@@ -492,6 +490,7 @@ export function IntegrationsTab() {
           })}
         </ul>
       </SettingsSection>
+      {rows.some((r) => r.key === "github" && r.integration && r.integration.status !== "disconnected") ? <GitHubRepositoryPanel /> : null}
       <ConnectFieldsDialog
         connector={keyFor}
         pending={connect.isPending}

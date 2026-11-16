@@ -43,9 +43,11 @@ export function NotInvitedPage({ message, email, unconfirmed = false, emails = f
 export const WAITLIST_WORDS = {
   offer: "We are saving your place.",
   join: "Save my place",
-  joinedWithCard: "Your place is saved, and your card is kept for 90 days. Come back to check; we cannot email you yet.",
+  // The Studio clause (founder, 2026-11-16) holds: on admission the kept card is offered at /new/card/keep and, once
+  // kept, is in the deck the Ideation Studio lists (api test "someone not on the invite list joins the waitlist…").
+  joinedWithCard: "Your place is saved, and your idea is kept for 90 days. As soon as you are off the waitlist, you can shape it further in the Ideation Studio. Come back to check; we cannot email you yet.",
   joined: "Your place is saved. Come back to check; we cannot email you yet.",
-  joinedWithCardEmail: (email: string | null) => `Your place is saved, and your card is kept for 90 days. We email ${email ?? "you"} the day your place opens.`,
+  joinedWithCardEmail: (email: string | null) => `Your place is saved, and your idea is kept for 90 days. We email ${email ?? "you"} the day your place opens, and from then you can shape it further in the Ideation Studio.`,
   joinedEmail: (email: string | null) => `Your place is saved. We email ${email ?? "you"} the day it opens.`,
   error: "That did not go through. Try again in a minute.",
   /** The person's own link (WP-03 T10): an offer, with no place number and no count ("No public counts"). */

@@ -9,15 +9,13 @@
  * it at once (`/idea-box/mine`).
  */
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { ArrowRight, Dices, Fan, Globe, Lock, Mail, Medal, RotateCcw, Scale, ShieldCheck, Users } from "lucide-react";
+import { ArrowLeft, Dices, Fan, Globe, Lock, Medal, Scale, ShieldCheck, Users } from "lucide-react";
 import { APP_NAME, CREDITS_CURRENCY, includedCreditsMinor } from "@foundmill/config";
-import { AssuranceList, Button, GoogleSignInButton, Icon, IdeaCard, cn, formatMoney, type IdeaCardData } from "@foundmill/dugout";
+import { AssuranceList, Button, Icon, IdeaCard, IdeaNextSteps, cn, formatMoney, isViewportTooSmall, useViewportWidth, type IdeaCardData } from "@foundmill/dugout";
 import { IDEA_BUTTON } from "../flags";
 import { IDEA_BOX_DEADLINE_MS, IDEA_BOX_ERRORS, IDEA_BOX_INTERESTS, IDEA_BOX_PROMPT_MAX, IDEA_BOX_PROMPT_MIN, IDEA_CLAIM_PARAM, type IdeaBoxEvent, type IdeaBoxInterest } from "@foundmill/shared";
-import { NEXT_PARAM } from "@/lib/auth/constants";
-import { startGoogleSignIn } from "@/lib/auth/google";
-import { googleSignInEnabled, publicEnv } from "@/lib/env";
-import { createClient } from "@/lib/supabase/client";
+import { KEEP_THEN_PARAM, KEEP_THEN_STUDIO, NEXT_PARAM } from "@/lib/auth/constants";
+import { publicEnv } from "@/lib/env";
 import { fetchMine, streamIdeaDraft } from "./client";
 import { loadTurnstile, turnstileToken } from "./turnstile";
 import { PLACEHOLDER_IDEAS, useTypedPlaceholder } from "./typing";
@@ -61,13 +59,15 @@ export const IDEA_BOX_WORDS = {
   private: "Your idea stays private until you choose to share it",
   safe: "Nothing spends money or signs in your name without you",
   // WP-03 T1: what signing in does while new people are let in a few at a time (the waitlist holds the card 90 days).
-  // Web research is not live (a1 FR-06), so nothing here says the team checks the card against sources.
-  keepLead: `Sign in to keep this idea. ${APP_NAME} lets new people in a few at a time. If your place is not open yet, we hold your idea for 90 days.`,
-  keepEmail: "Continue with email",
+  // Web research is not live (a1 FR-06), so nothing here says the team checks the card against sources. The Studio
+  // clause (founder, 2026-11-16) holds: an admitted person's kept card is in the deck the Studio lists (api test
+  // "someone not on the invite list joins the waitlist and keeps the card").
+  keepLead: `Either way, you sign in first so the idea stays yours. ${APP_NAME} lets new people in a few at a time. If your place is not open yet, we keep your idea for 90 days, and you can shape it in the Ideation Studio as soon as you are in.`,
   freeLine: `Free to start. Your plan includes ${INCLUDED} of agent work every month. You never enter payment details.`,
   waits: "Not now? This idea waits on this device for 7 days.",
-  // WP-03 T7 (founder, 2026-11-15: up to 2 redraws a day): the card is replaced, under the same limits.
-  tryAnother: "Try another idea",
+  // WP-03 T7 (founder, 2026-11-15: up to 2 redraws a day): the card is replaced, under the same limits. The button and
+  // its warning are the design system's `IdeaNextSteps`; this is the way back while the field is open again.
+  backTo: (name: string) => `Back to ${name}`,
   yourWords: "Your words",
   again: "This is the idea this device already holds. Sign in to keep it and draft more with your team.",
   unlockPage: "A page for your idea at its own link",
@@ -75,9 +75,15 @@ export const IDEA_BOX_WORDS = {
   unlockTeam: "A team of agents for the work you have not learned yet",
 } as const;
 
-/** Where "Keep this card" goes: sign-in, then /start, which claims the card (the claim token for another device). */
-export function keepHref(claim: string | null): string {
-  const start = claim ? `/start?${IDEA_CLAIM_PARAM}=${encodeURIComponent(claim)}` : "/start";
+/**
+ * Where both choices go: sign-in, then /start, which offers to keep the card (the claim token for another device).
+ * `studio` ("Shape it in the Ideation Studio") rides along as `?then=studio`: keeping the card then opens the Studio.
+ */
+export function keepHref(claim: string | null, then: "build" | "studio" = "build"): string {
+  const query = new URLSearchParams();
+  if (claim) query.set(IDEA_CLAIM_PARAM, claim);
+  if (then === "studio") query.set(KEEP_THEN_PARAM, KEEP_THEN_STUDIO);
+  const start = query.size ? `/start?${query.toString()}` : "/start";
   return `/login?${NEXT_PARAM}=${encodeURIComponent(start)}`;
 }
 
@@ -95,13 +101,14 @@ export function IdeaBox({ onLanded, label = IDEA_BOX_WORDS.label, ideas = PLACEH
   const [card, setCard] = useState<IdeaCardData>({});
   const [landed, setLanded] = useState<Landed | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [googleBusy, setGoogleBusy] = useState(false);
   /** The visitor pressed "Try another idea": the next draft replaces the card this browser holds. */
   const [redrawing, setRedrawing] = useState(false);
   const widget = useRef<HTMLDivElement>(null);
   const abort = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const placeholder = useTypedPlaceholder(ideas, phase === "rest" && !focused && value === "");
+  // The Ideation Studio is a desktop screen: on a small one the choice says it opens on a computer.
+  const small = isViewportTooSmall(useViewportWidth());
 
   const land = useCallback(
     (e: Landed) => {
@@ -187,7 +194,8 @@ export function IdeaBox({ onLanded, label = IDEA_BOX_WORDS.label, ideas = PLACEH
     void draft({ prompt, interest: null });
   };
 
-  // Back to the field with the card's own words in it (a typo should not be permanent; founder, 2026-11-15).
+  // Back to the field with the card's own words in it (a typo should not be permanent; founder, 2026-11-15). Reached only
+  // through `IdeaNextSteps`' warning that the card will be discarded (founder, 2026-11-16).
   const tryAnother = () => {
     if (landed?.prompt) setValue(landed.prompt);
     setRedrawing(true);
@@ -198,17 +206,12 @@ export function IdeaBox({ onLanded, label = IDEA_BOX_WORDS.label, ideas = PLACEH
     requestAnimationFrame(() => inputRef.current?.focus());
   };
 
-  const keep = keepHref(landed?.claim ?? null);
-  const continueWithGoogle = async () => {
-    setGoogleBusy(true);
-    const supabase = await createClient().catch(() => null);
-    if (!supabase) {
-      window.location.assign(keep);
-      return;
-    }
-    const url = await startGoogleSignIn(supabase, { env, currentOrigin: window.location.origin, next: new URL(keep, window.location.origin).searchParams.get(NEXT_PARAM) ?? "/start" });
-    if (url) window.location.assign(url);
-    else window.location.assign(keep);
+  // Nothing was replaced yet: the card this browser holds comes back as it was.
+  const backToCard = () => {
+    if (!landed) return;
+    setValue("");
+    setError(null);
+    land(landed);
   };
 
   const drafting = phase === "drafting";
@@ -278,7 +281,7 @@ export function IdeaBox({ onLanded, label = IDEA_BOX_WORDS.label, ideas = PLACEH
           <div ref={widget} className="absolute" aria-hidden />
         </form>
       ) : (
-        <div className="idea-field idea-field-quiet w-full" aria-label="Your idea">
+        <div className="idea-field idea-field-quiet landing-measure w-full" aria-label="Your idea">
           <span className="idea-input truncate py-3" data-testid="idea-landed-words">
             {landed?.prompt || `${IDEA_BOX_WORDS.surprise}: ${landed?.interest ?? ""}`}
           </span>
@@ -290,6 +293,12 @@ export function IdeaBox({ onLanded, label = IDEA_BOX_WORDS.label, ideas = PLACEH
         <p id={errorId} role="alert" className="t-landing-body text-status-warn" data-testid="idea-error">
           {error}
         </p>
+      ) : null}
+
+      {phase === "rest" && redrawing && landed ? (
+        <Button variant="ghost" icon={ArrowLeft} className={cn("min-h-tap self-start", centered && "@page-wide:self-center")} onClick={backToCard} data-testid="idea-back-to-card">
+          {IDEA_BOX_WORDS.backTo(landed.card.name)}
+        </Button>
       ) : null}
 
       {phase === "rest" ? (
@@ -336,34 +345,37 @@ export function IdeaBox({ onLanded, label = IDEA_BOX_WORDS.label, ideas = PLACEH
       ) : null}
 
       {phase !== "rest" ? (
-        // The card, then the ways to keep it, stacked at every width: the hero's column is the 640 px reading measure.
-        <div className={cn("mt-3 flex w-full flex-col gap-6", centered ? "items-center" : "items-start")} data-testid="idea-result">
-          {/* The product's own screen: night, wherever the box stands (landing.css `world-night`). */}
-          <IdeaCard card={card} drafting={drafting} justIn={phase === "landed" && !landed?.again} sample={landed?.sample ?? false} className="world-night landing-screen-lit" />
-          {phase === "landed" ? (
-            <div className="flex w-full min-w-0 flex-col gap-5 text-left" data-testid="idea-keep">
-              {landed?.again ? <p className="t-landing-small text-secondary">{IDEA_BOX_WORDS.again}</p> : null}
-              <p className="t-landing-body text-prose">{IDEA_BOX_WORDS.keepLead}</p>
-              <div className="flex flex-col gap-2.5">
-                {googleSignInEnabled(env) ? <GoogleSignInButton onClick={() => void continueWithGoogle()} loading={googleBusy} /> : null}
-                <Button asChild variant="glass" size="lg" icon={Mail} iconRight={ArrowRight} className="min-h-tap w-full">
-                  <a href={keep} data-testid="idea-keep-email">
-                    {IDEA_BOX_WORDS.keepEmail}
-                  </a>
-                </Button>
-                <p className="t-landing-small text-center text-secondary">{IDEA_BOX_WORDS.freeLine}</p>
-              </div>
-              <ul className="t-landing-body flex flex-col gap-2.5 border-t border-line pt-5 text-secondary">
-                <Unlock icon={Globe}>{IDEA_BOX_WORDS.unlockPage}</Unlock>
-                <Unlock icon={Scale}>{IDEA_BOX_WORDS.unlockDecide}</Unlock>
-                <Unlock icon={Users}>{IDEA_BOX_WORDS.unlockTeam}</Unlock>
-              </ul>
-              <p className="t-landing-small text-secondary">{IDEA_BOX_WORDS.waits}</p>
-              <Button variant="ghost" icon={RotateCcw} className="min-h-tap self-start" onClick={tryAnother} data-testid="idea-try-another">
-                {IDEA_BOX_WORDS.tryAnother}
-              </Button>
-            </div>
-          ) : null}
+        // The card, wide, and what to do with it: beside it once the result has the hero's full column (880 px), under it
+        // before that (founder, 2026-11-16: "the card should be wider so as to take up more space").
+        <div className="@container mt-3 w-full" data-testid="idea-result">
+          <div className={cn("landing-result-grid", centered && "text-left")}>
+            {/* The product's own screen: night, wherever the box stands (landing.css `world-night`). */}
+            <IdeaCard card={card} wide drafting={drafting} justIn={phase === "landed" && !landed?.again} sample={landed?.sample ?? false} className="world-night landing-screen-lit" />
+            {phase === "landed" && landed ? (
+              <IdeaNextSteps
+                name={landed.card.name}
+                studioHref={keepHref(landed.claim, "studio")}
+                buildHref={keepHref(landed.claim)}
+                studioOnComputer={small}
+                redrawsLeft={landed.redrawsLeft ?? null}
+                onRedraw={tryAnother}
+                lead={
+                  <>
+                    {landed.again ? <p className="t-landing-small text-secondary">{IDEA_BOX_WORDS.again}</p> : null}
+                    <p className="t-landing-body text-prose">{IDEA_BOX_WORDS.keepLead}</p>
+                  </>
+                }
+              >
+                <p className="t-landing-small text-secondary">{IDEA_BOX_WORDS.freeLine}</p>
+                <ul className="t-landing-body flex flex-col gap-2.5 text-secondary">
+                  <Unlock icon={Globe}>{IDEA_BOX_WORDS.unlockPage}</Unlock>
+                  <Unlock icon={Scale}>{IDEA_BOX_WORDS.unlockDecide}</Unlock>
+                  <Unlock icon={Users}>{IDEA_BOX_WORDS.unlockTeam}</Unlock>
+                </ul>
+                <p className="t-landing-small text-secondary">{IDEA_BOX_WORDS.waits}</p>
+              </IdeaNextSteps>
+            ) : null}
+          </div>
         </div>
       ) : null}
       <span className="sr-only" aria-live="polite">

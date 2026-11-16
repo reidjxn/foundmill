@@ -70,7 +70,7 @@ describe("googleVerifiedFromPayload / emailConfirmedFromPayload", () => {
     const userId = await hz.h.createUser("timestamp@google-auth.test");
     const signedAt = now() - 30;
     const token = await new SignJWT(googleClaims("timestamp@google-auth.test", { amr: [{ method: "oauth", timestamp: signedAt }] })).setProtectedHeader({ alg: "HS256" }).setSubject(userId).setAudience("authenticated").setIssuedAt().setExpirationTime("10m").sign(secret);
-    expect(await auth.verify(token)).toEqual({ userId, email: "timestamp@google-auth.test", authenticatedAt: new Date(signedAt * 1000), emailConfirmed: true });
+    expect(await auth.verify(token)).toEqual({ userId, email: "timestamp@google-auth.test", authenticatedAt: new Date(signedAt * 1000), emailConfirmed: true, expiresAt: expect.any(Number) });
   });
 });
 

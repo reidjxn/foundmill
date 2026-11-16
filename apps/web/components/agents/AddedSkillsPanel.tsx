@@ -39,7 +39,7 @@ export function AddedSkillsPanel({ businessId, profile, onChanged }: AddedSkills
   const add = useMutation(
     trpc.agent.skills.add.mutationOptions({
       onSuccess: (rows) => {
-        toast({ title: rows.length === 1 ? `“${rows[0]!.name}” added` : `${rows.length} skills added`, description: "On the attributes now, marked Untested. Library and file skills carry no tests, so a training run reports them as No tests yet; to have one scored, add it as a custom skill.", tone: "good" });
+        toast({ title: rows.length === 1 ? `“${rows[0]!.name}” added` : `${rows.length} skills added`, description: rows.length === 1 ? `${agent.name} reads it when a task calls for it. You can remove it at any time.` : `${agent.name} reads each one when a task calls for it. You can remove them at any time.`, tone: "good" });
         refresh();
       },
     }),
@@ -78,7 +78,7 @@ export function AddedSkillsPanel({ businessId, profile, onChanged }: AddedSkills
             </Button>
           </span>
         }
-        empty={!addedQ.isLoading && added.length === 0 ? { icon: BookOpen, children: `Give ${agent.name} how-to skills from the library or a skill file (SKILL.md, .md or .txt). No tests to draft: they show on its attributes at once, marked Untested, and a training run reports them as No tests yet. To have a skill scored, add it as a custom skill and review the tests it drafts.` } : undefined}
+        empty={!addedQ.isLoading && added.length === 0 ? { icon: BookOpen, children: `Give ${agent.name} how-to skills from the library or a skill file (SKILL.md, .md or .txt). The agent reads a skill when a task calls for it.` } : undefined}
         footer="A skill adds instructions after the house rules. It never changes the agent's tools, autonomy, spend caps or approvals."
         data-testid="added-skills"
       >
@@ -100,6 +100,7 @@ export function AddedSkillsPanel({ businessId, profile, onChanged }: AddedSkills
           add.reset();
         }}
         agentName={agent.name}
+        pickerFor={{ agentId: agent.id }}
         unavailable={unavailable}
         remaining={remaining}
         pending={add.isPending}
