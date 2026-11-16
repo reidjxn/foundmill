@@ -1427,7 +1427,7 @@ export interface SdkTurnResult {
 
 export interface TurnFailure {
   outcome: "blocked" | "failed";
-  blockedReason: "budget" | "credential" | "rate_limit" | "error";
+  blockedReason: "budget" | "credential" | "rate_limit" | "turn_limit" | "error";
   reason: string;
   summary: string;
 }
@@ -1436,7 +1436,8 @@ export interface TurnFailure {
  * How a turn that did not end normally ends the session, or null when it ended normally. The SDK reports a refused API
  * call as `subtype: "success"` with `is_error: true` (the assistant message before it names the kind, `billing_error`
  * for "Credit balance is too low"), so `subtype` alone would book a session where no model call succeeded as done.
- * Billing, key and rate-limit refusals block the task (it stays open and runs again once fixed); anything else fails it.
+ * Billing, key and rate-limit refusals block the task (it stays open and runs again once fixed), and so does the turn
+ * limit (it runs again in the next round); anything else fails it.
  */
 export function classifyTurnEnd(result: SdkTurnResult, apiError: { kind: string | null; text: string } | null, keySource: "byok" | "platform" | "none", budget: Pick<SessionBudget, "limit" | "taskBudgetMinor" | "taskSpentMinor"> | null = null): TurnFailure | null {
   // The SDK stopped at the `maxBudgetUsd` the session was given: the budget is spent, which is not the agent failing. The
@@ -1444,6 +1445,11 @@ export function classifyTurnEnd(result: SdkTurnResult, apiError: { kind: string 
   if (result.subtype === "error_max_budget_usd") {
     const limit = budget?.limit ?? "task";
     return { outcome: "blocked", blockedReason: "budget", reason: `model budget exhausted: the session spent ${LIMIT_WORDS[limit].spent}`, summary: budgetSummary(limit, budget ?? { taskBudgetMinor: 0, taskSpentMinor: 0 }) };
+  }
+  // The SDK stopped at `maxTurns`: a long task, not a failing agent (WP-05 T10). The task is blocked with its work saved
+  // (not pushed), offered again in the next round, and the next session reads this as its `## Last attempt`.
+  if (result.subtype === "error_max_turns") {
+    return { outcome: "blocked", blockedReason: "turn_limit", reason: "the session reached its turn limit; the work so far is saved", summary: "Paused at the turn limit; the task carries on in the next round." };
   }
   if (result.subtype !== "success") {
     const errors = (result.errors?.length ? result.errors : [result.subtype]).join("; ");

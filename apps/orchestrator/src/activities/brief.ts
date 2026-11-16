@@ -116,7 +116,8 @@ export async function loadDispatchFacts(deps: Pick<OrchestratorDeps, "db" | "clo
     anyBlocked ? repos.events.list(db, businessId, { type: "task.blocked", limit: 300 }) : null,
   ]);
   // A task blocked `not_connected` gets the same answer until the founder connects something: it is not retried on a
-  // timer, only on the founder's Start or Continue (WP-05 T2). Newest first, so the first event per task is its latest.
+  // timer, only on the founder's Start or Continue (WP-05 T2); one blocked `turn_limit` runs again at once (WP-05 T10).
+  // Newest first, so the first event per task is its latest.
   const latestBlock = new Map<string, unknown>();
   for (const e of blocks?.items ?? []) {
     const p = e.payload as { taskId?: unknown; reason?: unknown };
@@ -124,7 +125,11 @@ export async function loadDispatchFacts(deps: Pick<OrchestratorDeps, "db" | "clo
   }
   const blockedRetry = (taskId: string) => {
     const retry = taskRetry(failureStreak(recent.filter((s) => s.taskId === taskId), ["blocked", "failed"]), now);
-    return latestBlock.get(taskId) === "not_connected" ? { ...retry, due: false, exhausted: true, nextAttemptAt: null } : retry;
+    if (latestBlock.get(taskId) === "not_connected") return { ...retry, due: false, exhausted: true, nextAttemptAt: null };
+    // A task paused at the turn limit is making progress, not failing: it is offered again at once, whatever the count
+    // (WP-05 T10). Its spend stays bounded by the task's budget, which counts every session on it.
+    if (latestBlock.get(taskId) === "turn_limit") return { ...retry, due: true, exhausted: false, nextAttemptAt: null };
+    return retry;
   };
   const spentBy = new Map(wages.map((w) => [w.agentId, w.costMinor]));
 

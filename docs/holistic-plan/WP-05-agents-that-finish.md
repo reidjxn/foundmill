@@ -232,7 +232,7 @@ Steps:
 Tests and evals: above.
 Done when: a session whose tests fail gets the output and two tries; the founder is never told "passed every quality check" when nothing ran.
 
-### T10: Reaching the turn limit is a checkpoint [S] [session.ts chain 6]
+### [x] T10: Reaching the turn limit is a checkpoint [S] [session.ts chain 6]
 Why: AR-09.
 Files: modify `session.ts` (`classifyTurnEnd`, `:1385`), `activities/types.ts`, `packages/events/src/catalogue.ts`; tests `session-live.test.ts:867` (today asserts `failed`), `session.test.ts`.
 Interfaces, consumes: `classifyTurnEnd(result: SdkTurnResult, apiError, keySource, budget): TurnFailure | null`; any `subtype` other than `success` or `error_max_budget_usd` is `failed` (`:1392-1395`); `finishSession` marks the agent `failing` on `failed` (`:1043`).
