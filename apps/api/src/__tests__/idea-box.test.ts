@@ -305,8 +305,9 @@ describe("ideaBox.claim and the waitlist", () => {
     const first = await draft(app, idea);
     const outsider = hz.caller({ userId: hz.B.ownerId, email: "outsider@test.local", emailConfirmed: true });
     await expect(outsider.ideaBox.claim({ token: first.token })).rejects.toThrow();
-    expect(await outsider.waitlist.join({ token: first.token })).toEqual({ joined: true, cardKept: true });
-    expect(await outsider.waitlist.status()).toEqual({ joined: true, cardKept: true });
+    const shareUrl = expect.stringMatching(/^http:\/\/localhost:3000\/\?via=w\.[a-z2-7]{10}$/);
+    expect(await outsider.waitlist.join({ token: first.token })).toEqual({ joined: true, cardKept: true, shareUrl });
+    expect(await outsider.waitlist.status()).toEqual({ joined: true, cardKept: true, shareUrl });
     // Admitted later, on any browser (no cookie, no link): the waitlist's card is the one to keep.
     hz.deps.env.SIGNUP_ALLOWLIST = "outsider@test.local";
     expect(await outsider.ideaBox.preview({})).toMatchObject({ source: "waitlist", prompt: idea.prompt });
@@ -315,5 +316,28 @@ describe("ideaBox.claim and the waitlist", () => {
     const [draftRow] = await hz.db.select().from(s.ideaDrafts);
     expect(draftRow!.heldUntil!.getTime() - Date.now()).toBeGreaterThan(80 * 24 * 60 * 60_000);
     await expect(hz.caller({ userId: hz.B.ownerId, email: "outsider@test.local", emailConfirmed: false }).waitlist.join({})).rejects.toThrow(/Confirm/);
+  });
+
+  it("a person who joins through someone's waitlist link is recorded as brought by them, once (WP-03 T10)", async () => {
+    const { hz } = await setup({ SIGNUP_ALLOWLIST: "someone-else@test.local" });
+    const a = hz.caller({ userId: hz.A.ownerId, email: "a-wait@test.local", emailConfirmed: true });
+    const b = hz.caller({ userId: hz.B.ownerId, email: "b-wait@test.local", emailConfirmed: true });
+    expect(await a.waitlist.status()).toEqual({ joined: false, cardKept: false, shareUrl: null });
+    const { shareUrl } = await a.waitlist.join({});
+    const via = new URL(shareUrl!).searchParams.get("via")!;
+    // Their own link, a link of another kind and junk are ignored; the friend's join through it is recorded.
+    expect((await a.waitlist.join({ via })).shareUrl).toBe(shareUrl);
+    expect(await b.waitlist.join({ via: "p.maple-bakes" })).toMatchObject({ joined: true });
+    const rows = await hz.db.select().from(s.waitlistEntries);
+    const entryA = rows.find((r) => r.email === "a-wait@test.local")!;
+    expect(entryA.referredByEntryId).toBeNull();
+    expect(rows.find((r) => r.email === "b-wait@test.local")!.referredByEntryId).toBeNull();
+    // B's entry was made already: a link opened later does not change who brought them.
+    await b.waitlist.join({ via });
+    expect((await hz.db.select().from(s.waitlistEntries).where(eq(s.waitlistEntries.email, "b-wait@test.local")))[0]!.referredByEntryId).toBeNull();
+    await hz.db.delete(s.waitlistEntries).where(eq(s.waitlistEntries.email, "b-wait@test.local"));
+    await b.waitlist.join({ via });
+    expect((await hz.db.select().from(s.waitlistEntries).where(eq(s.waitlistEntries.email, "b-wait@test.local")))[0]!.referredByEntryId).toBe(entryA.id);
+    await expect(b.waitlist.join({ via: "x".repeat(200) })).rejects.toThrow();
   });
 });

@@ -12,6 +12,9 @@ import { and, count, eq, gt, gte, inArray, isNotNull, isNull, lt, or, sql } from
 import { accountAdmissions, ideaDrafts, waitlistEntries, type IdeaDraftRow, type WaitlistEntryRow } from "../schema";
 import { ideasRepo, type CreateIdeaInput } from "./ideas";
 import { admissionsRepo } from "./people";
+import { newPostCode } from "./post-attributions";
+import { isPostCode } from "@foundmill/shared/via";
+import { addressKey } from "@foundmill/shared";
 import { Id, maybeOne, parseInput, type Executor } from "./_shared";
 
 /** How long an unclaimed card is kept (founder, 2026-11-13). */
@@ -238,27 +241,42 @@ export const ideaDraftsRepo = {
 };
 
 export const waitlistRepo = {
-  /** Adds the signed-in person (once; joining again updates the draft they keep). One row per address. */
+  /**
+   * Adds the signed-in person (once; joining again updates the draft they keep). One row per address. The entry gets
+   * its share code here (0113; an entry made before 0113 gets one on its next join). `referrerCode` is the code of the
+   * link the person came through (`?via=w.<code>`, WP-03 T10): it is recorded only when the entry is first made, only
+   * when it names another person's entry, and never changes after; anything else is ignored without an error. Another
+   * person means another mailbox (`addressKey`: `maya+1@` and `maya@` are one), and someone already let in brings no one.
+   */
   async join(
     db: Executor,
-    input: { userId: string; email: string; ideaDraftId: string | null; now?: Date },
+    input: { userId: string; email: string; ideaDraftId: string | null; referrerCode?: string | null; now?: Date },
   ): Promise<WaitlistEntryRow> {
     const now = input.now ?? new Date();
+    const email = input.email.trim().toLowerCase().slice(0, 320);
+    const referrer = isPostCode(input.referrerCode) && !(await admissionsRepo.has(db, input.userId))
+      ? maybeOne(
+          await db
+            .select({ id: waitlistEntries.id, userId: waitlistEntries.userId, email: waitlistEntries.email })
+            .from(waitlistEntries)
+            .where(eq(waitlistEntries.code, input.referrerCode))
+            .limit(1),
+        )
+      : null;
+    const ownKey = addressKey(email);
+    const sameMailbox = (other: string) => !ownKey || addressKey(other) === ownKey;
+    const referredByEntryId = referrer && referrer.userId !== input.userId && !sameMailbox(referrer.email) ? referrer.id : null;
     const [row] = await db
       .insert(waitlistEntries)
-      .values({
-        userId: input.userId,
-        email: input.email.trim().toLowerCase().slice(0, 320),
-        ideaDraftId: input.ideaDraftId,
-        createdAt: now,
-        updatedAt: now,
-      })
-      // One row per address: a row added before the person had an account takes their account when they join.
+      .values({ userId: input.userId, email, ideaDraftId: input.ideaDraftId, code: newPostCode(), referredByEntryId, createdAt: now, updatedAt: now })
+      // One row per address: a row added before the person had an account takes their account when they join. Who
+      // brought them is left as the entry was made.
       .onConflictDoUpdate({
         target: waitlistEntries.email,
         set: {
           userId: input.userId,
           ideaDraftId: sql`coalesce(excluded.idea_draft_id, ${waitlistEntries.ideaDraftId})`,
+          code: sql`coalesce(${waitlistEntries.code}, excluded.code)`,
           updatedAt: now,
         },
       })
@@ -367,10 +385,13 @@ export const waitlistRepo = {
 };
 
 /**
- * The waitlist's order: sign-up time, oldest first (DECISIONS 2026-11-12: plain; referral order is WP-03 T10, which
- * changes this one fragment).
+ * The waitlist's order (DECISIONS 2026-11-12: plain and ordered by referral; WP-03 T10, 0113): first the entries that
+ * brought someone who joined (at least one entry with an account names them in `referred_by_entry_id`), then every
+ * other entry; within each group, sign-up time, oldest first, then id. How many someone brought never orders anyone.
+ * Being brought changes nothing for the person brought (no head start, no penalty), and coming on your own costs
+ * nothing beyond this: you wait in sign-up order, behind only those who brought someone.
  */
-export const WAITLIST_ORDER = sql`${waitlistEntries.createdAt} asc, ${waitlistEntries.id} asc`;
+export const WAITLIST_ORDER = sql`exists (select 1 from waitlist_entries brought where brought.referred_by_entry_id = ${waitlistEntries.id} and brought.user_id is not null) desc, ${waitlistEntries.createdAt} asc, ${waitlistEntries.id} asc`;
 
 /** An entry `admitNext` admitted; `newAdmission` is false when the account already had an admission row. */
 export type WaitlistAdmitted = WaitlistEntryRow & { newAdmission: boolean };

@@ -24,8 +24,8 @@ export const ROOT_CONFIG =
 export const TEST_READS = {
   // gateway-token-contract.test.ts and grants-contract.test.ts import apps/gateway/src/tokens.ts.
   "@foundmill/orchestrator": { packages: ["@foundmill/gateway"] },
-  // seed/__tests__/seed.test.ts imports packages/entity-linker/src.
-  "@foundmill/db": { packages: ["@foundmill/entity-linker"] },
+  // seed/__tests__/seed.test.ts imports packages/entity-linker/src; waitlist-admission.test.ts runs docs/DEPLOY.md's list query.
+  "@foundmill/db": { packages: ["@foundmill/entity-linker"], paths: /^docs\/DEPLOY\.md$/ },
   // post-draft.test.ts runs scripts/banned-terms.mjs on a draft.
   "@foundmill/agents": { paths: /^scripts\/banned-terms\.mjs$/ },
   // terms.test.ts runs scripts/us-english.mjs on the vocabulary.

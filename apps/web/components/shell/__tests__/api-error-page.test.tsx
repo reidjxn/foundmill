@@ -14,7 +14,7 @@ import { ON_WAITLIST_WORDS } from "@foundmill/shared/allowlist";
 let pathname = "/start";
 vi.mock("next/navigation", () => ({ usePathname: () => pathname, useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }) }));
 // The Server Action that stores the person on the waitlist (waitlist-actions.ts), as the browser sees it.
-const joinWaitlist = vi.fn(async (_previous: unknown): Promise<{ status: "joined"; cardKept: boolean } | { status: "error" }> => ({ status: "joined", cardKept: false }));
+const joinWaitlist = vi.fn(async (_previous: unknown): Promise<{ status: "joined"; cardKept: boolean; shareUrl?: string | null } | { status: "error" }> => ({ status: "joined", cardKept: false }));
 vi.mock("../waitlist-actions", () => ({ joinWaitlist: (previous: unknown) => joinWaitlist(previous) }));
 
 const { ApiErrorPage } = await import("../ApiErrorPage");
@@ -128,6 +128,24 @@ describe("NotInvitedPage (WP-03 T1: the gate tells the truth at any width)", () 
     act(() => retry.click());
     expect(await screen.findByTestId("waitlist-joined")).toBeTruthy();
     expect(joinWaitlist).toHaveBeenCalledTimes(3);
+  });
+
+  it("offers the person's own link to share once the place is saved, with no place number or count (WP-03 T10)", async () => {
+    joinWaitlist.mockClear();
+    joinWaitlist.mockResolvedValueOnce({ status: "joined", cardKept: false, shareUrl: "http://localhost:3000/?via=w.k3m7qa2xpw" });
+    render(<NotInvitedPage message="x" email="maya@example.com" />);
+    const share = await screen.findByTestId("waitlist-share");
+    expect(share.textContent).toContain(WAITLIST_WORDS.shareOffer);
+    expect(share.textContent).toContain("http://localhost:3000/?via=w.k3m7qa2xpw");
+    expect(screen.getByRole("button", { name: WAITLIST_WORDS.copyLink }).className).toContain("min-h-tap");
+    expect(share.textContent).not.toMatch(/\d+(st|nd|rd|th)\b|#\d|\bposition\b|\bpeople ahead\b/i);
+  });
+
+  it("shows no share link when there is none", async () => {
+    joinWaitlist.mockClear();
+    render(<NotInvitedPage message="x" email="maya@example.com" />);
+    await screen.findByTestId("waitlist-joined");
+    expect(screen.queryByTestId("waitlist-share")).toBeNull();
   });
 
   it("the unreachable page also renders at 390 px wherever it is shown", () => {

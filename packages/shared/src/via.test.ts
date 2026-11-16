@@ -44,6 +44,12 @@ describe("via references", () => {
 
   it("records only pages and people in attributions: a post code is not one of them", () => {
     expect([...ATTRIBUTION_VIA_KINDS]).toEqual(["project_page", "person_profile"]);
-    expect([...VIA_KINDS]).toEqual(["project_page", "person_profile", "post"]);
+    expect([...VIA_KINDS]).toEqual(["project_page", "person_profile", "post", "waitlist"]);
+  });
+
+  it("reads a waitlist place's link (w.<code>, WP-03 T10): a code of the post shape and nothing else", () => {
+    expect(parseVia("w.k3m7qa2xpw")).toEqual({ kind: "waitlist", ref: "k3m7qa2xpw" });
+    expect(withVia("https://foundmill.example/", { kind: "waitlist", ref: "k3m7qa2xpw" })).toBe("https://foundmill.example/?via=w.k3m7qa2xpw");
+    for (const bad of ["w.k3m7qa2xp", "w.maple-bakes", "w.K3M7QA2XPW", "w.k3m7qa2x0w"]) expect(parseVia(bad), bad).toBeNull();
   });
 });

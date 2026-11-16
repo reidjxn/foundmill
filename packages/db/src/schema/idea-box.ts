@@ -4,7 +4,7 @@
  * sign in and claim it into their deck; and the waitlist that keeps it for someone not yet admitted. The api's alone:
  * RLS on, no policy, no client grant.
  */
-import { bigint, index, jsonb, pgTable, text, uuid } from "drizzle-orm/pg-core";
+import { bigint, index, jsonb, pgTable, text, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
 import { sql } from "drizzle-orm";
 import { id, timestamps, tstz } from "./_common";
@@ -59,6 +59,10 @@ export const waitlistEntries = pgTable(
     admittedAt: tstz("admitted_at"),
     /** When the one email that says their place is open was sent (0111); null until then. */
     notifiedAt: tstz("notified_at"),
+    /** The entry's own share code (0113): ten characters from `a-z2-7`, minted on join; the link is `/?via=w.<code>`. */
+    code: text("code").unique("waitlist_entries_code_key"),
+    /** Whose link the person joined through (0113), set once when the entry is made; null when they came on their own. */
+    referredByEntryId: uuid("referred_by_entry_id").references((): AnyPgColumn => waitlistEntries.id, { onDelete: "set null" }),
     ...timestamps(),
   },
   (t) => [
@@ -69,6 +73,9 @@ export const waitlistEntries = pgTable(
     index("waitlist_entries_to_notify_idx")
       .on(t.admittedAt)
       .where(sql`${t.notifiedAt} is null`),
+    index("waitlist_entries_referred_by_idx")
+      .on(t.referredByEntryId)
+      .where(sql`${t.userId} is not null`),
   ],
 );
 export type WaitlistEntryRow = typeof waitlistEntries.$inferSelect;

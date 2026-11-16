@@ -456,7 +456,7 @@ Facts:
 
 **Done when:** setting one variable on Vercel makes the prompt appear in both places, and unsetting it removes every trace.
 
-### T10: Order the waitlist by who brought whom [S to M] [ships alone; only after Decision 5]
+### [x] T10: Order the waitlist by who brought whom [S to M] [ships alone; only after Decision 5]
 
 **Why:** the founder's two answers (ordered by referral); A9-P0-1 step 2's columns. Split from T2 so admission and email are not held up by it, and because DECISIONS gives it to the network session.
 

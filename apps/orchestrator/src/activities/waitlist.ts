@@ -4,7 +4,7 @@
  *       the same lock apps/api counts under): room = WAITLIST_ADMIT_PER_DAY less the new `waitlist` admissions since the
  *       start of the UTC day (the sweep's and the operator's alike); under SIGNUP_OPEN also at most what is left of
  *       SIGNUP_DAILY_CEILING, which counts them too. SIGNUP_OPEN and SIGNUP_DAILY_CEILING are read here, so they carry
- *       the api's values (`waitlistEnvWarning` at boot). The oldest sign-ups with an account are admitted as `waitlist`
+ *       the api's values (`waitlistEnvWarning` at boot). The next sign-ups with an account (`WAITLIST_ORDER`) are admitted as `waitlist`
  *       (`repos.waitlist.admitNext`; an account already in is closed as told and takes no place), and
  *       the funnel's `account.admitted` (WP-02 T9's event, the same idempotency key the profile step uses, so it is
  *       written once per account) is written for each new admission in the same transaction. Unset means 0: nobody.
