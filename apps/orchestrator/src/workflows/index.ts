@@ -46,6 +46,7 @@ export {
   platformMetrics,
   businessDeletionSweep,
   founderNotifications,
+  waitlistAdmissions,
 } from "./schedules";
 export type { BusinessDeletionResult, EngineReconcileResult } from "./schedules";
 export { sourceWatch, sourceWatchSweep, SOURCE_WATCH_FAILED_REASON } from "./sourceWatch";

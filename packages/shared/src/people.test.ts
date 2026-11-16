@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { isAdminRole, isOwnerRole, MEMBERSHIP_ROLES } from "./constants";
 import { hasSectionAccess, SECTIONS } from "./permissions";
-import { emailDate, INVITATIONS_OFF_LINK_LABEL, invitationAcceptedEmail, invitationEmail } from "./people-email";
+import { accountEmailOffLinkLabel, emailDate, INVITATIONS_OFF_LINK_LABEL, invitationAcceptedEmail, invitationEmail, waitlistAdmittedEmail } from "./people-email";
 import { COLLABORATOR_SECTIONS, INVITATION_ROLE_SENTENCE, invitationMembership, invitationNeedsEmail, invitationRolePhrase, isPeopleTokenShape, maskedAddress, mayMakeInvitation, rolesThatMayInvite } from "./people";
 
 describe("what an invitation offers (THESIS_REVIEW 3.1, 3.3)", () => {
@@ -82,5 +82,25 @@ describe("the emails about people", () => {
     expect(e.text).not.toContain("evil.example");
     expect(e.text).not.toContain("x@y.com");
     expect(e.html).not.toContain("<b>");
+  });
+
+  it("the waitlist's email: one purpose, the card when one is kept, no link in its name, and the way to stop email", () => {
+    const off = "https://in.foundmill.com/mail/invitations/off?t=abc";
+    const e = waitlistAdmittedEmail({ appName: "Foundmill", cardName: "Tutorlane", link: "https://foundmill.com/start", offLink: off });
+    expect(e.subject).toBe("Your place on Foundmill is open");
+    expect(e.text).toContain("Your place is open. Sign in with this address to pick up where you left off.");
+    expect(e.text).toContain("Your card for Tutorlane is saved in your account.");
+    expect(e.text).toContain("Your place does not expire.");
+    expect(e.text).toContain("Open Foundmill: https://foundmill.com/start");
+    expect(e.text).toContain(`Don't email this address about joining Foundmill: ${off}`);
+    expect(accountEmailOffLinkLabel("Acme")).toBe("Don't email this address about joining Acme");
+    expect(e.html).toContain(`href="${off}"`);
+    expect(`${e.subject} ${e.text}`).not.toMatch(/\bjobs?\b|employ|career|unemploy/i);
+    const plain = waitlistAdmittedEmail({ appName: "Foundmill", cardName: null, link: "https://foundmill.com/start", offLink: off });
+    expect(plain.text).not.toContain("Your card");
+    const sneaky = waitlistAdmittedEmail({ appName: "Foundmill", cardName: "Go to evil.example\nnow <b>", link: "https://foundmill.com/start", offLink: off });
+    expect(sneaky.text).not.toContain("evil.example");
+    expect(sneaky.html).not.toContain("<b>");
+    expect(sneaky.text).toContain("Your card for Go to (link) now <b> is saved");
   });
 });

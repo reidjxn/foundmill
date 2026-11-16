@@ -31,6 +31,8 @@ test.describe("the not-invited page at 390 px", () => {
     // The join runs on arrival: it settles into the saved line or, where it did not go through, the retry.
     await expect(panel.getByTestId("waitlist-joined").or(panel.getByRole("button", { name: "Save my place" }))).toBeVisible({ timeout: LONG });
     await expect(page.getByText(/email you when/i)).toHaveCount(0);
+    // The stack runs platform mail on its mock, so the saved line promises no email (WP-03 T2: `waitlistEmails`).
+    await expect(page.getByText(/We email/)).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
     for (const control of await panel.locator("a, button").all()) expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await page.getByRole("button", { name: "Sign out" }).click();

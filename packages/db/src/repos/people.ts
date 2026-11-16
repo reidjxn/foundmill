@@ -12,7 +12,7 @@ import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, sql
 import { z } from "zod";
 import { INVITATION_ROLES, type InvitationRole, type InvitationState } from "@foundmill/shared";
 import { businesses, founderProfiles } from "../schema";
-import { accountAdmissions, invitations, type AccountAdmission, type AdmissionKind } from "../schema/people";
+import { ADMISSION_KINDS, accountAdmissions, invitations, type AccountAdmission, type AdmissionKind } from "../schema/people";
 import { Id, maybeOne, parseInput, type Executor } from "./_shared";
 
 const Hex64 = z.string().regex(/^[0-9a-f]{64}$/);
@@ -35,12 +35,15 @@ export const admissionsRepo = {
     return maybeOne(await db.select().from(accountAdmissions).where(eq(accountAdmissions.userId, parseInput(Id, userId, "user id"))).limit(1));
   },
 
-  /** Records an admission once: the row written, or null when the account already had one (the first stays). */
-  async record(db: Executor, input: { userId: string; how: AdmissionKind; invitationId?: string | null }): Promise<AccountAdmission | null> {
-    const v = parseInput(z.object({ userId: Id, how: z.enum(["invitation", "open", "existing"]), invitationId: Id.nullable().default(null) }), input, "admission");
+  /**
+   * Records an admission once: the row written, or null when the account already had one (the first stays). `at` is its
+   * time (the waitlist sweep's clock; default the database's).
+   */
+  async record(db: Executor, input: { userId: string; how: AdmissionKind; invitationId?: string | null; at?: Date }): Promise<AccountAdmission | null> {
+    const v = parseInput(z.object({ userId: Id, how: z.enum(ADMISSION_KINDS), invitationId: Id.nullable().default(null), at: z.date().optional() }), input, "admission");
     const rows = await db
       .insert(accountAdmissions)
-      .values({ userId: v.userId, how: v.how, invitationId: v.how === "invitation" ? v.invitationId : null })
+      .values({ userId: v.userId, how: v.how, invitationId: v.how === "invitation" ? v.invitationId : null, ...(v.at ? { createdAt: v.at, updatedAt: v.at } : {}) })
       .onConflictDoNothing({ target: accountAdmissions.userId })
       .returning();
     return rows[0] ?? null;
@@ -53,10 +56,11 @@ export const admissionsRepo = {
 
   /**
    * New accounts admitted since `since` (the start of the UTC day) that open sign-up's ceiling counts: those admitted
-   * under it (`open`) and those an invitation let in (`invitation`), so invitations cannot add a second ceiling's worth.
+   * under it (`open`), those an invitation let in (`invitation`) and those the waitlist let in (`waitlist`), so neither
+   * invitations nor the waitlist's daily number can add a second ceiling's worth.
    */
   async openSince(db: Executor, since: Date): Promise<number> {
-    const [row] = await db.select({ n: count() }).from(accountAdmissions).where(and(inArray(accountAdmissions.how, ["open", "invitation"]), gte(accountAdmissions.createdAt, since)));
+    const [row] = await db.select({ n: count() }).from(accountAdmissions).where(and(inArray(accountAdmissions.how, ["open", "invitation", "waitlist"]), gte(accountAdmissions.createdAt, since)));
     return Number(row?.n ?? 0);
   },
 

@@ -51,7 +51,8 @@ describe("account_admissions 0091: the service role's only", () => {
     expect(await svc.run((tx) => repos.admissions.has(tx, who))).toBe(true);
     const start = new Date(new Date().toISOString().slice(0, 10) + "T00:00:00Z");
     expect(await svc.run((tx) => repos.admissions.openSince(tx, start))).toBeGreaterThanOrEqual(1);
-    await expect(svc.execute(sql`insert into account_admissions (user_id, how) values (${outsider}, 'waitlist')`)).rejects.toThrow(/how_value/);
+    // 0111 adds `waitlist` to the kinds; anything else is still refused.
+    await expect(svc.execute(sql`insert into account_admissions (user_id, how) values (${outsider}, 'list')`)).rejects.toThrow(/how_value/);
     // The person's own email kinds gain `invitation_accepted` on their record (0083's check, widened here).
     await svc.execute(sql`insert into founder_notifications (user_id, business_id, kind, dedupe_key) values (${A.ownerId}, ${A.businessId}, 'invitation_accepted', 'invitation_accepted:x')`);
     await expect(svc.execute(sql`insert into founder_notifications (user_id, business_id, kind, dedupe_key) values (${A.ownerId}, ${A.businessId}, 'waitlist_joined', 'y')`)).rejects.toThrow(/kind_check/);

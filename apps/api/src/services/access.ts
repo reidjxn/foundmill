@@ -16,7 +16,8 @@
  *     a person is refused with `on_waitlist`.
  *
  * An invitation admits a new account (`admitThroughInvitation`, inside `invitation.accept`'s transaction) only when its
- * inviter was let in by the list, by open sign-up or as a person from before (never by an invitation: an account an
+ * inviter was let in by the list, by open sign-up (or the waitlist while open sign-up is on) or as a person from before
+ * (never by an invitation, nor by the waitlist under invite-only: an account an
  * invitation let in cannot let others in), and at most `INVITATION_ADMISSIONS_PER_INVITER_PER_DAY` a UTC day per
  * inviter, counted under the same advisory lock. Under open sign-up an invitation's admission counts toward the day's
  * ceiling, and only an inviter the list or the time before let in may go past it, within
@@ -31,12 +32,15 @@
  *   - `not_invited`, `details.reason` `not_listed` or `email_unconfirmed`: the web's invite-only page
  *     (components/shell/NotInvitedPage.tsx);
  *   - `on_waitlist`, `details.reason` `ceiling`: the web's "You're on the list" panel (components/shell/ApiErrorPage.tsx).
- * Nothing here stores a person who waits: the waitlist itself (joining it, the email when there is a place) is the
- * retention team's. apps/stream and apps/collab refuse the same accounts' sockets (`liveChannelAdmit`: the list, or an
+ *   `not_listed` and `ceiling` also carry `details.waitlistEmails` (WAITLIST_EMAILS on and platform mail live): only
+ *   then does the web's saved line promise the email.
+ * Nothing here stores a person who waits: joining the waitlist is `waitlist.join` (routers/idea-box.ts), and letting
+ * people in from it and the email when their place opens are the orchestrator's `waitlist-admissions` sweep (WP-03 T2),
+ * which records each admission as `waitlist`, so step 3 lets them in on their next request. apps/stream and apps/collab refuse the same accounts' sockets (`liveChannelAdmit`: the list, or an
  * admission row).
  */
 import { APP_NAME } from "@foundmill/config";
-import { AppError, allowlisted, ON_WAITLIST_CODE, ON_WAITLIST_WORDS, parseSignupAllowlist, signupMode, type SignupAllowlist, type SignupMode } from "@foundmill/shared";
+import { AppError, allowlisted, ON_WAITLIST_CODE, ON_WAITLIST_WORDS, parseSignupAllowlist, signupMode, type SignupAllowlist, type SignupMode, waitlistEmails } from "@foundmill/shared";
 import { repos, type Db, type Executor } from "@foundmill/db";
 
 // The list itself is @foundmill/shared's (allowlist.ts): apps/stream and apps/collab admit people by the same rules.
@@ -140,7 +144,7 @@ export function forgetAdmittedMemo(): void {
 }
 
 export interface AdmissionContext {
-  env: { SIGNUP_ALLOWLIST?: string; SIGNUP_OPEN?: string; SIGNUP_DAILY_CEILING?: number; SIGNUP_EXISTING_BEFORE?: string; DEV_AUTH_USER_ID?: string };
+  env: { SIGNUP_ALLOWLIST?: string; SIGNUP_OPEN?: string; SIGNUP_DAILY_CEILING?: number; SIGNUP_EXISTING_BEFORE?: string; DEV_AUTH_USER_ID?: string } & Parameters<typeof waitlistEmails>[0];
   db: Db;
   /** One answer per HTTP request and person, so a batch asks once (a fresh map per request; absent in tests). */
   admissionMemo?: Map<string, Promise<void>>;
@@ -174,10 +178,13 @@ export async function existingBefore(ctx: Pick<AdmissionContext, "env" | "db">, 
   return known;
 }
 
-/** The refusal for each answer that is not "admit". */
-function refusalFor(decision: Exclude<AdmissionDecision, { outcome: "admit" }>): AppError {
-  if (decision.outcome === "wait") return new AppError(ON_WAITLIST_CODE, ON_WAITLIST_MESSAGE, 403, { reason: decision.reason });
-  return decision.reason === "email_unconfirmed" ? new AppError(NOT_INVITED_CODE, EMAIL_UNCONFIRMED_MESSAGE, 403, { reason: "email_unconfirmed" }) : new AppError(NOT_INVITED_CODE, NOT_INVITED_MESSAGE, 403, { reason: "not_listed" });
+/**
+ * The refusal for each answer that is not "admit". The two that save the person's place carry `waitlistEmails`
+ * (@foundmill/shared `waitlistEmails`): whether the web's saved line may promise the email the waitlist sends.
+ */
+function refusalFor(decision: Exclude<AdmissionDecision, { outcome: "admit" }>, env: AdmissionContext["env"]): AppError {
+  if (decision.outcome === "wait") return new AppError(ON_WAITLIST_CODE, ON_WAITLIST_MESSAGE, 403, { reason: decision.reason, waitlistEmails: waitlistEmails(env) });
+  return decision.reason === "email_unconfirmed" ? new AppError(NOT_INVITED_CODE, EMAIL_UNCONFIRMED_MESSAGE, 403, { reason: "email_unconfirmed" }) : new AppError(NOT_INVITED_CODE, NOT_INVITED_MESSAGE, 403, { reason: "not_listed", waitlistEmails: waitlistEmails(env) });
 }
 
 /**
@@ -208,7 +215,7 @@ async function decideAndApply(ctx: AdmissionContext, user: AdmissionUser): Promi
   if (mode === "unrestricted" || devUser || listed) {
     const d = decideAdmission(base);
     if (d.outcome === "admit") return;
-    throw refusalFor(d);
+    throw refusalFor(d, ctx.env);
   }
   if (admittedRecently(user.userId)) return;
 
@@ -228,7 +235,7 @@ async function decideAndApply(ctx: AdmissionContext, user: AdmissionUser): Promi
     if (d.outcome === "admit" && d.record) await repos.admissions.record(tx, { userId: user.userId, how: d.record });
     return d;
   });
-  if (decision.outcome !== "admit") throw refusalFor(decision);
+  if (decision.outcome !== "admit") throw refusalFor(decision, ctx.env);
   rememberAdmitted(user.userId);
 }
 
@@ -267,9 +274,12 @@ export const INVITATION_ADMISSIONS_LIMIT_MESSAGE = "The person who invited you h
  *   - `trusted`: an account the list names (its address in `auth.users`), the development bypass user, or one admitted
  *     as a person from before (`existing`). Under open sign-up its invitations may go past the day's ceiling, within
  *     `INVITATION_ADMISSIONS_PAST_CEILING_PER_DAY` for everyone together;
- *   - `open`: admitted by open sign-up. It lets people in, but under open sign-up only while the day's ceiling has room,
- *     like any sign-up (every such account is an inviter, so past the ceiling it would grow the day's cap without end);
- *   - `none`: let in by an invitation, or never admitted. It adds people to its projects only when they are already in.
+ *   - `open`: admitted by open sign-up, or by the waitlist (`waitlist`) while open sign-up is on. It lets people in, but
+ *     under open sign-up only while the day's ceiling has room, like any sign-up (every such account is an inviter, so
+ *     past the ceiling it would grow the day's cap without end);
+ *   - `none`: let in by an invitation, by the waitlist under invite-only (else each day's number would let in three
+ *     times as many again by invitation, outside WAITLIST_ADMIT_PER_DAY), or never admitted. It adds people to its
+ *     projects only when they are already in.
  */
 export type InviterStanding = "trusted" | "open" | "none";
 export async function inviterStanding(ctx: Pick<AdmissionContext, "env">, db: Executor, inviterUserId: string): Promise<InviterStanding> {
@@ -278,7 +288,11 @@ export async function inviterStanding(ctx: Pick<AdmissionContext, "env">, db: Ex
   if (list && allowlisted(list, await repos.founders.emailOf(db, inviterUserId))) return "trusted";
   const admission = await repos.admissions.forUser(db, inviterUserId);
   if (admission?.how === "existing") return "trusted";
-  return admission?.how === "open" ? "open" : "none";
+  if (admission?.how === "open") return "open";
+  // The waitlist's daily number is not open sign-up: it lets others in only while open sign-up is on (its ceiling then
+  // bounds them), never under invite-only, where the list and its inviters are the only way in.
+  if (admission?.how === "waitlist") return signupMode(ctx.env) === "open" ? "open" : "none";
+  return "none";
 }
 
 /** Whether `inviterUserId` may let a new account in through an invitation at all (`inviterStanding` is not `none`). */
@@ -330,7 +344,7 @@ export async function admitThroughInvitation(
       return "admitted";
     }
     if (standing === "trusted" && underInviterNumber && admittedToday - ceiling < INVITATION_ADMISSIONS_PAST_CEILING_PER_DAY) return byInvitation();
-    throw refusalFor(decision);
+    throw refusalFor(decision, ctx.env);
   }
   if (underInviterNumber) return byInvitation();
   throw standing !== "none" ? new AppError(INVITATION_ADMISSIONS_LIMIT_CODE, INVITATION_ADMISSIONS_LIMIT_MESSAGE, 429) : new AppError(INVITATION_CANNOT_ADMIT_CODE, INVITATION_CANNOT_ADMIT_MESSAGE, 403);

@@ -56,7 +56,7 @@ describe("schedule registration", () => {
   it("defines a schedule for every periodic job, each naming a workflow the worker bundles", () => {
     const ids = SCHEDULES.map((s) => s.id);
     expect(new Set(ids).size).toBe(ids.length);
-    for (const job of ["journeyDailyRefresh", "journeyMatviewRefresh", "benchmarksRebuild", "credentialExpiryScan", "consentRenewalScan", "agentMetricsRollup", "agentHealthSweep", "legalCalendarRoll", "sourceWatchSweep", "channelEngineReconcile", "crmDeletionSweep", "businessDeletionSweep", "founderNotifications", "platformMetrics"]) {
+    for (const job of ["journeyDailyRefresh", "journeyMatviewRefresh", "benchmarksRebuild", "credentialExpiryScan", "consentRenewalScan", "agentMetricsRollup", "agentHealthSweep", "legalCalendarRoll", "sourceWatchSweep", "channelEngineReconcile", "crmDeletionSweep", "businessDeletionSweep", "founderNotifications", "platformMetrics", "waitlistAdmissions"]) {
       expect(SCHEDULES.map((s) => s.workflowType)).toContain(job);
       expect(typeof (workflows as Record<string, unknown>)[job]).toBe("function");
     }
@@ -74,6 +74,8 @@ describe("schedule registration", () => {
     expect(fake.store.get(scheduleId("fm-main", "mock-results-cleanup"))!.options).toMatchObject({ spec: { cronExpressions: ["30 3 * * *"] }, action: { workflowType: "mockResultsCleanup", args: [{}] } });
     // The nightly numbers run on their schedule only (not on boot): 03:15 UTC, for the UTC day before.
     expect(fake.store.get(scheduleId("fm-main", "platform-metrics"))!.options).toMatchObject({ spec: { cronExpressions: ["15 3 * * *"] }, action: { workflowType: "platformMetrics", args: [{}] } });
+    // The waitlist (WP-03 T2): every 15 minutes, on its schedule only.
+    expect(fake.store.get(scheduleId("fm-main", "waitlist-admissions"))!.options).toMatchObject({ spec: { intervals: [{ every: "15m" }] }, action: { workflowType: "waitlistAdmissions", args: [{}] } });
     const nightly = fake.store.get(scheduleId("fm-main", "journey-daily-refresh"))!;
     expect(nightly.options).toMatchObject({ spec: { cronExpressions: ["10 2 * * *"] }, action: { workflowType: "journeyDailyRefresh", args: [{}] } });
     expect(nightly.note).toContain(`[fm:${scheduleFingerprint(SCHEDULES.find((s) => s.id === "journey-daily-refresh")!, "fm-main")}]`);

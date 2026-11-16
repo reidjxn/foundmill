@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadEnv, PLATFORM_MAIL_SECRET_MIN_LENGTH, platformMailDomain, platformMailLive, platformMailMode, platformMailSigningSecret } from "./env";
+import { loadEnv, PLATFORM_MAIL_SECRET_MIN_LENGTH, platformMailDomain, platformMailLive, platformMailMode, platformMailSigningSecret, waitlistEmails } from "./env";
 import { FOLLOW_CONFIRMATION_MAIL_CLASS, isMailLocalPart, isPostalAddressDecision, mailLocalPartReserved, MAIL_RESERVED_LOCAL_PARTS, normalizePostalAddress, platformMailAddress, platformMailCountLine, platformMailLocalPartOf, PLATFORM_MAIL_REFUSALS, POSTAL_ADDRESS_NOTE, postalAddressLine, postalAddressProblem, projectMailClass } from "./platform-mail";
 
 describe("the Foundmill sending address", () => {
@@ -10,6 +10,17 @@ describe("the Foundmill sending address", () => {
     expect(platformMailMode({ ...base, LIVE_CONNECTORS: "github, sendgrid" })).toBe("live");
     expect(platformMailLive({ ...base, LIVE_CONNECTORS: "sendgrid", PLATFORM_MAIL_DOMAIN: "mail.foundmill.com" })).toBe(true);
     expect(platformMailLive({ INTEGRATIONS_MODE: "live", LIVE_CONNECTORS: "" })).toBe(false);
+  });
+
+  it("lets the waitlist promise its email only with WAITLIST_EMAILS on and platform mail live (WP-03 T2)", () => {
+    const live = { INTEGRATIONS_MODE: "mock" as const, LIVE_CONNECTORS: "sendgrid", PLATFORM_MAIL_DOMAIN: "mail.foundmill.com" };
+    expect(waitlistEmails({ ...live, WAITLIST_EMAILS: "1" })).toBe(true);
+    expect(waitlistEmails({ ...live, WAITLIST_EMAILS: " On " })).toBe(true);
+    expect(waitlistEmails(live)).toBe(false);
+    expect(waitlistEmails({ ...live, WAITLIST_EMAILS: "0" })).toBe(false);
+    expect(waitlistEmails({ ...live, LIVE_CONNECTORS: "", WAITLIST_EMAILS: "1" })).toBe(false);
+    expect(waitlistEmails({ ...live, PLATFORM_MAIL_DOMAIN: undefined, WAITLIST_EMAILS: "1" })).toBe(false);
+    expect(waitlistEmails({ WAITLIST_EMAILS: "1" })).toBe(false);
   });
 
   it("reads its variables with their defaults and refuses a domain that is not one", () => {

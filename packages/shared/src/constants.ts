@@ -647,6 +647,15 @@ export type AddressEmailKind = (typeof ADDRESS_EMAIL_KINDS)[number];
  * Never sent to the person who did the thing.
  */
 export const ACCOUNT_SAFETY_EMAIL_KINDS = ["founder_notice"] as const;
+/**
+ * Email to an account about the account itself, with no project (`POST /v1/notify/email`, the same sender; WP-03 T2):
+ * `waitlist_admitted`, once per waitlist entry, when the person's place opens; `continue_link` (WP-03 T3), the link a
+ * person asks for from a small screen. Each answers something the person did (joined the waitlist, pressed a button), so
+ * no preference holds it and it never uses up the person's own three a day; it counts toward three a day per address
+ * and Foundmill's daily ceiling, and an address suppressed platform-wide is never mailed.
+ */
+export const ACCOUNT_EMAIL_KINDS = ["waitlist_admitted", "continue_link"] as const;
+export type AccountEmailKind = (typeof ACCOUNT_EMAIL_KINDS)[number];
 export type AccountSafetyEmailKind = (typeof ACCOUNT_SAFETY_EMAIL_KINDS)[number];
 /** What a founder notice is about: a founder's role went below a founder's, a founder was removed, deletion asked for or canceled. */
 export const FOUNDER_NOTICES = ["role_changed", "removed", "deletion_requested", "deletion_canceled"] as const;

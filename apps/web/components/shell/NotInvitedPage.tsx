@@ -4,8 +4,9 @@
  * SIGNUP_ALLOWLIST, appCode `not_invited`): says plainly that people are let in a few at a time, names the address that
  * signed in, saves their place on arrival (no press: the sign-in page said signing in does), and offers Sign out. A
  * listed address the sign-in did not show as confirmed (`unconfirmed`) is asked to confirm it first, and nothing is
- * joined. Works from 390 px wherever it is shown (`WorksOnSmallScreens`; WP-03 T1). No line promises an email until the
- * waitlist sends one.
+ * joined. Works from 390 px wherever it is shown (`WorksOnSmallScreens`; WP-03 T1). The saved line promises the email
+ * the waitlist sends when the place opens (WP-03 T2) only when the API says it is really sent here (`emails`, the API's
+ * `waitlistEmails`: WAITLIST_EMAILS on and platform mail live); otherwise it says it cannot email yet.
  */
 import { startTransition, useActionState, useEffect, useRef } from "react";
 import { ListPlus, MailX } from "lucide-react";
@@ -16,7 +17,7 @@ import { joinWaitlist, type WaitlistJoinState } from "./waitlist-actions";
 import { BrandFrame } from "./BrandFrame";
 import { SignOutButton } from "./SignOutButton";
 
-export function NotInvitedPage({ message, email, unconfirmed = false }: { message: string; email?: string | null; unconfirmed?: boolean }) {
+export function NotInvitedPage({ message, email, unconfirmed = false, emails = false }: { message: string; email?: string | null; unconfirmed?: boolean; emails?: boolean }) {
   const title = unconfirmed ? (email ? `Confirm ${email} first` : "Confirm your address first") : email ? `${email} has a place in line` : "This address has a place in line";
   return (
     <BrandFrame smallScreen title="A few people at a time" footer={<span>{APP_NAME} lets new people in a few at a time.</span>}>
@@ -25,7 +26,7 @@ export function NotInvitedPage({ message, email, unconfirmed = false }: { messag
         <EmptyState icon={MailX} title={title}>
           {message}
         </EmptyState>
-        {!unconfirmed ? <WaitlistJoin /> : null}
+        {!unconfirmed ? <WaitlistJoin email={email ?? null} emails={emails} /> : null}
         <div className="mt-3 flex justify-end">
           <SignOutButton variant="default" className="min-h-tap" />
         </div>
@@ -34,20 +35,32 @@ export function NotInvitedPage({ message, email, unconfirmed = false }: { messag
   );
 }
 
-/** The words of the waitlist join. */
+/**
+ * The words of the waitlist join. `joined` and `joinedWithCard` are what is true while the waitlist cannot email; the
+ * `…Email` lines promise the email (WP-03 T2: the orchestrator's `waitlist-admissions` sweep and the gateway's
+ * `waitlist_admitted`) to the address that signed in, and are shown only where the API says it is sent.
+ */
 export const WAITLIST_WORDS = {
   offer: "We are saving your place.",
   join: "Save my place",
   joinedWithCard: "Your place is saved, and your card is kept for 90 days. Come back to check; we cannot email you yet.",
   joined: "Your place is saved. Come back to check; we cannot email you yet.",
+  joinedWithCardEmail: (email: string | null) => `Your place is saved, and your card is kept for 90 days. We email ${email ?? "you"} the day your place opens.`,
+  joinedEmail: (email: string | null) => `Your place is saved. We email ${email ?? "you"} the day it opens.`,
   error: "That did not go through. Try again in a minute.",
 } as const;
 
+/** The saved line for this deployment: the email promise only when `emails`. */
+export function waitlistJoinedLine({ cardKept, email, emails }: { cardKept: boolean; email: string | null; emails: boolean }): string {
+  if (!emails) return cardKept ? WAITLIST_WORDS.joinedWithCard : WAITLIST_WORDS.joined;
+  return cardKept ? WAITLIST_WORDS.joinedWithCardEmail(email) : WAITLIST_WORDS.joinedEmail(email);
+}
+
 /**
  * The person's place on the waitlist (docs/IDEA_BOX.md): a Server Action keeps the idea box's card with the entry. It
- * runs once on arrival; "Save my place" is shown only to try again after it failed.
+ * runs once on arrival; "Save my place" is shown only to try again after it failed. `emails`: see `waitlistJoinedLine`.
  */
-export function WaitlistJoin() {
+export function WaitlistJoin({ email = null, emails = false }: { email?: string | null; emails?: boolean }) {
   const [state, action, pending] = useActionState<WaitlistJoinState, FormData>((prev) => joinWaitlist(prev), { status: "idle" });
   const started = useRef(false);
   useEffect(() => {
@@ -58,7 +71,7 @@ export function WaitlistJoin() {
   if (state.status === "joined") {
     return (
       <StatusPill tone="good" role="status" className="mt-3" data-testid="waitlist-joined">
-        {state.cardKept ? WAITLIST_WORDS.joinedWithCard : WAITLIST_WORDS.joined}
+        {waitlistJoinedLine({ cardKept: state.cardKept, email, emails })}
       </StatusPill>
     );
   }

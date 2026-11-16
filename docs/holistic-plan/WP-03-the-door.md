@@ -80,7 +80,7 @@ Order: T1, T4, T7 and T9 can start at once. T2, then T3 (T3 reuses T2's gateway 
 **Tests and evals:** as above; no agent behavior changes, so no eval.
 **Done when:** Done-when 1, with "Come back to check" on the page.
 
-### T2: A waitlist that admits and emails [M] [ships alone; switched on after WP-00 S1 and S2]
+### [x] T2: A waitlist that admits and emails [M] [ships alone; switched on after WP-00 S1 and S2]
 
 **Why:** FR-01 (fix 2), A9-P0-1 (steps 1 and 2, without the referral columns: T10), s2 §4.3 option B and §4.4.
 
@@ -109,8 +109,7 @@ Order: T1, T4, T7 and T9 can start at once. T2, then T3 (T3 reuses T2's gateway 
 **Admitting by hand (write into `docs/DEPLOY.md` §4 as "Admit people from the waitlist", for the Desktop session, on the founder's list of addresses):**
 ```sql
 select email, created_at, idea_draft_id is not null as has_card from waitlist_entries where admitted_at is null order by created_at;
-insert into account_admissions (user_id, how) select user_id, 'open' from waitlist_entries where email = lower('<address>') and user_id is not null on conflict (user_id) do nothing;
-update waitlist_entries set admitted_at = now() where email = lower('<address>') and admitted_at is null;
+-- Superseded by the security review of T2 (Nov 16): the admission is 'waitlist'; docs/DEPLOY.md §4 has the SQL.
 ```
 The api admits them on their next request and the sweep emails them within 15 minutes. This replaces "edit `SIGNUP_ALLOWLIST` on three services".
 
@@ -469,7 +468,7 @@ Facts:
 
 ## Corrections to the audits
 
-1. **No new admission kind.** FR-01 and A9-P0-1 add `'waitlist'` to `ADMISSION_KINDS` with a migration and a change to `inviterStanding`. `how = 'open'` is right as it is: `openSince` already counts it toward the day's ceiling, and `inviterStanding` already gives it the standing an open sign-up has. `waitlist_entries.admitted_at` records the route.
+1. **No new admission kind.** (Superseded Nov 16 by T2's security review: 0111 adds `waitlist`, which has no standing to let others in under invite-only; see docs/log/2026-11/2026-11-15-claude-wp03-t2-waitlist-admits.md.) FR-01 and A9-P0-1 add `'waitlist'` to `ADMISSION_KINDS` with a migration and a change to `inviterStanding`. `how = 'open'` is right as it is: `openSince` already counts it toward the day's ceiling, and `inviterStanding` already gives it the standing an open sign-up has. `waitlist_entries.admitted_at` records the route.
 2. **No sign-up mode value on the web.** FR-01 proposes a public `access.mode` query or `NEXT_PUBLIC_SIGNUP_MODE`. `app/page.tsx` is `force-static` and "asks the API nothing"; one wording ("a few people at a time") is true in both `invite_only` and `open`, so nothing is added.
 3. **The admission email is not an address email.** A9 puts it on `ADDRESS_EMAIL_KINDS`. `sendAddressEmail` is bound to an invitation row, an inviter's daily count and a project's audit; a waitlist entry has an account (`waitlist.join` is a `confirmedProcedure`) and no project. A small third module is the smaller change.
 4. **No `pnpm … waitlist:admit` script.** FR-01 proposes one. Nobody can run it: a cloud session cannot reach production and the laptop runs no builds. The operator way is three SQL statements through the Supabase connector plus a daily number on the orchestrator.
@@ -501,7 +500,7 @@ Facts:
 
 - **A promise ahead of its sender.** T2's strings promise an email. If platform mail is off or ingest still refuses SendGrid's webhook, the promise is false. Guard: T2 merges with the number at 0 and the Desktop session proves one real email before anyone is admitted with the new words live; if S1 fails, revert the T2 copy table only.
 - **A write on arrival.** T1 joins the waitlist without a press. The person has just signed in under a line that says signing in saves their place, and the write is their own row; say so in the Privacy Policy's list of what is stored if it is not there (check `apps/web/content/legal`).
-- **Waitlist admissions create inviters.** An account admitted as `open` may let in three new accounts a day by invitation (`INVITATION_ADMISSIONS_PER_INVITER_PER_DAY`). That is the decided rule, and it means hand admissions grow the door faster than their own number.
+- **Waitlist admissions create inviters.** (Closed Nov 16 for invite-only: a `waitlist` admission lets nobody in by invitation there.) An account admitted as `open` may let in three new accounts a day by invitation (`INVITATION_ADMISSIONS_PER_INVITER_PER_DAY`). That is the decided rule, and it means hand admissions grow the door faster than their own number.
 - **The 404 change.** A route missing from `isFounderPath` would start answering 404 to a signed-out person instead of sending them to sign in. The redirect test lists every folder under `apps/web/app`; add a test that reads the folder names and fails on one that is neither public nor a founder path.
 - **Copy drift.** Later packages must flip the strings in T5's switch table. Each row names its trigger; WP-02's nightly check can assert the limits answer against `LIVE_CONNECTORS` once DEPLOY.md records it.
 - **PGlite and locks.** `for update skip locked` and the advisory lock are tested for their mechanism only; WP-11's real-Postgres CI should run T2's and T8's tests when it lands.

@@ -4,10 +4,11 @@
  * signed with another secret, a person's notify-off token or a project's unsubscribe token changes nothing; with the
  * domain unset the route does not exist.
  */
-import { invitationsOffToken, notifyOffToken, platformUnsubscribeToken, suppressionHashOfEmail } from "@foundmill/connectors";
+import { APP_NAME } from "@foundmill/config";
+import { invitationsOffToken, invitationsOffUrl, notifyOffToken, platformUnsubscribeToken, suppressionHashOfEmail } from "@foundmill/connectors";
 import { MOCK_SENDGRID_PUBLIC_KEY } from "@foundmill/connectors/connectors/sendgrid/fixtures/sendgrid";
 import { repos } from "@foundmill/db";
-import { INVITATIONS_OFF_PAGE } from "@foundmill/shared";
+import { INVITATIONS_OFF_PAGE, joiningOffPage } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createIngestHarness, type IngestHarness } from "./harness";
 
@@ -47,6 +48,21 @@ describe("/mail/invitations/off", () => {
     expect(await repos.channels.isSuppressed(hz.db, hz.B.businessId, { emailHash: hash })).toBe(true);
     // Again: one row, still fine.
     expect((await at(token, { method: "POST" })).status).toBe(200);
+    expect(await platformRows(hash)).toHaveLength(1);
+  });
+
+  it("opened from the waitlist's email (?for=joining) it speaks of joining, keeps the variant on its button, and stops the same way", async () => {
+    const words = joiningOffPage(APP_NAME);
+    const hash = suppressionHashOfEmail("joining@example.com");
+    const link = invitationsOffUrl(hz.base, invitationsOffToken(SECRET, hash), "joining");
+    const page = await fetch(link);
+    const html = await page.text();
+    expect(html).toContain(words.title);
+    expect(html).toContain(words.body);
+    expect(html).not.toContain(INVITATIONS_OFF_PAGE.title);
+    expect(html).toMatch(/action="\/mail\/invitations\/off\?t=[^"]+&(amp;)?for=joining"/);
+    const done = await fetch(link, { method: "POST" });
+    expect(await done.text()).toContain(words.done);
     expect(await platformRows(hash)).toHaveLength(1);
   });
 

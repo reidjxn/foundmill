@@ -17,7 +17,7 @@
  *   POST /v1/push/send             service JWT (api) → one push notification to registered phones of the mobile app (push.ts)
  *   POST /v1/turnstile/verify              service JWT (api) → the idea box's bot check (turnstile.ts)
  *   POST /v1/platform-mail/confirm-follow  service JWT (api) → the one email asking a page signup to confirm (follow-confirm.ts)
- *   POST /v1/notify/email          service JWT (api, orchestrator) → one email from Foundmill to one of its users about their own project (notify-email.ts; an invitation: notify-address-email.ts; a founder notice: notify-founder-notice.ts)
+ *   POST /v1/notify/email          service JWT (api, orchestrator) → one email from Foundmill to one of its users about their own project (notify-email.ts; an invitation: notify-address-email.ts; a founder notice: notify-founder-notice.ts; the waitlist's place is open: notify-account-email.ts)
  *   POST /v1/call                  session JWT → the pipeline (allow / ask / deny / rate_limited)
  *   POST /v1/github/archive        session JWT → the Code-tab repository's tarball for a code session's checkout (archive.ts)
  *   POST /v1/github/repository     service JWT (api) → a repository's id and visibility, before it is chosen on the Code tab (code-repository.ts)
@@ -44,6 +44,7 @@ import { CONFIRM_FOLLOW_ROUTE, ConfirmFollowRequest, sendFollowConfirmation } fr
 import { TURNSTILE_ROUTE, TurnstileVerifyRequest, verifyTurnstile } from "./turnstile";
 import { NOTIFY_EMAIL_ROUTE, NotifyEmailRequest, sendNotifyEmail } from "./notify-email";
 import { AddressEmailRequest, isAddressEmailKind, sendAddressEmail } from "./notify-address-email";
+import { AccountEmailRequest, isAccountEmailKind, sendAccountEmail } from "./notify-account-email";
 import { FounderNoticeRequest, isAccountSafetyKind, sendFounderNotice } from "./notify-founder-notice";
 import { handleMcpRequest } from "./mcp";
 import { ARCHIVE_ROUTE, ArchiveRequest, routeOnlyCall, serveArchive } from "./archive";
@@ -265,6 +266,13 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
       const parsed = AddressEmailRequest.safeParse(body);
       if (!parsed.success) throw new GatewayError("validation", "Send a kind of email and the ids (and the token) that kind needs", 400);
       return c.json(await sendAddressEmail(deps, parsed.data, c.var.service.svc));
+    }
+    // An email to an account about the account itself (the waitlist's place is open): the orchestrator's only.
+    if (isAccountEmailKind((body as { kind?: unknown } | null)?.kind)) {
+      if (c.var.service.svc !== "orchestrator") throw new GatewayError("forbidden_service", "Only the orchestrator asks for an email about an account", 403);
+      const parsed = AccountEmailRequest.safeParse(body);
+      if (!parsed.success) throw new GatewayError("validation", "Send a kind of email, a user id and the ids that kind needs", 400);
+      return c.json(await sendAccountEmail(deps, parsed.data, c.var.service.svc));
     }
     // An account-safety notice (a founder's role lowered, a founder removed, deletion asked for or canceled): the api's only.
     if (isAccountSafetyKind((body as { kind?: unknown } | null)?.kind)) {

@@ -22,9 +22,11 @@ export interface OnWaitlistPageProps {
   email?: string | null;
   /** Where the link onward goes (an example project by default). */
   onwardHref?: string;
+  /** The waitlist really emails here (the API's `waitlistEmails`): the saved line may promise it. */
+  emails?: boolean;
 }
 
-export function OnWaitlistPage({ email = null, onwardHref = ON_WAITLIST_ONWARD_HREF }: OnWaitlistPageProps) {
+export function OnWaitlistPage({ email = null, onwardHref = ON_WAITLIST_ONWARD_HREF, emails = false }: OnWaitlistPageProps) {
   return (
     <BrandFrame smallScreen footer={<span>{APP_NAME} lets new people in every day.</span>}>
       <WorksOnSmallScreens />
@@ -41,7 +43,7 @@ export function OnWaitlistPage({ email = null, onwardHref = ON_WAITLIST_ONWARD_H
           }
         />
         {/* The person refused by the day's ceiling is stored too, once, on arrival (WP-03 T1). */}
-        <WaitlistJoin />
+        <WaitlistJoin email={email} emails={emails} />
       </div>
     </BrandFrame>
   );

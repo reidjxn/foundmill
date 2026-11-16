@@ -239,6 +239,16 @@ export function notInvitedReason(err: unknown): "not_listed" | "email_unconfirme
 }
 
 /**
+ * Whether the waitlist really emails a person here (the API's `details.waitlistEmails` on `not_invited` and
+ * `on_waitlist`: WAITLIST_EMAILS on and platform mail live). False when absent, so the saved line never promises an
+ * email the API did not vouch for.
+ */
+export function waitlistEmails(err: unknown): boolean {
+  const details = err instanceof TRPCClientError ? (err.data as { details?: { waitlistEmails?: unknown } } | undefined)?.details : undefined;
+  return details?.waitlistEmails === true;
+}
+
+/**
  * Signed in, and the admission did not let the person in today (the API's `on_waitlist`, services/access.ts: open
  * sign-up's daily ceiling). A refusal of its own, never `not_invited`.
  */

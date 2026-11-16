@@ -40,6 +40,13 @@ describe("ApiErrorPage", () => {
     }
     expect(ApiErrorPage({ error: new Error("down") }).type).toBe(UnreachablePage);
   });
+
+  it("passes the API's waitlistEmails to both waitlist pages, false when it is absent (WP-03 T2)", () => {
+    for (const [appCode, reason] of [["on_waitlist", "ceiling"], ["not_invited", "not_listed"]] as const) {
+      expect((ApiErrorPage({ error: refusal(appCode, { reason, waitlistEmails: true }), email: "maya@example.com" }).props as { emails: boolean }).emails).toBe(true);
+      expect((ApiErrorPage({ error: refusal(appCode, { reason }), email: "maya@example.com" }).props as { emails: boolean }).emails).toBe(false);
+    }
+  });
 });
 
 describe("OnWaitlistPage", () => {
@@ -137,5 +144,28 @@ describe("NotInvitedPage (WP-03 T1: the gate tells the truth at any width)", () 
     render(<NotInvitedPage message="x" email="maya@example.com" unconfirmed />);
     expect(screen.getByText("Confirm maya@example.com first")).toBeTruthy();
     expect(joinWaitlist).not.toHaveBeenCalled();
+  });
+});
+
+describe("The saved line promises the email only where the waitlist sends it (WP-03 T2)", () => {
+  it("with emails, the not-listed page names the address the email goes to", async () => {
+    joinWaitlist.mockClear();
+    render(<NotInvitedPage message="x" email="maya@example.com" emails />);
+    expect((await screen.findByTestId("waitlist-joined")).textContent).toBe("Your place is saved. We email maya@example.com the day it opens.");
+    expect(joinWaitlist).toHaveBeenCalledTimes(1);
+  });
+
+  it("with emails and a kept card, says both", async () => {
+    joinWaitlist.mockResolvedValueOnce({ status: "joined", cardKept: true });
+    render(<NotInvitedPage message="x" email="maya@example.com" emails />);
+    expect((await screen.findByTestId("waitlist-joined")).textContent).toBe("Your place is saved, and your card is kept for 90 days. We email maya@example.com the day your place opens.");
+  });
+
+  it("the ceiling page follows the same switch, either way", async () => {
+    const on = render(<OnWaitlistPage email="maya@example.com" emails />);
+    expect((await screen.findByTestId("waitlist-joined")).textContent).toBe("Your place is saved. We email maya@example.com the day it opens.");
+    on.unmount();
+    render(<OnWaitlistPage email="maya@example.com" emails={false} />);
+    expect((await screen.findByTestId("waitlist-joined")).textContent).toBe(WAITLIST_WORDS.joined);
   });
 });

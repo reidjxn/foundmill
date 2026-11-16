@@ -223,6 +223,13 @@ const Env = z.object({
    * while it is not (`signupMode`, @foundmill/shared allowlist.ts).
    */
   SIGNUP_OPEN: z.string().optional(),
+  /**
+   * apps/api: the waitlist emails a person the day their place opens (WP-03 T2's `waitlist-admissions` sweep on the
+   * orchestrator, through the gateway's platform mail). "1"/"true"/"on" lets the waitlist's saved line promise that
+   * email, and only while platform mail is live here too (`waitlistEmails`). Unset (the default): the line says it cannot
+   * email yet. Set by the Desktop session together with WAITLIST_ADMIT_PER_DAY, after WP-00 S1 and S2 (docs/DEPLOY.md §4).
+   */
+  WAITLIST_EMAILS: z.string().optional(),
   /** apps/api: with SIGNUP_OPEN, how many new accounts are admitted per UTC day before the rest are refused with `on_waitlist`. */
   SIGNUP_DAILY_CEILING: z.coerce.number().int().min(0).max(1_000_000).default(200),
   /**
@@ -323,6 +330,12 @@ export function platformMailSigningSecret(env: Pick<Env, "APP_ENV"> & Partial<Pi
 }
 /** True when projects really send from their Foundmill address on this deployment. */
 export const platformMailLive = (env: Pick<Env, "INTEGRATIONS_MODE" | "LIVE_CONNECTORS"> & Partial<Pick<Env, "PLATFORM_MAIL_DOMAIN">>): boolean => platformMailDomain(env) !== null && platformMailMode(env) === "live";
+/**
+ * May the waitlist promise its email here (WAITLIST_EMAILS on, and platform mail live)? The api passes it with the
+ * `not_invited` and `on_waitlist` refusals so the web's saved line says "We email …" only where the email is sent.
+ */
+export const waitlistEmails = (env: Partial<Pick<Env, "WAITLIST_EMAILS" | "INTEGRATIONS_MODE" | "LIVE_CONNECTORS" | "PLATFORM_MAIL_DOMAIN">>): boolean =>
+  /^(1|true|yes|on)$/i.test((env.WAITLIST_EMAILS ?? "").trim()) && platformMailLive({ INTEGRATIONS_MODE: env.INTEGRATIONS_MODE ?? "mock", LIVE_CONNECTORS: env.LIVE_CONNECTORS ?? "", PLATFORM_MAIL_DOMAIN: env.PLATFORM_MAIL_DOMAIN });
 export const isMockModels = (env = loadEnv()) => env.MODEL_MODE === "mock";
 /** ALLOW_MOCK_PAYMENTS, or by default only in development and test: may a top-up be paid by simulation here? */
 export const allowMockPayments = (env: Pick<Env, "APP_ENV" | "ALLOW_MOCK_PAYMENTS">): boolean => env.ALLOW_MOCK_PAYMENTS ?? (env.APP_ENV === "development" || env.APP_ENV === "test");
