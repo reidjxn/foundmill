@@ -16,7 +16,8 @@ The term is a control in a row, not a word in a sentence, so the inline exceptio
 ### The card-kept line was already fixed
 WP-03 changed `CARD_KEPT_WORDS.lede` to "It is saved in your deck. Your team starts from your words."; nothing in apps/web says "real sources" now.
 ### The root layout's JavaScript is measured, not changed
-`/terms` loads 275 KB (gzip), almost all the root layout and React; `/` loads 420 KB. Serving `/` without the app-wide providers means a second root layout (moving every route into a route group) or lazy providers that delay every console page's hydration. Both touch every route while other sessions work in them, and `/` already meets its targets (LCP 1.07 s, interaction 72 ms on a mid-range phone). Left for the founder to decide.
+`/terms` loads 275 KB (gzip), almost all the root layout and React; `/` loads 420 KB. Serving `/` without the app-wide providers means a second root layout (moving every route into a route group) or lazy providers that delay every console page's hydration.
+Both touch every route while other sessions work in them, and `/` already meets its targets (LCP 1.07 s, interaction 72 ms on a mid-range phone). Left for the founder to decide.
 
 ## Not done
 The root layout change above.
