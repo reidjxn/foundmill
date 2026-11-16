@@ -70,7 +70,7 @@ export function DateFormatPicker({ value, onChange, now, disabled, className }: 
           onValueChange={(v) => onChange({ ...value, time: v as TimeFormatPreference })}
           aria-labelledby={timeLegend}
           disabled={disabled}
-          className="grid-cols-3"
+          className="grid-cols-2"
         >
           {TIME_FORMAT_PREFERENCES.map((t) => (
             <RadioCard key={t} value={t} label={TIME_FORMAT_LABELS[t]} description={<Example parts={timeExample(t)} />} data-testid={`time-format-${t}`} />
