@@ -4,9 +4,9 @@
  */
 import { ApplicationFailure } from "@temporalio/common";
 import { LIMITS } from "@foundmill/config";
-import { agentUsable, buildSystemPrompt, getPrompt, getTemplate, modelBillingFacts, modelBillingMessage, pickAssignee as pickAgent, platformDutyReason } from "@foundmill/agents";
+import { agentUsable, buildSystemPrompt, getPrompt, modelBillingFacts, modelBillingMessage, pickAssignee as pickAgent, platformDutyReason } from "@foundmill/agents";
 import { APP_NAME } from "@foundmill/config";
-import { repos } from "@foundmill/db";
+import { repos, resolveAgentPrompt } from "@foundmill/db";
 import { CyclePlanOutput } from "@foundmill/models";
 import { PARKED_DETAIL_MAX, PARKED_TASKS_MAX, PLANNABLE_TASK_STATUSES, parkedTasksSentence, uuid, type ModelBilling, type ParkedTask } from "@foundmill/shared";
 import { ComposerRequestError, ComposerUnavailableError } from "../composer-client";
@@ -333,8 +333,9 @@ export function createCycleActivities(deps: OrchestratorDeps) {
     // The business's monthly model budget is used up (0059, whoever pays the model): dispatch would refuse every start, and a
     // plan costs money too.
     if (brief.modelBudgetRemainingMinor != null && brief.modelBudgetRemainingMinor <= 0) return { summary: "The monthly model budget is used up, so nothing new starts in this round of work. An owner or admin can raise or remove the budget; otherwise the team starts again next month.", timeBoxHours: LIMITS.cycleTimeBoxAgentHours, starts: [], deferred: brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked).map((t) => ({ taskId: t.id, reason: "monthly model budget used up" })), approvalsNeeded: [], modelKey: chiefAgent?.modelKey ?? "opus", warning: null, costMinor: 0 };
-    const chief = getTemplate("chief_of_staff");
-    const system = buildSystemPrompt({ businessName: brief.businessName, appName: APP_NAME, template: chief, brief: brief.text, glossary: brief.glossary });
+    // The Chief of Staff as it is now: its live instructions and skills (WP-06 T1); the template when it has none.
+    const chief = await resolveAgentPrompt(deps.db, input.businessId, { templateKey: "chief_of_staff" });
+    const system = buildSystemPrompt({ businessName: brief.businessName, appName: APP_NAME, template: { instructions: chief.instructions, description: chief.description }, skills: chief.skills, brief: brief.text, glossary: brief.glossary });
     const budgetText = brief.budgetRemainingMinor === null ? "the founder's own key (no credits)" : `${(brief.budgetRemainingMinor / 100).toFixed(2)} ${brief.creditsCurrency} of credits (Estimate)`;
     const productStage = brief.productStage ?? "selling";
     const prompt = getPrompt("chief_of_staff_planner").render({ business_name: brief.businessName, max_agents: brief.maxAgents, budget: budgetText, capacity: brief.capacity, product_stage: productStage });
