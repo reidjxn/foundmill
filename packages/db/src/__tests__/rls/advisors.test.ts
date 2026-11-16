@@ -8,6 +8,15 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTestDb, type TestHarness } from "../../testing/pglite";
 import { SERVICE_ONLY_TABLES } from "./tables";
 
+/**
+ * Tables that keep two permissive policies for one command, on purpose, with the reason. The advisor's lint 0006
+ * counts every other pair as a cost on each read (both expressions are evaluated).
+ */
+export const MULTIPLE_PERMISSIVE_ALLOWED: Record<string, string> = {
+  posts: "posts_moderate is `for all` on purpose: a moderator acts on any post beside the author's own policies",
+  community_members: "community_members_moderate is `for all` on purpose, beside the member's own policies",
+};
+
 let h: TestHarness;
 const rows = async <T>(q: ReturnType<typeof sql>): Promise<T[]> => ((await h.db.execute(q)) as unknown as { rows: T[] }).rows;
 
@@ -85,5 +94,26 @@ describe("performance advisors", () => {
                 = (select array_agg(k order by k) from unnest((ix.indkey::int2[])[0:cardinality(ct.conkey) - 1]) k))
        order by 1`);
     expect(found.map((r) => r.c)).toEqual([]);
+  });
+
+  it("no table outside the allow-list has two permissive policies for one command (lint 0006, multiple_permissive_policies)", async () => {
+    const found = await rows<{ t: string; cmd: string }>(sql`
+      select tablename as t, c.cmd from pg_policies p
+       cross join (values ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE')) as c(cmd)
+       where p.schemaname = 'public' and p.permissive = 'PERMISSIVE' and (p.cmd = c.cmd or p.cmd = 'ALL')
+       group by 1, 2 having count(*) > 1
+       order by 1, 2`);
+    expect([...new Set(found.map((r) => r.t))].sort()).toEqual(Object.keys(MULTIPLE_PERMISSIVE_ALLOWED).sort());
+  });
+
+  it("a table made by fm_tenant_table is born with one policy per command", async () => {
+    await h.db.execute(sql`create table advisors_probe (id uuid primary key default gen_random_uuid(), business_id uuid not null references businesses(id), created_at timestamptz not null default now(), updated_at timestamptz not null default now())`);
+    try {
+      await h.db.execute(sql`select fm_tenant_table('advisors_probe')`);
+      const names = await rows<{ policyname: string }>(sql`select policyname from pg_policies where tablename = 'advisors_probe' order by 1`);
+      expect(names.map((r) => r.policyname)).toEqual(["advisors_probe_delete", "advisors_probe_insert", "advisors_probe_select", "advisors_probe_update"]);
+    } finally {
+      await h.db.execute(sql`drop table advisors_probe`);
+    }
   });
 });

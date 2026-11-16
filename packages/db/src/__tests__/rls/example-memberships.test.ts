@@ -57,7 +57,7 @@ describe("memberships: an example viewer of A", () => {
   });
 
   it("writes nothing: an Inbox decision, a settings update and a note read mark are each refused", async () => {
-    // An Inbox decision (inbox_items_write holds to owner, admin and member).
+    // An Inbox decision (inbox_items' write policies hold to owner, admin and member).
     await refused(h.asUser(explorer).run((tx) => tx.update(s.inboxItems).set({ state: "answered", decision: { chosen: "a" } }).where(eq(s.inboxItems.id, A.inboxItemId)).returning()));
     await refused(h.asUser(explorer).run((tx) => tx.update(s.inboxItems).set({ state: "answered" }).where(eq(s.inboxItems.id, B.inboxItemId)).returning()));
     expect((await h.db.select({ state: s.inboxItems.state }).from(s.inboxItems).where(eq(s.inboxItems.id, A.inboxItemId)))[0]?.state).toBe("unread");

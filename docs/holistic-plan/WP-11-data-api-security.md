@@ -62,7 +62,7 @@ Rules for every task here (docs/holistic-plan/README.md applies in full):
 | [ ] | T3 Backup and restore runbook | S | F2 (founder) |
 | [x] | T4 Advisor test, pinned service-only tables, `search_path` migration | S | T1 |
 | [x] | T5 Migration: `auth.uid()` once per statement | S | T1 |
-| [ ] | T6 Migration: split the `for all` write policies | M | T1, T2 |
+| [x] | T6 Migration: split the `for all` write policies | M | T1, T2 |
 | [x] | T7 Migration: six foreign-key indexes | S | T1 |
 | [ ] | T8 `bak_20261013` and the production schema check | S | F3, WP-00 S16 (founder) |
 | [ ] | T9 Demo data out of every cross-project number | S | F3 |
@@ -198,7 +198,7 @@ Steps:
 Tests: `advisors.test.ts` (no bare `auth.uid()` in any policy; the plan shows `InitPlan`); every suite under `rls/` unchanged.
 Done when: the advisor's 45 are gone and every RLS suite passes unchanged.
 
-### T6: Migration: split the `for all` write policies            [size M] [ships alone] Review: security-reviewer
+### [x] T6: Migration: split the `for all` write policies            [size M] [ships alone] Review: security-reviewer
 Why: A8-04. `fm_tenant_table` (`0001_tenancy.sql:78-96`) and `fm_idea_table` create `<t>_select` and `<t>_write for all`, so every select evaluates both. The repo already split by hand where it mattered (`skill_tests` in 0004, `events` and `outbox` in 0099), and 0095's header records that a `for all` policy also answers select.
 Files: create `packages/db/migrations/0110_split_write_policies.sql`; modify `meta/_journal.json`, `advisors.test.ts`, `packages/db/src/__tests__/rls/people-roles.test.ts` (the Money and Legal block near line 226 expects `_select:SELECT` and `_write:ALL` with one exact expression: now `_select`, `_insert`, `_update`, `_delete`, the same expression on the three write policies), `packages/db/src/__tests__/rls/founder-departures.test.ts` (line 283 reads `suppression_list_write` by name: read `suppression_list_update`), docs/BUILD.md §7.1 and docs/ARCHITECTURE.md §4 where they say "`T_write` (for all)", docs/DECISIONS.md (supersedes that one line of 2026-10-05 "packages/db: schema, RLS and test harness choices").
 Interfaces: consumes `fm_tenant_table(tbl text, write_roles text[], mode text)` and `fm_idea_table(tbl text)` (signatures unchanged, so later migrations call them as before); produces policy names `<t>_insert`, `<t>_update`, `<t>_delete` in place of `<t>_write`.

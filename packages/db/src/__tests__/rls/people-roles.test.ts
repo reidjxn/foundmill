@@ -223,12 +223,14 @@ describe("memberships 0092: the roles and the end date", () => {
     expect((await h.asUser(A.viewerId).run((tx) => tx.select({ id: s.ledgerSnapshots.id }).from(s.ledgerSnapshots).where(eq(s.ledgerSnapshots.businessId, A.businessId)))).length).toBeGreaterThan(0);
     // Every policy on the seven tables is one of the two 0095 wrote, and none admits a collaborator, for reads or writes.
     const policies = await policiesOn(COLLABORATOR_CLOSED_MONEY_LEGAL);
-    expect(policies.map((p) => `${p.tablename}.${p.policyname}:${p.cmd}`).sort()).toEqual(COLLABORATOR_CLOSED_MONEY_LEGAL.flatMap((t) => [`${t}.${t}_select:SELECT`, `${t}.${t}_write:ALL`]).sort());
+    expect(policies.map((p) => `${p.tablename}.${p.policyname}:${p.cmd}`).sort()).toEqual(COLLABORATOR_CLOSED_MONEY_LEGAL.flatMap((t) => [`${t}.${t}_select:SELECT`, `${t}.${t}_insert:INSERT`, `${t}.${t}_update:UPDATE`, `${t}.${t}_delete:DELETE`]).sort());
     for (const p of policies) {
       expect(admitsCollaborator(p.qual), `${p.tablename}.${p.policyname} using: ${p.qual}`).toBe(false);
       expect(admitsCollaborator(p.with_check), `${p.tablename}.${p.policyname} with check: ${p.with_check}`).toBe(false);
       // The writers are the same as before: an owner (and so a cofounder), an admin, a member.
-      if (p.cmd === "ALL") expect(p.qual, p.tablename).toBe("(has_role(business_id, ARRAY['owner'::text, 'admin'::text, 'member'::text]) AND is_member_not_collaborator(business_id))");
+      const writers = "(has_role(business_id, ARRAY['owner'::text, 'admin'::text, 'member'::text]) AND is_member_not_collaborator(business_id))";
+      if (p.cmd === "UPDATE" || p.cmd === "DELETE") expect(p.qual, p.tablename).toBe(writers);
+      if (p.cmd === "INSERT" || p.cmd === "UPDATE") expect(p.with_check, p.tablename).toBe(writers);
     }
   });
 
