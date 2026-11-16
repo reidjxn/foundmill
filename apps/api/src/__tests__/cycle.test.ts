@@ -1,4 +1,5 @@
 import { repos } from "@foundmill/db";
+import { FIRST_CYCLE_SESSION_CAP_MINOR } from "@foundmill/config";
 import { createWireDb, type WireDb } from "@foundmill/db/testing/wire";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createCaller } from "../router";
@@ -133,7 +134,7 @@ describe("business.continue / pauseCycle with Temporal reachable", () => {
     expect((await owner.business.get({ businessId })).orchestrator).toEqual({ reachable: true });
     // Continue runs until done (Nov 7, 2026): the workflow starts cycle 1 and the rounds after it; the API starts no cycle itself.
     expect(temporal.starts.filter((x) => x.type === "businessCycle")).toEqual([]);
-    expect(temporal.signalStarts).toEqual([{ type: "autopilot", workflowId: `autopilot:${businessId}`, args: [{ businessId }], signal: "continueRun", signalArgs: [{ runId: result.run!.id, cycleNumber: 1, by: hz.A.ownerId }] }]);
+    expect(temporal.signalStarts).toEqual([{ type: "autopilot", workflowId: `autopilot:${businessId}`, args: [{ businessId }], signal: "continueRun", signalArgs: [{ runId: result.run!.id, cycleNumber: 1, by: hz.A.ownerId, cycleInput: { budgetCapMinor: FIRST_CYCLE_SESSION_CAP_MINOR, maxConcurrent: 1 } }] }]);
     const runStarted = (await repos.events.list(hz.db, businessId, { type: "cycle.run_started" })).items;
     expect(runStarted.map((e) => e.payload)).toEqual([{ runId: result.run!.id, firstCycleNumber: 1 }]);
     expect((await repos.audit.list(hz.db, businessId, { action: "business.continue" })).items[0]!.details).toMatchObject({ cycleNumber: 1, runId: result.run!.id, workflowId: `cycle:${businessId}:1` });
@@ -194,6 +195,15 @@ describe("business.continue / pauseCycle with Temporal reachable", () => {
     await repos.events.write(hz.db, businessId, { type: "cycle.run_ended", actor: { kind: "system", id: "orchestrator" }, idempotencyKey: `cycle.run_ended:${resumed.run!.id}`, payload: { runId: resumed.run!.id, reason: "done", rounds: 1, cost: { amountMinor: 120, currency: "EUR" } } });
     expect((await owner.cycle.status({ businessId })).run).toBeNull();
     expect((await owner.cycle.continueState({ businessId })).kind).toBe("idle");
+  });
+
+  it("round 1 of a project on its own key starts as before, with no first-round cap (WP-09 T11)", async () => {
+    const { businessId } = hz.B;
+    await repos.businesses.update(hz.db, businessId, { modelBilling: "byok" });
+    const result = await hz.caller({ userId: hz.B.ownerId }).business.continue({ businessId });
+    expect(result.action).toBe("started");
+    const press = temporal.signalStarts.find((x) => x.workflowId === `autopilot:${businessId}`)!;
+    expect(press.signalArgs).toEqual([{ runId: result.run!.id, cycleNumber: 1, by: hz.B.ownerId }]);
   });
 
   it("a pause pressed while the orchestrator is still planning is still the open cycle's once cycle.started lands (Nov 9, 2026)", async () => {
@@ -319,6 +329,8 @@ describe("Continue runs until done (Nov 7, 2026): between rounds, Pause, Stop al
     expect(again.action).toBe("started");
     expect(again.run!.id).not.toBe(press.run!.id);
     expect(temporal.signalStarts.at(-1)).toMatchObject({ signal: "continueRun", signalArgs: [{ runId: again.run!.id, cycleNumber: 2 }] });
+    // Every later round starts as before: only round 1 carries the first-round cap (WP-09 T11).
+    expect(temporal.signalStarts.at(-1)!.signalArgs[0]).not.toHaveProperty("cycleInput");
     await roundEnds(businessId, 2);
   });
 

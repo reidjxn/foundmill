@@ -25,7 +25,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { DEPARTMENT_DEFAULTS, departmentTabs, firstCycleTasksFor, getArchetypeSeed, getTemplate, prompts } from "@foundmill/agents";
-import { CREDITS_CURRENCY, initialModelBilling } from "@foundmill/config";
+import { CREDITS_CURRENCY, firstCycleInput, initialModelBilling } from "@foundmill/config";
 
 /** Wage caps are model credits, counted in the credits' own currency whatever the business counts in. */
 const WAGE_CURRENCY = CREDITS_CURRENCY;
@@ -448,7 +448,9 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
 
   // With a budget, cycle 1 starts now. Without one (WP-04 T3) nothing is dispatched yet: the first round starts on the
   // plan's approval, Continue or the first overnight shift, and is still cycle 1 (cycles are numbered from history).
-  const cycle = hasBudget ? await temporal.start(WORKFLOWS.businessCycle, { workflowId: workflowIds.cycle(result.business.id, 1), args: [{ businessId: result.business.id, cycleNumber: 1, trigger: "continue" }] }) : null;
+  // A free project on credits runs it one session at a time under the first-round cap (WP-09 T11).
+  const firstRound = firstCycleInput({ modelBilling: result.business.modelBilling, tier: result.business.planTier });
+  const cycle = hasBudget ? await temporal.start(WORKFLOWS.businessCycle, { workflowId: workflowIds.cycle(result.business.id, 1), args: [{ businessId: result.business.id, cycleNumber: 1, trigger: "continue", ...firstRound }] }) : null;
   // The first cycle exists from here on, even while the orchestrator has not picked it up: Continue shows it and Pause reaches it.
   if (cycle && cycle.queued && !cycle.alreadyStarted) await repos.audit.append(db, result.business.id, { actorKind: "user", actorId: userId, action: QUEUE_ACTION, target: { kind: "cycle", id: cycle.workflowId }, details: { cycleNumber: 1, workflowId: cycle.workflowId, trigger: "continue" } });
   // Door B: the sign-up job read nothing; this is the import that reads the sources (or marks them not read).

@@ -1,5 +1,5 @@
 import { getArchetypeSeed } from "@foundmill/agents";
-import { includedCreditsMinor } from "@foundmill/config";
+import { FIRST_CYCLE_SESSION_CAP_MINOR, includedCreditsMinor } from "@foundmill/config";
 import { CREDITS_EXHAUSTED_SUBJECT, repos } from "@foundmill/db";
 import { agentPrincipal, evaluate } from "@foundmill/policy";
 import { CHANNEL_KEYS } from "@foundmill/shared";
@@ -107,6 +107,8 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     // First businessCycle started on (fake) Temporal with the deterministic id.
     expect(result.cycle?.queued).toBe(true);
     expect(temporal.starts.find((s) => s.type === "businessCycle")?.workflowId).toBe(`cycle:${bid}:1`);
+    // A free project on credits runs round 1 one session at a time under the first-round cap (WP-09 T11).
+    expect(temporal.starts.find((s) => s.type === "businessCycle")?.args).toEqual([{ businessId: bid, cycleNumber: 1, trigger: "continue", budgetCapMinor: FIRST_CYCLE_SESSION_CAP_MINOR, maxConcurrent: 1 }]);
 
     // The starter channels are on the board, but no engine starts and none is recorded until the founder starts
     // distribution (founder, 2026-10-18; audit GTM-01 still holds: the Board reads "Waiting for the product").
