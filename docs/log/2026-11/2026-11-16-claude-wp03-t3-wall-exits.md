@@ -55,3 +55,11 @@ supersedes: []
   test covers it. `phone-today.spec.ts` and `person-home.spec.ts` cover the note and `/home`.
 - The email arriving needs WP-00 S1 and S2. Redirecting a signed-in phone to the store at launch stays one branch in
   `DesktopOnly` (its comment names `publicEnv().storeLinks`).
+
+## Security review
+The `security-reviewer` agent found no blocker: the path pattern refuses `//`, absolute URLs, schemes, backslashes,
+encodings, dots and queries; the email goes only to the caller's own address; only the api's service token may ask;
+caps give counts back on refusal; a simulated send is never reported as sent; the address is never logged. Fixed here:
+a continue link no longer counts toward the per-address day count that invitations and the waitlist email share, so
+three link presses cannot block an invitation to that person (it keeps its per-person cap and the daily ceiling).
+Left as is: a suppressed address cannot get a link (Copy link still works), and the shown address is the session's.

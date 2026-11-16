@@ -168,6 +168,9 @@ describe("the waitlist's email (gateway)", () => {
       for (let i = 0; i < NOTIFY_PER_PERSON_PER_DAY; i++) expect((await ask(link(p.userId, "/onboarding"), "api")).body.sent).toBe(true);
       expect((await ask(link(p.userId, "/onboarding"), "api")).body.reason).toBe("per_person");
       expect(sentTo(p.email)).toHaveLength(NOTIFY_PER_PERSON_PER_DAY);
+      // Links stay out of the per-address count invitations and the waitlist email share.
+      const used = await g.rateLimits.count(notifyAddressDayKey(DEV_PLATFORM_MAIL_SECRET, p.email), 86_400_000, Date.now());
+      expect(used).toBe(0);
       const q = await person();
       await repos.channels.suppressEverywhere(g.db, { emailHash: suppressionHashOfEmail(q.email), reason: "asked for no email", source: "invitation_link" });
       expect((await ask(link(q.userId), "api")).body.reason).toBe("suppressed");

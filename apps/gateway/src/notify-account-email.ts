@@ -132,7 +132,9 @@ export async function sendAccountEmail(deps: GatewayDeps, input: AccountEmailReq
   const ceiling = config.notifyCeiling ?? PLATFORM_NOTIFY_DEFAULT_CEILING;
   const caps: [string, number, NotifyEmailNotSent][] = [
     ...(input.kind === "continue_link" ? [[notifyAccountLinkDayKey(input.userId), NOTIFY_PER_PERSON_PER_DAY, "per_person"] as [string, number, NotifyEmailNotSent]] : []),
-    [notifyAddressDayKey(secret, email), NOTIFY_PER_PERSON_PER_DAY, "per_address"],
+    // A continue link goes only to the account's own address and has its own per-person cap above, so it stays out of
+    // the per-address count invitations and the waitlist email share: pressing it must not use up an invitation's room.
+    ...(input.kind === "continue_link" ? [] : [[notifyAddressDayKey(secret, email), NOTIFY_PER_PERSON_PER_DAY, "per_address"] as [string, number, NotifyEmailNotSent]]),
     [PLATFORM_NOTIFY_CEILING_KEY, ceiling, "ceiling"],
   ];
   for (const [key, cap, reason] of caps) {
