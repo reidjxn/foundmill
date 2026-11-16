@@ -5,7 +5,7 @@
  * and the autonomy/negotiation forms. Everything here is deterministic and unit-tested; the screens only render.
  */
 import type { AgentStatus, DeptColourToken, ModelKey, SkillGroup } from "@foundmill/shared";
-import type { AgentInstructions, DateFormatPrefs, InstructionVersion, InstructionViolation, ModelOption, PositionRole, SkillRow, Trait, TrainingSkillResult, TrainingSessionMark, SkillHistorySeries, InstructionSection } from "@foundmill/dugout";
+import type { AgentInstructions, DateFormatPrefs, RatingSource, InstructionVersion, InstructionViolation, ModelOption, PositionRole, SkillRow, Trait, TrainingSkillResult, TrainingSessionMark, SkillHistorySeries, InstructionSection } from "@foundmill/dugout";
 import { MODEL_LABELS, positionLevelFor } from "@foundmill/dugout";
 import { usSpelling } from "@foundmill/shared/us-spelling";
 import { isBackgroundAgent } from "@foundmill/shared/team-tiers";
@@ -113,8 +113,20 @@ export function toSkillRows(skills: readonly AgentSkillRecord[], runs: readonly 
       proven: proven === null ? undefined : Math.round(proven),
       tasks: s.nLive,
       potential: s.potential,
+      ...(tested === null && proven === null ? {} : { source: skillSource(s.nLive, r ? promoted : null) }),
     };
   });
+}
+
+/**
+ * What a skill's rating is from (WP-10 T9): real work once it has live tasks; practice tests once a promoted run scored
+ * it (that run's date); otherwise the estimate written at hire. A skill with neither a tested nor a proven rating keeps
+ * its own "Untested" chip instead.
+ */
+export function skillSource(nLive: number, scoredBy: TrainingRunRecord | null): RatingSource {
+  if (nLive > 0) return { kind: "work", tasks: nLive };
+  if (scoredBy) return { kind: "tested", on: new Date(scoredBy.endedAt ?? scoredBy.createdAt).toISOString() };
+  return { kind: "starting" };
 }
 
 export function meanRating(rows: readonly { value: number }[]): number | null {

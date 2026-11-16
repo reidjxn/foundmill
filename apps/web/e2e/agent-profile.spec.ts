@@ -394,4 +394,14 @@ test.describe("agent profile", () => {
     await expect(desk).toBeHidden();
     await expect(page.getByTestId("agent-profile")).toBeVisible();
   });
+
+  test("the skills say what their ratings are from, show the figure out of 20 and carry the rating key (WP-10 T9)", async ({ page }) => {
+    await openSquadAgent(page);
+    const grid = page.locator("[data-skill-grid-legend]");
+    await expect(grid).toBeVisible({ timeout: LONG });
+    await expect(grid.locator("[data-skill-source]")).toHaveText(/^(Starting estimate\. Not tested yet\.|From practice tests on [A-Z][a-z]{2} \d{1,2}\.|From \d+ tasks? of real work\.)$/);
+    await expect(grid.locator("[data-rating-key]")).toHaveCount(1);
+    // Founder decision 5: the figure shows with Builder view off too ("14 of 20 · Good" for a screen reader).
+    await expect(grid.locator("[data-skill-band]").first()).toHaveAttribute("aria-label", /: \d{1,2} of 20 · (Poor|Average|Good|Excellent)$/);
+  });
 });
