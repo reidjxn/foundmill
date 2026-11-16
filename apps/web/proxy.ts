@@ -60,6 +60,6 @@ export const config = {
     // Everything except static assets, metadata files and the API reads served from this origin (lib/same-origin-api.ts:
     // the API checks their bearer itself, so no session work runs on them); /auth/* and /login are handled inside
     // decideRedirect. A literal: Next reads the matcher at build time.
-    "/((?!api/trpc/|api/post-media/|_next/static|_next/image|brand/|favicon.ico|icon.svg|apple-icon.png|opengraph-image.png|robots.txt|sitemap.xml).*)",
+    "/((?!api/trpc/|api/post-media/|_next/static|_next/image|brand/|favicon.ico|icon.svg|apple-icon.png|opengraph-image.png|robots.txt|sitemap.xml|llms.txt).*)",
   ],
 };

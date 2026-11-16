@@ -12,7 +12,7 @@ describeConnectorContract("anthropic (mock)", {
   connector: anthropicMock,
   mode: "mock",
   calls: [
-    { tool: "list_models", args: {}, check: (r) => expect((r.data as { models: { id: string; routed: boolean }[] }).models.filter((m) => m.routed).map((m) => m.id).sort()).toEqual(Object.values(MODELS).sort()) },
+    { tool: "list_models", args: {}, check: (r) => expect((r.data as { models: { id: string; routed: boolean }[] }).models.filter((m) => m.routed).map((m) => m.id).sort()).toEqual([MODELS.opus, MODELS.sonnet, MODELS.haiku].sort()) },
     { tool: "get_model", args: { modelId: MODELS.opus }, check: (r) => expect(r.data).toMatchObject({ id: MODELS.opus, routed: true }) },
     { tool: "get_model", args: { modelId: "claude-nonexistent" }, expectOk: false, check: (r) => expect(r.error?.code).toBe("not_found") },
     { tool: "validate_key", args: {}, check: (r) => expect(r.data).toMatchObject({ valid: true, reason: null }) },

@@ -51,6 +51,11 @@ const researcherScript: SessionCase["script"] = [
   { connector: "platform", tool: "complete_task", args: (ctx) => ({ taskId: ctx.taskId, summary: "Compared three compostable cup suppliers; the report is saved." }) },
 ];
 
+/** `researcher.unmet_line_is_not_done`: the second line needs a send, and a researcher has no mail tool. */
+export const SAMPLE_LINES = ["Two suppliers compared on price, minimum order and shipping time", "A sample request sent to the cheapest supplier"] as const;
+
+const SAMPLE_REPORT = "## Suppliers compared\n\n| Supplier | 12 oz price | Minimum order | Ships in |\n| --- | --- | --- | --- |\n| GreenCup Supply | $0.11 | 1,000 | 5 business days |\n| Leafware | $0.16 | 500 | 10 business days |\n\n## Sample request\n\nA draft asking GreenCup Supply for ten sample cups.";
+
 const notDone = (o: SessionObservation): string[] => (o.task.status === "done" ? [`the task is done (${o.result.summary})`] : []);
 
 /** The codebase of `backend_engineer.fixes_failing_test`: a sales tax setting of 80% where the test expects 8%. */
@@ -125,6 +130,23 @@ export const SESSION_CASES: readonly SessionCase[] = Object.freeze([
       const text = `${o.report.title}\n${o.report.bodyMd}\n${JSON.stringify(o.report.sources)}`;
       if (text.includes(MOCK_MARK)) problems.push(`the report contains "${MOCK_MARK}"`);
       if (o.toolCalls.some((c) => c.resultSummary.includes(MOCK_MARK))) problems.push(`a tool result contains "${MOCK_MARK}"`);
+      return problems;
+    },
+  },
+  {
+    id: "researcher.unmet_line_is_not_done",
+    title: "An agent that calls a task done with an acceptance line unmet does not end it done, and the line is named",
+    agentType: "researcher",
+    task: { kind: "research", title: "Compare cup suppliers and ask for samples", goalMd: RESEARCH_GOAL, acceptance: [...SAMPLE_LINES] },
+    // The mock agent claims every line, the second on a send it never made: the runner must not take its word.
+    script: [
+      ...researcherScript.filter((s) => s.tool !== "complete_task").map((s) => (s.tool === "save_report" ? { ...s, args: (ctx: Parameters<typeof s.args>[0], seen: readonly unknown[]) => ({ ...s.args(ctx, seen), bodyMd: SAMPLE_REPORT }) } : s)),
+      { connector: "platform", tool: "complete_task", args: (ctx) => ({ taskId: ctx.taskId, summary: "Compared suppliers and asked the cheapest for samples.", acceptance: [{ line: 1, met: true, reportSection: "Suppliers compared" }, { line: 2, met: true, tool: "send_mail" }] }) },
+    ],
+    check(o) {
+      const problems = notDone(o);
+      if (!o.result.summary?.includes(`“${SAMPLE_LINES[1]}”`)) problems.push(`the summary does not name the unmet line (${o.result.summary})`);
+      else if (o.result.summary.split(SAMPLE_LINES[1]).length - 1 !== 1) problems.push("the unmet line is named more than once");
       return problems;
     },
   },

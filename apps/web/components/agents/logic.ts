@@ -425,8 +425,9 @@ export const MODEL_DESCRIPTIONS: Record<ModelKey, string> = {
   opus: "Deepest judgment; the default for the agent that plans the work and for department leads.",
   sonnet: "Fast and capable; the default for workers.",
   haiku: "Cheapest; classification, linking and other utility work.",
+  glm: "The free plan's model: every agent runs on it until the plan is upgraded or your own Anthropic key is connected.",
 };
-const MODEL_RANK: Record<ModelKey, number> = { opus: 3, sonnet: 2, haiku: 1 };
+const MODEL_RANK: Record<ModelKey, number> = { opus: 3, sonnet: 2, haiku: 1, glm: 1 };
 
 export function isChiefOfStaff(agent: Pick<AgentRow, "agentType" | "layer">): boolean {
   return agent.agentType === "chief_of_staff" || agent.layer === "assistant";

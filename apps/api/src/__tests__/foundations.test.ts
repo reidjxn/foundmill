@@ -110,22 +110,22 @@ describe("product.foundations — Door A (Ideation Studio)", () => {
     expect(booked.every((u) => u.currency === PRICING_CURRENCY && (u.details as { label?: string }).label === "Estimate")).toBe(true);
   });
 
-  it("posts the two sign-off notes from the Product lead (decisions that block Continue) and writes inbox.item_created for each", async () => {
+  it("posts the one plan note from the Product lead (a decision that holds nothing) and writes inbox.item_created for it", async () => {
     const inbox = await a.caller.inbox.list({ businessId: a.businessId, limit: 50 });
-    const spec = inbox.items.filter((i) => i.subject === "Sign off the product specification");
-    const roadmap = inbox.items.filter((i) => i.subject === "Sign off the product roadmap");
-    expect(spec).toHaveLength(1);
-    expect(roadmap).toHaveLength(1);
-    for (const note of [spec[0]!, roadmap[0]!]) {
-      expect(note).toMatchObject({ type: "decision", blocksContinue: false });
-      const words = note.bodyMd.split(/\s+/).filter(Boolean).length;
-      expect(words).toBeGreaterThanOrEqual(60);
-      expect(words).toBeLessThanOrEqual(180);
-      const events = await repos.events.list(hz.db, a.businessId, { type: "inbox.item_created" });
-      expect(events.items.some((e) => (e.payload as { inboxItemId?: string }).inboxItemId === note.id)).toBe(true);
-      // Each note is tied to its round; nothing else is asked for.
-      expect(await repos.productSignoffs.forInboxItem(hz.db, a.businessId, note.id)).toMatchObject({ status: "pending", round: 1 });
-    }
+    const plan = inbox.items.filter((i) => i.subject === "Your plan is ready");
+    expect(plan).toHaveLength(1);
+    expect(inbox.items.filter((i) => /^Sign off the /.test(i.subject))).toHaveLength(0);
+    const note = plan[0]!;
+    expect(note).toMatchObject({ type: "decision", blocksContinue: false });
+    // Five lines at most, the last one the link to the full plan (WP-04 T5).
+    const lines = note.bodyMd.split(/\n+/).filter((l) => l.trim());
+    expect(lines.length).toBeLessThanOrEqual(5);
+    expect(lines.at(-1)).toBe(`[Read the full plan](/b/${a.businessId}/d/product/roadmap)`);
+    const events = await repos.events.list(hz.db, a.businessId, { type: "inbox.item_created" });
+    expect(events.items.some((e) => (e.payload as { inboxItemId?: string }).inboxItemId === note.id)).toBe(true);
+    // Both rounds are tied to it; nothing else is asked for.
+    const rounds = await repos.productSignoffs.listForInboxItem(hz.db, a.businessId, note.id);
+    expect(rounds.map((r) => [r.kind, r.status, r.round]).sort()).toEqual([["roadmap", "pending", 1], ["spec", "pending", 1]]);
     // The sign-offs wait in Needs you without holding Continue (0071, Nov 7, 2026); the welcome note blocks nothing either.
     expect(inbox.continueState).toEqual({ kind: "idle" });
     expect(inbox.items.some((i) => i.id === a.result.firstItem.id && !i.blocksContinue)).toBe(true);
@@ -577,7 +577,7 @@ describe("product.foundations — the team drafts the project page first (packag
     const today = await a.caller.today.get({ businessId: a.businessId });
     expect(today.pageReady).toBe(false);
     expect(today.needsYou!.items.find((i) => i.id === notes[0]!.id)).toMatchObject({ kind: "decision", quickOption: { id: PAGE_READY_NOTE.options.check, label: "Check it and publish" } });
-    expect(today.firstWeek!.steps[0]!.asks).toBe("You are asked to publish your page and sign off the specification and the roadmap.");
+    expect(today.firstWeek!.steps[0]!.asks).toBe("You are asked to publish your page and approve your plan.");
 
     // Check it and publish answers the note (the web opens the tab); nothing is published. Today's line takes over.
     const decided = await a.caller.inbox.decide({ businessId: a.businessId, itemId: notes[0]!.id, chosenOption: PAGE_READY_NOTE.options.check });
@@ -624,7 +624,7 @@ describe("product.foundations — the team drafts the project page first (packag
     expect((await repos.inbox.get(hz.db, c.businessId, open!.id)).state).toBe("answered");
     const today = await c.caller.today.get({ businessId: c.businessId });
     expect(today.pageReady).toBe(false);
-    expect(today.firstWeek!.steps[0]!.asks).toBe("You are asked to sign off the specification and the roadmap.");
+    expect(today.firstWeek!.steps[0]!.asks).toBe("You are asked to approve your plan.");
   });
 
   it("when the model call fails the starter draft from the founder's words is written, the note still asks, and the foundations still finish", async () => {

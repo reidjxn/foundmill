@@ -97,6 +97,28 @@ export async function verifyServiceToken(secret: string, token: string): Promise
   return { ...claims.data, exp: payload.exp!, iat: payload.iat! };
 }
 
+/**
+ * Service tokens when the api has its own secret (WP-11 T12, N4). With `api` null, as before: every service signs with
+ * the shared secret. With `api` set, a token that verifies under it must claim `svc: "api"`; a token under the shared
+ * secret may claim `api` only while `legacy` is true (the switch in progress, DEPLOY §3); every other service verifies
+ * under the shared secret as before. So once the switch is done, holding SESSION_TOKEN_SECRET no longer lets a service
+ * pose as the api.
+ */
+export async function verifyServiceTokenFor(secrets: { shared: string; api: string | null; legacy: boolean }, token: string): Promise<ServiceToken> {
+  if (!secrets.api) return verifyServiceToken(secrets.shared, token);
+  const own = await verifyServiceToken(secrets.api, token).catch(() => null);
+  if (own) {
+    if (own.svc !== "api") throw new UnauthorizedError("A token signed with the api's secret must be the api's");
+    return own;
+  }
+  const shared = await verifyServiceToken(secrets.shared, token);
+  if (shared.svc === "api" && !secrets.legacy) throw new UnauthorizedError("The api signs with its own secret now");
+  return shared;
+}
+
+/** What `/health` says of the api's service token: "shared" (no own secret), "legacy" (switching), "own" (done). */
+export const apiServiceTokenMode = (secrets: { api: string | null; legacy: boolean }): "shared" | "legacy" | "own" => (!secrets.api ? "shared" : secrets.legacy ? "legacy" : "own");
+
 export interface MintedSessionToken {
   token: string;
   /** ISO. */

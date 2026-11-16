@@ -128,6 +128,8 @@ describe("journal", () => {
       "0112_admission_address_key",
       "0113_waitlist_referrals",
       "0114_keyboard_shortcuts_pref",
+      "0118_positioning",
+      "0123_glm_model_key",
     ]);
     // strictly increasing `when` so drizzle applies them in order
     const whens = ours.map((m) => m.when);

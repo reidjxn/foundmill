@@ -33,7 +33,7 @@ describe("outcome evals with scripted agents (mock)", () => {
 
   it("names the cases of the spec and runs mock (no key)", () => {
     expect(env.live).toBe(false);
-    expect(SESSION_CASES.map((c) => c.id)).toEqual(["researcher.report_saved", "researcher.real_citations", "channel_email_automation.not_connected_is_not_sent", "isolation.refused_tools", "backend_engineer.fixes_failing_test"]);
+    expect(SESSION_CASES.map((c) => c.id)).toEqual(["researcher.report_saved", "researcher.real_citations", "researcher.unmet_line_is_not_done", "channel_email_automation.not_connected_is_not_sent", "isolation.refused_tools", "backend_engineer.fixes_failing_test"]);
   });
 
   it("backend_engineer.fixes_failing_test: the failing run goes back with its output, and the run after the fix passes", async () => {
@@ -81,6 +81,15 @@ describe("outcome evals with scripted agents (mock)", () => {
     expect(r.passed).toBe(false);
     expect(r.taskStatus).not.toBe("done");
     expect(r.problems.join(" ")).toMatch(/no task_reports row/);
+  }, 60_000);
+
+  it("researcher.unmet_line_is_not_done fails when every line really holds: the check is not 'never done'", async () => {
+    const c = byId("researcher.unmet_line_is_not_done");
+    const both = [{ line: 1, met: true, reportSection: "Suppliers compared" }, { line: 2, met: true, reportSection: "Sample request" }];
+    const script = c.script.map((s) => (s.tool === "complete_task" ? { ...s, args: (ctx: Parameters<typeof s.args>[0]) => ({ taskId: ctx.taskId, summary: "Compared.", acceptance: both }) } : s));
+    const r = await env.runSessionCase({ ...c, script });
+    expect(r.taskStatus).toBe("done");
+    expect(r.passed).toBe(false);
   }, 60_000);
 
   it("researcher.real_citations fails on a source the session never read", async () => {

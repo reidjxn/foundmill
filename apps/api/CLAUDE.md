@@ -3,7 +3,7 @@
 Hono + tRPC: auth context (Supabase JWT), membership and section checks, RLS-scoped queries, audit, events, the outbox relay, and starting Temporal workflows. It calls no vendor (the gateway does) and receives no webhooks (apps/ingest does).
 
 ## Invariants
-- Every user-originated query runs under RLS (`ctx.rls(fn)` / `withRls(db, { userId }, fn)`). The service connection is used only where a contract says so, and then states its own rules.
+- User-originated work in a business runs under RLS (`ctx.rls(fn)` / `withRls(db, { userId }, fn)`). The service connection (`ctx.db`) is allowed for work with no business (the repo takes `ctx.userId`), for a signed-out caller whose token is the only credential, for a table only services write after the membership check, and for the membership read in `businessProcedure`. Each router's uses are counted in `src/__tests__/service-connection.test.ts`, so a new one edits that list. Never call `ctx.db` inside a `ctx.rls` callback.
 - **Every mutation:** Zod input, membership and permission (`businessProcedure`, `writeProcedure`, `sectionRead/Write`), `audit`, and `writeEvent` where relevant, inside its transaction.
 - Business-scoped reads and writes get a cross-tenant test (business A's member gets nothing of B; see `cross-tenant-refs.test.ts`, `section-walls.test.ts`).
 - Routers are named exactly as BUILD §8.3, in `src/routers/<area>.ts`, merged in `src/router.ts`; logic lives in `src/services/`.

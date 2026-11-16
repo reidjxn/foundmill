@@ -67,7 +67,7 @@ export const sendgridTools = [
     hints: {},
     annotations: { readOnlyHint: true },
   }),
-  defineTool({ name: "add_suppression", description: "Add an address to the global unsubscribe list (honors an opt-out received elsewhere).", input: z.object({ emails: z.array(z.email()).min(1).max(100) }), output: z.object({ added: z.array(z.string()) }), hints: {}, annotations: { idempotentHint: true } }),
+  defineTool({ name: "add_suppression", description: "Add an address to the global unsubscribe list (honors an opt-out received elsewhere).", input: z.object({ emails: z.array(z.email()).min(1).max(100) }), output: z.object({ added: z.array(z.string()) }), hints: {}, annotations: { readOnlyHint: false, idempotentHint: true } }),
   defineTool({
     name: "send_mail",
     description: "Send an email on behalf of the business (never claiming to be human — BUILD §2.3). Refused when the sender is not verified, when marketing mail has no unsubscribe, or when any recipient is on the suppression list.",
@@ -78,7 +78,7 @@ export const sendgridTools = [
   }),
   defineTool({ name: "list_campaigns", description: "Marketing single sends (drafts, scheduled and sent), newest first.", input: z.object({ pageSize: z.number().int().min(1).max(100).default(25) }), output: z.object({ items: z.array(Campaign) }), hints: {}, untrusted: "api", untrustedRef: () => "singlesends", annotations: { readOnlyHint: true } }),
   defineTool({
-    name: "create_campaign",
+    name: "create_campaign", annotations: { readOnlyHint: false },
     description: "Create a draft marketing single send (name, subject, HTML + plain text, sender, lists, suppression group). Nothing is sent until schedule_campaign.",
     input: z.object({ name: z.string().min(1).max(100), subject: z.string().min(1).max(300), html: z.string().min(1).max(800_000), text: z.string().min(1).max(200_000), senderId: z.number().int().positive(), listIds: z.array(z.string().min(1)).min(1).max(50), suppressionGroupId: z.number().int().positive(), customUnsubscribeUrl: z.url().optional() }),
     output: Campaign,

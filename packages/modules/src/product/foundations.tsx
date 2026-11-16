@@ -49,8 +49,8 @@ export function foundationsSummary(f: Pick<FoundationsResponse, "summary">): str
 
 /** Shown when an attempt ran past its window without finishing (a restarted api, a lost worker). */
 export const FOUNDATIONS_INTERRUPTED = "The drafting stopped before it finished. Try again.";
-/** Home's ready line: the drafting brought two sign-off notes (founder, 2026-10-18). */
-export const READY_SIGNOFF_LINE = "Your vision, specification and roadmap are drafted. Two notes in the Inbox ask for your sign-off. Your sign-off is the yes that lets the team start building.";
+/** Home's ready line: the drafting brought the one plan note (WP-04 T5). */
+export const READY_SIGNOFF_LINE = "Your vision, specification and roadmap are drafted. One note in the Inbox asks you to approve your plan. Your approval is the yes that lets the team start building.";
 
 /** The state to show: an attempt past its window (`stale`) reads as failed, with Try again, and is no longer polled. */
 export function foundationsDisplayState(f: Pick<FoundationsResponse, "status" | "stale">): FoundationsResponse["status"] {
@@ -120,7 +120,7 @@ export function FoundationsBanner({ foundations, span = 12, showReady = false, d
       span={span}
       basis={foundationsBasis(f.door)}
       summary={foundationsSummary(f)}
-      // Ready brings the two sign-off notes (founder, 2026-10-18): the way in is the Inbox as much as the Vision tab.
+      // Ready brings the plan note (WP-04 T5): the way in is the Inbox as much as the Vision tab.
       readyLine={readyNews ? READY_SIGNOFF_LINE : undefined}
       error={error || undefined}
       onRetry={() => void retry.run(FOUNDATIONS_RETRY_PATH, {}, { then: () => foundations.refetch() })}

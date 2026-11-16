@@ -34,11 +34,53 @@ const upload = (content = SKILL_MD, fileName = "SKILL.md") => ({ source: "upload
 const owner = () => hz.caller({ userId: hz.A.ownerId });
 
 describe("team.skills", () => {
-  it("lists the library grouped by category, with the attribute each skill shows as and its instructions", async () => {
+  it("lists the library grouped by category, with the attribute each skill shows as and no bodies", async () => {
     const library = await owner().team.skills.library({ businessId: hz.A.businessId });
     expect(library).toHaveLength(SKILL_LIBRARY.length);
     expect(new Set(library.map((s) => s.categoryLabel))).toEqual(new Set(["Product", "Engineering", "Design", "Marketing", "Sales", "Customers", "Finance", "Legal", "Operations"]));
-    expect(library.find((s) => s.key === "newsletter_writing")).toMatchObject({ skillKey: "library_newsletter_writing", attribute: { name: "Newsletter writing", group: "craft" }, instructionsMd: expect.stringContaining("# Newsletter writing") });
+    expect(library.find((s) => s.key === "newsletter_writing")).toMatchObject({ skillKey: "library_newsletter_writing", attribute: { name: "Newsletter writing", group: "craft" }, whenToUse: expect.stringMatching(/^Use when/), version: 1, suggested: false, suggestedBecause: null });
+    // The bodies come one at a time (team.skills.get): the list stays small.
+    expect(library.some((s) => "instructionsMd" in s)).toBe(false);
+    expect(new TextEncoder().encode(JSON.stringify(library)).length).toBeLessThan(60 * 1024);
+  });
+
+  it("suggests the skills that fit the agent's role, first, with the reason", async () => {
+    const library = await owner().team.skills.library({ businessId: hz.A.businessId, templateKey: "product_lead" });
+    const page = library.find((s) => s.key === "project_page_copy")!;
+    expect(page).toMatchObject({ suggested: true, suggestedBecause: "Fits this role" });
+    const firstOther = library.findIndex((s) => !s.suggested);
+    expect(library.slice(0, firstOther).every((s) => s.suggested)).toBe(true);
+    expect(library.slice(firstOther).some((s) => s.suggested)).toBe(false);
+    expect(library.filter((s) => s.suggested).map((s) => s.key).sort()).toEqual(SKILL_LIBRARY.filter((s) => s.roles.includes("product_lead")).map((s) => s.key).sort());
+
+    // From an agent: its template decides; another business's agent is not found.
+    const lead = await owner().team.agents.hire({ businessId: hz.A.businessId, templateKey: "product_lead", departmentId: hz.A.departmentId, name: "Lead for suggestions" });
+    const fromAgent = await owner().team.skills.library({ businessId: hz.A.businessId, agentId: lead.id });
+    expect(fromAgent.find((s) => s.key === "project_page_copy")).toMatchObject({ suggested: true });
+    await expect(hz.caller({ userId: hz.B.ownerId }).team.skills.library({ businessId: hz.B.businessId, agentId: lead.id })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(owner().team.skills.library({ businessId: hz.A.businessId, templateKey: "no_such_template" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("says which connectors make a skill better and whether each is connected, and what is not built yet", async () => {
+    const seo = (await owner().team.skills.library({ businessId: hz.A.businessId })).find((s) => s.key === "seo_plan")!;
+    expect(seo.notYetOnFoundmill).toContain("Search Console");
+    expect(seo.attribution).toMatch(/^Adapted from .+ under the MIT license\.$/);
+    const withGithub = () => owner().team.skills.library({ businessId: hz.A.businessId }).then((rows) => rows.find((s) => s.key === "coding_discipline")!);
+    expect((await withGithub()).requires).toContainEqual({ connectorKey: "github", name: "GitHub", connected: false });
+    await repos.integrations.upsert(hz.db, hz.A.businessId, { connectorKey: "github", status: "connected", authKind: "app" });
+    expect((await withGithub()).requires).toContainEqual({ connectorKey: "github", name: "GitHub", connected: true });
+    // Web reads need no account: they always count as connected.
+    const web = (await owner().team.skills.library({ businessId: hz.A.businessId })).flatMap((s) => s.requires).find((r) => r.connectorKey === "web");
+    expect(web).toEqual({ connectorKey: "web", name: "Web search and pages", connected: true });
+    // A skill written for the product carries no attribution.
+    expect((await owner().team.skills.library({ businessId: hz.A.businessId })).find((s) => s.key === "newsletter_writing")!.attribution).toBeNull();
+  });
+
+  it("gives a skill's whole text on request, to anyone who can read the Team section", async () => {
+    const skill = SKILL_LIBRARY.find((s) => s.key === "newsletter_writing")!;
+    const got = await hz.caller({ userId: hz.A.viewerId }).team.skills.get({ businessId: hz.A.businessId, key: "newsletter_writing" });
+    expect(got).toEqual({ key: "newsletter_writing", name: "Newsletter writing", version: 1, attribution: null, instructionsMd: skill.instructionsMd });
+    await expect(owner().team.skills.get({ businessId: hz.A.businessId, key: "no_such_skill" })).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
   it("previews a file without storing anything, and refuses a rule-breaking or injected file with the reason", async () => {

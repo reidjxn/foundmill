@@ -121,3 +121,7 @@ export async function handleBillingWebhook(deps: Pick<IngestDeps, "db" | "log" |
     throw e;
   }
 }
+
+/** The most a delivery to Foundmill's own billing webhook may carry before it is read (WP-11 T15). */
+export const BILLING_WEBHOOK_MAX_BYTES = 1024 * 1024;
+

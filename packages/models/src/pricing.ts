@@ -35,7 +35,12 @@ export interface ModelPrice {
 export const MODEL_PRICING: Record<ModelId, ModelPrice> = {
   [MODELS.opus]: { displayName: "Claude Opus 5.5", inputPerMTok: 4, outputPerMTok: 20, cacheWritePerMTok: 5, cacheReadPerMTok: 0.2 },
   [MODELS.sonnet]: { displayName: "Claude Sonnet 5.5", inputPerMTok: 2, outputPerMTok: 10, cacheWritePerMTok: 2.5, cacheReadPerMTok: 0.2 },
-  [MODELS.haiku]: { displayName: "Claude Haiku 4.5", inputPerMTok: 1, outputPerMTok: 5, cacheWritePerMTok: 1.25, cacheReadPerMTok: 0.1 },
+  // Haiku 5.5 for prompts up to 100K tokens (Anthropic's model reference, Nov 16, 2026); a longer prompt is billed at
+  // $0.50 / $2.50, which this table does not model (no route sends one).
+  [MODELS.haiku]: { displayName: "Claude Haiku 5.5", inputPerMTok: 0.1, outputPerMTok: 0.5, cacheWritePerMTok: 0.125, cacheReadPerMTok: 0.01 },
+  // Z.ai's list price on Nov 16, 2026 (docs.z.ai/guides/overview/pricing): $0.15 in, $0.03 cached, $0.50 out; no cache
+  // write fee is listed, so a write is priced as plain input.
+  [MODELS.glm]: { displayName: "GLM-5.3 Flash", inputPerMTok: 0.15, outputPerMTok: 0.5, cacheWritePerMTok: 0.15, cacheReadPerMTok: 0.03 },
 };
 
 /**

@@ -7,7 +7,7 @@ import { AgentInstructions, CUSTOM_SKILL_TEST_COUNT, CustomSkillTestsOutput, HOU
 import { CREDITS_CURRENCY, INPUT_LIMITS, LIMITS } from "@foundmill/config";
 import { UpdateAgentInput, periodOf, repos, type Agent, type AgentVersion, type Executor } from "@foundmill/db";
 import { MODELS, meter, resolveModel, type RouteKey } from "@foundmill/models";
-import { ConflictError, ForbiddenError, isAdminRole as isAdminMembershipRole, MODEL_KEYS, ValidationError, type ModelKey } from "@foundmill/shared";
+import { ConflictError, ForbiddenError, isAdminRole as isAdminMembershipRole, CHOOSABLE_MODEL_KEYS, MODEL_KEYS, ValidationError, type ModelKey } from "@foundmill/shared";
 import { z } from "zod";
 import { modelLimited } from "../services/model-limits";
 import { changeAgentModels, routeOf, startModelRetests } from "../services/agent-model";
@@ -16,6 +16,9 @@ import { shownToolGrants } from "../services/squad";
 import { assertAgentsRunning } from "../services/stop-guard";
 import { SIGNALS, WORKFLOWS, workflowIds } from "../services/temporal";
 import { Id, audit, emit, router, sectionAdmin, sectionRead, sectionWrite, type BusinessContext } from "../trpc";
+
+/** A model an agent can be set to: any key but GLM, which the free plan applies when a call runs (WP-13, D3). */
+const ChoosableModel = z.enum(MODEL_KEYS).refine((k) => (CHOOSABLE_MODEL_KEYS as readonly string[]).includes(k), { message: "An agent's model is Opus, Sonnet or Haiku; GLM-5.3 Flash is the free plan's model and is not chosen per agent." });
 
 const read = sectionRead("team");
 const write = sectionWrite("team");
@@ -239,7 +242,7 @@ export const agentRouter = router({
 
   training: router({
     /** Draft version from the structured editor; club-rule contradictions are flagged and have no effect (AC-11.10.4). */
-    saveDraft: write.input(z.object({ agentId: Id, instructions: AgentInstructions, tools: Tools.optional(), modelKey: z.enum(MODEL_KEYS).optional(), comment: z.string().max(2000).optional() })).mutation(({ ctx, input }) =>
+    saveDraft: write.input(z.object({ agentId: Id, instructions: AgentInstructions, tools: Tools.optional(), modelKey: ChoosableModel.optional(), comment: z.string().max(2000).optional() })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
         const agent = await repos.agents.get(tx, ctx.businessId, input.agentId);
         if (agent.archivedAt) throw new ValidationError(`${agent.name} has left the team; its profile is kept as a record`);
@@ -261,7 +264,7 @@ export const agentRouter = router({
     ),
 
     /** Cost and duration estimate for a training run (labelled Estimate; held-out tests counted, never returned). */
-    estimate: read.input(z.object({ agentId: Id, modelKey: z.enum(MODEL_KEYS).optional() })).query(async ({ ctx, input }) => {
+    estimate: read.input(z.object({ agentId: Id, modelKey: ChoosableModel.optional() })).query(async ({ ctx, input }) => {
       const { agent, skills } = await ctx.rls(async (tx) => {
         const agent = await repos.agents.get(tx, ctx.businessId, input.agentId);
         return { agent, skills: await repos.skills.listForAgent(tx, ctx.businessId, agent.id) };
@@ -547,7 +550,7 @@ export const agentRouter = router({
           // Predicted from the agent's metered model cost at list prices: US dollars, never the business's currency.
           basis,
           currency: CREDITS_CURRENCY,
-          options: MODEL_KEYS.map((modelKey) => {
+          options: CHOOSABLE_MODEL_KEYS.map((modelKey) => {
             const r = resolveModel(route, modelKey);
             return { modelKey, modelId: MODELS[modelKey], allowed: !r.locked || r.modelKey === modelKey, warning: r.warning ?? null, predictedWageMinor: predict(modelKey), predictedSkillDelta: null, label: "Estimate" as const };
           }),
@@ -562,7 +565,7 @@ export const agentRouter = router({
      * decided are withdrawn (`superseded`), and a change back to the model its live version runs on queues none. While
      * the team is stopped the retests stay queued (`retestsWaitForResume`) and start when the agents resume.
      */
-    set: write.input(z.object({ agentId: Id, modelKey: z.enum(MODEL_KEYS), applyScope: ApplyScope.default("agent") })).use(modelLimited("training")).mutation(async ({ ctx, input }) => {
+    set: write.input(z.object({ agentId: Id, modelKey: ChoosableModel, applyScope: ApplyScope.default("agent") })).use(modelLimited("training")).mutation(async ({ ctx, input }) => {
       const targets = await scopedAgents(ctx, input.agentId, input.applyScope);
       const change = await ctx.rls(async (tx) => {
         const c = await changeAgentModels(tx, ctx.businessId, targets, input.modelKey as ModelKey, ctx.userId);

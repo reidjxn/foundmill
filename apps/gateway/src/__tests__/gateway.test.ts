@@ -402,7 +402,7 @@ describe("scope, unknown tools and rate limits", () => {
   });
 
   it("unknown connectors and tools are 404s", async () => {
-    const token = await g.token({ allowedTools: ["*"] });
+    const token = await g.token({ allowedTools: ["nope:*", "test:*"] });
     await expect(g.client.call(token, { connector: "nope", tool: "x" })).rejects.toMatchObject({ status: 404, code: "unknown_connector" });
     await expect(g.client.call(token, { connector: "test", tool: "nope" })).rejects.toMatchObject({ status: 404, code: "unknown_tool" });
   });

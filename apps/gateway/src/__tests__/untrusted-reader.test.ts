@@ -160,7 +160,7 @@ describe("the pipeline's reader asks first and books the exact cost (buildGatewa
     vault = new LocalVault(generateMasterKey());
     const env = loadEnv({ APP_ENV: "test", INTEGRATIONS_MODE: "mock", MODEL_MODE: "live", ANTHROPIC_API_KEY: "sk-ant-platform-test", SESSION_TOKEN_SECRET: TEST_SECRET, REDIS_URL: "redis://127.0.0.1:1" });
     server = await listenGateway(buildGateway({ env, db, vault, log, registry: createTestConnector().registry, modelFetch }).app, { port: 0, host: "127.0.0.1" });
-    client = createGatewayClient({ baseUrl: server.url, serviceSecret: TEST_SECRET, serviceName: "reader-test" });
+    client = createGatewayClient({ baseUrl: server.url, serviceSecret: TEST_SECRET, serviceName: "orchestrator" });
   }, 120_000);
   afterAll(async () => {
     await server?.stop();
@@ -189,7 +189,7 @@ describe("the pipeline's reader asks first and books the exact cost (buildGatewa
     const [row] = await readerRows(d);
     expect(row).toMatchObject({ billedTo: "credits", agentId: d.agentId, details: { service: "gateway", kind: "quarantined_reader" } });
     expect(Number(row!.costMicroMinor)).toBe(meter({ inputTokens: 6_000, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 }, resolveModel("quarantinedReader").modelId).costMicroMinor);
-    expect(Number(row!.costMicroMinor)).toBe(600_000);
+    expect(Number(row!.costMicroMinor)).toBe(60_000); // 6,000 tokens at Haiku 5.5's $0.10 per 1M: 0.06 cents
   });
 
   it("a business on its own key pays for the pipeline's reader on that key, even with no credits left", async () => {

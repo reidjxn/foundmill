@@ -214,7 +214,7 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     const next = screen.getByTestId("what-happens-next");
     // The steps are the shared first-day promise itself, not a copy of it (WP-02 T6).
     expect(WHAT_HAPPENS_NEXT).toBe(FIRST_DAY_PROMISE.steps);
-    expect(WHAT_HAPPENS_NEXT).toEqual(["Your team is hired", "Your public page is drafted first: check it and put it live", "Then your plan arrives as two notes to sign off", "Nothing is spent on finding customers until you say so"]);
+    expect(WHAT_HAPPENS_NEXT).toEqual(["Your team is hired", "Your public page is drafted first: check it and put it live", "Then your plan arrives as one note to approve", "Nothing is spent on finding customers until you say so"]);
     for (const step of WHAT_HAPPENS_NEXT) expect(next.textContent).toContain(step);
     expect(next.textContent).not.toMatch(/Board|three decisions|first cycle/);
     expect(includedCreditsLine()).toBe("Starts with $5.00 of included credits this month. No card.");

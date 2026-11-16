@@ -103,12 +103,14 @@ describe("POST /idea-box/draft", () => {
     const { hz, app } = await setup();
     const first = await draft(app, idea, { address: "203.0.113.40" });
     // Each redraw from its own address, so only the browser's count can refuse the third.
-    for (let i = 0; i < IDEA_BOX_REDRAWS_PER_BROWSER; i++) expect(last((await draft(app, { ...idea, again: true }, { cookie: first.token!, address: `203.0.113.${41 + i}` })).events).type).toBe("card");
+    // Each card says how many redraws it has left today, so the page can say so instead of offering the button.
+    expect(last(first.events)).toMatchObject({ type: "card", redrawsLeft: IDEA_BOX_REDRAWS_PER_BROWSER });
+    for (let i = 0; i < IDEA_BOX_REDRAWS_PER_BROWSER; i++) expect(last((await draft(app, { ...idea, again: true }, { cookie: first.token!, address: `203.0.113.${41 + i}` })).events)).toMatchObject({ type: "card", redrawsLeft: IDEA_BOX_REDRAWS_PER_BROWSER - 1 - i });
     const third = await draft(app, { ...idea, again: true }, { cookie: first.token!, address: "203.0.113.49" });
     expect(third.events).toEqual([{ type: "error", code: "limit", message: IDEA_BOX_ERRORS.limit }]);
     expect(third.setCookie).toBeNull();
-    // The card stays the browser's.
-    expect((await draft(app, idea, { cookie: first.token! })).events[0]).toMatchObject({ type: "card", again: true });
+    // The card stays the browser's, with none left today.
+    expect((await draft(app, idea, { cookie: first.token! })).events[0]).toMatchObject({ type: "card", again: true, redrawsLeft: 0 });
     expect((await hz.db.select().from(s.ideaDrafts)).length).toBe(1);
   });
 
@@ -311,7 +313,10 @@ describe("ideaBox.claim and the waitlist", () => {
     // Admitted later, on any browser (no cookie, no link): the waitlist's card is the one to keep.
     hz.deps.env.SIGNUP_ALLOWLIST = "outsider@test.local";
     expect(await outsider.ideaBox.preview({})).toMatchObject({ source: "waitlist", prompt: idea.prompt });
-    expect(await outsider.ideaBox.claim({})).toMatchObject({ again: false });
+    const kept = await outsider.ideaBox.claim({});
+    expect(kept).toMatchObject({ again: false });
+    // The kept card is in the deck the Ideation Studio lists (`idea.list`), so the person can shape it there at once.
+    expect((await outsider.idea.list()).items.map((i) => i.id)).toContain(kept!.ideaId);
     hz.deps.env.SIGNUP_ALLOWLIST = "someone-else@test.local";
     const [draftRow] = await hz.db.select().from(s.ideaDrafts);
     expect(draftRow!.heldUntil!.getTime() - Date.now()).toBeGreaterThan(80 * 24 * 60 * 60_000);

@@ -6,7 +6,7 @@
  */
 import { z } from "zod";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { buildLiveConnector, buildMockConnector, ConnectInputError, connectInputValue, createAnthropicConnector, createCompaniesHouseConnector, createDefaultRegistry, createRegistry, defineTool, jsonResponse, mockHealth, mockIntegrationRecord, routedFetch, type Connector, type ConnectorRegistry, type HealthResult } from "@foundmill/connectors";
+import { buildLiveConnector, buildMockConnector, createStripeConnector, ConnectInputError, connectInputValue, createAnthropicConnector, createCompaniesHouseConnector, createDefaultRegistry, createRegistry, defineTool, jsonResponse, mockHealth, mockIntegrationRecord, routedFetch, type Connector, type ConnectorRegistry, type HealthResult } from "@foundmill/connectors";
 import { INTEGRATION_CREDENTIAL_KIND, repos, type Db } from "@foundmill/db";
 import { createTestDb, type TestHarness } from "@foundmill/db/testing/pglite";
 import { MODELS, validateApiKey } from "@foundmill/models";
@@ -359,3 +359,58 @@ describe("POST /v1/integrations/connect and /health beyond App connectors", () =
     expect((await post(app, "/v1/integrations/connect", { businessId, connector: "keyed", input: { apiKey: VENDOR_SECRET } })).status).toBe(429);
   });
 });
+
+describe("a founder's own Stripe: the webhook signing secret (WP-11 T20)", () => {
+  const KEY = "rk_live_founder_own_restricted_key_0123";
+  const HOOK = "whsec_FounderOwnEndpointSecret0123456789";
+  const stripeApp = (vault: LocalVault, logs: unknown[] = []) => {
+    const stripe = createStripeConnector({ secrets: {}, fetch: routedFetch({ "GET https://api.stripe.com/v1/account": () => jsonResponse({ id: "acct_founder123", object: "account", country: "US", default_currency: "usd", charges_enabled: true, payouts_enabled: true, settings: { dashboard: { display_name: "Founder Co" } } }) }) });
+    return appFor({ registry: createRegistry([stripe]), vault, liveConnectors: ["stripe"], logs });
+  };
+
+  it("stores it as a second credential of its own kind, sealed, and never echoes or audits it", async () => {
+    const vault = new LocalVault(generateMasterKey());
+    const logs: unknown[] = [];
+    const biz = (await repos.businesses.create(db, { name: "Own Stripe Co" })).id;
+    const r = await post(stripeApp(vault, logs), "/v1/integrations/connect", { businessId: biz, connector: "stripe", input: { apiKey: KEY, webhookSecret: HOOK } });
+    expect(r.status).toBe(200);
+    expect(r.text).not.toContain(HOOK);
+    const integrationId = r.body.integrationId as string;
+    const metas = await repos.credentials.listMetadata(db, biz, { integrationId });
+    expect(metas.map((m) => m.kind).sort()).toEqual([INTEGRATION_CREDENTIAL_KIND, "stripe_webhook_secret"].sort());
+    const hook = (await repos.credentials.latest(db, biz, integrationId, "stripe_webhook_secret"))!;
+    expect(await decryptJson(vault, hook.record, buildAad(biz, "credentials", hook.meta.id))).toEqual({ secret: HOOK });
+    const audits = JSON.stringify(await repos.audit.list(db, biz, { limit: 200 }));
+    expect(audits).not.toContain(HOOK);
+    expect(audits).toContain("stripe_webhook_secret");
+    expect(JSON.stringify(logs)).not.toContain(HOOK);
+  });
+
+  it("stores one row without it, and refuses a value that is not a signing secret before Stripe is called", async () => {
+    const vault = new LocalVault(generateMasterKey());
+    const biz = (await repos.businesses.create(db, { name: "Own Stripe Two" })).id;
+    const r = await post(stripeApp(vault), "/v1/integrations/connect", { businessId: biz, connector: "stripe", input: { apiKey: KEY } });
+    expect(r.status).toBe(200);
+    expect((await repos.credentials.listMetadata(db, biz, { integrationId: r.body.integrationId as string })).map((m) => m.kind)).toEqual([INTEGRATION_CREDENTIAL_KIND]);
+    const bad = await post(stripeApp(vault), "/v1/integrations/connect", { businessId: biz, connector: "stripe", input: { apiKey: KEY, webhookSecret: "abc" } });
+    expect(bad).toMatchObject({ status: 400, body: { error: { code: "invalid_webhook_secret" } } });
+    for (const webhookSecret of [123, { secret: HOOK }, "whsec_has space inside", `whsec_${"a".repeat(201)}`]) {
+      expect((await post(stripeApp(vault), "/v1/integrations/connect", { businessId: biz, connector: "stripe", input: { apiKey: KEY, webhookSecret } })).status, String(webhookSecret)).toBe(400);
+    }
+    // Only beside the founder's own key.
+    expect(await post(stripeApp(vault), "/v1/integrations/connect", { businessId: biz, connector: "stripe", input: { accountId: "acct_founder123", webhookSecret: HOOK } })).toMatchObject({ status: 400, body: { error: { code: "invalid_webhook_secret" } } });
+  });
+
+  it("a reconnect to another Stripe account without a new secret retires the old one; the same account keeps it", async () => {
+    const vault = new LocalVault(generateMasterKey());
+    const biz = (await repos.businesses.create(db, { name: "Own Stripe Three" })).id;
+    const first = await post(stripeApp(vault), "/v1/integrations/connect", { businessId: biz, connector: "stripe", input: { apiKey: KEY, webhookSecret: HOOK } });
+    const integrationId = first.body.integrationId as string;
+    await post(stripeApp(vault), "/v1/integrations/connect", { businessId: biz, connector: "stripe", input: { apiKey: KEY } });
+    expect(await repos.credentials.latest(db, biz, integrationId, "stripe_webhook_secret")).not.toBeNull();
+    const other = createStripeConnector({ secrets: {}, fetch: routedFetch({ "GET https://api.stripe.com/v1/account": () => jsonResponse({ id: "acct_another456", object: "account", country: "US", default_currency: "usd", charges_enabled: true, payouts_enabled: true }) }) });
+    await post(appFor({ registry: createRegistry([other]), vault, liveConnectors: ["stripe"] }), "/v1/integrations/connect", { businessId: biz, connector: "stripe", input: { apiKey: KEY } });
+    expect(await repos.credentials.latest(db, biz, integrationId, "stripe_webhook_secret")).toBeNull();
+  });
+});
+
