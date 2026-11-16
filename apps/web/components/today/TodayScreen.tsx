@@ -28,7 +28,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 import { FirstWeekTimeline, GoalPanel, NeedsYouList, PageGrid, Panel, PostReadyNote, PublicPageNote, SinceLastVisit, StatusStrip, StreakStrip, Term, WeekPlan, formatDateTime, useAgentPersona, useDateFormat, useToast, type MetricTileProps, type NeedsYouRow } from "@foundmill/dugout";
-import { cashTile, customersWeekTile, moduleHref, moduleTabHref, routes, runwayTile, spendWeekTiles, unavailableTile, type StatusTile } from "@foundmill/widgets";
+// Deep imports, not the barrel: the barrel registers every widget, which Today does not draw (WP-10 T13).
+import { routes } from "@foundmill/widgets/shared/routes";
+import { moduleHref, moduleTabHref } from "@foundmill/widgets/shared/departments";
+import { cashTile, customersWeekTile, runwayTile, spendWeekTiles, unavailableTile, type StatusTile } from "@foundmill/widgets/shared/today-tiles";
 import type { FinanceOverview, RibbonResponse } from "@foundmill/widgets/shared/types";
 import { useGlossary, useToday } from "@foundmill/widgets/data";
 import { recentRibbonInput } from "@foundmill/widgets/shared/ribbon";

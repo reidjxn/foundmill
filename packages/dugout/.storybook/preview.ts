@@ -5,8 +5,8 @@ import "../src/fonts.css";
 import "../src/dugout.css";
 
 /**
- * Builder view (docs/DESIGN.md "Builder view"): the toolbar's "Builder view" toggle. On by default here, so every story
- * shows the engine as before; switch it off to see what a founder sees. A story can pin it with `globals.builderView`.
+ * Builder view (docs/DESIGN.md "Builder view"): the toolbar's "Builder view" toggle. Off by default (WP-10 T13), so a reviewer
+ * sees what a founder sees; switch it on to see the engine. A story can pin it with `globals.builderView`.
  */
 const withBuilderView: Decorator = (Story, context) => createElement(BuilderViewProvider, { on: context.globals.builderView !== "off" }, createElement(Story));
 
@@ -50,7 +50,7 @@ const preview: Preview = {
   },
   initialGlobals: {
     backgrounds: { value: "base" },
-    builderView: "on",
+    builderView: "off",
   },
   tags: ["autodocs"],
 };

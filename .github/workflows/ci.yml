@@ -81,6 +81,12 @@ jobs:
       - name: Focus rings (no outline-none beside a focus outline width or color, which Tailwind v4 would draw as nothing)
         if: ${{ !cancelled() }}
         run: node scripts/focus-visible.mjs
+      - name: Design tokens self-test
+        if: ${{ !cancelled() }}
+        run: node --test scripts/design-tokens.test.mjs
+      - name: Design tokens (no new hex colors or arbitrary Tailwind values outside tokens.css; allowlist in scripts/design-tokens.allow.json)
+        if: ${{ !cancelled() }}
+        run: node scripts/design-tokens.mjs
       - name: Upload the vocabulary sweep
         if: ${{ always() }}
         uses: actions/upload-artifact@v4

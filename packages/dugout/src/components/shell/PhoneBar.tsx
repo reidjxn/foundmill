@@ -101,7 +101,7 @@ export function PhoneMenu({ open, onOpenChange, items, activeId, businessName, o
         <DialogPrimitive.Content
           aria-describedby={undefined}
           data-testid="phone-menu"
-          className="overlay-motion fixed inset-y-0 left-0 z-50 flex w-72 max-w-[85vw] flex-col border-r border-line bg-panel text-body text-primary outline-none"
+          className="overlay-motion fixed inset-y-0 left-0 z-50 flex w-72 max-w-(--phone-menu-max) flex-col border-r border-line bg-panel text-body text-primary outline-none"
         >
           <div className="flex h-kitbar shrink-0 items-center justify-between gap-2 border-b border-line-faint pl-gutter pr-2">
             <DialogPrimitive.Title className="t-display-sm min-w-0 truncate text-primary">{businessName}</DialogPrimitive.Title>

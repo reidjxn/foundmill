@@ -3,7 +3,8 @@
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { Bot, Lock, UserRound } from "lucide-react";
 import { Chip, EntityLink, Icon, PageGrid, cn, useEntityLinkContext, useGuided } from "@foundmill/dugout";
-import { useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
+import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
+import { useDepartments } from "@foundmill/widgets/shared/departments";
 import type { AuthorKind, SpecBlockRow } from "./types";
 import { pmTitle } from "./prosemirror";
 
