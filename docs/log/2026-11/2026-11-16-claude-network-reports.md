@@ -44,6 +44,9 @@ Until then: a `warn` line per report for a Railway log alert, the nightly counts
 ### The operator list is an api variable, never a database role
 As WP-12 T4 specifies. It is read on each call, tolerates spaces and case, and ignores anything that is not an account id.
 
+### CI starts its own servers
+The e2e stack in CI is started by `.github/workflows/ci.yml`, not by `playwright.config.ts`, so `OPERATOR_USER_IDS` is set in both (the dev founder): without it `reports.spec.ts` failed on shard 8, twice, at the operator's queue.
+
 ## Not done
 - The operator email alert (above). Removing access is still by hand in Supabase (DEPLOY lists the two statements).
 - A second sign-in factor for operators (the review's hardening note): Supabase `aal2` in `operatorProcedure`, once the founder's account has one.
