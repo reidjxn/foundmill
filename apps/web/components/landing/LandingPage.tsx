@@ -11,8 +11,10 @@
 import Link from "next/link";
 import { ArrowRight, Users } from "lucide-react";
 import { APP_NAME, APP_TAGLINE } from "@foundmill/config";
-import { DayList, Icon, IdeaCard, LandingSection, PersonPage, ProjectPage, QuestionList, ScreenFrame, Wordmark, type QuestionItem } from "@foundmill/dugout";
+import type { StoreLinks } from "@foundmill/config/app-links";
+import { DayList, GetTheApp, Icon, IdeaCard, LandingSection, PersonPage, ProjectPage, QuestionList, ScreenFrame, Wordmark, type QuestionItem } from "@foundmill/dugout";
 import { LEGAL_ROUTES } from "@/content/legal/facts";
+import { publicEnv } from "@/lib/env";
 import { EXAMPLE_CARD, EXAMPLE_PERSON, EXAMPLE_PROJECT } from "./first-timer-examples";
 import { SWITCHES_OFF, TOUR_ENABLED, type LandingSwitches } from "./flags";
 import { LandingHero } from "./LandingHero";
@@ -29,9 +31,11 @@ export interface LandingPageProps {
   switches?: LandingSwitches;
   /** The UTC day the page was rendered on ("2026-11-15"), for the footer's year. Absent: today. */
   renderDay?: string;
+  /** The native app's store links (WP-03 T9); absent: `publicEnv().storeLinks`, null until the app launches. */
+  storeLinks?: StoreLinks | null;
 }
 
-export function LandingPage({ switches = SWITCHES_OFF, renderDay }: LandingPageProps) {
+export function LandingPage({ switches = SWITCHES_OFF, renderDay, storeLinks = publicEnv().storeLinks }: LandingPageProps) {
   const year = (renderDay ?? new Date().toISOString()).slice(0, 4);
   return (
     <div className="landing-page" data-testid="landing" data-landing="" data-people={switches.peopleOpen ? "open" : "closed"}>
@@ -71,6 +75,8 @@ export function LandingPage({ switches = SWITCHES_OFF, renderDay }: LandingPageP
               {W.footer.what}
             </p>
           </div>
+          {/* Under 640 px only (the page's own width); renders nothing while the store links are unset. */}
+          <GetTheApp links={storeLinks} className="@page-wide:hidden" />
           <div className="t-landing-small flex flex-wrap items-center gap-x-5 gap-y-1 text-secondary">
             <span>{APP_TAGLINE}</span>
             <nav aria-label="Legal" className="flex items-center gap-4">

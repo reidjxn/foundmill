@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { GET_THE_APP_WORDS } from "@foundmill/dugout";
 import { LandingPage } from "../LandingPage";
 import { SWITCHES_OFF, TOUR_ENABLED, type LandingSwitches } from "../flags";
 import { LANDING_WORDS as W } from "../words";
@@ -94,6 +95,20 @@ describe("LandingPage (signed-out /, DIRECTION §3)", () => {
     expect(footer.textContent).toContain(W.footer.what);
     expect(within(footer).getByRole("link", { name: W.footer.terms })).toBeTruthy();
     expect(within(footer).queryByRole("link", { name: W.footer.tour }) !== null).toBe(TOUR_ENABLED);
+  });
+
+  it("offers the app in the footer under 640 px once the store links are set, and nothing while they are unset (WP-03 T9)", () => {
+    const footer = () => document.querySelector<HTMLElement>("[data-landing] > footer")!;
+    const { unmount } = renderPage();
+    expect(footer().querySelector("[data-get-the-app]")).toBeNull();
+    expect(footer().textContent).not.toContain(GET_THE_APP_WORDS.ios);
+    unmount();
+    const links = { ios: "https://apps.apple.com/app/id1", android: "https://play.google.com/store/apps/details?id=x" };
+    render(<LandingPage switches={SWITCHES_OFF} renderDay="2026-11-15" storeLinks={links} />);
+    const prompt = footer().querySelector<HTMLElement>("[data-get-the-app]")!;
+    expect(prompt.className).toContain("@page-wide:hidden");
+    expect(within(prompt).getByRole("link", { name: GET_THE_APP_WORDS.ios }).getAttribute("href")).toBe(links.ios);
+    expect(within(prompt).getByRole("link", { name: GET_THE_APP_WORDS.android }).getAttribute("href")).toBe(links.android);
   });
 
   it("wears Foundmill's own look: no example business's brand colors on the page root", () => {

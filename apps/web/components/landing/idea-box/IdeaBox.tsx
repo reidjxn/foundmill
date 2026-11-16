@@ -10,10 +10,10 @@
  */
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { ArrowRight, Dices, Fan, Globe, Lock, Mail, Medal, Scale, ShieldCheck, Users } from "lucide-react";
-import { CREDITS_CURRENCY, includedCreditsMinor } from "@foundmill/config";
+import { APP_NAME, CREDITS_CURRENCY, includedCreditsMinor } from "@foundmill/config";
 import { AssuranceList, Button, GoogleSignInButton, Icon, IdeaCard, formatMoney, type IdeaCardData } from "@foundmill/dugout";
 import { IDEA_BUTTON } from "../flags";
-import { IDEA_BOX_INTERESTS, IDEA_BOX_PROMPT_MAX, IDEA_BOX_PROMPT_MIN, IDEA_CLAIM_PARAM, type IdeaBoxEvent, type IdeaBoxInterest } from "@foundmill/shared";
+import { IDEA_BOX_DEADLINE_MS, IDEA_BOX_ERRORS, IDEA_BOX_INTERESTS, IDEA_BOX_PROMPT_MAX, IDEA_BOX_PROMPT_MIN, IDEA_CLAIM_PARAM, type IdeaBoxEvent, type IdeaBoxInterest } from "@foundmill/shared";
 import { NEXT_PARAM } from "@/lib/auth/constants";
 import { startGoogleSignIn } from "@/lib/auth/google";
 import { googleSignInEnabled, publicEnv } from "@/lib/env";
@@ -52,8 +52,9 @@ export const IDEA_BOX_WORDS = {
   free: "Your first card is free and needs no sign-up",
   private: "Your idea stays private until you choose to share it",
   safe: "Nothing spends money or signs in your name without you",
-  // Web research is not live (a1 FR-06), so the keep panel promises the plan and the page, not checked sources.
-  keepLead: "Sign in to keep it. Your team starts from your words, drafts a page for it and plans what comes next, and nothing goes out without your yes.",
+  // WP-03 T1: what signing in does while new people are let in a few at a time (the waitlist holds the card 90 days).
+  // Web research is not live (a1 FR-06), so nothing here says the team checks the card against sources.
+  keepLead: `Sign in to keep this card. ${APP_NAME} lets new people in a few at a time. If your place is not open yet, we hold your card for 90 days.`,
   keepEmail: "Continue with email",
   freeLine: `Free to start. Your plan includes ${INCLUDED} of agent work every month. You never enter a card.`,
   waits: "Not now? This card waits on this device for 7 days.",
@@ -129,19 +130,30 @@ export function IdeaBox({ onLanded }: IdeaBoxProps) {
     }
     const controller = new AbortController();
     abort.current = controller;
-    await streamIdeaDraft(env.apiUrl, { ...body, turnstile: token, website: "" }, {
-      signal: controller.signal,
-      onEvent: (e) => {
-        if (e.type === "partial") setCard((c) => ({ ...c, ...e.card }));
-        else if (e.type === "rating") setCard((c) => ({ ...c, attributes: [...(c.attributes ?? []).filter((a) => a.key !== e.rating.key), e.rating] }));
-        else if (e.type === "card") land(e);
-        else if (e.type === "error") {
-          setPhase("rest");
-          setCard({});
-          setError(e.message);
-        }
-      },
-    });
+    const fail = (message: string) => {
+      setPhase("rest");
+      setCard({});
+      setError(message);
+    };
+    // WP-03 T7: the api ends a slow card at its deadline; a stream that stalls on the way is stopped here 5 seconds
+    // later. The field comes back with the visitor's words still in it (`value` is never cleared).
+    const stall = setTimeout(() => {
+      controller.abort();
+      fail(IDEA_BOX_ERRORS.failed);
+    }, IDEA_BOX_DEADLINE_MS + 5_000);
+    try {
+      await streamIdeaDraft(env.apiUrl, { ...body, turnstile: token, website: "" }, {
+        signal: controller.signal,
+        onEvent: (e) => {
+          if (e.type === "partial") setCard((c) => ({ ...c, ...e.card }));
+          else if (e.type === "rating") setCard((c) => ({ ...c, attributes: [...(c.attributes ?? []).filter((a) => a.key !== e.rating.key), e.rating] }));
+          else if (e.type === "card") land(e);
+          else if (e.type === "error") fail(e.message);
+        },
+      });
+    } finally {
+      clearTimeout(stall);
+    }
   };
 
   const submit = (ev: FormEvent) => {
