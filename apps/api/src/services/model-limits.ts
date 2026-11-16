@@ -73,6 +73,8 @@ export const MODEL_LIMITS = {
   domains: { what: "Domain check", user: [{ limit: 20, windowMs: MINUTE }, { limit: 200, windowMs: HOUR }] },
   /** billing.topUp: a Stripe Checkout session on the platform account. */
   checkout: { what: "Checkout", user: [{ limit: 10, windowMs: HOUR }], business: [{ limit: 30, windowMs: DAY }] },
+  /** founder.email.sendLink (WP-03 T3): one email per press; the gateway sends three a day per person and refuses the rest. */
+  continueLink: { what: "Emailing a link", user: [{ limit: 5, windowMs: MINUTE }, { limit: 20, windowMs: DAY }] },
 } as const satisfies Record<string, ModelLimitRule>;
 
 export type ModelLimitName = keyof typeof MODEL_LIMITS;

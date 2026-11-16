@@ -25,7 +25,7 @@
  */
 import { freeDisplayName, liveModeOpen } from "@foundmill/config";
 import { AccountPreferencesPatch, EmailPrefsPatch, RegisterDeviceInput, UnregisterDeviceInput, repos, withRls, FounderProfileInput, FounderProfilePatch, SaveTableViewsInput, TableViewsScope, type AccountPreferencesView, type Db, type DbTx, type GuidancePrefs, type NotificationPreferences } from "@foundmill/db";
-import { FOUNDER_RETURN_VIA, GUIDANCE_OFF_SOURCES, PAGE_SLUG_MAX, PERSON_ABOUT_MAX, PERSON_HEADLINE_MAX, PERSON_LOOKING_FOR, PERSON_PLACE_MAX, PERSON_TAGS_MAX, PERSON_TAG_MAX } from "@foundmill/shared";
+import { CONTINUE_PATH_MAX, FOUNDER_RETURN_VIA, GUIDANCE_OFF_SOURCES, isContinuePath, PAGE_SLUG_MAX, PERSON_ABOUT_MAX, PERSON_HEADLINE_MAX, PERSON_LOOKING_FOR, PERSON_PLACE_MAX, PERSON_TAGS_MAX, PERSON_TAG_MAX } from "@foundmill/shared";
 import { VIA_MAX_LENGTH } from "@foundmill/shared/via";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
@@ -36,6 +36,8 @@ import { getPublicProfile, publicPersonByHandle, publishPublicProfile, unpublish
 import { protectedProcedure, publicProcedure, router, signedInProcedure } from "../trpc";
 import { founderBusinessesRouter } from "./founder-businesses";
 import { cancelDeletionAsFormerFounder, formerProjectCards } from "../services/founder-notices";
+import { sendContinueLink } from "../services/continue-link";
+import { modelLimited } from "../services/model-limits";
 
 /** Runs fn as the signed-in user, so Postgres RLS holds every row it touches to that user. */
 function asUser<T>(ctx: { db: Db; userId: string; email?: string | null }, fn: (tx: DbTx) => Promise<T>): Promise<T> {
@@ -291,6 +293,14 @@ export const founderRouter = router({
     get: protectedProcedure.query(({ ctx }) => asUser(ctx, (tx) => repos.emailPrefs.get(tx, ctx.userId))),
     update: protectedProcedure.input(EmailPrefsPatch).mutation(({ ctx, input }) => asUser(ctx, (tx) => repos.emailPrefs.update(tx, ctx.userId, input))),
     recent: protectedProcedure.input(z.object({ businessId: z.guid(), limit: z.number().int().min(1).max(50).default(10) })).query(({ ctx, input }) => asUser(ctx, (tx) => repos.notifications.listForUser(tx, input.businessId, ctx.userId, input.limit))),
+    /**
+     * founder.email.sendLink (WP-03 T3): the link to a desktop-only page, to the person's own address, asked for from a
+     * small screen (services/continue-link.ts). Only the caller's own id goes to the gateway, never one from input.
+     */
+    sendLink: protectedProcedure
+      .input(z.strictObject({ path: z.string().max(CONTINUE_PATH_MAX).refine(isContinuePath, "Send a page of a project, the studio, onboarding or home") }))
+      .use(modelLimited("continueLink"))
+      .mutation(({ ctx, input }) => sendContinueLink(ctx, input.path)),
   }),
   tableViews: router({
     /** The person's saved views and open view for one table; null until they change something there. */

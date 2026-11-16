@@ -133,6 +133,65 @@ describe("the waitlist's email (gateway)", () => {
     expect((await ask(body(f))).body.reason).toBe("ceiling");
   });
 
+  describe("the link to continue on a computer (WP-03 T3: continue_link)", () => {
+    const ID = "11111111-1111-4111-8111-111111111111";
+    const link = (userId: string, path = `/b/${ID}/product/page`) => ({ kind: "continue_link", userId, data: { path } });
+    async function person() {
+      const email = `phone${++n}@example.com`;
+      return { userId: await g.h.createUser(email), email };
+    }
+
+    it("goes to the address the account signs in with, with the path on Foundmill's own address; the api's only", async () => {
+      const p = await person();
+      expect((await ask(link(p.userId), "api")).body).toMatchObject({ sent: true, simulated: true });
+      const [mail, ...more] = sentTo(p.email);
+      expect(more).toHaveLength(0);
+      expect(mail!.subject).toBe("Your link to continue on a computer");
+      expect(mail!.text).toContain("You asked for this link from your phone. Open it on a computer to continue. It opens after you sign in with this address.");
+      expect(mail!.text).toContain(`http://localhost:3000/b/${ID}/product/page`);
+      expect(mail!.text).toMatch(/http:\/\/localhost:4005\/mail\/invitations\/off\?t=\S+&for=joining/);
+      expect((await ask(link(p.userId), "orchestrator")).status).toBe(403);
+      expect((await ask({ ...link(p.userId), data: { path: "/home", email: "x@y.com" } }, "api")).status).toBe(400);
+      expect(logged.join("\n")).not.toContain(p.email);
+    });
+
+    it("refuses a path that fails the pattern before any count", async () => {
+      const p = await person();
+      for (const path of ["//evil.example", "/login", "/auth/callback", `/b/${ID}?next=/x`, `/b/${ID}/${"a".repeat(200)}`]) expect((await ask(link(p.userId, path), "api")).status, path).toBe(400);
+      expect(sentTo(p.email)).toHaveLength(0);
+      // Nothing was counted: three links still go today.
+      for (let i = 0; i < NOTIFY_PER_PERSON_PER_DAY; i++) expect((await ask(link(p.userId, "/home"), "api")).body.sent).toBe(true);
+    });
+
+    it("three a day per person, then per_person; an address suppressed platform-wide is never mailed", async () => {
+      const p = await person();
+      for (let i = 0; i < NOTIFY_PER_PERSON_PER_DAY; i++) expect((await ask(link(p.userId, "/onboarding"), "api")).body.sent).toBe(true);
+      expect((await ask(link(p.userId, "/onboarding"), "api")).body.reason).toBe("per_person");
+      expect(sentTo(p.email)).toHaveLength(NOTIFY_PER_PERSON_PER_DAY);
+      // Links stay out of the per-address count invitations and the waitlist email share.
+      const used = await g.rateLimits.count(notifyAddressDayKey(DEV_PLATFORM_MAIL_SECRET, p.email), 86_400_000, Date.now());
+      expect(used).toBe(0);
+      const q = await person();
+      await repos.channels.suppressEverywhere(g.db, { emailHash: suppressionHashOfEmail(q.email), reason: "asked for no email", source: "invitation_link" });
+      expect((await ask(link(q.userId), "api")).body.reason).toBe("suppressed");
+      expect(sentTo(q.email)).toHaveLength(0);
+    });
+
+    it("is off until platform mail is configured, and never simulated on staging", async () => {
+      const p = await person();
+      g.deps.platformMail = config({ domain: null });
+      expect((await ask(link(p.userId), "api")).body.reason).toBe("off");
+      g.deps.appEnv = "staging";
+      try {
+        g.deps.platformMail = config({ signingSecret: "s".repeat(64), appUrl: "https://foundmill.test", unsubscribeBase: "https://in.foundmill.test" });
+        expect((await ask(link(p.userId), "api")).body.reason).toBe("simulated");
+      } finally {
+        g.deps.appEnv = "test";
+      }
+      expect(sentTo(p.email)).toHaveLength(0);
+    });
+  });
+
   it("is never simulated on staging", async () => {
     const e = await entry();
     g.deps.appEnv = "staging";

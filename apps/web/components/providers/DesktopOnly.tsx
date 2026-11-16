@@ -15,6 +15,8 @@
 import { createContext, useContext, useLayoutEffect, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { NeedsLargerWindow, isViewportTooSmall, useViewportWidth } from "@foundmill/dugout";
+import { isPublicPath } from "@/lib/auth/redirects";
+import { ContinueLater } from "./ContinueLater";
 
 /**
  * The routes that work from 390 px and never show NeedsLargerWindow. The one list to grow as the outer product gains
@@ -85,8 +87,10 @@ export function DesktopOnly({ children }: { children: ReactNode }) {
   const [allowed, setAllowed] = useState(false);
   // At the native app's launch (CLAUDE.md "Never", small screens), a signed-in small screen is sent to the store: one
   // branch here on `publicEnv().storeLinks` (lib/env.ts), the same value every "Get the app" prompt reads. Not built yet.
+  // The note carries its exits (WP-03 T3): Email me a link (or Copy link) and one way back. Every route the proxy does
+  // not serve signed out (`isPublicPath`) is a signed-in one: the proxy sends a signed-out visitor to sign in first.
   if (!allowed && !worksOnSmallScreens(pathname) && isViewportTooSmall(width))
-    return <NeedsLargerWindow width={width} />;
+    return <NeedsLargerWindow width={width} actions={<ContinueLater pathname={pathname ?? "/"} signedIn={!isPublicPath(pathname ?? "/")} />} />;
   return <SmallScreenAllowance.Provider value={setAllowed}>{children}</SmallScreenAllowance.Provider>;
 }
 

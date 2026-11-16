@@ -6,6 +6,7 @@ import { GuidanceProvider } from "../guidance/GuidanceProvider";
 import { SAMPLE_LOGOS } from "../foundation/logo-samples";
 import { kitBarGradient, kitStyle } from "./KitBar";
 import { kitRamp } from "../../lib/colour";
+import { NEEDS_LARGER_WINDOW_WORDS } from "./NeedsLargerWindow";
 import { FIXTURE_TODAY, NORTHWIND_KIT, NORTHWIND_SEGMENTS, NORTHWIND_SIDEBAR, PALETTE_ITEMS } from "./fixtures";
 
 beforeAll(() => {
@@ -35,8 +36,8 @@ describe("AppShell", () => {
   it("renders NeedsLargerWindow only, below 1280 px", () => {
     render(<AppShell {...shellProps({ viewportWidth: 1279 })} />);
     expect(screen.getByTestId("needs-larger-window")).toBeTruthy();
-    expect(screen.getByText("This needs a larger window")).toBeTruthy();
-    expect(screen.getByText("1279 px")).toBeTruthy();
+    // The note's own words (WP-03 T3: no pixel line by default; NeedsLargerWindow.test.tsx).
+    expect(screen.getByText(NEEDS_LARGER_WINDOW_WORDS.title)).toBeTruthy();
     // No mark of any kind (the FM monogram is reserved for the favicon): the only image is the Lucide monitor glyph.
     const svgs = [...screen.getByTestId("needs-larger-window").querySelectorAll("svg")];
     expect(svgs.every((svg) => svg.classList.contains("lucide"))).toBe(true);

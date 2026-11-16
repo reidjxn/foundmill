@@ -28,6 +28,7 @@ vi.mock("@/lib/trpc-react", () => ({
         }),
       },
     },
+    founder: { email: { sendLink: { mutationOptions: (opts: Record<string, unknown> = {}) => ({ mutationFn: async () => ({ sent: false, reason: "off", email: null }), ...opts }) } } },
     live: {
       summary: {
         queryOptions: (_input: unknown, opts: Record<string, unknown> = {}) => ({
@@ -170,6 +171,18 @@ describe("PersonHome (package 2.4)", () => {
     renderHome({ liveMode: false });
     expect(screen.queryByTestId("needs-larger-window")).toBeNull();
     expect(screen.getByTestId("studio-frame").dataset.smallScreen).toBe("true");
-    expect(screen.getByTestId("home-start-link")).toBeTruthy();
+    // WP-03 T3 (a stopgap WP-04 removes): Start something offers the link by email instead of linking into the studio.
+    expect(screen.getByTestId("next-step-on-computer").dataset.path).toBe("/new");
+    expect(screen.queryByTestId("home-start-link")).toBeNull();
+  });
+
+  it("at 390 px links nowhere desktop-only: not the studio, not Commit, not the concept list (WP-03 T3)", async () => {
+    ideas.mockResolvedValue({ items: [{ id: "i1", title: "Plant subscription", pitch: "Plants", current: null }], nextCursor: "c" });
+    setWidth(390);
+    const { container } = renderHome({ liveMode: false });
+    await waitFor(() => expect(screen.getByTestId("home-concepts")).toBeTruthy());
+    const hrefs = [...container.querySelectorAll("a")].map((a) => a.getAttribute("href") ?? "");
+    expect(hrefs.filter((h) => h === "/new" || h.startsWith("/new/"))).toEqual([]);
+    expect(screen.getAllByRole("button", { name: "Email me a link" }).length).toBe(2);
   });
 });

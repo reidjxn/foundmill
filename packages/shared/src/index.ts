@@ -17,6 +17,7 @@ export * from "./allowlist";
 export * from "./people";
 export * from "./showcase";
 export * from "./people-email";
+export * from "./continue-path";
 export * from "./founder-notices";
 export * from "./shortcuts";
 export * from "./areas";

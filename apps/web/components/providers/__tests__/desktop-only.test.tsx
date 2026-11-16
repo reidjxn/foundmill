@@ -8,6 +8,8 @@ import { DesktopOnly, SMALL_SCREEN_PREFIXES, WorksOnSmallScreens, worksOnSmallSc
 
 let pathname = "/b/x/today";
 vi.mock("next/navigation", () => ({ usePathname: () => pathname }));
+// The note's controls have their own test (continue-later.test.tsx), with the providers they need.
+vi.mock("../ContinueLater", () => ({ ContinueLater: ({ pathname: p, signedIn }: { pathname: string; signedIn: boolean }) => <p data-testid="continue-later" data-path={p} data-signed-in={String(signedIn)} /> }));
 
 function setWidth(width: number) {
   Object.defineProperty(window, "innerWidth", { value: width, configurable: true });
@@ -34,7 +36,9 @@ describe("desktop only (audit PAS-4: a phone rendered a 390 px slice of a 1280 p
         <p>Sign in</p>
       </DesktopOnly>,
     );
-    expect(screen.getByTestId("needs-larger-window").textContent).toContain("390 px");
+    // WP-03 T3: no pixels for a person on a phone; the note carries its exits for this path.
+    expect(screen.getByTestId("needs-larger-window").textContent).not.toContain("390 px");
+    expect(screen.getByTestId("continue-later").dataset).toMatchObject({ path: "/b/x/today", signedIn: "true" });
     expect(screen.queryByText("Sign in")).toBeNull();
   });
 

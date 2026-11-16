@@ -137,7 +137,7 @@ The api admits them on their next request and the sweep emails them within 15 mi
 **Done when:** Done-when 2, proven once by the Desktop session with the founder's own second address.
 **Needs setup:** WP-00 S1 and S2 recorded done before the Desktop session sets `WAITLIST_ADMIT_PER_DAY` above 0 or admits anyone by hand with the email expected. Until then the gateway answers `off` or `simulated`, entries stay un-notified, and the sweep retries.
 
-### T3: The wall has exits [M] [ships alone, after T2]
+### [x] T3: The wall has exits [M] [ships alone, after T2]
 
 **Why:** FR-03 (fixes 4 and 5), A9-P0-2 (item 2), A2-01 (items 1 and 3), s2 §4.4 row "A desktop-only screen on a phone".
 
@@ -441,7 +441,7 @@ Facts:
 
 **Done when:** Done-when 7. Opening itself also waits on WP-09's per-account ceiling and Decision 4.
 
-### [x] T9: The store-links value and its first readers [S] [ships alone] (the value and `GetTheApp` built; the landing footer built on claude/wp03-t7-stall-guard; `ContinueLater` waits on T3)
+### [x] T9: The store-links value and its first readers [S] [ships alone] (the value and `GetTheApp` built; the landing footer built on claude/wp03-t7-stall-guard; `ContinueLater` reads it since T3)
 
 **Why:** A2-02, A9-P2-1; CLAUDE.md "through one config value for the store links (unset until launch)".
 

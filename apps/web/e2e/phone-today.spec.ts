@@ -132,12 +132,26 @@ test.describe("Today and Needs you on a phone", () => {
     expect(await shortTargets(page), "every link and button on a decision is at least 44 px high").toEqual([]);
   });
 
-  test("another project route at 390 px still asks for a larger window", async ({ page }) => {
+  test("another project route at 390 px shows the note with Email me a link and Back to Today, and Back to Today works", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await openBusiness(page, "today");
     await page.goto(`/b/${bid}/crm`);
-    await expect(page.getByTestId("needs-larger-window")).toBeVisible({ timeout: LONG });
+    const note = page.getByTestId("needs-larger-window");
+    await expect(note).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("phone-bar")).toHaveCount(0);
+    await expect(note.getByRole("heading", { name: "This part is built for a bigger screen" })).toBeVisible();
+    await expect(note).not.toContainText("390 px");
+    // WP-03 T3: never a dead end. No email goes from this stack (no gateway runs, or its mail is only simulated), and the
+    // note says so instead of "Sent", with Copy link.
+    await note.getByRole("button", { name: "Email me a link" }).click();
+    await expect(note.getByTestId("continue-later-not-sent")).toBeVisible({ timeout: LONG });
+    await expect(note).not.toContainText("Sent.");
+    await expect(note.getByRole("button", { name: "Copy link" })).toBeVisible();
+    expect(await shortTargets(page), "every control on the note is at least 44 px high").toEqual([]);
+    expect(await overflow(page)).toBeLessThanOrEqual(0);
+    await note.getByRole("link", { name: "Back to Today" }).click();
+    await expect(page).toHaveURL(new RegExp(`/b/${bid}/today$`));
+    await expect(page.getByTestId("today-screen")).toBeVisible({ timeout: LONG });
   });
 
   test("Today at 1280 px is the desktop layout: sidebar, no menu button, two columns", async ({ page }) => {
