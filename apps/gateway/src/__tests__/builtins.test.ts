@@ -163,8 +163,11 @@ describe("platform tools on the real database (INTEGRATIONS_MODE=mock)", () => {
     expect(business.name).toBe("Northwind Skincare");
     expect(business.team.map((a) => a.id).sort()).toEqual([lead.agentId, worker.agentId].sort());
     await repos.channels.addSuppression(db, lead.businessId, { emailHash: hashRecipient("email", "Opted.Out@customer.example"), reason: "unsubscribed" });
-    expect(data(await client.call(token, { connector: "platform", tool: "check_contact", args: { email: "opted.out@customer.example" } }))).toEqual({ email: "opted.out@customer.example", contactable: false });
-    expect(data(await client.call(token, { connector: "platform", tool: "check_contact", args: { email: "hello@customer.example" } }))).toEqual({ email: "hello@customer.example", contactable: true });
+    expect(data(await client.call(token, { connector: "platform", tool: "check_contact", args: { email: "opted.out@customer.example" } }))).toEqual({ email: "opted.out@customer.example", contactable: false, basis: "none" });
+    // An address nobody recorded has no basis (WP-08 T10); one the founder added is contactable, on that basis.
+    expect(data(await client.call(token, { connector: "platform", tool: "check_contact", args: { email: "hello@customer.example" } }))).toEqual({ email: "hello@customer.example", contactable: false, basis: "none" });
+    await repos.entities.create(db, lead.businessId, { kind: "person", displayName: "Hello Customer", identifiers: { email: "hello@customer.example" }, source: "user", lawfulBasis: "legitimate_interest" });
+    expect(data(await client.call(token, { connector: "platform", tool: "check_contact", args: { email: "hello@customer.example" } }))).toEqual({ email: "hello@customer.example", contactable: true, basis: "recorded" });
   });
 });
 

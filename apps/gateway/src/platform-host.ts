@@ -15,6 +15,7 @@ import { attachAddedSkills, repos, resolveLibrarySkill, resolveSkillFile, skillL
 import { acceptanceLines, acceptanceRefusal, PlatformToolError, type PlatformCaller, type PlatformHost, type TaskSummaryT } from "@foundmill/connectors";
 import { writeGatewayEvent } from "./events";
 import { hashRecipient } from "./recipients";
+import { recipientBasis } from "./recipient-basis";
 import type { GatewayLogger } from "./pipeline";
 import { AUDIT_ACTION_TOOL_CALL, safeError } from "./pipeline";
 
@@ -309,7 +310,9 @@ export function createDbPlatformHost({ db, log, now = () => new Date(), reposito
     },
     async checkContact(caller, { email }) {
       const suppressed = await repos.channels.isSuppressed(db, caller.businessId, { emailHash: hashRecipient("email", email) });
-      return { email, contactable: !suppressed };
+      // The same basis the gateway checks at send time (WP-08 T10): nobody is contactable without one.
+      const basis = await recipientBasis(db, caller.businessId, email, new Date());
+      return { email, contactable: !suppressed && basis !== "none", basis };
     },
     async readProduct(caller, { maxChars }) {
       const [blocks, roadmap, sources] = await Promise.all([repos.product.listBlocks(db, caller.businessId), repos.product.listRoadmap(db, caller.businessId), repos.product.listSources(db, caller.businessId, { limit: 50 })]);

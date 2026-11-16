@@ -40,6 +40,7 @@ export * from "./founder-context";
 export * from "./personas";
 export * from "./channel-availability";
 export * from "./platform-mail";
+export * from "./recipient-basis";
 export * from "./sites";
 export * from "./indexnow";
 export * from "./notify-email";
