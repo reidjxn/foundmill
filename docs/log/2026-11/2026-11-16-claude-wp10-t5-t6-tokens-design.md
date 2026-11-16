@@ -35,7 +35,9 @@ rating rule; §10 two more engine → founder rows.
 ## Decisions
 - Rules for pieces not built yet (T1 by-stage tabs, T2 top bar, T3 `EXPLAINERS`, T8 `SkillCard`, T9 `RatingKey` and
   the source line) are written in DESIGN.md as rules and each says "not yet in the code", so no line describes the
-  product falsely. Decision 5 (a figure without Builder view) and 6 (streak days) are not written as decided.
+  product falsely. Decisions 5 (a rating's figure shows with Builder view off) and 6 (the streak shows only days
+  opened) were answered by the founder on Nov 16, 2026, relayed by the plan-execution session, and are written as decided
+  in §9 and §8 Guidance, each marked as not built (T9, WP-04 T7).
 - §8 Guidance: the package asked to replace `NextStep` with what WP-04 shipped on Today. WP-04 is still building, so
   the new line names what Today has now (`FirstWeekTimeline`, `GoalPanel`, `NeedsYouList`, `WeekPlan`,
   `StreakStrip`) and leaves the `NextStep` and checklist entries, which still render on Details.
