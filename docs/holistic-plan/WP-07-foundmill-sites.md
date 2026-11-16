@@ -118,7 +118,7 @@ Before (`archetypes.ts:455`): "At least 20 suppliers recorded as CRM entities". 
 
 ### T3: A site session starts from the latest release and ends in a release   [L] [ships alone] [needs go-ahead A] [after every WP-05 task on `session.ts`]
 
-- [ ] done
+- [x] done
 
 **Why:** A4-02 ("Do not patch per-task restore"), A4-03, A4-14; §8 item 2; a3a §1.4 ("After the SDK ends"), §1.6.
 
@@ -274,7 +274,7 @@ Before (`archetypes.ts:455`): "At least 20 suppliers recorded as CRM entities". 
 
 ### T9: The Planner builds for a site; first builds; the demo task   [M] [ships alone] [needs go-ahead A] [after WP-05's Planner task and T3]
 
-- [ ] done
+- [x] done
 
 **Why:** §8 item 8; A4-14; A4-18; A4-07 ("For services: replace `firstBuild`").
 

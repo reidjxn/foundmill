@@ -22,21 +22,29 @@ export const PLANNER_TOOL_RULE =
 export const PLANNER_NO_DESTINATION_RULE =
   'When destination is "none" there is nowhere for code to go live yet: plan no task of kind code; plan the research, writing and decisions that move the goal, and say in one task\'s goal that building starts once the project has a place to publish.';
 
+/** The rule for a project whose code lands on its Foundmill site (WP-07 T9). */
+export const PLANNER_SITE_RULE =
+  'When destination is "site" the project has a static site the platform hosts. Plan code tasks only for pages of that site: HTML and CSS, a sign-up form, pay buttons. Worker types: frontend_engineer, docs_writer. Anything that needs a server, a database or sign-in is not possible yet: plan no task for it, and say once, in the goal of the task closest to it, that it is not possible on the site yet.';
+
 /**
  * The system prompt of every Planner call that writes tasks (`TaskGraphOutput`): the api's `planTaskGraph` (the Plan
  * screen's "Plan something sooner", the sign-off's first build) and the business cycle's roadmap planning share it, so
  * a task planned by the cycle reads like one planned on request.
  */
-export const PLANNER_SYSTEM_PROMPT = `You are the Planner. Break the work into tasks with goals, acceptance criteria, test expectations, file-scope hints and the dependencies between them. ${PLANNER_TOOL_RULE} ${PLANNER_NO_DESTINATION_RULE} ${HOUSE_STYLE}`;
+export const PLANNER_SYSTEM_PROMPT = `You are the Planner. Break the work into tasks with goals, acceptance criteria, test expectations, file-scope hints and the dependencies between them. ${PLANNER_TOOL_RULE} ${PLANNER_NO_DESTINATION_RULE} ${PLANNER_SITE_RULE} ${HOUSE_STYLE}`;
 
-/** Where a planned code task can land: `github` with a chosen repository that pushing is on for, else `none`. `site` is WP-07's. */
-export type PlannerDestination = "none" | "github";
+/**
+ * Where a planned code task can land: `github` with a chosen repository that pushing is on for; `site` for a project with
+ * no repository where Foundmill Sites is on (WP-07 T9); else `none`.
+ */
+export type PlannerDestination = "none" | "github" | "site";
 
 /** How much of the specification's text one Planner call carries, in characters across all sections (Estimate). */
 export const PLANNER_SPEC_TEXT_BUDGET = 6_000;
 
-export function plannerDestination(repository: { writeEnabled: boolean } | null): PlannerDestination {
-  return repository?.writeEnabled ? "github" : "none";
+export function plannerDestination(repository: { writeEnabled: boolean } | null, options: { sites?: boolean } = {}): PlannerDestination {
+  if (repository?.writeEnabled) return "github";
+  return repository === null && options.sites ? "site" : "none";
 }
 
 /** The specification as the Planner reads it: one entry per section, in the order given, its blocks' text joined by lines. */

@@ -9,10 +9,11 @@
  *   (`sites_reader`) may execute.
  */
 import { createHash, randomBytes } from "node:crypto";
-import { and, count, desc, eq, gte, ne, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
-import { auditLog, siteReleases, sites, type Site, type SiteRelease, type SiteScreening } from "../schema";
-import { SITE_TAB } from "@foundmill/shared/sites";
+import { auditLog, inboxItems, siteReleases, sites, type InboxItem, type Site, type SiteRelease, type SiteScreening } from "../schema";
+import { SITE_READY_NOTE, SITE_TAB } from "@foundmill/shared/sites";
+import { inboxRepo } from "./inbox";
 import { departmentsRepo } from "./departments";
 import { screensRepo } from "./screens";
 import { Id, maybeOne, parseInput, rowsOf, type Executor } from "./_shared";
@@ -201,6 +202,53 @@ export const sitesRepo = {
   /** Serializes the publishes of one business inside the caller's transaction (the daily limit counts under it). */
   async lockPublishes(tx: Executor, businessId: string): Promise<void> {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext('site_publish'), hashtext(${businessId}))`);
+  },
+
+  /** The open "Your site is ready to look at" note (unread or read), else null. */
+  async openReadyNote(db: Executor, businessId: string): Promise<InboxItem | null> {
+    return maybeOne(
+      await db
+        .select()
+        .from(inboxItems)
+        .where(and(eq(inboxItems.businessId, businessId), inArray(inboxItems.state, ["unread", "read"]), sql`${inboxItems.decision}->>'key' = ${SITE_READY_NOTE.key}`))
+        .orderBy(desc(inboxItems.createdAt))
+        .limit(1),
+    );
+  },
+
+  /**
+   * The Product lead's note for a new preview, from the agent that made it: written only when no note is open and no
+   * publish happened since the last note (one note per round of looking, never one per version).
+   */
+  async writeReadyNote(db: Executor, businessId: string, input: { agentId: string; agentName: string; previewUrl: string }): Promise<InboxItem | null> {
+    if (await sitesRepo.openReadyNote(db, businessId)) return null;
+    const [last] = await db.select({ at: inboxItems.createdAt }).from(inboxItems).where(and(eq(inboxItems.businessId, businessId), sql`${inboxItems.decision}->>'key' = ${SITE_READY_NOTE.key}`)).orderBy(desc(inboxItems.createdAt)).limit(1);
+    if (last) {
+      const [published] = await db.select({ n: count() }).from(siteReleases).where(and(eq(siteReleases.businessId, businessId), gte(siteReleases.publishedAt, last.at)));
+      if (Number(published?.n ?? 0) === 0) return null;
+    }
+    return inboxRepo.createItem(db, businessId, {
+      type: "decision",
+      from_agent_id: input.agentId,
+      subject: SITE_READY_NOTE.subject,
+      body_md: SITE_READY_NOTE.body(input.agentName, input.previewUrl),
+      status_strip: [],
+      exhibit: { kind: "none", spec_ref: null },
+      decision: {
+        options: [
+          { id: SITE_READY_NOTE.options.publish, label: SITE_READY_NOTE.publishLabel, recommended: true, consequence: "The newest version of your site goes live at its address.", cost_minor: 0, reversible: true },
+          { id: SITE_READY_NOTE.options.later, label: SITE_READY_NOTE.laterLabel, recommended: false, consequence: "Nothing is public. You can publish from the Site tab any time.", cost_minor: 0, reversible: true },
+        ], free_text: false, expires_at: null, key: SITE_READY_NOTE.key },
+      blocks_continue: false,
+      source_event_ids: [],
+      entity_ids: [],
+    });
+  },
+
+  /** Publishing answers the note (the founder did what it asked). */
+  async closeReadyNote(db: Executor, businessId: string, userId: string | null): Promise<void> {
+    const open = await sitesRepo.openReadyNote(db, businessId);
+    if (open) await inboxRepo.decide(db, businessId, open.id, { chosenOption: SITE_READY_NOTE.options.publish, decidedByKind: "user", decidedBy: userId });
   },
 
   /** The business's releases, newest first. */

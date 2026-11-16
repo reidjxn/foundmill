@@ -8,6 +8,7 @@
  * tried again next cycle. Idempotent: an item that has tasks by the time it is reached (a retried activity, the
  * founder's own "Plan something sooner" meanwhile) is skipped, under the same per-business planning lock the api takes.
  */
+import { isSiteProject } from "./site-workspace";
 import { buildPlannerRequest, dropPlatformDuties, PLANNER_SYSTEM_PROMPT, plannerDestination, plannerSpecSections, plannerWorkerTypes } from "@foundmill/agents";
 import { LIMITS } from "@foundmill/config";
 import { repos, roadmapItemDepartmentId } from "@foundmill/db";
@@ -53,7 +54,7 @@ export function createRoadmapPlanActivities(deps: OrchestratorDeps) {
       const result: RoadmapPlanResult = { planned: [], failed: [], skipped: null, costMinor: 0 };
       // What the Planner reads (WP-05 T5): the specification's text, the team it plans for and whether code can land.
       const sections = plannerSpecSections(await repos.product.listBlocks(deps.db, businessId));
-      const destination = plannerDestination(await repos.integrations.codeRepository(deps.db, businessId));
+      const destination = plannerDestination(await repos.integrations.codeRepository(deps.db, businessId), { sites: await isSiteProject(deps.db, deps.env, businessId) });
       const workerTypes = plannerWorkerTypes((await repos.agents.list(deps.db, businessId, { limit: 500 })).items);
       for (const r of items) {
         try {
