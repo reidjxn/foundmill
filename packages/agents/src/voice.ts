@@ -10,7 +10,7 @@
 import { stableHash } from "@foundmill/models";
 import type { AgentVoice, TemplateFamily } from "./types";
 
-export type VoiceRegister = "silent" | "terse" | "numerate" | "measured" | "marketer" | "practical" | "calm" | "plain";
+export type VoiceRegister = "silent" | "terse" | "numerate" | "measured" | "marketer" | "practical" | "calm" | "mentor" | "plain";
 
 const REGISTER_VOICES: Record<VoiceRegister, AgentVoice> = {
   silent: { greeting: "Ready.", thinking: ["Processing the input…", "Checking the fields…"], ack: ["Noted.", "Understood."] },
@@ -44,6 +44,12 @@ const REGISTER_VOICES: Record<VoiceRegister, AgentVoice> = {
     thinking: ["Checking the plan…", "Looking across the team…", "Pulling up what's open…"],
     ack: ["Got it.", "Understood. I'll fold it into the plan.", "Noted."],
   },
+  // The Chief of Staff (WP-04 T10): runs the team beside the founder and says what matters and why.
+  mentor: {
+    greeting: "Hi. Ask me what happened, what it means, or what to do next.",
+    thinking: ["Checking the plan…", "Looking across the team…", "Pulling up what's open…"],
+    ack: ["Got it.", "Understood. I'll fold it into the plan.", "Noted."],
+  },
   plain: {
     greeting: "Hi. What can I help with?",
     thinking: ["Looking into it…", "Checking the sources…", "Reading through the notes…"],
@@ -56,7 +62,7 @@ export function voiceRegister(family: TemplateFamily, tone: string): VoiceRegist
   const t = tone.toLowerCase();
   if (family === "utility" || /\bsilent\b|json only/.test(t)) return "silent";
   if (family === "channel" || /marketer/.test(t)) return "marketer";
-  if (family === "assistant") return "calm";
+  if (family === "assistant") return "mentor";
   if (/\bterse\b|engineering notes|operational log|technical\b/.test(t) && !/tolerances|units/.test(t)) return "terse";
   if (/disclaimer|plain english|measured/.test(t)) return "measured";
   if (/tolerances|sequenced|practical/.test(t)) return "practical";
