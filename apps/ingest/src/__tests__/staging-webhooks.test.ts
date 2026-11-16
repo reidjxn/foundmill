@@ -7,6 +7,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { repos } from "@foundmill/db";
+import { buildAad, encryptJson, generateMasterKey, LocalVault } from "@foundmill/shared/crypto";
 import { createDefaultRegistry, MOCK_NOW, sendgridInboundParseRequest, signedGithubDeliveryRequest, signedShopifyRequest, signedStripeRequest } from "@foundmill/connectors";
 import { MOCK_INSTALLATION_ID } from "@foundmill/connectors/connectors/github/fixtures/repos";
 import { mergedPullRequestPayload } from "@foundmill/connectors/connectors/github/mock";
@@ -14,6 +15,7 @@ import { SH_ORDERS } from "@foundmill/connectors/connectors/shopify/fixtures/sho
 import { ST_INVOICES } from "@foundmill/connectors/connectors/stripe/fixtures/stripe";
 import { stripeEvent } from "@foundmill/connectors/connectors/stripe/mock";
 import type { BuiltIngest } from "../index";
+import { createBusinessSecretResolver } from "../secrets";
 import { accountMismatch } from "../webhooks";
 import { createIngestHarness, json, simulateToken, type IngestHarness } from "./harness";
 
@@ -114,6 +116,34 @@ describe("a delivery belongs to the account the business connected (accountMisma
     expect(await accountMismatch(hz, own, "stripe", "acct_A")).toMatch(/another Stripe account/);
     // No endpoint secret stored for this business: the delivery can only have passed on the platform's secret.
     expect(await accountMismatch(hz, own, "stripe", null)).toMatch(/no endpoint secret of its own/);
+  });
+});
+
+describe("a founder's own Stripe account in staging (WP-11 T20)", () => {
+  const HOOK = "whsec_founder_own_endpoint_secret_0123456789";
+  it("writes a payment signed with the project's stored endpoint secret, for that project only", async () => {
+    const vault = new LocalVault(generateMasterKey());
+    // The registry with ingest's own per-project secret resolver (apps/ingest secrets.ts) over this vault.
+    const registry = createDefaultRegistry({ now: () => MOCK_NOW, secrets: {}, getBusinessSecret: createBusinessSecretResolver(hz.db, vault) });
+    const live = hz.build({ env: { APP_ENV: "staging", INTEGRATIONS_MODE: "mock", LIVE_CONNECTORS: "stripe", MODEL_MODE: "mock" } as BuiltIngest["env"], registry, vault });
+    // What the gateway's connect stores (apps/gateway integrations.ts): the integration, then the secret sealed under the
+    // AAD bound to its own credential row.
+    const integration = await repos.integrations.upsert(hz.db, hz.A.businessId, { connectorKey: "stripe", status: "connected", authKind: "api_key", settings: { externalAccountId: "acct_own_A", config: { kind: "own" } } });
+    const meta = await repos.credentials.store(hz.db, hz.A.businessId, { integrationId: integration.id, kind: "stripe_webhook_secret", record: await encryptJson(vault, { secret: HOOK }, buildAad(hz.A.businessId, "credentials", "provisional")), expiresAt: null });
+    await repos.credentials.rotate(hz.db, hz.A.businessId, meta.id, await encryptJson(vault, { secret: HOOK }, buildAad(hz.A.businessId, "credentials", meta.id)));
+
+    const before = (await hz.events(hz.A.businessId, "payment.received")).length;
+    // An event from the founder's own endpoint names no `account` (only a Connect event does).
+    const event = (id: string) => ({ ...stripeEvent("invoice.paid", { ...ST_INVOICES[1]! }, id), account: undefined });
+    const forged = await send(live, signedStripeRequest(hz.A.businessId, event("evt_own_forged"), { secret: "whsec_someone_else_entirely_0000" }));
+    expect(forged.status).toBe(401);
+    const accepted = await send(live, signedStripeRequest(hz.A.businessId, event("evt_own_1"), { secret: HOOK }));
+    expect(accepted.status).toBe(200);
+    expect((await hz.events(hz.A.businessId, "payment.received")).length).toBe(before + 1);
+    // The same delivery sent to another project's address is not that project's.
+    const elsewhere = await send(live, signedStripeRequest(hz.B.businessId, event("evt_own_2"), { secret: HOOK }));
+    expect(elsewhere.status).toBeGreaterThanOrEqual(400);
+    expect(await hz.events(hz.B.businessId, "payment.received")).toHaveLength(0);
   });
 });
 

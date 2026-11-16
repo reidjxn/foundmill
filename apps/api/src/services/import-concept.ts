@@ -148,7 +148,7 @@ async function finishedImport(deps: ImportConceptDeps, jobId: string, userId: st
 
 async function draftConcept(deps: ImportConceptDeps, userId: string, report: ScoutingReport, signal?: AbortSignal): Promise<DraftedConcept> {
   const brief = importConceptBrief(report, await founderBrief(deps.db, userId));
-  const res = await deps.models.complete({ ...buildSingleConceptRequest(brief), signal, scope: `ideation:${userId}`, attribution: { kind: "ideation" } });
+  const res = await deps.models.complete({ ...buildSingleConceptRequest(brief), signal, scope: `ideation:${userId}`, attribution: { kind: "ideation", userId } });
   return { card: res.json, costMinor: res.cost.costMinorInt, mode: res.mode };
 }
 

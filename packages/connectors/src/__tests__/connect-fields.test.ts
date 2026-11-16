@@ -20,7 +20,7 @@ describe("connect fields for API-key connectors", () => {
     const registry = createDefaultRegistry({ secrets: {} });
     for (const mode of ["mock", "live"] as const) {
       const fields = Object.fromEntries(registry.catalogue(mode).map((c) => [c.key, c.connectFields.map((f) => `${f.name}${f.secret ? "*" : ""}${f.required ? "!" : ""}`)]));
-      expect(fields).toMatchObject({ sendgrid: ["apiKey*!"], dropbox_sign: ["apiKey*!"], cloudflare_dns: ["apiToken*!"], stripe: ["apiKey*!"], gmail: [], github: [] });
+      expect(fields).toMatchObject({ sendgrid: ["apiKey*!"], dropbox_sign: ["apiKey*!"], cloudflare_dns: ["apiToken*!"], stripe: ["apiKey*!", "webhookSecret*"], gmail: [], github: [] });
     }
   });
 

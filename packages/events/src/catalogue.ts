@@ -1752,6 +1752,53 @@ const PageFacts = z.object({
   url: z.string().url().max(2048),
 });
 
+/**
+ * Foundmill Sites (WP-07): a project's static site, served by apps/sites at `<slug>.<SITES_DOMAIN>`. A release is the
+ * whole site as one session left it; `preview` can be opened at its preview address and published by the founder,
+ * `held` failed the platform's screening and is never served. Previews and releases also emit `deploy.succeeded` with
+ * `provider: "foundmill"` and the release's content hash as `commitSha`.
+ */
+const SiteSlug = z.string().min(3).max(40);
+const siteReleaseCreated = declareEvent(
+  "site.release_created",
+  z.object({
+    siteId: Id,
+    releaseId: Id,
+    number: Count,
+    /** The code task whose session made it; null for a release made outside a task. */
+    taskId: Id.nullable(),
+    fileCount: Count,
+    totalBytes: Count,
+    state: z.enum(["preview", "held"]),
+    /** The preview address; null for a held release, which is never served. */
+    previewUrl: z.url().max(2048).nullable(),
+  }),
+  {
+    doc: "The team saved a new version of the project's site. A `preview` release can be opened at `previewUrl` (never indexed) and waits for the founder to publish it; a `held` one failed screening and the next round of work fixes it. Nothing is public yet, so it is not an outside result.",
+    consumers: ["stream", "composer"],
+  },
+);
+
+const sitePublished = declareEvent(
+  "site.published",
+  z.object({ siteId: Id, releaseId: Id, number: Count, slug: SiteSlug, url: z.url().max(2048) }),
+  {
+    doc: "A founder published a release of the project's site: from this moment anyone can open `url`. A real outside result, like `page.published` (the north star counts it). The founder did it themselves, so it is never narrated; apps/stream pushes it so the Site tab follows.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+const siteUnpublished = declareEvent(
+  "site.unpublished",
+  z.object({ siteId: Id, slug: SiteSlug, url: z.url().max(2048), by: z.enum(["founder", "platform"]) }),
+  {
+    doc: "The project's site stopped answering at `url`: the founder took it down (`founder`) or the platform did (`platform`, a takedown). The releases are kept. Never narrated.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
 // Team call (docs/TEAM_CALL.md §5): a spoken call between the founder and their team of agents, or one agent.
 const teamCallStarted = declareEvent(
   "team_call.started",
@@ -2320,6 +2367,9 @@ export const EVENTS = {
   "team_call.ended": teamCallEnded,
   "page.unpublished": pageUnpublished,
   "page.followed": pageFollowed,
+  "site.release_created": siteReleaseCreated,
+  "site.published": sitePublished,
+  "site.unpublished": siteUnpublished,
   "guidance.tour_completed": guidanceTourCompleted,
   "guidance.tour_skipped": guidanceTourSkipped,
   "guidance.explainer_dismissed": guidanceExplainerDismissed,

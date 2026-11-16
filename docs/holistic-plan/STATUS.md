@@ -183,8 +183,8 @@ One row per task of docs/holistic-plan/WP-*.md. Updated before a task starts and
 | WP-12 | T8 | The app prompt on public pages and the universal-link files | not started |  |
 | WP-12 | T9 | The fate of `apps/social` | not started | founder decision or go-ahead (see the package) |
 | WP-13 | T1 | Probe Z.ai's Anthropic-compatible endpoint | done except the SDK run (Nov 16) | the SDK run moves into T4 |
-| WP-13 | T2 | The GLM key, the provider seam and the guard | not started | WP-09 T3 (#225) merges |
-| WP-13 | T3 | Api, composer, gateway readers and the idea box choose by who pays | not started | T2 |
+| WP-13 | T2 | The GLM key, the provider seam and the guard | pull request open (#250) | auto-merge on; CI waiting on Actions billing |
+| WP-13 | T3 | Api, composer, gateway readers and the idea box choose by who pays | built locally | pushed after #250 merges |
 | WP-13 | T4 | Free projects' agent sessions run on GLM | not started | T2; a word from the plan-execution session on `session.ts` |
 | WP-13 | T5 | Free web search through Z.ai's Web Search API | not started | T2 |
 | WP-13 | T6 | The $600 monthly cap, and slowing down at it | not started | T3 |

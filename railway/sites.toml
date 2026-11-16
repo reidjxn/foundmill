@@ -1,0 +1,19 @@
+# Railway config-as-code for sites (Settings → Config-as-code → Railway config file: /railway/sites.toml).
+# The same build (plus its own watch patterns) and teardown as /railway.toml (scripts/railway-config.test.mjs keeps
+# them equal) plus a healthcheck:
+# traffic moves to a new deployment only once GET /health answers 2xx (503 while its database is unavailable).
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+# Redeploy only when its app or a package it imports changes, or the image does (scripts/railway-watch.mjs; #222).
+# The lists that count are in the service settings (Settings, Build, Watch Paths): Railway stops reading this file on
+# Dec 1, 2026, and this copy is kept equal to the script by scripts/railway-config.test.mjs.
+watchPatterns = ["/apps/sites/**", "/packages/agents/**", "/packages/config/**", "/packages/db/**", "/packages/journey/**", "/packages/models/**", "/packages/shared/**", "/patches/**", "/Dockerfile", "/package.json", "/pnpm-lock.yaml", "/pnpm-workspace.yaml", "/.npmrc"]
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
+overlapSeconds = 15
+drainingSeconds = 60

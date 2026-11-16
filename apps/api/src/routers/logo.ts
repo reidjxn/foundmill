@@ -48,7 +48,7 @@ async function runLogoSet(
   ctx: Pick<Context, "models" | "limits">,
   allowance: LogoAllowance,
   brief: LogoBrief,
-  opts: { scope: string; attribution: { businessId?: string; kind: string }; after?: (set: Omit<LogoSet, "remaining"> | null, spend: LogoSpend) => Promise<void> },
+  opts: { scope: string; attribution: { businessId?: string; userId?: string; kind: string }; after?: (set: Omit<LogoSet, "remaining"> | null, spend: LogoSpend) => Promise<void> },
   hooks: SetHooks = {},
 ): Promise<LogoSet> {
   let delivered = 0;
@@ -136,7 +136,7 @@ async function ideaLogoSet(ctx: Context & { userId: string }, input: z.infer<typ
     ctx,
     allowance,
     { businessName: input.name, pitch: idea.current?.pitch ?? idea.pitch, archetype: input.archetype ?? idea.archetype, colours: input.colours, round: input.round },
-    { scope: `logo:user:${ctx.userId}`, attribution: { kind: "logo" } },
+    { scope: `logo:user:${ctx.userId}`, attribution: { kind: "logo", userId: ctx.userId } },
     hooks,
   );
 }

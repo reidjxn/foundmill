@@ -64,7 +64,7 @@ const waitlistShareUrl = (appUrl: string, code: string | null | undefined): stri
 
 export const waitlistRouter = router({
   join: confirmedProcedure
-    // `then: "studio"`: the visitor chose "Shape it in the Ideation Studio"; kept with the card (0124) so admission opens it.
+    // `then: "studio"`: the visitor chose "Shape it in the Ideation Studio"; kept with the card (0126) so admission opens it.
     .input(z.strictObject({ token: IdeaToken.nullish(), via: z.string().max(VIA_MAX_LENGTH).nullish(), then: z.enum(["studio"]).nullish() }))
     .mutation(async ({ ctx, input }) => {
       const now = new Date();

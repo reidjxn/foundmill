@@ -2,7 +2,7 @@
  * Builder for the 15 channel engine agents (BUILD §11.7 channel table). Each channel file supplies the specifics; this
  * composes the description, goals around the channel's core metric, the shared engine-loop rules and the tool grants.
  */
-import { CHANNEL_META, type ChannelKey, type ChannelLine, type EventType } from "@foundmill/shared";
+import { CHANNEL_META, type ChannelKey, type ChannelLine } from "@foundmill/shared";
 import { grant, PLATFORM_BASE_TOOLS, QUARANTINE_TOOLS, type ConnectorKey } from "../../connectors";
 import { type AgentExample, type AgentTemplate, type ToolGrant } from "../../types";
 import { CHANNEL_COMMON_RULES, CHANNEL_SOURCE_RULE, defineTemplate, SAVE_REPORT_RULE, spendingAutonomy, WORKER_COMMON_RULES, WORKER_SOURCE_RULE, withCoreSkills } from "../_shared";
@@ -29,7 +29,6 @@ export interface ChannelTemplateInit {
   kitMode?: boolean;
   /** Extra platform tools (e.g. campaigns.list) beyond the base set; only capabilities a tool serves (packages/connectors grants.ts). */
   platformTools?: string[];
-  triggers?: EventType[];
   neverDoes: string[];
 }
 
@@ -102,7 +101,6 @@ export function defineChannelTemplate(init: ChannelTemplateInit): AgentTemplate 
     tools,
     skills: withCoreSkills(init.craftSkills),
     autonomy: spendingAutonomy(init.spendCapMinor),
-    schedule: { cron: "0 8 * * 1", triggers: init.triggers ?? ["campaign.launched", "channel.threshold_breached", "customer.converted"] },
     neverDoes: init.neverDoes,
   });
 }

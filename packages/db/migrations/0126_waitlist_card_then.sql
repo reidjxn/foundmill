@@ -1,4 +1,4 @@
--- 0124 — where a waitlisted person's kept card goes once they are let in (founder, 2026-11-16): a visitor who chose
+-- 0126 — where a waitlisted person's kept card goes once they are let in (founder, 2026-11-16): a visitor who chose
 -- "Shape it in the Ideation Studio" on the landing page and met the waitlist is taken to the Studio, opened on that card,
 -- on their first sign-in after admission. Null: the card's own page, as before. Set with the held card at
 -- `waitlist.join` and read by `ideaBox.preview`; only `studio` is a value today.

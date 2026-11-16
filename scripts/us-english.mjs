@@ -54,6 +54,7 @@ const EXTRA_ROOTS = [
   "apps/gateway/src",
   "apps/stream/src",
   "apps/ingest/src",
+  "apps/sites/src",
   // Connector tool descriptions and errors reach the Tools tab and agent logs; event docs describe what the founder did.
   "packages/connectors/src",
   "packages/events/src",

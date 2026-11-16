@@ -66,7 +66,7 @@ export function waitlistJoinedLine({ cardKept, email, emails }: { cardKept: bool
 /**
  * The person's place on the waitlist (docs/IDEA_BOX.md): a Server Action keeps the idea box's card with the entry. It
  * runs once on arrival; "Save my place" is shown only to try again after it failed. `emails`: see `waitlistJoinedLine`.
- * `keepThen`: the Studio choice, kept with the card so the first sign-in after admission opens the Studio on it (0124).
+ * `keepThen`: the Studio choice, kept with the card so the first sign-in after admission opens the Studio on it (0126).
  */
 export function WaitlistJoin({ email = null, emails = false, keepThen = null }: { email?: string | null; emails?: boolean; keepThen?: "studio" | null }) {
   const [state, action, pending] = useActionState<WaitlistJoinState, FormData>((prev) => joinWaitlist(prev, keepThen), { status: "idle" });
