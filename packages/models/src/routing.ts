@@ -208,6 +208,9 @@ export const ROUTES = {
   // founder's project (desktop and 390 px) and returns a short ranked list of fixes. The only route that carries images;
   // Opus for taste, at low effort because it runs inside the agent's session, before the acceptance tests.
   designReview: { model: "opus", lowCredits: "keep", effort: "low", vision: true, maxTokens: LOW_EFFORT_MAX_TOKENS },
+  // The gateway's `web.search_web` (WP-09 T3): one server web search (`web_search_20260209`, which the reference lists
+  // for the Fable, Opus and Sonnet models, not Haiku), on the platform key. The request sends its own max_tokens (2,048).
+  webSearch: { model: "sonnet", lowCredits: "keep", effort: "low", maxTokens: LOW_EFFORT_MAX_TOKENS },
 } as const satisfies Record<string, RouteDefinition>;
 export type RouteKey = keyof typeof ROUTES;
 

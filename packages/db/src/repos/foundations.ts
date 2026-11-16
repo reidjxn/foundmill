@@ -11,9 +11,10 @@
  * the api writes it after its membership check, the orchestrator through its service role.
  */
 import { and, eq, inArray, ne, sql } from "drizzle-orm";
-import type { FoundationsDraft, FoundationsInputs, FoundationsNoteStats, FoundationsOutlineEntry, FoundationsProgressAuthor, FoundationsProgressPatch, FoundationsVisionRecord, ImportReportSnapshot } from "@foundmill/agents";
+import { FOUNDATIONS_TEMPLATE_KEY, type FoundationsDraft, type FoundationsInputs, type FoundationsNoteStats, type FoundationsOutlineEntry, type FoundationsProgressAuthor, type FoundationsProgressPatch, type FoundationsVisionRecord, type ImportReportSnapshot } from "@foundmill/agents";
 import { FOUNDATIONS_DOORS, ROADMAP_HORIZONS, ValidationError, type Archetype, type FoundationsRunner, type FoundationsStatus, type RoadmapHorizon } from "@foundmill/shared";
 import { z } from "zod";
+import { resolveAgentPrompt } from "../agent-prompt";
 import { agents, businessFoundations, type BusinessFoundationsRow, type InboxItem, type SpecBlock } from "../schema";
 import { agentsRepo } from "./agents";
 import { auditRepo } from "./audit";
@@ -272,6 +273,8 @@ export const foundationsRepo = {
     const departments = await departmentsRepo.list(db, businessId, { includeHidden: true });
     const productLead = departments.find((d) => (d.moduleKeys as string[]).includes("product"))?.leadAgentId ?? null;
     const authorAgentId = productLead ?? (await agentsRepo.chiefOfStaff(db, businessId))?.id ?? null;
+    // The drafting renders the business's own Product lead: its live instructions and its skills (WP-06 T1).
+    const agent = await resolveAgentPrompt(db, businessId, { templateKey: FOUNDATIONS_TEMPLATE_KEY });
 
     return {
       businessId,
@@ -285,6 +288,7 @@ export const foundationsRepo = {
       importReport: (row?.importReport ?? null) as ImportReportSnapshot | null,
       importedSources,
       authorAgentId,
+      agent,
     };
   },
 

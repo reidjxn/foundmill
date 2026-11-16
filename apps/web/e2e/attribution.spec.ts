@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect, test, type BrowserContext } from "@playwright/test";
-import { confirmAdultOnForm, LONG, signInAs } from "./helpers";
+import { answerFirstProfile, LONG, signInAs } from "./helpers";
 
 /**
  * Attribution on the web (docs/NETWORK.md §5; lib/via.ts, proxy.ts, app/onboarding). Stack and commands: e2e/README.md.
@@ -31,19 +31,12 @@ test.describe("attribution", () => {
     await page.goto("/login?via=p.e2e-someone-else");
     expect((await kept(context))?.value).toBe("u.e2e-referrer");
 
-    // The visitor becomes a person: a new account meets the profile form.
+    // The visitor becomes a person: a new account meets the three questions (WP-04 T1), and confirms it is 18 or older
+    // there, once (0100).
     await signInAs(page, randomUUID(), "/onboarding");
     await expect(page).toHaveURL(/\/onboarding$/, { timeout: LONG });
-    await expect(page.getByTestId("onboarding-form")).toBeVisible({ timeout: LONG });
-    await expect(page.getByTestId("profile-submit")).toHaveText(/^Continue$/);
-    await page.getByLabel(/What the team calls you/).fill("Attribution Founder");
-    await page.getByLabel("First-time founder").check();
-    await page.getByLabel("Full time").check();
-    // A new account confirms it is 18 or older on this form, once (0100).
-    await confirmAdultOnForm(page);
-
     const save = page.waitForRequest((r) => r.method() === "POST" && r.url().includes("founder.profile.update"), { timeout: LONG });
-    await page.getByTestId("profile-submit-bottom").click();
+    await answerFirstProfile(page, "Attribution Founder");
     expect((await save).postData() ?? "").toContain('"via":"u.e2e-referrer"');
 
     // The save went through as it does for anyone, and the cookie is gone.
@@ -54,7 +47,10 @@ test.describe("attribution", () => {
     // Editing the profile afterwards carries no reference, even when a new one has arrived since.
     await page.goto("/onboarding?via=p.e2e-later");
     await expect(page.getByTestId("profile-submit")).toHaveText(/Save and continue/, { timeout: LONG });
-    const edit = page.waitForRequest((r) => r.method() === "POST" && r.url().includes("founder.profile.update"), { timeout: LONG });
+    // The long form asks experience and time, which the three questions do not.
+    await page.getByLabel("First-time founder").check();
+    await page.getByLabel("Full time").check();
+    const edit =page.waitForRequest((r) => r.method() === "POST" && r.url().includes("founder.profile.update"), { timeout: LONG });
     await page.getByTestId("profile-submit-bottom").click();
     expect((await edit).postData() ?? "").not.toContain('"via"');
     await expect(page).toHaveURL(/\/new$/, { timeout: LONG });

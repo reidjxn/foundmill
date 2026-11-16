@@ -49,7 +49,7 @@ import {
   type TeamCallKind,
 } from "@foundmill/shared";
 import { z } from "zod";
-import { buildSystemPrompt, hasClubRulesPrefix } from "../club-rules";
+import { buildSystemPrompt, hasClubRulesPrefix, type AgentSkillPrompt } from "../club-rules";
 import { doneClaimIn } from "../conversation";
 import { inertJson, labelFigures, numbersIn, plainModelText, untrustedBlock } from "../foundations";
 import { chiefOfStaff } from "../templates/chief_of_staff";
@@ -148,8 +148,8 @@ export interface TeamCallTurnInput {
   transcript: readonly TeamCallTranscriptTurn[];
   /** `team_calls.agent_rounds_since_founder` before this round. */
   agentRoundsSinceFounder?: number;
-  /** The Chief of Staff's live instructions (its current version); default the template's. */
-  chiefOfStaff?: { instructions: AgentInstructions; description?: string };
+  /** The Chief of Staff's live instructions (its current version) and skills; default the template's. */
+  chiefOfStaff?: { instructions: AgentInstructions; description?: string; skills?: readonly AgentSkillPrompt[] };
   glossary?: Record<string, string>;
 }
 
@@ -179,7 +179,7 @@ export interface TeamCallWrapUpInput {
   departments?: ReadonlyArray<{ name: string; module: string | null }>;
   /** The roadmap, so a change names the item it changes. */
   roadmap?: ReadonlyArray<{ id: string; title: string; horizon?: RoadmapHorizon | null }>;
-  chiefOfStaff?: { instructions: AgentInstructions; description?: string };
+  chiefOfStaff?: { instructions: AgentInstructions; description?: string; skills?: readonly AgentSkillPrompt[] };
   glossary?: Record<string, string>;
 }
 
@@ -287,10 +287,11 @@ export function teamCallRemit(description: string): string {
   return cutAtSentence(first, 200);
 }
 
-/** The house rules and the Chief of Staff's instructions: the first system block of both calls (cached). */
+/** The house rules and the Chief of Staff's instructions and skills: the first system block of both calls (cached). */
 function teamCallSystem(input: Pick<TeamCallTurnInput, "business" | "appName" | "chiefOfStaff" | "glossary">): string {
-  const template = input.chiefOfStaff ?? { instructions: chiefOfStaff.instructions, description: chiefOfStaff.description };
-  const system = buildSystemPrompt({ businessName: input.business.name, appName: input.appName ?? APP_NAME, template, glossary: input.glossary });
+  const cos = input.chiefOfStaff;
+  const template = cos ? { instructions: cos.instructions, description: cos.description } : { instructions: chiefOfStaff.instructions, description: chiefOfStaff.description };
+  const system = buildSystemPrompt({ businessName: input.business.name, appName: input.appName ?? APP_NAME, template, glossary: input.glossary, ...(cos?.skills?.length ? { skills: cos.skills } : {}) });
   if (!hasClubRulesPrefix(system)) throw new Error("team call system prompt must start with the house rules");
   return system;
 }

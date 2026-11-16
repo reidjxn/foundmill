@@ -218,10 +218,11 @@ test.describe("commit", () => {
     // The sidebar carries the areas over the departments the commit created (each links to a department tab).
     expect(await page.locator("[data-testid=app-shell] nav a[href*='/d/']").count()).toBeGreaterThanOrEqual(1);
     const bid = /\/b\/([0-9a-f-]+)\//.exec(page.url())![1]!;
-    // The Inbox has the Chief of Staff's welcome note (an Update); Continue is not "Respond" for it.
+    // The Inbox has the Chief of Staff's welcome note (an Update), or its note of the day once an agent's update was
+    // folded into it (WP-04 T8: it replaces the welcome); Continue is not "Respond" for it.
     await page.goto(`/b/${bid}/inbox`);
-    await expect(inboxRow(page, "Your team is drafting your page and your plan")).toBeVisible({ timeout: LONG });
-    await inboxRow(page, "Your team is drafting your page and your plan").click();
+    await expect(inboxRow(page, /Your team is drafting your page and your plan|What your team did today/)).toBeVisible({ timeout: LONG });
+    await inboxRow(page, /Your team is drafting your page and your plan|What your team did today/).click();
     await expect(page.getByTestId("inbox-item")).toHaveAttribute("data-type", "update", { timeout: LONG });
     await expect(page.getByTestId("decision-bar")).toHaveCount(0);
     // The spend cap per action chosen on Commit (the Assisted default, 250) is kept on the business, editable in Settings › What the team can do.

@@ -37,7 +37,7 @@ describe("team.skills", () => {
   it("lists the library grouped by category, with the attribute each skill shows as and its instructions", async () => {
     const library = await owner().team.skills.library({ businessId: hz.A.businessId });
     expect(library).toHaveLength(SKILL_LIBRARY.length);
-    expect(new Set(library.map((s) => s.categoryLabel))).toEqual(new Set(["Product", "Engineering", "Marketing", "Sales", "Finance", "Legal", "Operations"]));
+    expect(new Set(library.map((s) => s.categoryLabel))).toEqual(new Set(["Product", "Engineering", "Design", "Marketing", "Sales", "Customers", "Finance", "Legal", "Operations"]));
     expect(library.find((s) => s.key === "newsletter_writing")).toMatchObject({ skillKey: "library_newsletter_writing", attribute: { name: "Newsletter writing", group: "craft" }, instructionsMd: expect.stringContaining("# Newsletter writing") });
   });
 
@@ -139,9 +139,25 @@ describe("agent.skills.add / remove", () => {
 
   it("caps an agent at eight added skills", async () => {
     const agent = await owner().team.agents.hire({ businessId: hz.A.businessId, templateKey: TEMPLATE, departmentId: hz.A.departmentId, name: "Busy" });
-    const keys = SKILL_LIBRARY.slice(0, 8).map((s) => ({ source: "library" as const, key: s.key }));
+    // The nine shortest, so the count limit is reached before the limit on characters.
+    const shortest = [...SKILL_LIBRARY].sort((a, b) => a.instructionsMd.length - b.instructionsMd.length).slice(0, 9);
+    const keys = shortest.slice(0, 8).map((s) => ({ source: "library" as const, key: s.key }));
     await owner().agent.skills.add({ businessId: hz.A.businessId, agentId: agent.id, skills: keys });
-    await expect(owner().agent.skills.add({ businessId: hz.A.businessId, agentId: agent.id, skills: [{ source: "library", key: SKILL_LIBRARY[8]!.key }] })).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringMatching(/at most 8/) });
+    await expect(owner().agent.skills.add({ businessId: hz.A.businessId, agentId: agent.id, skills: [{ source: "library", key: shortest[8]!.key }] })).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringMatching(/at most 8/) });
+  });
+
+  it("a library skill that sharpens a rating the agent carries shows once, and a file named after a rating is refused (TS-12)", async () => {
+    const planner = await owner().team.agents.hire({ businessId: hz.A.businessId, templateKey: "planner", departmentId: hz.A.departmentId, name: "Plotter" });
+    await owner().agent.skills.add({ businessId: hz.A.businessId, agentId: planner.id, skills: [{ source: "library", key: "acceptance_criteria" }] });
+    const profile = await owner().agent.profile.get({ businessId: hz.A.businessId, agentId: planner.id });
+    expect(profile.skills.filter((s) => s.name === "Acceptance criteria")).toEqual([expect.objectContaining({ skillKey: "acceptance_criteria" })]);
+    expect((await owner().agent.skills.added({ businessId: hz.A.businessId, agentId: planner.id })).map((s) => s.name)).toEqual(["Acceptance criteria"]);
+
+    const backend = await owner().team.agents.hire({ businessId: hz.A.businessId, templateKey: "backend_engineer", departmentId: hz.A.departmentId, name: "Tracer" });
+    const debugging = SKILL_MD.replace("name: changelog-digest", "name: Debugging");
+    await expect(owner().agent.skills.add({ businessId: hz.A.businessId, agentId: backend.id, skills: [upload(debugging)] })).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/already has a skill called "Debugging"/) });
+    // A library skill that names the rating it sharpens is not a duplicate of it.
+    await owner().agent.skills.add({ businessId: hz.A.businessId, agentId: backend.id, skills: [{ source: "library", key: "systematic_debugging" }] });
   });
 
   it("viewers and other businesses cannot add, remove or read them", async () => {

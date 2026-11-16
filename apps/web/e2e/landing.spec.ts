@@ -27,7 +27,7 @@ test.describe("the tour (/tour)", () => {
     const hero = page.locator("section", { has: page.locator("#hero-title") });
     // The hero's assurances sit under the idea box (founder, 2026-11-13; docs/IDEA_BOX.md); the included credits are said
     // once a card lands, beside the ways to keep it.
-    await expect(hero.getByText("Your first card is free and needs no sign-up")).toBeVisible();
+    await expect(hero.getByText("Shaping your first idea is free and needs no sign-up")).toBeVisible();
     await expect(hero.getByText("Your idea stays private until you choose to share it")).toBeVisible();
     await expect(hero.getByText(/Anthropic key/)).toHaveCount(0);
     await expect(page.getByText(/Bring your own Anthropic key/)).toHaveCount(1);

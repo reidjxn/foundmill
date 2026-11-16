@@ -46,6 +46,8 @@ export interface IdeaCardProps extends Omit<HTMLAttributes<HTMLElement>, "childr
   founderFitKnown?: boolean;
   /** Under the ratings; default the founder-fit line. */
   footnote?: ReactNode;
+  /** The idea's logo as a checked `data:` URL (an example with a mark of its own); the initials tile otherwise. */
+  logo?: string | null;
 }
 
 /** The words the card prints around the model's own. */
@@ -57,7 +59,7 @@ export const IDEA_CARD_WORDS = {
   raise: "What would raise it most",
   unmeasured: "Not measured yet",
   founderFit: "Founder fit comes after three questions about you.",
-  sample: "Sample card: the practice model wrote it, not a real read.",
+  sample: "Sample idea: the practice model wrote it, not a real read.",
   drafting: "Your team is shaping it",
 } as const;
 
@@ -80,7 +82,7 @@ export function lowestRating(card: IdeaCardData, founderFitKnown = false): IdeaC
   return measuredRatings(card, founderFitKnown).reduce<IdeaCardRating | null>((low, a) => (!low || a.value < low.value ? a : low), null);
 }
 
-export function IdeaCard({ card, drafting = false, justIn = false, sample = false, founderFitKnown = false, footnote, className, ...rest }: IdeaCardProps) {
+export function IdeaCard({ card, drafting = false, justIn = false, sample = false, founderFitKnown = false, footnote, logo, className, ...rest }: IdeaCardProps) {
   const name = card.name?.trim() || "";
   const ratings = new Map((card.attributes ?? []).filter((a) => isKey(a.key)).map((a) => [a.key as ConceptAttributeKey, a]));
   const overall = ideaOverall(card, founderFitKnown);
@@ -88,7 +90,7 @@ export function IdeaCard({ card, drafting = false, justIn = false, sample = fals
   const low = complete ? lowestRating(card, founderFitKnown) : null;
   return (
     <article
-      aria-label={name ? `${name}: concept card` : "Concept card"}
+      aria-label={name ? `${name}: rated idea` : "Rated idea"}
       aria-busy={drafting || undefined}
       data-idea-card=""
       data-drafting={drafting || undefined}
@@ -96,7 +98,7 @@ export function IdeaCard({ card, drafting = false, justIn = false, sample = fals
       {...rest}
     >
       <header className="flex items-start gap-3 border-b border-line px-4 pb-3 pt-4">
-        {name ? <BusinessLogo name={name} primary="#3a87ff" size={40} title="" /> : <Skeleton className="size-10 shrink-0 rounded-md" />}
+        {name ? <BusinessLogo src={logo} name={name} primary="#3a87ff" size={40} title="" /> : <Skeleton className="size-10 shrink-0 rounded-md" />}
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <div className="flex min-w-0 items-center gap-2">
             {name ? (

@@ -7,7 +7,9 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadEnv } from "@foundmill/shared";
 import { createTestDb, type TestHarness } from "@foundmill/db/testing/pglite";
-import { repos, type Db } from "@foundmill/db";
+import { includedCreditsMinor } from "@foundmill/config";
+import { periodOf, repos, type Db } from "@foundmill/db";
+import { meter, resolveModel, WEB_SEARCH_FEE_MICRO_MINOR } from "@foundmill/models";
 import { buildGateway, createGatewayClient, listenGateway, type GatewayClient, type RunningGateway } from "../index";
 import { silentLog, TEST_SECRET } from "./harness";
 
@@ -65,5 +67,88 @@ describe("web.fetch through the gateway (mock mode)", () => {
     const { token } = await client.mintSessionToken({ businessId, agentId, sessionId: null, allowedTools: ["ecb_rates:*"], ttlSeconds: 300 });
     const r = await client.call(token, { connector: "web", tool: "fetch", args: { url: "https://example.com/competitor-pricing" } });
     expect(r.outcome).toBe("deny");
+  });
+});
+
+/**
+ * WP-09 T3 (A7-03, A7-17): `search_web` live runs on the platform's model client (`LiveModelClient.searchWeb`), so it asks
+ * the business's credits first and books what it cost: the tokens and the per-search fee, one `tokens` row on the
+ * `webSearch` route. Every live model client the gateway builds sends through `modelFetch`: no request leaves the test.
+ */
+describe("web.search_web live (LIVE_CONNECTORS=web, MODEL_MODE=live)", () => {
+  let lh: TestHarness;
+  let ldb: Db;
+  let live: RunningGateway;
+  let liveClient: GatewayClient;
+  const requests: { apiKey: string | null; body: { model?: string; tools?: { type: string; max_uses?: number }[] } }[] = [];
+  const modelFetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+    requests.push({ apiKey: new Headers(init?.headers as HeadersInit).get("x-api-key"), body });
+    return Response.json({
+      id: "msg_search",
+      type: "message",
+      role: "assistant",
+      model: body.model,
+      stop_reason: "end_turn",
+      stop_sequence: null,
+      usage: { input_tokens: 2_500, output_tokens: 80, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, server_tool_use: { web_search_requests: 1 } },
+      content: [
+        { type: "server_tool_use", id: "srv_1", name: "web_search", input: { query: "q" } },
+        { type: "web_search_tool_result", tool_use_id: "srv_1", content: [{ type: "web_search_result", url: "https://cups.example/wholesale", title: "Cups", encrypted_content: "x" }] },
+      ],
+    });
+  }) as unknown as typeof globalThis.fetch;
+
+  async function researcher(name: string) {
+    const business = await repos.businesses.create(ldb, { name });
+    const agent = await repos.agents.create(ldb, business.id, { name: "Researcher", agentType: "researcher", modelKey: "sonnet" });
+    const sessionId = (await repos.agents.createSession(ldb, business.id, { agentId: agent.id, modelKey: "sonnet" })).id;
+    const { token } = await liveClient.mintSessionToken({ businessId: business.id, agentId: agent.id, sessionId, allowedTools: ["web:search_web"], ttlSeconds: 300 });
+    return { businessId: business.id, agentId: agent.id, sessionId, token };
+  }
+
+  beforeAll(async () => {
+    lh = await createTestDb();
+    ldb = lh.db as unknown as Db;
+    const env = loadEnv({ APP_ENV: "test", INTEGRATIONS_MODE: "mock", LIVE_CONNECTORS: "web", MODEL_MODE: "live", ANTHROPIC_API_KEY: "sk-ant-platform-test", SESSION_TOKEN_SECRET: TEST_SECRET, REDIS_URL: "redis://127.0.0.1:1" });
+    live = await listenGateway(buildGateway({ env, db: ldb, vault: null, log: silentLog, modelFetch }).app, { port: 0, host: "127.0.0.1" });
+    liveClient = createGatewayClient({ baseUrl: live.url, serviceSecret: TEST_SECRET, serviceName: "orchestrator" });
+  }, 120_000);
+
+  afterAll(async () => {
+    await live?.stop();
+    await lh?.close();
+  });
+
+  it("a search books one tokens row on the webSearch route: the tokens plus the per-search fee, on credits", async () => {
+    requests.length = 0;
+    const r = await researcher("Live Search Co");
+    const out = await liveClient.call(r.token, { connector: "web", tool: "search_web", args: { query: "compostable cups wholesale" } });
+    expect(out.outcome).toBe("allow");
+    if (out.outcome !== "allow") return;
+    expect(out.result.ok, JSON.stringify(out.result.error)).toBe(true);
+    expect(out.result.data).toMatchObject({ untrusted: true, content: { results: [{ url: "https://cups.example/wholesale", title: "Cups", pageAge: null }] } });
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({ apiKey: "sk-ant-platform-test", body: { model: resolveModel("webSearch").modelId, tools: [{ type: "web_search_20260209", max_uses: 1 }] } });
+    const tokens = (await repos.usage.list(ldb, r.businessId, { sessionId: r.sessionId, kind: "tokens" })).items;
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0]).toMatchObject({ agentId: r.agentId, billedTo: "credits", details: { service: "gateway", route: "webSearch" } });
+    const tokenCost = meter({ inputTokens: 2_500, outputTokens: 80, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 }, resolveModel("webSearch").modelId).costMicroMinor;
+    expect(Number(tokens[0]!.costMicroMinor)).toBe(tokenCost + WEB_SEARCH_FEE_MICRO_MINOR);
+  });
+
+  it("a search at zero credits is refused before any request, and nothing is booked as tokens", async () => {
+    requests.length = 0;
+    const r = await researcher("Spent Search Co");
+    const period = periodOf(new Date());
+    await repos.usage.ensurePeriodCredits(ldb, r.businessId, period, includedCreditsMinor("free"));
+    const balance = (await repos.usage.creditBalance(ldb, r.businessId, period))!;
+    await repos.usage.chargeCredits(ldb, r.businessId, period, Number(balance.balanceMinor));
+    const out = await liveClient.call(r.token, { connector: "web", tool: "search_web", args: { query: "compostable cups wholesale" } });
+    expect(out.outcome).toBe("allow");
+    if (out.outcome !== "allow") return;
+    expect(out.result).toMatchObject({ ok: false, error: { code: "credits_exhausted" } });
+    expect(requests).toHaveLength(0);
+    expect((await repos.usage.list(ldb, r.businessId, { sessionId: r.sessionId, kind: "tokens" })).items).toHaveLength(0);
   });
 });

@@ -29,6 +29,16 @@ import {
   type PostDraftStore,
 } from "../post-draft";
 import { postDraftPrompt } from "../prompts/post-draft";
+import { getChannelTemplate } from "../registry";
+import { agentParts, expectFollowsAgent } from "./agent-parts.fixtures";
+
+describe("buildPostDraftRequest follows the business's social agent (WP-06 T1)", () => {
+  it("with `agent`, its instructions and skills; without, the template as before", () => {
+    const template = getChannelTemplate("social");
+    const withAgent = buildPostDraftRequest(facts({ agent: agentParts(template) })).system[0]!;
+    expectFollowsAgent(withAgent, buildPostDraftRequest(facts()).system[0]!, template, "Maple Bakes");
+  });
+});
 
 const LINK = "https://foundmill.example/p/maple-bakes?via=p.maple-bakes";
 const PAGE = { pitch: "Sourdough, baked each morning in Leeds.", about: "I bake sourdough in small batches and bring it to your door before 8. Started in my kitchen in 2024.", forWhom: "People in Leeds who want real bread", stage: "building" as const };

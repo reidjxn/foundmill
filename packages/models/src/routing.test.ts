@@ -35,6 +35,7 @@ describe("routing (BUILD §10.1)", () => {
       teamCallTurn: { model: "sonnet", lowCredits: "keep", effort: "low", maxTokens: 8_000 },
       teamCallWrapUp: { model: "opus", lowCredits: "keep", effort: "low", maxTokens: 8_000 },
       designReview: { model: "opus", lowCredits: "keep", effort: "low", vision: true, maxTokens: 8_000 },
+      webSearch: { model: "sonnet", lowCredits: "keep", effort: "low", maxTokens: 8_000 },
     });
   });
 

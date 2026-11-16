@@ -39,7 +39,6 @@ import { LogoColoursEditor } from "./LogoColoursEditor";
 import {
   ARCHETYPE_CARDS,
   BUSINESS_MODE_CARDS,
-  DEFAULT_SPEND_CAP_MINOR,
   DOMAIN_NOTE,
   DOMAIN_STATUS_WORDS,
   GAME_MODE_CARDS,
@@ -47,6 +46,7 @@ import {
   TRADEMARK_STATUS_WORDS,
   commitInput,
   couldNotCheck,
+  defaultSpendCapMinor,
   domainCandidates,
   DNS_ESTIMATE_HINT,
   domainProvenanceWord,
@@ -217,6 +217,7 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
       anthropomorphicDefault={guidancePrefs.prefs.anthropomorphicAgents === true}
       agentStyleDefault={agentStyleOf(guidancePrefs.prefs)}
       liveOpen={featuresQ.data?.features.liveMode ?? false}
+      hasBudget={featuresQ.data ? (featuresQ.data.profile?.budgetMinor ?? 0) > 0 : true}
       onCommit={onCommit}
       logoApi={logoApi}
       domainApi={domainApi}
@@ -228,7 +229,7 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
 /* ---------- the form ---------- */
 
 /** What the founder reads while Take charge runs (a few seconds in mock mode). */
-const SETTING_UP = "Setting up your business: departments, team and the first cycle. This takes a few seconds.";
+const SETTING_UP = "Setting up your business: departments, team and the first tasks. This takes a few seconds.";
 
 /**
  * What happens after Take charge, in the order `apps/api/src/services/commit.ts` runs it (A4): the team is hired, the
@@ -279,6 +280,8 @@ export interface CommitFormProps {
   agentStyleDefault?: AgentStyle;
   /** Whether LIVE is open on this deployment (`founder.profile.get` features); while it is not, only Personal is offered. */
   liveOpen?: boolean;
+  /** Whether the founder's profile names a budget; without one the spend line starts at 0, so every spend asks first (WP-04 T3). Default true. */
+  hasBudget?: boolean;
   onCommit: (input: ReturnType<typeof commitInput>) => void;
   /** Upload checks and logo generation (idea.logo.*). */
   logoApi: CommitLogoApi;
@@ -369,7 +372,7 @@ export function upgradeHrefOf(err: unknown): string | null {
 
 const DEBOUNCE_MS = 350;
 
-export function CommitForm({ idea, viewer, currency, initialName, suggestedArchetype, steps, preview, previewLoading, onArchetypeChange, committing, error, upgradeHref, creditsNotice, adultConfirmed = false, anthropomorphicDefault = false, agentStyleDefault = DEFAULT_AGENT_STYLE, liveOpen = true, onCommit, logoApi, domainApi, back }: CommitFormProps) {
+export function CommitForm({ idea, viewer, currency, initialName, suggestedArchetype, steps, preview, previewLoading, onArchetypeChange, committing, error, upgradeHref, creditsNotice, adultConfirmed = false, anthropomorphicDefault = false, agentStyleDefault = DEFAULT_AGENT_STYLE, liveOpen = true, hasBudget = true, onCommit, logoApi, domainApi, back }: CommitFormProps) {
   const concept = useMemo(() => toConcept(idea), [idea]);
   // Guidance off: an operator sees the five "How it runs" controls at once (§7.6); on, they open from "Change".
   const guided = useGuided();
@@ -377,10 +380,17 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
   // The idea's seed only picks the starting brand colours now; the logo is uploaded or generated.
   const ideaSeed = String(readMeta(idea.current?.research).crest_seed ?? idea.id);
   const [form, setForm] = useState<CommitFormValues>(() => {
-    const base = initialCommitForm({ title: idea.current?.title ?? idea.title, archetype: suggestedArchetype ?? idea.archetype }, kitFromSeed(ideaSeed), currency, anthropomorphicDefault, agentStyleDefault);
+    const base = initialCommitForm({ title: idea.current?.title ?? idea.title, archetype: suggestedArchetype ?? idea.archetype }, kitFromSeed(ideaSeed), currency, anthropomorphicDefault, agentStyleDefault, { hasBudget });
     return initialName ? { ...base, name: initialName } : base;
   });
   const [capTouched, setCapTouched] = useState(false);
+  // The spend line follows the profile's budget (it may arrive after the form) until the founder types one here.
+  useEffect(() => {
+    if (!capTouched) setForm((f) => {
+      const spendCap = String(defaultSpendCapMinor(f.businessMode, { hasBudget }) / 100);
+      return f.spendCap === spendCap ? f : { ...f, spendCap };
+    });
+  }, [hasBudget, capTouched]);
   // The switch follows the account preference until the founder chooses here (the preference may arrive after the form).
   const [facesChosen, setFacesChosen] = useState(false);
   useEffect(() => {
@@ -485,7 +495,7 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
   const logoActions = useMemo<LogoActions>(() => ({ prepare: logoApi.prepare, generate: generateWith }), [logoApi, generateWith]);
 
   function chooseMode(mode: BusinessMode) {
-    setForm((f) => ({ ...f, businessMode: mode, spendCap: capTouched ? f.spendCap : String(DEFAULT_SPEND_CAP_MINOR[mode] / 100) }));
+    setForm((f) => ({ ...f, businessMode: mode, spendCap: capTouched ? f.spendCap : String(defaultSpendCapMinor(mode, { hasBudget }) / 100) }));
   }
 
   function submit(e?: FormEvent) {
@@ -753,7 +763,7 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
                     </Field>
                     <p className="col-span-6 flex flex-wrap items-center gap-x-2 gap-y-1 pt-6 text-small text-secondary">
                       <span>
-                        Default for {modeLabel}: <span className="tabular text-primary">{formatMoney({ amountMinor: DEFAULT_SPEND_CAP_MINOR[form.businessMode], currency: form.currency })}</span>
+                        Default for {modeLabel}: <span className="tabular text-primary">{formatMoney({ amountMinor: defaultSpendCapMinor(form.businessMode, { hasBudget }), currency: form.currency })}</span>
                       </span>
                       <ProvenanceChip kind="estimate" />
                       <span>Money, signatures and identity always ask.</span>

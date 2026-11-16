@@ -553,8 +553,12 @@ export function DataTable<T>(props: DataTableProps<T>) {
   };
   const saveViewAs = (name: string) => {
     if (!views || !onViewsChange) return;
+    // Views are stored and outlive the page, but uniqueId's counter starts again on every load: skip ids already taken,
+    // or a view saved on an earlier visit and this one share an id and the first one shadows it (audit #204).
+    let id = uniqueId("view");
+    while (views.some((v) => v.id === id)) id = uniqueId("view");
     const view: SavedView = {
-      id: uniqueId("view"),
+      id,
       name,
       columns: visibleIds,
       sort: sorting.map((s) => ({ id: s.id, desc: s.desc })),

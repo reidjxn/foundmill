@@ -70,7 +70,7 @@ describe("TourPage (signed-out /)", () => {
     const hero = screen.getByRole("heading", { level: 1 }).closest("section")!;
     // The figure is the free plan's included credits, from packages/config, in credits' own currency (said once the card lands).
     expect(INCLUDED_CREDITS_ASSURANCE).toBe("Starts with $5.00 of included credits · no card");
-    expect(within(hero).getByText("Your first card is free and needs no sign-up")).toBeTruthy();
+    expect(within(hero).getByText("Shaping your first idea is free and needs no sign-up")).toBeTruthy();
     expect(within(hero).getByText("Your idea stays private until you choose to share it")).toBeTruthy();
     expect(within(hero).getByText("Nothing spends money or signs in your name without you")).toBeTruthy();
     expect(within(hero).getByRole("textbox", { name: "What do you want to make?" })).toBeTruthy();

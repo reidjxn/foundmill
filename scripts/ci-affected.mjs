@@ -26,8 +26,8 @@ export const TEST_READS = {
   "@foundmill/orchestrator": { packages: ["@foundmill/gateway"] },
   // seed/__tests__/seed.test.ts imports packages/entity-linker/src; waitlist-admission.test.ts runs docs/DEPLOY.md's list query.
   "@foundmill/db": { packages: ["@foundmill/entity-linker"], paths: /^docs\/DEPLOY\.md$/ },
-  // post-draft.test.ts runs scripts/banned-terms.mjs on a draft.
-  "@foundmill/agents": { paths: /^scripts\/banned-terms\.mjs$/ },
+  // post-draft.test.ts runs scripts/banned-terms.mjs on a draft; skill-library.test.ts runs the catalog generator.
+  "@foundmill/agents": { paths: /^scripts\/(banned-terms|build-skill-library)\.mjs$/ },
   // terms.test.ts runs scripts/us-english.mjs on the vocabulary.
   "@foundmill/shared": { paths: /^scripts\/us-english\.mjs$/ },
   // model-ids.test.ts scans every source file under apps/, packages/ and scripts/ for a model id outside routing.ts.

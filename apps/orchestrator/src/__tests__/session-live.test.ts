@@ -25,6 +25,8 @@ import { grant, initialVersionFromTemplate, listTemplates, PLATFORM_BASE_TOOLS, 
 import { isUntrusted } from "@foundmill/connectors";
 import { createGithubMock } from "@foundmill/connectors/connectors/github/mock";
 import { makeToolContext } from "@foundmill/connectors/testing/contract-suite";
+import { MIN_SESSION_CAP_MINOR } from "../cycle-contract";
+import { UNDER_FLOOR_SUMMARY } from "../activities/session-budget";
 import { openAgentSession } from "../activities/dispatch";
 import { ACCEPTANCE_EGRESS, ACCEPTANCE_FALLBACK_COMMAND, ACCEPTANCE_RUN_LOG, classifyTurnEnd, createSessionActivities, lastAttemptNote, NO_CHANGES_REASON, NOT_VERIFIED_NOTE, SANDBOX_TTL_MINUTES } from "../activities/session";
 import { SessionDrain } from "../drain";
@@ -1280,6 +1282,25 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
     script = success(next.sessionId);
     await acts.runAgentSession(next.input, next.launch);
     expect(calls[0]!.options.maxBudgetUsd).toBe(1.8);
+  });
+
+  it("a session handed a share of a capped cycle under the floor ends blocked for budget before any model call (WP-05 T15)", async () => {
+    const task = await budgeted(300);
+    const { input, launch } = await start(task.id);
+    script = async function* () {
+      yield { type: "system", subtype: "init", session_id: "never-started" };
+      throw new Error("the SDK must not start");
+    };
+    calls.length = 0;
+    const result = await acts.runAgentSession({ ...input, spendCapMinor: MIN_SESSION_CAP_MINOR - 1 }, launch);
+    expect(calls).toHaveLength(0);
+    expect(result).toMatchObject({ outcome: "blocked", blockedReason: "budget", summary: UNDER_FLOOR_SUMMARY, tokensIn: 0, costMinor: 0 });
+
+    // At the floor it starts, with the floor as its budget.
+    const next = await start((await budgeted(300)).id);
+    script = success(next.sessionId);
+    await acts.runAgentSession({ ...next.input, spendCapMinor: MIN_SESSION_CAP_MINOR }, next.launch);
+    expect(calls[0]!.options.maxBudgetUsd).toBe(MIN_SESSION_CAP_MINOR / 100);
   });
 });
 

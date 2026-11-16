@@ -9,6 +9,7 @@ import { GuidanceProvider } from "../guidance/GuidanceProvider";
 import { DataTable, cellTitle, type DataTableColumn } from "./DataTable";
 import { generateLeads, LEAD_STAGE_LABELS, LEAD_VIEWS, type LeadRow } from "./fixtures";
 import type { SavedView } from "./types";
+import { uniqueId } from "../../lib/seed";
 
 const columns: DataTableColumn<LeadRow>[] = [
   { accessorKey: "name", header: "Name", size: 180 },
@@ -208,6 +209,24 @@ describe("DataTable", () => {
     await user.click(await screen.findByRole("menuitemradio", { name: /All leads/ }));
     expect(bodyRows()).toHaveLength(40);
     expect(screen.getByRole("columnheader", { name: /Owner/ })).toBeTruthy();
+  });
+
+  it("gives a view saved as new an id no stored view holds (ids outlive the page; audit #204)", async () => {
+    const user = userEvent.setup();
+    // Views a person saved on an earlier visit, under the ids this page's counter is about to hand out.
+    const next = Number.parseInt(uniqueId("view").slice("view-".length), 36);
+    const stored: SavedView[] = [1, 2, 3].map((k) => ({ id: `view-${(next + k).toString(36)}`, name: `Earlier ${k}`, columns: ["name"], sort: [], filters: [] }));
+    const onViewsChange = vi.fn();
+    render(<DataTable data={leads} columns={columns} views={[...LEAD_VIEWS, ...stored]} activeViewId="all" onViewsChange={onViewsChange} onActiveViewChange={() => {}} />);
+    await user.click(screen.getByRole("button", { name: /^View: / }));
+    await user.click(await screen.findByRole("menuitem", { name: "Save as new view…" }));
+    await user.clear(screen.getByLabelText("Name", { exact: true }));
+    await user.type(screen.getByLabelText("Name", { exact: true }), "Mine");
+    await user.click(screen.getByRole("button", { name: /^Save$/ }));
+    const saved = onViewsChange.mock.calls.at(-1)![0] as SavedView[];
+    const mine = saved.find((v) => v.name === "Mine")!;
+    expect(stored.map((v) => v.id)).not.toContain(mine.id);
+    expect(new Set(saved.map((v) => v.id)).size).toBe(saved.length);
   });
 
   it("puts the department tour's anchor on the saved-view switcher", () => {

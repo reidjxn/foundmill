@@ -32,7 +32,7 @@ import {
   type PageQuizEvidence,
   type PageQuizOffer,
 } from "@foundmill/shared";
-import { buildSystemPrompt } from "./club-rules";
+import { agentPromptFields, buildSystemPrompt, type AgentPromptParts } from "./club-rules";
 import { inertJson, plainModelText, untrustedBlock } from "./foundations";
 import { pageQuizPrompt } from "./prompts/page-quiz";
 import { NO_PERSONAL_TERMS, namePatterns, personalHit, personalHitKind, personalHitLine, redactPersonal, type PersonalHit, type PersonalTerms } from "./page-quiz-personal";
@@ -71,6 +71,8 @@ export interface PageQuizFacts {
   customers: readonly PageQuizCustomerInput[];
   offers: readonly PageQuizOfferInput[];
   totals: { customers: number; replies: number; purchases: number };
+  /** The business's Product lead as it is now (its live instructions and skills); the template when absent. */
+  agent?: AgentPromptParts;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -117,7 +119,7 @@ export function buildPageQuizRequest(facts: PageQuizFacts, retryReason?: string)
   parts.push("Draft the quiz now, or say there is too little data.");
   return {
     route: PAGE_QUIZ_ROUTE,
-    system: [buildSystemPrompt({ businessName: facts.businessName, appName: APP_NAME, template: getTemplate("product_lead") }), pageQuizPrompt.render({ business_name: facts.businessName, min_per_type: PAGE_QUIZ_MIN_PER_TYPE })],
+    system: [buildSystemPrompt({ businessName: facts.businessName, appName: APP_NAME, ...agentPromptFields(facts.agent, getTemplate("product_lead")) }), pageQuizPrompt.render({ business_name: facts.businessName, min_per_type: PAGE_QUIZ_MIN_PER_TYPE })],
     messages: [{ role: "user", content: parts.join("\n\n") }],
     schema: PageQuizOutput,
     reserveTokens: PAGE_QUIZ_RESERVE_TOKENS,

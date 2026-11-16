@@ -16,7 +16,7 @@
  *                next decision or Continue (audit api-services-15).
  */
 import { recordExpiredApprovals } from "@foundmill/events";
-import { buildSystemPrompt, chiefOfStaff, getTemplateByAgentType } from "@foundmill/agents";
+import { agentPromptFields, buildSystemPrompt, chiefOfStaff, getTemplateByAgentType, type AgentPromptParts } from "@foundmill/agents";
 import { APP_NAME, LIMITS } from "@foundmill/config";
 import { repos, type Agent, type Business, type Department, type Executor, type PlanAction as PlanActionRow, type PlanWithActions } from "@foundmill/db";
 import { compileOptionPlan as compileOptionPlanRules, compilePlanRuleBased, PLAN_ACTION_PARAMS, PlanOutput, SetAgentModelParams, UpdateRoadmapParams, type DecisionOption, type ModelClient, type OptionAgent, type PlanAction, type RoadmapItemRef } from "@foundmill/models";
@@ -43,6 +43,8 @@ export interface PlanContext {
    * undone or spends past the threshold (audit AC-02). Absent for free text, whose actions carry their own amounts.
    */
   choice?: { reversible?: boolean; costMinor?: number };
+  /** The business's Chief of Staff as it is now (its live instructions and skills); the template when absent. */
+  chiefOfStaff?: AgentPromptParts;
 }
 
 /**
@@ -104,7 +106,7 @@ export async function compilePlan(models: ModelClient, text: string, ctx: PlanCo
     schema: PlanOutput,
     // House rules first (audit-conversation P1): the Chief of Staff compiles plans, so its instructions follow them.
     system: [
-      buildSystemPrompt({ businessName: ctx.business.name, appName: APP_NAME, template: chiefOfStaff }),
+      buildSystemPrompt({ businessName: ctx.business.name, appName: APP_NAME, ...agentPromptFields(ctx.chiefOfStaff, chiefOfStaff) }),
       "You are the plan compiler. Turn the founder's reply into typed actions. Hard-gated requests (money, signing, filings, terms, deletion, security, untrusted instructions) compile to request_human_action only. Write each action's params with exactly the names in `action_params`; a roadmap change carries the `roadmap_item_id` of the item it changes, taken from `roadmap`, and agent ids come from `agents`.",
       PLAYBOOK_PROMPT,
     ],

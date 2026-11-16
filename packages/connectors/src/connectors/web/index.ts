@@ -6,13 +6,12 @@
  *    address the host resolves to (and every redirect hop) must be public, bodies are capped and time-bounded. The
  *    address check runs again inside the connection's own DNS lookup (`publicOnlyLookup`, ./page-fetch.ts), so a name
  *    cannot answer public to the check and private to the socket (DNS rebinding).
- *  - `search_web` runs Anthropic's server web search on the platform key with the model the `worker` route names
- *    (packages/models/src/routing.ts) and returns the result titles and addresses only.
+ *  - `search_web` runs Anthropic's server web search through the injected `searchWeb` (WP-09 T3): the gateway's
+ *    platform model client on the `webSearch` route (packages/models `LiveModelClient.searchWeb`), which asks the
+ *    business's credits first and books the tokens and the search fee. It returns the result titles and addresses only.
  * Not part of CONNECTOR_FACTORIES: the gateway registers it with the built-ins.
  */
 import { isIP } from "node:net";
-import Anthropic from "@anthropic-ai/sdk";
-import { resolveModel } from "@foundmill/models/routing";
 import { uuid } from "@foundmill/shared";
 import { ConfigError, VendorError, type Connector } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
@@ -31,7 +30,7 @@ export interface WebConnectorOptions extends LiveConnectorOptions {
 }
 
 export function createWebConnector(options: WebConnectorOptions = {}): Connector {
-  const { secrets, fetch, now } = resolveLiveOptions(options);
+  const { fetch, now, searchWeb } = resolveLiveOptions(options);
   const read = createPageReader({ fetch, now, lookup: options.lookup ?? defaultLookup, timeoutMs: options.timeoutMs });
   const resolveHost = options.resolveHost ?? systemResolveHost;
   // Tests hand in `fetch`; the gateway does not, so its page reads dial only what publicOnlyLookup let through.
@@ -104,23 +103,14 @@ export function createWebConnector(options: WebConnectorOptions = {}): Connector
             return { url, finalUrl: current.toString(), status: res.status, contentType, title, text: text.slice(0, maxChars), truncated: cut || text.length > maxChars };
           }
         },
-        search_web: async ({ query, limit }) => {
-          if (!secrets.anthropicApiKey) throw new ConfigError(WEB_KEY, "ANTHROPIC_API_KEY", "web search runs on the platform's Anthropic key");
-          const client = new Anthropic({ apiKey: secrets.anthropicApiKey, maxRetries: 1, timeout: 60_000, fetch });
-          const response = await client.messages.create({
-            model: resolveModel("worker").modelId,
-            max_tokens: 2048,
-            output_config: { effort: "low" },
-            tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 1 }],
-            messages: [{ role: "user", content: `Search the web for: ${query}\nList what the search returns; do not add anything.` }],
+        search_web: async ({ query, limit }, ctx) => {
+          if (!searchWeb) throw new ConfigError(WEB_KEY, "ANTHROPIC_API_KEY", "web search runs on the platform's Anthropic key");
+          const results = await searchWeb({ businessId: ctx.businessId, agentId: ctx.agentId, ...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}), query, limit }).catch((e: unknown) => {
+            // The search itself failed (an error result, or the API unavailable): a vendor failure the agent can read. A
+            // refusal before the request (the credits gate) keeps its own code.
+            if ((e as { code?: unknown }).code === "unavailable") throw new VendorError(WEB_KEY, 503, (e as Error).message);
+            throw e;
           });
-          const results: { url: string; title: string; pageAge: string | null }[] = [];
-          for (const block of response.content) {
-            if (block.type !== "web_search_tool_result") continue;
-            // An error comes back as an object, results as a list (HTTP 200 either way).
-            if (!Array.isArray(block.content)) throw new VendorError(WEB_KEY, 503, `web search failed: ${block.content.error_code}`);
-            for (const r of block.content) results.push({ url: r.url, title: r.title, pageAge: r.page_age ?? null });
-          }
           return { query, results: results.slice(0, limit) };
         },
       },
@@ -128,8 +118,8 @@ export function createWebConnector(options: WebConnectorOptions = {}): Connector
         const createdAt = now().toISOString();
         return { id: uuid(), businessId, connectorKey: WEB_KEY, status: "connected", scopes: [], accountLabel: "Built in", externalAccountId: null, config: {}, credentialRef: null, expiresAt: null, lastHealthAt: createdAt, createdAt };
       },
-      // Page reads need no account and report their own failures; search needs the platform's Anthropic key.
-      healthcheck: async () => healthResult(secrets.anthropicApiKey ? "connected" : "degraded", now().getTime(), { now, ...(secrets.anthropicApiKey ? {} : { message: "web search needs the platform's Anthropic key; page reads work" }) }),
+      // Page reads need no account and report their own failures; search needs the gateway's platform model client.
+      healthcheck: async () => healthResult(searchWeb ? "connected" : "degraded", now().getTime(), { now, ...(searchWeb ? {} : { message: "web search needs the platform's Anthropic key; page reads work" }) }),
     },
     webMock,
   );

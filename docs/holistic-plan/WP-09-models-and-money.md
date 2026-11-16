@@ -131,7 +131,7 @@ Steps:
 Tests and evals: above. No eval.
 Done when: Done-when item 2, the signed-in half.
 
-### T3: The gateway's model calls ask first and book the exact cost            [M] [ships alone]
+### [x] T3: The gateway's model calls ask first and book the exact cost            [M] [ships alone]
 Why: A7-03, A7-17. Must merge before `web` is added to `LIVE_CONNECTORS`.
 Files: modify `apps/gateway/src/index.ts`, `reader-models.ts`, `builtins.ts`, `untrusted-reader.ts`, `state.ts` (comment only), `packages/connectors/src/connectors/web/index.ts`, `packages/connectors/src/platform.ts` (`LiveConnectorOptions`), `packages/models/src/types.ts`, `client.ts`, `gate.ts`, `mock/index.ts`, `routing.ts`, `routing.test.ts`, `packages/agents/src/types.ts` (`ROUTE_KEYS`, `ROUTE_DEFAULT_MODEL`), `packages/db/src/repos/usage.ts` (`sessionTokens`). Tests: `apps/gateway/src/__tests__/untrusted-reader.test.ts`, `builtins.test.ts`, `web-fetch.test.ts`, `apps/orchestrator/src/__tests__/session-budget.test.ts`.
 Interfaces, consumes: `gateModelClient(inner, gate)`; `creditsGate(db, live)` in `apps/composer/src/usage.ts:16-23` (copy its six lines into `reader-models.ts`; do not refactor the other services); `createQuarantinedReader(deps)` and its inner `clientFor(businessId)`; `gatewayUsageSink(db, log)`; `repos.usage.sessionTokens(db, businessId, sessionId)`; `search_web` in `web/index.ts`, which builds `new Anthropic(...)` itself.

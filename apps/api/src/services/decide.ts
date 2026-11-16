@@ -19,7 +19,7 @@
  * to choose; free text on them goes to the agent's desk (`replyToInboxItem`).
  */
 import { classifyFounderText } from "@foundmill/agents";
-import { approvalOutcomeOf, closeApprovalItem, releaseFollowUpOf, repos, type Approval, type DbTx, type Decision, type InboxItem, type PlanWithActions } from "@foundmill/db";
+import { approvalOutcomeOf, closeApprovalItem, releaseFollowUpOf, repos, resolveAgentPrompt, type Approval, type DbTx, type Decision, type InboxItem, type PlanWithActions } from "@foundmill/db";
 import { AppError, ONE_CLICK_ACTION_TYPES, SHOWCASE_ANSWER_HERE_MESSAGE, ValidationError, endSentence, hasSectionAccess, isPageReadyDecision, isPostalAddressDecision, isShowcaseConsentDecision, type SectionMembership } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
@@ -61,9 +61,10 @@ interface ItemDecision {
 }
 
 export async function planContextFor(ctx: BusinessContext): Promise<PlanContext> {
-  const [agents, holiday, roadmap] = await Promise.all([repos.agents.list(ctx.db, ctx.businessId, { limit: 200 }), repos.holidays.current(ctx.db, ctx.businessId), repos.product.listRoadmap(ctx.db, ctx.businessId)]);
+  // The plan compiler speaks as the business's Chief of Staff as it is now: its live instructions and skills (WP-06 T1).
+  const [agents, holiday, roadmap, chiefOfStaff] = await Promise.all([repos.agents.list(ctx.db, ctx.businessId, { limit: 200 }), repos.holidays.current(ctx.db, ctx.businessId), repos.product.listRoadmap(ctx.db, ctx.businessId), resolveAgentPrompt(ctx.db, ctx.businessId, { templateKey: "chief_of_staff" })]);
   // Amounts the founder writes without a symbol ("spend up to 300 on ads") are in the business's own currency (0025).
-  return { business: ctx.business, agents: agents.items, holidayActive: holiday !== null, holidayBudgetMinor: holiday?.budgetCeilingMinor ?? null, currency: ctx.business.currency, roadmap };
+  return { business: ctx.business, agents: agents.items, holidayActive: holiday !== null, holidayBudgetMinor: holiday?.budgetCeilingMinor ?? null, currency: ctx.business.currency, roadmap, chiefOfStaff };
 }
 
 /**

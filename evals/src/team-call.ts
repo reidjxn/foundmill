@@ -268,7 +268,7 @@ function rawWrapUpActions(json: unknown): RawWrapUpAction[] {
   });
 }
 
-const turnInputFor = (c: TeamCallCase, mode: TeamCallTurnMode, transcript: readonly TeamCallTranscriptTurn[], agentRoundsSinceFounder: number): TeamCallTurnInput => ({
+export const turnInputFor = (c: TeamCallCase, mode: TeamCallTurnMode, transcript: readonly TeamCallTranscriptTurn[], agentRoundsSinceFounder: number): TeamCallTurnInput => ({
   business: BUSINESS,
   founderName: FOUNDER,
   participants: c.participants,
@@ -280,7 +280,7 @@ const turnInputFor = (c: TeamCallCase, mode: TeamCallTurnMode, transcript: reado
   agentRoundsSinceFounder,
 });
 
-const wrapUpInputFor = (c: TeamCallCase, transcript: readonly TeamCallTranscriptTurn[]): TeamCallWrapUpInput => ({
+export const wrapUpInputFor = (c: TeamCallCase, transcript: readonly TeamCallTranscriptTurn[]): TeamCallWrapUpInput => ({
   business: BUSINESS,
   founderName: FOUNDER,
   participants: c.participants,

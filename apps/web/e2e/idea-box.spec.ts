@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Browser, type Page } from "@playwright/test";
@@ -31,8 +32,8 @@ test("a visitor types an idea, watches the card arrive, keeps it by signing in a
     await expect(page.getByTestId("idea-placeholder")).toHaveCount(0);
     await page.getByTestId("idea-input").fill("Restored film cameras for people buying their first one");
     await page.getByTestId("idea-generate").click();
-    // The visitor's card lands in the hero; the example card further down steps aside for it.
-    const card = page.locator("#hero [data-idea-card]");
+    // The visitor's card lands in the hero; the example beside the box steps aside for it.
+    const card = page.locator("#hero [data-idea-box] [data-idea-card]");
     await expect(card).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("idea-keep")).toBeVisible({ timeout: LONG });
     await expect(card.locator("[data-idea-rating][data-arrived]")).toHaveCount(9);
@@ -42,13 +43,13 @@ test("a visitor types an idea, watches the card arrive, keeps it by signing in a
     await expect(card.locator("[data-idea-sample]")).toBeVisible();
     const name = (await card.locator("[data-idea-name]").textContent())!.trim();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(`${name} is yours to keep.`);
-    await expect(page.locator("#card [data-screen-frame]")).toBeHidden();
+    await expect(page.locator("#hero [data-screen-frame]")).toBeHidden();
     if (process.env.E2E_UX_AUDIT === "1") await page.screenshot({ path: path.join(AUDIT_DIR, "46-idea-box-landed-1440.png") });
 
     // A reload lands on the same card (the cookie keeps it).
     await page.reload();
     await expect(page.getByTestId("idea-keep")).toBeVisible({ timeout: LONG });
-    await expect(page.locator("#hero [data-idea-name]")).toHaveText(name);
+    await expect(page.locator("#hero [data-idea-box] [data-idea-name]")).toHaveText(name);
 
     // Keep it: sign in (the developer sign-in stands in for the email link) and land on the card in the deck.
     await page.getByTestId("idea-keep-email").click();
@@ -91,6 +92,40 @@ test("Try another idea replaces the card: the field comes back with the words, a
   }
 });
 
+test("WP-04 T1: a new account on a phone keeps a card, answers three questions and lands on that card's Commit", async ({ browser }) => {
+  const { page, close } = await visitor(browser, 390, 844);
+  try {
+    // Its own address, as above, so this card fills no other test's window.
+    const address = `198.51.100.${1 + Math.floor(Math.random() * 250)}`;
+    await page.route("**/idea-box/draft", (route) => route.continue({ headers: { ...route.request().headers(), "x-forwarded-for": address } }));
+    await page.goto("/");
+    await page.getByTestId("idea-input").fill("Dog walking rounds for people who work late");
+    await page.getByTestId("idea-generate").click();
+    await expect(page.getByTestId("idea-keep")).toBeVisible({ timeout: LONG });
+    await page.getByTestId("idea-keep-email").click();
+    await expect(page).toHaveURL(/\/login\?next=%2Fstart%3Fclaim%3D/);
+    // A new account signs in (the developer sign-in as a fresh id stands in for the email link) and keeps the card.
+    const next = new URL(page.url()).searchParams.get("next")!;
+    await page.goto(`/auth/dev?as=${randomUUID()}&next=${encodeURIComponent(next)}`);
+    await expect(page).toHaveURL(/\/new\/card\/keep/, { timeout: LONG });
+    await page.getByTestId("card-keep").click();
+    await expect(page).toHaveURL(/\/new\/card\/[0-9a-f-]{36}$/, { timeout: LONG });
+    const ideaId = new URL(page.url()).pathname.split("/").pop()!;
+    // The card's next step is the three questions, a link on a phone, with the card's Commit as where they go on to.
+    const step = page.getByTestId("card-kept-next");
+    await expect(step).toHaveText("Three quick things about you");
+    await expect(step).toHaveAttribute("href", `/onboarding?next=/new/commit/${ideaId}`);
+    await step.click();
+    await expect(page.getByTestId("first-profile")).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
+    await page.getByTestId("first-profile-adult").getByRole("checkbox", { name: "I am 18 or older" }).check();
+    await page.getByTestId("first-profile-submit").click();
+    await expect(page).toHaveURL(new RegExp(`/new/commit/${ideaId}$`), { timeout: LONG });
+  } finally {
+    await close();
+  }
+});
+
 test("on a phone at 390 px the same page works: Surprise me drafts from an interest, nothing scrolls sideways", async ({ browser }) => {
   const { page, close } = await visitor(browser, 390, 844);
   try {
@@ -103,7 +138,7 @@ test("on a phone at 390 px the same page works: Surprise me drafts from an inter
     await page.getByTestId("idea-surprise").click();
     await page.getByTestId("idea-interests").getByRole("button", { name: "Pets" }).click();
     await expect(page.getByTestId("idea-keep")).toBeVisible({ timeout: LONG });
-    const box = (await page.locator("#hero [data-idea-card]").boundingBox())!;
+    const box = (await page.locator("#hero [data-idea-box] [data-idea-card]").boundingBox())!;
     expect(box.x).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width).toBeLessThanOrEqual(390);
     expect(await overflow()).toBeLessThanOrEqual(0);

@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { pmExcerpt, pmTitle, pmToText, pmWordCount, textToPm } from "../prosemirror";
 import { computeRoadmapStatus, taskSummary } from "../roadmap-status";
-import { adjacentHorizon, barSpan, groupByHorizon, indexDependencies, isMove, moveInput, timelineScale } from "../roadmap/board";
+import { adjacentHorizon, barSpan, groupByHorizon, indexDependencies, isMove, moveInput, timelineScale } from "../roadmap/board-logic";
 import { decisionProgress, hunkSides, impactLines, isSettled } from "../changes/hunks";
 import { coverageBySection, isWebUri, linkedBlocks, topicCounts } from "../sources/kinds";
 import { validateSourceDraft, sourceInput } from "../sources/AddSourceDialog";

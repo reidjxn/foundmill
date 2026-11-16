@@ -1,32 +1,42 @@
 /**
- * The signed-out page at `/` (DESIGN §9a; docs/holistic-plan/landing/DIRECTION.md), for one reader: a first-timer,
- * most likely on a phone. One job: type a sentence, get a card back, want to keep it. Everything else answers a fear
- * (cost, something done behind your back, looking stupid) or offers people, never as a requirement.
+ * The signed-out page at `/` (DESIGN §9a; founder, 2026-11-16), and its four other variants at `/lp/<id>`. One job:
+ * type a sentence, get the idea back rated, want to keep it. Then the page shows what is inside: three ways to start
+ * (one sentence, the Ideation Studio, bringing what you already have), the Studio itself, people, a first week, and
+ * the answers to the three fears (cost, something done behind your back, looking stupid).
+ *
+ * It opens in daylight and descends into the product's night: the hero on the day canvas with a real result standing
+ * in it as a lit screen, the ways in on one field of the brand's blue, then the canvas (landing.css).
  *
  * One page for every width from 390 px: no phone branch, so the server's HTML is the page a phone keeps. It lays itself
  * out from its own width (`landing-page` is a container). A server component: only the hero (the idea box) and the
- * closing button run in the browser. Every string is in words.ts; every switch arrives in `switches`, read once at
- * build time (flags.ts). The earlier page, for an investor or an experienced founder, is `/tour` (TourPage.tsx).
+ * closing button run in the browser. Every string is in words.ts; a variant changes the hero's words, the idea box's
+ * label and examples, and which way in comes first (`VARIANT_WORDS`), never what is true. Every switch arrives in
+ * `switches`, read once at build time (flags.ts). The earlier page, for an investor or an experienced founder, is
+ * `/tour` (TourPage.tsx).
  */
 import Link from "next/link";
 import { ArrowRight, Users } from "lucide-react";
 import { APP_NAME, APP_TAGLINE } from "@foundmill/config";
 import type { StoreLinks } from "@foundmill/config/app-links";
-import { DayList, GetTheApp, Icon, IdeaCard, LandingSection, PersonPage, ProjectPage, QuestionList, ScreenFrame, Wordmark, type QuestionItem } from "@foundmill/dugout";
+import { Chip, DayList, GetTheApp, Icon, IdeaCard, LandingSection, PersonPage, ProjectPage, QuestionList, ScreenFrame, Wordmark, type QuestionItem } from "@foundmill/dugout";
 import { LEGAL_ROUTES } from "@/content/legal/facts";
 import { publicEnv } from "@/lib/env";
-import { EXAMPLE_CARD, EXAMPLE_PERSON, EXAMPLE_PROJECT } from "./first-timer-examples";
+import { DEFAULT_LANDING_VARIANT, type LandingVariant } from "@/lib/landing-variant";
+import { EXAMPLE_IDEAS, EXAMPLE_PERSON, EXAMPLE_PROJECT, EXAMPLE_STUDIO } from "./first-timer-examples";
+import { ExampleIdeas } from "./ExampleIdeas";
 import { SWITCHES_OFF, TOUR_ENABLED, type LandingSwitches } from "./flags";
 import { LandingHero } from "./LandingHero";
 import { SIGN_IN } from "./parts";
 import { HomeJsonLd } from "./seo";
 import { StartButton } from "./StartButton";
-import { LANDING_WORDS as W } from "./words";
+import { LANDING_WORDS as W, VARIANT_WORDS, type WayId } from "./words";
 
 /** Where "Find people" goes when the people layer is on (the network; sign-in first for a stranger). */
 export const FIND_PEOPLE_HREF = "/network";
 
 export interface LandingPageProps {
+  /** Which page this is (lib/landing-variant.ts); absent: the first-timer's. */
+  variant?: LandingVariant;
   /** The page's switches; all off when absent (production today). */
   switches?: LandingSwitches;
   /** The UTC day the page was rendered on ("2026-11-15"), for the footer's year. Absent: today. */
@@ -35,31 +45,51 @@ export interface LandingPageProps {
   storeLinks?: StoreLinks | null;
 }
 
-export function LandingPage({ switches = SWITCHES_OFF, renderDay, storeLinks = publicEnv().storeLinks }: LandingPageProps) {
+export function LandingPage({ variant = DEFAULT_LANDING_VARIANT, switches = SWITCHES_OFF, renderDay, storeLinks = publicEnv().storeLinks }: LandingPageProps) {
   const year = (renderDay ?? new Date().toISOString()).slice(0, 4);
+  const V = VARIANT_WORDS[variant];
   return (
-    <div className="landing-page" data-testid="landing" data-landing="" data-people={switches.peopleOpen ? "open" : "closed"}>
+    <div className="landing-page" data-testid="landing" data-landing="" data-variant={variant} data-people={switches.peopleOpen ? "open" : "closed"}>
       <HomeJsonLd />
       <TopBar peopleOpen={switches.peopleOpen} />
       <main>
-        <LandingHero signupOpen={switches.signupOpen} />
-        <CardSection />
+        <LandingHero
+          signupOpen={switches.signupOpen}
+          words={{ title: V.title, lede: V.lede, label: V.label, ideas: V.ideas, surpriseOpen: V.surpriseOpen }}
+          example={
+            <ScreenFrame className="in-data-landed:hidden">
+              <ExampleIdeas ideas={EXAMPLE_IDEAS} cardClassName="world-night landing-screen-lit max-w-full" />
+            </ScreenFrame>
+          }
+        />
+        <ResultSection />
+        <WaysSection order={V.ways} signupOpen={switches.signupOpen} />
+        <StudioSection />
         <PeopleSection peopleOpen={switches.peopleOpen} />
         <FirstWeekSection platformMail={switches.platformMail} />
-        <LandingSection id="control" title={W.control.title}>
-          <p className="text-secondary">{W.control.rules}</p>
-          <p className="text-secondary">{W.control.yes}</p>
-        </LandingSection>
-        <LandingSection id="cost" title={W.cost.title} lede={W.cost.free}>
-          <p className="text-secondary">{W.cost.allowance}</p>
-          <p className="text-secondary">{W.cost.people}</p>
-        </LandingSection>
+        <section id="control" aria-labelledby="control-title" className="landing-section">
+          <div className="landing-col landing-pair">
+            <div className="flex flex-col gap-5">
+              <h2 id="control-title" className="t-landing-h2 text-primary">
+                {W.control.title}
+              </h2>
+              <p className="text-secondary">{W.control.rules}</p>
+              <p className="text-secondary">{W.control.yes}</p>
+            </div>
+            <div id="cost" className="flex flex-col gap-5">
+              <h2 className="t-landing-h2 text-primary">{W.cost.title}</h2>
+              <p className="t-landing-lede">{W.cost.free}</p>
+              <p className="text-secondary">{W.cost.allowance}</p>
+              <p className="text-secondary">{W.cost.people}</p>
+            </div>
+          </div>
+        </section>
         <LandingSection id="questions" title={W.questions.title}>
           <QuestionList items={questions(switches)} />
         </LandingSection>
-        <section id="start" aria-labelledby="start-title" className="landing-section">
-          <div className="landing-col flex flex-col items-start gap-5 @page-wide:items-center @page-wide:text-center">
-            <h2 id="start-title" className="t-landing-h2 text-primary">
+        <section id="start" aria-labelledby="start-title" className="landing-section landing-dusk landing-dawn">
+          <div className="landing-col flex flex-col items-start gap-5">
+            <h2 id="start-title" className="t-landing-h1">
               {W.start.title}
             </h2>
             <p className="t-landing-lede">{W.start.text}</p>
@@ -67,7 +97,7 @@ export function LandingPage({ switches = SWITCHES_OFF, renderDay, storeLinks = p
           </div>
         </section>
       </main>
-      <footer className="border-t border-line">
+      <footer>
         <div className="landing-col flex flex-col gap-6 py-10">
           <div className="landing-measure flex flex-col gap-2">
             <h2 className="t-landing-body font-semibold text-primary">{W.footer.whatTitle}</h2>
@@ -105,12 +135,18 @@ export function LandingPage({ switches = SWITCHES_OFF, renderDay, storeLinks = p
 /** The wordmark, "Find people" with the people layer on, and Sign in. No second start button: the box is the one. */
 function TopBar({ peopleOpen }: { peopleOpen: boolean }) {
   return (
-    <header className="border-b border-line">
+    <header className="world-day landing-daylight">
       <div className="landing-col flex h-16 items-center gap-2">
         <Link href="/" className="flex min-h-tap items-center text-primary hover:no-underline" aria-label={W.topBar.home}>
-          <Wordmark height={16} label={APP_NAME} />
+          <Wordmark height={18} label={APP_NAME} />
         </Link>
         <span className="flex-1" />
+        {/* The tour is built for a wide screen, so its links show from 1280 px only (the footer's too). */}
+        {TOUR_ENABLED ? (
+          <Link href="/tour" className="hidden min-h-tap items-center px-3 font-medium text-secondary hover:text-primary desktop:inline-flex" data-testid="landing-tour-top">
+            {W.topBar.tour}
+          </Link>
+        ) : null}
         {peopleOpen ? (
           <Link href={FIND_PEOPLE_HREF} className="inline-flex min-h-tap items-center px-3 font-medium text-secondary hover:text-primary">
             {W.topBar.findPeople}
@@ -137,25 +173,114 @@ function Points({ items }: { items: ReadonlyArray<{ lead: string; rest: string }
   );
 }
 
-/** Section 2: the prize, before any explanation. Its example steps aside once the visitor's own card has landed. */
-function CardSection() {
+/** What comes back, in three facts, still in daylight under the hero. The example beside the box shows them. */
+function ResultSection() {
   return (
-    <LandingSection
-      id="card"
-      title={W.card.title}
-      lede={W.card.lede}
-      screen={
-        <ScreenFrame className="in-data-landed:hidden">
-          <IdeaCard card={EXAMPLE_CARD} className="max-w-full" />
-        </ScreenFrame>
-      }
-    >
-      <Points items={W.card.points} />
-    </LandingSection>
+    <section id="result" aria-labelledby="result-title" className="world-day landing-daylight pb-16 @page-wide:pb-24">
+      <div className="landing-col flex flex-col gap-6">
+        <h2 id="result-title" className="t-landing-h3 text-primary">
+          {W.result.title}
+        </h2>
+        <ul className="m-0 grid list-none gap-x-12 gap-y-4 p-0 text-secondary @page-wide:grid-cols-3">
+          {W.result.points.map((p) => (
+            <li key={p.lead} className="border-t border-line-strong pt-4">
+              <strong className="font-semibold text-primary">{p.lead}</strong>
+              {p.rest}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
   );
 }
 
-/** Section 3: solo is complete; people are one step away. The find block exists only with the people layer on. */
+/**
+ * The three ways in, on the brand's blue: one sentence, the Ideation Studio, bringing what you already have. A variant
+ * sets which comes first. They are choices, so they carry no numbers.
+ */
+function WaysSection({ order, signupOpen }: { order: readonly WayId[]; signupOpen: boolean }) {
+  return (
+    <section id="ways" aria-labelledby="ways-title" className="landing-section landing-dusk">
+      <div className="landing-col flex flex-col gap-10">
+        <h2 id="ways-title" className="t-landing-h1">
+          {W.ways.title}
+        </h2>
+        <ul className="m-0 list-none p-0">
+          {order.map((id) => (
+            <li key={id} className="landing-way" data-way={id}>
+              <h3 className="t-landing-h3">{W.ways[id].title}</h3>
+              <div className="flex flex-col gap-4">
+                <p className="t-landing-lede text-secondary">{W.ways[id].text}</p>
+                {id === "bring" ? (
+                  <p className="t-landing-small m-0 flex flex-wrap items-center gap-x-2 gap-y-2">
+                    <span>{W.ways.bring.sourcesLabel}</span>
+                    {W.ways.bring.sources.map((source) => (
+                      <span key={source} className="rounded-pill border border-line px-3 py-1">
+                        {source}
+                      </span>
+                    ))}
+                  </p>
+                ) : null}
+              </div>
+            </li>
+          ))}
+        </ul>
+        {!signupOpen ? (
+          <p className="t-landing-small m-0" data-testid="ways-closed">
+            {W.ways.closed}
+          </p>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+/** Inside the Ideation Studio: a set of example ideas from one brief, and what a founder does with a set. */
+function StudioSection() {
+  return (
+    <section id="studio" aria-labelledby="studio-title" data-nosnippet="" className="landing-section landing-nightfall">
+      <div className="landing-col flex flex-col gap-12">
+        <div className="landing-split">
+          <div className="landing-measure flex flex-col gap-5">
+            <h2 id="studio-title" className="t-landing-h2 text-primary">
+              {W.studio.title}
+            </h2>
+            <p className="t-landing-lede">{W.studio.lede}</p>
+          </div>
+          <Points items={W.studio.points} />
+        </div>
+        <ScreenFrame label={W.studio.label}>
+          <div className="flex flex-col gap-6">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              <span className="t-landing-small text-secondary">{W.studio.brief}</span>
+              <span className="flex flex-wrap items-center gap-2" aria-label={W.studio.steerLabel}>
+                {W.studio.steer.map((s) => (
+                  <Chip key={s}>{s}</Chip>
+                ))}
+              </span>
+            </div>
+            <div className="landing-ideas">
+              {EXAMPLE_STUDIO.map((card) => (
+                <IdeaCard key={card.name} card={card} footnote={null} />
+              ))}
+            </div>
+          </div>
+        </ScreenFrame>
+        {TOUR_ENABLED ? (
+          <p className="landing-measure m-0 hidden flex-wrap items-center gap-x-3 gap-y-1 text-secondary desktop:flex" data-testid="landing-tour">
+            {W.tour.text}
+            <Link href="/tour" className="inline-flex min-h-tap items-center gap-2 font-medium text-accent">
+              {W.tour.link}
+              <Icon icon={ArrowRight} size="default" />
+            </Link>
+          </p>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+/** Solo is complete; people are one step away. The find block exists only with the people layer on. */
 function PeopleSection({ peopleOpen }: { peopleOpen: boolean }) {
   return (
     <LandingSection
@@ -187,7 +312,7 @@ function PeopleSection({ peopleOpen }: { peopleOpen: boolean }) {
   );
 }
 
-/** Section 4: an example first week, using only what works today. Kept out of search snippets. */
+/** An example first week, using only what works today. Kept out of search snippets. */
 function FirstWeekSection({ platformMail }: { platformMail: boolean }) {
   const d = W.firstWeek.days;
   return (

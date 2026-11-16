@@ -44,6 +44,15 @@ const hex = (name: string) => {
 };
 const ms = (name: string) => Number(/^(\d+(?:\.\d+)?)ms$/.exec(resolve(name))?.[1]);
 
+describe("daylight: the landing page's light zone meets the same floor (DESIGN §9a)", () => {
+  it.each(["--day-ink", "--day-ink-2", "--day-ink-3", "--day-accent", "--day-good", "--day-warn", "--day-bad"])("%s reaches 4.5 : 1 on the day canvas and the white field", (text) => {
+    for (const s of ["--day-canvas", "--day-surface-1"]) expect(contrastRatio(hex(text), hex(s)), `${text} on ${s}`).toBeGreaterThanOrEqual(4.5);
+  });
+  it("white reads on the brand's blue field at every stop of the descent", () => {
+    for (const s of ["--kit-primary", "--kit-lo", "--kit-deep"]) expect(contrastRatio("#ffffff", hex(s)), `white on ${s}`).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
 describe("text ramp: WCAG AA is the floor (DIRECTION #1)", () => {
   const surfaces = ["--canvas", "--rail", "--surface-1", "--surface-2", "--surface-3", "--surface-4", "--ink"];
   it.each(["--text-1", "--text-2", "--text-3", "--reading"])("%s reaches 4.5 : 1 on every surface", (text) => {

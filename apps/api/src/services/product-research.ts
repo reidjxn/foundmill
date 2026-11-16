@@ -14,8 +14,8 @@
  * - Nothing here reaches a person: recruiting, the page and the survey are drafts and tasks that end with the founder's
  *   approval (the template's rules), and the specification travels to the model as untrusted content.
  */
-import { buildResearchPlanRequest, describeResearchFailure, finaliseResearchPlan, researchPlanNote, type ResearchPlan } from "@foundmill/agents";
-import { repos, type Db, type Executor, type ProductResearchRow, type ResearchArtifact } from "@foundmill/db";
+import { RESEARCH_PLAN_TEMPLATE_KEY, buildResearchPlanRequest, describeResearchFailure, finaliseResearchPlan, researchPlanNote, type ResearchPlan } from "@foundmill/agents";
+import { repos, resolveAgentPrompt, type Db, type Executor, type ProductResearchRow, type ResearchArtifact } from "@foundmill/db";
 import { PRICING_CURRENCY, type ModelClient } from "@foundmill/models";
 import type { ResearchArtifactKind, ResearchArtifactStatus, ResearchStatus } from "@foundmill/shared";
 import { writeEventRow } from "./events";
@@ -229,7 +229,8 @@ export async function runResearchPlanLocally(deps: ResearchDeps, businessId: str
     const inputs = await repos.research.inputs(deps.db, businessId);
     const agentId = inputs.researcherAgentId;
     const agent = agentId ? await repos.agents.get(deps.db, businessId, agentId) : null;
-    const request = buildResearchPlanRequest(inputs);
+    // The Product Researcher as it is now (its live instructions and skills) frames the plan (WP-06 T1).
+    const request = buildResearchPlanRequest({ ...inputs, agent: await resolveAgentPrompt(deps.db, businessId, { templateKey: RESEARCH_PLAN_TEMPLATE_KEY }) });
     // Booked to the business's usage ledger by the api's model client as the call ends (services/models.ts).
     const res = await deps.models.complete({ ...request, signal, scope: `research:${businessId}`, attribution: { businessId, agentId: agentId ?? undefined, kind: "research_plan" }, ...(agent ? { modelOverride: agent.modelKey } : {}) });
     const plan = finaliseResearchPlan(res.json, inputs);

@@ -4,7 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GET_THE_APP_WORDS } from "@foundmill/dugout";
 import { LandingPage } from "../LandingPage";
 import { SWITCHES_OFF, TOUR_ENABLED, type LandingSwitches } from "../flags";
-import { LANDING_WORDS as W } from "../words";
+import { LANDING_VARIANTS, type LandingVariant } from "@/lib/landing-variant";
+import { LANDING_WORDS as W, VARIANT_WORDS } from "../words";
 
 vi.mock("next/link", () => ({ default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a> }));
 
@@ -17,8 +18,8 @@ afterEach(() => vi.unstubAllGlobals());
 const renderPage = (switches: Partial<LandingSwitches> = {}) => render(<LandingPage switches={{ ...SWITCHES_OFF, ...switches }} renderDay="2026-11-15" />);
 const text = () => document.body.textContent ?? "";
 
-/** The page's sections, in the order DIRECTION §3 sets. */
-const ORDER = ["hero", "card", "people", "first-week", "control", "cost", "questions", "start"];
+/** The page's sections, in order (DESIGN §9a): daylight, the blue, then the night. */
+const ORDER = ["hero", "result", "ways", "studio", "people", "first-week", "control", "questions", "start"];
 
 describe("LandingPage (signed-out /, DIRECTION §3)", () => {
   it("has one h1, the first-timer's headline", () => {
@@ -49,16 +50,55 @@ describe("LandingPage (signed-out /, DIRECTION §3)", () => {
     const field = screen.getByLabelText("What do you want to make?");
     expect(field.tagName).toBe("TEXTAREA");
     expect(document.querySelector('label[for="' + field.id + '"]')!.className).not.toContain("sr-only");
-    for (const a of ["Your first card is free and needs no sign-up", "Your idea stays private until you choose to share it", "Nothing spends money or signs in your name without you"]) {
+    for (const a of ["Shaping your first idea is free and needs no sign-up", "Your idea stays private until you choose to share it", "Nothing spends money or signs in your name without you"]) {
       expect(screen.getByText(a)).toBeTruthy();
     }
   });
 
-  it("shows a real example card labeled Example under 'What comes back'", () => {
+  it("shows a real rated example, labeled Example, beside the box, and says what comes back", () => {
     renderPage();
-    const card = document.getElementById("card")!;
-    expect(within(card).getAllByRole("heading", { level: 2 })[0]!.textContent).toBe(W.card.title);
-    expect(within(card).getByRole("figure", { name: "Example" }).querySelector("[data-idea-name]")!.textContent).toBe("Sole Revival");
+    const hero = document.getElementById("hero")!;
+    // Four examples to switch between, Northwind Skincare first (founder, 2026-11-16).
+    const example = within(hero).getByRole("figure", { name: "Example" });
+    expect(within(example).getAllByRole("radio").map((r) => r.textContent)).toEqual(["Northwind", "Sole Revival", "Tutorlane", "Glitchwick"]);
+    expect(example.querySelector("[data-idea-name]")!.textContent).toBe("Northwind Skincare");
+    const result = document.getElementById("result")!;
+    expect(within(result).getByRole("heading", { level: 2 }).textContent).toBe(W.result.title);
+    for (const p of W.result.points) expect(result.textContent).toContain(p.lead);
+  });
+
+  it("offers the tour three times from 1280 px (top bar, after the Studio, footer), each a link to /tour", () => {
+    renderPage();
+    const tours = [...document.querySelectorAll<HTMLAnchorElement>('a[href="/tour"]')];
+    expect(tours.length).toBe(TOUR_ENABLED ? 3 : 0);
+    if (!TOUR_ENABLED) return;
+    expect(screen.getByTestId("landing-tour-top").className).toContain("desktop:inline-flex");
+    expect(screen.getByTestId("landing-tour").textContent).toContain(W.tour.text);
+    expect(document.getElementById("studio")!.contains(screen.getByTestId("landing-tour"))).toBe(true);
+  });
+
+  it("never calls the rated idea a card: the word reads as a payment card (founder, 2026-11-16)", () => {
+    renderPage();
+    expect(text()).not.toMatch(/\bcards?\b/i);
+  });
+
+  it("names the three ways to start: one sentence, the Ideation Studio, and bringing what already exists", () => {
+    renderPage();
+    const ways = document.getElementById("ways")!;
+    expect(within(ways).getByRole("heading", { level: 2 }).textContent).toBe(W.ways.title);
+    expect([...ways.querySelectorAll("[data-way]")].map((w) => w.getAttribute("data-way"))).toEqual(["sentence", "studio", "bring"]);
+    expect(ways.textContent).toContain("Ideation Studio");
+    expect(ways.textContent).toContain("Import a plan as a Markdown file");
+    for (const source of W.ways.bring.sources) expect(ways.textContent).toContain(source);
+  });
+
+  it("shows the Ideation Studio with a set of example ideas, labeled and out of search snippets", () => {
+    renderPage();
+    const studio = document.getElementById("studio")!;
+    expect(studio.hasAttribute("data-nosnippet")).toBe(true);
+    const frame = within(studio).getByRole("figure", { name: W.studio.label });
+    expect([...frame.querySelectorAll("[data-idea-name]")].map((n) => n.textContent)).toEqual(["Sole Revival", "Lace Lab", "Kick Swap"]);
+    for (const s of W.studio.steer) expect(frame.textContent).toContain(s);
   });
 
   it("says solo is complete before it says anything about people, then the three things that work today", () => {
@@ -152,5 +192,33 @@ describe("LandingPage switches (DIRECTION §6)", () => {
     renderPage({ platformMail: true });
     expect(text()).toContain(W.firstWeek.days.d3Follow);
     expect(text()).not.toContain(W.questions.limitsMail);
+  });
+});
+
+describe("LandingPage variants (lib/landing-variant.ts)", () => {
+  const renderVariant = (variant: LandingVariant) => render(<LandingPage variant={variant} switches={SWITCHES_OFF} renderDay="2026-11-16" />);
+
+  it.each(LANDING_VARIANTS)("%s: its own headline, field label and first way in, on the same sections", (variant) => {
+    const { container } = renderVariant(variant);
+    const V = VARIANT_WORDS[variant];
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(V.title);
+    expect(screen.getByLabelText(V.label).tagName).toBe("TEXTAREA");
+    expect(container.querySelector("[data-way]")!.getAttribute("data-way")).toBe(V.ways[0]);
+    expect([...container.querySelectorAll("main > section")].map((s) => s.id)).toEqual(ORDER);
+    expect(container.querySelector("[data-landing]")!.getAttribute("data-variant")).toBe(variant);
+  });
+
+  it("every variant has a different headline, and each names all three ways once", () => {
+    const titles = LANDING_VARIANTS.map((v) => VARIANT_WORDS[v].title);
+    expect(new Set(titles).size).toBe(titles.length);
+    for (const v of LANDING_VARIANTS) expect([...VARIANT_WORDS[v].ways].sort()).toEqual(["bring", "sentence", "studio"]);
+  });
+
+  it("the page for a visitor with no idea opens Surprise me; the others leave it closed", () => {
+    const { unmount } = renderVariant("no-idea");
+    expect(screen.getByTestId("idea-interests")).toBeTruthy();
+    unmount();
+    renderVariant("first");
+    expect(screen.queryByTestId("idea-interests")).toBeNull();
   });
 });

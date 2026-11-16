@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BATCH_DISCOUNT, MODEL_PRICING, PRICING_LABEL, addUsage, estimateTokens, meter, sumMeters } from "./pricing";
+import { BATCH_DISCOUNT, MODEL_PRICING, PRICING_LABEL, WEB_SEARCH_FEE_MICRO_MINOR, addUsage, estimateTokens, meter, meterWebSearch, sumMeters } from "./pricing";
 import { MODELS } from "./routing";
 
 const usage = (inputTokens: number, outputTokens: number, cacheCreationInputTokens = 0, cacheReadInputTokens = 0) => ({ inputTokens, outputTokens, cacheCreationInputTokens, cacheReadInputTokens });
@@ -11,6 +11,16 @@ describe("pricing and metering (BUILD §10.4)", () => {
       expect(MODEL_PRICING[id].outputPerMTok).toBeGreaterThan(MODEL_PRICING[id].inputPerMTok);
     }
     expect(meter(usage(1, 1), MODELS.haiku).label).toBe(PRICING_LABEL);
+  });
+
+  it("meters a web search as its tokens plus $10 per 1,000 searches (pricing page, Nov 16, 2026)", () => {
+    const u = usage(2_000, 100);
+    const m = meterWebSearch(u, MODELS.sonnet, 1);
+    expect(WEB_SEARCH_FEE_MICRO_MINOR).toBe(1_000_000);
+    expect(m.costMicroMinor).toBe(meter(u, MODELS.sonnet).costMicroMinor + 1_000_000);
+    expect(m.breakdown.webSearch).toBe(1);
+    expect(m.label).toBe(PRICING_LABEL);
+    expect(meterWebSearch(u, MODELS.sonnet, 0).costMicroMinor).toBe(meter(u, MODELS.sonnet).costMicroMinor);
   });
 
   it("meters a million tokens of Opus exactly", () => {

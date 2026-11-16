@@ -9,6 +9,16 @@ import { describe, expect, it } from "vitest";
 import { hasClubRulesPrefix } from "../club-rules";
 import { PAGE_QUIZ_ROUTE, PAGE_QUIZ_USAGE_KIND, buildPageQuizRequest, finalisePageQuiz, pageQuizReadiness, pageQuizRefusalMessage, redactPageQuizFacts, runPageQuizDraft, type PageQuizFacts } from "../page-quiz";
 import { namePatterns, personalHit, redactPersonal } from "../page-quiz-personal";
+import { getTemplate } from "../registry";
+import { agentParts, expectFollowsAgent } from "./agent-parts.fixtures";
+
+describe("buildPageQuizRequest follows the business's Product lead (WP-06 T1)", () => {
+  it("with `agent`, its instructions and skills; without, the template as before", () => {
+    const template = getTemplate("product_lead");
+    const withAgent = buildPageQuizRequest(facts({ agent: agentParts(template) })).system[0]!;
+    expectFollowsAgent(withAgent, buildPageQuizRequest(facts()).system[0]!, template, facts().businessName);
+  });
+});
 
 const customer = (n: number, kind: "person" | "organization", bought: string[], replies: string[] = []) => ({ ref: `c${n}`, kind, bought, replies });
 

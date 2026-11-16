@@ -244,12 +244,15 @@ describe("the platform-key gate (SEC2 S2, S10)", () => {
     expect(await checkPlatformCredits(r.db, gate.id, { live: true, now })).toMatchObject({ ok: true, balanceMinor: 3200, spendableMinor: 700 });
   });
 
-  it("sessionTokens sums the USD token cost a session has booked so far", async () => {
+  it("sessionTokens sums the USD token cost a session has booked so far, its own rows only", async () => {
     const A = r.A.businessId;
     const session = await repos.agents.createSession(r.db, A, { agentId: r.A.agentId });
-    await bookUsage(r.db, A, { agentId: r.A.agentId, sessionId: session.id, kind: "tokens", quantity: 100, unit: "tokens", costMinor: 12, billedTo: "byok" });
-    await bookUsage(r.db, A, { agentId: r.A.agentId, sessionId: session.id, kind: "tokens", quantity: 50, unit: "tokens", costMinor: 3, billedTo: "byok" });
+    const sdk = { source: "claude-agent-sdk", label: "Estimate" };
+    await bookUsage(r.db, A, { agentId: r.A.agentId, sessionId: session.id, kind: "tokens", quantity: 100, unit: "tokens", costMinor: 12, billedTo: "byok", details: sdk });
+    await bookUsage(r.db, A, { agentId: r.A.agentId, sessionId: session.id, kind: "tokens", quantity: 50, unit: "tokens", costMinor: 3, billedTo: "byok", details: sdk });
     await bookUsage(r.db, A, { agentId: r.A.agentId, sessionId: session.id, kind: "sandbox", quantity: 5, unit: "minutes", costMinor: 0, billedTo: "byok" });
+    // The gateway's reader booked under the session id is not the session's own spend (WP-09 T3).
+    await bookUsage(r.db, A, { agentId: r.A.agentId, sessionId: session.id, kind: "tokens", quantity: 6_000, unit: "tokens", costMinor: 1, billedTo: "byok", details: { service: "gateway", route: "quarantinedReader" } });
     expect(await repos.usage.sessionTokens(r.db, A, session.id)).toEqual({ costMinor: 15, quantity: 150 });
     expect(await repos.usage.sessionTokens(r.db, r.B.businessId, session.id)).toEqual({ costMinor: 0, quantity: 0 });
   });

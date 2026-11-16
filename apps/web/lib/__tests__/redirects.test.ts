@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { lastBusinessHome, parseLastBusinessId, staleBusinessPath } from "../auth/last-business";
-import { SIGNED_IN_INDEX, decideRedirect, isFounderPath, isPublicPath, safeNextPath, signedInDestination } from "../auth/redirects";
+import { SIGNED_IN_INDEX, decideRedirect, isFounderPath, isPublicPath, onboardingNext, safeNextPath, signedInDestination } from "../auth/redirects";
 
 const LAST = "b1e5e5e5-0000-4000-8000-000000000001";
 
@@ -191,5 +191,31 @@ describe("proxy redirect rules", () => {
     expect(isFounderPath("/login")).toBe(false);
     // Your businesses is signed-in only, like /new.
     expect(decideRedirect({ pathname: "/businesses", authenticated: false })).toEqual({ kind: "redirect", to: "/login?next=%2Fbusinesses" });
+  });
+});
+
+describe("onboardingNext (WP-04 T1): where the three questions go on to", () => {
+  const ID = "11111111-1111-4111-8111-111111111111";
+
+  it("passes the kept card's next step (Commit) and the kept card itself", () => {
+    expect(onboardingNext(`/new/commit/${ID}`)).toBe(`/new/commit/${ID}`);
+    expect(onboardingNext(`/new/card/${ID}`)).toBe(`/new/card/${ID}`);
+    expect(onboardingNext(`/new/commit/${ID.toUpperCase()}`)).toBe(`/new/commit/${ID.toUpperCase()}`);
+  });
+
+  it("returns null for anything else: off-site, another app path, a path that is not an id, or nothing", () => {
+    expect(onboardingNext("//evil.example")).toBeNull();
+    expect(onboardingNext("https://evil.example/new/commit/" + ID)).toBeNull();
+    expect(onboardingNext("/\\evil.example")).toBeNull();
+    expect(onboardingNext("/b/x")).toBeNull();
+    expect(onboardingNext("/new")).toBeNull();
+    expect(onboardingNext("/new/ideate")).toBeNull();
+    expect(onboardingNext("/new/commit/not-an-id")).toBeNull();
+    expect(onboardingNext(`/new/commit/${ID}/extra`)).toBeNull();
+    expect(onboardingNext(`/new/commit/${ID}?x=1`)).toBeNull();
+    expect(onboardingNext(`/new/card/keep`)).toBeNull();
+    expect(onboardingNext(`/new/../b/${ID}`)).toBeNull();
+    expect(onboardingNext("")).toBeNull();
+    expect(onboardingNext(undefined)).toBeNull();
   });
 });

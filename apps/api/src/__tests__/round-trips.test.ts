@@ -179,7 +179,9 @@ describe("round trips per procedure, on the wire", () => {
     wire.reset();
     const sent = await owner.agent.conversation.send({ businessId: hz.A.businessId, subject, text: "What is next on your list?" });
     expect(sent.messages.map((m) => m.author)).toEqual(["founder", "agent"]);
-    expect(wire.roundTrips(), wire.statements().join("\n")).toBeLessThanOrEqual(15);
+    // 16 since WP-04 T10: one read of who the agent is talking with (`repos.founders.contextFor`), on the service
+    // connection because the other founders' profiles are outside the person's RLS, so it cannot join the transaction.
+    expect(wire.roundTrips(), wire.statements().join("\n")).toBeLessThanOrEqual(16);
     const statements = wire.statements();
     expect(statements.filter((s) => /^begin/.test(s))).toHaveLength(2);
     // Both messages in one insert, both events in one, already narrated (no update afterwards).

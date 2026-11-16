@@ -16,7 +16,13 @@ const order: string[] = [];
 
 vi.mock("@/lib/trpc-react", () => ({
   useTRPC: () => ({
-    founder: { profile: { update: { mutationOptions: (opts: Record<string, unknown>) => ({ mutationKey: [["founder", "profile", "update"]], mutationFn: (vars: unknown) => update(vars), ...opts }) } } },
+    founder: {
+      profile: { update: { mutationOptions: (opts: Record<string, unknown> = {}) => ({ mutationKey: [["founder", "profile", "update"]], mutationFn: (vars: unknown) => update(vars), ...opts }) } },
+      publicProfile: {
+        update: { mutationOptions: (opts: Record<string, unknown> = {}) => ({ mutationFn: async () => ({ outcome: "saved" }), ...opts }) },
+        get: { queryOptions: (_i?: unknown, opts: Record<string, unknown> = {}) => ({ queryKey: [["founder", "publicProfile", "get"]], queryFn: async () => null, ...opts }) },
+      },
+    },
   }),
 }));
 vi.mock("@/app/onboarding/actions", () => ({ forgetVia: () => forgetVia() }));
@@ -47,16 +53,21 @@ function renderScreen(props: Partial<React.ComponentProps<typeof OnboardingScree
   );
 }
 
+/** The create path is the three questions (WP-04 T1): the name is prefilled, so Continue is the only press. */
 async function answerAndSubmit() {
-  fireEvent.click(screen.getByLabelText(/^First-time founder/));
-  fireEvent.click(screen.getByLabelText(/^Full time/));
-  fireEvent.change(screen.getByLabelText("Residence"), { target: { value: "United Kingdom" } });
   await act(async () => {
-    fireEvent.click(screen.getByTestId("profile-submit-bottom"));
+    fireEvent.click(screen.getByTestId("first-profile-submit"));
   });
 }
 
+/** The long form (editing) is for a computer: below 1280 px an edit renders the three questions. */
+function setWidth(width: number) {
+  Object.defineProperty(window, "innerWidth", { value: width, configurable: true });
+  window.dispatchEvent(new Event("resize"));
+}
+
 beforeEach(() => {
+  setWidth(1440);
   order.length = 0;
   update.mockReset().mockImplementation(async () => {
     order.push("saved");
@@ -80,7 +91,7 @@ describe("OnboardingScreen and the `via` reference", () => {
     await answerAndSubmit();
     await waitFor(() => expect(push).toHaveBeenCalledWith("/new"));
     expect(update).toHaveBeenCalledTimes(1);
-    expect(update.mock.calls[0]![0]).toMatchObject({ displayName: "Reid Jackson", experience: "first_time", via: "p.maple-bakes" });
+    expect(update.mock.calls[0]![0]).toMatchObject({ displayName: "Reid Jackson", via: "p.maple-bakes" });
     expect(forgetVia).toHaveBeenCalledTimes(1);
     expect(order).toEqual(["saved", "forgotten", "moved on"]);
   });
@@ -114,7 +125,7 @@ describe("OnboardingScreen and the `via` reference", () => {
     // The next try saves; clearing the cookie fails, and the founder still moves on.
     forgetVia.mockRejectedValueOnce(new Error("offline"));
     await act(async () => {
-      fireEvent.click(screen.getByTestId("profile-submit-bottom"));
+      fireEvent.click(screen.getByTestId("first-profile-submit"));
     });
     await waitFor(() => expect(push).toHaveBeenCalledWith("/new"));
     expect(update.mock.calls[1]![0]).toMatchObject({ via: "u.maya" });
