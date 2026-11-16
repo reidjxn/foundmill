@@ -18,9 +18,11 @@ supersedes: []
 
 ## Decisions
 ### WP-02's reports are listed, not rewritten
-The plan says the cost report and the metric facts join the view in whichever package merges second. They read other columns of `businesses` (`created_at`, `plan_tier`, `committed_at`), and the metric facts count samples on purpose (`demo`). Rewriting twelve queries of another package's SQL is more than the finding needs. They are listed in `CROSS_BUSINESS_REPORTS`, which is the guard the plan's "done when" asks for. The metric facts' `demo` field is left out of the comparison.
+The plan says the cost report and the metric facts join the view in whichever package merges second. They read other columns of `businesses` (`created_at`, `plan_tier`, `committed_at`), and the metric facts count samples on purpose (`demo`). 
+  Rewriting twelve queries of another package's SQL is more than the finding needs. They are listed in `CROSS_BUSINESS_REPORTS`, which is the guard the plan's "done when" asks for. The metric facts' `demo` field is left out of the comparison.
 ### The sample in the test has a commit date, not every kind of activity
-The real and the sample business share the fixture's members and agents and the same commit date, so a report that forgot the filter shows the difference (the test proves it by turning the sample real). A report that counts only activity the fixture does not create, such as usage rows, is not exercised; a new entry can add its own activity.
+The real and the sample business share the fixture's members and agents and the same commit date, so a report that forgot the filter shows the difference (the test proves it by turning the sample real).
+  A report that counts only activity the fixture does not create, such as usage rows, is not exercised; a new entry can add its own activity.
 ### The roll's timing
 After three days in production, the three `ms` figures go in DEPLOY §6. Above 60 seconds, the founder chooses between the off switch and a weekly roll. That reading is not done here.
 
