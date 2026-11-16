@@ -66,5 +66,7 @@ docs/DECISIONS.md is frozen, so they are recorded here.
   compared by registrable domain (foundmill.app beside foundmill.com is fine); `PUBLIC` keeps execute on older helper
   functions such as `is_public(uuid)` (yes or no answers about a known id); a founder could write their own
   `published_at` only if the Data API were turned back on.
+- `scripts/vercel-ignore.sh` exits 1 (build) when the branch's previous deployed commit is gone, as after a force-push;
+  git's 128 made Vercel mark the deployment failed on this branch twice.
 - Not done here: T3 to T10. The real-Postgres lane did not run the new suite locally (it skips the `sites_reader`
   role test where the migration role cannot switch to it).
