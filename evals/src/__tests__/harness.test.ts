@@ -1,6 +1,6 @@
 /** Offline harness tests with a scripted fake model client: scoring, gating and leak detection without any network. */
 import { describe, expect, it } from "vitest";
-import { type CompleteRequest, type CompleteResult, type ModelClient } from "@foundmill/models";
+import { MODELS, type CompleteRequest, type CompleteResult, type ModelClient } from "@foundmill/models";
 import { checkDownstreamOutput, checkReaderOutput, runGoldenTask, runInjectionCase, summariseGolden, summariseInjection, weightedScore, wrapUntrusted } from "../harness";
 import { INJECTION_CASES } from "../injection/suite";
 import { GOLDEN_TASKS } from "../golden/tasks";
@@ -22,12 +22,12 @@ function fakeClient(script: Script): ModelClient {
       text: r.text,
       json,
       usage: { inputTokens: 10, outputTokens: 10, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 },
-      model: "claude-haiku-4-5-20251001",
+      model: MODELS.haiku,
       modelKey: "haiku",
       route: req.route,
       stopReason: "end_turn",
       cost: {
-        modelId: "claude-haiku-4-5-20251001",
+        modelId: MODELS.haiku,
         currency: "USD",
         costMinor: 0.5,
         costMinorInt: 1,

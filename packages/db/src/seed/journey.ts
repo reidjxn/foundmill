@@ -51,7 +51,7 @@ export interface JourneySeedOptions {
 export interface RecentSession {
   id: string;
   agentId: string;
-  modelKey: "opus" | "sonnet" | "haiku";
+  modelKey: "opus" | "sonnet" | "haiku" | "glm";
   tokensIn: number;
   tokensOut: number;
   costMinor: number;
