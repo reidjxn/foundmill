@@ -29,7 +29,7 @@ What this changes below:
   - An agent's stored Opus or Sonnet choice is kept for after an upgrade, and runs on the free default meanwhile.
   - T7 builds the picker and the server check on which keys each plan may choose. T4 runs the session on the chosen model.
   - Until both land, the api keeps refusing `glm` as an agent's model (`CHOOSABLE_MODEL_KEYS`).
-  - **A paid plan chooses any model for any agent, GLM-5.3 Flash included** (founder, Nov 16, 2026, relayed by the session "Foundmill build status and blockers": "paid users can pick it too, paid users can pick any model we have for any of their agents"). T7's server check: free plan Haiku 5.5 or GLM; paid plan every key; own key the Claude models (GLM runs on Foundmill's Z.ai key, which an own-key business does not draw on).
+  - **A paid plan chooses any model for any agent, GLM-5.3 Flash included** (founder, Nov 16, 2026, relayed by the session "Foundmill build status and blockers": "paid users can pick it too, paid users can pick any model we have for any of their agents"). T7's server check: free plan Haiku 5.5 or GLM; paid plan every key; own key every Claude model on that key, and GLM on Foundmill's Z.ai key up to the month's $5.00 of included credits, more only with credits the founder adds (founder, Nov 16, 2026, in this session).
 - **Order (founder, same message, relayed):** Stripe and the Pro checkout are set up once GLM and model switching work; sign-up opens when everything works.
 
 The sections below were written for the first design (GLM for everything). Where they disagree with this revision, this revision wins. Each task's own pull request records what it actually did.
