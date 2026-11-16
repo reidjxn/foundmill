@@ -10,7 +10,7 @@ export const SITE_LIMITS = {
   maxTotalBytes: 10 * 1024 * 1024,
   maxFileBytes: 2 * 1024 * 1024,
   publishesPerDay: 20,
-  /** Previews served per site, newest first (the founder, Nov 16, 2026); 0119 `site_resolve` repeats it. */
+  /** Previews served per site, newest first (the founder, Nov 16, 2026); 0124 `site_resolve` repeats it. */
   previewsServed: 3,
 } as const;
 

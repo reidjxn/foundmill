@@ -33,7 +33,7 @@ import path from "node:path";
 import type { Query } from "@anthropic-ai/claude-agent-sdk";
 import { AgentInstructions, buildSystemPrompt, docText, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, restoredWorkspaceNote, roleSkillsFor, ToolGrant, type AgentSkillPrompt, type AgentTemplate } from "@foundmill/agents";
 import { APP_NAME, CREDITS_CURRENCY, sandboxCostMicroMinor } from "@foundmill/config";
-import { ALWAYS_LIVE_CONNECTORS, BUILTIN_CONNECTOR_FACTORIES, channelAvailabilityFacts, CONNECTOR_FACTORIES, firstChannelToOpen, resolveGrants, unusableConnectors } from "@foundmill/connectors";
+import { AcceptanceResult, acceptanceLines, ALWAYS_LIVE_CONNECTORS, BUILTIN_CONNECTOR_FACTORIES, channelAvailabilityFacts, CONNECTOR_FACTORIES, firstChannelToOpen, resolveGrants, toolKeys, unmetAcceptanceLines, unusableConnectors, type AcceptanceResultT, type ToolUse } from "@foundmill/connectors";
 import { bookUsage, buildDestinationOf, checkPlatformCredits, closeApprovalItem, loadByokApiKey, MICRO_PER_MINOR, repos, signoffDecisionBlock, type Agent, type AgentVersion, type Approval, type Business, type Task } from "@foundmill/db";
 import { publishSessionEvent, readSessionEvents, type SessionEvent, type SessionEventInput } from "@foundmill/events";
 import { meter, MODEL_PRICING, resolveModel, type ModelId, type RouteKey } from "@foundmill/models";
@@ -436,6 +436,17 @@ class SessionRecorder {
   completedOwnTask = false;
   /** `complete_task` calls in flight on this session's task. */
   private readonly completeCalls = new Set<string>();
+  /** The agent saved a report on its own task with `save_report` and the call went through. */
+  savedOwnReport = false;
+  /** The per-line acceptance results of the last `complete_task` on this session's task that went through. */
+  acceptanceClaims: AcceptanceResultT[] | null = null;
+  /** `complete_task` calls in flight → the acceptance results they carry. */
+  private readonly claimCalls = new Map<string, AcceptanceResultT[] | null>();
+  /**
+   * Every outside tool this session called (not `platform` or `quarantine`: a platform call never stands behind an
+   * acceptance line), by bare name and by "<connector>:<tool>": how many calls went through, and how many were real.
+   */
+  readonly toolsUsed = new Map<string, ToolUse>();
   /**
    * Tool results from connectors that reach outside the business (not `platform` or `quarantine`), read from the full
    * result text: how many came back simulated or not connected, and which connectors they were (WP-05 T2).
@@ -501,6 +512,7 @@ class SessionRecorder {
       this.trackBlockTask(full, opts.args);
       this.trackCompleteTask(full, opts.args);
       this.trackOutside(full, opts.result);
+      this.trackToolUse(full, opts.result);
       this.trackAgentPush(full, opts.args);
       if (full.status === "succeeded" && /merge_pr|merge_pull_request/i.test(full.tool)) {
         const m = /#?(\d{1,6})/.exec(full.resultSummary ?? "");
@@ -551,12 +563,43 @@ class SessionRecorder {
   private trackCompleteTask(call: Extract<SessionEventInput, { kind: "tool_call" }>, args: unknown): void {
     if ((call.tool !== "complete_task" && call.tool !== "save_report") || (call.connectorKey !== null && call.connectorKey !== undefined && call.connectorKey !== "platform")) return;
     if (call.status === "started") {
-      const a = (args ?? {}) as { taskId?: unknown };
-      if (a.taskId === undefined || a.taskId === this.ctx.task.id) this.completeCalls.add(call.callId);
+      const a = (args ?? {}) as { taskId?: unknown; acceptance?: unknown };
+      if (a.taskId === undefined || a.taskId === this.ctx.task.id) {
+        this.completeCalls.add(call.callId);
+        const claims = AcceptanceResult.array().safeParse(a.acceptance);
+        if (call.tool === "complete_task") this.claimCalls.set(call.callId, claims.success ? claims.data : null);
+      }
       return;
     }
     if (!this.completeCalls.delete(call.callId)) return;
-    if (call.status === "succeeded" && call.policyOutcome !== "deny" && call.policyOutcome !== "ask") this.completedOwnTask = true;
+    const claims = this.claimCalls.get(call.callId);
+    this.claimCalls.delete(call.callId);
+    if (call.status !== "succeeded" || call.policyOutcome === "deny" || call.policyOutcome === "ask") return;
+    this.completedOwnTask = true;
+    if (call.tool === "save_report") this.savedOwnReport = true;
+    else this.acceptanceClaims = claims ?? null;
+  }
+
+  /**
+   * One finished call of any tool, for the acceptance lines it may stand behind: it ran when it went through and
+   * answered, and was real when its result was also not simulated (the full result text, as `trackOutside` reads it).
+   */
+  private trackToolUse(call: Extract<SessionEventInput, { kind: "tool_call" }>, result: string | undefined): void {
+    const key = call.connectorKey;
+    if (call.status === "started" || !key || key === "platform" || key === "quarantine") return;
+    const bare = toolKeys(call.tool).bare;
+    const uses = [bare, `${key.toLowerCase()}:${bare}`].map((k) => {
+      const use = this.toolsUsed.get(k) ?? { ran: 0, real: 0 };
+      this.toolsUsed.set(k, use);
+      return use;
+    });
+    const text = result ?? call.resultSummary ?? "";
+    if (call.status !== "succeeded" || call.policyOutcome === "deny" || call.policyOutcome === "ask" || /integration_not_connected|"ok"\s*:\s*false/.test(text)) return;
+    const real = !/"simulated"\s*:\s*true/.test(text);
+    for (const use of uses) {
+      use.ran += 1;
+      if (real) use.real += 1;
+    }
   }
 
   /** One tool result of a connector outside the business: counted, and whether it was simulated or not connected. */
@@ -1616,7 +1659,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
       deps.log.warn({ err: (err as Error).message, sessionId: input.sessionId }, "could not read the session's earlier tool calls");
     }
   }
-  const taskPrompt = [`# Task: ${task.title}`, task.goalMd || "", Array.isArray(task.acceptance) && task.acceptance.length ? `## Acceptance criteria\n${task.acceptance.map((a) => `- ${typeof a === "string" ? a : JSON.stringify(a)}`).join("\n")}` : "", policy.fileTools ? codeTaskNote(launch.branch, buildDestinationOf(await repos.integrations.codeRepository(deps.db, input.businessId))) : "Keep every action inside the tools you were given; this task has no file access.", continuing, resumed, alreadyDone, notConnectedNote, "Keep every external action inside the tools you were given. If a tool you need is missing or not connected, call block_task in your first turn and name it; do not explore. When the work is finished, call complete_task with what you found or made. A session that ends without complete_task or block_task is not counted as done."].filter(Boolean).join("\n\n");
+  const taskPrompt = [`# Task: ${task.title}`, task.goalMd || "", acceptanceLines(task).length ? `## Acceptance criteria\n${acceptanceLines(task).map((a, i) => `${i + 1}. ${a}`).join("\n")}\n\n${ACCEPTANCE_BRIEF}` : Array.isArray(task.acceptance) && task.acceptance.length ? `## Acceptance criteria\n${task.acceptance.map((a) => `- ${typeof a === "string" ? a : JSON.stringify(a)}`).join("\n")}` : "", policy.fileTools ? codeTaskNote(launch.branch, buildDestinationOf(await repos.integrations.codeRepository(deps.db, input.businessId))) : "Keep every action inside the tools you were given; this task has no file access.", continuing, resumed, alreadyDone, notConnectedNote, "Keep every external action inside the tools you were given. If a tool you need is missing or not connected, call block_task in your first turn and name it; do not explore. When the work is finished, call complete_task with what you found or made. A session that ends without complete_task or block_task is not counted as done."].filter(Boolean).join("\n\n");
 
   const waits = founderWaits(deps);
   /**
@@ -2154,6 +2197,17 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
         return { outcome: "blocked", reason: `not connected: ${keys.join(", ")}`, blockedReason: "not_connected", approvalId: null, summary: `Blocked: ${namesList(keys.map(connectorName))} not connected for this project, so nothing real was read or sent.`.slice(0, 1800), providerSessionId: sdkSessionId, ...usageNow() };
       }
       if (!recorder.completedOwnTask) return { outcome: "blocked", reason: NO_RESULT_REASON, blockedReason: "no_result", approvalId: null, summary: `Blocked: ${agent.name} ended the session without reporting a result on "${task.title}".`.slice(0, 1800), providerSessionId: sdkSessionId, ...usageNow() };
+      // Its acceptance lines (founder, Nov 16, 2026): done only with a report saved and every line met on real results.
+      const lines = acceptanceLines(task);
+      if (lines.length > 0) {
+        const own = await repos.taskReports.latestForTask(deps.db, input.businessId, task.id);
+        const reportSimulated = own?.sessionId === input.sessionId && own.simulated;
+        const which = unmetAcceptanceLines(lines, recorder.acceptanceClaims, recorder.toolsUsed, { realOnly: !mockResultsAllowed(deps.env.APP_ENV, live.business.isDemo), reportSimulated });
+        if (which.length > 0 || !recorder.savedOwnReport) {
+          const unmet = which.map((n) => lines[n - 1]!);
+          return { outcome: "blocked", reason: `${ACCEPTANCE_UNMET_REASON}: ${recorder.savedOwnReport ? "" : "no report saved; "}${which.length ? `line${which.length === 1 ? "" : "s"} ${which.join(", ")}` : "every line marked met"}`, blockedReason: "no_result", approvalId: null, summary: acceptanceUnmetSummary(agent.name, task.title, lines.length, unmet, recorder.savedOwnReport), providerSessionId: sdkSessionId, ...usageNow() };
+        }
+      }
       recorder.progress = { ...recorder.progress, progress: 1 };
     }
     return { outcome: "done", reason: null, blockedReason: null, approvalId: null, summary: `${agent.name} finished "${task.title}" with ${recorder.toolCalls} tool calls.`, providerSessionId: sdkSessionId, ...usageNow() };
@@ -2687,6 +2741,17 @@ async function adoptPushedBranch(deps: OrchestratorDeps, recorder: SessionRecord
 export const REPORT_TURN = "You ended without reporting. Call complete_task with what you found or made, or block_task with what stopped you.";
 /** Why a task that is not code is blocked when its agent never reported a result. */
 export const NO_RESULT_REASON = "no result: the session ended without complete_task or block_task";
+/** What a task that is not code with acceptance lines tells its agent, under the numbered lines. */
+export const ACCEPTANCE_BRIEF = "Save your result with save_report, then call complete_task with one acceptance result per line, by its number: met or not, and for a met line where it shows (reportSection: a heading of your report, or tool: the outside tool call that did it). The task is done only when every line is met on a real result; a line that rests only on simulated or not-connected calls is not met, so say so.";
+/** Why a task that is not code is blocked when its report is missing or one of its acceptance lines is not met. */
+export const ACCEPTANCE_UNMET_REASON = "acceptance not met";
+/** The founder's one sentence on what was not met, each line named once; never a to-do. */
+export function acceptanceUnmetSummary(agentName: string, title: string, total: number, unmet: readonly string[], reportSaved: boolean): string {
+  const quoted = unmet.map((l) => `“${l.length > 160 ? `${l.slice(0, 159)}…` : l}”`).join("; ");
+  if (unmet.length === 0) return `Blocked: ${agentName} ended "${title}" without saving a report, so its result is not counted as done.`.slice(0, 1800);
+  const count = unmet.length === total ? (total === 1 ? "its one line" : `all ${total} of its lines`) : `${unmet.length} of its ${total} lines`;
+  return `Blocked: ${agentName} ended "${title}" with ${count} not met${reportSaved ? "" : " and no report saved"}: ${quoted}.`.slice(0, 1800);
+}
 /** How much of a report's body `task.completed.summary` carries after its title (the schema allows 2,000 in all). */
 export const REPORT_SUMMARY_BODY_CHARS = 1_700;
 

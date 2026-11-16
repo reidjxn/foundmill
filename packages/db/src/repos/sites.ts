@@ -1,5 +1,5 @@
 /**
- * Foundmill sites (0119 `sites`, `site_releases`; WP-07 T2). The services write sites and releases; an owner or an
+ * Foundmill sites (0124 `sites`, `site_releases`; WP-07 T2). The services write sites and releases; an owner or an
  * admin publishes and unpublishes inside `withRls` as themselves (`sites_publish` and `site_releases_publish` let them
  * set only the publishing columns, never on a taken-down site, never to a held release or another business's).
  *

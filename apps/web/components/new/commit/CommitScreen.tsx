@@ -122,7 +122,7 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
       onSuccess: (res) => {
         // A second Take charge of this idea (another tab, a retried request) answers with the business the first created.
         // The first days are about the product (founder, 2026-10-18): Home shows the foundations drafting; the Inbox has
-        // the Chief of Staff's welcome note and, once drafted, the two sign-off notes.
+        // the Chief of Staff's welcome note and, once drafted, the plan note.
         toast({ title: res.alreadyCommitted ? `${res.business.name} is already yours` : `${res.business.name} is yours`, description: FIRST_DAY_PROMISE.sentence, tone: "good" });
         const to = routes.today(res.business.id);
         // The new business is in the founder's lists at once (Switch business, Your businesses).
@@ -233,7 +233,7 @@ const SETTING_UP = "Setting up your business: departments, team and the first ta
 
 /**
  * What happens after Take charge, in the order `apps/api/src/services/commit.ts` runs it (A4): the team is hired, the
- * Product lead drafts the foundations, two sign-off notes land, then building starts. Nothing is spent before the
+ * Product lead drafts the foundations, the plan note lands, then building starts. Nothing is spent before the
  * founder approves it.
  */
 export const WHAT_HAPPENS_NEXT: readonly string[] = FIRST_DAY_PROMISE.steps;

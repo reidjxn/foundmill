@@ -1,5 +1,5 @@
 /**
- * 0119 `sites` and `site_releases` (WP-07 T2). Not in the generated suite (one site per business, and a release needs
+ * 0124 `sites` and `site_releases` (WP-07 T2). Not in the generated suite (one site per business, and a release needs
  * that site), so this file covers their tenancy, the founder's press (`sites_publish`, `site_releases_publish` and the
  * column grants), the same-business triggers, `site_resolve` and `site_file`, and the `sites_reader` login.
  */

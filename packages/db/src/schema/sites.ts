@@ -1,5 +1,5 @@
 /**
- * 0119 — Foundmill sites (WP-07 T2): a project's static site and its releases. Members read; the services write, but
+ * 0124 — Foundmill sites (WP-07 T2): a project's static site and its releases. Members read; the services write, but
  * for an owner's or an admin's publish (`sites_publish` on status, live_release_id and slug; `site_releases_publish`
  * on published_by and published_at). Each release's files are a `WorkspaceManifestEntry[]` whose bytes are the
  * business's `workspace_blobs`. apps/sites reads through `site_resolve` and `site_file` as `sites_reader`.

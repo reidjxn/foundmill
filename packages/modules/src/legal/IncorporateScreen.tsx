@@ -223,7 +223,7 @@ export function IncorporateScreen({ businessId }: ModuleScreenProps) {
             if (recommend.pending === null) void runRecommend();
           }}
         >
-          <Field htmlFor={`${id}-fund`} label="Fundraising plans" className="w-64">
+          <Field htmlFor={`${id}-fund`} label="Fundraising plans" className="w-72">
             <SimpleSelect id={`${id}-fund`} options={FUNDRAISING_OPTIONS} value={fundraising} onValueChange={setFundraising} aria-label="Fundraising plans" />
           </Field>
           <Field htmlFor={`${id}-cof`} label="Co-founders" className="w-32">

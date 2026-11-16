@@ -1,4 +1,4 @@
--- 0119 — Foundmill sites (WP-07 T2): a project's static site, served by apps/sites at `<slug>.<SITES_DOMAIN>`, and its
+-- 0124 — Foundmill sites (WP-07 T2): a project's static site, served by apps/sites at `<slug>.<SITES_DOMAIN>`, and its
 -- releases. A release is the whole site as one session left it: a manifest of `{ path, sha256, size }` whose bytes are
 -- the business's `workspace_blobs` (0013), so a file is stored once however many releases carry it.
 --

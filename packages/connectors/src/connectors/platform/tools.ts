@@ -9,6 +9,7 @@ import { z } from "zod";
 import { AGENT_MESSAGE_TYPES } from "@foundmill/events";
 import { AppError, PositioningNotesInput, TASK_KINDS, TASK_STATUSES } from "@foundmill/shared";
 import { defineTool } from "../../define";
+import { AcceptanceResult } from "./acceptance";
 
 export const PLATFORM_KEY = "platform";
 export const PLATFORM_RATE_LIMITS = { perMinute: 600, perDay: 20_000 };
@@ -119,7 +120,14 @@ export const platformTools = [
     untrustedRef: (a) => `report:${a.taskId}`,
     annotations: { readOnlyHint: true },
   }),
-  defineTool({ name: "complete_task", description: "Report a task finished with a summary; code goes to review, other work is done.", input: z.object({ taskId: Id, summary: Text(4000) }), output: TaskSummary, hints: {} }),
+  defineTool({
+    name: "complete_task",
+    description:
+      "Report a task finished with a summary; code goes to review, other work is done. A task that is not code with acceptance lines needs a report saved with save_report first and one acceptance result per line, by its number: met or not, and for a met line where it shows (reportSection: a heading of your report, or tool: the outside tool call that did it). Call it from the task's own session; the session ends it done only when every line is met on real results.",
+    input: z.object({ taskId: Id, summary: Text(4000), acceptance: z.array(AcceptanceResult).max(30).optional() }),
+    output: TaskSummary,
+    hints: {},
+  }),
   // ---- typed messages ------------------------------------------------------------------------------------------
   defineTool({
     name: "send_message",

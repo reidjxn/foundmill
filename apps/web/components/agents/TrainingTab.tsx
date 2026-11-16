@@ -319,13 +319,13 @@ export function TrainingTab({ businessId, profile, refetch }: TabProps) {
           {sub === "focus" ? (
             <div className="grid grid-cols-12 gap-gutter">
               <div className="col-span-7">
-                <p className="mb-2 text-small text-secondary">Pick up to three skills to focus the next training run on. The Coach proposes instruction edits for each, with the expected gain.</p>
+                <p className="mb-2 text-small text-secondary">Pick up to three skills to focus the next training run on. Each comes with suggested instruction edits, with the expected gain.</p>
                 {/* A narrow column: the band word folds into each figure's tooltip (compact), never a pill cut at the edge. */}
                 <SkillGrid skills={skills} focus={{ selected: focus, onChange: onFocusChange, max: 3 }} showPotential density="compact" />
               </div>
               <div className="col-span-5 flex flex-col gap-2" data-testid="coach-proposals">
                 <h3 className="t-label flex items-center gap-1">
-                  <Icon icon={Sparkles} size={12} /> <Term id="coach">Coach</Term> proposals
+                  <Icon icon={Sparkles} size={12} /> Suggested edits
                 </h3>
                 {proposals.length === 0 ? <p className="text-small text-secondary">Choose a focus skill to see proposals.</p> : null}
                 {proposals.map((p) => {

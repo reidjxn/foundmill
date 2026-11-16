@@ -260,7 +260,7 @@ export const NON_TENANT_TABLES = [
   "retired_mail_local_parts",
   // 0101: business-scoped, one row per business, founders only; covered by rls/project-postal-address.test.ts.
   "project_postal_addresses",
-  // 0119: business-scoped, one site per business (the generated suite inserts a second), and releases that need that
+  // 0124: business-scoped, one site per business (the generated suite inserts a second), and releases that need that
   // site; services write both, owners and admins publish; covered by rls/sites.test.ts.
   "sites",
   "site_releases",

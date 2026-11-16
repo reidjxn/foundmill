@@ -202,6 +202,8 @@ export const founderRouter = router({
       const profile = await repos.founders.upsert(ctx.db, ctx.userId, created);
       const guidanceTurnedOff = guidanceOffByDefault(profile.experience);
       if (guidanceTurnedOff) await asUser(ctx, (tx) => repos.preferences.update(tx, ctx.userId, { guidance: "off", builderView: true, keyboardShortcuts: true }));
+      // A guided first-timer starts on comfortable text (WP-10 T5, DESIGN §4); existing accounts keep their setting.
+      else await asUser(ctx, (tx) => repos.preferences.update(tx, ctx.userId, { textSize: "comfortable" }));
       await onPersonCreated(ctx, ctx.userId, { via, ideaDraftToken, confirmAdult, client: ctx.clientKind });
       return { ...profile, guidanceTurnedOff };
     }),
