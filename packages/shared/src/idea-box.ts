@@ -90,8 +90,8 @@ export type IdeaBoxEvent =
 export const IDEA_BOX_ERRORS: Record<IdeaBoxErrorCode, string> = {
   invalid: "Write your idea in a sentence, up to 500 characters.",
   bot: "We could not check this browser. Reload the page and try again.",
-  limit: "That is all the cards from this connection today. Sign in to keep going with your team.",
-  resting: "The idea box is resting until tomorrow. Sign in and your team can shape it with you.",
+  limit: "That is all the cards from this connection today. Come back tomorrow for another.",
+  resting: "The idea box is resting until tomorrow. Come back then and it will shape your idea.",
   unavailable: "The idea box is not open right now. Try again in a minute.",
   refused: "That one cannot become a card. Try another idea.",
   failed: "The card could not be finished. Try again.",

@@ -66,8 +66,8 @@ reads it too). Only the token's SHA-256 (lowercase hex) is stored.
   unless `held_until` is later): create the idea in the person's deck (`repos.ideas.create`, `ideaFromCard` with the
   provenance `{ brief, idea_box: true }`), mark the draft claimed (`claimed_by`, `claimed_at`, `idea_id`). Claiming
   twice returns the same idea to the same person, and nothing to anyone else.
-- Not on the list: the not-invited page offers "Join the waitlist" (`waitlist.join`, signed in, not gated by the
-  list): stores the address and the draft's hash, and sets the draft's `held_until` to 90 days. When the person is
+- Not on the list: the not-invited page saves the person's place on arrival, with no press ("Save my place" only to
+  try again; WP-03 T1) (`waitlist.join`, signed in, not gated by the list): stores the address and the draft's hash, and sets the draft's `held_until` to 90 days. When the person is
   admitted, `/start` claims it as above.
 
 ### Data
