@@ -165,8 +165,8 @@ test.describe("invitations", () => {
     // Into the project; a new person first meets their profile (the project's layout asks for it), without the box again.
     await page.waitForURL(new RegExp(`/b/${bid}/|/onboarding`), { timeout: LONG });
     if (/\/onboarding/.test(page.url())) {
-      await expect(page.getByTestId("onboarding-form")).toBeVisible({ timeout: LONG });
-      await expect(page.getByTestId("profile-adult")).toHaveCount(0);
+      await expect(page.getByTestId("first-profile")).toBeVisible({ timeout: LONG });
+      await expect(page.getByTestId("first-profile-adult")).toHaveCount(0);
     }
     await expect(page.getByTestId("on-waitlist")).toHaveCount(0);
     await expect(page.getByTestId("not-invited")).toHaveCount(0);

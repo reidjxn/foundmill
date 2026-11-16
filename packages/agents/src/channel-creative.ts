@@ -14,6 +14,7 @@ import { APP_NAME } from "@foundmill/config";
 import { ASSET_KINDS, CHANNEL_META, type AssetKind, type ChannelKey } from "@foundmill/shared";
 import { agentPromptFields, buildSystemPrompt, type AgentPromptParts } from "./club-rules";
 import { inertJson, plainModelText } from "./foundations";
+import { positioningBlock } from "./positioning";
 import { channelCreativePrompt } from "./prompts/channel-creative";
 import { getChannelTemplate } from "./registry";
 
@@ -65,6 +66,8 @@ export interface ChannelCreativeInput {
   weeklyBudget?: { amountMinor: number; currency: string } | null;
   /** The business's agent of this channel as it is now (its live instructions and skills); the template when absent. */
   agent?: AgentPromptParts;
+  /** The positioning notes the founders approved (`renderPositioning`), as a data block; none until they approve. */
+  positioning?: string | null;
 }
 
 export interface ChannelCreativeRequest {
@@ -91,7 +94,7 @@ export function buildChannelCreativeRequest(input: ChannelCreativeInput): Channe
   return {
     route: "worker",
     system: [buildSystemPrompt({ businessName: input.businessName, appName: APP_NAME, ...agentPromptFields(input.agent, getChannelTemplate(input.channelKey)) })],
-    messages: [{ role: "user", content: `${prompt}\n\n\`\`\`json\n${inertJson(data)}\n\`\`\`` }],
+    messages: [{ role: "user", content: [`${prompt}\n\n\`\`\`json\n${inertJson(data)}\n\`\`\``, positioningBlock(input.positioning)].filter(Boolean).join("\n\n") }],
     schema: ChannelCreativeOutput,
     maxTokens: CHANNEL_CREATIVE_MAX_TOKENS,
   };

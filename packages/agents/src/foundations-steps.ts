@@ -267,7 +267,8 @@ export interface ProjectPageStore {
   write(input: { draft: ProjectPageContent; source: "model" | "starter"; reason: string | null; note: ProjectPageNote; usage: FoundationsUsage }): Promise<{ written: boolean; inboxItemId: string | null }>;
 }
 
-export type ProjectPageStepContext = Omit<FoundationsStepContext, "store">;
+/** The page step's context; `positioning` is the approved notes when the project has them (a redraft), else none. */
+export type ProjectPageStepContext = Omit<FoundationsStepContext, "store"> & { positioning?: string | null };
 
 export interface ProjectPageDrafted {
   draft: ProjectPageContent;
@@ -287,7 +288,7 @@ export async function draftProjectPage(ctx: ProjectPageStepContext): Promise<Pro
   const starter = (reason: string, usage: FoundationsUsage = NO_FOUNDATIONS_USAGE): ProjectPageDrafted => ({ draft: starterProjectPage(ctx.inputs), source: "starter", reason, usage });
   let res: CompleteResult<unknown>;
   try {
-    const req = buildProjectPageRequest(ctx.inputs);
+    const req = buildProjectPageRequest(ctx.inputs, { positioning: ctx.positioning });
     res = await ctx.models.complete({ ...req, signal: ctx.signal, scope: ctx.scope, attribution: ctx.attribution });
   } catch (err) {
     if (ctx.signal?.aborted) throw err;

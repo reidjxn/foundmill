@@ -8,3 +8,4 @@ export * from "./firstrun/Coachmark";
 export * from "./firstrun/ExampleToggle";
 export * from "./firstrun/AgentStylePicker";
 export * from "./firstrun/AdultCheck";
+export * from "./firstrun/FirstProfileForm";

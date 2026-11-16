@@ -296,7 +296,7 @@ repos.skills.backfillDefaultSkills(db): Promise<{ businesses: number; agents: nu
 
 **Done when:** Done-when 3 and 7. **Does not cover:** the welcome note saying the team arrives with skills (WP-04 owns first notes).
 
-### T7: Picker data: suggestions, the body on request, availability   [S] [after T3]
+### [x] T7: Picker data: suggestions, the body on request, availability   [S] [after T3]
 
 **Why:** TS-09; a3b §6b (api), §6f (the two cases kept apart). WP-10 owns the look.
 

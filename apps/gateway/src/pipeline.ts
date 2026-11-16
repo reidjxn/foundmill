@@ -229,6 +229,8 @@ export class SessionStateDenied extends Error {
 }
 
 export const SESSION_SCOPE_POLICY_ID = "session-scope";
+/** A tool its connector declares no policy hints for is refused: a missing entry must not read as "internal, never asks". */
+export const MISSING_POLICY_HINTS_POLICY_ID = "missing-policy-hints";
 export const HARD_GATE_POLICY_ID = "hard-gate";
 /** The Cedar policy that forbids a call the gateway recognised as a security-settings change (security-settings.ts). */
 export const SECURITY_SETTINGS_POLICY_ID = "hard-gate-security-settings";
@@ -335,6 +337,14 @@ export async function executeToolCall(deps: GatewayDeps, session: SessionToken, 
   }
   const tool = findTool(connector, req.tool);
   if (!tool) throw new GatewayError("unknown_tool", `${req.connector} has no tool "${req.tool}"`, 404, { connector: req.connector, tool: req.tool });
+  // 2b. A tool with no policy hints entry fails closed (A7-16). The contract suite demands an entry for every tool, so
+  // this guards a connector that skipped it, not one that passed.
+  if (!Object.hasOwn(connector.policyHints, tool.name)) {
+    const reasons = [`Tool ${ref} declares no policy hints`];
+    const audit = await appendAudit(deps, session, req, { outcome: "deny", reasons, policyIds: [MISSING_POLICY_HINTS_POLICY_ID] });
+    log.warn({ reasons }, "tool call without policy hints");
+    return { status: 403, body: { outcome: "deny", reasons, policyIds: [MISSING_POLICY_HINTS_POLICY_ID], costMinor: 0, auditId: audit.id } };
+  }
 
   // 3. Rate limit per connector per business.
   const limit = await checkRateLimit(deps.rateLimits, { businessId, connector: connector.key, limits: connector.rateLimits ?? {} }, now().getTime());

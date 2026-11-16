@@ -13,12 +13,20 @@ import type * as SharedModule from "../shared";
 const BUSINESS = "6f1d2c3b-4a5e-4f60-8a71-0b2c3d4e5f60";
 const connect = vi.fn(async (vars: unknown) => ({ integration: { id: "i1" }, record: { accountLabel: "acme" }, consentUrl: null, founderConsentRequired: false, vars }));
 const replace = vi.fn();
+const setRepository = vi.fn(async (vars: unknown) => ({ repository: null, vars }));
+let repositoryState: { connected: boolean; status: string | null; repository: { fullName: string; owner: string; repo: string; writeEnabled: boolean } | null; simulated: boolean } = { connected: true, status: "connected", repository: null, simulated: false };
 let search = new URLSearchParams();
 let catalogue: unknown[] = [];
 
 vi.mock("next/navigation", () => ({ useSearchParams: () => search, useRouter: () => ({ replace }), usePathname: () => `/b/${BUSINESS}/settings/integrations` }));
 vi.mock("@/lib/trpc-react", () => ({
   useTRPC: () => ({
+    dev: {
+      code: {
+        repository: { queryOptions: () => ({ queryKey: [["dev", "code", "repository"]], queryFn: async () => repositoryState }) },
+        setRepository: { mutationOptions: (opts: Record<string, unknown>) => ({ mutationKey: [["dev", "code", "setRepository"]], mutationFn: (vars: unknown) => setRepository(vars), ...opts }) },
+      },
+    },
     integrations: {
       platformMail: { queryOptions: () => ({ queryKey: [["integrations", "platformMail"]], queryFn: async () => null }) },
       list: { queryOptions: () => ({ queryKey: [["integrations", "list"]], queryFn: async () => ({ mode: "mock", integrations: [], catalogue }) }) },
@@ -45,6 +53,8 @@ const renderTab = () =>
 
 afterEach(() => {
   connect.mockClear();
+  setRepository.mockClear();
+  repositoryState = { connected: true, status: "connected", repository: null, simulated: false };
   replace.mockClear();
   search = new URLSearchParams();
   catalogue = [];
@@ -76,7 +86,7 @@ describe("Settings › Integrations: finishing the GitHub connection", () => {
     renderTab();
     expect(screen.getByTestId("github-installation").textContent).toContain("GitHub installation 48213377 is ready");
     // The Code tab is named by the department over the Development module, as the founder named it.
-    expect(screen.getByTestId("github-installation").textContent).toContain("choose the repository on Product › Code.");
+    expect(screen.getByTestId("github-installation").textContent).toContain("choose the repository below.");
     expect(connect).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Connect installation" }));
     await waitFor(() => expect(connect).toHaveBeenCalledWith({ businessId: BUSINESS, connectorKey: "github", input: { installationId: 48213377, code: "c0de", state: STATE } }));
@@ -135,5 +145,39 @@ describe("Settings › Integrations: starting the GitHub connection", () => {
     expect(modeLabel("mock", [{ displayName: "GitHub", live: true }, { displayName: "Stripe", live: false }])).toBe("Test mode · GitHub live");
     expect(modeLabel("mock", [{ displayName: "Stripe" }])).toBe("Test mode");
     expect(modeLabel("live", [])).toBe("Live");
+  });
+});
+
+describe("Settings › Integrations: choosing the repository (WP-07 T11)", () => {
+  const github = (status: string) => [{ key: "github", displayName: "GitHub", phase: 1, auth: { kind: "app" }, tools: [], simulations: [], live: true, integration: { id: "i1", status, scopes: [], accountLabel: "acme" } }];
+
+  it("a connected GitHub shows the panel; saving sends the repository and the push switch (off unless turned on)", async () => {
+    catalogue = github("connected");
+    renderTab();
+    const panel = await screen.findByTestId("github-repository");
+    fireEvent.change(screen.getByLabelText("Repository"), { target: { value: " acme/shop " } });
+    fireEvent.click(screen.getByRole("button", { name: "Save repository" }));
+    await waitFor(() => expect(setRepository).toHaveBeenCalledWith({ businessId: BUSINESS, repository: "acme/shop", pushEnabled: false }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /Let the team push its work to this repository/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Save repository" }));
+    await waitFor(() => expect(setRepository).toHaveBeenLastCalledWith({ businessId: BUSINESS, repository: "acme/shop", pushEnabled: true }));
+    expect(panel.textContent).toContain("This repository has no commits yet. Add a first commit with a README, then choose it again; the team cannot start an empty repository.");
+  });
+
+  it("shows the chosen repository and can forget it; nothing shows without a connected GitHub", async () => {
+    catalogue = github("connected");
+    repositoryState = { ...repositoryState, repository: { fullName: "acme/shop", owner: "acme", repo: "shop", writeEnabled: true } };
+    renderTab();
+    const input = (await screen.findByLabelText("Repository")) as HTMLInputElement;
+    await waitFor(() => expect(input.value).toBe("acme/shop"));
+    fireEvent.click(screen.getByRole("button", { name: "Forget repository" }));
+    await waitFor(() => expect(setRepository).toHaveBeenCalledWith({ businessId: BUSINESS, repository: null, pushEnabled: false }));
+  });
+
+  it("is absent when GitHub is not connected", async () => {
+    catalogue = github("disconnected");
+    renderTab();
+    await screen.findByText("GitHub");
+    expect(screen.queryByTestId("github-repository")).toBeNull();
   });
 });

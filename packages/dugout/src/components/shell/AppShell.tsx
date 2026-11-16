@@ -12,7 +12,7 @@ import { useGuided } from "../guidance/GuidanceProvider";
 import { PageExplainProvider } from "../guidance/PageExplain";
 import { Breadcrumbs } from "./Breadcrumbs";
 import { CommandPalette, KEYBOARD_SHORTCUTS_HELP_ITEM, type CommandPaletteProps, type PaletteItem } from "./CommandPalette";
-import { continueButtonAction, type ContinueHandlers } from "./ContinueButton";
+import { type ContinueHandlers } from "./ContinueButton";
 import { KeyboardHelp } from "./KeyboardHelp";
 import type { ConnectionChipProps } from "./ConnectionChip";
 import { KitBar, kitStyle, type KitBarBusinessMenu, type KitBarNav } from "./KitBar";
@@ -180,7 +180,7 @@ export interface AppShellProps extends Omit<HTMLAttributes<HTMLDivElement>, "tit
   businessMenu?: KitBarBusinessMenu;
   /** The live connection is down: the kit bar says so (ConnectionChip). */
   connection?: ConnectionChipProps | null;
-  /** BUILD §5.5 callbacks. Space, G chords, / and ⌘K, ? and Esc are wired by the shell itself. */
+  /** BUILD §5.5 callbacks. G chords, / and ⌘K, ? and Esc are wired by the shell itself; `singleKeys` turns the single keys on (default off, WP-04 T13). */
   keyboard?: AppShellKeyboard;
   /** Measured width; defaults to the window's. Below 1280 px only NeedsLargerWindow renders. */
   viewportWidth?: number;
@@ -337,7 +337,6 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
   const guided = useGuided();
 
   const { state, cycleNumber, pulseKey, disabled: continueDisabled, pending: continuePending, caveat: continueCaveat, hint: continueHint, ...continueHandlers } = continueButton;
-  const continueAction = continueButtonAction(state, continueHandlers);
   const notice = processing.notice?.trim() || null;
   const builder = useBuilderView();
   const processingText = notice ?? processingStatusText(processing.segments, processing.active, processing.cycleNumber, builder);
@@ -372,9 +371,11 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
 
   const { chordPending, cancelChord } = useKeyboardMap({
     enabled: keyboard?.enabled ?? true,
+    // Off unless the account turned single keys on (WP-04 T13); Space is never a page shortcut (Continue takes it only
+    // with focus, as any button does).
+    singleKeys: keyboard?.singleKeys === true,
     areas,
     departments,
-    onContinue: continueAction && !continueDisabled && !continuePending ? continueAction : undefined,
     onRefreshInbox: keyboard?.onRefreshInbox,
     onGoTo: goTo,
     onSearch: openSearch,
@@ -471,7 +472,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
                 onOpenChange={setSearchOpen}
               />
             ) : null}
-            <KeyboardHelp open={helpOpen} onOpenChange={setHelpOpen} departments={departments} areas={areas} />
+            <KeyboardHelp open={helpOpen} onOpenChange={setHelpOpen} departments={departments} areas={areas} singleKeys={keyboard?.singleKeys === true} />
           </div>
         </PageExplainProvider>
       </TooltipProvider>
@@ -590,7 +591,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
             onOpenChange={setSearchOpen}
           />
         ) : null}
-        <KeyboardHelp open={helpOpen} onOpenChange={setHelpOpen} departments={departments} areas={areas} />
+        <KeyboardHelp open={helpOpen} onOpenChange={setHelpOpen} departments={departments} areas={areas} singleKeys={keyboard?.singleKeys === true} />
       </div>
       </PageExplainProvider>
     </TooltipProvider>

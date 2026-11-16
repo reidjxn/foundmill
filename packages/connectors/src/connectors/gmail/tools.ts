@@ -43,7 +43,7 @@ export const gmailTools = [
     output: z.object({ id: z.string(), threadId: z.string(), to: z.array(z.string()) }),
     hints: { contactsThirdParty: true, irreversible: true },
   }),
-  defineTool({ name: "create_draft", description: "Save a draft in the connected mailbox for the founder to review and send.", input: Compose, output: z.object({ draftId: z.string(), messageId: z.string() }), hints: {} }),
+  defineTool({ name: "create_draft", annotations: { readOnlyHint: false }, description: "Save a draft in the connected mailbox for the founder to review and send.", input: Compose, output: z.object({ draftId: z.string(), messageId: z.string() }), hints: {} }),
   defineTool({ name: "list_labels", description: "Labels of the mailbox.", input: z.object({}), output: z.object({ items: z.array(z.object({ id: z.string(), name: z.string(), type: z.string() })) }), hints: {}, annotations: { readOnlyHint: true } }),
 ] as const;
 
