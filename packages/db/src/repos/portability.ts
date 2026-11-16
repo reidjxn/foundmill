@@ -59,6 +59,10 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   agent_sessions: t(s.agentSessions, "development"),
   // 0110: what each finished task reported (findings, sources, the recommendation).
   task_reports: t(s.taskReports, "development"),
+  // 0117: the project's site and its releases (the manifests; the bytes are workspace_blobs, left out). The preview
+  // token is a link credential, not data.
+  sites: t(s.sites, "development"),
+  site_releases: t(s.siteReleases, "development", { omit: ["previewToken"] }),
   // team
   departments: t(s.departments, "team"),
   department_members: t(s.departmentMembers, "team"),

@@ -91,7 +91,7 @@ Before (`archetypes.ts:455`): "At least 20 suppliers recorded as CRM entities". 
 
 ### T2: Site tables, the switch and the events   [M] [ships alone] [needs go-ahead A]
 
-- [ ] done
+- [x] done
 
 **Why:** A4-02, A4-03; §8 architecture items 1 and "Events".
 
@@ -143,7 +143,7 @@ Before (`archetypes.ts:455`): "At least 20 suppliers recorded as CRM entities". 
 
 ### T4: `apps/sites`, the service that serves previews and live sites   [M] [ships alone] [code needs go-ahead A; deploy needs go-ahead B, WP-00 S9]
 
-- [ ] done
+- [x] done (code; the deploy waits for WP-00 S9)
 
 **Why:** A4-03; §8 item 3 and "Risks".
 

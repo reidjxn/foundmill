@@ -1,6 +1,7 @@
 /** Single place that reads process.env (docs/ARCHITECTURE.md §3). */
 import { z } from "zod";
 import { MAIL_LOCAL_PART_PATTERN, mailLocalPartReserved } from "./platform-mail";
+import { sitesDomainProblem } from "./sites";
 
 const Env = z.object({
   APP_ENV: z.enum(["development", "test", "staging", "production"]).default("development"),
@@ -114,6 +115,16 @@ const Env = z.object({
     .optional()
     .transform((v) => v?.trim().toLowerCase() || undefined)
     .refine((v) => v === undefined || /^(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(v), { message: "PLATFORM_MAIL_DOMAIN must be a domain name such as mail.foundmill.com" }),
+  /**
+   * Foundmill Sites (WP-07): the domain project sites are served on (`<slug>.<domain>`, previews `p-<token>.<domain>`),
+   * read by api, orchestrator and sites. Unset means the feature is off everywhere: no tab, no note, no Planner
+   * destination. Outside development and test it must not be APP_URL's host or a parent or subdomain of it.
+   */
+  SITES_DOMAIN: z
+    .string()
+    .optional()
+    .transform((v) => v?.trim().toLowerCase() || undefined)
+    .refine((v) => v === undefined || /^(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(v), { message: "SITES_DOMAIN must be a domain name such as example-sites.app" }),
   /** Messages one project may send from its Foundmill address per UTC day (gateway; the api shows it). An operator raises one project's cap in `project_mail.daily_cap`. */
   PLATFORM_MAIL_DAILY_CAP: z.coerce.number().int().min(1).max(10_000).default(50),
   /** Messages every project together may send from the platform domain per UTC day: protects the domain's reputation (gateway). */
@@ -295,6 +306,10 @@ export function loadEnv(overrides: Partial<NodeJS.ProcessEnv> = {}): Env {
     // falls back to it) never waits on purpose.
     env.MOCK_MODEL_LATENCY_MS = 0;
     env.MOCK_MODEL_STREAM_MS = 0;
+  }
+  if (env.SITES_DOMAIN && env.APP_ENV !== "development" && env.APP_ENV !== "test") {
+    const problem = sitesDomainProblem(env.SITES_DOMAIN, env.APP_URL);
+    if (problem) throw new Error(`Invalid environment: ${problem}`);
   }
   if (Object.keys(overrides).length === 0) cached = env;
   return env;
