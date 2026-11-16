@@ -25,7 +25,7 @@
 ## Tasks
 
 - [x] T1 Profile as three questions; the card keeps its thread (M)
-- [ ] T2 Commit as name and go, at any width (M)
+- [x] T2 Commit as name and go, at any width (M)
 - [x] T3 What commit starts on the free plan (M)
 - [ ] T4 The starting team, as shown (S)
 - [x] T5 One plan note, one approval (M)
@@ -71,7 +71,7 @@ Order: T1, T2, T3 first (the path), then T6, T5, T4, T7, T8; T9 to T16 in any or
 **Done when:** a new account on a phone goes kept card → three questions → Commit without a wall; the long form is reachable only when editing.
 **Left for later, on purpose:** re-rating "Founder fit" after the profile (FR-15) is one more Opus call for a number a first-timer cannot use; the card keeps `founderFitKnown={false}`. Time, place, budget and the five ratings stay in the editing form; an agent asks when it first needs one (T10's context carries nulls as "not said").
 
-### T2: Commit as name and go, at any width   [M] [ships alone]
+### [x] T2: Commit as name and go, at any width   [M] [ships alone]
 
 **Why:** FR-09, FR-03 item 2, FR-16 (weak strings), FR-19 (the 18+ source), s2 §4.1 (Commit table), s1 §3.7.
 

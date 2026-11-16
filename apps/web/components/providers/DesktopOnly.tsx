@@ -61,12 +61,15 @@ export const SMALL_SCREEN_PREFIXES: readonly string[] = [
  * Routes inside a project that work from 390 px (package 2.1): Today and Needs you (the Inbox), each in the business
  * shell's phone layout, and Product › Public page (WP-04 T6), so the page can be checked, published and shared on a
  * phone; it is matched by its tab slug under any department, since departments are labels over modules. Matched as
- * patterns because the project's id is part of the path; every other project route keeps the 1280 px floor.
+ * patterns because the project's id is part of the path; every other project route keeps the 1280 px floor. Before a
+ * project exists, Commit for one concept (`/new/commit/<id>`, WP-04 T2: name and go), so a kept card goes on to a
+ * started project on a phone; the studio around it stays desktop.
  */
 export const SMALL_SCREEN_PATTERNS: readonly RegExp[] = [
   /^\/b\/[0-9a-f-]{36}\/today\/?$/i,
   /^\/b\/[0-9a-f-]{36}\/inbox(\/[^/]+)?\/?$/i,
   /^\/b\/[0-9a-f-]{36}\/d\/[^/]+\/public-page\/?$/i,
+  /^\/new\/commit\/[0-9a-f-]{36}\/?$/i,
 ];
 
 /** Whether `pathname` renders at every width (one of `SMALL_SCREEN_PREFIXES` or `SMALL_SCREEN_PATTERNS`). */

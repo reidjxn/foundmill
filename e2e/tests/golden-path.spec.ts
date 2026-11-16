@@ -242,8 +242,8 @@ test.describe("golden path", () => {
     await page.getByTestId("commit-link").first().click();
     await expect(page.getByTestId("commit-form")).toBeVisible();
     await expect(page.getByTestId("commit-form")).toHaveAttribute("data-business-mode", "assisted");
-    // How it runs is one line of chips until Change opens the five controls (commit.spec.ts, UX plan §7.6).
-    await page.getByTestId("how-it-runs-change").click();
+    // How it runs and its five controls sit under More options (WP-04 T2; commit.spec.ts).
+    await page.getByTestId("commit-more").click();
     await expect(page.getByTestId("business-mode-panel")).toBeVisible();
     await expect(page.locator('[data-option="assisted"]')).toHaveAttribute("data-selected", "true");
     const name = `Playwright Business ${Date.now().toString(36)}`;

@@ -180,4 +180,10 @@ describe("desktop only (audit PAS-4: a phone rendered a 390 px slice of a 1280 p
     ])
       expect(worksOnSmallScreens(p), p).toBe(false);
   });
+
+  it("WP-04 T2: Commit works from 390 px for one concept; the studio and the rest of /new do not", () => {
+    const ID = "6f1d2c3b-4a5e-4f60-8a71-0b2c3d4e5f60";
+    for (const p of [`/new/commit/${ID}`, `/new/commit/${ID}/`, `/new/commit/${ID.toUpperCase()}`]) expect(worksOnSmallScreens(p), p).toBe(true);
+    for (const p of ["/new/commit", "/new/commit/", "/new/commit/not-a-uuid", `/new/commit/${ID}/x`, "/new", "/new/ideate", "/new/compare", "/new/import"]) expect(worksOnSmallScreens(p), p).toBe(false);
+  });
 });

@@ -1,27 +1,27 @@
 "use client";
 import Link from "next/link";
 /**
- * /new/commit/[ideaId] — the Commit screen (BUILD §11.1; AC-11.1.6, AC-11.1.7; docs/UX_AUDIT_AND_PLAN.md §7.6). Name
- * with suggestions, live domain availability (the registry's answer through `idea.domainCheck`) and the trademark
- * quick screen ("Screen, not legal clearance"), the logo (upload a real one or generate marks; `idea.logo.*`) and
- * brand colors, then "How it runs": one line of chips ("Personal · Assisted · B2B SaaS · Asks you above €250 ·
- * Autopilot off") with a ghost "Change" that opens the five controls, game mode LIVE / Personal, archetype cards,
- * business mode (Augmented / Assisted default / Automated) with the default spend cap, and Autopilot (A3; open by
- * default when guidance is off). The team the archetype seeds (idea.preview) sits in the rail, then "Take charge" →
- * idea.commit (with the chosen logo) → Home, where the foundations draft.
+ * /new/commit/[ideaId] — the Commit screen (BUILD §11.1; AC-11.1.6, AC-11.1.7; WP-04 T2 "name and go"). One column
+ * that reads the same from 390 px to 1440 px: the name (prefilled, with suggestions), one change-it-later line, what
+ * happens next, the included credits and one button, "Start my project" → idea.commit → Today, where the page and
+ * the plan draft. Everything else waits behind "More options", closed for everyone: the name checks (live domain
+ * availability through `idea.domainCheck`, asked only once it is open, and the trademark quick screen), the logo
+ * (upload or generate; `idea.logo.*`) and brand colors with the card's preview, "How it runs" (its labeled summary
+ * over the five controls: Personal or live, archetype, business mode with the spend line, the overnight shift, names
+ * and faces) and the team the archetype seeds (idea.preview; its wage line only in Builder view).
  *
  * `CommitForm` is pure apart from the local trademark screen and the logo and domain calls it is handed (`logoApi`,
  * `domainApi`); `CommitScreen` loads the idea, wires those calls to tRPC and commits.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRight, Check, ChevronDown, ChevronUp, Globe, Lock, RotateCw, Scale, SearchX, ThumbsUp } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, ChevronDown, ChevronUp, Globe, Lock, Rocket, RotateCw, Scale, SearchX } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { CREDITS_CURRENCY, includedCreditsMinor } from "@foundmill/config";
 import { ARCHETYPES, ARCHETYPE_LABELS, FIRST_DAY_PROMISE, type Archetype, type BusinessMode, type DeptColourToken, type GameMode } from "@foundmill/shared";
 import { DEFAULT_AGENT_STYLE, type AgentStyle } from "@foundmill/shared/personas";
 import { routes } from "@foundmill/widgets/shared/routes";
-import { AgentStylePicker, Avatar, Button, Checkbox, Chip, ConceptCard, EmptyState, Field, Icon, Input, Label, MoneyInput, Panel, ProvenanceChip, RadioGroup, RadioGroupItem, ReassuranceLine, SkeletonRows, StatusPill, Switch, Term, cn, fieldDescribedBy, formatMoney, useDateFormat, useFormatters, useGuided, useToast, type Kit } from "@foundmill/dugout";
+import { AgentStylePicker, Avatar, BuilderOnly, Button, Checkbox, Chip, ConceptCard, EmptyState, Field, Icon, Input, Label, MoneyInput, Panel, ProvenanceChip, RadioGroup, RadioGroupItem, ReassuranceLine, SkeletonRows, StatusPill, Switch, Term, cn, fieldDescribedBy, formatMoney, useDateFormat, useFormatters, useToast, type Kit } from "@foundmill/dugout";
 import { ANTHROPOMORPHIC_EXPLAINER } from "@/lib/anthropomorphic";
 import { formatDate, formatMoney as formatCredits, plainWords, plural } from "@/lib/format";
 import { agentStyleOf, useGuidancePreferences } from "@/components/providers/guidance-context";
@@ -102,8 +102,6 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
   const queryClient = useQueryClient();
   const [archetype, setArchetype] = useState<Archetype | null>(null);
   const previewQ = useQuery(trpc.idea.preview.queryOptions({ archetype: archetype ?? "b2b_saas" }, { enabled: archetype !== null, staleTime: 60_000 }));
-  // Whether the founder's 18+ confirmation is on record (a LIVE start asks for it otherwise).
-  const summaryQ = useQuery(trpc.live.summary.queryOptions(undefined, { staleTime: 60_000, retry: false }));
   const client = useTRPCClient();
   const prepareLogo = useMutation(trpc.idea.logo.prepare.mutationOptions());
   const { mutateAsync: prepareAsync } = prepareLogo;
@@ -133,7 +131,7 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
           if (window.location.pathname.startsWith("/new/")) commitNavigation.assign(to);
         }, COMMIT_NAVIGATION_FALLBACK_MS);
       },
-      onError: (err) => toast({ title: "Not committed", description: errorMessage(err), tone: "bad" }),
+      onError: (err) => toast({ title: COMMIT_WORDS.notStarted, description: errorMessage(err), tone: "bad" }),
     }),
   );
   // One commit per press: a double click reaches here twice before `isPending` re-renders the button, so a ref guards
@@ -155,12 +153,12 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
 
   if (ideaQ.isLoading) {
     return (
-      <StudioFrame step="commit" steps={steps} title="Commit" viewer={viewer} actions={back}>
-        <div className="grid grid-cols-12 gap-gutter" aria-busy="true" aria-label="Loading">
-          <Panel title="Name" span={8}>
-            <SkeletonRows rows={4} cols={2} />
+      <StudioFrame step="commit" steps={steps} title={COMMIT_WORDS.untitled} viewer={viewer} actions={back} smallScreen width="measure">
+        <div className="flex flex-col gap-gutter" aria-busy="true" aria-label="Loading">
+          <Panel title="Name">
+            <SkeletonRows rows={2} cols={1} />
           </Panel>
-          <Panel title="Preview" span={4} loading />
+          <Panel title="What happens next" loading />
         </div>
       </StudioFrame>
     );
@@ -169,7 +167,7 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
   // that can never succeed (audit IAE-16); any other failure keeps its retry.
   if (!idea && (!ideaQ.error || trpcErrorCode(ideaQ.error) === "NOT_FOUND")) {
     return (
-      <StudioFrame step="commit" steps={steps} title="Commit" viewer={viewer} actions={back}>
+      <StudioFrame step="commit" steps={steps} title={COMMIT_WORDS.untitled} viewer={viewer} actions={back} smallScreen width="measure">
         <Panel title="Concept" data-testid="concept-not-found">
           <EmptyState icon={SearchX} title="No such concept" actions={<LinkButton variant="primary" size="sm" icon={ArrowLeft} href="/new/ideate">Back to your concepts</LinkButton>}>
             This concept was deleted, belongs to another account, or the link is wrong.
@@ -180,7 +178,7 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
   }
   if (!idea) {
     return (
-      <StudioFrame step="commit" steps={steps} title="Commit" viewer={viewer} actions={back}>
+      <StudioFrame step="commit" steps={steps} title={COMMIT_WORDS.untitled} viewer={viewer} actions={back} smallScreen width="measure">
         <Panel title="Concept" error={ideaQ.error ? conceptErrorMessage(ideaQ.error) : "This concept was not found."} onRetry={ideaQ.error && isConceptGone(ideaQ.error) ? undefined : () => ideaQ.refetch()} />
       </StudioFrame>
     );
@@ -188,7 +186,7 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
   if ((ideaQ.data?.idea as { committedAt?: Date | string | null } | undefined)?.committedAt && (ideaQ.data?.idea as { businessId?: string | null } | undefined)?.businessId) {
     const bid = (ideaQ.data!.idea as { businessId: string }).businessId;
     return (
-      <StudioFrame step="commit" steps={steps} title="Already committed" viewer={viewer} actions={back}>
+      <StudioFrame step="commit" steps={steps} title="Already started" viewer={viewer} actions={back} smallScreen width="measure">
         <Panel title="Concept">
           <EmptyState icon={Check} tone="kit" title="This concept already became a business" actions={<LinkButton variant="primary" size="sm" iconRight={ArrowRight} href={routes.today(bid)}>Open the business</LinkButton>}>
             Its team is already at work. Open it to see what they are doing, or go back and commit another concept.
@@ -213,7 +211,8 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
       error={commit.error ? errorMessage(commit.error) : null}
       upgradeHref={upgradeHrefOf(commit.error)}
       creditsNotice={creditsNoticeOf(allowanceQ.data?.includedCredits, (d) => formatDate(d, datePrefs))}
-      adultConfirmed={summaryQ.data?.adultConfirmed === true}
+      // The 18+ record from the account itself (`founder.profile.get`, which sign-up writes; WP-04 T2).
+      adultConfirmed={featuresQ.data?.adultConfirmed === true}
       anthropomorphicDefault={guidancePrefs.prefs.anthropomorphicAgents === true}
       agentStyleDefault={agentStyleOf(guidancePrefs.prefs)}
       liveOpen={featuresQ.data?.features.liveMode ?? false}
@@ -228,11 +227,23 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
 
 /* ---------- the form ---------- */
 
-/** What the founder reads while Take charge runs (a few seconds in mock mode). */
+/** What the founder reads while Start my project runs (a few seconds in mock mode). */
 const SETTING_UP = "Setting up your business: departments, team and the first tasks. This takes a few seconds.";
 
+/** The Commit screen's own words (WP-04 T2). */
+export const COMMIT_WORDS = {
+  title: (name: string) => `Start ${name}`,
+  untitled: "Start your project",
+  lede: "Check the name and start. Your team drafts your public page first, from your own words.",
+  reassure: "You can change the name, the logo and how your team works any time.",
+  start: "Start my project",
+  starting: "Starting…",
+  more: "More options",
+  notStarted: "That did not start",
+} as const;
+
 /**
- * What happens after Take charge, in the order `apps/api/src/services/commit.ts` runs it (A4): the team is hired, the
+ * What happens after Start my project, in the order `apps/api/src/services/commit.ts` runs it (A4): the team is hired, the
  * Product lead drafts the foundations, the plan note lands, then building starts. Nothing is spent before the
  * founder approves it.
  */
@@ -272,7 +283,7 @@ export interface CommitFormProps {
   upgradeHref?: string | null;
   /** This month's included credits already went to the founder's other businesses: the team starts paused (SEC2 S6). */
   creditsNotice?: string | null;
-  /** The founder's 18+ confirmation is on record already (`live.summary`), so a LIVE start does not ask again. */
+  /** The founder's 18+ confirmation is on record already (`founder.profile.get`), so a LIVE start does not ask again. */
   adultConfirmed?: boolean;
   /** The founder's account preference (Settings › Preferences): the Anthropomorphic agents switch starts here. Default off. */
   anthropomorphicDefault?: boolean;
@@ -374,9 +385,8 @@ const DEBOUNCE_MS = 350;
 
 export function CommitForm({ idea, viewer, currency, initialName, suggestedArchetype, steps, preview, previewLoading, onArchetypeChange, committing, error, upgradeHref, creditsNotice, adultConfirmed = false, anthropomorphicDefault = false, agentStyleDefault = DEFAULT_AGENT_STYLE, liveOpen = true, hasBudget = true, onCommit, logoApi, domainApi, back }: CommitFormProps) {
   const concept = useMemo(() => toConcept(idea), [idea]);
-  // Guidance off: an operator sees the five "How it runs" controls at once (§7.6); on, they open from "Change".
-  const guided = useGuided();
-  const [runsChosen, setRunsChosen] = useState<boolean | null>(null);
+  // "More options" (WP-04 T2): the name checks, the logo, How it runs and the team, closed for everyone until pressed.
+  const [moreOpen, setMoreOpen] = useState(false);
   // The idea's seed only picks the starting brand colours now; the logo is uploaded or generated.
   const ideaSeed = String(readMeta(idea.current?.research).crest_seed ?? idea.id);
   const [form, setForm] = useState<CommitFormValues>(() => {
@@ -410,6 +420,9 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
     onArchetypeChange?.(form.archetype);
   }, [form.archetype, onArchetypeChange]);
 
+  // A refused answer inside More options opens it, so the founder sees what to fix (the name is on the default view).
+  const more = moreOpen || (touched && Boolean(errors.archetype || errors.spendCap || errors.adult || errors.kit));
+
   // The trademark quick screen is local and instant; it settles with the name like the domain list does.
   const [screened, setScreened] = useState<{ name: string; marks: TrademarkScreen[] } | null>(null);
   useEffect(() => {
@@ -434,6 +447,8 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
   useEffect(() => {
     const name = form.name.trim();
     setRetrying(new Set());
+    // The registry is asked only once the checks are on view (WP-04 T2): a first-timer who never opens More options costs no lookup.
+    if (!more) return;
     if (!name) {
       setDomainList(null);
       return;
@@ -463,7 +478,7 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
       clearTimeout(t);
       controller.abort();
     };
-  }, [form.name, domainApi]);
+  }, [form.name, domainApi, more]);
   const checkingDomains = form.name.trim().length > 0 && domainList?.name !== form.name.trim();
 
   /** Ask again for one domain that could not be checked; the answer replaces its row if the name has not changed since. */
@@ -506,63 +521,110 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
   }
 
   const show = (key: keyof CommitFormValues) => (touched ? errors[key] : undefined);
-  // A refused answer among the five controls opens them, so the founder sees what to fix.
-  const runsOpen = (runsChosen ?? !guided) || (touched && Boolean(errors.archetype || errors.spendCap || errors.adult));
   const modeCard = BUSINESS_MODE_CARDS.find((m) => m.value === form.businessMode);
   const modeLabel = modeCard?.label ?? form.businessMode;
   const modeTagline = modeCard?.tagline ?? "";
+
+  // One press starts it; at 390 px the button fills the column, from `page-wide` it takes its own width.
+  const startButton = (testId: "take-charge" | "take-charge-bottom") => (
+    <Button type="submit" variant="primary" size="lg" icon={Rocket} loading={committing} className="min-h-tap w-full @page-wide:w-auto @page-wide:self-start" data-testid={testId}>
+      {committing ? COMMIT_WORDS.starting : COMMIT_WORDS.start}
+    </Button>
+  );
 
   return (
     <StudioFrame
       step="commit"
       steps={steps}
-      title={form.name.trim() ? `Commit to ${form.name.trim()}` : "Commit"}
-      // While the business is set up the header says so, beside the button that started it (the panel's own status line
-      // sits at the foot of a long column, usually off screen).
-      lede={
-        committing ? (
-          SETTING_UP
-        ) : (
-          <>
-            Name it, give it a logo, choose how it is run. Taking charge hires the team, which starts by drafting your public page, then your plan.
-          </>
-        )
-      }
+      smallScreen
+      width="measure"
+      title={form.name.trim() ? COMMIT_WORDS.title(form.name.trim()) : COMMIT_WORDS.untitled}
+      // While the business is set up the header says so too.
+      lede={committing ? SETTING_UP : COMMIT_WORDS.lede}
       viewer={viewer}
-      actions={
-        <>
-          {back}
-          <Button variant="primary" icon={ThumbsUp} loading={committing} onClick={() => submit()} data-testid="take-charge">
-            {committing ? "Setting up…" : "Take charge"}
-          </Button>
-        </>
-      }
+      actions={back}
     >
-      <form onSubmit={submit} className="grid grid-cols-12 gap-gutter" noValidate data-testid="commit-form" data-business-mode={form.businessMode}>
-        <div className="col-span-8 flex flex-col gap-gutter">
-          <Panel title="Name" data-testid="name-panel">
-            <div className="flex flex-col gap-3">
-              <Field htmlFor="commit-name" label="Business name" required error={show("name")}>
-                <Input id="commit-name" value={form.name} onChange={(e) => set("name", e.target.value)} maxLength={120} autoFocus invalid={Boolean(show("name"))} />
-              </Field>
-              <div className="flex flex-wrap items-center gap-1.5" aria-label="Name suggestions">
-                <span className="text-small text-secondary">Suggestions:</span>
-                {suggestions.map((s) => (
-                  <Chip key={s} onClick={() => set("name", s)} selected={form.name === s} data-suggestion={s}>
-                    {s}
-                  </Chip>
-                ))}
-              </div>
-              <ReassuranceLine icon="settings" data-testid="reassure-name">
-                You can change this later in Settings › Business.
-              </ReassuranceLine>
+      {/* One column that reads the same at 390 and 1440 px (WP-04 T2): the name, what happens next, one button; the rest under More options. */}
+      <form onSubmit={submit} className="flex flex-col gap-gutter" noValidate data-testid="commit-form" data-business-mode={form.businessMode}>
+        <Panel title="Name" data-testid="name-panel">
+          <div className="flex flex-col gap-3">
+            <Field htmlFor="commit-name" label="Business name" required error={show("name")}>
+              <Input id="commit-name" value={form.name} onChange={(e) => set("name", e.target.value)} maxLength={120} autoFocus controlSize="lg" invalid={Boolean(show("name"))} />
+            </Field>
+            <div className="flex flex-wrap items-center gap-1.5" aria-label="Name suggestions">
+              <span className="text-small text-secondary">Suggestions:</span>
+              {suggestions.map((s) => (
+                <Chip key={s} onClick={() => set("name", s)} selected={form.name === s} data-suggestion={s}>
+                  {s}
+                </Chip>
+              ))}
             </div>
-          </Panel>
+            <ReassuranceLine icon="settings" data-testid="reassure-name">
+              {COMMIT_WORDS.reassure}
+            </ReassuranceLine>
+          </div>
+        </Panel>
 
+        <Panel title="What happens next" data-testid="what-happens-next">
+          <div className="flex flex-col">
+              <ol className="flex flex-col gap-1.5 text-body">
+                {WHAT_HAPPENS_NEXT.map((s, i) => (
+                  <li key={s} className="flex items-start gap-2">
+                    <span className="inline-flex size-badge shrink-0 items-center justify-center rounded-pill font-mono text-micro text-tertiary ring-1 ring-line-strong">{i + 1}</span>
+                    <span>{s}</span>
+                  </li>
+                ))}
+              </ol>
+              {/* The first money a founder reads about: included credits, no card (A10). Not when this month's pool is spent: that notice says so below. */}
+              {creditsNotice ? null : (
+                <p className="mt-3 text-small text-secondary" data-testid="commit-credits-line">
+                  {includedCreditsLine()}
+                </p>
+              )}
+              {creditsNotice ? (
+                <div data-testid="commit-credits-notice" className="mt-3 flex flex-col items-start gap-1.5">
+                  <StatusPill tone="warn">Team starts paused</StatusPill>
+                  <p className="text-small text-pretty text-secondary">{creditsNotice}</p>
+                </div>
+              ) : null}
+            <div className="mt-4 flex flex-col">{startButton("take-charge")}</div>
+            {committing ? (
+              <p role="status" className="mt-2 text-small text-secondary" data-testid="committing-status">
+                {SETTING_UP}
+              </p>
+            ) : null}
+            {touched && !valid ? (
+              <StatusPill tone="warn" role="alert" className="mt-2 self-start">
+                {Object.keys(errors).length} thing{Object.keys(errors).length === 1 ? "" : "s"} to fix first
+              </StatusPill>
+            ) : null}
+          </div>
+        </Panel>
+
+          {error ? (
+            <div className="flex flex-wrap items-center gap-2" data-testid="commit-error">
+              <StatusPill tone="bad" role="alert">
+                {error}
+              </StatusPill>
+              {upgradeHref ? (
+                <LinkButton variant="default" size="sm" iconRight={ArrowRight} href={upgradeHref} data-testid="commit-upgrade">
+                  See plans
+                </LinkButton>
+              ) : null}
+            </div>
+          ) : null}
+        <div className="flex">
+          <Button type="button" variant="ghost" size="lg" icon={more ? ChevronUp : ChevronDown} aria-expanded={more} aria-controls="commit-more-options" onClick={() => setMoreOpen(!more)} className="min-h-tap" data-testid="commit-more">
+            {COMMIT_WORDS.more}
+          </Button>
+        </div>
+
+        {more ? (
+          <div id="commit-more-options" className="flex flex-col gap-gutter" data-testid="commit-more-options">
           {/* The two checks of the name in one panel, acronyms expanded where they are first read (A12). */}
           <Panel title="Check the name (domains and trademarks)" data-testid="name-checks-panel">
             <div className="flex flex-col gap-3">
-              <div className="grid grid-cols-2 gap-gutter">
+              <div className="grid grid-cols-1 gap-gutter @page-wide:grid-cols-2">
                 <div data-testid="domain-checks" aria-busy={checkingDomains || undefined}>
                   <div className="mb-1.5 flex flex-wrap items-center gap-2">
                     <Globe size={14} className="text-secondary" aria-hidden />
@@ -644,20 +706,30 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
             </div>
           </Panel>
 
-          {/* How it runs (A3): the five choices in one line of chips; "Change" opens the controls below. */}
-          <Panel
-            title="How it runs"
-            data-testid="how-it-runs"
-            actions={
-              <Button type="button" size="sm" variant="ghost" icon={runsOpen ? ChevronUp : ChevronDown} aria-expanded={runsOpen} aria-controls="how-it-runs-controls" onClick={() => setRunsChosen(!runsOpen)} data-testid="how-it-runs-change">
-                {runsOpen ? "Hide" : "Change"}
-              </Button>
-            }
-          >
+          <div className="flex flex-col gap-3">
+            <ConceptCard concept={{ ...concept, name: form.name.trim() || concept.name, kit: form.kit, logoSrc: form.logo?.dataUrl ?? null }} hideActions className="w-full" />
+            {/* Whose words the team builds from (first-time founder report, Nov 8, 2026): the founder's, or a drafted card they can still edit in the studio. */}
+            <p className="text-small text-secondary" data-testid="commit-words-note">
+              {concept.yourWords ? (
+                "The pitch is in your words. The team drafts the vision and the specification from them, keeping your audience, problem and place names as written."
+              ) : (
+                <>
+                  The pitch is the Ideation agent's draft. The team drafts the vision and the specification from it{concept.sample ? " (a sample card: add a model key for real drafts)" : ""}.{" "}
+                  <Link href="/new/ideate" className="text-link underline-offset-2 hover:underline">
+                    Edit it in your words first
+                  </Link>{" "}
+                  if it is not quite your idea.
+                </>
+              )}
+            </p>
+          </div>
+
+          {/* How it runs (A3): what the five choices are, in labeled lines, over the controls that change them. */}
+          <Panel title="How it runs" data-testid="how-it-runs">
             <div className="flex flex-col gap-3">
               {/* Labeled lines, not a chip row (first-time founder report, Nov 8, 2026: "Personal · Assisted · Marketplace"
                   meant nothing to a first-time founder): each choice says what it is about, then the answer. */}
-              <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-body" aria-label="How it runs" data-testid="how-it-runs-summary">
+              <dl className="grid grid-cols-1 gap-x-4 gap-y-1.5 text-body @page-wide:grid-cols-[auto_1fr]" aria-label="How it runs" data-testid="how-it-runs-summary">
                 <dt className="text-small text-secondary">Where it runs</dt>
                 <dd className="flex items-center gap-1.5 text-primary">
                   <Icon icon={form.gameMode === "live" ? Globe : Lock} size="inline" className="text-tertiary" />
@@ -702,10 +774,9 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
             </div>
           </Panel>
 
-          {runsOpen ? (
-            <div id="how-it-runs-controls" className="contents" data-testid="how-it-runs-controls">
+          <div id="how-it-runs-controls" className="contents" data-testid="how-it-runs-controls">
               <Panel title="Personal or live">
-                <RadioGroup value={form.gameMode} onValueChange={(v) => set("gameMode", v as GameMode)} className="grid-cols-2" aria-label="Personal or live">
+                <RadioGroup value={form.gameMode} onValueChange={(v) => set("gameMode", v as GameMode)} className="grid-cols-1 @page-wide:grid-cols-2" aria-label="Personal or live">
                   {GAME_MODE_CARDS.filter((m) => liveOpen || m.value !== "live").map((m) => (
                     <ModeCardOption key={m.value} id={`game-${m.value}`} value={m.value} label={m.label} tagline={m.tagline} details={m.details} selected={form.gameMode === m.value} icon={m.value === "live" ? Globe : Lock} />
                   ))}
@@ -727,7 +798,7 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
               <Panel title={<Term id="archetype">Archetype</Term>} data-testid="archetype-panel">
                 <div className="flex flex-col gap-3">
                   <Field htmlFor="archetype-group" label="The kind of business: it decides which departments and agents you start with, and the first roadmap" required error={show("archetype")}>
-                    <RadioGroup id="archetype-group" value={form.archetype ?? ""} onValueChange={(v) => set("archetype", v as Archetype)} className="grid-cols-4" aria-label="Archetype">
+                    <RadioGroup id="archetype-group" value={form.archetype ?? ""} onValueChange={(v) => set("archetype", v as Archetype)} className="grid-cols-1 @page-wide:grid-cols-2" aria-label="Archetype">
                       {ARCHETYPE_CARDS.map((a) => (
                         <ModeCardOption key={a.value} id={`arch-${a.value}`} value={a.value} label={a.label} tagline={a.tagline} details={[`First win: ${a.firstWin}`]} selected={form.archetype === a.value} badge={suggestedArchetype === a.value ? "From the import report" : !suggestedArchetype && idea.archetype === a.value ? "From the card" : undefined} />
                       ))}
@@ -741,13 +812,13 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
 
               <Panel title={<Term id="business_mode">Business mode</Term>} data-testid="business-mode-panel">
                 <div className="flex flex-col gap-3">
-                  <RadioGroup value={form.businessMode} onValueChange={(v) => chooseMode(v as BusinessMode)} className="grid-cols-3" aria-label="Business mode">
+                  <RadioGroup value={form.businessMode} onValueChange={(v) => chooseMode(v as BusinessMode)} className="grid-cols-1 @page-wide:grid-cols-3" aria-label="Business mode">
                     {BUSINESS_MODE_CARDS.map((m) => (
                       <ModeCardOption key={m.value} id={`mode-${m.value}`} value={m.value} label={m.label} tagline={m.tagline} details={m.details} example={m.example} selected={form.businessMode === m.value} badge={m.value === "assisted" ? "Default" : undefined} />
                     ))}
                   </RadioGroup>
-                  <div className="grid grid-cols-12 items-start gap-gutter border-t border-line pt-3">
-                    <Field htmlFor="spend-cap" label="Spend cap per action" hint="Above this amount, every spend asks you first, whatever the mode. Leave it empty for no limit." error={show("spendCap")} className="col-span-6">
+                  <div className="grid grid-cols-1 items-start gap-gutter border-t border-line pt-3 @page-wide:grid-cols-12">
+                    <Field htmlFor="spend-cap" label="Spend cap per action" hint="Above this amount, every spend asks you first, whatever the mode. Leave it empty for no limit." error={show("spendCap")} className="@page-wide:col-span-6">
                       <MoneyInput
                         id="spend-cap"
                         controlSize="lg"
@@ -761,7 +832,7 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
                         invalid={Boolean(show("spendCap"))}
                       />
                     </Field>
-                    <p className="col-span-6 flex flex-wrap items-center gap-x-2 gap-y-1 pt-6 text-small text-secondary">
+                    <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-small text-secondary @page-wide:col-span-6 @page-wide:pt-6">
                       <span>
                         Default for {modeLabel}: <span className="tabular text-primary">{formatMoney({ amountMinor: defaultSpendCapMinor(form.businessMode, { hasBudget }), currency: form.currency })}</span>
                       </span>
@@ -812,40 +883,8 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
                   </ReassuranceLine>
                 </div>
               </Panel>
-            </div>
-          ) : null}
+          </div>
 
-          {error ? (
-            <div className="flex flex-wrap items-center gap-2" data-testid="commit-error">
-              <StatusPill tone="bad" role="alert">
-                {error}
-              </StatusPill>
-              {upgradeHref ? (
-                <LinkButton variant="default" size="sm" iconRight={ArrowRight} href={upgradeHref} data-testid="commit-upgrade">
-                  See plans
-                </LinkButton>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
-
-        <aside className="col-span-4">
-          <div className="sticky top-20 flex flex-col gap-gutter">
-            <ConceptCard concept={{ ...concept, name: form.name.trim() || concept.name, kit: form.kit, logoSrc: form.logo?.dataUrl ?? null }} hideActions className="w-full" />
-            {/* Whose words the team builds from (first-time founder report, Nov 8, 2026): the founder's, or a drafted card they can still edit in the studio. */}
-            <p className="text-small text-secondary" data-testid="commit-words-note">
-              {concept.yourWords ? (
-                "The pitch is in your words. The team drafts the vision and the specification from them, keeping your audience, problem and place names as written."
-              ) : (
-                <>
-                  The pitch is the Ideation agent's draft. The team drafts the vision and the specification from it{concept.sample ? " (a sample card: add a model key for real drafts)" : ""}.{" "}
-                  <Link href="/new/ideate" className="text-link underline-offset-2 hover:underline">
-                    Edit it in your words first
-                  </Link>{" "}
-                  if it is not quite your idea.
-                </>
-              )}
-            </p>
             <Panel title="Day one" loading={previewLoading} empty={!form.archetype ? "Pick an archetype to see who gets hired." : undefined} data-testid="squad-preview">
               {preview ? (
                 <div className="flex flex-col gap-3">
@@ -878,51 +917,19 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
                   <p className="text-small text-secondary" data-testid="squad-preview-counts">
                     {teamCountsLine(preview)}
                   </p>
-                  {/* The first money a founder sees about the team: what the wage caps add up to a month (first-time founder report). */}
-                  <p className="flex flex-wrap items-center gap-x-1.5 text-small text-secondary" data-testid="squad-preview-wages">
-                    <span>{monthlyWageLine(preview.agents, currency)}</span>
-                    <ProvenanceChip kind="estimate" appearance="word" />
-                  </p>
+                  {/* What the wage caps add up to a month: Builder view's only (WP-04 T2), never on a first-timer's default view. */}
+                  <BuilderOnly>
+                    <p className="flex flex-wrap items-center gap-x-1.5 text-small text-secondary" data-testid="squad-preview-wages">
+                      <span>{monthlyWageLine(preview.agents, currency)}</span>
+                      <ProvenanceChip kind="estimate" appearance="word" />
+                    </p>
+                  </BuilderOnly>
                 </div>
               ) : null}
             </Panel>
-            <Panel title="What happens next" data-testid="what-happens-next">
-              <ol className="flex flex-col gap-1.5 text-body">
-                {WHAT_HAPPENS_NEXT.map((s, i) => (
-                  <li key={s} className="flex items-start gap-2">
-                    <span className="inline-flex size-badge shrink-0 items-center justify-center rounded-pill font-mono text-micro text-tertiary ring-1 ring-line-strong">{i + 1}</span>
-                    <span>{s}</span>
-                  </li>
-                ))}
-              </ol>
-              {/* The first money a founder reads about: included credits, no card (A10). Not when this month's pool is spent: that notice says so below. */}
-              {creditsNotice ? null : (
-                <p className="mt-3 text-small text-secondary" data-testid="commit-credits-line">
-                  {includedCreditsLine()}
-                </p>
-              )}
-              {creditsNotice ? (
-                <div data-testid="commit-credits-notice" className="mt-3 flex flex-col items-start gap-1.5">
-                  <StatusPill tone="warn">Team starts paused</StatusPill>
-                  <p className="text-small text-pretty text-secondary">{creditsNotice}</p>
-                </div>
-              ) : null}
-              <Button type="submit" variant="primary" icon={ThumbsUp} loading={committing} className="mt-4 w-full" data-testid="take-charge-bottom">
-                Take charge
-              </Button>
-              {committing ? (
-                <p role="status" className="mt-2 text-small text-secondary" data-testid="committing-status">
-                  {SETTING_UP}
-                </p>
-              ) : null}
-              {touched && !valid ? (
-                <StatusPill tone="warn" role="alert" className="mt-2">
-                  {Object.keys(errors).length} thing{Object.keys(errors).length === 1 ? "" : "s"} to fix first
-                </StatusPill>
-              ) : null}
-            </Panel>
+          <div className="flex flex-col">{startButton("take-charge-bottom")}</div>
           </div>
-        </aside>
+        ) : null}
       </form>
     </StudioFrame>
   );
