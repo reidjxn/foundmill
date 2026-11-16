@@ -197,10 +197,13 @@ export function InlineError({ error, className }: { error: Error | string | null
 
 /* ---------- Layout ---------- */
 
-/** A module screen fills the content region: a 12-column PageGrid with the content gutter. */
-export function Screen({ name, children, className }: { name: string; children: ReactNode; className?: string }) {
+/**
+ * A module screen fills the content region: a 12-column PageGrid with the content gutter. `stack`: one column while the
+ * shell is narrower than `page-wide`, for a screen that works on a phone (Product › Public page).
+ */
+export function Screen({ name, children, className, stack }: { name: string; children: ReactNode; className?: string; stack?: boolean }) {
   return (
-    <PageGrid data-module-screen={name} className={cn("p-gutter", className)}>
+    <PageGrid data-module-screen={name} className={cn("p-gutter", className)} stack={stack}>
       {children}
     </PageGrid>
   );

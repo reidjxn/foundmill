@@ -47,11 +47,24 @@ export const FAST_MODE_PRICING: Partial<Record<ModelId, ModelPrice>> = {
   [MODELS.opus]: { displayName: "Claude Opus 5.5 (fast mode)", inputPerMTok: 8, outputPerMTok: 40, cacheWritePerMTok: 10, cacheReadPerMTok: 0.4 },
 };
 
+/**
+ * The server web search fee (`web_search_20260209`), on top of the tokens: $10 per 1,000 searches, one per search the
+ * response counts in `usage.server_tool_use.web_search_requests`; a search that fails with an error is not billed.
+ * Read from Anthropic's pricing page (platform.claude.com/docs/en/about-claude/pricing, "Web search tool") on
+ * `WEB_SEARCH_PRICING_AS_OF`. An Estimate like every price here.
+ */
+export const WEB_SEARCH_USD_PER_SEARCH = 0.01;
+export const WEB_SEARCH_PRICING_AS_OF = "2026-11-16";
+/** One search's fee in micro-minor units (1e-6 cent): 1 cent. */
+export const WEB_SEARCH_FEE_MICRO_MINOR = Math.round(WEB_SEARCH_USD_PER_SEARCH * 100 * 1_000_000);
+
 export interface MeterBreakdown {
   input: number;
   output: number;
   cacheWrite: number;
   cacheRead: number;
+  /** The server web search fee in minor units, when the call searched (`meterWebSearch`). */
+  webSearch?: number;
 }
 
 export interface MeterResult {
@@ -117,6 +130,14 @@ export function meter(usage: TokenUsage, modelId: ModelId, opts: MeterOptions = 
     batch,
     ...(fastPrice ? { fast: true as const } : {}),
   };
+}
+
+/** Cost of a web search call: its tokens at the model's price plus the fee for each search it ran (labelled estimate). */
+export function meterWebSearch(usage: TokenUsage, modelId: ModelId, searches: number): MeterResult {
+  const tokens = meter(usage, modelId);
+  const feeMicro = Math.max(0, Math.floor(Number.isFinite(searches) ? searches : 0)) * WEB_SEARCH_FEE_MICRO_MINOR;
+  const costMicroMinor = tokens.costMicroMinor + feeMicro;
+  return { ...tokens, costMinor: costMicroMinor / 1_000_000, costMinorInt: Math.round(costMicroMinor / 1_000_000), costMicroMinor, breakdown: { ...tokens.breakdown, webSearch: feeMicro / 1_000_000 } };
 }
 
 /** Sum several meter results (same currency). Rounds once at the end. */

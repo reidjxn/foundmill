@@ -15,7 +15,7 @@ import { closeDb, createServiceDb, keepPoolWarm, repos, watchPoolOrExit, type Db
 import { createDefaultRegistry, createElevenlabsSpeechStreamer, platformSecretsFromEnv, type ConnectorRegistry } from "@foundmill/connectors";
 import { createModelClient, effectiveModelMode, type ModelClient } from "@foundmill/models";
 import { createGatewayApp, type GatewayApp } from "./app";
-import { createGatewayBuiltins, gatewayUsageSink } from "./builtins";
+import { createGatewayBuiltins, gatewayUsageSink, readerClientFor, type QuarantinedReaderDeps } from "./builtins";
 import { platformMailConfig } from "./platform-mail";
 import type { RepositoryFiles } from "./platform-host";
 import { createRepositoryFiles } from "./repository-files";
@@ -24,7 +24,7 @@ import { prepareDb, type DbReadiness } from "./db-boot";
 import { type GatewayDeps, type GatewayLogger } from "./pipeline";
 import { MemoryRateLimitStore, RedisRateLimitStore, type RateLimitStore } from "./rate-limit";
 import { hashRecipient, RedisUntrustedRegister, UntrustedRecipientRegistry, type UntrustedRegister } from "./recipients";
-import { createReaderModelClient } from "./reader-models";
+import { gatePlatformModels } from "./reader-models";
 import { createUntrustedReader, type UntrustedReader } from "./untrusted-reader";
 
 export * from "./types";
@@ -49,8 +49,13 @@ export interface BuildDepsOptions {
   db?: Db;
   /** The whole connector registry; when given, the caller also decides which built-ins it serves. */
   registry?: ConnectorRegistry;
-  /** The platform's model client for the quarantined reader (default: MODEL_MODE on ANTHROPIC_API_KEY). */
+  /**
+   * The platform's model client for the quarantined reader and web search (default: MODEL_MODE on ANTHROPIC_API_KEY,
+   * booked by `gatewayUsageSink`). Gated on the business's credits either way.
+   */
   models?: ModelClient;
+  /** The fetch every live model client built here sends with (the platform's and a business's own key); tests only. */
+  modelFetch?: typeof globalThis.fetch;
   vault?: Vault | null;
   rateLimits?: RateLimitStore;
   /** The register of recipients first seen in untrusted content (default: Redis when it is configured, else memory). */
@@ -91,6 +96,13 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
   }
 
   const secrets = platformSecretsFromEnv(env);
+  // Every model call made here (the quarantined reader, web search) asks the business's credits first on the platform
+  // key and is booked to the business that asked at its exact cost, like any other service's (WP-09 T3).
+  const mode = effectiveModelMode(env.MODEL_MODE, env.ANTHROPIC_API_KEY, log);
+  const onUsage = gatewayUsageSink(db, log);
+  const ungated = options.models ?? createModelClient({ mode, apiKey: env.ANTHROPIC_API_KEY, logger: log, onUsage, ...(options.modelFetch ? { fetch: options.modelFetch } : {}) });
+  const models = gatePlatformModels(ungated, db);
+  const readerDeps: QuarantinedReaderDeps = { db, vault, models, ...(ungated.mode === "mock" ? { ungatedMock: ungated } : {}), mode: models.mode, log, onUsage, ...(options.modelFetch ? { fetch: options.modelFetch } : {}) };
   let registry = options.registry;
   // The skill tools read the business's repository through this gateway's own pipeline, built further down.
   let repositoryFiles: RepositoryFiles | null = null;
@@ -102,11 +114,7 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
       isSuppressed: (businessId, email) => repos.channels.isSuppressed(db, businessId, { emailHash: hashRecipient("email", email) }),
     });
     // The task board, typed messages, web reads and the quarantined reader are served here like any connector (BUILD §9.9).
-    const mode = effectiveModelMode(env.MODEL_MODE, env.ANTHROPIC_API_KEY, log);
-    // Every model call made here (the quarantined reader) is booked to the business that asked, like any other service's.
-    const onUsage = gatewayUsageSink(db, log);
-    const models = options.models ?? createModelClient({ mode, apiKey: env.ANTHROPIC_API_KEY, logger: log, onUsage });
-    for (const connector of createGatewayBuiltins({ db, vault, models, mode, log, onUsage, live: { secrets }, repository: () => repositoryFiles })) registry.register(connector);
+    for (const connector of createGatewayBuiltins({ ...readerDeps, live: { secrets }, repository: () => repositoryFiles })) registry.register(connector);
   }
 
   let rateLimitStoreKind: "memory" | "redis" = "memory";
@@ -133,7 +141,8 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
 
   // Recipients first seen in untrusted content are one register per business, shared by every session and replica (Redis).
   const recipients: UntrustedRegister = options.recipients ?? (redisClient ? new RedisUntrustedRegister(redisClient, { onFallback: (e) => log.warn({ err: e }, "the untrusted-recipient register fell back to this process's memory") }) : new UntrustedRecipientRegistry());
-  const reader: UntrustedReader = options.reader ?? createUntrustedReader(createReaderModelClient(env, db, log));
+  // The pipeline's digest runs on the key that pays for it, as `quarantine.read_untrusted` does (builtins.ts).
+  const reader: UntrustedReader = options.reader ?? createUntrustedReader(readerClientFor(readerDeps));
   const deps: GatewayDeps = { db, registry, vault, mode: config.integrationsMode, liveConnectors: config.liveConnectors, appEnv: config.appEnv, rateLimits, recipients, reader, log, platformMail, turnstile: { secret: env.TURNSTILE_SECRET_KEY ?? null }, speechStreamer: createElevenlabsSpeechStreamer({ secrets }) };
   repositoryFiles = createRepositoryFiles(deps);
   // Until prepare() has run the database is assumed reachable (tests build the graph over an already-migrated PGlite).

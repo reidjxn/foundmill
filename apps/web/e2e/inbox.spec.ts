@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, PLAN_NOTE, UUID, approvePlan, dismissCoachmarks, ensureDeck, inboxRow, openBoardQuestion, openBusiness, signIn, startDistributionFromBoard, takeChargeToHome, setBuilderView } from "./helpers";
+import { LONG, NORTHWIND_BUSINESS_ID, PLAN_NOTE, UUID, approvePlan, devApi, dismissCoachmarks, ensureDeck, inboxRow, openBoardQuestion, openBusiness, signIn, startDistributionFromBoard, takeChargeToHome, setBuilderView } from "./helpers";
 
 // Builder view on for this file (it opens an approval's Details); global-setup.ts starts every run with it off. Restored afterwards.
 let builderViewBefore = false;
@@ -103,7 +103,7 @@ test.describe("inbox", () => {
     await expect(rows).toHaveCount(before + 1);
   });
 
-  test("the plan note waits in Needs you without holding Continue; 1 approves it and starts the build, Continue runs a cycle step, and 1 approves the first goal", async ({ page }) => {
+  test("the plan note waits in Needs you without holding Continue; 1 approves it and starts the build, Continue runs a cycle step, and 1 approves the first goal", async ({ page, playwright }) => {
     test.setTimeout(360_000);
     await signIn(page);
     const { bid } = await commitFreshBusiness(page, `Playwright Inbox ${Date.now().toString(36)}`);
@@ -149,8 +149,11 @@ test.describe("inbox", () => {
     // Decided from the DecisionBar: the desk keeps 2–4 replies but no longer offers "Go with: …" (no second decision).
     await expect(desk.locator('[data-quick-reply="go_with"]')).toHaveCount(0, { timeout: LONG });
     await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Needs you/ })).toContainText("1", { timeout: LONG });
-    // The one approval starts the build: Development › Plan gets the Planner's first tasks.
-    await expect(inboxRow(page, /Building starts:/)).toBeVisible({ timeout: LONG });
+    // The one approval starts the build: Development › Plan gets the Planner's first tasks. In the project's first week
+    // the Product lead's "Building starts: …" is folded into the Chief of Staff's note of the day (WP-04 T8): one row in
+    // the Inbox, the update itself in Archive.
+    await expect(inboxRow(page, "What your team did today")).toBeVisible({ timeout: LONG });
+    await expect(inboxRow(page, /Building starts:/)).toHaveCount(0);
     const idle = page.getByRole("button", { name: /^Continue$/ });
     await expect(idle).toBeVisible({ timeout: LONG });
     // One press of Continue → business.continue → within a second the strip under the top bar says what the press is
@@ -163,8 +166,13 @@ test.describe("inbox", () => {
 
     // After the plan's approval and a round of work the Chief of Staff proposes the first goal (founder, 2026-11-07): Home asks
     // `goal.ensure` once per visit, the proposal is a decision note in Needs you that never holds Continue, and one tap on
-    // the recommended option (1) approves it.
-    const goalRow = () => inboxRow(page, /Your first goal: get 10 paying customers by [A-Z][a-z]{2} \d{1,2}/);
+    // the recommended option (1) approves it. On a project's first day the goal waits for the page (WP-04 T8), so the
+    // page goes live first, through the api as the founder's own press.
+    const api = await devApi(playwright);
+    const published = await api.post("/trpc/page.publish", { data: { json: { businessId: bid, content: { pitch: "Fresh bread by bike, every morning.", about: "We bake overnight and deliver before work.", stage: "building" } } } });
+    expect(published.ok(), `page.publish answered ${published.status()}: ${await published.text()}`).toBe(true);
+    await api.dispose();
+    const goalRow =() => inboxRow(page, /Your first goal: get 10 paying customers by [A-Z][a-z]{2} \d{1,2}/);
     await expect(async () => {
       const ensured = page.waitForResponse((r) => /goal\.ensure/.test(r.url()), { timeout: 20_000 });
       await page.goto(`/b/${bid}/home`);

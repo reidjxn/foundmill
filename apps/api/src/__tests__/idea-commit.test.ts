@@ -1,6 +1,7 @@
 import { getArchetypeSeed } from "@foundmill/agents";
 import { includedCreditsMinor } from "@foundmill/config";
 import { CREDITS_EXHAUSTED_SUBJECT, repos } from "@foundmill/db";
+import { agentPrincipal, evaluate } from "@foundmill/policy";
 import { CHANNEL_KEYS } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { BOARD_FIRST_DECISION_LINE } from "../services/commit";
@@ -14,10 +15,11 @@ beforeAll(async () => {
 afterAll(() => hz.close());
 
 describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
-  it("creates the full structure with default mode assisted and starts the first cycle", async () => {
+  it("creates the full structure with default mode assisted and, for a founder with a budget, starts the first cycle", async () => {
     const userId = await hz.h.createUser("founder@test.local");
     const caller = hz.caller({ userId, email: "founder@test.local" });
-    await caller.founder.profile.update({ confirmAdult: true, displayName: "Reid", experience: "first-time", skills: { engineering: 14, sales: 8 }, targetMarkets: ["EU"], riskAppetite: "medium" });
+    // A founder with a budget: the first cycle starts at commit, as before WP-04 T3.
+    await caller.founder.profile.update({ confirmAdult: true, displayName: "Reid", experience: "first-time", skills: { engineering: 14, sales: 8 }, targetMarkets: ["EU"], riskAppetite: "medium", budgetMinor: 500_000 });
 
     const generated = await caller.idea.generate({ prompt: "bookkeeping for freelancers in the EU" });
     expect(generated.ideas.length).toBeGreaterThanOrEqual(6);
@@ -103,7 +105,7 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     expect(committed.businessId).toBe(bid);
 
     // First businessCycle started on (fake) Temporal with the deterministic id.
-    expect(result.cycle.queued).toBe(true);
+    expect(result.cycle?.queued).toBe(true);
     expect(temporal.starts.find((s) => s.type === "businessCycle")?.workflowId).toBe(`cycle:${bid}:1`);
 
     // The starter channels are on the board, but no engine starts and none is recorded until the founder starts
@@ -126,7 +128,7 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
   it("Take charge twice (a double click, a second tab, a retry) builds one business and answers both with it", async () => {
     const userId = await hz.h.createUser("twice@test.local");
     const caller = hz.caller({ userId, email: "twice@test.local" });
-    await caller.founder.profile.update({ confirmAdult: true, displayName: "Twice", experience: "first-time", skills: { engineering: 10 }, targetMarkets: ["US"], riskAppetite: "low" });
+    await caller.founder.profile.update({ confirmAdult: true, displayName: "Twice", experience: "first-time", skills: { engineering: 10 }, targetMarkets: ["US"], riskAppetite: "low", budgetMinor: 100_000 });
     const idea = (await caller.idea.generate({ prompt: "invoicing for dog walkers" })).ideas[0]!;
     const input = { ideaId: idea.id, name: "Twice Walks", archetype: "b2b_saas" as const, gameMode: "personal" as const };
 
@@ -142,7 +144,7 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     expect(replay.taskIds).toEqual(created.taskIds);
     expect([...replay.departmentIds].sort()).toEqual([...created.departmentIds].sort());
     expect([...replay.agentIds].sort()).toEqual([...created.agentIds].sort());
-    expect(replay.cycle.queued).toBe(false);
+    expect(replay.cycle?.queued).toBe(false);
 
     // A retry after the fact answers the same way.
     const retry = await caller.idea.commit(input);
@@ -161,6 +163,63 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     const other = hz.caller({ userId: otherId, email: "other-twice@test.local" });
     await other.founder.profile.update({ confirmAdult: true, displayName: "Other", experience: "first-time", skills: { engineering: 10 }, targetMarkets: ["US"], riskAppetite: "low" });
     await expect(other.idea.commit(input)).rejects.toThrow(/not found/);
+  });
+
+  it("a founder with no budget (WP-04 T3, D1): one ready task, no finance or legal task, and no cycle at commit; the page and the plan still draft on the first open", async () => {
+    const userId = await hz.h.createUser("nobudget@test.local");
+    const caller = hz.caller({ userId, email: "nobudget@test.local" });
+    await caller.founder.profile.update({ confirmAdult: true, displayName: "Noa", experience: "first-time", skills: { engineering: 10 }, targetMarkets: ["US"], riskAppetite: "low", budgetMinor: null });
+    const idea = (await caller.idea.generate({ prompt: "meal plans for night-shift nurses" })).ideas[0]!;
+    const startsBefore = temporal.starts.length;
+    const result = await caller.idea.commit({ ideaId: idea.id, name: "Night Plates", archetype: "b2b_saas", gameMode: "personal", autopilot: true, overnight: { timeZone: "America/Chicago" } });
+    const bid = result.business.id;
+
+    // One ready task: the specification's open questions. Finance and legal are not seeded without a budget.
+    const tasks = await repos.tasks.list(hz.db, bid, { limit: 100 });
+    expect(tasks.items.map((t) => ({ kind: t.kind, status: t.status }))).toEqual([{ kind: "research", status: "ready" }]);
+    expect(result.taskIds).toEqual(tasks.items.map((t) => t.id));
+
+    // No cycle starts at commit: the first round waits for the plan's approval, Continue or the first overnight shift.
+    const started = temporal.starts.slice(startsBefore);
+    expect(started.some((s) => s.type === "businessCycle")).toBe(false);
+    expect(result.cycle).toBeNull();
+    expect((await repos.audit.list(hz.db, bid, { action: "cycle.queue" })).items).toHaveLength(0);
+    // The overnight shift is still turned on and its workflow started, so it can pick the ready task up.
+    expect(result.autopilot?.queued).toBe(true);
+    expect(started.some((s) => s.workflowId === `autopilot:${bid}`)).toBe(true);
+
+    // The page and the plan still draft on the first open; the welcome note still says so.
+    expect(result.foundations.status).toBe("pending");
+    expect(result.firstItem.subject).toBe("Your team is drafting your page and your plan");
+    // Cycles are numbered from history, so the first one Continue or Autopilot starts is still cycle 1.
+    expect((await caller.cycle.status({ businessId: bid })).nextCycleNumber).toBe(1);
+
+    // A second Take charge answers with the same business and starts nothing.
+    const again = await caller.idea.commit({ ideaId: idea.id, name: "Night Plates", archetype: "b2b_saas", gameMode: "personal" });
+    expect(again).toMatchObject({ alreadyCommitted: true, business: { id: bid } });
+    expect(temporal.starts.slice(startsBefore).some((s) => s.type === "businessCycle")).toBe(false);
+  });
+
+  it("a spend line of 0 asks the founder before any spend, even one cent (WP-04 T3, D4); no cap is null", async () => {
+    const userId = await hz.h.createUser("zero-cap@test.local");
+    const caller = hz.caller({ userId, email: "zero-cap@test.local" });
+    await caller.founder.profile.update({ confirmAdult: true, displayName: "Zed", experience: "first-time", skills: { engineering: 10 }, targetMarkets: ["US"], riskAppetite: "low" });
+    const idea = (await caller.idea.generate({ prompt: "plant care reminders for offices" })).ideas[0]!;
+    const result = await caller.idea.commit({ ideaId: idea.id, name: "Zero Line", archetype: "b2b_saas", gameMode: "personal", spendCapMinor: 0 });
+    const business = await repos.businesses.get(hz.db, result.business.id);
+    expect(business.spendCapMinor).toBe(0);
+    const agent = { id: result.chiefOfStaffId, departmentIds: [], agentType: "channel_paid_ads", modelKey: "sonnet" as const, autonomy: {} };
+    const spend = { connector: "meta_ads", name: "set_daily_budget", spendsMoney: true };
+    for (const businessMode of ["assisted", "automated"] as const) {
+      const principal = agentPrincipal(agent, { businessMode, businessSpendCapMinor: business.spendCapMinor ?? null, holidayActive: false, holidayBudgetMinor: null });
+      // Asking, not refusing: the founder can still approve the cent.
+      expect(evaluate({ principal, tool: spend, business: { id: business.id, businessMode, holidayActive: false }, context: { amountMinor: 1 } }).outcome, businessMode).toBe("ask");
+      // Work that spends nothing still runs.
+      expect(evaluate({ principal, tool: { connector: "notion", name: "write_page" }, business: { id: business.id, businessMode, holidayActive: false }, context: {} }).outcome, businessMode).toBe("allow");
+    }
+    // Null is no cap: the same cent runs in Assisted.
+    const uncapped = agentPrincipal(agent, { businessMode: "assisted", businessSpendCapMinor: null, holidayActive: false, holidayBudgetMinor: null });
+    expect(evaluate({ principal: uncapped, tool: spend, business: { id: business.id, businessMode: "assisted", holidayActive: false }, context: { amountMinor: 1 } }).outcome).toBe("allow");
   });
 
   it("starts on the free tier with this month's included credits in US dollars, keeps the spend cap, and takes charge of a second business on the free plan: no business limit; the second starts with nothing included (one credit pool a month per founder, SEC2 S6)", async () => {
@@ -200,7 +259,7 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     // double click built two businesses. Only a claim that does not trust an earlier read stops it.
     const userId = await hz.h.createUser("stale@test.local");
     const caller = hz.caller({ userId, email: "stale@test.local" });
-    await caller.founder.profile.update({ confirmAdult: true, displayName: "Stale", experience: "first-time", skills: { engineering: 10 }, targetMarkets: ["US"], riskAppetite: "low" });
+    await caller.founder.profile.update({ confirmAdult: true, displayName: "Stale", experience: "first-time", skills: { engineering: 10 }, targetMarkets: ["US"], riskAppetite: "low", budgetMinor: 100_000 });
     const idea = (await caller.idea.generate({ prompt: "rota planning for small kitchens" })).ideas[0]!;
     const input = { ideaId: idea.id, name: "Stale Rota", archetype: "b2b_saas" as const, gameMode: "personal" as const };
     const uncommitted = await repos.ideas.get(hz.db, userId, idea.id);

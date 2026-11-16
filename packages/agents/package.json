@@ -11,7 +11,8 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "skills:build": "node ../../scripts/build-skill-library.mjs"
   },
   "dependencies": {
     "zod": "catalog:",

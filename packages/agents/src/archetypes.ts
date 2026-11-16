@@ -155,6 +155,15 @@ const FINANCE_TASK = task({
 const LEGAL_TASK = (goal: string, acceptance: string[]): FirstCycleTask =>
   task({ kind: "legal", title: "Where to incorporate, and the rules that apply", goal, acceptance, assigneeTemplateKey: "legal_lead", departmentSlug: "legal" });
 
+/**
+ * The tasks commit seeds for this founder (WP-04 T3; founder, 2026-11-16 D1): without a budget there is no money to
+ * forecast and nothing to incorporate yet, so the finance and legal tasks are left out; with one, the seed's own list.
+ */
+export function firstCycleTasksFor(seed: Pick<ArchetypeSeed, "firstCycleTasks">, founder: { hasBudget: boolean }): FirstCycleTask[] {
+  if (founder.hasBudget) return seed.firstCycleTasks;
+  return seed.firstCycleTasks.filter((t) => t.kind !== "finance" && t.kind !== "legal");
+}
+
 /** The Planner's fallback goal once the founder has signed off and Now is empty (`ArchetypeSeed.firstBuild`). */
 const FIRST_BUILD = (title: string, goal: string, acceptance: string[]): FirstBuild => ({ title, goal, acceptance });
 

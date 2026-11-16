@@ -8,7 +8,7 @@
  */
 import { CHANNEL_SCORING_TASK } from "@foundmill/agents";
 import { repos, signoffDecisionBlock } from "@foundmill/db";
-import { PLAN_READY_NOTE } from "@foundmill/shared";
+import { DIGEST_SUBJECT, PLAN_READY_NOTE } from "@foundmill/shared";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { runFoundationsLocally } from "../services/foundations";
 import { REVISION_TASK_PRIORITY, buildingStartsBody } from "../services/signoff";
@@ -35,7 +35,14 @@ async function freshBusiness(email: string, name: string) {
   return { userId, caller, businessId, result };
 }
 
-const bySubject = async (caller: ReturnType<ApiHarness["caller"]>, businessId: string, subject: string) => (await caller.inbox.list({ businessId, limit: 100 })).items.filter((i) => i.subject === subject);
+/**
+ * Notes by subject, Archive included: in a project's first week an agent's update (the Product lead's follow-ups) is
+ * stored archived and listed in the Chief of Staff's note of the day (WP-04 T8).
+ */
+const bySubject = async (caller: ReturnType<ApiHarness["caller"]>, businessId: string, subject: string) => {
+  const [open, archived] = await Promise.all([caller.inbox.list({ businessId, limit: 100 }), caller.inbox.list({ businessId, tab: "archive", limit: 100 })]);
+  return [...open.items, ...archived.items].filter((i) => i.subject === subject);
+};
 
 describe("sign-offs: the specification and the roadmap (founder, 2026-10-18)", () => {
   let b: Awaited<ReturnType<typeof freshBusiness>>;
@@ -144,6 +151,9 @@ describe("sign-offs: the specification and the roadmap (founder, 2026-10-18)", (
     // The follow-up and the event say the build started; distribution still waits.
     const note = (await bySubject(b.caller, b.businessId, `Building starts: ${build.plannedTaskIds.length} tasks planned`))[0];
     expect(note?.bodyMd).toContain("Distribution waits until you start it from Customers › Board.");
+    // The first week: folded into the Chief of Staff's note of the day, which lists it (WP-04 T8).
+    expect(note?.state).toBe("archived");
+    expect((await bySubject(b.caller, b.businessId, DIGEST_SUBJECT))[0]?.bodyMd).toContain(note!.subject);
     // No repository connected (WP-02 T5): the round of work starts, and nothing is said to go live.
     expect(note?.bodyMd).toContain("The first round of work is under way. The code is kept in your project; nothing goes live from it until a repository is connected.");
     expect(note?.bodyMd).not.toMatch(/build cycle/);
@@ -219,7 +229,12 @@ describe("one plan note, one approval (WP-04 T5; founder, 2026-11-16 D3)", () =>
     expect(await repos.product.listVersions(hz.db, p.businessId)).toHaveLength(versionsBefore.length + 1);
     expect((await p.caller.business.get({ businessId: p.businessId })).productStage).toBe("building");
     // startBuilding ran once: one "Building starts" note, one product.signoff_decided per round, and the build on the last.
-    const building = (await p.caller.inbox.list({ businessId: p.businessId, limit: 100 })).items.filter((i) => /^Building starts: /.test(i.subject));
+    // In the first week the update is archived and listed in the note of the day (WP-04 T8).
+    const buildingNotes = async () => {
+      const [open, archived] = await Promise.all([p.caller.inbox.list({ businessId: p.businessId, limit: 100 }), p.caller.inbox.list({ businessId: p.businessId, tab: "archive", limit: 100 })]);
+      return [...open.items, ...archived.items].filter((i) => /^Building starts: /.test(i.subject));
+    };
+    const building = await buildingNotes();
     expect(building).toHaveLength(1);
     expect(decided.followUp?.id).toBe(building[0]!.id);
     const events = (await repos.events.list(hz.db, p.businessId, { type: "product.signoff_decided" })).items.map((e) => e.payload as { kind: string; decision: string; buildStarted: boolean });
@@ -228,7 +243,7 @@ describe("one plan note, one approval (WP-04 T5; founder, 2026-11-16 D3)", () =>
     // No "Specification signed off" half-way note.
     expect(await bySubject(p.caller, p.businessId, "Specification signed off")).toHaveLength(0);
     await expect(p.caller.inbox.decide({ businessId: p.businessId, itemId: note!.id, chosenOption: "approve" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
-    expect((await p.caller.inbox.list({ businessId: p.businessId, limit: 100 })).items.filter((i) => /^Building starts: /.test(i.subject))).toHaveLength(1);
+    expect(await buildingNotes()).toHaveLength(1);
   });
 
   it("Ask for changes sends the specification round back with the founder's words, gives one revision task and leaves the roadmap round pending; the revised version asks with the plan note again", async () => {

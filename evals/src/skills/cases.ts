@@ -48,6 +48,8 @@ const skillMd = (name: string, description: string, body: string) => `---\nname:
 export const SKILL_PROMPT_CASES: SkillPromptCase[] = [
   { id: "skills.prompt.library_newsletter", templateKey: "docs_writer", skill: { source: "library", key: "newsletter_writing" }, mustContain: "One main story per issue" },
   { id: "skills.prompt.library_nda", templateKey: "legal_lead", skill: { source: "library", key: "nda_review" }, mustContain: "Signing is the founder's" },
+  // A skill moved in from the drafts (WP-06 T3) reaches the prompt like the first twenty.
+  { id: "skills.prompt.library_project_page_copy", templateKey: "product_lead", skill: { source: "library", key: "project_page_copy" }, mustContain: "The button says what the reader gets" },
   {
     id: "skills.prompt.upload_digest",
     templateKey: "docs_writer",
@@ -61,10 +63,10 @@ export const SKILL_PROMPT_CASES: SkillPromptCase[] = [
   { id: "skills.prompt.builder.post_draft", builder: "post_draft", templateKey: "channel_social", skill: { source: "library", key: "landing_page_copy" }, mustContain: "Use only claims and numbers that come from records" },
   { id: "skills.prompt.builder.channel_creative", builder: "channel_creative", templateKey: "channel_email_automation", skill: { source: "library", key: "newsletter_writing" }, mustContain: "Subject line under 50 characters" },
   { id: "skills.prompt.builder.research_plan", builder: "research_plan", templateKey: "product_researcher", skill: { source: "library", key: "interview_synthesis" }, mustContain: "End with the open questions the interviews did not answer." },
-  { id: "skills.prompt.builder.source_relevance", builder: "source_relevance", templateKey: "product_lead", skill: { source: "library", key: "pricing_analysis" }, mustContain: "List competitor prices you found, each with its source" },
-  { id: "skills.prompt.builder.source_proposal", builder: "source_proposal", templateKey: "product_lead", skill: { source: "library", key: "pricing_analysis" }, mustContain: "List competitor prices you found, each with its source" },
+  { id: "skills.prompt.builder.source_relevance", builder: "source_relevance", templateKey: "product_lead", skill: { source: "library", key: "pricing_analysis" }, mustContain: "A competitor's price is one data point." },
+  { id: "skills.prompt.builder.source_proposal", builder: "source_proposal", templateKey: "product_lead", skill: { source: "library", key: "pricing_analysis" }, mustContain: "A competitor's price is one data point." },
   { id: "skills.prompt.builder.team_call_turn", builder: "team_call_turn", templateKey: "chief_of_staff", skill: { source: "library", key: "weekly_status_report" }, mustContain: "Put the most important news first." },
-  { id: "skills.prompt.builder.team_call_wrap_up", builder: "team_call_wrap_up", templateKey: "chief_of_staff", skill: { source: "library", key: "meeting_notes" }, mustContain: "Action items next: what, who and by when." },
+  { id: "skills.prompt.builder.team_call_wrap_up", builder: "team_call_wrap_up", templateKey: "chief_of_staff", skill: { source: "library", key: "meeting_notes" }, mustContain: "Action items next: what, who and by when, listed for your lead to turn into tasks." },
 ];
 
 export const SKILL_REFUSAL_CASES: SkillRefusalCase[] = [

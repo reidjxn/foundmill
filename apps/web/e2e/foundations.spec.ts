@@ -131,7 +131,7 @@ test.describe("foundations", () => {
     const { bid } = await takeCharge(page, `Ledgerly ${Date.now().toString(36)}`);
     // The first note is the Chief of Staff's welcome; the Import report's first decisions arrive once the product is signed off.
     await page.goto(`/b/${bid}/inbox`);
-    await expect(inboxRow(page, "Your team is drafting your page and your plan")).toBeVisible({ timeout: LONG });
+    await expect(inboxRow(page, /Your team is drafting your page and your plan|What your team did today/)).toBeVisible({ timeout: LONG });
     await expect(inboxRow(page, "Where should the team start with what you imported?")).toHaveCount(0);
 
     await page.goto(`/b/${bid}/d/product/roadmap`);

@@ -96,7 +96,9 @@ async function approveFromInbox(page: Page, bid: string, subject: string): Promi
 /** The plan approved: one press starts the build and the Product lead's follow-up says so (WP-04 T5). */
 async function approvePlan(page: Page, bid: string): Promise<void> {
   await approveFromInbox(page, bid, PLAN_NOTE);
-  await expect(inboxRow(page, /Building starts:/)).toBeVisible({ timeout: LONG });
+  // In the project's first week the Product lead's "Building starts: …" is folded into the Chief of Staff's note of the
+  // day (WP-04 T8).
+  await expect(inboxRow(page, DIGEST_NOTE)).toBeVisible({ timeout: LONG });
 }
 
 /**
@@ -295,7 +297,8 @@ test.describe("golden path", () => {
     await ((await recommended.count()) ? recommended : options.getByRole("button").first()).click();
     await expect(item).toHaveAttribute("data-state", "answered", { timeout: LONG });
     await expect(page.getByTestId("answered-panel")).toBeVisible();
-    await expect(inboxRow(page, /Building starts:/)).toBeVisible({ timeout: LONG });
+    // Folded into the note of the day in the first week (WP-04 T8); the update itself is kept in Archive.
+    await expect(inboxRow(page, DIGEST_NOTE)).toBeVisible({ timeout: LONG });
     await expect(inboxLink(page)).toContainText("1", { timeout: LONG });
     await expect(continueIdle(page)).toBeVisible({ timeout: LONG });
 
@@ -328,6 +331,7 @@ test.describe("golden path", () => {
     await expect(channels.getByRole("row").filter({ hasText: "Waiting for the product" }).first()).toBeVisible({ timeout: LONG });
     await expect(channels.getByRole("row").filter({ hasText: /Starting|Running/ })).toHaveCount(0);
     await page.goto(`/b/${bid}/inbox`);
+    // The note of the day replaces the welcome note once the team has done something (WP-04 T8).
     await expect(inboxRow(page, FIRST_NOTE)).toBeVisible({ timeout: LONG });
     // Nothing waits for an answer but the Chief of Staff's goal (proposed once the sign-offs and a round of work are done,
     // founder 2026-11-07) and the Product lead's "Your project's page is ready" (package 1.3): the Board's question is not
@@ -338,6 +342,8 @@ test.describe("golden path", () => {
     await expect(page.locator(`[data-inbox-row="${boardItemId}"]`)).toHaveAttribute("data-needs-answer", "true", { timeout: LONG });
     // The Board question waits in Needs you; Continue stays Continue (Nov 7, 2026).
     await expect(continueIdle(page)).toBeVisible({ timeout: LONG });
+    // Folded into the note of the day in the first week (WP-04 T8): the update itself is in Archive.
+    await page.goto(`/b/${bid}/inbox?tab=archive`);
     await expect(inboxRow(page, "Distribution has started")).toBeVisible({ timeout: LONG });
     await page.goto(`/b/${bid}/d/distribution/channels`);
     await expect(channels).toBeVisible({ timeout: LONG });

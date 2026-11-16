@@ -10,7 +10,7 @@ import { RoadmapScreen } from "../RoadmapScreen";
 import { SourcesScreen } from "../SourcesScreen";
 import { SpecificationScreen } from "../SpecificationScreen";
 import { VisionScreen } from "../VisionScreen";
-import { timelineScale } from "../roadmap/board";
+import { timelineScale } from "../roadmap/board-logic";
 import { createFakeSource, renderScreen } from "./fake-source";
 import { BID, dataResponses, roadmap } from "./fixtures";
 

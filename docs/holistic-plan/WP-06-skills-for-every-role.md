@@ -89,7 +89,7 @@ export async function resolveAgentPrompt(db: Executor, businessId: string, targe
 
 **Tests and evals:** as in steps 1, 3, 5. **Done when:** Done-when 5 above. **Does not cover:** whether a skill improves the output (T8).
 
-### T2: The library as Markdown with a generated catalog; the five bodies fixed   [M] [ships alone]
+### [x] T2: The library as Markdown with a generated catalog; the five bodies fixed   [M] [ships alone]
 
 **Why:** planner's decision 1; TS-07; decision 7 (the tools-that-exist test).
 
@@ -123,7 +123,7 @@ export async function resolveAgentPrompt(db: Executor, businessId: string, targe
 
 **Tests and evals:** steps 1, 2, 5; `evals/src/__tests__/skills.test.ts` unchanged and green (`skills.prompt.library_newsletter`, `…library_nda`). **Done when:** Done-when 1 and 2 for the 20 skills.
 
-### T3: The library type grows; the drafts move in   [L] [ships alone]
+### [x] T3: The library type grows; the drafts move in   [L] [ships alone]
 
 **Why:** TS-05, TS-10 (the rewrite each outside text needs), TS-12, §6e provenance (before any adapted skill ships), planner's decisions 6 and 7.
 

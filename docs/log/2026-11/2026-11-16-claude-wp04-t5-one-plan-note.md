@@ -51,6 +51,10 @@ supersedes: []
   days step). Since WP-04 T8 the day's note, "What your team did today", replaces it once a first-week agent update is
   folded, so another session's full run failed there. Both now accept either (`FIRST_NOTE`, from `WELCOME_NOTE` and a
   new `DIGEST_NOTE`), as the apps/web specs already do; both are updates with no decision bar.
+- Merged with main after WP-04 T8 (#220): in the first week the Product lead's follow-ups ("Building starts: …",
+  "Changes requested: …") are archived and listed in the Chief of Staff's "What your team did today". `approvePlan`
+  (both e2e helper files) waits for that note after the one approval, the specs read the follow-ups in Archive, and the
+  api test's new describe counts "Building starts" across the Inbox and Archive.
 - WP-04's T5 is ticked.
 
 ## Decisions
@@ -72,7 +76,7 @@ supersedes: []
   specification from your notes", whatever the words are about. With the specification already approved on its tab, the
   words go to the roadmap instead.
 - The approve option's consequence is "Your team starts building the first item on the plan." With no budget (WP-04 T3,
-  #226, not merged yet), commit starts no cycle and this approval is what starts the first round: `startBuilding`
+  #226, merged), commit starts no cycle and this approval is what starts the first round: `startBuilding`
   plans the Now items and calls `startCycle`. Nothing in T3 had to change for that; T3 relied on `startBuilding` already.
 - `forInboxItem` returns the open round first, so the reading pane, Today's one tap and the archive guard see the round
   that still asks. Its order is a SQL `case` on the status, then the round, then the kind (`spec` sorts after `roadmap`).
@@ -84,9 +88,6 @@ supersedes: []
   not touch): the panel shows a ready state only when the visit saw the drafting, and on this machine the mock drafting
   finished before Today's first read. Not checked against main. `landing.spec.ts` "prerendered pages" fails under
   `next dev` (every page is `no-store`); it needs the production server CI runs.
-- WP-04 T8 (#220) changes the same e2e expectations (the first week's "Building starts" update folded into the day's
-  note). This branch builds on main, where the update is its own row; whichever merges second rebases the e2e helpers
-  (`approvePlan` here, `approveBothSignoffs` there).
 - The seeded demo businesses keep their two approved rounds and no plan note, as they did (they never had open notes).
 - `chief_of_staff` prompts still say "signed off the specification and the roadmap": that is what the rounds record,
   and it is not shown to the founder.

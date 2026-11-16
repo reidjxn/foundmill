@@ -266,6 +266,18 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     expect((screen.getByLabelText(/Spend cap per action/) as HTMLInputElement).value).toBe("75");
   });
 
+  it("starts the spend line at 0 for a founder with no budget, in every mode, so every spend asks first (WP-04 T3)", async () => {
+    const onCommit = renderForm(vi.fn(), { hasBudget: false });
+    expect((screen.getByLabelText(/Spend cap per action/) as HTMLInputElement).value).toBe("0");
+    expect(screen.getByTestId("how-it-runs-summary").querySelector('[data-summary="spend-cap"]')?.textContent).toBe("Asks you above €0.00");
+    fireEvent.click(screen.getByLabelText(/Automated/));
+    expect((screen.getByLabelText(/Spend cap per action/) as HTMLInputElement).value).toBe("0");
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("take-charge"));
+    });
+    expect(onCommit).toHaveBeenCalledWith(expect.objectContaining({ spendCapMinor: 0 }));
+  });
+
   it("offers the overnight shift, on by default, and sends the choice with idea.commit", async () => {
     const onCommit = renderForm();
     const toggle = screen.getByRole("switch", { name: "Overnight shift" });
@@ -492,7 +504,7 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
 
   it("says what is happening while the business is set up", () => {
     renderForm(vi.fn(), { committing: true });
-    expect(screen.getByTestId("committing-status").textContent).toBe("Setting up your business: departments, team and the first cycle. This takes a few seconds.");
+    expect(screen.getByTestId("committing-status").textContent).toBe("Setting up your business: departments, team and the first tasks. This takes a few seconds.");
     // The header says it too, beside the top button, which reads as the work in progress rather than the action.
     expect(screen.getAllByText(/^Setting up your business/)).toHaveLength(2);
     expect(screen.getByTestId("take-charge").textContent).toMatch(/Setting up…/);

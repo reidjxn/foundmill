@@ -186,6 +186,30 @@ export interface ModelClient {
    * the `streamStructured(client, req)` helper, which falls back to `complete()` for a client without it.
    */
   streamStructured?<T, E>(req: StreamStructuredRequest<T, E>): Promise<StreamStructuredResult<T, E>>;
+  /**
+   * Anthropic's server web search on the `webSearch` route (WP-09 T3): one search, the result titles and addresses only,
+   * metered at the tokens' price plus the per-search fee (`pricing.ts`) and reported once through `onUsage`. The live,
+   * mock and gated clients implement it; optional so hand-written test doubles stay valid.
+   */
+  searchWeb?(req: WebSearchRequest): Promise<WebSearchResult>;
+}
+
+export interface WebSearchRequest {
+  query: string;
+  /** Most results returned (the search may find more; the rest are dropped). */
+  limit: number;
+  /** Rate-limit scope, as on `CompleteRequest` (usually the session id). */
+  scope?: string;
+  attribution?: UsageAttribution;
+  signal?: AbortSignal;
+}
+
+export interface WebSearchResult {
+  results: { url: string; title: string; pageAge: string | null }[];
+  usage: TokenUsage;
+  /** The tokens and the search fee (an Estimate). */
+  cost: MeterResult;
+  mode: ModelMode;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

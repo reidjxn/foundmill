@@ -26,12 +26,12 @@
 
 - [ ] T1 Profile as three questions; the card keeps its thread (M)
 - [ ] T2 Commit as name and go, at any width (M)
-- [ ] T3 What commit starts on the free plan (M)
+- [x] T3 What commit starts on the free plan (M)
 - [ ] T4 The starting team, as shown (S)
 - [x] T5 One plan note, one approval (M)
-- [ ] T6 Check, publish and share the page on any screen (M)
+- [x] T6 Check, publish and share the page on any screen (M)
 - [ ] T7 One first-day story; guidance on Today (M)
-- [ ] T8 Note budget and the day's digest (M)
+- [x] T8 Note budget and the day's digest (M)
 - [ ] T9 The founder's own task and tomorrow's reason (M)
 - [ ] T10 Chief of Staff as mentor, with founder context (M)
 - [ ] T11 Lifecycle email for a started project (M, needs setup)
@@ -100,7 +100,7 @@ Order: T1, T2, T3 first (the path), then T6, T5, T4, T7, T8; T9 to T16 in any or
 **Tests and evals:** the component test; `commit.spec.ts` at 390 and 1440 (name prefilled, one press reaches Today); golden path label updates.
 **Done when:** a first-timer sees one field and one button; nothing on the default view names a domain, a trademark, a spend line, a mode or a wage.
 
-### T3: What commit starts on the free plan   [M] [ships alone]
+### [x] T3: What commit starts on the free plan   [M] [ships alone]
 
 **Why:** FR-04 items 2 and 3 (item 1, the measurement, is WP-02; item 4, the exit at zero, is WP-09), s2 §5.3 ("A first-timer with $0"), TS-13 (the spend line), e0 (blocked: finance 8, legal 17, research 55).
 
@@ -157,7 +157,7 @@ Order: T1, T2, T3 first (the path), then T6, T5, T4, T7, T8; T9 to T16 in any or
 **Tests and evals:** above; `evals/src/foundations/` gains one structure check that the plan note has at most five lines and no figure the draft does not contain. `foundations.spec.ts`: one Approve starts the build.
 **Done when:** a new project gets one plan note; one press approves it.
 
-### T6: Check, publish and share the page on any screen   [M] [ships alone]
+### [x] T6: Check, publish and share the page on any screen   [M] [ships alone]
 
 **Why:** FR-03 item 3, A9-P0-2 items 3 and 4, s2 P0-2 and §2.2 rows 10 and 11.
 
@@ -204,7 +204,7 @@ Order: T1, T2, T3 first (the path), then T6, T5, T4, T7, T8; T9 to T16 in any or
 **Tests and evals:** above; `evals/src/founder-strings.ts` gains the new strings.
 **Done when:** every first-day surface tells the page-first story in the same words, and Today leads with the one thing to do.
 
-### T8: Note budget and the day's digest   [M] [ships alone]
+### [x] T8: Note budget and the day's digest   [M] [ships alone]
 
 **Why:** s2 §5.3 (decision budget; digest), e0 (4 to 17 notes on day one; 47 updates and 32 warnings unread), FR-07.
 

@@ -36,7 +36,7 @@ Migrations: each task takes the next free number when its branch is cut (0108, j
 
 **Interfaces**
 - Consumes: `businessFoundations` table (`vision jsonb`, unique on `business_id`, existing tenant RLS); `repos.foundations.inputs(db, businessId)`; route `projectPage` in `packages/models/src/routing.ts` (reused: no new model id or route); `definePrompt`; `defineTool`; `PlatformHost`; `repos.pages.writeTeamDraft` as the pattern for "draft plus one note".
-- Produces, shared (layout is `docs/holistic-plan/skills/marketing/positioning_notes.md` step 1, header plus eight sections, names and order kept):
+- Produces, shared (layout is `packages/agents/skills/marketing/positioning_notes.md` step 1, header plus eight sections, names and order kept):
   ```ts
   export const POSITIONING_LABELS = ["founder", "customer", "observed", "assumption"] as const;
   export const POSITIONING_STEPS = ["follow", "waitlist", "book", "buy"] as const;
@@ -371,7 +371,7 @@ Migrations: each task takes the next free number when its branch is cut (0108, j
 ## Starting prompt
 
 ```
-You are executing docs/holistic-plan/WP-08-go-to-market.md in the Foundmill repo. Read, in order: CLAUDE.md; docs/holistic-plan/README.md; the work package; audits/a5-go-to-market.md (§1, §3, §5), audits/s3-seo-ai-visibility.md (§3, §5.3, §6), audits/a3a-agent-runtime.md §3.4; the CLAUDE.md of each package a task touches; docs/holistic-plan/skills/marketing/positioning_notes.md. Run `node scripts/decisions-index.mjs follow form`, `... tap post`, `... sending address` and read the sections they print; do not re-decide them.
+You are executing docs/holistic-plan/WP-08-go-to-market.md in the Foundmill repo. Read, in order: CLAUDE.md; docs/holistic-plan/README.md; the work package; audits/a5-go-to-market.md (§1, §3, §5), audits/s3-seo-ai-visibility.md (§3, §5.3, §6), audits/a3a-agent-runtime.md §3.4; the CLAUDE.md of each package a task touches; packages/agents/skills/marketing/positioning_notes.md. Run `node scripts/decisions-index.mjs follow form`, `... tap post`, `... sending address` and read the sections they print; do not re-decide them.
 
 Do the tasks in this order, one pull request each, branch claude/wp08-t<n>: T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12. Before each: run the plan-change skill (overlap with other branches, next free migration number), check that the packages it depends on are merged (WP-02's GTM-02 and GTM-03 changes before T3 and T9; claude/blissful-fermat-q03yq1 before T6 and T7), and re-find every cited line by the name it quotes. Write the failing test named in the task first. Follow the karpathy-guidelines skill: if a task as written is larger than its finding needs, build less and say so in the pull request. Use the security-reviewer agent on T2, T3, T6 and T10. Everything must pass with INTEGRATIONS_MODE=mock; never switch anything on in production: T2 and T3 wait for WP-00 S1, S2 and S3 to be recorded in docs/DEPLOY.md before they are called done on production. Run verify-done before reporting a task finished, then update docs/PROGRESS.md, record judgment calls in docs/DECISIONS.md, tick the task in the work package, and stop for the founder to merge. Put decisions D1 to D6 to the founder when the task that needs each one opens; do not pick for them.
 ```
