@@ -5,6 +5,14 @@ description: Drafts polite reminders for overdue customer invoices on a steady s
 category: finance
 attribute_name: Collections
 attribute_group: craft
+when_to_use: Use when a customer invoice is overdue and needs a polite reminder on a steady schedule.
+roles: finance_lead
+default_for:
+stage: idea, building, page_live, first_followers, first_sale, growing
+needs: none
+adapted_from: original
+license_note: original
+improves: anomaly_detection, communication
 version: 2
 ---
 # Invoice follow-up

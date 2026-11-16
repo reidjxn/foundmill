@@ -5,6 +5,14 @@ description: Compares supplier quotes on landed cost, minimums, lead time and re
 category: operations
 attribute_name: Supplier comparison
 attribute_group: craft
+when_to_use: Use when the project has two or more supplier quotes to compare on landed cost, minimums, lead time and reliability.
+roles: sourcing_manufacturing, operations_lead
+default_for:
+stage: idea, building, page_live, first_followers, first_sale, growing
+needs: web_research
+adapted_from: original
+license_note: original
+improves: quote_analysis, supplier_vetting
 version: 1
 ---
 # Supplier comparison

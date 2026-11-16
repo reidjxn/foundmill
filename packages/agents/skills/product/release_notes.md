@@ -5,6 +5,14 @@ description: Writes release notes customers can follow: what changed, who it hel
 category: product
 attribute_name: Release notes
 attribute_group: craft
+when_to_use: Use when a change has shipped and customers need to know what changed, who it helps and what to do next.
+roles: docs_writer, product_lead
+default_for:
+stage: idea, building, page_live, first_followers, first_sale, growing
+needs: none
+adapted_from: original
+license_note: original
+improves: technical_writing
 version: 1
 ---
 # Release notes

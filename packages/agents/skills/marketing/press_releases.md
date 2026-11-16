@@ -5,6 +5,14 @@ description: Drafts press releases with the news first, a real quote and contact
 category: marketing
 attribute_name: Press releases
 attribute_group: craft
+when_to_use: Use when the project has news for the press and needs a release with the news first and a real quote.
+roles: channel_pr
+default_for:
+stage: idea, building, page_live, first_followers, first_sale, growing
+needs: none
+adapted_from: original
+license_note: original
+improves: press_release_writing
 version: 1
 ---
 # Press releases

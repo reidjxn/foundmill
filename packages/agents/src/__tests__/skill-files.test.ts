@@ -171,9 +171,9 @@ describe("parseSkillFile: adversarial input stays fast (the api parses on its ev
 });
 
 describe("the skills library", () => {
-  it("has about twenty skills across every category, with unique keys and one attribute each", () => {
-    expect(SKILL_LIBRARY.length).toBeGreaterThanOrEqual(18);
-    expect(SKILL_LIBRARY.length).toBeLessThanOrEqual(24);
+  it("has the whole library (80 or more skills) across every category, with unique keys and one attribute each", () => {
+    // 20 converted skills and the drafts moved in by WP-06 T3 (83 on Nov 16, 2026; this floor only checks none went missing).
+    expect(SKILL_LIBRARY.length).toBeGreaterThanOrEqual(80);
     expect(new Set(SKILL_LIBRARY.map((s) => s.key)).size).toBe(SKILL_LIBRARY.length);
     for (const c of SKILL_LIBRARY_CATEGORIES) expect(SKILL_LIBRARY.filter((s) => s.category === c).length, c).toBeGreaterThanOrEqual(2);
     for (const s of SKILL_LIBRARY) {

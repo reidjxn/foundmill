@@ -5,6 +5,14 @@ description: Writes user stories with acceptance criteria a test can check, one 
 category: product
 attribute_name: Acceptance criteria
 attribute_group: craft
+when_to_use: Use when a feature or task needs user stories and acceptance criteria that a test can check.
+roles: planner, product_lead
+default_for:
+stage: idea, building, page_live, first_followers, first_sale, growing
+needs: none
+adapted_from: original
+license_note: original
+improves: acceptance_criteria, spec_writing
 version: 1
 ---
 # User stories and acceptance criteria

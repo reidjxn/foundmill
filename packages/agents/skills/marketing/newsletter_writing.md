@@ -5,6 +5,14 @@ description: Writes a regular customer newsletter with one main story, useful li
 category: marketing
 attribute_name: Newsletter writing
 attribute_group: craft
+when_to_use: Use when the project sends a regular newsletter and the next issue needs writing.
+roles: channel_content, channel_email_automation
+default_for:
+stage: idea, building, page_live, first_followers, first_sale, growing
+needs: email_send
+adapted_from: original
+license_note: original
+improves: copywriting
 version: 1
 ---
 # Newsletter writing
