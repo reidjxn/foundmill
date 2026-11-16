@@ -181,7 +181,7 @@ Solo guard: the pack adds no People screen, no invite step and no empty state fo
 Done when: Done-when 6, and `git diff origin/main origin/claude/zealous-rubin-8q52gr -- docs/mobile packages/shared/src/autopilot.ts` shows only lines main gained after the merge.
 
 ### T8: The app prompt on public pages and the universal-link files            [S] [ships alone, after WP-03 T9; values need the founder]
-- [ ] merged
+- [x] merged
 
 Why: A9-P2-1; CLAUDE.md "Small screens" (after launch a public page "still shows its content with a prompt to get the app, through one config value"); `docs/mobile/BACKEND_CHANGES.md` §5 (the two files do not exist).
 Who does which half: WP-03 T9 adds the one value (`NEXT_PUBLIC_STORE_LINKS`), its parser, `PublicEnv.storeLinks`, the `GetTheApp` component and its first readers (the wall's controls and the landing footer), and leaves the signed-in handover as a commented branch in `DesktopOnly`. This task passes the links to the four public page kinds and adds the two files.

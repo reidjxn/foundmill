@@ -1,7 +1,7 @@
 // Run: node --test scripts/env-example.test.mjs
 // .env.example lists every variable the code reads, and nothing else (#431: it had drifted, with variables nothing read
 // and others missing). The sources of truth are the Zod schemas (packages/shared/src/env.ts, apps/orchestrator/src/env.ts),
-// the NEXT_PUBLIC_* the web app reads and the seed CLI's own SEED_* switches.
+// the NEXT_PUBLIC_* and APP_LINKS_* the web app reads and the seed CLI's own SEED_* switches.
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -45,7 +45,7 @@ function exampleKeys() {
 describe(".env.example", () => {
   const shared = schemaKeys("packages/shared/src/env.ts");
   const orchestrator = schemaKeys("apps/orchestrator/src/env.ts");
-  const web = ["apps/web/lib", "apps/web/app", "apps/web/components"].flatMap((d) => processEnvKeys(d, "NEXT_PUBLIC_"));
+  const web = ["apps/web/lib", "apps/web/app", "apps/web/components"].flatMap((d) => [...processEnvKeys(d, "NEXT_PUBLIC_"), ...processEnvKeys(d, "APP_LINKS_")]);
   const seedCli = processEnvKeys("packages/db/src", "SEED_").filter((k) => !shared.includes(k));
   const expected = new Set([...shared, ...orchestrator, ...web, ...seedCli]);
   const listed = exampleKeys();

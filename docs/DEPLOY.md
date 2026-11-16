@@ -139,6 +139,18 @@ What happens while any of these is missing (it fails closed, never with a broken
 - No `IDEA_COOKIE_DOMAIN` on the api: the cookie stays on api.foundmill.com, so `/start` cannot read it; the card is still kept through the sign-in link's claim token (every "Keep" link carries it), within 30 minutes of signing in.
 - No `IDEA_COOKIE_DOMAIN` on Vercel: "Keep this card" and "Not mine" cannot clear a foundmill.com cookie; the card is still claimed once, and the cookie then points at nothing.
 
+### The app prompt and the universal-link files: setup (WP-12 T8)
+
+Set at launch, together with `NEXT_PUBLIC_STORE_LINKS` (WP-00 S17); until then nothing changes on any page.
+
+| Variable (on the **web** service) | Who sets it | What it does |
+| --- | --- | --- |
+| `NEXT_PUBLIC_STORE_LINKS` | Desktop session, from the founder's store links | A project page, a person page, a card and an invitation show "Get the app" under their content on a window narrower than 1280 px. A build-time value: redeploy after changing it. |
+| `APP_LINKS_IOS_APP_ID` | Desktop session; the founder gives `<Team ID>.com.foundmill.app` | Serves `/.well-known/apple-app-site-association` with the paths `/b/*`, `/p/*`, `/u/*`, `/m/*`, `/i/*`, `/a/*` (never sign-in). 404 while unset. |
+| `APP_LINKS_ANDROID_PACKAGE`, `APP_LINKS_ANDROID_SHA256` | Desktop session; the founder gives the package and the signing certificate's SHA-256 fingerprint(s), comma-separated | Serve `/.well-known/assetlinks.json`. 404 while either is unset or malformed. |
+
+**Check it:** `curl -i https://<web>/.well-known/assetlinks.json` answers 200 with `application/json` and the package once set (404 before), signed out and without a redirect; the same for the iOS file.
+
 ## 4. Supabase
 
 - Auth → URL configuration: site URL `https://foundmill.com`, redirect URLs `https://foundmill.com/auth/callback` and `https://www.foundmill.com/auth/callback`. **Recommended for production (security review, Nov 12, 2026): narrow the list to the callback** instead of whole hosts: `https://foundmill.com/auth/callback**`, `https://www.foundmill.com/auth/callback**` and `foundmill://auth/callback` (the mobile app, below), and nothing else. Supabase matches the whole redirect address, query string included, as a glob whose `*` stops at `.` and `/` (Supabase's "Redirect URLs" guide), and the callback's `next` keeps any `.` of its path, so use `**` after `callback`, not `*`. Keep `http://localhost:3000/**` and the Vercel preview pattern only in a development Supabase project, never in production's. `supabase/config.toml` still declares the wider list (`https://foundmill.com/**`, previews, localhost) and `supabase config push` sends it: ⬜ narrow the file in the same change as the dashboard, or the next push widens it again. Since 2026-10-10 every new magic link points at `https://foundmill.com/auth/callback`; keep the www entry anyway, because a link emailed earlier from www carries the www address and Supabase checks it when the link is opened (the app then redirects it to the apex, where it shows "Link opened on a different address" and offers a new link). **Since 2026-11-08 also `foundmill://auth/callback`**, the mobile companion app's own scheme (docs/mobile): a link tapped on the phone opens the app.
