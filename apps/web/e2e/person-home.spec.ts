@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { confirmAdultOnForm, LONG, signInAs } from "./helpers";
+import { answerFirstProfile, LONG, signInAs } from "./helpers";
 
 /**
  * /home — the home of a signed-in person with no project yet (docs/THESIS_REVIEW.md package 2.4). Signs in as its own
@@ -11,14 +11,10 @@ const PERSON_ID = process.env.E2E_PERSON_HOME_ID ?? "e2e0e2e0-0000-4000-8000-000
 
 async function signInWithProfile(page: Page): Promise<void> {
   await signInAs(page, PERSON_ID, "/");
-  const form = page.getByTestId("onboarding-form");
+  const form = page.getByTestId("first-profile");
   await expect(form.or(page.getByTestId("person-home"))).toBeVisible({ timeout: LONG });
   if (await form.isVisible()) {
-    await page.getByLabel(/What the team calls you/).fill("Robin");
-    await page.getByLabel("First-time founder").check();
-    await page.getByLabel("Full time").check();
-    await confirmAdultOnForm(page);
-    await page.getByTestId("profile-submit-bottom").click();
+    await answerFirstProfile(page, "Robin");
     await expect(page).toHaveURL(/\/new$/, { timeout: LONG });
     await page.goto("/");
   }

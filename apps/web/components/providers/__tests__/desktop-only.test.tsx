@@ -56,13 +56,15 @@ describe("desktop only (audit PAS-4: a phone rendered a 390 px slice of a 1280 p
   });
 
   it("a project's public page and a person's public profile work from 390 px: the one list of small-screen routes, nothing else changes", () => {
-    expect(SMALL_SCREEN_PREFIXES).toEqual(["/p/", "/u/", "/m/", "/login", "/home", "/a/", "/email/pause", "/terms", "/privacy", "/", "/new/card/", "/public-profile", "/network", "/communities", "/communities/", "/profiles/", "/i/", "/start"]);
+    expect(SMALL_SCREEN_PREFIXES).toEqual(["/p/", "/u/", "/m/", "/login", "/home", "/a/", "/email/pause", "/terms", "/privacy", "/", "/new/card/", "/onboarding", "/public-profile", "/network", "/communities", "/communities/", "/profiles/", "/i/", "/start"]);
     expect(worksOnSmallScreens("/new/card/11111111-1111-4111-8111-111111111111")).toBe(true);
+    // The three questions after a kept card (WP-04 T1): exactly /onboarding, so a phone goes on from the card.
+    expect(worksOnSmallScreens("/onboarding")).toBe(true);
     // The signed-in index (WP-03 T1): what it renders in place (the landing page, the gate's pages) works from 390 px.
     expect(worksOnSmallScreens("/start")).toBe(true);
     // The landing page's hero (founder, 2026-11-13): exactly "/", never a prefix of every path.
     expect(worksOnSmallScreens("/")).toBe(true);
-    for (const p of ["/b/x/today", "/b/x", "/new/ideate", "/onboarding", "/startx", "/start/x"]) expect(worksOnSmallScreens(p), p).toBe(false);
+    for (const p of ["/b/x/today", "/b/x", "/new/ideate", "/onboarding/x", "/startx", "/start/x"]) expect(worksOnSmallScreens(p), p).toBe(false);
     // The Terms and the Privacy Policy (founder, 2026-11-13): exactly those two paths.
     expect(worksOnSmallScreens("/terms")).toBe(true);
     expect(worksOnSmallScreens("/privacy")).toBe(true);

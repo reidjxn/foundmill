@@ -24,7 +24,7 @@
 
 ## Tasks
 
-- [ ] T1 Profile as three questions; the card keeps its thread (M)
+- [x] T1 Profile as three questions; the card keeps its thread (M)
 - [ ] T2 Commit as name and go, at any width (M)
 - [ ] T3 What commit starts on the free plan (M)
 - [ ] T4 The starting team, as shown (S)
@@ -43,7 +43,7 @@
 
 Order: T1, T2, T3 first (the path), then T6, T5, T4, T7, T8; T9 to T16 in any order after T7.
 
-### T1: Profile as three questions; the card keeps its thread   [M] [ships alone]
+### [x] T1: Profile as three questions; the card keeps its thread   [M] [ships alone]
 
 **Why:** FR-05, FR-08, FR-03 item 1, FR-19 (`ideaDraftToken`), A9-P0-2 item 1, s2 §4.1, s1 §3.4.
 
