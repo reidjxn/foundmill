@@ -18,3 +18,6 @@ supersedes: []
 One choice of four that swaps one card: a radio group with arrow keys and one tab stop, like the tour's example picker.
 ### The examples' data is copied, not imported
 The tour's example modules are large and load on demand; the hero needs only a pitch, stars and ten ratings each.
+
+## Not done
+Nothing left from this change. The card's height differs a little between examples (a longer name wraps the rating line), so the column below can move when switching; no fixed height was set, to keep every card's text whole.
