@@ -166,7 +166,6 @@ export const SESSION_CASES: readonly SessionCase[] = Object.freeze([
     },
     script: [
       { connector: "web", tool: "search_web", args: () => ({ query: "compostable 12 oz coffee cups wholesale supplier", limit: 5 }) },
-      ...[0, 1].map((i) => ({ connector: "web", tool: "fetch_page", args: (_ctx: unknown, seen: readonly unknown[]) => ({ url: searchedUrls(seen)[i] }) })),
       ...[0, 1].map((i) => ({ connector: "platform", tool: "create_entity", args: (_ctx: unknown, seen: readonly unknown[]) => ({ kind: "organisation", name: `Cup supplier ${i + 1}`, role: "supplier", sourceUrl: searchedUrls(seen)[i] }) })),
       { connector: "platform", tool: "save_report", args: (ctx: { taskId: string }, seen: readonly unknown[]) => ({ taskId: ctx.taskId, title: "Supplier long list", bodyMd: SUPPLIER_REPORT, sources: searchedUrls(seen).slice(0, 2).map((url) => ({ url, title: new URL(url).hostname })) }) },
       { connector: "platform", tool: "complete_task", args: (ctx: { taskId: string }) => ({ taskId: ctx.taskId, summary: "Recorded two suppliers and drafted the RFQ pack; the report is saved.", acceptance: [{ line: 1, met: true, reportSection: "Suppliers recorded" }, { line: 2, met: true, reportSection: "RFQ pack draft" }] }) },
