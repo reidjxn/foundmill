@@ -20,6 +20,13 @@ A mock connect seals nothing, as before, so a signing secret given to a mock con
 ### The secret is checked by shape only
 Stripe has no API that confirms an endpoint secret. A wrong `whsec_` value is caught when the first delivery fails to verify (401 in ingest's log).
 
+### Security review (security-reviewer agent)
+No blockers. Fixed here:
+- **Medium:** a reconnect to another Stripe account left the old account's signing secret in place, so the previous account's deliveries would still verify for this project. A reconnect without a new secret now revokes the old one when the account changes; the same account keeps it, since the form never shows it again.
+- **Low:** validation is now `^whsec_[A-Za-z0-9]{8,200}$`, and a value that is not a string is refused instead of dropped.
+- **Info:** a secret given without the founder's own key (a connect by account id) is refused, instead of being accepted and thrown away.
+- Left as is: the api's mock path passes the raw input to the mock connector, which ignores it.
+
 ## Not done
 - The Settings › Integrations Playwright spec was not run in this session: the dialog renders `connectFields` as given, and CI runs the spec because this changes `packages/connectors`.
 - Showing the project's webhook address in the product is WP-07's.
