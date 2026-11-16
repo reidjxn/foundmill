@@ -77,7 +77,7 @@ export const chiefOfStaff = defineTemplate({
       },
     ],
   },
-  tools: [grant("platform", [...PLATFORM_LEAD_TOOLS, "approvals.list", "holiday.read_authority", "skills.manage"])],
+  tools: [grant("platform", [...PLATFORM_LEAD_TOOLS, "approvals.list", "holiday.read_authority", "skills.manage", "positioning.read"])],
   skills: withCoreSkills(["cycle_planning", "delegation", "plan_compilation", "decision_framing"]),
   autonomy: AUTONOMY_INHERIT,
   schedule: { triggers: ["cycle.started", "decision.made", "approval.resolved", "holiday.started"] },

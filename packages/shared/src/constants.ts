@@ -480,6 +480,7 @@ export const EVENT_TYPES = [
   "referral.arrived",
   "post.drafted",
   "quiz.approved", "quiz.published", "quiz.unpublished",
+  "positioning.approved",
   "invitation.sent", "invitation.accepted", "invitation.declined",
   "showcase.requested", "showcase.approved", "showcase.withdrawn", "showcase.asked", "showcase.settled",
   "visit.attributed", "post.outcome_attributed",

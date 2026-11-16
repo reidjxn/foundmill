@@ -54,7 +54,7 @@ export const productResearcher = defineTemplate({
     ],
   },
   tools: [
-    grant("platform", [...PLATFORM_BASE_TOOLS, "crm.entities.search", "sources.list", "sources.read"]),
+    grant("platform", [...PLATFORM_BASE_TOOLS, "crm.entities.search", "sources.list", "sources.read", "positioning.read"]),
     grant("web", WEB_TOOLS),
     grant("quarantine", QUARANTINE_TOOLS),
     grant("google_drive", ["files.list", "files.read"]),
