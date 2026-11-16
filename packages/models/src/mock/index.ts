@@ -11,7 +11,7 @@ import { z } from "zod";
 import { ModelAbortedError, ModelOutputError } from "../errors";
 import { seededRng, stableHash } from "../hash";
 import { parseJsonLoose } from "../json";
-import { type MeterResult, addUsage, estimateTokens, meter, sumMeters } from "../pricing";
+import { type MeterResult, addUsage, estimateTokens, meter, meterWebSearch, sumMeters } from "../pricing";
 import { MODELS, type ModelId, type ModelKey, ROUTES, type RouteKey, resolveModel } from "../routing";
 import {
   CategoriserOutput,
@@ -44,7 +44,7 @@ import {
 import { TeamCallTurnsOutput, TeamCallWrapUpOutput } from "../team-call-schema";
 import { JsonElementScanner } from "../stream-json";
 import { type StreamCallArgs, type StreamCallResult, runStructuredStream } from "../structured-stream";
-import type { BilledTo, CompleteRequest, CompleteResult, CompleteResultWithJson, ModelClient, ModelLogger, StreamStructuredRequest, StreamStructuredResult, TokenUsage, UsageEvent, UsageSink } from "../types";
+import type { BilledTo, CompleteRequest, CompleteResult, CompleteResultWithJson, ModelClient, ModelLogger, StreamStructuredRequest, StreamStructuredResult, TokenUsage, UsageEvent, UsageSink, WebSearchRequest, WebSearchResult } from "../types";
 import { generateChannelCreative, isChannelCreativeRequest } from "./channelCreative";
 import { generateChiefOfStaff } from "./chiefOfStaff";
 import { generateCategoriser, generateClassifier } from "./classifier";
@@ -81,6 +81,7 @@ import { generateDesignReview } from "./designReview";
 import { IMAGE_TOKEN_ESTIMATE, assertImagesAllowed, countImages } from "../images";
 import { DesignReviewOutput } from "../design-review-schema";
 import { generateTeamCallTurns, generateTeamCallWrapUp } from "./teamCall";
+import { WebSearchOutput, generateWebSearch, mockSearchResults } from "./webSearch";
 
 export type MockGenerator = (ctx: MockContext) => unknown;
 
@@ -122,6 +123,7 @@ export const MOCK_ROUTES: Record<RouteKey, MockRouteDefinition> = {
   projectPage: { route: "projectPage", description: "A project's public page from the founder's own words: the pitch is their first sentence, about is the idea as written, who it is for only when they name an audience, stage idea unless they say otherwise; a post for the founder to share by tap (the project's name, what happened and the page's own pitch, nothing added) when the request carries a post_request; a page quiz (2 to 4 types of customer, each resting on customers named by ref, grouped by what they bought or else by person or organization; too_little_data otherwise) when the schema asks for an outcome and questions; or a showcase video's script (one shot per card, its date and label, and a post made of them) when it carries a showcase_request.", schema: ProjectPageOutput, generate: (ctx) => (isShowcaseScriptRequest(ctx) ? generateShowcaseScript(ctx) : isPostDraftRequest(ctx) ? generatePostDraft(ctx) : isPageQuizRequest(ctx) ? generatePageQuiz(ctx) : generateProjectPage(ctx)) },
   teamCallTurn: { route: "teamCallTurn", description: "The next spoken turns of a Team call: the participant whose role fits the founder's words answers them (the Chief of Staff or the called agent first in an opening), a second agent builds on it by mention, one agent only on a one-to-one call; hand_back alternates by round.", schema: TeamCallTurnsOutput, generate: generateTeamCallTurns },
   designReview: { route: "designReview", description: "The design check's reviewer: the shared design lint run on each screenshot's page description (contrast, spacing, type scale, hierarchy, placeholder text, 390 px overflow and tap targets), most serious first; a screenshot without a description is listed as unreadable, never judged.", schema: DesignReviewOutput, generate: generateDesignReview },
+  webSearch: { route: "webSearch", description: "A web search: three results per query, each an example.com address with a title marked mock; nothing is searched.", schema: WebSearchOutput, generate: generateWebSearch },
   teamCallWrapUp: { route: "teamCallWrapUp", description: "A Team call's summary and action items: the plan compiler's rule engine reads each founder line and keeps the actions it finds (hard gates stay the founder's step, a roadmap mention becomes a roadmap item); the summary lists what the founder raised.", schema: TeamCallWrapUpOutput, generate: generateTeamCallWrapUp },
 };
 
@@ -299,6 +301,20 @@ export class MockModelClient implements ModelClient {
     const usage = this.estimateUsage(req, text);
     const cost = meter(usage, resolution.modelId);
     return { resolution, rng, json, text, repaired, usage, cost };
+  }
+
+  /** A deterministic search (no network), metered like a live one: estimated tokens plus one search's fee. */
+  async searchWeb(req: WebSearchRequest): Promise<WebSearchResult> {
+    const route = "webSearch" as const;
+    if (req.signal?.aborted) throw new ModelAbortedError();
+    this.history.push({ route, messages: [{ role: "user", content: req.query }], ...(req.attribution ? { attribution: req.attribution } : {}) });
+    const failure = this.opts.failWith?.[route];
+    if (failure) throw failure;
+    const results = mockSearchResults(req.query, req.limit);
+    const usage: TokenUsage = { inputTokens: estimateTokens(req.query), outputTokens: estimateTokens(JSON.stringify(results)), cacheCreationInputTokens: 0, cacheReadInputTokens: 0 };
+    const cost = meterWebSearch(usage, resolveModel(route).modelId, 1);
+    await this.emitUsage({ route, scope: req.scope, attribution: req.attribution }, usage, cost, 0, 0);
+    return { results, usage, cost, mode: "mock" };
   }
 
   private async emitUsage(req: Pick<CompleteRequest, "route" | "modelOverride" | "lowCredits" | "scope" | "attribution">, usage: TokenUsage, cost: MeterResult, durationMs: number, attempt: number, streamed = false): Promise<void> {

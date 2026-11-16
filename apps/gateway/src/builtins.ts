@@ -18,10 +18,10 @@ import { safeError, type GatewayLogger } from "./pipeline";
 
 /**
  * The gateway's model usage into `usage_ledger` (BUILD §10.4), like the orchestrator's and the composer's sinks: every
- * call of the quarantined reader is booked as tokens at the routed model's list price (an Estimate, in the pricing
- * currency), to the agent and session that asked and to whoever's key ran it (`credits` on the platform key, `byok` on
- * the business's own), so credits are charged for what the read cost. The read has already run: a failed write is
- * logged, never thrown.
+ * call of the quarantined reader and every web search is booked as tokens at the routed model's list price (a search
+ * adds its per-search fee; an Estimate, in the pricing currency) at its exact cost, to the agent and session that asked
+ * and to whoever's key ran it (`credits` on the platform key, `byok` on the business's own), so credits are charged for
+ * what the call cost. The call has already run: a failed write is logged, never thrown.
  */
 export function gatewayUsageSink(db: Db, log: GatewayLogger): UsageSink {
   return async (event) => {
@@ -36,10 +36,23 @@ export function gatewayUsageSink(db: Db, log: GatewayLogger): UsageSink {
         quantity: event.usage.inputTokens + event.usage.outputTokens,
         unit: "tokens",
         costMinor: Math.max(0, event.cost.costMinorInt),
+        // The exact cost (0039): credits are charged this, so a 0.6-cent read is not booked as 1 cent (or 0).
+        costMicroMinor: Math.max(0, event.cost.costMicroMinor),
         currency: event.cost.currency,
         billedTo: event.billedTo,
         occurredAt: event.occurredAt,
-        details: { service: "gateway", route: event.route, model: event.model, mode: event.mode, kind: a.kind ?? null, label: event.cost.label, attempt: event.attempt, ...(event.aborted ? { aborted: true } : {}) },
+        details: {
+          service: "gateway",
+          route: event.route,
+          model: event.model,
+          mode: event.mode,
+          kind: a.kind ?? null,
+          label: event.cost.label,
+          pricingAsOf: event.cost.pricingAsOf,
+          attempt: event.attempt,
+          ...(event.cost.breakdown.webSearch ? { webSearchFeeMinor: event.cost.breakdown.webSearch } : {}),
+          ...(event.aborted ? { aborted: true } : {}),
+        },
       });
     } catch (e) {
       log.error({ err: safeError(e), route: event.route }, "model usage could not be booked");
@@ -50,29 +63,52 @@ export function gatewayUsageSink(db: Db, log: GatewayLogger): UsageSink {
 export interface QuarantinedReaderDeps {
   db: Db;
   vault: Vault | null;
-  /** The platform's model client (MODEL_MODE, the platform key), metered through `onUsage`. */
+  /**
+   * The platform's model client (MODEL_MODE, the platform key), metered through `onUsage` and gated on the business's
+   * credits (`gatePlatformModels`, reader-models.ts) by `buildGateway`.
+   */
   models: ModelClient;
   /** The mode a business's own-key client runs in (the platform client's mode). */
   mode: ModelMode;
   log: GatewayLogger;
   /** Where a business's own-key client books its usage (`gatewayUsageSink`); the platform client is built with the same. */
   onUsage?: UsageSink;
+  /** The fetch a business's own-key client sends with (tests); the global fetch otherwise. */
+  fetch?: typeof globalThis.fetch;
 }
 
 /**
- * The reader on the key that pays for it (BUILD §10.2): a business on its own Anthropic key runs it on that key, every
- * other business on the platform's. A business on its own key whose key is gone is refused (the pipeline refuses it
- * first, `key-revoked`), never quietly moved onto platform credits.
+ * The reader's client on the key that pays for it (BUILD §10.2): a business on its own Anthropic key runs it on that key
+ * (the founder's money, so no credits check), every other business on the platform's gated client. A business on its
+ * own key whose key is gone is refused (the pipeline refuses it first, `key-revoked`), never quietly moved onto platform
+ * credits. Shared by the pipeline's digest (untrusted-reader.ts) and `quarantine.read_untrusted`.
  */
-export function createQuarantinedReader(deps: QuarantinedReaderDeps): QuarantinedReader {
-  const clientFor = async (businessId: string): Promise<ModelClient> => {
+export function readerClientFor(deps: QuarantinedReaderDeps): (businessId: string) => Promise<ModelClient> {
+  return async (businessId) => {
     if (deps.mode === "mock") return deps.models;
     const business = await repos.businesses.get(deps.db, businessId, { includeArchived: true });
     if (business.modelBilling !== "byok") return deps.models;
     const key = deps.vault ? await loadByokApiKey(deps.db, deps.vault, businessId) : null;
     if (!key) throw new AppError("key_revoked", "This business runs on its own Anthropic key and none is stored; set one in Settings › Keys", 403);
-    return createModelClient({ mode: "live", apiKey: key.apiKey, billedTo: "byok", logger: deps.log, ...(deps.onUsage ? { onUsage: deps.onUsage } : {}) });
+    return createModelClient({ mode: "live", apiKey: key.apiKey, billedTo: "byok", logger: deps.log, ...(deps.onUsage ? { onUsage: deps.onUsage } : {}), ...(deps.fetch ? { fetch: deps.fetch } : {}) });
   };
+}
+
+/**
+ * The web search behind live `web.search_web` (WP-09 T3): always the platform client (gated, booked to the caller's
+ * credits, whatever the business's model billing: SEC2). None when the platform client is not live or cannot search,
+ * so live search says the platform key is missing instead of answering with made-up results.
+ */
+export function platformSearchWeb(models: ModelClient): LiveConnectorOptions["searchWeb"] {
+  if (models.mode !== "live" || !models.searchWeb) return undefined;
+  return async ({ businessId, agentId, sessionId, query, limit }) => {
+    const out = await models.searchWeb!({ query, limit, scope: sessionId ?? `business:${businessId}`, attribution: { businessId, ...(agentId ? { agentId } : {}), ...(sessionId ? { sessionId } : {}), kind: "web_search" } });
+    return out.results;
+  };
+}
+
+export function createQuarantinedReader(deps: QuarantinedReaderDeps): QuarantinedReader {
+  const clientFor = readerClientFor(deps);
   return async ({ businessId, agentId, sessionId, fields, content }) => {
     const { system, messages } = quarantinedReaderRequest(fields, content);
     const client = await clientFor(businessId);
@@ -90,5 +126,6 @@ export interface GatewayBuiltinsDeps extends QuarantinedReaderDeps {
 
 /** The built-in connectors, wired to this gateway's database and model client. */
 export function createGatewayBuiltins(deps: GatewayBuiltinsDeps): Connector[] {
-  return createBuiltinConnectors({ ...deps.live, platform: createDbPlatformHost({ db: deps.db, log: deps.log, ...(deps.repository ? { repository: deps.repository } : {}) }), quarantinedReader: createQuarantinedReader(deps) });
+  const searchWeb = deps.live?.searchWeb ?? platformSearchWeb(deps.models);
+  return createBuiltinConnectors({ ...deps.live, platform: createDbPlatformHost({ db: deps.db, log: deps.log, ...(deps.repository ? { repository: deps.repository } : {}) }), quarantinedReader: createQuarantinedReader(deps), ...(searchWeb ? { searchWeb } : {}) });
 }

@@ -47,7 +47,7 @@ import { clearPlatformBillingRefusal, notePlatformBillingRefusal } from "./billi
 import { IMAGE_TOKEN_ESTIMATE, assertImagesAllowed } from "./images";
 import { parseJsonLoose } from "./json";
 import { MockModelClient, type MockModelClientOptions } from "./mock";
-import { type MeterResult, ZERO_USAGE, addUsage, estimateTokens, meter, sumMeters } from "./pricing";
+import { type MeterResult, ZERO_USAGE, addUsage, estimateTokens, meter, meterWebSearch, sumMeters } from "./pricing";
 import { RateLimiter, backoffWithJitter, parseRateLimitHeaders } from "./rate-limit";
 import { FAST_MODE_BETA, MODELS, MODEL_CAPABILITIES, type RouteResolution, resolveModel } from "./routing";
 import { type StreamCallArgs, type StreamCallResult, StreamInterruptedError, runStructuredStream } from "./structured-stream";
@@ -69,7 +69,12 @@ import type {
   UsageEvent,
   BilledTo,
   UsageSink,
+  WebSearchRequest,
+  WebSearchResult,
 } from "./types";
+
+/** `max_tokens` of a web search request: the search's titles and addresses are short (as the gateway sent it before T3). */
+export const WEB_SEARCH_MAX_TOKENS = 2_048;
 
 /**
  * Highest budget the truncation retry doubles up to. A non-streaming call this long still finishes well inside
@@ -328,6 +333,42 @@ export class LiveModelClient implements ModelClient {
       streamCall: (args) => this.streamCall(args, req, scope, plan),
       complete: (r) => this.complete(r),
     });
+  }
+
+  /**
+   * One server web search (WP-09 T3; moved unchanged in content from the gateway's `web.search_web`): the `webSearch`
+   * route's model at its effort, `web_search_20260209` used at most once, `max_tokens` 2,048. Sent through `send()`, so
+   * the limiter, the retry policy and billing refusals apply as to any call; metered once at the tokens' price plus the
+   * fee for each search the response counts (none for a search that came back as an error, which then throws).
+   */
+  async searchWeb(req: WebSearchRequest): Promise<WebSearchResult> {
+    const started = Date.now();
+    const route = "webSearch" as const;
+    const plan = this.plan({ route, maxTokens: WEB_SEARCH_MAX_TOKENS });
+    const params: Anthropic.MessageCreateParamsNonStreaming = {
+      ...plan.base,
+      tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 1 }],
+      messages: [{ role: "user", content: `Search the web for: ${req.query}\nList what the search returns; do not add anything.` }],
+    };
+    const call = { route, signal: req.signal, scope: req.scope, attribution: req.attribution };
+    const { message, requestId } = await this.send(params, call, req.scope ?? "default", 0, plan);
+    const results: WebSearchResult["results"] = [];
+    let failed: string | null = null;
+    for (const block of message.content) {
+      if (block.type !== "web_search_tool_result") continue;
+      // An error comes back as an object, results as a list (HTTP 200 either way).
+      if (!Array.isArray(block.content)) {
+        failed = block.content.error_code;
+        continue;
+      }
+      for (const r of block.content) results.push({ url: r.url, title: r.title, pageAge: r.page_age ?? null });
+    }
+    const usage = toUsage(message.usage);
+    const searches = failed ? 0 : (message.usage.server_tool_use?.web_search_requests ?? 0);
+    const cost = meterWebSearch(usage, plan.resolution.modelId, searches);
+    await this.emit({ route, model: plan.resolution.modelId, modelKey: plan.resolution.modelKey, mode: "live", usage, cost, scope: req.scope, attribution: req.attribution, durationMs: Date.now() - started, occurredAt: new Date().toISOString(), requestId, attempt: 0 });
+    if (failed) throw new ModelUnavailableError(`web search failed: ${failed}`, { errorCode: failed, requestId });
+    return { results: results.slice(0, req.limit), usage, cost, mode: "live" };
   }
 
   /** Model, max_tokens, reservation, effort, speed and the request body shared by every call of one request. */

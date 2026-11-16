@@ -121,7 +121,6 @@ where c.period = to_char(now() at time zone 'utc', 'YYYY-MM') and b.is_demo = fa
 /** Always part of the report: spend the ledger does not see yet. */
 export const COST_NOT_MEASURED = [
   "Model calls before a project exists (ideas, compare, logo) are not in the ledger (A7-02)",
-  "The gateway's reader and web search are not booked (A7-03)",
 ] as const;
 
 /** The query's SQL with its range filled in: exactly the text `run` executes. Dates come from Date objects only. */

@@ -26,7 +26,7 @@ import { createAllConnectors, createRegistry, createWebConnector, type Connector
 import { initialVersionFromTemplate, listTemplates } from "@foundmill/agents";
 import { repos, type Task, type TaskReport } from "@foundmill/db";
 import { readSessionEvents } from "@foundmill/events";
-import { buildGateway, createGatewayBuiltins, createUntrustedReader, listenGateway, type RunningGateway } from "@foundmill/gateway";
+import { buildGateway, createGatewayBuiltins, createUntrustedReader, listenGateway, platformSearchWeb, type RunningGateway } from "@foundmill/gateway";
 import { MemoryRateLimitStore } from "@foundmill/gateway/rate-limit";
 import type { GatewayLogger } from "@foundmill/gateway/pipeline";
 import { createModelClient, type ModelClient } from "@foundmill/models";
@@ -132,7 +132,9 @@ export function createFixtureWeb(): FixtureWeb {
     served.push(normalUrl(fixture.url));
     return new Response(fixture.html, { status: 200, headers: { "content-type": "text/html; charset=utf-8" } });
   }) as typeof fetch;
-  const connector = createWebConnector({ secrets: { anthropicApiKey: "fixture-search-key" }, fetch: fixtureFetch, resolveHost: async () => [FIXTURE_ADDRESS] });
+  // The search runs the model client's real request code (`LiveModelClient.searchWeb`, WP-09 T3) against the fixture.
+  const searchClient = createModelClient({ mode: "live", apiKey: "fixture-search-key", fetch: fixtureFetch });
+  const connector = createWebConnector({ secrets: {}, fetch: fixtureFetch, resolveHost: async () => [FIXTURE_ADDRESS], searchWeb: platformSearchWeb(searchClient) });
   return { connector, served, searches, refused };
 }
 
