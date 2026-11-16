@@ -1,6 +1,6 @@
 /**
  * The share image of `/` (1200 × 630; components/landing/seo.tsx `HOME_SHARE_IMAGE`): the wordmark, the page's own
- * headline and its first assurance ("Your first card is free and needs no sign-up."), so a link to Foundmill in a group chat says what the page says. Colors are the
+ * headline and its first assurance ("Shaping your first idea is free and needs no sign-up."), so a link to Foundmill in a group chat says what the page says. Colors are the
  * design system's computed inks (`ON_KIT_DARK`, `ON_KIT_LIGHT`), never a literal here. It lives under /examples/ (a
  * public prefix the landing session owns) because a root `opengraph-image` would replace the default share image of
  * every page that has none of its own. Static, regenerated with the page.
