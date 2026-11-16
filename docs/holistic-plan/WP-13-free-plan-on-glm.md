@@ -1,6 +1,29 @@
-# WP-13: The free plan runs on GLM-5.3 Flash
+# WP-13: The free plan: Haiku 5.5, and GLM-5.3 Flash for agent sessions
 
-**Goal:** Everyone who has not paid for a plan runs on GLM-5.3 Flash (Z.ai) for every model call, Foundmill's own Anthropic key is never used for them, and a paid plan or the founder's own Anthropic key is what reaches Anthropic.
+**Goal:** Everyone who has not paid for a plan runs on the cheapest models that hold quality: Haiku 5.5 on Foundmill's Anthropic key for everything before sign-up and every platform task, and GLM-5.3 Flash through Z.ai for agent sessions while a measured session costs at most $0.019. A paid plan, or the founder's own Anthropic key, reaches every model.
+
+## Revision of Nov 16, 2026, about 3:30 PM UTC (founder): read this first
+
+The price comparison of OpenAI, Mistral, Anthropic and Z.ai (session `Free open source LLM for pre-purchase`) found that Haiku 5.5 ($0.10 / $0.50 per 1M tokens, cache reads $0.01) costs as little as GLM-5.3 Flash. Z.ai showed no cache reads on short prompts. The founder then decided:
+
+- **Before sign-up and every platform task** run on **Haiku 5.5, on Foundmill's Anthropic key**, for every account not on a paid plan. That covers the idea box, Ideation, Inbox notes, desk replies, titles, readers, cycles and foundations.
+  - It relaxes the earlier rule that Foundmill never pays Anthropic for a free account: a free account gets only Haiku 5.5 on our key.
+- **Agent sessions** of a free account run on **GLM-5.3 Flash via Z.ai**, but only if caching works and a session costs about $0.019.
+  - Caching was tested the same day and works automatically on long prompts: 12,032 of 12,044 tokens were read from cache on a repeat, with or without `cache_control`.
+  - At Z.ai's prices that puts a typical session (300k input, 80% cached, 5k output) at about $0.019 (Estimate).
+  - T4 measures a real session before T10. If it costs more, free sessions run on Haiku 5.5 instead (about $0.011, Estimate).
+- A credit top-up still does not unlock the paid models; only a paid plan does.
+
+What this changes below:
+- **T2 is narrower.** There is no Z.ai model client in the services. `enforceModelFunding` wraps the client on Foundmill's Anthropic key, and runs a free account's calls on Haiku 5.5 (`ResolveOptions.freePlan`). It also refuses calls that belong on the founder's own key, and free web search (until T5).
+- **WP-09 T4 is taken into T2.** `MODELS.haiku` is `claude-haiku-5-5`, with its price and capabilities: it thinks by default, takes `effort`, and refuses `temperature`. Its evals (linker, classifier, moderation, founder titles, the injection suites) move to T8.
+- **T3 wraps every service's platform client with `enforceModelFunding`.** The Z.ai client is not used there.
+- **T4 is the only place GLM runs**, and it carries the $0.019 gate.
+- **D5 is moot:** the readers run on Haiku 5.5, and the injection suites must pass on it (T8).
+- **T9:** the privacy policy names Z.ai for agent work only.
+- **Open question for the founder (T6):** does the $600 monthly cap cover all free-plan spend (Haiku 5.5 and GLM together) or only the Z.ai key?
+
+The sections below were written for the first design (GLM for everything). Where they disagree with this revision, this revision wins. Each task's own pull request records what it actually did.
 
 **Why:** The founder's rule of Nov 16, 2026 (docs/log/2026-11/2026-11-16-claude-stage3-founder-decisions-2.md, reidjxn/foundmill#219), from the research in session `Free open source LLM for pre-purchase`:
 - Before payment means the landing page and idea box, Ideation and every call before commit, and all agent work a free project does with its $5.00 of included credits.

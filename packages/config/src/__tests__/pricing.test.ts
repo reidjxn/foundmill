@@ -60,3 +60,17 @@ describe("sandbox time (audit BILL-11, O-32)", () => {
     expect(TIER_ORDER.filter((t) => t !== "free").map(tierShowsBuiltOnMark)).toEqual([false, false]);
   });
 });
+
+describe("who pays for a model call (WP-13)", () => {
+  it("puts everyone not on a paid plan on the free plan, a business on its own key on that key, and a paid plan on every model", async () => {
+    const { modelFundingFor, tierIsPaid } = await import("../pricing");
+    expect(tierIsPaid("free")).toBe(false);
+    expect(tierIsPaid("pro")).toBe(true);
+    expect(tierIsPaid("scale")).toBe(true);
+    expect(modelFundingFor({ planTier: "free", modelBilling: "credits" })).toBe("free_plan");
+    expect(modelFundingFor({ planTier: "free", modelBilling: "byok" })).toBe("own_key");
+    expect(modelFundingFor({ planTier: "pro", modelBilling: "credits" })).toBe("paid_plan");
+    expect(modelFundingFor({ planTier: "pro", modelBilling: "byok" })).toBe("own_key");
+    expect(modelFundingFor({ planTier: null, modelBilling: null })).toBe("free_plan");
+  });
+});
