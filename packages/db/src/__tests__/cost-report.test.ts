@@ -120,6 +120,11 @@ describe("costReportRepo.run", () => {
     expect(later.notMeasured).toHaveLength(2);
   });
 
+  it("reads in a read-only transaction, so Postgres refuses any write", () => {
+    expect(report.readOnly).toBe(true);
+    for (const q of COST_QUERIES) expect(q.text).toMatch(/^(select|with)\b/);
+  });
+
   it("prints the SQL that runs, every query excluding demo projects", () => {
     expect(COST_QUERIES.map((q) => q.name)).toEqual(["projects", "byRoute", "sessionsByModelAndOutcome", "firstDayPerProject", "projectWeeks", "projectWeekDistribution", "byAgentFamily", "blockedSessions", "trainingRuns", "creditsThisMonth"]);
     for (const q of COST_QUERIES) expect(q.text).toMatch(/is_demo = false/);

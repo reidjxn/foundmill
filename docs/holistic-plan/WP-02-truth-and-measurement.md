@@ -304,7 +304,7 @@ All four: `consumers: []` (there is no metrics consumer; T10 reads the table), `
 **Tests and evals:** as named. No agent behavior.
 **Done when:** Done-when 6; `select day from platform_metric_days order by day desc limit 3` shows the last three days.
 
-### T11: The cost report                                                   [S] [ships alone]
+### [x] T11: The cost report                                                   [S] [ships alone]
 
 **Why:** AR-14, A4-15 ("measure first"), FR-11's "invisible spend" (reported as a gap, not fixed here), a7 Appendix B. WP-09 sets prices and allowances from this output.
 

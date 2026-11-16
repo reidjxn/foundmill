@@ -6,7 +6,8 @@
  * Each query is plain SQL text in COST_QUERIES; `{range:<column>}` is the only placeholder and becomes the from/to
  * bounds (from inclusive, to exclusive) or `true`. `renderCostQuery` produces exactly what runs, so the CLI's
  * `--print-sql` output can be pasted into a read-only session. Dollars: coalesce(cost_micro_minor, cost_minor *
- * 1000000) / 1e8. Every query leaves out demo projects (`businesses.is_demo = false`). Read with the service role.
+ * 1000000) / 1e8. Every query leaves out demo projects (`businesses.is_demo = false`). Read with the service role,
+ * inside one `set transaction read only` transaction, so Postgres refuses a write even on that role.
  */
 import { sql } from "drizzle-orm";
 import { rowsOf, type Executor } from "./_shared";
@@ -142,6 +143,8 @@ export interface CostSpread {
 export interface CostReport {
   from: string | null;
   to: string | null;
+  /** Postgres's own `transaction_read_only` while the queries ran: true means a write would have been refused. */
+  readOnly: boolean;
   /** Real projects seen by each source in the range (the CLI marks figures from fewer than 5 as a small sample). */
   projects: { ledger: number; sessions: number; trainingRuns: number };
   byRoute: { route: string; model: string | null; billedTo: string; calls: number; tokens: number; usd: number; centsPerCall: number }[];
@@ -183,7 +186,12 @@ function percentile(values: number[], p: number): number {
 export const costReportRepo = {
   async run(db: Executor, range: CostRange = {}): Promise<CostReport> {
     const results: Record<string, Row[]> = {};
-    for (const q of COST_QUERIES) results[q.name] = rowsOf<Row>(await db.execute(sql.raw(renderCostQuery(q, range))));
+    const readOnly = await db.transaction(async (tx) => {
+      await tx.execute(sql`set transaction read only`);
+      for (const q of COST_QUERIES) results[q.name] = rowsOf<Row>(await tx.execute(sql.raw(renderCostQuery(q, range))));
+      const [ro] = rowsOf<{ ro: string }>(await tx.execute(sql`select current_setting('transaction_read_only') as ro`));
+      return ro?.ro === "on";
+    });
     const get = (name: string) => results[name] ?? [];
 
     const counts = get("projects")[0] ?? {};
@@ -206,6 +214,7 @@ export const costReportRepo = {
     return {
       from: range.from?.toISOString() ?? null,
       to: range.to?.toISOString() ?? null,
+      readOnly,
       projects: { ledger: num(counts.ledger), sessions: num(counts.sessions), trainingRuns: num(counts.training_runs) },
       byRoute: get("byRoute").map((r) => ({ route: str(r.route), model: strOrNull(r.model), billedTo: str(r.billed_to), calls: num(r.calls), tokens: num(r.tokens), usd: num(r.usd), centsPerCall: num(r.cents_per_call) })),
       sessionsByModelAndOutcome: get("sessionsByModelAndOutcome").map((r) => ({
