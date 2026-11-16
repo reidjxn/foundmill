@@ -23,14 +23,21 @@ const SKIP_PATH = /(^|\/)(__tests__|e2e|test|tests|__fixtures__|__mocks__)(\/|$)
 const CODE_EXT = new Set([".ts", ".tsx"]);
 
 /** A hex color: 3, 4, 6 or 8 digits, not part of a word, an id (`#add-skill`) or an HTML entity (`&#039;`). */
-const HEX = /(?<![\w&#])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})(?![\w-])/g;
+const HEX = /(?<![\w&#/])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})(?![\w-])/g;
 /** An arbitrary Tailwind length: `-[17px]`, `-[0.5rem]`, `-[85vw]`, `-[42%]`. */
 const ARBITRARY = /-\[-?[0-9.]+(?:px|rem|em|vh|vw|dvh|svh|%)\]/g;
 
-/** Every leak in a source text: `{ line, kind, text }`, lines 1-based. Comments are scanned too: a hex in a comment is cheap to keep honest. */
+/** The text with its comments blanked (newlines kept, so line numbers stay): "#244" in a comment is a pull request. */
+export function stripComments(text) {
+  return text
+    .replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, " "))
+    .replace(/(^|[^:"'`\w])\/\/[^\n]*/g, (c, lead) => lead + " ".repeat(c.length - lead.length));
+}
+
+/** Every leak in a source text: `{ line, kind, text }`, lines 1-based. Comments are left out. */
 export function scanSource(text) {
   const out = [];
-  const lines = text.split("\n");
+  const lines = stripComments(text).split("\n");
   lines.forEach((src, i) => {
     for (const m of src.matchAll(HEX)) out.push({ line: i + 1, kind: "hex", text: m[0] });
     for (const m of src.matchAll(ARBITRARY)) out.push({ line: i + 1, kind: "arbitrary", text: m[0] });

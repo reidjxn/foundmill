@@ -127,7 +127,9 @@ export function TrainingResults({ results, coachExplanation, candidateVersion, l
                   <th scope="col" className="t-data px-2 text-right">
                     Before
                   </th>
-                  <th scope="col" className="w-6" aria-label="to" />
+                  <th scope="col" className="w-6">
+                    <span className="sr-only">to</span>
+                  </th>
                   <th scope="col" className="t-data px-2 text-left">
                     After
                   </th>

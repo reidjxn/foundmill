@@ -7,18 +7,6 @@
     "agents-agenttile--specialist": [
       "color-contrast"
     ],
-    "agents-sessionscrubber--replay-blocked": [
-      "aria-allowed-attr"
-    ],
-    "agents-sessionscrubber--replay-done": [
-      "aria-allowed-attr"
-    ],
-    "agents-sessionscrubber--replay-failed": [
-      "aria-allowed-attr"
-    ],
-    "agents-taskgraph--empty": [
-      "aria-prohibited-attr"
-    ],
     "agents-taskgraph--formation": [
       "nested-interactive"
     ],
@@ -27,9 +15,6 @@
     ],
     "agents-training--instructions-diff-mode": [
       "color-contrast"
-    ],
-    "agents-training--results": [
-      "empty-table-header"
     ],
     "conversation-deskpresence--column": [
       "landmark-unique"
@@ -51,14 +36,6 @@
     ],
     "data-diffview--side-by-side": [
       "color-contrast"
-    ],
-    "data-virtuallist--short-list": [
-      "list",
-      "scrollable-region-focusable"
-    ],
-    "data-virtuallist--two-thousand-notes": [
-      "list",
-      "scrollable-region-focusable"
     ],
     "data-widgetgrid--edit-mode": [
       "landmark-unique"

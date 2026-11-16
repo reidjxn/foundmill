@@ -21,7 +21,7 @@ WP-10 T13 (docs/holistic-plan/WP-10-console-and-design.md; audit A2-15, A2-20, A
 3. **Storybook** opens with Builder view off (`.storybook/preview.ts`), so a reviewer sees what a founder sees.
 4. **Scanner.** `scripts/design-tokens.mjs` (+ `.test.mjs`): fails on a hex color or an arbitrary Tailwind length in
    `.ts`/`.tsx` under apps/web and packages/{dugout,modules,widgets}/src outside tests, stories and fixtures. Per-file
-   counts in `scripts/design-tokens.allow.json` (73 files, seeded today, with reasons for the kinds that stay: Monaco and
+   counts in `scripts/design-tokens.allow.json` (33 files, seeded today; comments and URL fragments are not scanned, with reasons for the kinds that stay: Monaco and
    xterm fallbacks, Google branding, sample and example brand colors, the viewport `themeColor`). A listed file may not
    grow; a shrunk count is printed as a note. `PhoneBar`'s `max-w-[85vw]` becomes the token `--phone-menu-max`. In CI
    next to the focus-ring check.
@@ -34,8 +34,8 @@ WP-10 T13 (docs/holistic-plan/WP-10-console-and-design.md; audit A2-15, A2-20, A
   walk fails on the actual cause. The measured figures above are an Estimate of first-load size (they count every client
   chunk the route's manifest lists).
 - `BusinessSwitcher.tsx` `#1b4fd8` and `IdeaCard.tsx` `#3a87ff`, two of the four "cheapest" fixes, were already gone on
-  main. The scanner counts more than the audit's 15 files / 45 values because it also reads comments and `.ts` data
-  files; the allowlist holds them all so the line holds from today.
+  main. The scanner counts more than the audit's 15 files / 45 values because it also reads `.ts` data files; the
+  allowlist holds them all so the line holds from today.
 
 ## Not done
 - `optimizePackageImports`: not added, the target was met without it.

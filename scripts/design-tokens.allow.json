@@ -12,18 +12,6 @@
     "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
   },
   "apps/web/components/agents/LogsTab.tsx": {
-    "count": 2,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
-  "apps/web/components/crm/CrmScreen.tsx": {
-    "count": 1,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
-  "apps/web/components/crm/logic.ts": {
-    "count": 1,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
-  "apps/web/components/home/HomeScreen.tsx": {
     "count": 1,
     "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
   },
@@ -32,15 +20,15 @@
     "reason": "Example businesses: their brand colors are data, not design tokens."
   },
   "apps/web/components/landing/examples/identity.ts": {
-    "count": 7,
+    "count": 6,
     "reason": "Example businesses: their brand colors are data, not design tokens."
   },
   "apps/web/components/landing/examples/sessions/glitchwick.ts": {
-    "count": 7,
+    "count": 3,
     "reason": "Example businesses: their brand colors are data, not design tokens."
   },
   "apps/web/components/landing/examples/sessions/tutorlane.ts": {
-    "count": 3,
+    "count": 2,
     "reason": "Example businesses: their brand colors are data, not design tokens."
   },
   "apps/web/components/landing/examples/tutorlane.ts": {
@@ -55,14 +43,6 @@
     "count": 1,
     "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
   },
-  "apps/web/components/live/CommunitiesScreen.tsx": {
-    "count": 1,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
-  "apps/web/components/live/ConnectionPanels.tsx": {
-    "count": 1,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
   "apps/web/components/live/MessagesPanel.tsx": {
     "count": 1,
     "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
@@ -72,7 +52,7 @@
     "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
   },
   "apps/web/components/new/commit/naming.ts": {
-    "count": 8,
+    "count": 4,
     "reason": "Suggested brand colors offered to the founder: data, not design tokens."
   },
   "apps/web/components/new/ideate/IdeationStudio.tsx": {
@@ -83,33 +63,13 @@
     "count": 1,
     "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
   },
-  "apps/web/components/settings/BusinessTab.tsx": {
-    "count": 1,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
-  "apps/web/components/shell/BusinessShell.tsx": {
-    "count": 2,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
   "apps/web/components/shell/ShellSkeleton.tsx": {
     "count": 1,
     "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
   },
   "apps/web/components/spec/spec-user.tsx": {
-    "count": 10,
+    "count": 8,
     "reason": "The spec page mirrors token values for a reader of the spec."
-  },
-  "apps/web/lib/table-views.ts": {
-    "count": 1,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
-  "apps/web/lib/today.ts": {
-    "count": 2,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
-  "apps/web/lib/widget-registry.tsx": {
-    "count": 1,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
   },
   "packages/dugout/src/components/agents/MonacoDiff.tsx": {
     "count": 20,
@@ -127,10 +87,6 @@
     "count": 17,
     "reason": "Recorded session data: colors in replayed terminal output."
   },
-  "packages/dugout/src/components/data/DataTable.tsx": {
-    "count": 1,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
   "packages/dugout/src/components/foundation/GoogleSignInButton.tsx": {
     "count": 4,
     "reason": "Google sign-in branding requires its own colors."
@@ -141,10 +97,6 @@
   },
   "packages/dugout/src/components/journey/ribbon/JourneyRibbon.tsx": {
     "count": 4,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
-  "packages/dugout/src/components/journey/stage/GoalBurst.tsx": {
-    "count": 1,
     "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
   },
   "packages/dugout/src/components/journey/stage/JourneyStage.tsx": {
@@ -164,87 +116,7 @@
     "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
   },
   "packages/dugout/src/lib/colour.ts": {
-    "count": 3,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
-  "packages/modules/src/development/EnvironmentsScreen.tsx": {
     "count": 2,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
-  "packages/modules/src/development/PlanScreen.tsx": {
-    "count": 1,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
-  "packages/modules/src/development/PullRequestsScreen.tsx": {
-    "count": 1,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
-  "packages/modules/src/distribution/AttributionScreen.tsx": {
-    "count": 2,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
-  "packages/modules/src/distribution/CampaignsScreen.tsx": {
-    "count": 1,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
-  "packages/modules/src/distribution/ChannelsScreen.tsx": {
-    "count": 2,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
-  "packages/modules/src/distribution/LeadsScreen.tsx": {
-    "count": 1,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
-  "packages/modules/src/finance/CapTableScreen.tsx": {
-    "count": 1,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
-  "packages/modules/src/finance/CashScreen.tsx": {
-    "count": 1,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
-  "packages/modules/src/finance/OverviewScreen.tsx": {
-    "count": 1,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
-  "packages/modules/src/finance/ProfitAndLossScreen.tsx": {
-    "count": 1,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
-  "packages/modules/src/finance/RunwayScreen.tsx": {
-    "count": 1,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
-  "packages/modules/src/finance/WageBillScreen.tsx": {
-    "count": 1,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
-  "packages/modules/src/legal/ComplianceScreen.tsx": {
-    "count": 1,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
-  "packages/modules/src/legal/ContractsScreen.tsx": {
-    "count": 1,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
-  "packages/modules/src/legal/EntityScreen.tsx": {
-    "count": 1,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
-  "packages/modules/src/legal/IPScreen.tsx": {
-    "count": 1,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
-  "packages/modules/src/product/ChangesScreen.tsx": {
-    "count": 1,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
-  "packages/modules/src/product/RoadmapScreen.tsx": {
-    "count": 1,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
-  "packages/modules/src/product/SourcesScreen.tsx": {
-    "count": 1,
     "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
   },
   "packages/modules/src/product/research/ResearchPlanPanel.tsx": {
@@ -255,39 +127,7 @@
     "count": 1,
     "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
   },
-  "packages/modules/src/team/RecruitmentScreen.tsx": {
-    "count": 1,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
-  "packages/modules/src/team/ResponsibilitiesScreen.tsx": {
-    "count": 1,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
-  "packages/modules/src/team/SquadScreen.tsx": {
-    "count": 2,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
-  "packages/modules/src/team/StaffScreen.tsx": {
-    "count": 1,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
   "packages/modules/src/team/skills.tsx": {
-    "count": 1,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
-  "packages/widgets/src/shared/frame.tsx": {
-    "count": 1,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
-  "packages/widgets/src/shared/pin.ts": {
-    "count": 1,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
-  "packages/widgets/src/shared/saved-views.ts": {
-    "count": 1,
-    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
-  },
-  "packages/widgets/src/widgets/squad-pulse.tsx": {
     "count": 1,
     "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
   }

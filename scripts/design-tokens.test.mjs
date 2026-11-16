@@ -25,6 +25,13 @@ describe("scanSource", () => {
   });
 });
 
+describe("comments", () => {
+  it("ignores a pull request number or a hex in a comment, and keeps the line numbers", () => {
+    const src = ["/** see pull request #244 */", "// was #1b4fd8", 'const url = "https://x.test/#abc";', 'const c = "#fff"; // white'].join("\n");
+    assert.deepEqual(scanSource(src).map((h) => [h.line, h.text]), [[4, "#fff"]]);
+  });
+});
+
 describe("judge", () => {
   it("fails a new file with a leak and a listed file that grows; notes one that shrank", () => {
     const counts = new Map([
