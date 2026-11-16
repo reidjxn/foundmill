@@ -75,7 +75,7 @@ Migrations: each task takes the next free number when its branch is cut (0108, j
 **Tests and evals:** files above. Eval `evals/src/positioning.ts`, cases `positioning.from_founder_words` (three ideas; asserts no proof line, quote or number absent from the input, and that every non-founder line is labeled `assumption`) and `positioning.one_person` (section 1 names one kind of person).
 **Done when:** a new project has a draft and one note within the foundations run; after approval `read_positioning` returns the text and the next post draft request contains it (asserted in the contract test).
 
-### [ ] T2: A reply to the project is kept and can be answered   [M] [ships alone; before T3] [needs WP-00 S2]
+### [x] T2: A reply to the project is kept and can be answered   [M] [ships alone; before T3] [needs WP-00 S2] (code built behind the mail switch, Nov 16; on in production once S1 and S2 are recorded)
 **Why:** GTM-04 (P0 once mail is live), a5 §7 item 4. The `lead.replied` event carries an `interactionId` that points at no row.
 
 **Files**

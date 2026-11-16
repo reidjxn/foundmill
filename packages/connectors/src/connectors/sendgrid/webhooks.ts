@@ -229,6 +229,14 @@ const htmlReplyText = (html: string): string =>
     .replace(/<(br|\/p|\/div|\/li|hr)\b[^>]*>/gi, "\n")
     .replace(/<[^>]+>/g, " ");
 
+/**
+ * The reply's own words as plain text (quoted original, `>` lines and the sender's own footer left out): what is kept for
+ * the founders to read (WP-08 T2) and what the classifier reads. Untrusted: shown as plain text only.
+ */
+export function inboundReplyText(mail: Pick<InboundMail, "text" | "html">, ownMarkers: readonly string[] = []): string {
+  return replyOwnText(mail.text || htmlReplyText(mail.html), ownMarkers);
+}
+
 export interface InboundMailOptions {
   /** Lines holding any of these (case-insensitive) are not the reply's words: the sender's own footer and unsubscribe link. */
   ownMarkers?: readonly string[];
@@ -241,7 +249,7 @@ export interface InboundMailOptions {
 export function normaliseInboundMail(mail: InboundMail, businessId: string, now: () => Date = () => new Date(), options: InboundMailOptions = {}): PlatformEvent[] {
   const from = addressOf(mail.from);
   const text = mail.text || mail.html.replace(/<[^>]+>/g, " ");
-  const own = replyOwnText(mail.text || htmlReplyText(mail.html), options.ownMarkers);
+  const own = inboundReplyText(mail, options.ownMarkers);
   const sentiment = UNSUB_RE.test(own) ? "unsubscribe" : OOO_RE.test(`${mail.subject}\n${own}`) ? "out_of_office" : "neutral";
   const words = text.split(/\s+/).filter(Boolean).length;
   const entityId = emailEntityId(from);
