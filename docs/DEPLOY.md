@@ -147,6 +147,14 @@ What happens while any of these is missing (it fails closed, never with a broken
   2. On the **api**, set the same `API_SERVICE_TOKEN_SECRET`. Check: Settings › Integrations still connects and checks an integration.
   3. On the **gateway**, remove `API_SERVICE_TOKEN_LEGACY`. Check: `/health` says `apiServiceToken: "own"`.
   Out of order, the api cannot reach the gateway (Settings › Integrations, key checks, push). If step 3 is forgotten, `/health` keeps saying `legacy`. The secret must differ from `SESSION_TOKEN_SECRET` (both services refuse to start otherwise). To undo: set `API_SERVICE_TOKEN_LEGACY=1` on the gateway, remove the secret from the api, then remove both variables from the gateway.
+- **Who holds the vault key (Nov 16, 2026; WP-11 T19, A8-10).** `DEV_MASTER_KEY` (or `KMS_KEY_ID`) is the key every sealed credential depends on.
+  - The **gateway** decrypts a credential for one call.
+  - The **orchestrator** reads a founder's own model key for a session.
+  - The **api** seals a founder's Anthropic key (`apps/api/src/services/keys.ts`, its only use).
+  - **Ingest** builds a vault only with a live connector (`apps/ingest/src/index.ts`), so its copy is unused today. It reads a project's own Stripe endpoint secret with it once `stripe` is live there (T20), so it stays.
+  - **Stream and composer** never use it. `grep -rn "SESSION_TOKEN_SECRET\|DEV_MASTER_KEY\|createVault" apps/stream/src apps/composer/src` finds nothing outside tests (Nov 16), so both variables can be deleted from both services.
+  - The api reads only `SESSION_TOKEN_SECRET`, `ANTHROPIC_API_KEY`, `SUPABASE_JWT_SECRET`, `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` among its keys, secrets and tokens, and builds its connector registry with no platform secrets (`createDefaultRegistry({ secrets: {} })`), so every connector's platform key (`STRIPE_SECRET_KEY`, `SENDGRID_API_KEY` and the others of §5.6) can be deleted from the api. That is WP-00 S16's list.
+  - **The trap:** `createVault` (`packages/shared/src/crypto/index.ts`) refuses `DEV_MASTER_KEY` when `APP_ENV=production`. Switching `APP_ENV` before `KMS_KEY_ID` exists turns the vault off and refuses every founder who uses their own key.
 
 ## 4. Supabase
 

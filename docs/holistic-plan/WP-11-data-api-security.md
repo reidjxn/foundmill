@@ -75,7 +75,7 @@ Rules for every task here (docs/holistic-plan/README.md applies in full):
 | [ ] | T16 Account export and closing, by request | M | F6 |
 | [x] | T17 The service connection: the rule as it is, and a pinned list | S | |
 | [ ] | T18 The P3 items in one change | S | |
-| [ ] | T19 A dated decision for every item left open | S | WP-00 S16 |
+| [x] | T19 A dated decision for every item left open | S | WP-00 S16 |
 | [x] | T20 A founder's own Stripe: store the webhook signing secret | M | WP-00 S8; WP-07 and WP-08 wait for it |
 
 Sizes: S under a day, M one to three days, L up to a week. 13 S and 7 M: about four to five weeks of one session in sequence (Estimate). T3, T8 and the founder steps run beside the rest; T11 to T20 do not depend on each other. T20 is last in the list only because another package sets its date: start it when WP-07's `create_payment_link` task starts.
@@ -463,7 +463,7 @@ verify for all: `pnpm exec turbo run typecheck lint test --filter=@foundmill/sha
 Tests: `client-grants.test.ts`, `apps/web/lib/__tests__/env.test.ts`, `health.test.ts`, `packages/shared/src/logger.test.ts`, one case each as the steps say.
 Done when: the four checks pass and a11 S10 is closed.
 
-### T19: A dated decision for every item left open            [size S] [ships alone]
+### [x] T19: A dated decision for every item left open            [size S] [ships alone]
 Why: the package's last "done when". An item nobody fixes and nobody accepts is picked up again by every audit.
 Files: modify docs/DECISIONS.md (one entry, dated on the day it merges, titled "Security and data items accepted for now (WP-11)"), docs/SECURITY_REVIEW.md (a status table dated the same day, one row per id, each "fixed in T<n>" or "accepted, see DECISIONS"), docs/DEPLOY.md §3 (which service holds `DEV_MASTER_KEY` and why; WP-00 S16).
 Interfaces: none (documents).
