@@ -50,7 +50,8 @@ for (const [width, height] of [
     await expect(field).toBeFocused();
 
     // The tour's links (top bar, after the Studio, footer) are for wide screens only.
-    await expect(page.getByRole("link", { name: "Take the tour" })).toHaveCount(3);
+    // (Hidden links have no role, so a narrow screen counts none.)
+    await expect(page.getByRole("link", { name: "Take the tour" })).toHaveCount(width >= 1280 ? 3 : 0);
     await expect(page.getByTestId("landing-tour-top")).toBeVisible({ visible: width >= 1280 });
   });
 }
