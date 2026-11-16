@@ -108,11 +108,14 @@ function takeWebhookSecret(connectorKey: string, connectInput: unknown): { input
   const spec = Object.hasOwn(WEBHOOK_SECRET_FIELDS, connectorKey) ? WEBHOOK_SECRET_FIELDS[connectorKey]! : null;
   if (!spec || !connectInput || typeof connectInput !== "object") return { input: connectInput, secret: null };
   const { [spec.field]: raw, ...rest } = connectInput as Record<string, unknown>;
+  const refuse = (message: string) => new GatewayError("invalid_webhook_secret", message, 400, { connector: connectorKey, field: spec.field });
+  if (raw !== undefined && raw !== null && typeof raw !== "string") throw refuse(`A webhook signing secret starts with ${spec.prefix}: copy it from the endpoint in your vendor's dashboard`);
   const value = typeof raw === "string" ? raw.trim() : "";
-  if (raw !== undefined && raw !== null && value !== "" && (!value.startsWith(spec.prefix) || value.length < spec.prefix.length + 8 || /\s/.test(value))) {
-    throw new GatewayError("invalid_webhook_secret", `A webhook signing secret starts with ${spec.prefix}: copy it from the endpoint in your vendor's dashboard`, 400, { connector: connectorKey, field: spec.field });
-  }
-  return { input: rest, secret: value ? { kind: spec.kind, value } : null };
+  if (value === "") return { input: rest, secret: null };
+  if (!new RegExp(`^${spec.prefix}[A-Za-z0-9]{8,200}$`).test(value)) throw refuse(`A webhook signing secret starts with ${spec.prefix}: copy it from the endpoint in your vendor's dashboard`);
+  // Stored only beside the founder's own key: a connect by account id alone verifies with the platform's secret.
+  if (typeof (rest as { apiKey?: unknown }).apiKey !== "string" || !(rest as { apiKey: string }).apiKey.trim()) throw refuse("Add the signing secret together with your own restricted key");
+  return { input: rest, secret: { kind: spec.kind, value } };
 }
 
 export async function connectIntegration(deps: GatewayDeps, input: ConnectInput, service: string): Promise<ConnectIntegrationResponse> {
@@ -184,6 +187,14 @@ export async function connectIntegration(deps: GatewayDeps, input: ConnectInput,
     const meta = await repos.credentials.store(tx, input.businessId, { integrationId: row.id, kind: INTEGRATION_CREDENTIAL_KIND, record: provisional, expiresAt });
     const bound = await encryptJson(vault, credential, buildAad(input.businessId, "credentials", meta.id));
     await repos.credentials.rotate(tx, input.businessId, meta.id, bound);
+    // A reconnect to another account without a new signing secret retires the old one: it would verify the previous
+    // account's deliveries for this project (security review of WP-11 T20).
+    const previousAccount = (existing?.settings as { externalAccountId?: unknown } | null | undefined)?.externalAccountId ?? null;
+    const hookSpec = Object.hasOwn(WEBHOOK_SECRET_FIELDS, connector.key) ? WEBHOOK_SECRET_FIELDS[connector.key]! : null;
+    if (hookSpec && !webhook.secret && previousAccount !== record.externalAccountId) {
+      const stale = await repos.credentials.latest(tx, input.businessId, row.id, hookSpec.kind);
+      if (stale) await repos.credentials.revoke(tx, input.businessId, stale.meta.id);
+    }
     if (webhook.secret && webhookProvisional) {
       const hook = await repos.credentials.store(tx, input.businessId, { integrationId: row.id, kind: webhook.secret.kind, record: webhookProvisional, expiresAt: null });
       await repos.credentials.rotate(tx, input.businessId, hook.id, await encryptJson(vault, { secret: webhook.secret.value }, buildAad(input.businessId, "credentials", hook.id)));
