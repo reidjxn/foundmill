@@ -128,6 +128,8 @@ describe("LoginForm", () => {
     expect(html).toContain("Send sign-in link");
     expect(html).toContain("Email");
     expect(html).toContain("No password, no card. We email you a link.");
+    // WP-03 T1: what signing in does for a new address, said before it happens.
+    expect(html).toContain("New here? Foundmill lets new people in a few at a time. Signing in saves your place.");
     expect(html).toContain("you@example.com");
     expect(html).toContain("Link expired");
     expect(html).not.toContain("BAILOUT_TO_CLIENT_SIDE_RENDERING");

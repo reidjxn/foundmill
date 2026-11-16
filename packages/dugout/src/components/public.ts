@@ -14,3 +14,5 @@ export * from "./public/IdeaCard";
 // An invitation to a project at /i/<token> (docs/NETWORK.md F5), and "You're on the list." (the api's `on_waitlist`).
 export * from "./public/InvitationCard";
 export * from "./public/OnWaitlistCard";
+// "Get the app": the native app's store links, from one value unset until launch (WP-03 T9).
+export * from "./public/GetTheApp";

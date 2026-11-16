@@ -48,6 +48,9 @@ export const SMALL_SCREEN_PREFIXES: readonly string[] = [
   "/profiles/",
   // An invitation to a project (THESIS_REVIEW 3.1).
   "/i/",
+  // The signed-in index (WP-03 T1): it redirects, or renders in place the landing page or the gate's pages (not
+  // invited, on the waitlist, the server unreachable), each of which works from 390 px.
+  "/start",
 ];
 
 /**
@@ -80,6 +83,8 @@ export function DesktopOnly({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const width = useViewportWidth();
   const [allowed, setAllowed] = useState(false);
+  // At the native app's launch (CLAUDE.md "Never", small screens), a signed-in small screen is sent to the store: one
+  // branch here on `publicEnv().storeLinks` (lib/env.ts), the same value every "Get the app" prompt reads. Not built yet.
   if (!allowed && !worksOnSmallScreens(pathname) && isViewportTooSmall(width))
     return <NeedsLargerWindow width={width} />;
   return <SmallScreenAllowance.Provider value={setAllowed}>{children}</SmallScreenAllowance.Provider>;
