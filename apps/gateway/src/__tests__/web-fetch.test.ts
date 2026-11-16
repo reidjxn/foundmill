@@ -99,8 +99,10 @@ describe("web.search_web live (LIVE_CONNECTORS=web, MODEL_MODE=live)", () => {
     });
   }) as unknown as typeof globalThis.fetch;
 
-  async function researcher(name: string) {
+  /** Search runs on a paid plan's platform key; the free plan has no search until WP-13 T5. */
+  async function researcher(name: string, planTier: "free" | "pro" = "pro") {
     const business = await repos.businesses.create(ldb, { name });
+    await repos.businesses.update(ldb, business.id, { planTier });
     const agent = await repos.agents.create(ldb, business.id, { name: "Researcher", agentType: "researcher", modelKey: "sonnet" });
     const sessionId = (await repos.agents.createSession(ldb, business.id, { agentId: agent.id, modelKey: "sonnet" })).id;
     const { token } = await liveClient.mintSessionToken({ businessId: business.id, agentId: agent.id, sessionId, allowedTools: ["web:search_web"], ttlSeconds: 300 });
@@ -148,6 +150,17 @@ describe("web.search_web live (LIVE_CONNECTORS=web, MODEL_MODE=live)", () => {
     expect(out.outcome).toBe("allow");
     if (out.outcome !== "allow") return;
     expect(out.result).toMatchObject({ ok: false, error: { code: "credits_exhausted" } });
+    expect(requests).toHaveLength(0);
+    expect((await repos.usage.list(ldb, r.businessId, { sessionId: r.sessionId, kind: "tokens" })).items).toHaveLength(0);
+  });
+
+  it("a free business's search is refused before any request until the free plan has its own search (WP-13)", async () => {
+    requests.length = 0;
+    const r = await researcher("Free Search Co", "free");
+    const out = await liveClient.call(r.token, { connector: "web", tool: "search_web", args: { query: "compostable cups wholesale" } });
+    expect(out.outcome).toBe("allow");
+    if (out.outcome !== "allow") return;
+    expect(out.result).toMatchObject({ ok: false, error: { code: "tool_failed", message: "Web search is not available on the free plan yet." } });
     expect(requests).toHaveLength(0);
     expect((await repos.usage.list(ldb, r.businessId, { sessionId: r.sessionId, kind: "tokens" })).items).toHaveLength(0);
   });

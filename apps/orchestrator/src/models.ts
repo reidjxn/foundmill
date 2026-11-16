@@ -18,8 +18,8 @@
  * call runs with `lowCredits` (the credit saver): a routine route moves to its lower-cost model, a kept route keeps its
  * own (packages/models routing.ts). A business on its own key is never moved: its agents' calls are the founder's.
  */
-import { assertPlatformCredits, loadByokApiKey, repos, type Db } from "@foundmill/db";
-import { createModelClient, keyFingerprint, ModelRequestError, type CompleteRequest, type CompleteResult, type CompleteResultWithJson, type ModelClient, type ModelLogger, type ModelMode, type StreamStructuredRequest, type StreamStructuredResult, type UsageSink } from "@foundmill/models";
+import { assertPlatformCredits, cachedModelFundingOf, loadByokApiKey, repos, type Db } from "@foundmill/db";
+import { createModelClient, enforceModelFunding, keyFingerprint, ModelRequestError, type CompleteRequest, type CompleteResult, type CompleteResultWithJson, type ModelClient, type ModelLogger, type ModelMode, type StreamStructuredRequest, type StreamStructuredResult, type UsageSink } from "@foundmill/models";
 import { CreditsExhaustedError, NotFoundError, type ModelBilling } from "@foundmill/shared";
 import type { Vault } from "@foundmill/shared/crypto";
 import type { z } from "zod";
@@ -64,7 +64,10 @@ interface CachedRoute {
 const byokRefused = (businessId: string, why: string) =>
   new ModelRequestError(`This business runs on its own Anthropic key and ${why}; set a key in Settings → Keys`, undefined, "missing_api_key", { businessId });
 
-export function createBusinessModelClient(platform: ModelClient, opts: BusinessModelClientOptions): BusinessModelClient {
+export function createBusinessModelClient(platformKey: ModelClient, opts: BusinessModelClientOptions): BusinessModelClient {
+  // Who pays decides the model (WP-13): on the platform key a business not on a paid plan runs on Haiku 5.5. A business
+  // on its own key never reaches the platform client (`load` below), so the own key is served here.
+  const platform = enforceModelFunding(platformKey, cachedModelFundingOf(opts.db, { ownKeyServed: true }));
   const ttlMs = opts.ttlMs ?? BUSINESS_KEY_TTL_MS;
   const now = opts.now ?? (() => Date.now());
   const build = opts.createClient ?? (({ mode, apiKey, onUsage, logger }) => createModelClient({ mode, apiKey: apiKey ?? undefined, billedTo: "byok", onUsage, logger }));

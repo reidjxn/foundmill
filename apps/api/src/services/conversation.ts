@@ -1131,7 +1131,7 @@ export async function replyAboutConcept(
   try {
     const result = await conversationReply(
       models,
-      { ...request, attribution: { kind: "ideation_ask" }, scope: input.userId ? `ideation:${input.userId}` : undefined },
+      { ...request, attribution: { kind: "ideation_ask", ...(input.userId ? { userId: input.userId } : {}) }, scope: input.userId ? `ideation:${input.userId}` : undefined },
       CONCEPT_GUARD,
       emit ? { show: (b) => emit({ type: "bubble", ...b }), reset: () => emit({ type: "reset" }) } : undefined,
     );
