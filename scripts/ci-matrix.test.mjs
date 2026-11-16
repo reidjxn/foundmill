@@ -49,6 +49,23 @@ test("every workspace package with a test script is in a unit matrix entry", () 
   assert.deepEqual(missingFromMatrix(packages, workflow), []);
 });
 
+/** Each matrix entry's `pkgs` (what the affected-packages gate reads) next to the packages its `run` filters. */
+export function entryPackages(workflow) {
+  return [...unitJob(workflow).matchAll(/^\s*- \{ name: "([^"]+)", pkgs: "([^"]*)", run: "([^"]*)" \}$/gm)].map((m) => ({
+    name: m[1],
+    pkgs: m[2].split(" ").filter(Boolean).sort(),
+    filters: [...new Set([...m[3].matchAll(/--filter[ =](@foundmill\/[a-z0-9-]+)/g)].map((f) => f[1]))].sort(),
+  }));
+}
+
+test("every unit entry's pkgs are exactly the packages its run filters", () => {
+  const workflow = readFileSync(join(ROOT, ".github/workflows/ci.yml"), "utf8");
+  const entries = entryPackages(workflow);
+  const lines = unitJob(workflow).match(/^\s*- \{ name: /gm) ?? [];
+  assert.equal(entries.length, lines.length, "an entry is not written as { name, pkgs, run } on one line");
+  for (const e of entries) assert.deepEqual(e.pkgs, e.filters, e.name);
+});
+
 test("a package left out of the matrix is reported by name", () => {
   const workflow = [
     "jobs:",

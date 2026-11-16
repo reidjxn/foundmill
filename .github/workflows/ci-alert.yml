@@ -2,6 +2,8 @@
 # comments on the same open issue; a person closes it when main is green again. Not `cancelled`: a waiting main run that
 # a newer push replaces ends cancelled, which is normal. A workflow_run workflow runs main's copy with the repository
 # token; it runs no code from the commit it reports on, only scripts/open-or-update-issue.sh from main.
+# It covers the nightly full run too (ci.yml's schedule runs on main): a push to main runs a smoke set, so a regression
+# only the full suite finds turns this red within a day (founder's yes, Nov 16, 2026).
 name: CI alert
 
 on:
@@ -25,6 +27,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.event.workflow_run.html_url }}
           SHA: ${{ github.event.workflow_run.head_sha }}
+          EVENT: ${{ github.event.workflow_run.event }}
         run: |
-          printf 'CI failed on main at %s\n%s\n' "$SHA" "$RUN_URL" > body.md
+          case "$EVENT" in
+            schedule) WHAT="the nightly full run" ;;
+            push) WHAT="the push smoke set" ;;
+            *) WHAT="a $EVENT run" ;;
+          esac
+          printf 'CI failed on main at %s (%s)\n%s\n' "$SHA" "$WHAT" "$RUN_URL" > body.md
           bash scripts/open-or-update-issue.sh ci-red-main "CI is red on main" body.md

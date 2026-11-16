@@ -3,6 +3,8 @@
 # a secret gets its own workflow instead, with the same step: the outcome evals (WP-05 T6) are evals-outcomes.yml.
 # scripts/check-production.mjs is WP-02's: exit 0 passes, anything else fails, and what it writes to the file named by
 # GITHUB_STEP_SUMMARY is the report and becomes the issue's body.
+# The full CI suite (all eight Playwright shards, the Docker image, Storybook) runs nightly from ci.yml's own schedule,
+# not here, so its jobs and required-check names stay in one file; a red nightly CI run alerts through ci-alert.yml.
 name: Nightly
 
 on:
