@@ -70,3 +70,25 @@ test.describe("finishing a GitHub App installation", () => {
     await expect(settingsScreen(page).getByRole("button", { name: "Connect installation" })).toHaveCount(0);
   });
 });
+
+test.describe("choosing the repository from Settings (WP-07 T11)", () => {
+  test("is reachable from Settings › Integrations with Builder view off", async ({ page, playwright }) => {
+    await setBuilderView(playwright, false);
+    try {
+      const id = await openBusiness(page);
+      await page.goto(`/b/${id}/settings/integrations`);
+      await settled(page);
+      const screen = settingsScreen(page);
+      const row = screen.locator('[data-connector="github"]');
+      await expect(row).toBeVisible({ timeout: LONG });
+      if (await screen.getByTestId("github-repository").count() === 0) await row.getByRole("button", { name: "Connect" }).click();
+      const panel = screen.getByTestId("github-repository");
+      await expect(panel).toBeVisible({ timeout: LONG });
+      await panel.getByLabel("Repository", { exact: true }).fill("acme/shop");
+      await expect(panel.getByRole("button", { name: "Save repository" })).toBeEnabled();
+      await expect(panel).toContainText("This repository has no commits yet");
+    } finally {
+      await setBuilderView(playwright, true);
+    }
+  });
+});

@@ -46,7 +46,7 @@ export function useGuidanceSignal(): GuidanceSignalFn {
 }
 
 /** What everyone reads until the account answers, and on every signed-out page. */
-export const DEFAULT_GUIDANCE_PREFS: Readonly<GuidancePrefs> = Object.freeze({ guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: DEFAULT_AGENT_STYLE, builderView: false });
+export const DEFAULT_GUIDANCE_PREFS: Readonly<GuidancePrefs> = Object.freeze({ guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: DEFAULT_AGENT_STYLE, builderView: false, keyboardShortcuts: false });
 
 /** True on the pages the proxy reserves for a signed-in founder; `/` is the landing page for a visitor, so it is not one. */
 export function isSignedInPath(pathname: string | null | undefined): boolean {
@@ -96,6 +96,22 @@ export function useGuidancePreferences(): GuidancePreferencesApi {
   const ctx = useContext(GuidancePreferencesCtx);
   if (!ctx) throw new Error("useGuidancePreferences must be used inside <GuidanceHost>");
   return ctx;
+}
+
+/**
+ * Whether the account turned the single-key shortcuts on (Settings › Preferences; WP-04 T13). False until the account
+ * answers, outside a host and on every signed-out page: a stray key does nothing until the person asks for keys.
+ */
+export function useKeyboardShortcutsOn(): boolean {
+  const { prefs } = useContext(GuidancePreferencesCtx) ?? SIGNED_OUT_GUIDANCE;
+  return prefs.keyboardShortcuts === true;
+}
+
+/** The toast after the single-key shortcuts are turned on or off (Settings › Preferences). */
+export function keyboardShortcutsSavedLine(on: boolean): { title: string; description: string } {
+  return on
+    ? { title: "Single-key shortcuts on", description: "Press ? to see them all, in every business." }
+    : { title: "Single-key shortcuts off", description: "A stray key does nothing now. Search, ? and Esc still work." };
 }
 
 /** The toast after Builder view is saved (Settings › Preferences, and the gated tab's "Turn on Builder view"). */

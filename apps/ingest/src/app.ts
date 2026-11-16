@@ -10,9 +10,9 @@ import { AppError, UnauthorizedError } from "@foundmill/shared";
 import { Hono, type MiddlewareHandler } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { repos } from "@foundmill/db";
-import { ackBody, handleWebhook, webhookMounts, type MountedWebhook } from "./webhooks";
-import { BILLING_WEBHOOK_PATH, handleBillingWebhook } from "./billing";
-import { handleFollowConfirm, handleInvitationsOff, handleNotifyOff, handlePlatformInbound, handlePlatformMailEvents, handlePlatformUnsubscribe, PLATFORM_MAIL_EVENTS_MAX_BYTES, PLATFORM_MAIL_INBOUND_MAX_BYTES } from "./platform-mail";
+import { ackBody, handleWebhook, WEBHOOK_MAX_BYTES, WEBHOOK_MAX_BYTES_BY_CONNECTOR, webhookMounts, type MountedWebhook } from "./webhooks";
+import { BILLING_WEBHOOK_MAX_BYTES, BILLING_WEBHOOK_PATH, handleBillingWebhook } from "./billing";
+import { handleFollowConfirm, handleInvitationsOff, handleNotifyOff, handlePlatformInbound, handlePlatformMailEvents, handlePlatformUnsubscribe, PLATFORM_MAIL_EVENTS_MAX_BYTES, PLATFORM_MAIL_INBOUND_MAX_BYTES, signingSecretFor } from "./platform-mail";
 import { runSimulation, SimulateBody, simulateRoutesMounted, simulationCatalogue } from "./simulate";
 import { bearerToken, verifySimulateToken, type SimulateTokenClaims } from "./simulate-token";
 import { INGEST_SERVICE, type IngestDeps } from "./types";
@@ -68,11 +68,31 @@ export function createIngestApp(deps: IngestDeps): CreatedIngestApp {
         webhooks: mounted.map((m) => ({ connector: m.connector, path: m.path, mode: m.mode })),
         // Mock verifiers use secrets committed to the repository: never mounted outside development and test.
         refusedMockWebhooks: refused,
+        // Whether the platform address's mail can arrive (booleans only, never a value): `inbound` needs its token,
+        // `events` (SendGrid's Event Webhook at /mail/events) the event key and the signing secret.
+        platformMail: { domain: !!deps.platformMail?.domain, inbound: !!deps.platformMail?.inboundToken, events: !!(deps.platformMail?.eventPublicKey && signingSecretFor(deps)) },
         time: deps.now().toISOString(),
       },
       db ? 200 : 503,
     );
   });
+
+  // Bodies are capped before they are read (WP-11 T15): registered above the routes, since hono runs middleware in the
+  // order it was added. The limit is chosen from the path segment after /webhooks/.
+  const tooLarge = (maxSize: number) => bodyLimit({ maxSize, onError: (c) => c.json({ ok: false, error: "payload_too_large", message: `Request body is larger than ${Math.round(maxSize / (1024 * 1024))} MB` }, 413) });
+  // The larger limit only for a webhook this deployment mounts at that segment, looked up as an own key (a segment
+  // such as `constructor` or `__proto__` must not reach Object.prototype and skip the cap).
+  const webhookLimits = new Map<number, ReturnType<typeof tooLarge>>();
+  const webhookLimit = (segment: string) => {
+    const connector = mounted.find((m) => m.segment === segment)?.connector;
+    const max = connector && Object.hasOwn(WEBHOOK_MAX_BYTES_BY_CONNECTOR, connector) ? WEBHOOK_MAX_BYTES_BY_CONNECTOR[connector]! : WEBHOOK_MAX_BYTES;
+    let limiter = webhookLimits.get(max);
+    if (!limiter) webhookLimits.set(max, (limiter = tooLarge(max)));
+    return limiter;
+  };
+  // hono's `/webhooks/:connector/*` also matches `/webhooks/<connector>`: one registration covers both routes.
+  app.use("/webhooks/:connector/*", (c, next) => webhookLimit(c.req.param("connector"))(c, next));
+  app.use(BILLING_WEBHOOK_PATH, tooLarge(BILLING_WEBHOOK_MAX_BYTES));
 
   const webhookRoute = async (segment: string, businessId: string | null, req: Request): Promise<Response> => {
     const outcome = await handleWebhook(deps, mounted, { segment, businessId, req });
@@ -88,7 +108,6 @@ export function createIngestApp(deps: IngestDeps): CreatedIngestApp {
   });
   // A project's Foundmill sending address (platform-mail.ts): one endpoint each, the project resolved from the content.
   // A larger body is a 413 before it is read, whatever its Content-Length says (a chunked one is counted as it arrives).
-  const tooLarge = (maxSize: number) => bodyLimit({ maxSize, onError: (c) => c.json({ ok: false, error: "payload_too_large", message: `Request body is larger than ${Math.round(maxSize / (1024 * 1024))} MB` }, 413) });
   app.use(PLATFORM_MAIL_INBOUND_PATH, tooLarge(PLATFORM_MAIL_INBOUND_MAX_BYTES));
   app.use(PLATFORM_MAIL_EVENTS_PATH, tooLarge(PLATFORM_MAIL_EVENTS_MAX_BYTES));
   app.post(PLATFORM_MAIL_INBOUND_PATH, async (c) => {

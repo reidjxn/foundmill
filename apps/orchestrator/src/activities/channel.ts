@@ -193,7 +193,7 @@ export function createChannelActivities(deps: OrchestratorDeps) {
           try {
             const result = await deps.models.complete({
               // The channel's agent as it is now: its live instructions and skills (WP-06 T1).
-              ...buildChannelCreativeRequest({ businessName: business.name, channelKey: key, campaignName: campaign.name, objective: campaign.goal, learnings: state.learnings, kitMode: channel.kitMode, brief: await creativeBrief(businessId), weeklyBudget: budgetMinor > 0 ? { amountMinor: budgetMinor, currency } : null, agent: await resolveAgentPrompt(db, businessId, { channelKey: key }) }),
+              ...buildChannelCreativeRequest({ businessName: business.name, channelKey: key, campaignName: campaign.name, objective: campaign.goal, learnings: state.learnings, kitMode: channel.kitMode, brief: await creativeBrief(businessId), weeklyBudget: budgetMinor > 0 ? { amountMinor: budgetMinor, currency } : null, agent: await resolveAgentPrompt(db, businessId, { channelKey: key }), positioning: await repos.positioning.approvedText(db, businessId) }),
               scope: `channel-creative:${businessId}`,
               attribution: { businessId, ...(owner ? { agentId: owner.id } : {}), kind: "channel_creative" },
             });

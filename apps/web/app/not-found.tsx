@@ -6,5 +6,5 @@ import { LazyBrandPage } from "@/components/shell/LazyBrandPage";
  * nothing leaks about other tenants.
  */
 export default function NotFound() {
-  return <LazyBrandPage title="Not found" heading="Nothing at this address" icon="search-x" description="The page does not exist, or it belongs to a business you cannot open. Open one of yours or start a new one." />;
+  return <LazyBrandPage title="Not found" heading="Nothing at this address" icon="search-x" description="The page does not exist, or it belongs to a project you cannot open." />;
 }

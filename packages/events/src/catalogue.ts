@@ -1833,6 +1833,12 @@ const QuizFacts = z.object({
   questionCount: z.number().int().min(2).max(4),
 });
 
+const positioningApproved = declareEvent("positioning.approved", z.object({ version: z.number().int().min(1), sectionsChanged: z.array(z.string().max(40)).max(10) }), {
+  doc: "A founder (an owner or an admin) approved the project's positioning notes (WP-08 T1): from now on every marketing call reads this version. Carries the version and the names of the sections that changed, never the words. Not a real outcome. Never narrated.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
 const quizApproved = declareEvent("quiz.approved", QuizFacts, {
   doc: "A founder (an owner or an admin) approved every word of the project's page quiz, which the team drafted from the project's real customers. Approving puts nothing on the page: it stays off until they turn it on (`quiz.published`). Never narrated; apps/stream pushes it so the Public page tab follows.",
   consumers: ["stream", "metrics"],
@@ -2336,6 +2342,7 @@ export const EVENTS = {
   "idea.kept": ideaKept,
   "idea.drafted": ideaDrafted,
   "post.drafted": postDrafted,
+  "positioning.approved": positioningApproved,
   "quiz.approved": quizApproved,
   "quiz.published": quizPublished,
   "quiz.unpublished": quizUnpublished,

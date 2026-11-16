@@ -227,3 +227,36 @@ describe("routing", () => {
     }
   });
 });
+
+describe("bounded bodies (WP-11 T15)", () => {
+  const big = "x".repeat(2 * 1024 * 1024);
+  // In process (hz.built.app.request): over a socket an early answer closes the connection before 2 MB is uploaded.
+  const post = (path: string, headers: Record<string, string> = {}) => hz.built.app.request(path, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: big });
+
+  it("refuses 2 MB to a connector's webhook with 413 before its verifier runs", async () => {
+    const res = await post(`/webhooks/stripe/${hz.A.businessId}`, { "stripe-signature": "t=1,v1=00" });
+    expect(res.status).toBe(413);
+    expect(await json<{ error: string }>(res)).toMatchObject({ error: "payload_too_large" });
+    expect((await post("/webhooks/stripe")).status).toBe(413);
+  });
+
+  it("caps a segment that names an Object property, and an unmounted one, at the default", async () => {
+    for (const path of ["/webhooks/constructor", `/webhooks/__proto__/${hz.A.businessId}`, "/webhooks/toString", "/webhooks/nope", "/webhooks/GITHUB"]) expect((await post(path)).status, path).toBe(413);
+  });
+
+  it("lets 2 MB through to GitHub, whose own cap is 25 MB, and judges it by its signature", async () => {
+    const res = await post(`/webhooks/github/${hz.A.businessId}`, { "x-github-event": "ping", "x-hub-signature-256": "sha256=00", "x-github-delivery": "d-1" });
+    expect(res.status).not.toBe(413);
+    expect(res.status).toBeGreaterThanOrEqual(400);
+  });
+
+  it("refuses 2 MB to Foundmill's own billing webhook", async () => {
+    expect((await post("/billing/stripe", { "stripe-signature": "t=1,v1=00" })).status).toBe(413);
+  });
+
+  it("/health says whether the platform address's mail can arrive, as three booleans", async () => {
+    const body = await json<{ platformMail: Record<string, unknown> }>(await fetch(`${hz.base}/health`));
+    expect(Object.keys(body.platformMail).sort()).toEqual(["domain", "events", "inbound"]);
+    for (const v of Object.values(body.platformMail)) expect(typeof v).toBe("boolean");
+  });
+});

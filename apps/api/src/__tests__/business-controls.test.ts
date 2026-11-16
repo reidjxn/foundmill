@@ -4,7 +4,7 @@
  * admin resumes, a new key or a top-up lifts the stop it caused (never the kill switch), and a task start is claimed once.
  */
 import { repos, stopBusinessAgents } from "@foundmill/db";
-import { MODEL_KEYS } from "@foundmill/shared";
+import { CHOOSABLE_MODEL_KEYS } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
@@ -72,7 +72,7 @@ describe("Stop all agents cannot be undone by a member; resume is an owner's or 
   it("while stopped a model change applies but its retest waits, queued, until Resume agents starts it; a hire starts paused and comes back with the others", async () => {
     await owner().business.stopAllAgents({ businessId: A() });
     const agent = await repos.agents.get(hz.db, A(), hz.A.agentId);
-    const target = MODEL_KEYS.find((m) => m !== agent.modelKey)!;
+    const target = CHOOSABLE_MODEL_KEYS.find((m) => m !== agent.modelKey)!;
     const set = await member().agent.model.set({ businessId: A(), agentId: agent.id, modelKey: target });
     expect(set).toMatchObject({ updated: [agent.id], retestsWaitForResume: true });
     expect(set.retests).toHaveLength(1);
@@ -93,7 +93,7 @@ describe("Stop all agents cannot be undone by a member; resume is an owner's or 
     // Running again: the next model change (to a third model: a change back to the live version's own model queues no
     // retest) starts its retest at once, and withdraws the earlier one.
     temporal.starts.length = 0;
-    const third = MODEL_KEYS.find((m) => m !== agent.modelKey && m !== target)!;
+    const third = CHOOSABLE_MODEL_KEYS.find((m) => m !== agent.modelKey && m !== target)!;
     const back = await member().agent.model.set({ businessId: A(), agentId: agent.id, modelKey: third });
     expect(back.retestsWaitForResume).toBe(false);
     expect(temporal.starts.map((s) => s.type)).toEqual(["trainingRun"]);

@@ -59,6 +59,8 @@ export const MODEL_LIMITS = {
   foundations: { what: "Drafting the foundations", business: [{ limit: 3, windowMs: HOUR }, { limit: 10, windowMs: DAY }] },
   /** product.research.retry: the Product Researcher's plan drafted again (one worker call). */
   research: { what: "Drafting the research plan", business: [{ limit: 3, windowMs: HOUR }, { limit: 10, windowMs: DAY }] },
+  /** positioning.requestDraft: the Product lead's first positioning notes (one call; WP-08 T1). */
+  positioning: { what: "Drafting the positioning notes", business: [{ limit: 3, windowMs: HOUR }, { limit: 10, windowMs: DAY }] },
   /** agent.training.run and agent.model.set (its retests): training runs on the orchestrator. */
   training: { what: "Training", user: [{ limit: 20, windowMs: HOUR }], business: [{ limit: 60, windowMs: DAY }] },
   /** business.continue: a cycle (the Chief of Staff's plan, or a composer note when nothing is ready). */

@@ -200,7 +200,7 @@ export async function setupGateway(options: SetupGatewayOptions = {}): Promise<G
   const deps: GatewayDeps = { db, registry, vault, mode: options.mode ?? "mock", rateLimits, recipients, log: silentLog, ...(options.liveConnectors ? { liveConnectors: options.liveConnectors } : {}), ...(options.now ? { now: options.now } : {}) };
   const app = createGatewayApp(deps, { sessionTokenSecret: TEST_SECRET });
   const server = await listenGateway(app, { port: 0, host: "127.0.0.1" });
-  const client = createGatewayClient({ baseUrl: server.url, serviceSecret: TEST_SECRET, serviceName: "test-orchestrator" });
+  const client = createGatewayClient({ baseUrl: server.url, serviceSecret: TEST_SECRET, serviceName: "orchestrator" });
 
   const newSession = async () => (await repos.agents.createSession(db, business.id, { agentId: agent.id, modelKey: "sonnet" })).id;
   const sessionId = await newSession();

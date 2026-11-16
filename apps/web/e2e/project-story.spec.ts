@@ -280,8 +280,10 @@ test.describe("project story and milestone cards", () => {
         // Never indexed (the page's own tag, and the one Next.js adds to every not-found).
         for (const robots of await v.page.locator('meta[name="robots"]').all()) await expect(robots).toHaveAttribute("content", /noindex/);
       }
-      // The console's Milestones screen is not under the card's prefix: signed out it asks to sign in.
-      await v.page.goto("/milestones");
+      // The console's Milestones screen lives under /b/<id>, not at /milestones: signed out, that bare address is no
+      // route and answers 404 (decideRedirect), while the screen itself asks to sign in.
+      expect((await v.page.goto("/milestones"))?.status()).toBe(404);
+      await v.page.goto("/b/x/milestones");
       await expect(v.page).toHaveURL(/\/login/);
     } finally {
       await v.close();

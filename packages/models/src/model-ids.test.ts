@@ -16,7 +16,8 @@ const SKIP_DIRS = new Set(["node_modules", ".next", "dist", "storybook-static", 
 const CODE = /\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
 const TEST = /\.(?:test|spec)\.[cm]?[jt]sx?$/;
 /** A model id as Anthropic spells it: `claude-<family>-<version>`. */
-const MODEL_ID = /\bclaude-(?:opus|sonnet|haiku)-\d[\w.-]*/g;
+// Also the Z.ai endpoint (WP-13): like a model id, it lives only in routing.ts.
+const MODEL_ID = /\b(?:claude-(?:opus|sonnet|haiku)-\d|glm-\d|api\.z\.ai\/api\/anthropic)[\w.-]*/g;
 
 function* sourceFiles(dir: string): Generator<string> {
   for (const name of readdirSync(dir)) {

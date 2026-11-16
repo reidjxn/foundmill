@@ -295,6 +295,16 @@ describe("buildConversationRequest", () => {
     expect(req.system[1]).toContain("Never claim to be human.");
   });
 
+  it("sends the founder, when known, as trusted JSON in the inputs and never in the system blocks (WP-04 T10)", () => {
+    const inputsOf = (req: ReturnType<typeof buildConversationRequest>) => JSON.parse(req.messages[0].content.replace(/^```json\n|\n```$/g, "")) as { founder?: unknown };
+    expect(inputsOf(buildConversationRequest(INPUT))).not.toHaveProperty("founder");
+    const founder = { firstName: "Maya", experience: "first_time" as const, strengths: [], wantsToLearn: [], lookingFor: "on_my_own" as const, budget: "none" as const, others: [] };
+    const req = buildConversationRequest({ ...INPUT, founder });
+    expect(inputsOf(req).founder).toEqual({ first_name: "Maya", experience: "first_time", good_at: "not_said", wants_to_learn: "not_said", here_for: "on_my_own", budget: "none" });
+    expect(req.system.join("\n")).not.toContain("Maya");
+    expect(req.system[1]).toContain("Call the founder by founder.first_name when it is known");
+  });
+
   it("sends the inputs as JSON: progress as a whole percentage, untrusted text wrapped, the thread windowed", () => {
     const req = buildConversationRequest(INPUT);
     const json = JSON.parse(req.messages[0].content.replace(/^```json\n|\n```$/g, "")) as { current_work: { task: { progress_pct: number } }; subject: { body_md?: string; untrusted: { note: string; content: { body_md: string } } }; thread: { text: string }[]; agent: { voice: unknown } };

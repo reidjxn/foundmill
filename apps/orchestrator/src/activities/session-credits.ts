@@ -32,7 +32,7 @@ export function sessionKeepsModelOnLowCredits(session: { module: ModuleKey | nul
   return (session.module !== null && LOW_CREDITS_KEPT_MODULES.includes(session.module)) || grantsActOutside(session.toolRefs);
 }
 
-const MODEL_RANK: Record<ModelKey, number> = { haiku: 0, sonnet: 1, opus: 2 };
+const MODEL_RANK: Record<ModelKey, number> = { glm: 0, haiku: 0, sonnet: 1, opus: 2 };
 
 /**
  * The model a run must use instead of its launch's, or null to keep the launch's. The keep rule is decided at

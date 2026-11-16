@@ -48,7 +48,7 @@ export const e2bTools = [
     annotations: { readOnlyHint: true },
   }),
   defineTool({ name: "get_sandbox", description: "Details and state of one sandbox.", input: z.object({ sandboxId: SandboxId }), output: Sandbox, hints: {}, annotations: { readOnlyHint: true } }),
-  defineTool({ name: "pause_sandbox", description: "Pause a sandbox (snapshot memory; stops billing for compute).", input: z.object({ sandboxId: SandboxId }), output: z.object({ sandboxId: z.string(), state: z.literal("paused") }), hints: {} }),
+  defineTool({ name: "pause_sandbox", annotations: { readOnlyHint: false }, description: "Pause a sandbox (snapshot memory; stops billing for compute).", input: z.object({ sandboxId: SandboxId }), output: z.object({ sandboxId: z.string(), state: z.literal("paused") }), hints: {} }),
   defineTool({
     name: "resume_sandbox",
     description: "Resume a paused sandbox with a new timeout.",

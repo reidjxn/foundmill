@@ -25,21 +25,20 @@ test.describe("18 or older at sign-up", () => {
     const page = await context.newPage();
     try {
       await signInAs(page, randomUUID(), "/onboarding");
-      await expect(page.getByTestId("onboarding-form")).toBeVisible({ timeout: LONG });
-      const adult = page.getByTestId("profile-adult");
+      // A new account meets the three questions (WP-04 T1), the box among them.
+      await expect(page.getByTestId("first-profile")).toBeVisible({ timeout: LONG });
+      const adult = page.getByTestId("first-profile-adult");
       await expect(adult).toContainText("I am 18 or older");
       await expect(adult).toContainText("You confirm this once.");
-      await page.getByLabel(/What the team calls you/).fill("Adult Founder");
-      await page.getByLabel("First-time founder").check();
-      await page.getByLabel("Full time").check();
+      await page.getByLabel(/What should your team call you/).fill("Adult Founder");
       // Without the box, nothing is saved and the form says why.
-      await page.getByTestId("profile-submit-bottom").click();
+      await page.getByTestId("first-profile-submit").click();
       await expect(adult).toContainText("Confirm that you are 18 or older to continue.");
       await expect(page).toHaveURL(/\/onboarding$/);
       // With it, the save that creates the profile carries it.
       await adult.getByRole("checkbox", { name: "I am 18 or older" }).check();
       const save = page.waitForRequest((r) => r.method() === "POST" && r.url().includes("founder.profile.update"), { timeout: LONG });
-      await page.getByTestId("profile-submit-bottom").click();
+      await page.getByTestId("first-profile-submit").click();
       expect((await save).postData() ?? "").toContain('"confirmAdult":true');
       await expect(page).toHaveURL(/\/new$/, { timeout: LONG });
       // Never asked again: the profile opens for editing without the box.

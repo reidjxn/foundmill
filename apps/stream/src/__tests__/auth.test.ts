@@ -1,6 +1,7 @@
 import { createLocalJWKSet, decodeJwt, exportJWK, generateKeyPair, SignJWT, type JWK } from "jose";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createTokenVerifier, JWKS_CACHE_MAX_AGE_MS, JWKS_REFRESH_MS, parseDevToken, StreamAuthError } from "../auth";
+import { liveChannelAdmit } from "@foundmill/shared";
 import { USER_A, USER_B } from "./helpers";
 
 let privateKey: CryptoKey;
@@ -18,12 +19,25 @@ async function sign(claims: Record<string, unknown>, opts: { aud?: string; exp?:
 }
 
 describe("token verifier", () => {
+  it("runs the api's rules (WP-11 T13): a password-only session is refused, and emailConfirmed reaches the admission check", async () => {
+    const auth = createTokenVerifier({ appEnv: "production", jwks: createLocalJWKSet({ keys: [jwk] }) });
+    const now = Math.floor(Date.now() / 1000);
+    await expect(auth.verify(await sign({ sub: USER_A, email: "listed@example.test", amr: [{ method: "password", timestamp: now }] }))).rejects.toThrow(/password/);
+    expect(await auth.resolve(await sign({ sub: USER_A, email: "listed@example.test", amr: [{ method: "password", timestamp: now }] }))).toBeNull();
+    const admit = liveChannelAdmit({ SIGNUP_ALLOWLIST: "listed@example.test" }, null, async () => false);
+    const unconfirmed = await auth.verify(await sign({ sub: USER_A, email: "listed@example.test" }));
+    expect(await admit(unconfirmed)).toBe(false);
+    const confirmed = await auth.verify(await sign({ sub: USER_A, email: "listed@example.test", amr: [{ method: "otp", timestamp: now }] }));
+    expect(confirmed.emailConfirmed).toBe(true);
+    expect(await admit(confirmed)).toBe(true);
+  });
+
   it("verifies a Supabase-shaped access token against the JWKS", async () => {
     const auth = createTokenVerifier({ appEnv: "production", jwks: createLocalJWKSet({ keys: [jwk] }) });
     const token = await sign({ sub: USER_A, email: "founder@example.test" });
     const exp = decodeJwt(token).exp! * 1000;
-    expect(await auth.verify(token)).toEqual({ userId: USER_A, email: "founder@example.test", expiresAt: exp });
-    expect(await auth.resolve(token)).toEqual({ userId: USER_A, email: "founder@example.test", expiresAt: exp });
+    expect(await auth.verify(token)).toEqual({ userId: USER_A, email: "founder@example.test", expiresAt: exp, emailConfirmed: false });
+    expect(await auth.resolve(token)).toEqual({ userId: USER_A, email: "founder@example.test", expiresAt: exp, emailConfirmed: false });
   });
 
   it("rejects the wrong audience, an expired token, a non-uuid subject and garbage", async () => {
@@ -46,17 +60,17 @@ describe("token verifier", () => {
     const withSecret = createTokenVerifier({ appEnv: "production", hsKey: secret });
     expect((await withSecret.verify(token)).userId).toBe(USER_B);
     const without = createTokenVerifier({ appEnv: "production", jwks: createLocalJWKSet({ keys: [jwk] }) });
-    await expect(without.verify(token)).rejects.toThrow(/no JWT secret/);
+    await expect(without.verify(token)).rejects.toThrow(/SUPABASE_JWT_SECRET is not configured/);
   });
 
   it("honours the dev bypass only in development/test", async () => {
     const dev = createTokenVerifier({ appEnv: "test", devUserId: USER_A });
     expect(dev.devUserId).toBe(USER_A);
-    expect(await dev.resolve(null)).toEqual({ userId: USER_A, email: null, expiresAt: null });
-    expect(await dev.resolve("dev")).toEqual({ userId: USER_A, email: null, expiresAt: null });
-    expect(await dev.resolve(`dev:${USER_B}`)).toEqual({ userId: USER_B, email: null, expiresAt: null });
-    expect(await dev.resolve("dev:nope")).toEqual({ userId: USER_A, email: null, expiresAt: null }); // falls back to the dev user
-    expect(await dev.resolve("stale.jwt.value")).toEqual({ userId: USER_A, email: null, expiresAt: null });
+    expect(await dev.resolve(null)).toEqual({ userId: USER_A, email: null, expiresAt: null, emailConfirmed: true });
+    expect(await dev.resolve("dev")).toEqual({ userId: USER_A, email: null, expiresAt: null, emailConfirmed: true });
+    expect(await dev.resolve(`dev:${USER_B}`)).toEqual({ userId: USER_B, email: null, expiresAt: null, emailConfirmed: true });
+    expect(await dev.resolve("dev:nope")).toEqual({ userId: USER_A, email: null, expiresAt: null, emailConfirmed: true }); // falls back to the dev user
+    expect(await dev.resolve("stale.jwt.value")).toEqual({ userId: USER_A, email: null, expiresAt: null, emailConfirmed: true });
 
     const prod = createTokenVerifier({ appEnv: "production", devUserId: USER_A, jwks: createLocalJWKSet({ keys: [jwk] }) });
     expect(prod.devUserId).toBeNull();

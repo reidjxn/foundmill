@@ -6,7 +6,7 @@
  */
 import { Redis } from "ioredis";
 import { afterAll, describe, expect, it } from "vitest";
-import { createRateLimitStore, MemoryRateLimitStore, RedisRateLimitStore, TAKE_SCRIPT, type RedisLimitClient } from "../services/rate-limit";
+import { createRateLimitStore, MemoryRateLimitStore, RedisRateLimitStore, PEEK_SCRIPT, TAKE_SCRIPT, type RedisLimitClient } from "../services/rate-limit";
 
 const rule = { limit: 2, windowMs: 1000 };
 
@@ -26,6 +26,19 @@ describe("MemoryRateLimitStore", () => {
     now = 1101;
     expect(await s.take([{ key: "u", rule }])).toMatchObject({ ok: true });
   });
+
+  it("peeks at what is left without recording a hit", async () => {
+    let now = 0;
+    const s = new MemoryRateLimitStore(() => now);
+    expect(await s.peek({ key: "p", rule })).toBe(2);
+    await s.take([{ key: "p", rule }]);
+    expect(await s.peek({ key: "p", rule })).toBe(1);
+    expect(await s.peek({ key: "p", rule })).toBe(1);
+    await s.take([{ key: "p", rule }]);
+    expect(await s.peek({ key: "p", rule })).toBe(0);
+    now = 1001;
+    expect(await s.peek({ key: "p", rule })).toBe(2);
+  });
 });
 
 /** A stand-in for the script's semantics, recording what the store sends. */
@@ -43,6 +56,7 @@ function fakeRedis() {
       const args = rest.slice(numKeys);
       calls.push({ script, keys, args });
       const now = Number(args[0]);
+      if (script === PEEK_SCRIPT) return Math.max(0, Number(args[1]) - (sets.get(keys[0]!) ?? []).filter((m) => m.score > now - Number(args[2])).length);
       const member = String(args[1]);
       let remaining = -1;
       for (let i = 0; i < keys.length; i++) {
@@ -78,6 +92,18 @@ describe("RedisRateLimitStore", () => {
     expect(await s.take([{ key: "model:plan:user:60000:u1", rule }])).toEqual({ ok: false, retryAfterMs: 1000 });
     if (t.ok) await s.refund(t.ticket);
     expect(await s.take([{ key: "model:plan:user:60000:u1", rule }])).toMatchObject({ ok: true, remaining: 0 });
+  });
+
+  it("peeks with one read-only script on the prefixed key, and from memory while Redis is down", async () => {
+    const redis = fakeRedis();
+    const s = new RedisRateLimitStore(redis, { now: () => 5_000 });
+    await s.take([{ key: "redraw", rule }]);
+    expect(await s.peek({ key: "redraw", rule })).toBe(1);
+    expect(redis.calls.at(-1)).toMatchObject({ script: PEEK_SCRIPT, keys: ["rl:api:redraw"], args: [5000, 2, 1000] });
+    expect(redis.sets.get("rl:api:redraw")).toHaveLength(1);
+    redis.setDown(true);
+    expect(await s.peek({ key: "redraw", rule })).toBe(2);
+    expect(s.isDegraded).toBe(true);
   });
 
   it("falls back to memory when Redis fails (still enforcing), and tries Redis again after the cool-down", async () => {
