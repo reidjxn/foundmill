@@ -21,7 +21,7 @@
  */
 import { FOLLOW_CONSENT_PURPOSE, FOLLOW_SOURCE, followerDisplayName, ProjectPageSlug, readPageContent } from "@foundmill/shared";
 import { and, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
-import { businesses, contactConsents, entities, projectPages, publicProjectPages, sites } from "../schema";
+import { businesses, contactConsents, entities, projectPages, publicProjectPages, siteReleases, sites } from "../schema";
 import { suppressionHash } from "./channels";
 import { entitiesRepo } from "./entities";
 import { maybeOne, type Executor } from "./_shared";
@@ -117,14 +117,19 @@ export const followersRepo = {
     if (!ProjectPageSlug.safeParse(slug).success) return null;
     const row = maybeOne(
       await db
-        .select({ businessId: businesses.id, name: businesses.name, slug: sites.slug, pageId: projectPages.id })
+        .select({ businessId: businesses.id, name: businesses.name, slug: sites.slug, pageId: projectPages.id, pageDraft: projectPages.draft, pagePublished: projectPages.published })
         .from(sites)
         .innerJoin(businesses, eq(businesses.id, sites.businessId))
+        // The live release must still be servable (`site_resolve` serves a preview-state release only).
+        .innerJoin(siteReleases, and(eq(siteReleases.id, sites.liveReleaseId), eq(siteReleases.state, "preview")))
         .leftJoin(projectPages, eq(projectPages.businessId, sites.businessId))
         .where(and(eq(sites.slug, slug), eq(sites.status, "live"), isNotNull(businesses.committedAt), isNull(businesses.archivedAt), eq(businesses.isDemo, false)))
         .limit(1),
     );
-    return row ? { businessId: row.businessId, pageId: row.pageId ?? null, slug: row.slug, name: row.name, followForm: true } : null;
+    if (!row) return null;
+    // The founders' Follow switch on their page holds for the site too; a project with no page row takes sign-ups.
+    const content = row.pageId ? (readPageContent(row.pagePublished) ?? readPageContent(row.pageDraft, true)) : null;
+    return { businessId: row.businessId, pageId: row.pageId ?? null, slug: row.slug, name: row.name, followForm: content ? content.followForm : true };
   },
 
   /**

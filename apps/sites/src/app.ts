@@ -177,7 +177,7 @@ export function createSitesApp(deps: SitesDeps): Hono {
   // the api's follow path, the same one the public page uses. Nothing else the visitor typed is read.
   const followHeaders = (kind: SiteKind): Record<string, string> => {
     const base = siteHeaders({ kind, production, appOrigin });
-    if (deps.turnstileSiteKey) base["Content-Security-Policy"] = `${base["Content-Security-Policy"]}; script-src https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; connect-src 'none'`;
+    if (deps.turnstileSiteKey && kind === "live") base["Content-Security-Policy"] = `${base["Content-Security-Policy"]}; script-src https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; connect-src 'none'`;
     return { ...base, "Cache-Control": "no-store" };
   };
   const followPage = (c: Context, kind: SiteKind, html: string, status: 200 | 400 | 404 = 200): Response => {

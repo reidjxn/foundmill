@@ -29,6 +29,18 @@ supersedes: []
 - **No new form pipeline**, as the package says: the follow path's double opt-in, consent record, limits, bot check
   and CRM lead are reused unchanged.
 
+- **Security review (security-reviewer agent), fixed here:** a site's follow is counted against that site's own window
+  (apps/sites' address is every site visitor's, so one flood would otherwise close every site's form); the api client
+  treats a non-2xx answer or one without a result as a failure, never "Check your inbox"; `siteTarget` requires the
+  live release to still be servable, like `site_resolve`; `publicPage.siteConsent` has a per-site window; the
+  founders' Follow switch on their page holds for the site (a project with no page row takes sign-ups);
+  `SITES_API_URL` has no production default (unset closes the form outside development and test); the Turnstile
+  script is allowed on live sign-up pages only.
+- **Accepted, from the review:** `/_fm/follow/confirm` takes `consent=yes` from any form; the bot check, which needs a
+  token made on the site's host by a browser running Cloudflare's script (a site page can run none), is what proves a
+  person saw the platform's page. On development and test the mock token is public, so this guard holds only where
+  Turnstile is live.
+
 ## Not done
 - The starter's form block and the sentence in `siteTaskNote` come with T3, which adds the starter and the note.
 - The Playwright steps (submit, confirm, the contact in Customers, the followers count on the tab) are T10's.

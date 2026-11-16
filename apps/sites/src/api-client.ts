@@ -22,8 +22,10 @@ export function createFollowApi(options: { apiUrl: string; fetch?: Fetch; timeou
   const call = async (path: string, init: RequestInit): Promise<{ data?: unknown; error?: { message?: string; data?: { code?: string; appCode?: string } } }> => {
     const res = await doFetch(`${base}/trpc/${path}`, { ...init, signal: AbortSignal.timeout(options.timeoutMs ?? 8_000), headers: { "content-type": "application/json", "x-foundmill-client": "sites" } });
     const body = (await res.json().catch(() => null)) as { result?: { data?: { json?: unknown } }; error?: { json?: { message?: string; data?: { code?: string; appCode?: string } } } } | null;
-    if (body?.error) return { error: body.error.json };
-    return { data: body?.result?.data?.json };
+    if (body?.error) return { error: body.error.json ?? {} };
+    // A proxy's error page, or an answer without a result, is a failure, never a success.
+    if (!res.ok || !body?.result) return { error: { message: "no answer" } };
+    return { data: body.result.data?.json };
   };
   return {
     async consent(slug) {

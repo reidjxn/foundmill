@@ -77,6 +77,27 @@ describe("publicPage.follow via a site", () => {
     expect(checked.map((c) => c.hostname)).toEqual([`${p.slug}.foundmill.app`]);
   });
 
+  it("counts a flood on one site against that site only, not every site's form", async () => {
+    const a = await project("live");
+    const b = await project("live");
+    let refusedAt = 0;
+    for (let i = 1; i <= 200 && !refusedAt; i++) {
+      const r = await anon().publicPage.follow({ slug: a.slug, email: "x@example.com", consent: true, turnstile: "bad", via: "site" }).then(() => "ok", (e: { code?: string }) => e.code);
+      if (r === "TOO_MANY_REQUESTS") refusedAt = i;
+    }
+    expect(refusedAt).toBeGreaterThan(0);
+    expect(await anon().publicPage.follow({ slug: b.slug, email: "y@example.com", consent: true, turnstile: TOKEN, via: "site" })).toEqual({ ok: true });
+  }, 60_000);
+
+  it("is closed when the founders turned Follow off on their page, or the live release is held", async () => {
+    const p = await project("live");
+    await hz.db.execute(sql`insert into project_pages (business_id, slug, draft) values (${p.id}, ${`page-${p.slug}`}, ${JSON.stringify({ pitch: "p", about: "a", forWhom: "", stage: "idea", showFounders: false, followForm: false })}::jsonb)`);
+    expect(await code(anon().publicPage.follow({ slug: p.slug, email: "c@example.com", consent: true, turnstile: TOKEN, via: "site" }))).toBe("follow_closed");
+    const q = await project("live");
+    await hz.db.execute(sql`update site_releases set state = 'held' where business_id = ${q.id}`);
+    expect(await anon().publicPage.siteConsent({ slug: q.slug })).toBeNull();
+  });
+
   it("gives the consent sentence for a live site only", async () => {
     const live = await project("live");
     const draft = await project("draft");

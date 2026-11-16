@@ -575,7 +575,10 @@ export async function followPage(ctx: FollowContext, input: FollowInput): Promis
   const site = input.via === "site";
   const domain = sitesDomain(ctx.env);
   if (site ? !domain || siteSlugProblem(slug) : pageSlugProblem(slug)) throw followRefusal("follow_closed");
-  if (ctx.clientAddress) await takeOrThrow(ctx.limits, "Follow", [{ key: followLimitKeys.caller(ctx.env, ctx.clientAddress), rule: PAGE_FOLLOW_LIMITS.perCaller }]);
+  // A site's form arrives from apps/sites, whose address is every site visitor's: its window is the site's own, so a flood
+  // on one site closes only that site's form, never every site's.
+  const caller = site ? `site:${slug}` : ctx.clientAddress;
+  if (caller) await takeOrThrow(ctx.limits, "Follow", [{ key: followLimitKeys.caller(ctx.env, caller), rule: PAGE_FOLLOW_LIMITS.perCaller }]);
   // Before anything a real person's address or the page's budget could lose. A site's widget runs on the site's host.
   await checkFollowTurnstile(ctx, input.turnstile, site ? (followTurnstileHostname(ctx.env) === null ? null : `${slug}.${domain}`) : followTurnstileHostname(ctx.env));
 
@@ -656,9 +659,11 @@ export async function followPage(ctx: FollowContext, input: FollowInput): Promis
  * and as `followPage` records it, or null when the site is not live (or Sites are off). Only the project's name, which
  * the live site shows anyway.
  */
-export async function siteFollowConsent(ctx: Pick<Context, "db" | "env">, slug: string): Promise<{ consentText: string } | null> {
+export async function siteFollowConsent(ctx: Pick<Context, "db" | "env" | "limits">, slug: string): Promise<{ consentText: string } | null> {
   const clean = slug.trim().toLowerCase();
   if (!sitesDomain(ctx.env) || siteSlugProblem(clean)) return null;
+  // The follow's own per-caller window, for the site (apps/sites calls this once per sign-up page shown).
+  await takeOrThrow(ctx.limits, "Follow", [{ key: `${followLimitKeys.caller(ctx.env, `site:${clean}`)}:consent`, rule: PAGE_FOLLOW_LIMITS.perCaller }]);
   const target = await repos.followers.siteTarget(ctx.db, clean);
   return target ? { consentText: followConsentText(target.name) } : null;
 }
