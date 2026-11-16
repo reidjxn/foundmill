@@ -19,7 +19,7 @@
  * A test file routes the SDK through `interceptQuery` with `vi.mock("@anthropic-ai/claude-agent-sdk", ...)`; see
  * `__tests__/sessions.eval.test.ts`.
  */
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createAllConnectors, createRegistry, createWebConnector, type Connector } from "@foundmill/connectors";
@@ -30,7 +30,7 @@ import { buildGateway, createGatewayBuiltins, createUntrustedReader, listenGatew
 import { MemoryRateLimitStore } from "@foundmill/gateway/rate-limit";
 import type { GatewayLogger } from "@foundmill/gateway/pipeline";
 import { createModelClient, type ModelClient } from "@foundmill/models";
-import { createSessionActivities } from "@foundmill/orchestrator/activities/session";
+import { ACCEPTANCE_RUN_LOG, createSessionActivities } from "@foundmill/orchestrator/activities/session";
 import type { SessionResult } from "@foundmill/orchestrator/activities/types";
 import { createGatewayClient } from "@foundmill/orchestrator/gateway-client";
 import { openSessionRow, setupOrchestratorHarness, type OrchestratorTestHarness } from "@foundmill/orchestrator/__tests__/harness";
@@ -166,6 +166,13 @@ export interface ScriptStep {
   args: (ctx: CaseContext, seen: readonly unknown[]) => Record<string, unknown>;
 }
 
+/**
+ * A step of a code case's script: a tool call, a file written in the session's workspace (`write`, as the SDK's Write
+ * tool does), or the end of the agent's turn (`endTurn`): the script then waits for the next turn the session sends (a
+ * fix turn after failing tests), and stops when the session sends none.
+ */
+export type CodeStep = ScriptStep | { write: string; content: string } | { endTurn: true };
+
 export interface CaseContext {
   businessId: string;
   agentId: string;
@@ -187,9 +194,13 @@ const PROBE_INPUTS: Record<(typeof PROBED_BUILTINS)[number], Record<string, unkn
 interface ActiveCase {
   live: boolean;
   ctx: CaseContext;
-  script: readonly ScriptStep[];
+  script: readonly CodeStep[];
   options: Record<string, unknown> | null;
   probe: Promise<Record<string, { allow: boolean }>> | null;
+  /** The turns the session sent after the first (mock: the script's `endTurn`s read them). */
+  turns: string[];
+  /** The case's test sandbox, when it has acceptance tests. */
+  sandbox: SandboxProvider | null;
 }
 
 let active: ActiveCase | null = null;
@@ -219,17 +230,48 @@ export function interceptQuery(actual: (call: QueryCall) => unknown, call: Query
   if (!run) return actual(call);
   run.options = call.options;
   run.probe = probeBuiltins(call.options);
-  if (run.live) return actual(call);
-  return Object.assign(scriptedRun(call, run.script, run.ctx), { async interrupt() {}, async setModel() {} });
+  const watched = { ...call, prompt: keepTurns(call.prompt as AsyncIterable<UserTurn>, run.turns) };
+  if (run.live) return actual(watched);
+  return Object.assign(scriptedRun(watched, run.script, run.ctx), { async interrupt() {}, async setModel() {} });
 }
 
-/** The mock agent: each step a tool_use, run through the gateway with the session's token, and its tool_result. */
-async function* scriptedRun(call: QueryCall, script: readonly ScriptStep[], ctx: CaseContext): AsyncGenerator<Record<string, unknown>> {
+type UserTurn = { message?: { content?: unknown } };
+
+/** The session's turns as the SDK reads them, every one after the first kept as text. */
+async function* keepTurns(prompts: AsyncIterable<UserTurn>, turns: string[]): AsyncGenerator<UserTurn> {
+  let first = true;
+  for await (const turn of prompts) {
+    if (!first) turns.push(typeof turn.message?.content === "string" ? turn.message.content : JSON.stringify(turn.message?.content ?? ""));
+    first = false;
+    yield turn;
+  }
+}
+
+/**
+ * The mock agent: each step a tool_use, run through the gateway with the session's token, and its tool_result; a
+ * `write` puts a file in the workspace; an `endTurn` ends the turn and waits for the next (none: the session ended).
+ */
+async function* scriptedRun(call: QueryCall, script: readonly CodeStep[], ctx: CaseContext): AsyncGenerator<Record<string, unknown>> {
   const servers = (call.options.mcpServers ?? {}) as Record<string, { url: string; headers: Record<string, string> }>;
+  const prompts = script.some((s) => "endTurn" in s) ? (call.prompt as AsyncIterable<UserTurn>)[Symbol.asyncIterator]() : null;
+  if (prompts) await prompts.next();
   yield { type: "system", subtype: "init", session_id: `script-${ctx.sessionId}` };
   const seen: unknown[] = [];
   for (const [i, step] of script.entries()) {
     const id = `tu-${i}`;
+    if ("endTurn" in step) {
+      yield { type: "result", subtype: "success", modelUsage: {} };
+      if ((await prompts!.next()).done) return;
+      continue;
+    }
+    if ("write" in step) {
+      const file = path.join(String(call.options.cwd), step.write);
+      await mkdir(path.dirname(file), { recursive: true });
+      await writeFile(file, step.content);
+      yield { type: "assistant", message: { content: [{ type: "tool_use", id, name: "Write", input: { file_path: file, content: step.content } }] } };
+      yield { type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, content: "File written." }] } };
+      continue;
+    }
     const args = step.args(ctx, seen);
     yield { type: "assistant", message: { content: [{ type: "tool_use", id, name: `mcp__${step.connector}__${step.tool}`, input: args }] } };
     const server = servers[step.connector];
@@ -296,6 +338,19 @@ export interface SessionObservation {
   options: Record<string, unknown> | null;
   /** The session's PreToolUse hook on Bash, WebFetch and Skill. */
   builtins: Record<string, { allow: boolean }>;
+  /** The turns the session sent the agent after its first (a fix turn after failing tests). */
+  turns: string[];
+  /** The session's acceptance runs, in order (`test_result` events). */
+  tests: { passed: number; failed: number }[];
+  /** The workspace as the last acceptance run saw it (path → text); empty without one. */
+  testedFiles: ReadonlyMap<string, string>;
+}
+
+/** What the case's own check of the copied workspace found: a test runner's summary line and output. */
+export interface FixtureTestRun {
+  passed: number;
+  failed: number;
+  output: string;
 }
 
 export interface SessionCase {
@@ -305,9 +360,18 @@ export interface SessionCase {
   agentType: string;
   /** `platform_only`: the agent holds only its template's platform grant (the narrowest a session can have). */
   grants?: "template" | "platform_only";
-  task: { kind: TaskKind; title: string; goalMd: string };
+  task: { kind: TaskKind; title: string; goalMd: string; acceptance?: unknown[] };
+  /** Files saved on the task before the session starts (a code task's codebase): restored into its workspace. */
+  workspace?: Readonly<Record<string, string>>;
+  /**
+   * A code case's acceptance run, in a fixture sandbox: the workspace is copied in as the live runner copies it and this
+   * function reads it and answers in place of the test command. No code the agent wrote is executed.
+   */
+  acceptanceRun?: (files: ReadonlyMap<string, string>) => FixtureTestRun;
   /** The mock agent's tool calls (mock mode only). */
   script: readonly ScriptStep[];
+  /** A code case's mock agent (mock mode only), in place of `script`: tool calls, file writes and turn ends. */
+  codeScript?: readonly CodeStep[];
   /** Problems with what the session left; empty is a pass. */
   check(o: SessionObservation): string[];
 }
@@ -344,6 +408,54 @@ const noSandbox: SandboxProvider = {
   },
 };
 
+/**
+ * The fixture sandbox of a code case: it keeps the files the live runner copies in, installs nothing, and answers the
+ * acceptance command (the exec that writes the run log) with the case's `acceptanceRun` over those files, as a runner
+ * prints its summary ("N passed, M failed"). Every other exec succeeds with no output. Nothing is executed.
+ */
+export function createFixtureSandbox(acceptanceRun: (files: ReadonlyMap<string, string>) => FixtureTestRun): { provider: SandboxProvider; lastFiles: () => ReadonlyMap<string, string> } {
+  let last: ReadonlyMap<string, string> = new Map();
+  const provider: SandboxProvider = {
+    mode: "docker",
+    async available() {
+      return { available: true };
+    },
+    async create(input) {
+      const files = new Map<string, string>();
+      last = files;
+      const ok = { code: 0, stdout: "", stderr: "", timedOut: false, durationMs: 1 };
+      return {
+        id: `fixture-${input.sessionId ?? "session"}`,
+        provider: "docker",
+        spec: input as never,
+        workdir: "/work",
+        state: "running",
+        async start() {},
+        async exec(cmd: string) {
+          if (!cmd.includes(ACCEPTANCE_RUN_LOG)) return ok;
+          const r = acceptanceRun(files);
+          return { code: r.failed > 0 ? 1 : 0, stdout: `${r.passed} passed${r.failed > 0 ? `, ${r.failed} failed` : ""}\n${r.output}`, stderr: "", timedOut: false, durationMs: 1 };
+        },
+        async writeFile(p: string, content: string | Uint8Array) {
+          files.set(p.replace(/^(\/work\/|\.\/)/, ""), typeof content === "string" ? content : Buffer.from(content).toString("utf8"));
+        },
+        async closeEgress() {},
+        async readFile() {
+          return "";
+        },
+        async listFiles() {
+          return [];
+        },
+        async snapshot() {
+          return { id: "fixture", sandboxId: "fixture", provider: "docker", ref: "fixture", createdAt: new Date(0).toISOString() };
+        },
+        async stop() {},
+      };
+    },
+  };
+  return { provider, lastFiles: () => last };
+}
+
 const GATEWAY_SECRET = "outcome-evals-session-token-secret-0123456789";
 
 /**
@@ -379,7 +491,8 @@ export async function createSessionEvalEnv(options: { budget?: RunBudget } = {})
     // As on staging: a simulated or not-connected result is never a person's result.
     env: { ...t.deps.env, APP_ENV: "staging" as const, ANTHROPIC_API_KEY: apiKey ?? "sk-ant-api03-outcome-evals-mock-key", ORCHESTRATOR_WORKSPACE_DIR: workspaceRoot },
     gateway,
-    sandbox: async () => ({ provider: noSandbox, mode: "docker" as const, fellBackFrom: null }),
+    // A code case brings its fixture sandbox; every other case runs none.
+    sandbox: async () => ({ provider: active?.sandbox ?? noSandbox, mode: "docker" as const, fellBackFrom: null }),
   };
   const acts = createSessionActivities(deps);
   const templates = listTemplates();
@@ -392,12 +505,18 @@ export async function createSessionEvalEnv(options: { budget?: RunBudget } = {})
     const spec = initialVersionFromTemplate(template, "00000000-0000-0000-0000-000000000000");
     const tools = c.grants === "platform_only" ? spec.tools.filter((g) => g.connectorKey === "platform") : spec.tools;
     const agent = await repos.agents.create(t.db, t.businessId, { name: `Eval ${template.name}`.slice(0, 80), role: template.role, agentType: template.agentType, layer: "worker", descriptionMd: template.description, departmentIds: [t.fixture.departmentId], modelKey: template.modelKey, status: "idle", autonomy: spec.autonomy, initialVersion: { instructions: spec.instructions, tools, modelKey: spec.modelKey } });
-    const task = await repos.tasks.create(t.db, t.businessId, { kind: c.task.kind, title: c.task.title, goalMd: c.task.goalMd, assigneeAgentId: agent.id, status: "ready" });
+    const task = await repos.tasks.create(t.db, t.businessId, { kind: c.task.kind, title: c.task.title, goalMd: c.task.goalMd, ...(c.task.acceptance ? { acceptance: c.task.acceptance as never } : {}), assigneeAgentId: agent.id, status: "ready" });
+    // A code case's codebase: saved on the task as an earlier session's work, so the session starts from it.
+    if (c.workspace) {
+      const files = Object.entries(c.workspace).map(([p, text]) => ({ path: p, content: new TextEncoder().encode(text) }));
+      await t.db.transaction((tx) => repos.workspaces.save(tx as never, t.businessId, { taskId: task.id, files, carryOver: true }));
+    }
     const sessionId = await openSessionRow(t, agent.id, task.id);
     const ctx: CaseContext = { businessId: t.businessId, agentId: agent.id, taskId: task.id, sessionId };
     const servedFrom = web.served.length;
     const mailFrom = inbox.mail.length;
-    const run: ActiveCase = { live, ctx, script: c.script, options: null, probe: null };
+    const fixture = c.acceptanceRun ? createFixtureSandbox(c.acceptanceRun) : null;
+    const run: ActiveCase = { live, ctx, script: c.codeScript ?? c.script, options: null, probe: null, turns: [], sandbox: fixture?.provider ?? null };
     active = run;
     try {
       // The run's budget left is this session's cap (the SDK stops at it: `maxBudgetUsd`).
@@ -415,7 +534,8 @@ export async function createSessionEvalEnv(options: { budget?: RunBudget } = {})
         .filter((e): e is Extract<typeof e, { kind: "tool_call" }> => e.kind === "tool_call" && e.status !== "started")
         .map((e) => ({ connectorKey: e.connectorKey ?? null, tool: e.tool, status: e.status, policyOutcome: e.policyOutcome ?? null, resultSummary: e.resultSummary ?? "" }));
       const builtinsSeen = run.probe ? await run.probe : {};
-      const observation: SessionObservation = { task: after, result, report, toolCalls, served: web.served.slice(servedFrom), mail: inbox.mail.slice(mailFrom), options: run.options, builtins: builtinsSeen };
+      const tests = events.map((r) => r.event).flatMap((e) => (e.kind === "test_result" && e.acceptance ? [{ passed: e.passed, failed: e.failed }] : []));
+      const observation: SessionObservation = { task: after, result, report, toolCalls, served: web.served.slice(servedFrom), mail: inbox.mail.slice(mailFrom), options: run.options, builtins: builtinsSeen, turns: run.turns, tests, testedFiles: fixture?.lastFiles() ?? new Map() };
       const problems = run.options ? c.check(observation) : ["the session never reached the SDK", ...c.check(observation)];
       return { caseId: c.id, passed: problems.length === 0, problems, costMinor, outcome: result.outcome, taskStatus: after.status, summary: result.summary };
     } catch (err) {

@@ -249,7 +249,7 @@ export function approvalItem(approval: Pick<Approval, "connectorKey" | "tool" | 
   }
   if (isReleaseApproval(approval)) {
     const tests = details.tests === undefined ? null : details.tests;
-    const tested = tests && tests.total > 0 ? (tests.passing === tests.total ? "It passed every quality check." : "It passed most of its quality checks.") : tests === null && details.tests !== undefined ? "There was nothing in it to check." : "";
+    const tested = tests && tests.total > 0 ? (tests.passing === tests.total ? "It passed every quality check." : "It passed most of its quality checks.") : tests === null && details.tests !== undefined ? "No automatic check covers this change." : "";
     const body = `${whoMd} finished${task ? ` “${task}”` : " a change"}. ${tested} OK to put it live?`.replace(/\s+/g, " ");
     return {
       type: "decision" as const,

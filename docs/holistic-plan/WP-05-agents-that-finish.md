@@ -205,7 +205,7 @@ Steps:
 Tests and evals: above.
 Done when: no code task waits in `review` for a merge that cannot be asked.
 
-### T9: A failing test goes back to the author, twice, before the session ends [L] [session.ts chain 5]
+### [x] T9: A failing test goes back to the author, twice, before the session ends [L] [session.ts chain 5]
 Why: AR-07; A4-06 (the verdict).
 Files:
 - modify `apps/orchestrator/src/activities/session.ts`, `apps/orchestrator/src/progress.ts`, `packages/db/src/approvals.ts`;

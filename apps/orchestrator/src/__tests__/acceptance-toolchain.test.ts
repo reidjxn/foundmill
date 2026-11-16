@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
-import { ACCEPTANCE_EGRESS, ACCEPTANCE_FALLBACK_COMMAND, ACCEPTANCE_REBUILD_TIMEOUT_SECONDS, PNPM_OFFLINE_ENV, TEMPORAL_DOWNLOAD_HOST, TEMPORAL_TEST_SERVER_ENV, acceptanceCommandFor, acceptancePrepareScript, acceptanceRunScript, acceptanceToolchainOf, changedPackageNames, changedScope, documentationOnly, nothingToTestNote, readAcceptanceToolchain, SANDBOX_PNPM, temporalTestServerPrepareLines, temporalTestServerRunLines, workspaceAppTestPackages } from "../activities/session";
+import { ACCEPTANCE_EGRESS, ACCEPTANCE_FALLBACK_COMMAND, ACCEPTANCE_FIX_OUTPUT_CHARS, ACCEPTANCE_REBUILD_TIMEOUT_SECONDS, acceptanceFailureReason, acceptanceFixTurn, type AcceptanceVerdict, PNPM_OFFLINE_ENV, TEMPORAL_DOWNLOAD_HOST, TEMPORAL_TEST_SERVER_ENV, acceptanceCommandFor, acceptancePrepareScript, acceptanceRunScript, acceptanceToolchainOf, changedPackageNames, changedScope, documentationOnly, nothingToTestNote, readAcceptanceToolchain, SANDBOX_PNPM, temporalTestServerPrepareLines, temporalTestServerRunLines, workspaceAppTestPackages } from "../activities/session";
 
 const run = promisify(execFile);
 
@@ -266,5 +266,24 @@ describe("acceptancePrepareScript", () => {
     // The environment line comes before any pnpm command, so the first pnpm call already sees it.
     const prepare = acceptancePrepareScript({ node: "22.23.3", pnpm: "12.9.1", filters: ["@foundmill/api"] }).split("\n");
     expect(prepare.indexOf(safe)).toBeLessThan(prepare.findIndex((l) => l.includes("pnpm")));
+  });
+});
+
+describe("the acceptance verdict and its fix turn (WP-05 T9)", () => {
+  const failed: AcceptanceVerdict = { passed: false, status: "failed", exitCode: 1, testsPassed: 4, testsFailed: 2, testsRun: 6, output: `${"x".repeat(5000)}\nAssertionError: expected 2 to be 3` };
+
+  it("the fix turn names the command and the counts and carries the last 4,000 characters of the output", () => {
+    const turn = acceptanceFixTurn(failed, "pnpm --filter @acme/shop run --if-present test");
+    expect(turn.startsWith("The acceptance tests failed. Command: pnpm --filter @acme/shop run --if-present test. 4 passed, 2 failed. Last output:\n")).toBe(true);
+    expect(turn.endsWith("AssertionError: expected 2 to be 3\n\nFix the cause and end your turn; the tests run again.")).toBe(true);
+    const output = turn.slice(turn.indexOf("Last output:\n") + "Last output:\n".length, turn.indexOf("\n\nFix the cause"));
+    expect(output).toHaveLength(ACCEPTANCE_FIX_OUTPUT_CHARS);
+    expect(acceptanceFixTurn({ ...failed, output: "" }, "pnpm test")).toContain("Last output:\n(no output)\n\n");
+  });
+
+  it("the task's block detail stays within 2,000 characters whatever the output", () => {
+    expect(acceptanceFailureReason(failed).length).toBeLessThanOrEqual(2000);
+    expect(acceptanceFailureReason(failed).endsWith("AssertionError: expected 2 to be 3")).toBe(true);
+    expect(acceptanceFailureReason(failed).startsWith("acceptance tests failed (exit 1, 4 passed, 2 failed). Last output:\n")).toBe(true);
   });
 });
