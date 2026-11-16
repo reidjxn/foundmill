@@ -50,14 +50,30 @@ export const ToolCtx = z.object({
   contract: z.boolean().default(false),
   /** True when this call changes a security setting (BUILD §2.2). Decided by the gateway from the call's arguments, not by the agent. */
   securitySettings: z.boolean().default(false),
+  /**
+   * True when this call creates an immutable or customer-visible record that brings money in (a finalized invoice, a
+   * payment page). Decided by the gateway (`PAYMENT_RECORD_TOOLS`), never by the agent. Automated mode asks for it unless
+   * the business gave agents the inbound payment power (founder, Nov 16, 2026).
+   */
+  paymentRecord: z.boolean().default(false),
 });
 export type ToolCtx = z.infer<typeof ToolCtx>;
 export type ToolCtxInput = z.input<typeof ToolCtx>;
+
+/** The payment powers a business can give its agents; `inbound` alone (an outbound one is not built). */
+export const PAYMENT_POWERS = ["inbound"] as const;
+export const PaymentPower = z.enum(PAYMENT_POWERS);
+export type PaymentPower = z.infer<typeof PaymentPower>;
 
 export const BusinessCtx = z.object({
   id: uuidOrSlug,
   businessMode: BusinessMode,
   holidayActive: z.boolean().default(false),
+  /**
+   * What the founder lets agents do with money without asking in automated mode and on vacation. Only `inbound` exists:
+   * agents may create invoices and payment pages. There is no outbound power (CLAUDE.md: agent code never moves money).
+   */
+  paymentPowers: z.array(PaymentPower).default([]),
 });
 export type BusinessCtx = z.infer<typeof BusinessCtx>;
 export type BusinessCtxInput = z.input<typeof BusinessCtx>;

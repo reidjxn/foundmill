@@ -247,10 +247,16 @@ export { AGENT_ARCHIVED_POLICY_ID, AGENT_PAUSED_POLICY_ID, AGENTS_STOPPED_POLICY
 export const FINANCE_CONNECTORS: ReadonlySet<string> = new Set(["tink", "plaid", "ecb_rates"]);
 /** Tools that create or amend a contract (assisted mode asks; signing itself is hard-gated by the connector). */
 export const CONTRACT_TOOLS: ReadonlySet<string> = new Set(["dropbox_sign:send_signature_request"]);
+/**
+ * Tools that create an immutable or customer-visible record that brings money in (founder, Nov 16, 2026). They ask in
+ * every mode, and in automated mode and on vacation unless the business gave agents the inbound payment power.
+ * Paying out, refunding and transferring are hard gates and never on this list.
+ */
+export const PAYMENT_RECORD_TOOLS: ReadonlySet<string> = new Set(["stripe:create_invoice", "stripe:create_checkout_session"]);
 
 /** `Tool.finance` / `Tool.contract` come from the gateway, not from `policyHints` (DECISIONS "Tool attributes beyond connector policyHints"). */
-export function toolAttributes(connector: string, tool: string): { finance: boolean; contract: boolean } {
-  return { finance: FINANCE_CONNECTORS.has(connector), contract: CONTRACT_TOOLS.has(toolRef(connector, tool)) };
+export function toolAttributes(connector: string, tool: string): { finance: boolean; contract: boolean; paymentRecord: boolean } {
+  return { finance: FINANCE_CONNECTORS.has(connector), contract: CONTRACT_TOOLS.has(toolRef(connector, tool)), paymentRecord: PAYMENT_RECORD_TOOLS.has(toolRef(connector, tool)) };
 }
 
 // The principal's autonomy and thresholds live in @foundmill/policy, shared with plan evaluation (audit api-services-03).
@@ -567,6 +573,7 @@ async function buildPolicyInput(deps: GatewayDeps, session: SessionToken, req: C
     hardGate: hints.hardGate ?? false,
     finance: attrs.finance,
     contract: attrs.contract,
+    paymentRecord: attrs.paymentRecord,
     // Decided here from the call's arguments (never reported by the agent): a DNS change that routes or authenticates email.
     securitySettings: securitySettingsChange(connector.key, tool.name, args) !== null,
   };
@@ -614,7 +621,7 @@ async function buildPolicyInput(deps: GatewayDeps, session: SessionToken, req: C
   return {
     principal,
     tool: toolCtx,
-    business: { id: business.id, businessMode: business.businessMode, holidayActive: loaded.holidayActive },
+    business: { id: business.id, businessMode: business.businessMode, holidayActive: loaded.holidayActive, paymentPowers: business.paymentPowers ?? [] },
     context: {
       amountMinor: policyAmountMinor({ spendsMoney: toolCtx.spendsMoney ?? false, declaredMinor: connector.estimateCostMinor?.(tool.name, args) ?? null, reportedMinor: req.context.amountMinor ?? 0, thresholdMinor: principal.approvalThresholdMinor }),
       ...(recipient ? { recipient } : {}),

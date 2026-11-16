@@ -51,6 +51,11 @@ export interface HolidaySettings {
   /** Hard spend ceiling for the whole holiday; null means the business cap applies. */
   budgetCeiling: Money | null;
   wakeEvents: HolidayWakeEvent[];
+  /**
+   * Inbound payment powers while away (founder, Nov 16, 2026): agents may create invoices and payment pages without
+   * asking. Off by default; there is no power to pay out.
+   */
+  inboundPayments?: boolean;
 }
 
 export interface HolidayDialogProps {
@@ -129,6 +134,7 @@ export function HolidayDialog({ open, onOpenChange, currency, today = new Date()
   const [authority, setAuthority] = useState<DecisionType[]>(initial?.authority ?? defaultAuthority());
   const [budget, setBudget] = useState(initial?.budgetCeiling ? String(initial.budgetCeiling.amountMinor / 100) : "");
   const [wake, setWake] = useState<HolidayWakeEvent[]>(initial?.wakeEvents ?? [...DEFAULT_WAKE_EVENTS]);
+  const [inboundPayments, setInboundPayments] = useState(initial?.inboundPayments ?? false);
   const [submitted, setSubmitted] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -139,8 +145,8 @@ export function HolidayDialog({ open, onOpenChange, currency, today = new Date()
   const settings = useMemo<HolidaySettings>(() => {
     const until: HolidayUntil = untilKind === "date" ? { kind: "date", date } : untilKind === "condition" ? { kind: "condition", condition } : { kind: "return" };
     const minor = parseMajor(budget);
-    return { until, authority, budgetCeiling: minor === null ? null : { amountMinor: minor, currency }, wakeEvents: wake };
-  }, [untilKind, date, condition, authority, budget, currency, wake]);
+    return { until, authority, budgetCeiling: minor === null ? null : { amountMinor: minor, currency }, wakeEvents: wake, inboundPayments };
+  }, [untilKind, date, condition, authority, budget, currency, wake, inboundPayments]);
   const errors = useMemo(() => validateHolidaySettings(settings, today), [settings, today]);
   const valid = Object.keys(errors).length === 0;
 
@@ -228,6 +234,17 @@ export function HolidayDialog({ open, onOpenChange, currency, today = new Date()
               data-testid="holiday-budget"
             />
           </Field>
+
+          <fieldset className="flex flex-col gap-1.5">
+            <legend className="t-label mb-1">Payments</legend>
+            <div className="flex items-start gap-2">
+              <Checkbox id={`${id}-inbound-payments`} checked={inboundPayments} onCheckedChange={(c) => setInboundPayments(c === true)} data-testid="holiday-inbound-payments" />
+              <label htmlFor={`${id}-inbound-payments`} className="text-body text-primary">
+                Agents may create invoices and payment links without asking
+                <span className="block text-small text-secondary">Money only comes in this way. Nothing is ever paid out, refunded or transferred without you.</span>
+              </label>
+            </div>
+          </fieldset>
 
           <fieldset className="flex flex-col gap-1.5">
             <legend className="t-label mb-1">Wake me when</legend>

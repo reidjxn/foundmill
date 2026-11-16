@@ -22,6 +22,8 @@ export interface StartHolidayInput {
   budgetCeilingMinor: number | null;
   currency: string;
   wakeEvents: EventType[];
+  /** Absent: the business keeps its current payment powers. */
+  paymentPowers?: "inbound"[];
 }
 
 /** `businessCurrency`: the vacation's currency when no budget ceiling names one (the business's own, 0025). */
@@ -35,5 +37,6 @@ export function toStartHolidayInput(settings: HolidaySettings, businessCurrency:
     budgetCeilingMinor: settings.budgetCeiling?.amountMinor ?? null,
     currency: settings.budgetCeiling?.currency ?? businessCurrency,
     wakeEvents,
+    ...(settings.inboundPayments === undefined ? {} : { paymentPowers: settings.inboundPayments ? (["inbound"] as "inbound"[]) : [] }),
   };
 }
