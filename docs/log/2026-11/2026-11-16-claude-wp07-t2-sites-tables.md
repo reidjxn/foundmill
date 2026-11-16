@@ -11,9 +11,15 @@ docs/DECISIONS.md is frozen, so they are recorded here.
   for "pages and email are proven".
 - **D2, the domain: foundmill.app**, already bought (docs/DEPLOY.md §6, DNS on Vercel, attached to nothing). Wiring it
   is WP-00 S9, not this change: nothing was set in Railway, Vercel or DNS, and `SITES_DOMAIN` stays unset everywhere.
-- D3 to D6 are not answered; built to the package's recommendations: **D3** the report link shows on every site on
-  every plan (a safety control), only the "Built on Foundmill" mark follows `tierShowsBuiltOnMark`; D4 to D6 are not
-  reached by this change.
+- **Preview links (asked in #240, answered Nov 16): only the newest 3 previews of a site are served.** Built here
+  (`site_resolve`, and `site_report` for preview links; `SITE_LIMITS.previewsServed`). The live release is served by
+  its slug whatever its age.
+- **D6 (answered Nov 16):** until a review queue exists, the nightly check prints the count of `site.reported` rows and
+  the founder reads it (the nightly line itself is T10's, with WP-02's script).
+- D4 and D5 are not answered: T7 and T8 build to the package's defaults (buy.stripe.com only; the finance lead, asking
+  first).
+- D3 is not answered; built to the package's recommendation: the report link shows on every site on every plan (a
+  safety control), only the "Built on Foundmill" mark follows `tierShowsBuiltOnMark`.
 
 ## What changed
 - Migration 0117 (`sites`, `site_releases`, role `sites_reader`, `site_resolve`, `site_file`, `site_report`, the
@@ -56,7 +62,7 @@ docs/DECISIONS.md is frozen, so they are recorded here.
   footer property is `!important` so site CSS cannot hide it.
 - **Review findings left for later, named in the pull request:** markup that swallows the footer (an unclosed comment,
   `<plaintext>`) and `meta refresh` redirects are T5 screening's; a per-visitor report limit (a site can use up its own
-  30 a day) needs Redis or Turnstile (T6); previews never expire (a question for the founder); `SITES_DOMAIN` is not
+  30 a day) needs Redis or Turnstile (T6); `SITES_DOMAIN` is not
   compared by registrable domain (foundmill.app beside foundmill.com is fine); `PUBLIC` keeps execute on older helper
   functions such as `is_public(uuid)` (yes or no answers about a known id); a founder could write their own
   `published_at` only if the Data API were turned back on.

@@ -10,6 +10,8 @@ export const SITE_LIMITS = {
   maxTotalBytes: 10 * 1024 * 1024,
   maxFileBytes: 2 * 1024 * 1024,
   publishesPerDay: 20,
+  /** Previews served per site, newest first (the founder, Nov 16, 2026); 0117 `site_resolve` repeats it. */
+  previewsServed: 3,
 } as const;
 
 /** The only files a site serves, by extension, with the content type apps/sites sends. No scripts. */

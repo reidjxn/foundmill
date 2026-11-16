@@ -38,7 +38,7 @@ describe("file types and limits", () => {
   });
 
   it("keeps the Estimates", () => {
-    expect(SITE_LIMITS).toEqual({ maxFiles: 200, maxTotalBytes: 10 * 1024 * 1024, maxFileBytes: 2 * 1024 * 1024, publishesPerDay: 20 });
+    expect(SITE_LIMITS).toEqual({ maxFiles: 200, maxTotalBytes: 10 * 1024 * 1024, maxFileBytes: 2 * 1024 * 1024, publishesPerDay: 20, previewsServed: 3 });
   });
 });
 

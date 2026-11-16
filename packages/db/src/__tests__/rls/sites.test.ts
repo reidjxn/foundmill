@@ -317,4 +317,17 @@ describe("hardening", () => {
       await h.service().execute(sql`update site_releases set state = 'preview' where id = ${bPreview.id}`);
     }
   });
+
+  it("serves only the newest 3 previews of a site, and the live release whatever its age", async () => {
+    const index = [entry("index.html", ONLY_B)];
+    const newer = await h.service().run(async (tx) => {
+      const out = [];
+      for (let i = 0; i < 3; i++) out.push(await repos.sites.saveRelease(tx, B.businessId, { files: index, state: "preview" }));
+      return out;
+    });
+    expect(await resolve(`p-${bPreview.previewToken}`)).toBeNull();
+    for (const r of newer) expect(await resolve(`p-${r.previewToken}`)).toMatchObject({ releaseId: r.id, kind: "preview" });
+    expect(await resolve("beta-site")).toMatchObject({ releaseId: bPreview.id, kind: "live" });
+    expect(await h.service().run((tx) => repos.sites.report(tx, `p-${bPreview.previewToken}`, { reason: "scam" }))).toBe("unknown");
+  });
 });

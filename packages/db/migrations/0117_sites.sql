@@ -135,7 +135,7 @@ $$;
 --> statement-breakpoint
 grant usage on schema public to sites_reader;
 --> statement-breakpoint
--- The host's first label to what it serves. `p-<32 hex>` is a preview release of a site that is not taken down
+-- The host's first label to what it serves. `p-<32 hex>` is one of the newest 3 preview releases of a site that is not taken down
 -- (kind 'preview'); any other label is a slug: a live site's live release (kind 'live'), or a taken-down site (one row,
 -- release_id null, kind 'taken_down': the server answers 410). Nothing otherwise (a draft site, a held release, an
 -- unknown label). `plan_tier` is the business's, for the "Built on Foundmill" mark.
@@ -147,6 +147,9 @@ language sql stable security definer set search_path = pg_catalog, public, pg_te
      and r.preview_token = substr(lower(site_resolve.label), 3)
      and r.state = 'preview'
      and s.status <> 'taken_down'
+     -- Only the newest 3 previews of a site are served (the founder, Nov 16, 2026: a preview link is unlisted but can
+     -- be passed around; old ones stop answering). The live release is served by its slug whatever its age.
+     and r.id in (select r2.id from site_releases r2 where r2.site_id = r.site_id and r2.state = 'preview' order by r2.number desc limit 3)
   union all
   select case when s.status = 'live' then s.live_release_id end, s.business_id, case when s.status = 'live' then 'live' else 'taken_down' end, b.plan_tier
     from sites s join businesses b on b.id = s.business_id left join site_releases lr on lr.id = s.live_release_id
@@ -180,7 +183,8 @@ begin
   if lower(site_report.label) ~ '^p-[0-9a-f]{32}$' then
     -- A preview link can be passed around too, so it can be reported (against its site).
     select s.id, s.slug, s.business_id into found_site from site_releases r join sites s on s.id = r.site_id
-     where r.preview_token = substr(lower(site_report.label), 3) and r.state = 'preview' and s.status <> 'taken_down';
+     where r.preview_token = substr(lower(site_report.label), 3) and r.state = 'preview' and s.status <> 'taken_down'
+       and r.id in (select r2.id from site_releases r2 where r2.site_id = r.site_id and r2.state = 'preview' order by r2.number desc limit 3);
   else
     select s.id, s.slug, s.business_id into found_site from sites s where s.slug = lower(site_report.label) and s.status = 'live';
   end if;
