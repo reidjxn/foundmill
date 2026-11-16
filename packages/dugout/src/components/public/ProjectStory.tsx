@@ -120,8 +120,11 @@ export function BuiltOnFoot({ name, mark, startHref }: { name: string; mark: Pro
 export function ProjectStory({ name, brandPrimary, brandSecondary, logo, milestones, pageHref, mark = "visitor", startHref = "/", variant = "page", className, style, ...rest }: ProjectStoryProps) {
   const rootStyle: CSSProperties = { ...kitStyle({ primary: brandPrimary, secondary: brandSecondary }), ...style };
   const ordered = [...milestones].sort((a, b) => timeOf(a.achievedAt) - timeOf(b.achievedAt));
+  // A full page is the document's one main landmark; a preview sits inside the console's own <main>, as an article.
+  const Root = variant === "page" ? "div" : "article";
+  const Body = variant === "page" ? "main" : "div";
   return (
-    <article
+    <Root
       data-project-story=""
       data-variant={variant}
       className={cn("@container relative flex flex-col bg-canvas text-primary", variant === "page" ? "min-h-dvh" : "min-h-full", className)}
@@ -130,7 +133,7 @@ export function ProjectStory({ name, brandPrimary, brandSecondary, logo, milesto
     >
       {/* The brand line, as on the project's page: the business's color, never a fill behind text. */}
       <div aria-hidden className="h-1 w-full shrink-0 bg-kit-primary" data-brand-line="" />
-      <div className="mx-auto flex w-full max-w-reading min-w-0 flex-1 flex-col gap-8 px-gutter py-10 @page-wide:gap-10 @page-wide:py-16">
+      <Body className="mx-auto flex w-full max-w-reading min-w-0 flex-1 flex-col gap-8 px-gutter py-10 @page-wide:gap-10 @page-wide:py-16">
         <header className="flex min-w-0 flex-col gap-5">
           <a href={pageHref} className="flex min-h-tap min-w-0 items-center gap-3 self-start rounded-sm transition-colors duration-hover hover:no-underline focus-ring" data-story-project="">
             <BusinessLogo src={logo} name={name} primary={brandPrimary} size={48} title="" />
@@ -169,8 +172,8 @@ export function ProjectStory({ name, brandPrimary, brandSecondary, logo, milesto
           <Icon icon={ArrowLeft} size="inline" />
           {PROJECT_STORY_WORDS.seeProject(name)}
         </a>
-      </div>
+      </Body>
       <BuiltOnFoot name={name} mark={mark} startHref={startHref} />
-    </article>
+    </Root>
   );
 }

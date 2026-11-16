@@ -529,7 +529,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
       </header>
 
       {/* scrolling body */}
-      <div className="flex min-h-0 flex-1 flex-col gap-gutter overflow-y-auto p-gutter [&>*]:shrink-0">
+      <div className="flex min-h-0 flex-1 flex-col gap-gutter overflow-y-auto scroll-pb-(--decision-bar) p-gutter [&>*]:shrink-0">
         <div className="flex flex-col gap-1.5" data-testid="inbox-title">
           {/* The subject has the full width of the pane: it wraps, it is never crushed by chips. */}
           <h1 className="t-display-md max-w-reading text-balance break-words text-primary" data-testid="inbox-subject">{withNames(item.subject)}</h1>

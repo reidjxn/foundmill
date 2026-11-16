@@ -82,7 +82,8 @@ function ConceptStack() {
   return (
     <div className="absolute inset-0" style={{ maskImage: "linear-gradient(180deg, black 70%, transparent 100%)" }}>
       {back ? (
-        <div aria-hidden className="absolute left-1/2 top-10 origin-top-left -translate-x-1/3 rotate-6 opacity-50">
+        <div aria-hidden inert className="absolute left-1/2 top-10 origin-top-left -translate-x-1/3 rotate-6 opacity-50">
+          {/* Decoration: out of the accessibility tree and out of the tab order (its card has buttons). */}
           <ConceptCard concept={back} hideActions />
         </div>
       ) : null}

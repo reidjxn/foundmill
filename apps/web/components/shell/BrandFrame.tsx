@@ -20,7 +20,7 @@ import {
 } from "@foundmill/dugout";
 
 export interface BrandFrameProps {
-  /** The panel's title ("Sign in", "Not found"). */
+  /** The panel's title ("Sign in", "Not found"): the page's h1. Without one the panel says the product's name as an h2 and the page brings its own h1. */
   title?: ReactNode;
   /** Mono meta after the title. */
   meta?: ReactNode;
@@ -59,7 +59,7 @@ export function BrandFrame({
         </header>
         <div className="relative">
           <div aria-hidden className="brand-halo -z-10" />
-          <Panel title={title ?? APP_NAME} meta={meta} glow="brand" data-testid="brand-panel">
+          <Panel title={title ?? APP_NAME} headingLevel={title ? 1 : 2} meta={meta} glow="brand" data-testid="brand-panel">
             {children}
           </Panel>
         </div>

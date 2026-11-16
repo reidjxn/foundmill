@@ -2,6 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Browser, type Page } from "@playwright/test";
 import { LONG, commitThrowaway, dismissCoachmarks, expectTapTarget, settled } from "./helpers";
+import { expectNoAxeViolations } from "./axe";
 
 /**
  * A project's public page (docs/THESIS_REVIEW.md package 1.1): Product › Public page in the console (fields with
@@ -73,6 +74,8 @@ async function expectPublicPage(page: Page, pagePath: string, width: number, sho
   await expect(privacy).toHaveAttribute("rel", "noopener noreferrer");
   await expectTapTarget(privacy, "the Turnstile privacy link is a 44 px target");
   await expect(article.getByRole("link")).toHaveCount(2);
+  // The page and its form pass axe (WCAG 2.2 AA, the stories' rules; e2e/accessibility.spec.ts has the rest).
+  await expectNoAxeViolations(page, `${pagePath} at ${width} px, signed out`);
   const smallest = await article.evaluate((root) => Math.min(...[...root.querySelectorAll<HTMLElement>("p, h1, h2, span, a")].filter((e) => e.textContent?.trim()).map((e) => parseFloat(getComputedStyle(e).fontSize))));
   expect(smallest).toBeGreaterThanOrEqual(11);
   if (process.env.E2E_UX_AUDIT) {

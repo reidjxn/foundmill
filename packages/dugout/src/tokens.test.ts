@@ -208,6 +208,13 @@ describe("dugout.css", () => {
     expect(code).not.toMatch(/#[0-9a-f]{3,8}\b/i);
     expect(code).not.toMatch(/rgba?\(/);
   });
+  it("a focused field and the forced-colors block keep focus and edges visible in Windows High Contrast (WP-10 T7)", () => {
+    const controlsCss = readFileSync(join(__dirname, "controls.css"), "utf8");
+    const well = /@utility field-well \{([\s\S]*?)\n\}/.exec(controlsCss)?.[1] ?? "";
+    expect(well).toMatch(/&:focus-within \{\s*outline: 2px solid transparent;/);
+    expect(dugoutCss).toMatch(/@media \(forced-colors: active\) \{[\s\S]*?\.surface-panel[\s\S]*?border: 1px solid CanvasText;/);
+    expect(utility("hit-target")).toContain("var(--target-size)");
+  });
   it("sets sentence case on actions, tabs and labels, and caps only on the data label", () => {
     for (const name of ["t-tab", "t-tab-sm", "t-label", "t-action", "t-action-sm", "t-title"]) expect(utility(name), name).not.toContain("uppercase");
     expect(utility("t-data")).toContain("text-transform: uppercase");

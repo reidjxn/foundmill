@@ -68,6 +68,18 @@ describe("Chip", () => {
     await userEvent.click(screen.getByRole("button", { name: "Remove Nordics" }));
     expect(onRemove).toHaveBeenCalledTimes(1);
   });
+  it("a pressable chip is at least 24 px tall, and its remove glyph reaches 24 px (WCAG 2.5.8, WP-10 T7)", () => {
+    render(
+      <>
+        <Chip onClick={() => undefined}>This week</Chip>
+        <Chip onRemove={() => undefined} removeLabel="Remove Nordics">
+          Nordics
+        </Chip>
+      </>,
+    );
+    expect(screen.getByRole("button", { name: "This week" }).className).toContain("min-h-target");
+    expect(screen.getByRole("button", { name: "Remove Nordics" }).className).toContain("hit-target");
+  });
 });
 
 describe("DeptChip", () => {
