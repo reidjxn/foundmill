@@ -101,6 +101,8 @@ const VOCAB_CODE_ROOTS = [
   "packages/modules",
   // Templates and prompts, plus the archetypes' first-cycle task goals and Board decisions every new business starts with.
   "packages/agents/src",
+  // The skills library's Markdown source (WP-06 T2): what a founder's agents are taught and what a person reads.
+  "packages/agents/skills",
   "apps/composer",
   "packages/journey",
   // Mock completions reach the founder on the MODEL_MODE=mock golden path (Inbox notes, Customer Update lines, replies).

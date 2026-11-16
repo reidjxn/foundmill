@@ -23,6 +23,7 @@ Owns the agent templates, the prompt templates (BUILD §12), skill definitions, 
 - Grants: `pnpm --filter @foundmill/orchestrator test grants-contract`
 - Evals: `pnpm --filter @foundmill/evals test` (mock); `pnpm evals` runs live (`MODEL_MODE=live`, skipped without a key)
 - Copy: `node scripts/banned-terms.mjs`, `node scripts/us-english.mjs`, `node scripts/plain-language.mjs --gate --summary`
+- Skills library: `pnpm --filter @foundmill/agents skills:build` after editing `skills/`; `node scripts/build-skill-library.mjs --check` says whether the catalog is stale
 
 ## Key files
 - `src/templates/`: the templates (leads, channels, specialists, workers, utilities, `chief_of_staff.ts`), `PLANNED_GRANTS.md`
@@ -30,5 +31,6 @@ Owns the agent templates, the prompt templates (BUILD §12), skill definitions, 
 - `src/club-rules.ts`: `buildSystemPrompt`, `detectClubRuleViolation`
 - `src/connectors.ts`: connector keys a grant may name
 - `src/registry.ts`: template lookup by key, type, module, family or channel
+- `skills/<category>/<key>.md`: the skills library's source (front matter + body); `src/skill-library/catalog.generated.ts` is generated from it, never edited
 - `src/types.ts`: `AgentTemplate`, `AgentInstructions`
 - `evals/src/`: eval suites per template and skill
