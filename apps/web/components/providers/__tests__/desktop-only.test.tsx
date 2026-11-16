@@ -160,4 +160,22 @@ describe("desktop only (audit PAS-4: a phone rendered a 390 px slice of a 1280 p
     for (const p of [`${B}/today`, `${B}/today/`, `${B}/inbox`, `${B}/inbox/4c76f0d6-2afd-4bdd-adbf-2a82479eadf3`, "/public-profile", "/network", "/communities", "/communities/c1", "/profiles/founder/u1"]) expect(worksOnSmallScreens(p), p).toBe(true);
     for (const p of [`${B}/crm`, `${B}/settings/business`, `${B}/today/details`, `${B}/inbox/a/b`, "/b/not-a-uuid/today", "/networkx", "/profiles", "/b/"]) expect(worksOnSmallScreens(p), p).toBe(false);
   });
+
+  it("WP-04 T6: Product › Public page works from 390 px, under whichever department holds it; no other department tab does", () => {
+    const B = "/b/6f1d2c3b-4a5e-4f60-8a71-0b2c3d4e5f60";
+    for (const p of [`${B}/d/product/public-page`, `${B}/d/product/public-page/`, `${B}/d/build/public-page`]) expect(worksOnSmallScreens(p), p).toBe(true);
+    for (const p of [
+      `${B}/d/product/vision`,
+      `${B}/d/product/specification`,
+      `${B}/d/product/roadmap`,
+      `${B}/d/finance/wage-bill`,
+      `${B}/d/team/squad`,
+      `${B}/d/product/public-page/x`,
+      `${B}/d/product/public-pages`,
+      `${B}/d/public-page`,
+      `${B}/d/product/public-page?view=x`,
+      "/b/not-a-uuid/d/product/public-page",
+    ])
+      expect(worksOnSmallScreens(p), p).toBe(false);
+  });
 });
