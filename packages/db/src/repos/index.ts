@@ -24,6 +24,7 @@ import { foundersRepo } from "./founders";
 import { goalsRepo } from "./goals";
 import { pagesRepo } from "./pages";
 import { pageQuizzesRepo } from "./page-quizzes";
+import { positioningRepo } from "./positioning";
 import { personProfilesRepo } from "./person-profiles";
 import { mailRepo } from "./mail";
 import { postalAddressRepo } from "./postal-address";
@@ -90,6 +91,7 @@ export const repos = {
   goals: goalsRepo,
   pages: pagesRepo,
   pageQuizzes: pageQuizzesRepo,
+  positioning: positioningRepo,
   personProfiles: personProfilesRepo,
   projectMail: mailRepo,
   postalAddress: postalAddressRepo,
@@ -163,6 +165,7 @@ export type { Executor, Page, PageInput, DateRange, DayRange } from "./_shared";
 export { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, encodeCursor, decodeCursor, decodeTimeCursor, sqlState, uniqueViolation } from "./_shared";
 
 export * from "./agents";
+export * from "./positioning";
 export * from "./approvals";
 export * from "./audit";
 export { formerFounderSince, type FounderDepartureView } from "./founder-departures";

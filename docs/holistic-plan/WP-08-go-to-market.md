@@ -27,7 +27,7 @@ Migrations: each task takes the next free number when its branch is cut (0108, j
 
 ## Tasks
 
-### [ ] T1: The positioning record, read by every marketing call   [M] [ships alone; do first]
+### [x] T1: The positioning record, read by every marketing call   [M] [ships alone; do first]
 **Why:** GTM-08, a5 §3.6 ("single source of truth: does not exist"), GTM-23 (the record-id rule no marketing session can meet).
 
 **Files**

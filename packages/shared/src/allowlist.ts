@@ -73,7 +73,7 @@ export function signupMode(env: { SIGNUP_ALLOWLIST?: string | null | undefined; 
 
 /**
  * The live channels' check (apps/stream's upgrade, apps/collab's connection), the same rule apps/api applies on every
- * request: in `unrestricted` mode everyone, otherwise a listed address, the development bypass user, or an account the
+ * request: in `unrestricted` mode everyone, otherwise a listed address the token confirms, the development bypass user, or an account the
  * api has admitted (`isAdmitted`, a lookup of `account_admissions`, asked only when the list does not already answer;
  * a lookup that fails refuses).
  */
@@ -81,12 +81,13 @@ export function liveChannelAdmit(
   env: { SIGNUP_ALLOWLIST?: string | null | undefined; SIGNUP_OPEN?: string | null | undefined },
   devUserId: string | null | undefined,
   isAdmitted: (userId: string) => Promise<boolean>,
-): (user: { userId: string; email: string | null }) => boolean | Promise<boolean> {
+): (user: { userId: string; email: string | null; emailConfirmed?: boolean }) => boolean | Promise<boolean> {
   if (signupMode(env) === "unrestricted") return () => true;
   const list = parseSignupAllowlist(env.SIGNUP_ALLOWLIST);
   return (user) => {
     if (devUserId && user.userId.toLowerCase() === devUserId.toLowerCase()) return true;
-    if (list && allowlisted(list, user.email)) return true;
+    // A listed address counts only when the token shows its holder controls it (`isAdmittedNow`, apps/api access.ts).
+    if (list && user.emailConfirmed === true && allowlisted(list, user.email)) return true;
     return isAdmitted(user.userId).catch(() => false);
   };
 }

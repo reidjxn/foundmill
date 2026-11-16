@@ -22,7 +22,7 @@ docs/DECISIONS.md is frozen, so they are recorded here.
   safety control), only the "Built on Foundmill" mark follows `tierShowsBuiltOnMark`.
 
 ## What changed
-- Migration 0117 (`sites`, `site_releases`, role `sites_reader`, `site_resolve`, `site_file`, `site_report`, the
+- Migration 0119 (`sites`, `site_releases`, role `sites_reader`, `site_resolve`, `site_file`, `site_report`, the
   collaborator event list with the three site events), schema mirror, `repos.sites`, `rls/sites.test.ts`; both tables
   are exported (`site_releases` without `previewToken`).
 - `packages/shared/src/sites.ts`: `SITE_LIMITS`, `SITE_FILE_TYPES`/`siteFileType`, `SITE_RESERVED_SLUGS`,
@@ -37,7 +37,7 @@ docs/DECISIONS.md is frozen, so they are recorded here.
 ## Decisions
 - **T2 and T4 in one pull request.** T4 cannot be built without T2's functions and the rules forbid stacking; one
   CI run instead of two (CLAUDE.md, GitHub Actions minutes).
-- **`sites_reader` is created in 0117**, not in a second migration: the grants sit beside the functions they grant.
+- **`sites_reader` is created in 0119**, not in a second migration: the grants sit beside the functions they grant.
   It is `nologin` until the founder sets a password (DEPLOY step 3).
 - **Reports are limited in the database**, not with Redis: `site_report` counts the project's `site.reported` audit
   rows under the audit chain's own lock. The service needs no Redis and the limit holds across replicas. The function

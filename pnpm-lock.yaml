@@ -1908,6 +1908,9 @@ importers:
       date-fns:
         specifier: 'catalog:'
         version: 4.4.0
+      jose:
+        specifier: 'catalog:'
+        version: 6.2.12
       libsodium-wrappers:
         specifier: 'catalog:'
         version: 0.8.4

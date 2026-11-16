@@ -12,6 +12,7 @@ import { APP_NAME } from "@foundmill/config";
 import { PAGE_READY_NOTE, ProjectPageDraft, pageContentProblems, starterPageDraft, type ProjectPageContent } from "@foundmill/shared";
 import { ProjectPageOutput } from "@foundmill/models/schemas";
 import { foundationsSystem, inertJson, plainModelText, untrustedBlock, type FoundationsInputs } from "./foundations";
+import { positioningBlock } from "./positioning";
 import { projectPagePrompt } from "./prompts/project-page";
 import type { RouteKey } from "./types";
 
@@ -37,11 +38,13 @@ export interface ProjectPageRequest {
  * trusted JSON and the idea card (model-written) inside <untrusted_content> (the user turn). The founder profile is not
  * sent: the page names nobody ("Built by" is the founder's own switch, drawn from the owners' names, never the model's).
  */
-export function buildProjectPageRequest(inputs: FoundationsInputs): ProjectPageRequest {
+export function buildProjectPageRequest(inputs: FoundationsInputs, options: { positioning?: string | null } = {}): ProjectPageRequest {
   const idea = inputs.idea;
   const trusted = { business_name: inputs.businessName, founder_words: idea?.founderWords ?? null, brief: idea?.brief ?? null };
   const parts = ["```json\n" + inertJson(trusted) + "\n```"];
   if (idea && (idea.title || idea.pitch)) parts.push(untrustedBlock("idea", { idea_card: { title: idea.title, pitch: idea.pitch } }));
+  const block = positioningBlock(options.positioning);
+  if (block) parts.push(block);
   parts.push("Draft the page now.");
   return {
     route: PROJECT_PAGE_ROUTE,

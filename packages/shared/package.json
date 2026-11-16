@@ -23,7 +23,8 @@
     "@aws-sdk/client-kms": "catalog:",
     "pino": "catalog:",
     "pino-pretty": "catalog:",
-    "date-fns": "catalog:"
+    "date-fns": "catalog:",
+    "jose": "catalog:"
   },
   "devDependencies": {
     "@types/libsodium-wrappers": "catalog:",

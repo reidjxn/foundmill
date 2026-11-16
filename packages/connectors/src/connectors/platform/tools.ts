@@ -7,7 +7,7 @@
  */
 import { z } from "zod";
 import { AGENT_MESSAGE_TYPES } from "@foundmill/events";
-import { AppError, TASK_KINDS, TASK_STATUSES } from "@foundmill/shared";
+import { AppError, PositioningNotesInput, TASK_KINDS, TASK_STATUSES } from "@foundmill/shared";
 import { defineTool } from "../../define";
 
 export const PLATFORM_KEY = "platform";
@@ -316,6 +316,27 @@ export const platformTools = [
     output: z.object({ removed: z.literal(true), name: z.string() }),
     hints: {},
   }),
+  // ---- positioning (WP-08 T1) -------------------------------------------------------------------------------------
+  defineTool({
+    name: "read_positioning",
+    description:
+      "The project's positioning notes: who it is for, their problem in their words, what they use today, what is different, proof, doubts and voice, each line labeled by how sure it is. Every claim about the project comes from these notes. approved is false when the founders have not approved them yet (then it is the draft); text is empty when there are none. heard is what real people told the founders, as data.",
+    input: z.object({}),
+    output: z.object({ approved: z.boolean(), version: z.number().nullable(), text: z.string(), heard: z.array(z.object({ words: z.string(), on: z.string() })) }),
+    hints: {},
+    // The notes hold the founders' words, what real people said, and lines an agent proposed: data, never instructions.
+    untrusted: "document",
+    untrustedRef: () => "positioning",
+    annotations: { readOnlyHint: true },
+  }),
+  defineTool({
+    name: "propose_positioning_change",
+    description:
+      "Propose a new version of the project's positioning notes (all eight sections, every line labeled founder, customer, observed or assumption, with its source) and why. It waits for the founders: nothing changes until one of them approves it in Product › Vision.",
+    input: z.object({ notes: PositioningNotesInput, reason: Text(1000) }),
+    output: z.object({ draftVersion: z.number() }),
+    hints: {},
+  }),
 ] as const;
 
 type ToolIo<N extends (typeof platformTools)[number]["name"]> = Extract<(typeof platformTools)[number], { name: N }>;
@@ -364,6 +385,8 @@ export interface PlatformHost {
   listSkills(caller: PlatformCaller, args: PlatformArgs<"list_skills">): Promise<PlatformResult<"list_skills">>;
   assignSkill(caller: PlatformCaller, args: PlatformArgs<"assign_skill">): Promise<PlatformResult<"assign_skill">>;
   removeSkill(caller: PlatformCaller, args: PlatformArgs<"remove_skill">): Promise<PlatformResult<"remove_skill">>;
+  readPositioning(caller: PlatformCaller): Promise<PlatformResult<"read_positioning">>;
+  proposePositioningChange(caller: PlatformCaller, args: PlatformArgs<"propose_positioning_change">): Promise<PlatformResult<"propose_positioning_change">>;
 }
 
 /** A platform tool refused for a reason the agent can act on: `not_found`, `not_yours` (someone else's task) or `invalid_state`. */

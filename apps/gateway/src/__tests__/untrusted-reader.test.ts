@@ -160,7 +160,7 @@ describe("the pipeline's reader asks first and books the exact cost (buildGatewa
     vault = new LocalVault(generateMasterKey());
     const env = loadEnv({ APP_ENV: "test", INTEGRATIONS_MODE: "mock", MODEL_MODE: "live", ANTHROPIC_API_KEY: "sk-ant-platform-test", SESSION_TOKEN_SECRET: TEST_SECRET, REDIS_URL: "redis://127.0.0.1:1" });
     server = await listenGateway(buildGateway({ env, db, vault, log, registry: createTestConnector().registry, modelFetch }).app, { port: 0, host: "127.0.0.1" });
-    client = createGatewayClient({ baseUrl: server.url, serviceSecret: TEST_SECRET, serviceName: "reader-test" });
+    client = createGatewayClient({ baseUrl: server.url, serviceSecret: TEST_SECRET, serviceName: "orchestrator" });
   }, 120_000);
   afterAll(async () => {
     await server?.stop();

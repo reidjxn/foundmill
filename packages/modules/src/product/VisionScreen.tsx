@@ -16,6 +16,7 @@ import { useCanWrite } from "../env";
 import type { ModuleScreenProps } from "../registry";
 import { FoundationsBanner, VisionPanels, useFoundations } from "./foundations";
 import { PlainDoc } from "./PlainDoc";
+import { PositioningPanel } from "./PositioningPanel";
 import { PlanImportDialog } from "./plan/PlanImportDialog";
 import { pmExcerpt, pmWordCount } from "./prosemirror";
 import { computeRoadmapStatus, taskSummary } from "./roadmap-status";
@@ -82,6 +83,7 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
     <Screen name="product/vision">
       <FoundationsBanner foundations={foundations} />
       {vision ? <VisionPanels vision={vision} intro={<Explainer {...PRODUCT_EXPLAINER} className="mb-4" />} actions={importButton} /> : null}
+      <PositioningPanel />
       <Panel
         title={vision ? <>From the <Term id="specification">specification</Term></> : "Vision"}
         actions={vision ? undefined : importButton}

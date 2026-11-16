@@ -65,3 +65,4 @@ export * from "./design-check";
 export * from "./limit-address";
 export * from "./bounded-record";
 export * from "./parked-tasks";
+export * from "./positioning";

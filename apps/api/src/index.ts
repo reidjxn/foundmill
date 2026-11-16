@@ -163,6 +163,7 @@ export async function main(): Promise<void> {
   let warmer: PoolWarmer | null = null;
   let watchdog: PoolWatchdog | null = null;
   // Fetched now and refreshed in the background: no request waits for Supabase's signing keys.
+  if (deps.auth.devUserId) deps.log.warn({ userId: deps.auth.devUserId }, "DEV_AUTH_USER_ID is set: tokens are not verified (development/test only)");
   const keys: KeyRefresher | null = deps.auth.keepKeysFresh?.({ onError: (err) => deps.log.warn({ err: (err as Error)?.message }, "fetching Supabase's signing keys failed; retrying in 5 minutes (a token with an unknown key fetches them at once)") }) ?? null;
   // With SIGNUP_ALLOWLIST: is Supabase's "Confirm email" on? Read in the background; boot never waits for it.
   const confirmEmail = deps.confirmEmail?.start() ?? null;
