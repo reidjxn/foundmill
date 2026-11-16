@@ -49,3 +49,13 @@ describe("IdeaCard", () => {
     expect(lowestRating(full, true)!.key).toBe("founder_fit");
   });
 });
+
+describe("IdeaCard with a logo of its own", () => {
+  it("draws the logo image instead of the initials tile", async () => {
+    const { SAMPLE_LOGOS } = await import("../foundation/logo-samples");
+    const { container } = render(<IdeaCard card={{ name: "Sole Revival", pitch: "Sneaker cleaning." }} logo={SAMPLE_LOGOS.orbit} />);
+    const header = container.querySelector("header")!;
+    expect(header.querySelector("img")?.getAttribute("src")).toBe(SAMPLE_LOGOS.orbit);
+    expect(header.textContent).not.toContain("SR");
+  });
+});

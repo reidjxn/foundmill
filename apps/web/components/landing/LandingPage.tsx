@@ -22,7 +22,8 @@ import { Chip, DayList, GetTheApp, Icon, IdeaCard, LandingSection, PersonPage, P
 import { LEGAL_ROUTES } from "@/content/legal/facts";
 import { publicEnv } from "@/lib/env";
 import { DEFAULT_LANDING_VARIANT, type LandingVariant } from "@/lib/landing-variant";
-import { EXAMPLE_CARD, EXAMPLE_PERSON, EXAMPLE_PROJECT, EXAMPLE_STUDIO } from "./first-timer-examples";
+import { EXAMPLE_IDEAS, EXAMPLE_PERSON, EXAMPLE_PROJECT, EXAMPLE_STUDIO } from "./first-timer-examples";
+import { ExampleIdeas } from "./ExampleIdeas";
 import { SWITCHES_OFF, TOUR_ENABLED, type LandingSwitches } from "./flags";
 import { LandingHero } from "./LandingHero";
 import { SIGN_IN } from "./parts";
@@ -57,7 +58,7 @@ export function LandingPage({ variant = DEFAULT_LANDING_VARIANT, switches = SWIT
           words={{ title: V.title, lede: V.lede, label: V.label, ideas: V.ideas, surpriseOpen: V.surpriseOpen }}
           example={
             <ScreenFrame className="in-data-landed:hidden">
-              <IdeaCard card={EXAMPLE_CARD} className="world-night landing-screen-lit max-w-full" />
+              <ExampleIdeas ideas={EXAMPLE_IDEAS} cardClassName="world-night landing-screen-lit max-w-full" />
             </ScreenFrame>
           }
         />
