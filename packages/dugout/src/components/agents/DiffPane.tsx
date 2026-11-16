@@ -73,7 +73,7 @@ export function DiffPane({ files, selectedPath, onSelectPath, engine = "monaco",
     <div className={cn("flex h-full min-h-0 bg-ink", className)} data-diff-pane>
       {!hideFiles ? (
         <nav aria-label="Changed files" className="flex w-52 shrink-0 flex-col border-r border-line bg-surface-1">
-          <ul className="min-h-0 flex-1 overflow-y-auto py-1">
+          <ul tabIndex={0} aria-label="Changed files" className="focus-ring min-h-0 flex-1 overflow-y-auto py-1">
             {files.map((f) => {
               const active = f.path === file?.path;
               return (

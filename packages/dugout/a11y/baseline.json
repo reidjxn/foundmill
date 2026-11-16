@@ -1,21 +1,6 @@
 {
-  "$comment": "Accessibility violations in the stories when the axe run started (Nov 15, 2026), story id to axe rule ids. Each is owed a fix; a11y/stories.spec.ts fails on any violation not listed here and on a listed one that no longer occurs. Never add an entry to make a change pass.",
+  "$comment": "Accessibility violations in the stories, story id to axe rule ids, re-seeded on Nov 16, 2026 when the run came to main (WP-10 T7): the Nov 15 list, less what has been fixed since. Each is owed a fix; a11y/stories.spec.ts fails on any violation not listed here and on a listed one that no longer occurs. Never add an entry to make a change pass.",
   "stories": {
-    "agents-agenttile--diff": [
-      "aria-input-field-name"
-    ],
-    "agents-agenttile--empty-terminal-idle": [
-      "color-contrast"
-    ],
-    "agents-agenttile--empty-terminal-live": [
-      "color-contrast"
-    ],
-    "agents-agenttile--empty-terminal-with-goal": [
-      "color-contrast"
-    ],
-    "agents-agenttile--live": [
-      "color-contrast"
-    ],
     "agents-agenttile--preview": [
       "scrollable-region-focusable"
     ],
@@ -23,16 +8,13 @@
       "color-contrast"
     ],
     "agents-sessionscrubber--replay-blocked": [
-      "aria-allowed-attr",
-      "color-contrast"
+      "aria-allowed-attr"
     ],
     "agents-sessionscrubber--replay-done": [
-      "aria-allowed-attr",
-      "color-contrast"
+      "aria-allowed-attr"
     ],
     "agents-sessionscrubber--replay-failed": [
-      "aria-allowed-attr",
-      "color-contrast"
+      "aria-allowed-attr"
     ],
     "agents-taskgraph--empty": [
       "aria-prohibited-attr"
@@ -40,21 +22,8 @@
     "agents-taskgraph--formation": [
       "nested-interactive"
     ],
-    "agents-team-table--cells": [
-      "aria-prohibited-attr"
-    ],
     "agents-tilegrid--focused-tile": [
-      "aria-required-children",
-      "color-contrast"
-    ],
-    "agents-tilegrid--four-tiles": [
-      "color-contrast"
-    ],
-    "agents-tilegrid--single-tile": [
-      "color-contrast"
-    ],
-    "agents-tilegrid--thirty-with-overflow": [
-      "aria-allowed-role"
+      "aria-required-children"
     ],
     "agents-training--instructions-diff-mode": [
       "color-contrast"
@@ -82,9 +51,6 @@
     ],
     "data-diffview--side-by-side": [
       "color-contrast"
-    ],
-    "data-entitylink--entity-text-paragraph": [
-      "target-size"
     ],
     "data-virtuallist--short-list": [
       "list",

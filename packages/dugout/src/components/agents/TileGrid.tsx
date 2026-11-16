@@ -190,7 +190,7 @@ export function TileGrid<T extends TileGridItem>({ items, renderTile, focusedId:
         // tile grew past the region and anything below it (the replay strip) drew over its footer.
         <div role="region" aria-label={ariaLabel} className="grid min-h-0 flex-1 grid-cols-3 grid-rows-[minmax(0,1fr)] gap-2 p-2" data-layout="focused">
           <div className="col-span-2 min-h-0 min-w-0">{cell(focusedItem, 0, { focused: true, compact: false, inRail: false }, { height: "100%" })}</div>
-          <div role="list" aria-label="Other tiles" className="flex min-h-0 flex-col gap-2 overflow-y-auto">
+          <div role="list" aria-label="Other tiles" tabIndex={0} className="focus-ring flex min-h-0 flex-col gap-2 overflow-y-auto">
             {ordered.slice(1).map((item, i) => cell(item, i + 1, { focused: false, compact: true, inRail: true }, { height: railTileHeight }))}
           </div>
         </div>
