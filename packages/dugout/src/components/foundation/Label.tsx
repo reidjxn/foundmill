@@ -60,7 +60,7 @@ export interface FieldProps {
  * Label + control + hint/error stack (DESIGN §8): the label in the label style (Inter 500 12, text-2, sentence case),
  * the required mark in the accent, an optional help tip beside the label, the error with an icon so colour is never
  * the only signal. The control whose id is `htmlFor` (Input, MoneyInput, Textarea, a Select's trigger) gets
- * aria-describedby (the error, else the hint), aria-required and aria-invalid from the Field itself (`useFieldAria`).
+ * aria-describedby (the hint, then the error: an invalid field keeps its hint), aria-required and aria-invalid from the Field itself (`useFieldAria`).
  */
 export function Field({ htmlFor, label, hint, error, required, help, helpLearn, className, children }: FieldProps) {
   const hasError = Boolean(error);
@@ -93,14 +93,15 @@ export function Field({ htmlFor, label, hint, error, required, help, helpLearn, 
         labelNode
       )}
       <FieldControlContext.Provider value={control}>{children}</FieldControlContext.Provider>
+      {hint ? (
+        <p id={`${htmlFor}-hint`} className="text-small text-secondary">
+          {hint}
+        </p>
+      ) : null}
       {error ? (
         <p id={`${htmlFor}-error`} role="alert" className="flex items-start gap-1.5 text-small text-status-bad">
           <Icon icon={CircleAlert} size={13} className="mt-px" />
           <span>{error}</span>
-        </p>
-      ) : hint ? (
-        <p id={`${htmlFor}-hint`} className="text-small text-secondary">
-          {hint}
         </p>
       ) : null}
     </div>
@@ -109,6 +110,6 @@ export function Field({ htmlFor, label, hint, error, required, help, helpLearn, 
 
 /** Ids a Field renders for hint and error, for aria-describedby. */
 export function fieldDescribedBy(id: string, opts: { hint?: boolean; error?: boolean }): string | undefined {
-  const ids = [opts.error ? `${id}-error` : null, opts.hint && !opts.error ? `${id}-hint` : null].filter(Boolean);
+  const ids = [opts.hint ? `${id}-hint` : null, opts.error ? `${id}-error` : null].filter(Boolean);
   return ids.length ? ids.join(" ") : undefined;
 }

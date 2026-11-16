@@ -27,6 +27,15 @@ describe("supabase/config.toml", () => {
     assert.deepEqual(redirectUrls(text), PRODUCTION_REDIRECTS);
   });
 
+  // WP-11 T14: the four settings that keep clients off the tables and every account behind a confirmed address.
+  const section = (name) => text.split(new RegExp(`^\\[${name.replace(".", "\\.")}\\]\\s*$`, "m"))[1]?.split(/^\[/m)[0] ?? "";
+  it("keeps the Data API off, anonymous and phone sign-up off, and Confirm email on", () => {
+    assert.match(section("api"), /^enabled = false$/m);
+    assert.match(section("auth"), /^enable_anonymous_sign_ins = false$/m);
+    assert.match(section("auth.email"), /^enable_confirmations = true$/m);
+    assert.match(section("auth.sms"), /^enable_signup = false$/m);
+  });
+
   it("keeps the site address on production", () => {
     assert.match(text, /^site_url = "https:\/\/foundmill\.com"$/m);
   });

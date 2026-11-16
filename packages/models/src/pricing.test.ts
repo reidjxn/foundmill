@@ -34,11 +34,11 @@ describe("pricing and metering (BUILD §10.4)", () => {
   });
 
   it("keeps sub-cent calls exact in micro-minor units and rounds the integer form", () => {
-    const m = meter(usage(500, 0), MODELS.haiku); // $1/MTok → 500 tokens = 0.05 cents
-    expect(m.costMinor).toBeCloseTo(0.05, 9);
-    expect(m.costMicroMinor).toBe(50_000);
+    const m = meter(usage(500, 0), MODELS.haiku); // Haiku 5.5: $0.10/MTok → 500 tokens = 0.005 cents
+    expect(m.costMinor).toBeCloseTo(0.005, 9);
+    expect(m.costMicroMinor).toBe(5_000);
     expect(m.costMinorInt).toBe(0);
-    const rounded = meter(usage(0, 1_100), MODELS.haiku); // 1100 * $5/MTok = 0.55 cents → 1
+    const rounded = meter(usage(0, 11_000), MODELS.haiku); // 11,000 * $0.50/MTok = 0.55 cents → 1
     expect(rounded.costMinorInt).toBe(1);
   });
 
@@ -63,7 +63,7 @@ describe("pricing and metering (BUILD §10.4)", () => {
   });
 
   it("sums meters without rounding until the end", () => {
-    const parts = Array.from({ length: 10 }, () => meter(usage(500, 0), MODELS.haiku)); // 10 × 0.05 cents
+    const parts = Array.from({ length: 10 }, () => meter(usage(5_000, 0), MODELS.haiku)); // 10 × 0.05 cents (Haiku 5.5)
     const total = sumMeters(parts, MODELS.haiku);
     expect(total.costMicroMinor).toBe(500_000);
     expect(total.costMinor).toBeCloseTo(0.5, 9);

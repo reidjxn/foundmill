@@ -79,7 +79,7 @@ export interface CommitIdeaResult {
   departmentIds: string[];
   agentIds: string[];
   chiefOfStaffId: string;
-  /** The Chief of Staff's welcome note: the team is drafting the foundations, two sign-off notes follow (non-blocking). */
+  /** The Chief of Staff's welcome note: the team is drafting the foundations, the plan note follows (non-blocking). */
   firstItem: InboxItem;
   taskIds: string[];
   /**
@@ -153,7 +153,7 @@ export function importBoardDecision(name: string, link: ImportLink): ReturnType<
 /**
  * The Chief of Staff's welcome note at Take charge (non-blocking): who the Chief of Staff is and what is always the
  * founder's (the house rules' founder line, UX plan §7.19), the team is hired, the Product lead is drafting the
- * foundations, two sign-off notes follow, and nothing is spent on distribution until the founder starts it.
+ * foundations, the plan note follows, and nothing is spent on distribution until the founder starts it.
  */
 export function welcomeNote(input: { agents: number; departments: number; productLeadName: string | null; door: "ideation" | "import" }): { subject: string; bodyMd: string } {
   const from = input.door === "import" ? "the Import report" : "your idea and your founder profile";
@@ -163,7 +163,7 @@ export function welcomeNote(input: { agents: number; departments: number; produc
     bodyMd: [
       prompts.HOUSE_RULES_FOUNDER_LINE,
       `The team is hired: ${input.agents} agents in ${input.departments} departments.`,
-      `${who} is drafting your public page first, from ${from}: check it and put it live. The vision, the specification and the roadmap follow as two notes to sign off. Building starts when both are approved.`,
+      `${who} is drafting your public page first, from ${from}: check it and put it live. Your plan follows as one note to approve. Building starts when you approve it.`,
       "Nothing is spent on distribution until you start it from Customers › Board.",
     ].join("\n\n"),
   };

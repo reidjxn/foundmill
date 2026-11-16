@@ -111,7 +111,7 @@ test.describe("today", () => {
     await expect(timeline.locator("[data-first-week-step=days2to3]")).toHaveAttribute("data-state", "next");
     await expect(timeline.locator("[data-first-week-step=days2to3] [data-first-week-when]")).toHaveText(/^[A-Z][a-z]{2} \d{1,2} – \d{1,2} \(Estimate\)$/);
     await expect(timeline.locator("[data-first-week-step=week1]")).toContainText("Ready to start selling?");
-    await expect(timeline.locator("[data-first-week-step=day1]")).toContainText("sign off the specification and the roadmap");
+    await expect(timeline.locator("[data-first-week-step=day1]")).toContainText("approve your plan");
 
     // An empty area tab says what will fill it and when, not a bare "No leads".
     await page.goto(`/b/${bid}/d/distribution/leads`);
@@ -125,9 +125,9 @@ test.describe("today", () => {
     await expect(goal).toHaveAttribute("data-goal", "waiting", { timeout: LONG });
     await expect(goal).toContainText("Your Chief of Staff proposes a goal after the first round of work.");
 
-    // Needs you: the two sign-offs, each answered in one tap with its own option (no plan compiler).
+    // Needs you: the one plan note (WP-04 T5), answered in one tap (no plan compiler).
     const needs = page.getByTestId("needs-you");
-    for (const label of ["Approve the specification", "Approve the roadmap"]) {
+    for (const label of ["Approve the plan"]) {
       await untilOnToday(page, bid, async () => {
         await expect(needs.getByRole("button", { name: label })).toBeVisible({ timeout: 10_000 });
       });
@@ -137,7 +137,7 @@ test.describe("today", () => {
       await expect(needs.getByRole("button", { name: label })).toHaveCount(0, { timeout: LONG });
     }
 
-    // Both sign-offs answered: Day 1 still asks for the page (package 1.3). The Product lead's note waits in Needs you;
+    // The plan approved: Day 1 still asks for the page (package 1.3). The Product lead's note waits in Needs you;
     // its one tap opens Product › Public page, where the founder publishes the team's draft.
     await untilOnToday(page, bid, async () => {
       await expect(timeline.locator("[data-first-week-step=day1]")).toContainText("You are asked to publish your page.", { timeout: 10_000 });

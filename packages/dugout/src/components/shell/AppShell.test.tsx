@@ -52,6 +52,7 @@ describe("AppShell", () => {
       expect(screen.queryByTestId("needs-larger-window")).toBeNull();
       const root = screen.getByTestId("app-shell");
       expect(root.hasAttribute("data-phone")).toBe(true);
+      expect(root.className, "outer type on a phone (WP-10 T5)").toContain("type-outer");
       expect(root.className).toContain("@container");
       expect(root.className).not.toContain("min-w-(--min-viewport)");
       expect(screen.getByTestId("phone-bar")).toBeTruthy();

@@ -355,8 +355,8 @@ export { DEMO_OWNER_DISPLAY_NAME, test, expect };
 
 /**
  * Take charge from the Commit screen the caller is on: lands on the new business's Today, its front door (founder,
- * 2026-11-07; the Chief of Staff's welcome note is in the Inbox; the foundations draft in the background and two
- * sign-off notes follow).
+ * 2026-11-07; the Chief of Staff's welcome note is in the Inbox; the foundations draft in the background and the plan
+ * note follows).
  */
 export async function takeChargeToToday(page: Page, name: string): Promise<{ bid: string }> {
   await expect(page.getByTestId("commit-form")).toBeVisible({ timeout: LONG });
@@ -371,8 +371,8 @@ export async function takeChargeToToday(page: Page, name: string): Promise<{ bid
 /** The name the specs used while Home was the front door; it lands on Today now. */
 export const takeChargeToHome = takeChargeToToday;
 
-export const SPEC_SIGNOFF = "Sign off the product specification";
-export const ROADMAP_SIGNOFF = "Sign off the product roadmap";
+/** The one plan note (WP-04 T5, `PLAN_READY_NOTE.subject`): the specification and roadmap rounds are answered from it. */
+export const PLAN_NOTE = "Your plan is ready";
 
 /** The Inbox row of a note by its subject. */
 export function inboxRow(page: Page, subject: string | RegExp): Locator {
@@ -426,10 +426,9 @@ export async function approveFromInbox(page: Page, bid: string, subject: string)
   await expect(page.getByTestId("answered-panel")).toBeVisible({ timeout: LONG });
 }
 
-/** Both sign-offs approved from the Inbox: the build starts (Development › Plan gets its first tasks). */
-export async function approveBothSignoffs(page: Page, bid: string): Promise<void> {
-  await approveFromInbox(page, bid, SPEC_SIGNOFF);
-  await approveFromInbox(page, bid, ROADMAP_SIGNOFF);
+/** The plan approved from the Inbox in one press: the build starts (Development › Plan gets its first tasks). */
+export async function approvePlan(page: Page, bid: string): Promise<void> {
+  await approveFromInbox(page, bid, PLAN_NOTE);
   // In the project's first week the Product lead's "Building starts: …" is folded into the Chief of Staff's note of the
   // day (WP-04 T8); the update itself is kept in Archive.
   await expect(inboxRow(page, "What your team did today")).toBeVisible({ timeout: LONG });

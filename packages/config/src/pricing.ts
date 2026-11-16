@@ -132,6 +132,30 @@ export function tierShowsBuiltOnMark(tier: TierKey): boolean {
   return tier === "free";
 }
 
+/**
+ * Whether a business on `tier` gets the full set of models on Foundmill's key (founder, Nov 16, 2026; WP-13): only a
+ * paid plan. A tier is paid when it has a price, "TBD" included; `assertTierAvailable` (apps/api) keeps those out of
+ * production until a plan can be bought. A credit top-up never makes a tier paid.
+ */
+export function tierIsPaid(tier: TierKey): boolean {
+  return TIERS[tier].priceMonthly !== null;
+}
+
+/** Who pays for a model call (packages/models `ModelFunding`, the same three values). */
+export type ModelFundingKind = "paid_plan" | "free_plan" | "own_key";
+
+/**
+ * Who pays for a model call (WP-13): the business's own Anthropic key when it has one; a paid plan, every model on
+ * Foundmill's key; everyone else the free plan (Haiku 5.5 on Foundmill's key, and GLM-5.3 Flash for agent sessions):
+ * a free project, a person with no project (pass the highest tier among the projects they own, `businessAllowance`)
+ * and a visitor who is signed out (`planTier: null`).
+ */
+export function modelFundingFor(input: { planTier: TierKey | null; modelBilling: "credits" | "byok" | null }): ModelFundingKind {
+  if (input.modelBilling === "byok") return "own_key";
+  if (input.planTier !== null && tierIsPaid(input.planTier)) return "paid_plan";
+  return "free_plan";
+}
+
 /** The higher of two tiers. */
 export function higherTier(a: TierKey, b: TierKey): TierKey {
   return TIER_ORDER.indexOf(a) >= TIER_ORDER.indexOf(b) ? a : b;

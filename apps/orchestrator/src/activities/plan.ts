@@ -20,7 +20,7 @@ import { getTemplate, getTemplateByAgentType, type AgentTemplate } from "@foundm
 import { changeAgentModels, hireFromTemplate, repos, type Agent, type Business, type Entity, type PlanAction as PlanActionRow } from "@foundmill/db";
 import { PRICING_CURRENCY, resolveRoadmapItem, roadmapPatchFrom, SetAgentModelParams, UpdateRoadmapParams } from "@foundmill/models";
 import { agentPrincipal, evaluate, type ToolCtxInput } from "@foundmill/policy";
-import { CHANNEL_KEYS, CHANNEL_META, CreatePlaybookParams, MODEL_KEYS, TASK_KINDS, type ChannelKey, type ModelKey, type PlanActionType, type PolicyOutcome, type TaskKind } from "@foundmill/shared";
+import { CHANNEL_KEYS, CHANNEL_META, CHOOSABLE_MODEL_KEYS, CreatePlaybookParams, TASK_KINDS, type ChannelKey, type ModelKey, type PlanActionType, type PolicyOutcome, type TaskKind } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 import type { GatewayCallResponse } from "../gateway-client";
@@ -54,7 +54,7 @@ export const HARD_GATE_ACTIONS: ReadonlySet<PlanActionType> = new Set<PlanAction
 
 const isChannelKey = (v: unknown): v is ChannelKey => typeof v === "string" && (CHANNEL_KEYS as readonly string[]).includes(v);
 const isTaskKind = (v: unknown): v is TaskKind => typeof v === "string" && (TASK_KINDS as readonly string[]).includes(v);
-const isModelKey = (v: unknown): v is ModelKey => typeof v === "string" && (MODEL_KEYS as readonly string[]).includes(v);
+const isModelKey = (v: unknown): v is ModelKey => typeof v === "string" && (CHOOSABLE_MODEL_KEYS as readonly string[]).includes(v);
 const str = (v: unknown, fallback = ""): string => (typeof v === "string" && v.trim() ? v : fallback);
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? Math.round(v) : null);
 

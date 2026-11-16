@@ -32,3 +32,16 @@ describe("Field help", () => {
     expect(screen.getByRole("textbox").getAttribute("aria-describedby")).toBe("biz-hint");
   });
 });
+
+describe("Field hint and error (WP-10 T5)", () => {
+  it("an invalid field keeps its hint", () => {
+    render(
+      <Field htmlFor="cap" label="Spend line" hint="Per action, before it asks you" error="Enter an amount">
+        <Input id="cap" />
+      </Field>,
+    );
+    expect(document.getElementById("cap-hint")?.textContent).toBe("Per action, before it asks you");
+    expect(document.getElementById("cap-error")?.textContent).toContain("Enter an amount");
+    expect(screen.getByRole("textbox", { name: "Spend line" }).getAttribute("aria-describedby")).toBe("cap-hint cap-error");
+  });
+});

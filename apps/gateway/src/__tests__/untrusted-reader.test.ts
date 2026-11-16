@@ -189,7 +189,7 @@ describe("the pipeline's reader asks first and books the exact cost (buildGatewa
     const [row] = await readerRows(d);
     expect(row).toMatchObject({ billedTo: "credits", agentId: d.agentId, details: { service: "gateway", kind: "quarantined_reader" } });
     expect(Number(row!.costMicroMinor)).toBe(meter({ inputTokens: 6_000, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 }, resolveModel("quarantinedReader").modelId).costMicroMinor);
-    expect(Number(row!.costMicroMinor)).toBe(600_000);
+    expect(Number(row!.costMicroMinor)).toBe(60_000); // 6,000 tokens at Haiku 5.5's $0.10 per 1M: 0.06 cents
   });
 
   it("a business on its own key pays for the pipeline's reader on that key, even with no credits left", async () => {

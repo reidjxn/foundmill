@@ -48,6 +48,10 @@ const Env = z.object({
   /** Every Node service: time from SIGTERM to exit, draining requests, sockets and workers; keep below railway.toml `drainingSeconds`. */
   SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(600_000).catch(45_000).default(45_000),
   ANTHROPIC_API_KEY: z.string().optional(),
+  /** Foundmill's Z.ai key: GLM-5.3 Flash for every account not on a paid plan (WP-13). Unset: free calls are refused. */
+  ZAI_API_KEY: z.string().optional(),
+  /** The month's ceiling on the platform's Z.ai spend, in US cents (founder, Nov 16, 2026: $600). Read by WP-13 T6. */
+  ZAI_MONTHLY_CAP_CENTS: z.coerce.number().int().min(0).max(10_000_000).default(60_000),
   VOYAGE_API_KEY: z.string().optional(),
   /** apps/gateway: the platform key behind the `openai_images` connector (AI-generated faces of anthropomorphic agents). */
   OPENAI_API_KEY: z.string().optional(),

@@ -63,6 +63,11 @@ export interface CompleteRequest<T = unknown> {
   /** Put a prompt-cache breakpoint on the system blocks (BUILD §10.4: brief + instructions are cached). */
   cacheSystem?: boolean;
   /** Per-agent model choice (BUILD §11.10 "Model selection"); subject to the route's lock/warn rules. */
+  /**
+   * The account is not on a paid plan: the call runs on Haiku 5.5 whatever the route (`ResolveOptions.freePlan`). Set by
+   * the free-plan gate (`enforceModelFunding`), never by a caller.
+   */
+  freePlan?: boolean;
   modelOverride?: ModelKey;
   /**
    * The business's credits are low (credit saver): a routine route runs on its lower-cost model (`ROUTES[route].lowCredits`,
