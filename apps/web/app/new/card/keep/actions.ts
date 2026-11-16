@@ -29,7 +29,11 @@ export async function keepCard(studio: boolean, form: FormData): Promise<void> {
   const res = await server.api.ideaBox.claim.mutate({ token, claim: typeof claim === "string" && claim ? claim : null }).catch(() => null);
   await clearIdeaCookie();
   if (!res) redirect("/start");
-  redirect(studio ? "/new/ideate" : `/new/card/${res.ideaId}`);
+  if (!studio) redirect(`/new/card/${res.ideaId}`);
+  // The Studio. Without a profile, the three questions first and on to the Studio from there (`onboardingNext` takes
+  // `/new/ideate`): decided here, not by the Studio page, which on a phone shows only the larger-window notice.
+  const profile = await server.api.founder.profile.get.query().catch(() => null);
+  redirect(profile && !(profile.complete && profile.adultConfirmed) ? `/onboarding?next=${encodeURIComponent("/new/ideate")}` : "/new/ideate");
 }
 
 export async function notMine(): Promise<void> {

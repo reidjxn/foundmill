@@ -21,8 +21,10 @@ The founder, Nov 16, 2026: after an idea is generated the page "looks bad" (a 36
 - The two choices go through sign-in with the claim token (`keepHref(claim, "build" | "studio")`). "Start building it
   now" is the existing thread (`/start` → `/new/card/keep` → `/new/card/<id>` → three questions → Commit). "Shape it
   in the Ideation Studio" adds `then=studio`: `/start` passes it to `/new/card/keep`, whose `keepCard` (now bound with
-  the intent) opens `/new/ideate` after the press. `/new/ideate` with no profile sends to
-  `/onboarding?next=/new/ideate`; `onboardingNext` accepts `/new/ideate` exactly.
+  the intent) opens `/new/ideate` after the press; for an account with no profile yet it sends to
+  `/onboarding?next=/new/ideate` itself (on a phone the Studio page shows only the larger-window notice, so its own
+  redirect would never run). `onboardingNext` accepts `/new/ideate` exactly. `/new/ideate` opened directly with no
+  profile still sends to plain `/onboarding` (the gate `onboarding.spec.ts` checks).
 - Redraws left: the card event gains `redrawsLeft` (`packages/shared`). `RateLimitStore` gains `peek(entry)`, read-only (memory: the sliding window's peek; Redis: a ZCOUNT script, memory while Redis is down). `cardEvent` reads it for a new card, a redraw and `/idea-box/mine`.
 - Copy: the lead under the choices is "Either way, you sign in first so the idea stays yours. Foundmill lets new
   people in a few at a time. If your place is not open yet, we keep your idea for 90 days, and you can shape it in the
