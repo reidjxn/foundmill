@@ -43,6 +43,13 @@ The policy's modes are augmented, assisted and automated; Autopilot (the schedul
 ### Plan previews
 The orchestrator's plan evaluation (`activities/plan.ts`) does not pass the powers, so a preview in automated mode says an invoice will ask even with the power on. The gateway's decision is the one that counts. Left as it is to stay out of the orchestrator; a one-line follow-up if previews matter.
 
+### Security review (security-reviewer agent)
+No hard-gate bypass; outbound tools stay hard gates in every mode, and only owners and admins set the power.
+- **Medium, fixed:** an agent could report a large amount on `create_invoice`. That routed the approval as `spend_above_threshold`, which the founder may have handed to an agent in Team › Responsibilities, so the invoice ran without the founder. `decisionTypeFor` now returns no decision type for a payment record, so the founder decides. The gateway test covers it, and fails without the fix.
+- **Low, accepted:** an agent the founder set to automated autonomy of its own, in a business on another mode, also uses the power when it is on. Only the founder sets that override, and it is what they chose for that agent.
+- **Low, fixed:** the vacation dialog says the choice stays after the founder returns, and where to change it.
+- **Plan previews:** no plan action uses a Stripe tool, and the gateway decides when the step runs.
+
 ## Not done
 - `pnpm evals` was not run.
 - The migration number may change when this opens: no new migration merges until #238 is in (the planning session's order).

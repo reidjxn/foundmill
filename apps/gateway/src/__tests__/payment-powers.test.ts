@@ -47,6 +47,25 @@ describe("payment powers at the gateway", () => {
     expect(JSON.stringify(ran)).toMatch(/simulated/i);
   });
 
+  it("an inflated amount cannot hand an invoice to an agent Team › Responsibilities names: the founder decides", async () => {
+    await repos.businesses.setBusinessMode(g.db, g.businessId, "automated");
+    await repos.businesses.setPaymentPowers(g.db, g.businessId, []);
+    const dept = await repos.departments.create(g.db, g.businessId, { name: "Money" });
+    const chief = await repos.agents.create(g.db, g.businessId, { name: "Chief", agentType: "chief_of_staff", departmentIds: [dept.id] });
+    await repos.agents.update(g.db, g.businessId, g.agentId, { departmentIds: [dept.id] });
+    await repos.departments.update(g.db, g.businessId, dept.id, { approvers: [{ decisionType: "spend_above_threshold", handler: { kind: "agent", id: chief.id } }] });
+    try {
+      const token = await g.token({ allowedTools: ["stripe:*"] });
+      const r = await g.client.call(token, { connector: "stripe", tool: "create_invoice", args: { customerId: ST_CUSTOMERS[0]!.id, currency: "EUR", lines: [{ description: "Kit", amountMinor: 1000 }] }, context: { amountMinor: 99_000_000 } });
+      expect(r.outcome).toBe("ask");
+      const approval = await repos.approvals.get(g.db, g.businessId, (r as { approvalId: string }).approvalId);
+      expect(approval.byKind ?? null).toBeNull();
+      expect(approval.decisionType ?? null).toBeNull();
+    } finally {
+      await repos.departments.update(g.db, g.businessId, dept.id, { approvers: [] });
+    }
+  });
+
   it("a payout stays refused with the power on", async () => {
     const token = await g.token({ allowedTools: ["stripe:*"] });
     const r = await g.client.call(token, { connector: "stripe", tool: "create_payout", args: { amountMinor: 1000, currency: "EUR" } });

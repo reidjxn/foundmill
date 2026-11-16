@@ -241,7 +241,7 @@ export function HolidayDialog({ open, onOpenChange, currency, today = new Date()
               <Checkbox id={`${id}-inbound-payments`} checked={inboundPayments} onCheckedChange={(c) => setInboundPayments(c === true)} data-testid="holiday-inbound-payments" />
               <label htmlFor={`${id}-inbound-payments`} className="text-body text-primary">
                 Agents may create invoices and payment links without asking
-                <span className="block text-small text-secondary">Money only comes in this way. Nothing is ever paid out, refunded or transferred without you.</span>
+                <span className="block text-small text-secondary">Money only comes in this way. Nothing is ever paid out, refunded or transferred without you. Your choice stays after you return; change it in Settings › What the team can do.</span>
               </label>
             </div>
           </fieldset>

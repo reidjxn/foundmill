@@ -815,6 +815,9 @@ function decisionTypeFor(loaded: Loaded, req: CallRequestParsed, decision: Evalu
   const hints = loaded.connector.policyHints[loaded.tool.name] ?? {};
   // A merge is a merge whatever its amount: checked before the spend threshold, so a merge carrying an amount is not routed as spend.
   if (loaded.connector.key === "github" && loaded.tool.name === "merge_pr") return "merge_to_main" as const;
+  // An invoice or payment page is the founder's to approve (founder, Nov 16, 2026): never routed as spend, so an agent
+  // reporting a large amount cannot hand it to an agent the Responsibilities matrix names.
+  if (toolAttributes(loaded.connector.key, loaded.tool.name).paymentRecord) return null;
   if (decision.policyIds.some((id) => id.endsWith("above-threshold")) || (hints.spendsMoney && (req.context.amountMinor ?? 0) > 0)) return "spend_above_threshold" as const;
   if (toolAttributes(loaded.connector.key, loaded.tool.name).contract || loaded.connector.key === "dropbox_sign") return "sign_contracts" as const;
   if (hints.contactsThirdParty) return "message_customers" as const;
