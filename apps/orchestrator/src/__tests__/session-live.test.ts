@@ -16,7 +16,7 @@ import os from "node:os";
 import path from "node:path";
 import { BYOK_CREDENTIAL_KIND, modelBudgetState, openApprovalItem, periodOf, repos, resumeBusinessAgents, workspaceSnapshots } from "@foundmill/db";
 import { readSessionEvents } from "@foundmill/events";
-import { meter, type ModelId } from "@foundmill/models";
+import { meter, MODEL_ENDPOINTS, MODELS, type ModelId } from "@foundmill/models";
 import { LONG_LIVED_NAME_PATTERNS, parseSandboxSpec, type Sandbox, type SandboxProvider, type SandboxSpecInput } from "@foundmill/sandbox";
 import { buildAad, createVault, encryptJson, generateMasterKey } from "@foundmill/shared/crypto";
 import { MockActivityEnvironment } from "@temporalio/testing";
@@ -28,7 +28,7 @@ import { makeToolContext } from "@foundmill/connectors/testing/contract-suite";
 import { MIN_SESSION_CAP_MINOR } from "../cycle-contract";
 import { UNDER_FLOOR_SUMMARY } from "../activities/session-budget";
 import { openAgentSession } from "../activities/dispatch";
-import { ACCEPTANCE_BRIEF, ACCEPTANCE_EGRESS, ACCEPTANCE_FALLBACK_COMMAND, ACCEPTANCE_UNMET_REASON, ACCEPTANCE_RUN_LOG, classifyTurnEnd, createSessionActivities, lastAttemptNote, NO_CHANGES_REASON, NOT_VERIFIED_NOTE, SANDBOX_TTL_MINUTES } from "../activities/session";
+import { ACCEPTANCE_BRIEF, ACCEPTANCE_EGRESS, ACCEPTANCE_FALLBACK_COMMAND, ACCEPTANCE_UNMET_REASON, ACCEPTANCE_RUN_LOG, classifyTurnEnd, createSessionActivities, FREE_PLAN_SWITCH_NOTE, freeSessionModel, lastAttemptNote, NO_CHANGES_REASON, NOT_VERIFIED_NOTE, SANDBOX_TTL_MINUTES } from "../activities/session";
 import { SessionDrain } from "../drain";
 import { emitEvent } from "../events";
 import type { SessionResult } from "../activities/types";
@@ -155,6 +155,8 @@ const previousEnv = { ...process.env };
 
 beforeAll(async () => {
   t = await setupOrchestratorHarness({ prefix: "live" });
+  // These tests cover a paid plan's sessions; a free business runs every session on the free plan's model (WP-13 T4).
+  await repos.businesses.update(t.db, t.businessId, { planTier: "pro" });
   workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "fm-live-ws-"));
   provider = fakeSandboxProvider();
   Object.assign(process.env, SECRET_HOST_ENV);
@@ -2516,5 +2518,74 @@ describe("not connected: the agent is told, and a hopeless session does not star
     } finally {
       await t.h.pg.query("update businesses set is_demo = false where id = $1", [t.businessId]);
     }
+  });
+});
+
+describe("runAgentSession (live runner): a free business's session (WP-13 T4)", () => {
+  const ZAI_KEY = "zai-test-key-" + "z".repeat(32);
+  let glmActs: ReturnType<typeof createSessionActivities>;
+  beforeAll(() => {
+    glmActs = createSessionActivities({ ...liveDeps, env: { ...liveDeps.env, ZAI_API_KEY: ZAI_KEY, FREE_SESSION_MODEL: "glm" } });
+  });
+  beforeEach(async () => {
+    await resumeBusinessAgents(t.db, t.businessId);
+    await repos.agents.setStatus(t.db, t.businessId, t.workerId, "idle");
+    await repos.businesses.update(t.db, t.businessId, { planTier: "free", modelBilling: "credits" });
+  });
+  afterEach(async () => {
+    await repos.businesses.update(t.db, t.businessId, { planTier: "pro" });
+  });
+  const start = async (activities: ReturnType<typeof createSessionActivities>, budgetMinor?: number) => {
+    const task = await repos.tasks.create(t.db, t.businessId, { kind: "research", title: `Free ${budgetMinor ?? "session"}`, goalMd: "Find suppliers.", assigneeAgentId: t.workerId, status: "ready", ...(budgetMinor ? { budgetMinor, currency: "USD" } : {}) });
+    const sessionId = await openSessionRow(t, t.workerId, task.id);
+    const input = { businessId: t.businessId, agentId: t.workerId, taskId: task.id, sessionId };
+    return { sessionId, input, launch: await activities.prepareSession(input) };
+  };
+  const glmUsage = (inputTokens: number, outputTokens: number) => ({ [MODELS.glm]: { inputTokens, outputTokens, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: 9.99 } });
+
+  it("runs on Z.ai's endpoint, every model slot on GLM, the key as a bearer token, no SDK budget, priced at GLM's own price", async () => {
+    const { sessionId, input, launch } = await start(glmActs);
+    expect(launch).toMatchObject({ modelKey: "glm", modelId: MODELS.glm, freePlan: true });
+    calls.length = 0;
+    script = async function* (call) {
+      await promptsOf(call).next();
+      yield { type: "system", subtype: "init", session_id: `sdk-${sessionId}` };
+      yield { type: "assistant", message: { id: "g1", model: MODELS.glm, content: [{ type: "text", text: "Done." }], usage: { input_tokens: 2_000, output_tokens: 400 } } };
+      yield* reported();
+      yield { type: "result", subtype: "success", modelUsage: glmUsage(2_000, 400) };
+    };
+    const result = await glmActs.runAgentSession(input, launch);
+    const options = calls[0]!.options as { model: string; maxBudgetUsd?: number; env: Record<string, string> };
+    expect(options.model).toBe(MODELS.glm);
+    expect(options.maxBudgetUsd).toBeUndefined();
+    expect(options.env).toMatchObject({ ANTHROPIC_BASE_URL: MODEL_ENDPOINTS.zai.baseURL, ANTHROPIC_AUTH_TOKEN: ZAI_KEY, ANTHROPIC_DEFAULT_OPUS_MODEL: MODELS.glm, ANTHROPIC_DEFAULT_SONNET_MODEL: MODELS.glm, ANTHROPIC_DEFAULT_HAIKU_MODEL: MODELS.glm, ANTHROPIC_SMALL_FAST_MODEL: MODELS.glm, CLAUDE_CODE_SUBAGENT_MODEL: MODELS.glm });
+    expect(options.env.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(JSON.stringify(options.env)).not.toContain(MODEL_KEY);
+    // The SDK's own costUSD (9.99) is not used: 2,000 in and 400 out at GLM's list price.
+    expect(result.costMicroMinor).toBe(meter({ inputTokens: 2_000, outputTokens: 400, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 }, MODELS.glm).costMicroMinor);
+  });
+
+  it("stops at its budget from its own metered cost, blocked on the budget", async () => {
+    const { sessionId, input, launch } = await start(glmActs, 2);
+    calls.length = 0;
+    script = async function* (call) {
+      await promptsOf(call).next();
+      yield { type: "system", subtype: "init", session_id: `sdk-${sessionId}` };
+      // 200,000 in and 10,000 out at GLM's price is 3.5 cents, over the task's 2-cent budget.
+      yield { type: "assistant", message: { id: "g2", model: MODELS.glm, content: [{ type: "text", text: "Reading everything." }], usage: { input_tokens: 200_000, output_tokens: 10_000 } } };
+      yield { type: "result", subtype: "success", modelUsage: glmUsage(200_000, 10_000) };
+    };
+    const result = await glmActs.runAgentSession(input, launch);
+    expect(result).toMatchObject({ outcome: "blocked", blockedReason: "budget" });
+    expect(interrupts.length).toBeGreaterThan(0);
+  });
+
+  it("runs on Haiku 5.5 on the platform key by default, and refuses a switch to Opus", async () => {
+    const { launch } = await start(acts);
+    expect(launch).toMatchObject({ modelKey: "haiku", modelId: MODELS.haiku, freePlan: true });
+    expect(freeSessionModel("worker", "opus", { FREE_SESSION_MODEL: "glm" }).modelKey).toBe("haiku");
+    expect(freeSessionModel("worker", "glm", { FREE_SESSION_MODEL: "haiku", ZAI_API_KEY: "k" }).modelKey).toBe("glm");
+    expect(freeSessionModel("worker", "opus", { FREE_SESSION_MODEL: "glm", ZAI_API_KEY: "k" }).modelKey).toBe("glm");
+    expect(FREE_PLAN_SWITCH_NOTE).toMatch(/paid plan/);
   });
 });

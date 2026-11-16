@@ -224,6 +224,8 @@ export interface SessionLaunch {
   fellBackFrom: string | null;
   modelKey: ModelKey;
   modelId: string;
+  /** The business is not on a paid plan (WP-13): the session runs on Haiku 5.5 or GLM-5.3 Flash, and stays on it. */
+  freePlan?: boolean;
   /**
    * The credit saver moved this launch to its route's lower-cost model (`prepareSession`). Only such a launch is moved
    * back up by a later run (`keptModelForRun`); a launch prepared before the field existed has none.

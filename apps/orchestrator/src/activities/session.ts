@@ -32,11 +32,11 @@ import { promises as fs, type Dirent } from "node:fs";
 import path from "node:path";
 import type { Query } from "@anthropic-ai/claude-agent-sdk";
 import { AgentInstructions, buildSystemPrompt, docText, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, restoredWorkspaceNote, roleSkillsFor, ToolGrant, type AgentSkillPrompt, type AgentTemplate } from "@foundmill/agents";
-import { APP_NAME, CREDITS_CURRENCY, sandboxCostMicroMinor } from "@foundmill/config";
+import { APP_NAME, CREDITS_CURRENCY, modelFundingFor, sandboxCostMicroMinor } from "@foundmill/config";
 import { AcceptanceResult, acceptanceLines, ALWAYS_LIVE_CONNECTORS, BUILTIN_CONNECTOR_FACTORIES, channelAvailabilityFacts, CONNECTOR_FACTORIES, firstChannelToOpen, resolveGrants, toolKeys, unmetAcceptanceLines, unusableConnectors, type AcceptanceResultT, type ToolUse } from "@foundmill/connectors";
 import { bookUsage, buildDestinationOf, checkPlatformCredits, closeApprovalItem, loadByokApiKey, MICRO_PER_MINOR, repos, signoffDecisionBlock, type Agent, type AgentVersion, type Approval, type Business, type Task } from "@foundmill/db";
 import { publishSessionEvent, readSessionEvents, type SessionEvent, type SessionEventInput } from "@foundmill/events";
-import { meter, MODEL_PRICING, resolveModel, type ModelId, type RouteKey } from "@foundmill/models";
+import { meter, MODEL_ENDPOINTS, MODEL_PRICING, MODEL_PROVIDER, MODELS, resolveModel, type ModelId, type ModelKey as RoutedModelKey, type RouteKey } from "@foundmill/models";
 import { assertNoLongLivedCredentials, capturePages, MockSandbox, MockSandboxProvider, RECORDINGS, redactCredentialValues, stableHash32, type Sandbox, type SandboxSpecInput } from "@foundmill/sandbox";
 import { CHANNEL_KEYS, CHANNEL_META, channelEngineMayRun, channelTeamRuns, isUuid, mockResultsAllowed, noChannelSentence, type AgentStatus, type BuildDestination, type ChannelKey, type DesignCheckResult, type DesignShotRef, type ModelKey, type TaskStatus } from "@foundmill/shared";
 import { channelAvailabilityFor } from "./channel-availability";
@@ -254,7 +254,31 @@ interface SdkAssistantUsage {
  * a zeroed crash result never lowers them). Assistant messages since the last result are estimated from their own
  * `usage` at list price (the last usage seen per message id counts), so a turn cut short by a stop, a loop or a crash
  * is still booked.
+ *
+ * A model that is not Anthropic's (GLM-5.3 Flash on Z.ai, WP-13) is priced from its tokens at Foundmill's list price:
+ * the SDK does not know its price and reports an Opus-class `costUSD` for it (measured Nov 16, 2026: 35 times GLM's).
  */
+/** What a free session says when someone asks it to move to a Claude model (WP-13). */
+export const FREE_PLAN_SWITCH_NOTE = "On the free plan this session stays on its model. Claude models come with a paid plan, or with your own Anthropic key.";
+
+/**
+ * The model a free business's session runs on (WP-13; founder, Nov 16, 2026): the agent's own choice when it is one of
+ * the free plan's two (Haiku 5.5 or GLM-5.3 Flash), else `FREE_SESSION_MODEL`. GLM needs Foundmill's Z.ai key; without it
+ * the session runs on Haiku 5.5.
+ */
+export function freeSessionModel(route: RouteKey, agentModel: RoutedModelKey, env: { FREE_SESSION_MODEL: "haiku" | "glm"; ZAI_API_KEY?: string }) {
+  const chosen = agentModel === "glm" || agentModel === "haiku" ? agentModel : env.FREE_SESSION_MODEL;
+  return chosen === "glm" && env.ZAI_API_KEY ? resolveModel(route, "glm") : resolveModel(route, undefined, { freePlan: true });
+}
+
+const MODEL_KEY_OF_ID = new Map<string, RoutedModelKey>((Object.entries(MODELS) as [RoutedModelKey, string][]).map(([key, id]) => [id, key]));
+
+/** Whether the SDK's own `costUSD` is right for this model: an Anthropic model, or one this platform does not price. */
+function pricedBySdk(modelId: string): boolean {
+  const key = MODEL_KEY_OF_ID.get(modelId);
+  return !key || MODEL_PROVIDER[key] === "anthropic";
+}
+
 export class SessionUsage {
   private settled: UsageTotals = { tokensIn: 0, tokensOut: 0, costMinor: 0 };
   private readonly open = new Map<string, UsageTotals>();
@@ -268,10 +292,10 @@ export class SessionUsage {
 
   onResult(modelUsage: Record<string, SdkModelUsage> | null | undefined): void {
     const latest: UsageTotals = { tokensIn: 0, tokensOut: 0, costMinor: 0 };
-    for (const u of Object.values(modelUsage ?? {})) {
+    for (const [modelId, u] of Object.entries(modelUsage ?? {})) {
       latest.tokensIn += u.inputTokens + u.cacheReadInputTokens + u.cacheCreationInputTokens;
       latest.tokensOut += u.outputTokens;
-      latest.costMinor += u.costUSD * 100;
+      latest.costMinor += pricedBySdk(modelId) ? u.costUSD * 100 : meter({ inputTokens: u.inputTokens, outputTokens: u.outputTokens, cacheCreationInputTokens: u.cacheCreationInputTokens, cacheReadInputTokens: u.cacheReadInputTokens }, modelId as ModelId).costMinor;
     }
     this.settled = { tokensIn: Math.max(this.settled.tokensIn, latest.tokensIn), tokensOut: Math.max(this.settled.tokensOut, latest.tokensOut), costMinor: Math.max(this.settled.costMinor, latest.costMinor) };
     this.open.clear();
@@ -795,7 +819,9 @@ export function createSessionActivities(deps: OrchestratorDeps) {
    * blocked with reason `credential` instead of quietly spending the platform's credits, as the gateway refuses tool
    * calls with `key-revoked`. Everyone else runs on the platform key.
    */
-  async function resolveApiKey(businessId: string, billing: "byok" | "credits"): Promise<{ apiKey: string | null; source: "byok" | "platform" | "none" }> {
+  async function resolveApiKey(businessId: string, billing: "byok" | "credits", modelKey?: ModelKey): Promise<{ apiKey: string | null; source: "byok" | "platform" | "none" }> {
+    // A free session on GLM runs on Foundmill's Z.ai key (WP-13): `prepareSession` chose it for a business not on a paid plan.
+    if (modelKey && MODEL_PROVIDER[modelKey] === "zai") return deps.env.ZAI_API_KEY ? { apiKey: deps.env.ZAI_API_KEY, source: "platform" } : { apiKey: null, source: "none" };
     if (billing === "byok") {
       if (!deps.vault) {
         deps.log.warn({ businessId }, "business runs on its own key but this service has no vault; session blocked");
@@ -856,8 +882,10 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       const { provider, mode, fellBackFrom } = await deps.sandbox();
       // The credit saver: a session on the platform key whose month's credits are low runs routine work on the route's
       // lower-cost model, unless its tools reach outside the business or spend money, or it does money or legal work.
-      const lowCredits = business.modelBilling !== "byok" && !sessionKeepsModelOnLowCredits({ module: template.module, toolRefs: grants.toolRefs }) && (await checkPlatformCredits(deps.db, input.businessId, { live: mode !== "mock", now: deps.clock.now() })).low;
-      const model = resolveModel(route, agent.modelKey, { lowCredits });
+      // Who pays decides the model (WP-13): a business not on a paid plan runs its sessions on the free plan's session model.
+      const freePlan = modelFundingFor({ planTier: business.planTier, modelBilling: business.modelBilling }) === "free_plan";
+      const lowCredits = !freePlan && business.modelBilling !== "byok" && !sessionKeepsModelOnLowCredits({ module: template.module, toolRefs: grants.toolRefs }) && (await checkPlatformCredits(deps.db, input.businessId, { live: mode !== "mock", now: deps.clock.now() })).low;
+      const model = freePlan ? freeSessionModel(route, agent.modelKey, deps.env) : resolveModel(route, agent.modelKey, { lowCredits });
       // AC-11.6.6: the sandbox environment is asserted before anything is created.
       const env = buildSandboxEnv({ businessId: input.businessId, agentId: agent.id, taskId: task.id, sessionId: input.sessionId, gatewayUrl: deps.gateway.baseUrl });
       const pool = provider instanceof MockSandboxProvider ? provider.recordings : RECORDINGS;
@@ -870,6 +898,7 @@ export function createSessionActivities(deps: OrchestratorDeps) {
         modelKey: model.modelKey,
         lowCredits: model.lowCredits === true,
         modelId: model.modelId,
+        ...(freePlan ? { freePlan: true } : {}),
         recordingKey,
         allowedTools: grants.toolRefs,
         mcpConnectors: grants.servers,
@@ -1431,7 +1460,7 @@ interface LiveContext {
   /** The agent's skills from the library or files (`buildSystemPrompt` renders them after the instructions). */
   skills: AgentSkillPrompt[];
   briefText: string | null;
-  resolveApiKey: (businessId: string, billing: "byok" | "credits") => Promise<{ apiKey: string | null; source: "byok" | "platform" | "none" }>;
+  resolveApiKey: (businessId: string, billing: "byok" | "credits", modelKey?: ModelKey) => Promise<{ apiKey: string | null; source: "byok" | "platform" | "none" }>;
   /** The sandbox's short-lived identifiers (`buildSandboxEnv`); the SDK process receives the same and nothing from the host. */
   sandboxEnv: Record<string, string>;
   /** Creates and starts a sandbox: a live session needs one only for its acceptance run, so it is created then. */
@@ -1475,7 +1504,7 @@ class PromptQueue {
 }
 
 /** Why a live run ends before the agent is done: Stop or a cancel, a detected loop, a park, an undecided approval, used-up credits, or a hand-off to the next worker. */
-type LiveEnding = "stop" | "loop" | "park" | "approval_timeout" | "budget" | "handoff";
+type LiveEnding = "stop" | "loop" | "park" | "approval_timeout" | "budget" | "task_budget" | "handoff";
 
 const PAUSE_CUT_TURN = "The founder paused the session mid-step and has now resumed it. Continue the task from where you stopped.";
 
@@ -1555,7 +1584,8 @@ export function classifyTurnEnd(result: SdkTurnResult, apiError: { kind: string 
 
 async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder, ctx: RunnerContext, live: LiveContext): Promise<RunOutcome> {
   const { input, launch, task, agent } = ctx;
-  const key = await live.resolveApiKey(input.businessId, live.business.modelBilling);
+  // A free session runs on the platform's key (Anthropic for Haiku 5.5, Z.ai for GLM) whatever the business's billing.
+  const key = await live.resolveApiKey(input.businessId, launch.freePlan ? "credits" : live.business.modelBilling, launch.modelKey);
   if (!key.apiKey) {
     const reason = live.business.modelBilling === "byok" ? "no live Anthropic key for this business: set one in Settings → Keys" : "no Anthropic key: connect one in Settings or set the platform key";
     return { outcome: "blocked", reason, blockedReason: "credential", approvalId: null, summary: "Blocked: no model credential.", providerSessionId: null };
@@ -1585,6 +1615,8 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   // platform key pays, and what is left of the agent's wage cap and the business's monthly model budget (either key).
   // A task with nothing left does not start.
   const budget = await sessionBudget(deps, { business: live.business, task, agentId: agent.id, sessionId: input.sessionId, spendCapMinor: input.spendCapMinor ?? null });
+  // A session on a provider other than Anthropic is held to its budget by this runner, not by the SDK (WP-13 T4).
+  const ownBudget = MODEL_PROVIDER[launch.modelKey] !== "anthropic";
   if (budget.remainingMinor <= 0) return { outcome: "blocked", reason: `model budget exhausted: ${LIMIT_WORDS[budget.limit].used}`, blockedReason: "budget", approvalId: null, summary: budgetSummary(budget.limit, budget), providerSessionId: null };
   // A share of a capped cycle under the floor pays for nothing that finishes (WP-05 T15): it does not start.
   if (typeof input.spendCapMinor === "number" && input.spendCapMinor < MIN_SESSION_CAP_MINOR) return { outcome: "blocked", reason: "model budget exhausted: what is left of Autopilot's own spend for today is too little for a session", blockedReason: "budget", approvalId: null, summary: UNDER_FLOOR_SUMMARY, providerSessionId: null };
@@ -1747,6 +1779,10 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
    * priced and booked on it (audit O-27). A route locked to one model refuses the change and says so.
    */
   const switchModel = async (modelKey: ModelKey, at: string) => {
+    if (launch.freePlan) {
+      await recorder.publishRaw({ kind: "note", at, source: "system", level: "warn", text: FREE_PLAN_SWITCH_NOTE });
+      return;
+    }
     const model = resolveModel(live.template.route, modelKey);
     if (model.modelKey !== modelKey) {
       await recorder.publishRaw({ kind: "note", at, source: "system", level: "warn", text: model.warning ?? `This work stays on ${model.modelKey}.` });
@@ -1803,6 +1839,10 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     queue.close(true);
     abortTimer = setTimeout(() => abort.abort(), SDK_STOP_GRACE_MS);
     await interruptTurn();
+  };
+  /** A session on another provider stops at its budget here, priced at Foundmill's list price (WP-13 T4). */
+  const checkOwnBudget = async () => {
+    if (!ending && ownBudget && recorder.usage.totals().costMinor >= Math.min(budget.maxUsd, credits?.maxBudgetUsd ?? Number.POSITIVE_INFINITY) * 100) await end("task_budget");
   };
   const endForCredits = async () => {
     if (ending) return;
@@ -1884,6 +1924,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     }
     // Mid-turn too, the session books what it spent and stops once the credits are used up (SEC2 S2).
     if (!ending && !inputDone && credits?.due() && (await credits.settle(recorder.usage.totals())) === "exhausted") await endForCredits();
+    await checkOwnBudget();
   };
 
   const loop = controlLoop(deps, input.sessionId, tick, () => recorder.beatDetails({ paused }));
@@ -2024,7 +2065,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   };
   try {
     send(taskPrompt);
-    const env = sdkEnvFor({ cwd, apiKey: key.apiKey, sessionToken: token.token, sandboxEnv: live.sandboxEnv });
+    const env = sdkEnvFor({ cwd, apiKey: key.apiKey, sessionToken: token.token, sandboxEnv: live.sandboxEnv, ...(ownBudget ? { endpoint: { baseURL: MODEL_ENDPOINTS.zai.baseURL, modelId: launch.modelId } } : {}) });
     q = sdk.query({
       prompt: queue.messages(),
       options: {
@@ -2039,7 +2080,9 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
         // The SDK itself stops past this (its result is `error_max_budget_usd`, see classifyTurnEnd): the task's budget
         // and, on the platform key, what the credits allowed at launch (SEC2 S2), whichever is less; `budget` also holds what is
         // left of the agent's wage cap and the monthly model budget (audit #15).
-        maxBudgetUsd: Math.min(budget.maxUsd, credits?.maxBudgetUsd ?? Number.POSITIVE_INFINITY),
+        // A session on another provider is held to the same line by this runner instead (`ownBudget`): the SDK prices a
+        // model it does not know at Opus-class rates and would stop it far too early.
+        ...(ownBudget ? {} : { maxBudgetUsd: Math.min(budget.maxUsd, credits?.maxBudgetUsd ?? Number.POSITIVE_INFINITY) }),
         env,
         // No host settings, CLAUDE.md, hooks or permission rules from the orchestrator's file system, and no MCP server
         // but the gateway's (a `.mcp.json` in the workspace is ignored).
@@ -2074,6 +2117,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
         if (message.type === "system" && message.subtype === "init") sdkSessionId = message.session_id;
         if (message.type === "assistant") {
           recorder.usage.onAssistant(message.message);
+          await checkOwnBudget();
           if (message.error) {
             // A refused API call the CLI reports as an assistant message ("Credit balance is too low"): the provider's
             // words, never the agent's. The turn's result says how the session ends.
@@ -2169,6 +2213,10 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     if (how === "loop") {
       holdBack = "the session stopped on a loop";
       return { outcome: "failed", reason: "loop detected: the same tool call repeated three times in a row", blockedReason: "loop_detected", approvalId: null, summary: "Stopped after a detected loop.", providerSessionId: sdkSessionId, ...usageNow() };
+    }
+    if (how === "task_budget") {
+      holdBack = "the session's budget ran out";
+      return { outcome: "blocked", reason: `model budget exhausted: the session spent ${LIMIT_WORDS[budget.limit].spent}`, blockedReason: "budget", approvalId: null, summary: budgetSummary(budget.limit, budget), providerSessionId: sdkSessionId, ...usageNow() };
     }
     if (how === "budget") {
       holdBack = "this month's credits ran out";

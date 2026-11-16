@@ -56,6 +56,11 @@ const Env = z.object({
    * search included (founder, Nov 16, 2026: $600). Free work slows at 80% and is held at 100% (WP-13 T6).
    */
   FREE_PLAN_MONTHLY_CAP_CENTS: z.coerce.number().int().min(0).max(10_000_000).default(60_000),
+  /**
+   * The model a free business's agent sessions run on unless the agent is set to one of the two (WP-13; founder,
+   * Nov 16, 2026): GLM-5.3 Flash once a measured session costs about $0.019 or less (T8), Haiku 5.5 until then.
+   */
+  FREE_SESSION_MODEL: z.enum(["haiku", "glm"]).default("haiku"),
   VOYAGE_API_KEY: z.string().optional(),
   /** apps/gateway: the platform key behind the `openai_images` connector (AI-generated faces of anthropomorphic agents). */
   OPENAI_API_KEY: z.string().optional(),
