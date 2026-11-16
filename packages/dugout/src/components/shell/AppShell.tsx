@@ -414,7 +414,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
             data-game-mode={mode}
             data-chord-pending={chordPending || undefined}
             data-coachmark-pause={coachmarkPause || undefined}
-            className={cn("@container flex h-dvh w-full min-w-0 flex-col overflow-hidden canvas-lit text-primary", className)}
+            className={cn("@container flex h-dvh w-full min-w-0 flex-col overflow-hidden canvas-lit text-primary type-outer", className)}
             style={rootStyle}
             {...rest}
           >

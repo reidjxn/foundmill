@@ -1222,14 +1222,18 @@
 }
 /* The SPEC focus ring (1 px accent + 4 px halo) on keyboard focus, in place of the outline. */
 @utility focus-ring {
+  /* A transparent outline under the shadow: invisible normally, drawn by forced-colors mode (which drops shadows). */
   &:focus-visible {
-    outline: none;
+    outline: 2px solid transparent;
+    outline-offset: 2px;
     box-shadow: var(--ring);
   }
 }
 /* Fields: the wrapper lights when anything inside has focus. */
 @utility focus-within-ring {
   &:focus-within {
+    outline: 2px solid transparent;
+    outline-offset: 2px;
     box-shadow:
       inset 0 0 0 1px color-mix(in oklab, var(--accent) 70%, transparent),
       0 0 0 4px color-mix(in oklab, var(--accent) 14%, transparent),
@@ -1263,6 +1267,27 @@
   .glass {
     forced-color-adjust: none;
   }
+}
+/* Outer type (DESIGN §4): the root of a page read on a phone. Larger body, labels and inputs (16 px, so iOS does not
+   zoom on focus); the structure tokens are untouched. */
+@utility type-outer {
+  --fs-body: 16px;
+  --lh-body: 24px;
+  --fs-small: 14px;
+  --lh-small: 20px;
+  --fs-reading: 17px;
+  --lh-reading: 28px;
+  --ls-reading: 0em;
+  --fs-label: 14px;
+  --lh-label: 20px;
+  --fs-action: 15px;
+  --lh-action: 20px;
+  --fs-title: 16px;
+  --lh-title: 22px;
+  --fs-chat: 16px;
+  --lh-chat: 24px;
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
 }
 /* A header rule that fades out to the right (panel headers, sidebar groups). */
 @utility rule-fade {
