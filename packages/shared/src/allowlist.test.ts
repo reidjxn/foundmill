@@ -32,11 +32,18 @@ describe("signupMode and the live channels' check (THESIS_REVIEW 2.2)", () => {
     const lookup = async (id: string) => (asked.push(id), admitted.has(id));
     expect(await liveChannelAdmit({}, null, lookup)({ userId: "anyone", email: null })).toBe(true);
     const check = liveChannelAdmit({ SIGNUP_ALLOWLIST: "listed@example.com" }, DEV, lookup);
-    expect(await check({ userId: "x", email: "Listed@Example.com" })).toBe(true);
+    expect(await check({ userId: "x", email: "Listed@Example.com", emailConfirmed: true })).toBe(true);
     expect(await check({ userId: DEV, email: null })).toBe(true);
     expect(asked).toEqual([]);
     expect(await check({ userId: "in", email: "other@example.com" })).toBe(true);
     expect(await check({ userId: "out", email: "other@example.com" })).toBe(false);
     expect(await liveChannelAdmit({ SIGNUP_OPEN: "1" }, null, () => Promise.reject(new Error("db down")))({ userId: "in", email: null })).toBe(false);
+  });
+
+  it("trusts a listed address only when the token shows its holder controls it, as the api does", async () => {
+    const check = liveChannelAdmit({ SIGNUP_ALLOWLIST: "listed@example.com" }, null, async () => false);
+    expect(await check({ userId: "x", email: "listed@example.com", emailConfirmed: false })).toBe(false);
+    expect(await check({ userId: "x", email: "listed@example.com" })).toBe(false);
+    expect(await check({ userId: "x", email: "listed@example.com", emailConfirmed: true })).toBe(true);
   });
 });
