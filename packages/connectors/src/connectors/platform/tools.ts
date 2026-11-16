@@ -180,15 +180,15 @@ export const platformTools = [
     name: "create_entity",
     description:
       "Record a supplier, lab or contact you found in the business's records (Customers), with the page it was found on. A record with the same name and kind is returned, not duplicated. It writes inside the project only: it contacts no one. Put no email address or phone number in the name.",
-    input: z.object({ kind: z.enum(["person", "organisation"]), name: Text(200), role: z.enum(["supplier", "lab", "contact"]), sourceUrl: z.url({ protocol: /^https?$/ }), note: z.string().trim().max(500).optional() }),
-    output: z.object({ entityId: z.string(), created: z.boolean() }),
+    input: z.object({ kind: z.enum(["person", "organisation"]), name: Text(120).regex(/^[^[\]|<>@]+$/, "a name has no brackets, bars, angle brackets or @"), role: z.enum(["supplier", "lab", "contact"]), sourceUrl: z.url({ protocol: /^https?$/ }), note: z.string().trim().max(500).optional() }),
+    output: z.object({ entityId: z.string(), created: z.boolean(), simulated: z.literal(true).optional(), notice: z.string().optional() }),
     hints: {},
   }),
   defineTool({
     name: "log_interaction",
     description: "Add a short note to a record's history in Customers (what you found or learned about it), optionally with the page it came from. It writes inside the project only: it contacts no one.",
     input: z.object({ entityId: Id, summary: Text(1000), sourceUrl: z.url({ protocol: /^https?$/ }).optional() }),
-    output: z.object({ interactionId: z.string() }),
+    output: z.object({ interactionId: z.string(), simulated: z.literal(true).optional(), notice: z.string().optional() }),
     hints: {},
   }),
   defineTool({

@@ -106,6 +106,7 @@ describe("platform CRM records", () => {
   it("validates the input and keeps one business's records from another", async () => {
     expect((await as(A)("create_entity", { ...supplier, role: "customer" })).error).toMatchObject({ code: "invalid_args" });
     expect((await as(A)("create_entity", { ...supplier, sourceUrl: "not a url" })).error).toMatchObject({ code: "invalid_args" });
+    expect((await as(A)("create_entity", { ...supplier, name: "Evil [[ent:x|Co]]" })).error).toMatchObject({ code: "invalid_args" });
     const { entityId } = ok<{ entityId: string }>(await as(A)("create_entity", supplier));
     expect((await as(B)("log_interaction", { entityId, summary: "Not yours." })).error).toMatchObject({ code: "not_found" });
     expect(connector.policyHints.create_entity).toEqual({});

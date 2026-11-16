@@ -69,9 +69,32 @@ describe("create_entity and log_interaction", () => {
 
   it("an agent of another business cannot read or write this business's records", async () => {
     const { entityId } = await host().createEntity(a, supplier);
+    await expect(host().logInteraction(b, { entityId, summary: "Not yours." })).rejects.toMatchObject({ code: "not_found" });
     await expect(host().logInteraction(b, { entityId, summary: "Not yours." })).rejects.toBeInstanceOf(PlatformToolError);
     expect((await host().createEntity(b, supplier)).entityId).not.toBe(entityId);
     expect((await repos.entities.listInteractions(db, a.businessId, { entityId, limit: 10 })).items.some((i) => i.summary === "Not yours.")).toBe(false);
+  });
+
+  it("two calls at once make one record, and a second role is added to it", async () => {
+    const same = { ...supplier, name: "Parallel Cups Ltd" };
+    const [x, y] = await Promise.all([host().createEntity(a, same), host().createEntity(a, same)]);
+    expect(x.entityId).toBe(y.entityId);
+    expect([x.created, y.created].sort()).toEqual([false, true]);
+    await host().createEntity(a, { ...same, role: "lab" });
+    expect((await repos.entities.listRoles(db, a.businessId, x.entityId)).map((r) => r.role).sort()).toEqual(["lab", "supplier"]);
+  });
+
+  it("a record made on simulated sources is marked simulated and says so; contact details in any field are refused", async () => {
+    const made = await host().createEntity(simulated, { ...supplier, name: "Invented Cups Co" });
+    expect(made).toMatchObject({ created: true, simulated: true });
+    expect(made.notice).toMatch(/^Simulated/);
+    expect((await repos.entities.get(db, simulated.businessId, made.entityId)).source).toBe("agent research (simulated)");
+    await expect(host().createEntity(simulated, { ...supplier, name: "Other Cups Co", note: "sales@cups.example" })).rejects.toMatchObject({ code: "invalid_state" });
+    await expect(host().createEntity(simulated, { ...supplier, name: "Third Cups Co", note: "sales [at] cups dot example" })).rejects.toMatchObject({ code: "invalid_state" });
+    // A date is not a phone number.
+    expect((await host().logInteraction(simulated, { entityId: made.entityId, summary: "Quote valid until 2026-12-01." })).simulated).toBe(true);
+    // Nothing marks a record made on real sources.
+    expect(await host().createEntity(a, { ...supplier, name: "Real Cups Co" })).not.toHaveProperty("simulated");
   });
 
   it("refuses an email address or phone number when the session's sources were simulated, and allows them otherwise", async () => {
