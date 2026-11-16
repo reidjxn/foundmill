@@ -67,9 +67,9 @@ Rules for every task here (docs/holistic-plan/README.md applies in full):
 | [ ] | T8 `bak_20261013` and the production schema check | S | F3, WP-00 S16 (founder) |
 | [ ] | T9 Demo data out of every cross-project number | S | F3 |
 | [ ] | T10 Measure the api under 100 Today loads | M | F3, F4 |
-| [ ] | T11 Gateway: who may mint what; a tool without hints is refused | S | |
+| [x] | T11 Gateway: who may mint what; a tool without hints is refused | S | |
 | [ ] | T12 An api-only service token secret | M | F5 |
-| [ ] | T13 One JWT verifier for the api and the stream | M | |
+| [x] | T13 One JWT verifier for the api and the stream | M | |
 | [ ] | T14 Supabase settings: declared and watched | S | WP-00 S10 |
 | [ ] | T15 ingest: bounded webhook bodies; mail routes on `/health` | S | WP-00 S2 |
 | [ ] | T16 Account export and closing, by request | M | F6 |
@@ -352,7 +352,7 @@ Steps:
 Tests: `scripts/load-today.test.mjs` (`percentile` on known arrays; `--users 25,50,100` parses; a bearer passed as an argument is refused). The runs themselves are measurements, recorded, not asserted in CI.
 Done when: both runs and the limits are in DEPLOY §3, and each row that applied has a merged change or a line saying why not.
 
-### T11: Gateway: who may mint what; a tool without hints is refused            [size S] [ships alone] Review: security-reviewer
+### [x] T11: Gateway: who may mint what; a tool without hints is refused            [size S] [ships alone] Review: security-reviewer
 Why: A7-15, A7-16, SEC-17. `POST /v1/session-tokens` (`apps/gateway/src/app.ts`) accepts any `svc` and copies `allowedTools` and `kitMode` from the request; `buildPolicyInput` (`apps/gateway/src/pipeline.ts`) reads `connector.policyHints[tool.name] ?? {}`, so a tool with no entry counts as internal: every hint false, allowed in every mode.
 Files: modify `apps/gateway/src/app.ts`, `apps/gateway/src/pipeline.ts`, `packages/connectors/src/testing/contract-suite.ts`, `apps/gateway/src/__tests__/service-routes.test.ts`, `apps/gateway/src/__tests__/policy-hardening.test.ts`, `apps/gateway/CLAUDE.md`, docs/DECISIONS.md.
 Interfaces: consumes `MintSessionTokenRequest` (`apps/gateway/src/types.ts`), `ServiceToken.svc`, `GatewayError(code, message, status)`, `McpToolDefinition.annotations.readOnlyHint`, `PolicyHint`. Produces:
@@ -384,7 +384,7 @@ Steps:
 Tests: `tokens.test.ts` (the table of step 1); `scripts/env-example.test.mjs`; the api's gateway-client suites (`apps/api/src/__tests__/gateway-double.ts` users) unchanged.
 Done when: after F5, a token signed with `SESSION_TOKEN_SECRET` that claims `svc: "api"` gets 401 from the gateway.
 
-### T13: One JWT verifier for the api and the stream            [size M] [ships alone] Review: security-reviewer
+### [x] T13: One JWT verifier for the api and the stream            [size M] [ships alone] Review: security-reviewer
 Why: A8-12, A8-24, a11 S5, a11 S24. `apps/api/src/auth.ts` refuses password-only sessions and computes `emailConfirmed`; `apps/stream/src/auth.ts` is an older copy that does neither, so a listed address opens a socket without the confirmed-address rule.
 Files: create `packages/shared/src/auth-verifier.ts`, `packages/shared/src/auth-verifier.test.ts`; modify `packages/shared/package.json` (`"jose": "catalog:"`, already in the catalog), `apps/api/src/auth.ts` (re-export, no logic), `apps/stream/src/auth.ts` (a wrapper that keeps `StreamAuthError`; its unused `audience` option goes if `grep -rn "audience:" apps/stream/src` shows no caller passing one), `packages/shared/src/allowlist.ts`, `packages/shared/src/allowlist.test.ts`, `apps/stream/src/index.ts`, `apps/stream/src/server.ts`, `apps/stream/src/__tests__/auth.test.ts`.
 Interfaces: moved unchanged from `apps/api/src/auth.ts`: `createAuthVerifier(opts: AuthVerifierOptions): AuthVerifier`, `AuthUser`, `AuthError`, `supabaseJwks`, `parseDevToken`, `bearerToken`, `emailConfirmedFromPayload`, `passwordOnlyFromPayload`, `googleVerifiedFromPayload`, `authenticatedAtFromPayload`, `SIGN_IN_METHODS`, `JWKS_REFRESH_MS`, `JWKS_CACHE_MAX_AGE_MS`. Changed: `AuthVerifierOptions` gains `nodeEnv?: string` (default `process.env.NODE_ENV`); the dev bypass needs `appEnv` development or test and `nodeEnv !== "production"`; `jwtVerify` always gets `requiredClaims: ["exp"]`; `keepKeysFresh` unchanged. `liveChannelAdmit(env, devUserId, isAdmitted)` returns a function over `{ userId: string; email: string | null; emailConfirmed?: boolean }`, and a listed address admits only when `emailConfirmed === true`, the rule of `isAdmittedNow` (`apps/api/src/services/access.ts`).
