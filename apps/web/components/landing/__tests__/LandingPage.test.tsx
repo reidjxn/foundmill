@@ -60,7 +60,7 @@ describe("LandingPage (signed-out /, DIRECTION §3)", () => {
     const hero = document.getElementById("hero")!;
     // Four examples to switch between, Northwind Skincare first (founder, 2026-11-16).
     const example = within(hero).getByRole("figure", { name: "Example" });
-    expect(within(example).getAllByRole("radio").map((r) => r.textContent)).toEqual(["Northwind Skincare", "Sole Revival", "Tutorlane", "Glitchwick"]);
+    expect(within(example).getAllByRole("radio").map((r) => r.textContent)).toEqual(["Northwind", "Sole Revival", "Tutorlane", "Glitchwick"]);
     expect(example.querySelector("[data-idea-name]")!.textContent).toBe("Northwind Skincare");
     const result = document.getElementById("result")!;
     expect(within(result).getByRole("heading", { level: 2 }).textContent).toBe(W.result.title);
