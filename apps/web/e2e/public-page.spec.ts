@@ -87,7 +87,8 @@ async function expectPublicPage(page: Page, pagePath: string, width: number, sho
 
 test.describe("public page", () => {
   test("write it, preview it at phone width, publish it after a confirmation, open it signed out at 390 and 1280 px, take it down", async ({ page, browser }) => {
-    test.setTimeout(240_000);
+    // Four widths of a published page, each now with an axe run (WP-10 T7).
+    test.setTimeout(360_000);
     const bid = await commitThrowaway(page, `Doorstep Bikes ${Date.now().toString(36)}`);
 
     // Today (packages 1.2 and 1.3): the team drafted the page first, and the Product lead's note asks for it in Needs you;

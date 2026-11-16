@@ -418,11 +418,12 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
             style={rootStyle}
             {...rest}
           >
+            {/* The page's header (banner): the skip link, the bar, the title and the tabs, so every one of them is inside a
+                landmark (axe "region" at 390 px, WP-10 T7). The skip link stays the first thing Tab reaches. */}
+            <header className="flex shrink-0 flex-col" data-testid="shell-header">
             <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded-panel focus:bg-panel-alt focus:px-2 focus:py-1">
               Skip to content
             </a>
-            {/* The page's header (banner): the bar, the title and the tabs, so every one of them is inside a landmark. */}
-            <header className="flex shrink-0 flex-col" data-testid="shell-header">
             <PhoneBar
               kit={kit}
               logoSrc={logoSrc}
