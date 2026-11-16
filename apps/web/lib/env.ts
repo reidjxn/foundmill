@@ -2,6 +2,8 @@
  * Public environment of the web bundle (docs/ARCHITECTURE.md §3: the browser only sees NEXT_PUBLIC_*).
  * Every variable is referenced literally so Next.js can inline it; next.config.ts supplies the fallbacks.
  */
+import { parseStoreLinks, type StoreLinks } from "@foundmill/config/app-links";
+
 export type PublicAppEnv = "development" | "test" | "staging" | "production";
 
 export interface PublicEnv {
@@ -23,6 +25,11 @@ export interface PublicEnv {
   authGoogle: boolean;
   /** NEXT_PUBLIC_TURNSTILE_SITE_KEY: Cloudflare Turnstile's site key for the bot check of the idea box and the Follow form on public pages; empty uses the mock token (development stacks only). */
   turnstileSiteKey: string;
+  /**
+   * NEXT_PUBLIC_STORE_LINKS: the native app's store links (`parseStoreLinks`, @foundmill/config), the one value every
+   * "Get the app" prompt reads. Null until the app launches, and for any value that is not an App Store or Google Play link.
+   */
+  storeLinks: StoreLinks | null;
 }
 
 const APP_ENVS: readonly PublicAppEnv[] = ["development", "test", "staging", "production"];
@@ -47,6 +54,7 @@ export function parsePublicEnv(raw: Record<string, string | undefined>): PublicE
     appUrl: trimSlash(raw.NEXT_PUBLIC_APP_URL ?? ""),
     authGoogle: raw.NEXT_PUBLIC_AUTH_GOOGLE?.trim().toLowerCase() === "on",
     turnstileSiteKey: raw.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim() ?? "",
+    storeLinks: parseStoreLinks(raw.NEXT_PUBLIC_STORE_LINKS),
   };
 }
 
@@ -67,6 +75,7 @@ export function publicEnv(): PublicEnv {
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
     NEXT_PUBLIC_AUTH_GOOGLE: process.env.NEXT_PUBLIC_AUTH_GOOGLE,
     NEXT_PUBLIC_TURNSTILE_SITE_KEY: process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
+    NEXT_PUBLIC_STORE_LINKS: process.env.NEXT_PUBLIC_STORE_LINKS,
   });
   return cached;
 }

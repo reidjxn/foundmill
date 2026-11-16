@@ -27,6 +27,15 @@ describe("public env", () => {
     expect(simulatePanelAvailable({ appEnv: "production" })).toBe(false);
   });
 
+  it("reads the store links from the one value: null until it is set (WP-03 T9)", () => {
+    expect(parsePublicEnv({}).storeLinks).toBeNull();
+    expect(parsePublicEnv({ NEXT_PUBLIC_STORE_LINKS: "" }).storeLinks).toBeNull();
+    expect(parsePublicEnv({ NEXT_PUBLIC_STORE_LINKS: "https://example.com/app" }).storeLinks).toBeNull();
+    const ios = "https://apps.apple.com/us/app/foundmill/id1234567890";
+    const android = "https://play.google.com/store/apps/details?id=com.foundmill.app";
+    expect(parsePublicEnv({ NEXT_PUBLIC_STORE_LINKS: `${android},${ios}` }).storeLinks).toEqual({ ios, android });
+  });
+
   it("detects a configured Supabase", () => {
     expect(hasSupabase(parsePublicEnv({ NEXT_PUBLIC_SUPABASE_URL: "https://x.supabase.co", NEXT_PUBLIC_SUPABASE_ANON_KEY: "anon" }))).toBe(true);
   });

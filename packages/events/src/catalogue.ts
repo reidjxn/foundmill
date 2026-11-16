@@ -381,6 +381,11 @@ const taskCompleted = declareEvent(
      * business answered simulated): the founder's note says so and never narrates them as real.
      */
     simulated: z.boolean().default(false),
+    /**
+     * Where a code task's work stayed when it reached no repository (WP-05 T8): `saved_only` when the project had no
+     * repository to push to, or pushing was off. The work is kept with the task and no merge is offered for it.
+     */
+    landed: z.enum(["saved_only"]).nullable().default(null),
   }),
   {
     doc: "A task passed its acceptance tests and review (or ended partially complete). The Update inbox item links the PR, preview and session replay.",

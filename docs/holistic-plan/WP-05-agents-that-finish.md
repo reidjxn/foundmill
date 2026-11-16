@@ -190,7 +190,7 @@ Steps:
 Tests and evals: `narrate.test.ts`; a case in `evals/src/composer.ts` "a report's finding is quoted, a simulated report is called simulated"; the Playwright case.
 Done when: the note for a finished research task says what was found, and one click shows all of it.
 
-### T8: A code task with nowhere to push still finishes, and says so [M] [session.ts chain 4] [needs D3]
+### [x] T8: A code task with nowhere to push still finishes, and says so [M] [session.ts chain 4] [needs D3]
 Why: A4-01 short-term fix.
 Files:
 - modify `apps/orchestrator/src/activities/session.ts` (`finishSession`, `:960-1034`), `packages/events/src/catalogue.ts` (+ fixtures), `packages/modules/src/development/founder-views.tsx`, `EnvironmentsScreen.tsx`;

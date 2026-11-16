@@ -153,6 +153,8 @@ export interface MergedPrRow {
   deletions?: number;
   filesChanged?: number;
   url?: string | null;
+  /** `saved_only`: the task finished with nowhere to push (WP-05 T8), so it is saved with the task and not live anywhere. */
+  landed?: "saved_only" | null;
 }
 
 /* dev.deployments.list (the business's `deploy.succeeded` events, newest first) */
