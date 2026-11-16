@@ -249,7 +249,7 @@ export type SessionOutcome = "done" | "blocked" | "failed" | "stopped";
 export interface SessionResult {
   outcome: SessionOutcome;
   reason: string | null;
-  blockedReason: "awaiting_approval" | "approval_rejected" | "dependency" | "credential" | "budget" | "rate_limit" | "loop_detected" | "error" | "shout" | "stopped" | "needs_update" | "no_result" | "not_connected" | null;
+  blockedReason: "awaiting_approval" | "approval_rejected" | "dependency" | "credential" | "budget" | "rate_limit" | "turn_limit" | "loop_detected" | "error" | "shout" | "stopped" | "needs_update" | "no_result" | "not_connected" | null;
   approvalId: string | null;
   progress: ProgressState;
   eventsEmitted: number;
