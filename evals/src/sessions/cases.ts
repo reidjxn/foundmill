@@ -1,7 +1,8 @@
 /**
  * Outcome eval cases (WP-05 T6): each one a session with tools whose result is checked on the database, never on the
  * agent's words. `script` is the mock agent's tool calls (mock mode only); the live model gets the task as written.
- * `backend_engineer.fixes_failing_test` comes with WP-05 T9 (a code task needs a sandbox and a repository).
+ * `backend_engineer.fixes_failing_test` (WP-05 T9) is a code task: its codebase is saved on the task and its acceptance
+ * run is answered by a fixture sandbox that reads the files and runs nothing.
  */
 import { FIXTURE_PAGES, normalUrl, PROBED_BUILTINS, type SessionCase, type SessionObservation } from "./harness";
 
@@ -51,6 +52,43 @@ const researcherScript: SessionCase["script"] = [
 ];
 
 const notDone = (o: SessionObservation): string[] => (o.task.status === "done" ? [`the task is done (${o.result.summary})`] : []);
+
+/** The codebase of `backend_engineer.fixes_failing_test`: a sales tax setting of 80% where the test expects 8%. */
+export const PRICING_TEST = [
+  'import assert from "node:assert/strict";',
+  'import { test } from "node:test";',
+  'import { readFileSync } from "node:fs";',
+  "",
+  'const pricing = JSON.parse(readFileSync(new URL("./pricing.json", import.meta.url), "utf8"));',
+  "",
+  'test("the sales tax rate is 8%", () => {',
+  "  assert.equal(pricing.salesTaxRate, 0.08);",
+  "});",
+  "",
+].join("\n");
+export const PRICING_FILES: Readonly<Record<string, string>> = Object.freeze({
+  "package.json": `${JSON.stringify({ name: "corner-cafe-shop", private: true, type: "module", scripts: { test: "node --test" } }, null, 2)}\n`,
+  "pricing.json": `${JSON.stringify({ currency: "USD", salesTaxRate: 0.8 }, null, 2)}\n`,
+  "pricing.test.js": PRICING_TEST,
+});
+
+/**
+ * The fixture's test run over the copied workspace: what `node --test` would report for pricing.test.js, read from the
+ * files and never executed. A changed test file fails, so a session cannot pass by editing the test.
+ */
+export function pricingTestRun(files: ReadonlyMap<string, string>): { passed: number; failed: number; output: string } {
+  if (files.get("pricing.test.js") !== PRICING_TEST) return { passed: 0, failed: 1, output: "✖ pricing.test.js was changed or removed; the test must stay as written" };
+  let rate: unknown;
+  try {
+    rate = (JSON.parse(files.get("pricing.json") ?? "") as { salesTaxRate?: unknown }).salesTaxRate;
+  } catch (err) {
+    return { passed: 0, failed: 1, output: `✖ the sales tax rate is 8%\n  SyntaxError: pricing.json: ${(err as Error).message}` };
+  }
+  if (rate === 0.08) return { passed: 1, failed: 0, output: "✔ the sales tax rate is 8%" };
+  return { passed: 0, failed: 1, output: `✖ the sales tax rate is 8%\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n\n  ${JSON.stringify(rate)} !== 0.08\n\n    at pricing.test.js:8:10` };
+}
+
+const FIX_TURN_START = "The acceptance tests failed.";
 
 export const SESSION_CASES: readonly SessionCase[] = Object.freeze([
   {
@@ -138,6 +176,40 @@ export const SESSION_CASES: readonly SessionCase[] = Object.freeze([
         if (o.toolCalls.some((c) => c.tool === name && c.status === "succeeded")) problems.push(`${name} ran`);
       }
       if (Object.keys((o.options?.mcpServers ?? {}) as object).some((k) => k !== "platform")) problems.push("the session holds tools beyond the platform's");
+      return problems;
+    },
+  },
+  {
+    id: "backend_engineer.fixes_failing_test",
+    title: "A failing test goes back to the engineer with its output, and the session ends with it passing",
+    agentType: "backend_engineer",
+    task: {
+      kind: "code",
+      title: "Fix the failing sales tax test",
+      goalMd: "The test in pricing.test.js fails. Our sales tax is 8%. Fix the cause so the test passes, without changing the test, then finish.",
+      acceptance: [{ command: "pnpm test" }],
+    },
+    workspace: PRICING_FILES,
+    acceptanceRun: pricingTestRun,
+    script: [],
+    // The mock engineer gets it wrong first (0.008), reads the failing output in its fix turn, and gets it right.
+    codeScript: [
+      { write: "pricing.json", content: `${JSON.stringify({ currency: "USD", salesTaxRate: 0.008 }, null, 2)}\n` },
+      { endTurn: true },
+      { write: "pricing.json", content: `${JSON.stringify({ currency: "USD", salesTaxRate: 0.08 }, null, 2)}\n` },
+    ],
+    check(o) {
+      const problems: string[] = [];
+      if (o.task.status !== "done" && o.task.status !== "review") problems.push(`the task is ${o.task.status}, not done (${o.result.outcome}: ${o.result.summary})`);
+      const last = o.tests.at(-1);
+      if (!last) problems.push("the acceptance tests never ran");
+      else if (last.failed > 0 || last.passed < 1) problems.push(`the last acceptance run did not pass (${last.passed} passed, ${last.failed} failed)`);
+      if (o.testedFiles.get("pricing.test.js") !== PRICING_TEST) problems.push("the test file was changed");
+      // Every failing run before the last went back to the engineer with its output.
+      const fixTurns = o.turns.filter((t) => t.startsWith(FIX_TURN_START));
+      const failedBefore = o.tests.slice(0, -1).filter((r) => r.failed > 0).length;
+      if (fixTurns.length < failedBefore) problems.push(`${failedBefore} failing run(s) but ${fixTurns.length} fix turn(s)`);
+      if (fixTurns.some((t) => !t.includes("Last output:\n") || t.includes("Last output:\n(no output)"))) problems.push("a fix turn carries no output");
       return problems;
     },
   },

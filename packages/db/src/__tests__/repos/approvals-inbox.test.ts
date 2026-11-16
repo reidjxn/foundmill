@@ -138,7 +138,7 @@ describe("the decision item", () => {
     expect(release.blocks_continue).toBe(false);
     expect((release.decision.options as { label: string; consequence: string }[]).map((o) => o.label)).toEqual(["Put it live", "Not now"]);
     expect((release.decision.options as { consequence: string }[])[0]!.consequence).toBe("It goes live once the final quality checks pass; if one fails, Eva fixes it and asks again.");
-    expect(approvalItem({ connectorKey: "github", tool: "merge_pr", reasons: [], amountMinor: null, currency: null, args: {} }, { agentId: r.A.agentId, agentName: "Eva", tests: null }).body_md).toBe(`[[ent:${r.A.agentId}|Eva]] finished a change. There was nothing in it to check. OK to put it live?`);
+    expect(approvalItem({ connectorKey: "github", tool: "merge_pr", reasons: [], amountMinor: null, currency: null, args: {} }, { agentId: r.A.agentId, agentName: "Eva", tests: null }).body_md).toBe(`[[ent:${r.A.agentId}|Eva]] finished a change. No automatic check covers this change. OK to put it live?`);
     expect(approvalItem({ connectorKey: "github", tool: "merge_pr", reasons: [], amountMinor: null, currency: null, args: {} }, { agentId: r.A.agentId, agentName: "Eva", taskTitle: "Fix the sign-in page", tests: { passing: 19, total: 25 } }).body_md).toBe(`[[ent:${r.A.agentId}|Eva]] finished “Fix the sign-in page”. It passed most of its quality checks. OK to put it live?`);
     expect(founderReasons(["Assisted mode: irreversible actions need approval", "spend above the approval threshold", "something this table does not know"])).toEqual(["You chose to be asked before anything that can't be undone.", "This would spend more than you allowed without asking."]);
   });

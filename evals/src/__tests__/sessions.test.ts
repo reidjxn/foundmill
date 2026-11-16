@@ -6,7 +6,7 @@
 import type * as Sdk from "@anthropic-ai/claude-agent-sdk";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { searchedUrls, SESSION_CASES } from "../sessions/cases";
-import { createSessionEvalEnv, FIXTURE_PAGES, MIN_CASE_BUDGET_MINOR, OUTCOME_EVAL_BUDGET_USD, RunBudget, type SessionCase, type SessionEvalEnv } from "../sessions/harness";
+import { createSessionEvalEnv, FIXTURE_PAGES, MIN_CASE_BUDGET_MINOR, OUTCOME_EVAL_BUDGET_USD, RunBudget, type SessionCase, type SessionEvalEnv, type SessionObservation } from "../sessions/harness";
 
 vi.mock("@anthropic-ai/claude-agent-sdk", async (importOriginal) => {
   const actual = await importOriginal<typeof Sdk>();
@@ -33,8 +33,37 @@ describe("outcome evals with scripted agents (mock)", () => {
 
   it("names the cases of the spec and runs mock (no key)", () => {
     expect(env.live).toBe(false);
-    expect(SESSION_CASES.map((c) => c.id)).toEqual(["researcher.report_saved", "researcher.real_citations", "channel_email_automation.not_connected_is_not_sent", "isolation.refused_tools"]);
+    expect(SESSION_CASES.map((c) => c.id)).toEqual(["researcher.report_saved", "researcher.real_citations", "channel_email_automation.not_connected_is_not_sent", "isolation.refused_tools", "backend_engineer.fixes_failing_test"]);
   });
+
+  it("backend_engineer.fixes_failing_test: the failing run goes back with its output, and the run after the fix passes", async () => {
+    const c = byId("backend_engineer.fixes_failing_test");
+    let seen: SessionObservation | null = null;
+    const r = await env.runSessionCase({ ...c, check: (o) => ((seen = o), c.check(o)) });
+    expect(r.problems).toEqual([]);
+    const o = seen as SessionObservation | null;
+    expect(o?.tests).toEqual([{ passed: 0, failed: 1 }, { passed: 1, failed: 0 }]);
+    expect(o?.turns).toHaveLength(1);
+    expect(o?.turns[0]).toMatch(/^The acceptance tests failed\. Command: pnpm test\. 0 passed, 1 failed\. Last output:\n[\s\S]*0\.008 !== 0\.08/);
+    expect(r.taskStatus).toBe("done");
+  }, 60_000);
+
+  it("backend_engineer.fixes_failing_test fails when the engineer never fixes it: two fix turns, then blocked", async () => {
+    const c = byId("backend_engineer.fixes_failing_test");
+    const wrong = { write: "pricing.json", content: `${JSON.stringify({ currency: "USD", salesTaxRate: 0.008 }, null, 2)}\n` };
+    const r = await env.runSessionCase({ ...c, codeScript: [wrong, { endTurn: true }, wrong, { endTurn: true }, wrong] });
+    expect(r.passed).toBe(false);
+    expect(r.taskStatus).toBe("blocked");
+    expect(r.problems.join(" ")).toMatch(/not done/);
+    expect(r.problems.join(" ")).toMatch(/last acceptance run did not pass/);
+  }, 60_000);
+
+  it("backend_engineer.fixes_failing_test fails when the engineer edits the test instead", async () => {
+    const c = byId("backend_engineer.fixes_failing_test");
+    const r = await env.runSessionCase({ ...c, codeScript: [{ write: "pricing.test.js", content: "// skipped\n" }] });
+    expect(r.passed).toBe(false);
+    expect(r.problems.join(" ")).toMatch(/test file was changed/);
+  }, 60_000);
 
   for (const c of SESSION_CASES) {
     it(`${c.id} passes with an agent that does it right`, async () => {
