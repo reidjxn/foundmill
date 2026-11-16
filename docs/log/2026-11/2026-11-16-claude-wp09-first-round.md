@@ -16,7 +16,7 @@ supersedes: []
     press's own cycle only.
 - The overnight shift already has its own cap. Every later round starts as before.
 
-## Judgment calls
+## Decisions
 - **The package's "no workflow change" no longer held.** Since WP-04 T3 and the Nov 7 "Continue runs until done"
   change, Continue does not start `businessCycle` itself: it signals the autopilot workflow. The cap therefore travels
   in the signal. The new field is optional and read only from new signals, so a replayed history makes the same
