@@ -12,7 +12,7 @@
 import { CREDITS_CURRENCY } from "@foundmill/config";
 import { AppError, ConflictError, NotFoundError, filingWindow, positioningFromInput, renderPositioning, uuid, type TaskStatus } from "@foundmill/shared";
 import { attachAddedSkills, repos, resolveLibrarySkill, resolveSkillFile, skillLibraryEntries, type Agent, type Db, type Executor, type ResolvedSkill, type Task } from "@foundmill/db";
-import { PlatformToolError, type PlatformCaller, type PlatformHost, type TaskSummaryT } from "@foundmill/connectors";
+import { acceptanceLines, acceptanceRefusal, PlatformToolError, type PlatformCaller, type PlatformHost, type TaskSummaryT } from "@foundmill/connectors";
 import { writeGatewayEvent } from "./events";
 import { hashRecipient } from "./recipients";
 import type { GatewayLogger } from "./pipeline";
@@ -222,7 +222,7 @@ export function createDbPlatformHost({ db, log, now = () => new Date(), reposito
       await message(caller, { toAgentId, type: "inform", subject: `Handed over: ${t.title}`.slice(0, 200), body: note, taskId: t.id });
       return summary(await repos.tasks.reassign(db, caller.businessId, t.id, toAgentId));
     },
-    async completeTask(caller, { taskId, summary: report }) {
+    async completeTask(caller, { taskId, summary: report, acceptance }) {
       const t = await taskOf(caller, taskId);
       mine(caller, t, "complete");
       open(t);
@@ -230,13 +230,25 @@ export function createDbPlatformHost({ db, log, now = () => new Date(), reposito
       // task's title, so the next agent and the founder's note read what was found.
       const saved = await repos.taskReports.latestForTask(db, caller.businessId, t.id);
       const needsReport = !saved || !caller.sessionId || saved.sessionId !== caller.sessionId;
+      // A task that is not code with acceptance lines: one result per line, against the report this session saved. A
+      // line the agent says is not met keeps the task open (the session ends blocked and names it); never done here.
+      // The task's own session judges the lines against what it did and sets the status when it ends, so the task
+      // is not set done here: it stays open, and a task with lines is completed only from its own session.
+      const lines = acceptanceLines(t);
+      if (lines.length > 0) {
+        const own = caller.sessionId ? await repos.agents.getSession(db, caller.businessId, caller.sessionId).catch((e: unknown) => (e instanceof NotFoundError ? null : Promise.reject(e))) : null;
+        if (own?.taskId !== t.id) throw new PlatformToolError("invalid_state", "a task with acceptance lines is completed from its own session; this session works on another task");
+      }
+      const refusal = acceptanceRefusal(lines, acceptance, needsReport ? null : saved!.bodyMd);
+      if (refusal) throw new PlatformToolError("invalid_state", refusal);
+      const unmet = lines.length > 0 ? lines.map((_, i) => i + 1).filter((i) => !acceptance!.find((r) => r.line === i)!.met) : [];
       const simulated = needsReport ? await sessionSimulated(caller) : false;
       // One transaction: the report and the status change land together or not at all.
       const done = await db.transaction(async (tx) => {
         if (needsReport) await saveReport(caller, t, { title: t.title.slice(0, 200), bodyMd: report, sources: [] }, simulated, tx);
         // Code is reviewed before it counts as done (BUILD §11.6); the report stays with the task's history.
-        const d = await repos.tasks.setStatus(tx, caller.businessId, t.id, t.kind === "code" ? "review" : "done", { force: true });
-        await repos.audit.append(tx, caller.businessId, { actorKind: "agent", actorId: caller.agentId, action: "platform.task.completed", target: { kind: "task", id: t.id }, details: { sessionId: caller.sessionId, status: d.status, summary: report } });
+        const d = lines.length > 0 ? t : await repos.tasks.setStatus(tx, caller.businessId, t.id, t.kind === "code" ? "review" : "done", { force: true });
+        await repos.audit.append(tx, caller.businessId, { actorKind: "agent", actorId: caller.agentId, action: lines.length > 0 ? "platform.task.acceptance_reported" : "platform.task.completed", target: { kind: "task", id: t.id }, details: { sessionId: caller.sessionId, status: d.status, summary: report, ...(lines.length > 0 ? { acceptance: acceptance!, unmetLines: unmet } : {}) } });
         return d;
       });
       return summary(done);
