@@ -281,7 +281,7 @@ for (const [width, height] of [
   [1280, 800],
   [1440, 900],
 ] as const) {
-  test(`at ${width} px the examples stay inside the field and the button is whole`, async ({ browser }) => {
+  test(`at ${width} px the examples stay inside the field, the button is whole and the example label fits`, async ({ browser }) => {
     const { page, close } = await visitor(browser, width, height);
     try {
       await page.goto("/");
@@ -307,6 +307,19 @@ for (const [width, height] of [
         const under = b.top >= field.bottom - 0.5;
         if (!beside && !under) problems.push("the button overlaps the field");
         if (document.documentElement.scrollWidth > document.documentElement.clientWidth) problems.push("the page scrolls sideways");
+        // The example's label (founder, 2026-11-17): whole, on one line, inside its frame.
+        const frame = document.querySelector<HTMLElement>("#hero [data-screen-frame]")!;
+        const chip = frame.querySelector<HTMLElement>("figcaption")!;
+        const c = chip.getBoundingClientRect();
+        const fr = frame.getBoundingClientRect();
+        if (chip.textContent !== "Example companies you can create") problems.push(`the label reads "${chip.textContent}"`);
+        if (chip.scrollWidth > chip.clientWidth + 0.5 || chip.scrollHeight > chip.clientHeight + 0.5) problems.push("the label is cut short or wraps");
+        if (c.left < fr.left - 0.5 || c.right > fr.right + 0.5) problems.push(`the label leaves its frame (${Math.round(c.left)}–${Math.round(c.right)} of ${Math.round(fr.left)}–${Math.round(fr.right)})`);
+        // The examples in the founder's order (2026-11-17), on one line from 768 px (founder, 2026-11-16).
+        const pills = [...frame.querySelectorAll<HTMLElement>("[role=radio]")];
+        const names = pills.map((p) => p.textContent);
+        if (names.join(",") !== "Northwind,Tutorlane,Sole Revival,Glitchwick") problems.push(`the examples read ${names.join(", ")}`);
+        if (window.innerWidth >= 768 && new Set(pills.map((p) => Math.round(p.getBoundingClientRect().top))).size !== 1) problems.push("the examples wrap onto two lines");
         return problems;
       }, [...PLACEHOLDER_IDEAS]);
       expect(report, report.join("\n")).toEqual([]);

@@ -57,7 +57,7 @@ export function LandingPage({ variant = DEFAULT_LANDING_VARIANT, switches = SWIT
           signupOpen={switches.signupOpen}
           words={{ title: V.title, lede: V.lede, label: V.label, ideas: V.ideas, surpriseOpen: V.surpriseOpen }}
           example={
-            <ScreenFrame className="in-data-landed:hidden">
+            <ScreenFrame label={W.hero.exampleLabel} className="in-data-landed:hidden">
               <ExampleIdeas ideas={EXAMPLE_IDEAS} cardClassName="world-night landing-screen-lit max-w-full" />
             </ScreenFrame>
           }

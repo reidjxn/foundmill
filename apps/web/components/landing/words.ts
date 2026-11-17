@@ -84,6 +84,11 @@ export const LANDING_WORDS = {
     /** The default page's headline; a variant's own is in `VARIANT_WORDS`. */
     title: VARIANT_WORDS.first.title,
     landedTitle: (name: string) => `${name} is yours to keep.`,
+    /**
+     * The line over the rated examples beside the box (founder, 2026-11-17, their words exactly). "companies" is the one
+     * exception to the project/business rule (CLAUDE.md "the words for people"); use it nowhere else.
+     */
+    exampleLabel: "Example companies you can create",
     /** [switch: signupOpen off] */
     ledeClosed: "Keep it, and once your place opens the team drafts a page for it and plans what comes next.",
     /** [switch: signupOpen on] */

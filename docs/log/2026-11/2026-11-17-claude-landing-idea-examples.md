@@ -1,7 +1,7 @@
 ---
 date: 2026-11-17
 branch: claude/landing-idea-examples
-title: The idea field's examples stay inside it, the button stays whole, and the examples are worth wanting
+title: The idea field's examples stay inside it, better examples, and the hero's example label and order
 areas: [web, landing]
 supersedes: []
 ---
@@ -27,8 +27,23 @@ past the field and under "Shape my idea".
   button whole in the view and beside or under the field, never over it, and no sideways scroll. Before the fix it
   failed at 390, 768, 1024 and 1080 px. `first-timer.spec.ts`' reduced-motion case reads the first example from
   `PLACEHOLDER_IDEAS`.
+- The hero's example picker (founder, Nov 17, 2026: "switch around tutorlane and sole revival in the order there. also
+  instead of 'example' it should say 'Example companies you can create'"): `EXAMPLE_IDEAS` now runs Northwind,
+  Tutorlane, Sole Revival, Glitchwick (Northwind still first on load; the arrow keys follow the new order), and the
+  hero's `ScreenFrame` takes `LANDING_WORDS.hero.exampleLabel`, "Example companies you can create". Only that frame
+  changed: the design system's default "Example", the Studio section's "Example ideas", "Example project" and the
+  "Example" chips in other sections are other strings and stay.
+- CLAUDE.md's "the words for people" gains one sentence recording the exception.
+- Tests: `ExampleIdeas.test.tsx` and `LandingPage.test.tsx` read the new order and label, and the page says
+  "companies" exactly once. The Playwright width check also measures the label (whole, one line, inside its frame) and
+  the examples' order and row (one line from 768 px) at all six widths.
 
 ## Decisions
+### "companies" on the landing page only
+The founder, Nov 17, 2026, asked whether "companies" should be "businesses" under the vocabulary rule: the rule "is
+still true. The only exception is here on the landing page". The word is kept in that one label, recorded in CLAUDE.md,
+and pinned by a test that counts it once on the page. No linter flagged it, so nothing needed allowing. The FAQ's "Do I
+need a company, a bank account or a website?" (the legal sense) was already there and is unchanged.
 ### The limit comes from the narrowest text area
 Measured on the local stack, the field's text area is narrowest at 390 px once the box stacks: 314 px. At 17 px the
 34-character "Hot sauce from my grandma's recipe" is about 292 px. The Playwright check measures real widths at every
