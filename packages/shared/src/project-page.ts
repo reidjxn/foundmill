@@ -391,15 +391,15 @@ export const FOLLOW_PENDING_LINE = "Not confirmed yet";
 /**
  * The name a new follower's contact gets: "Follower" and the address masked ("Follower (ma***@example.com)"), so the
  * whole address lives only in the contact's identifier and never in a name that agents and screens repeat. At most 200
- * characters (the CRM's name limit).
+ * characters (the CRM's name limit). `label` names someone who is not a follower (a reply's sender: "Contact").
  */
-export function followerDisplayName(email: string): string {
+export function followerDisplayName(email: string, label = "Follower"): string {
   const e = email.trim().toLowerCase();
   const at = e.lastIndexOf("@");
-  if (at <= 0) return "Follower";
+  if (at <= 0) return label;
   const local = e.slice(0, at);
   const shown = local.length <= 2 ? local.slice(0, 1) : local.slice(0, 2);
-  const name = `Follower (${shown}***@${e.slice(at + 1)})`;
+  const name = `${label} (${shown}***@${e.slice(at + 1)})`;
   return name.length <= 200 ? name : `${name.slice(0, 198)}…)`;
 }
 
