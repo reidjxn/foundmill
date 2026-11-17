@@ -1,10 +1,10 @@
 # WP-14: The behavior brief of Nov 17, 2026
 
-**Goal:** The parts of the founder's behavior brief of Nov 17, 2026 that are still true of the product on main are built, each by the session that already owns its area, and the parts that disagree with a recorded decision wait for the founder.
+**Goal:** The parts of the founder's behavior brief of Nov 17, 2026 that are still true of the product on main are built, each by the session that already owns its area, and where the brief disagreed with a recorded decision, the founder's answers of Nov 17, 2026 below are followed.
 
-**Why:** On Nov 17, 2026 the founder handed over a change brief ("Foundmill: behavioral-science change brief") written from an outside report. It was written against an older copy of the repository. Checked against main at `5b6541d6` the same day, about a third of it is already true, a third still applies, and a third disagrees with a founder decision or a CLAUDE.md rule, several of them from the same day. This file is the brief as it stands against the code: what to build, who builds it, and what waits.
+**Why:** On Nov 17, 2026 the founder handed over a change brief ("Foundmill: behavioral-science change brief") written from an outside report. It was written against an older copy of the repository. Checked against main at `5b6541d6` the same day, about a third of it is already true, a third still applies, and a third disagrees with a founder decision or a CLAUDE.md rule, several of them from the same day. The founder answered eleven of the twelve disagreements the same afternoon. This file is the brief as it stands against the code and those answers: what to build, who builds it, and the little that still waits.
 
-**Done when:** every task below is merged or recorded as waiting, and every item under "Decisions for the founder" has an answer in docs/log.
+**Done when:** every task below is merged or recorded as waiting, and every item under "Still open" has an answer in docs/log.
 
 ## Rules for this package
 
@@ -13,7 +13,7 @@
 - The vocabulary rule of 2026-10-08, US English and plain language apply to every string here. The away mode is "vacation".
 - The wording given below is the proposal. If a line fails a check or is untrue of the product as built, fix the line and say so in the pull request.
 - A task marked **amends** changes a task of another package. The session that holds that task takes the amendment with it; nobody else starts it.
-- Nothing under "Decisions for the founder" is built on a guess.
+- Nothing under "Still open" is built on a guess.
 
 ## Already true on main (build nothing)
 
@@ -30,22 +30,29 @@
 | B3.1, B3.8 | Already the first and last steps of the plan's go-to-market order. |
 | B3.7: a public gallery | In docs/NETWORK.md; the network session owns it. |
 
-## Decisions for the founder
+## Founder's answers of Nov 17, 2026 (afternoon, in the Desktop session that wrote this package)
 
-Each item names what the brief asks, what it disagrees with, and what waits on the answer. Nothing below is built until the answer is in docs/log.
+These are later than #273 and #274 of the same morning and win where they differ. The log entry `2026-11-17-claude-wp14-behavior-brief` records each with what it supersedes.
 
-- **D1. Plans and prices.** The brief: plans named Try, Founder, Studio and Partner; Founder at $5 or $20 a month and Studio at $50 or $100, shown as two paired sets; Partner at $250 by application; a free Try plan that stays after sign-up opens; people who join while sign-up is invite-only never pay a subscription; the first price paid is locked; the label "Free while in early access". Main, same day (`wp09-paid-entry-plan` and `wp09-entry-plan-answers`, #273 and #274, merged 9:32 AM and 9:41 AM UTC): sign-up does not open with a free plan; at opening the plan is $5 a month with $5.00 of credits on Haiku 5.5 and GLM-5.3 Flash; Opus and Sonnet unlock with a credit pack of $20 or more; test users convert to the $5 plan on the day of the switch; nothing a user reads may promise the product stays free. The two agree on one point: no subscription is charged until sign-up opens. Waits: brief A7 (label, promise, names, price lock, billing tests), B2, B6.3, and the included budgets for `pro` and `scale`. Owner once answered: WP-09 T14 and T16.
-- **D2. What a plan includes.** The brief puts Vacation mode, card sharing, named agents and the phone Inbox on the Founder plan, and several businesses, seats and the founder's own key on Studio. CLAUDE.md: plans differ by agent work only, with the "Built on Foundmill" mark as the one exception; people are free on every plan and "seat" leaves default copy. Only "more agents at once" is agent work. Waits: the tier lists in B2.
-- **D3. The founder's own key at zero.** The brief: never offer the founder's own Anthropic key to a first-time founder who has run out, and move it under "Advanced". Main: the own key is the free plan's one route to Anthropic models (`stage3-founder-decisions-2`, Nov 16) and one of the ways on at zero in WP-09 T13 and in `wp09-paid-entry-plan`. Waits: that sentence in T1's note, `credits-notice.ts`, the Settings › Keys heading, WP-13 T7's prompt.
-- **D4. Defaults at Commit.** The brief: a spend cap per action of 5.00 and Autopilot off. Main: the spend line starts at $0 for a founder with no budget (WP-04 D4, Nov 16) and the overnight shift is on by default (2026-11-11, 2026-11-12, WP-09 D7).
-- **D5. What is asked before the first ideas.** The brief: time and where you live are required before the first ideas. Main: "Three quick things about you" (WP-04 T1, #233) leaves both out on purpose, after "profile after the first idea" (2026-11-11). T2 below builds the quick fit on what is asked today.
-- **D6. "Built for a big screen".** The brief's hero line and wall line. CLAUDE.md, small screens (2026-11-11): the outer product works from 390 px and no small screen is left at a dead end. `removed-claims.test.tsx` holds "Desktop only" and "We will email you" as removed claims.
-- **D7. Batches, places and invitations.** The brief: "Foundmill opens in batches. Batch N opens <day>. <n> places", three named invitations for each active founder, no reward for inviting, and an indexable waitlist page now. Main: no admission in cohorts and no public counts (2026-11-12, answers 4 and 7); no invite passes, with the inviter rules of 2026-11-13; both sides of an invitation get credits (docs/NETWORK.md); indexing follows `SIGNUP_OPEN` (`wp03-founder-decisions`). Waits: brief A6's wording, B3.2, B3.6, B6.2, B6.4, B6.5.
-- **D8. Leaderboards.** The brief's B4 describes them "when opened". They were removed on 2026-11-11 and CLAUDE.md says not to rebuild them.
-- **D9. The phone.** The brief: a light mobile web view on foundmill.app, and edits to docs/mobile. Main: the native app is the phone's home; `*.foundmill.app` is the Sites domain; docs/mobile belongs to the mobile session until WP-12 T7 merges it.
-- **D10. Who the first user is.** The brief narrows "First" to the evenings-and-weekends founder with a day job. CLAUDE.md: a young first-time founder with little money, and the subtext rule keeps employment out of anything a user reads. The narrowing to one goal, a first paying customer, with Development and Distribution deepest, has no such clash and is in T13.
-- **D11. "Customer #1" on a shared card.** DESIGN §9f: no counts anywhere, and a customer milestone is public only once tied to a real payment. T9 builds the card without the number until this is answered.
-- **D12. The never-list.** The brief's five additions to CLAUDE.md's Never section need the founder's approval there. Two depend on D1 and D3. "Never stop a team mid-task because a balance ran out" and "Never turn the cycle into a continuous stream" clash with nothing.
+- **A1. Plans and prices.** The entry plan is named **Try**. Try is free today; on the day sign-up opens to the public, Try becomes $5 a month. This agrees with #273 and #274: sign-up does not open with a free plan. The plans are Try, **Founder**, **Studio** and **Partner** (keys `free`, `pro`, `scale` unchanged). The Founder price is tested between **$15 and $25** a month (the brief's $5 against $20 is replaced). Partner is $250 a month, by application, with a waitlist and no checkout. No subscription is charged until sign-up opens. Built in T14.
+- **A2. What a plan includes.** "Plans differ by agent work only" is dropped from CLAUDE.md. Plans differ as the brief lists: Founder adds Vacation mode, card sharing, named agents and the phone Inbox; Studio adds several businesses and more agents at once. Built in T14. Seats are under "Still open".
+- **A3. The founder's own Anthropic key.** A founder can always bring their own Anthropic key, on every plan. The brief's lines that hid it are deleted. Every note and prompt that offers a way on keeps offering the key (WP-09 T13, WP-13 T7 and T11, `credits-notice.ts`).
+- **A4. Defaults at Commit.** As the brief says: a spend cap for each action of 5.00 in the project's currency and Autopilot off are what is selected when the page opens, and the founder can change both there and later. This replaces the spend line starting at $0 (WP-04 D4, Nov 16) and the default-on overnight shift (2026-11-11, 2026-11-12, WP-09 D7) as defaults. Built in T11.
+- **A5. Time and where you live.** As the brief says, both are asked with the first profile. They must be known before a person takes charge of a project: a person who reached ideas without answering is asked at that step and cannot take charge without them. This adds two questions to "Three quick things about you" (WP-04 T1). Built in T2.
+- **A6. "Built for a big screen."** The brief's lines are used: the hero assurance "Built for a big screen and your full attention" and the wall line "Foundmill is built for a big screen." The outer product still works from 390 px and no small screen is left at a dead end: the answer changes the words, not the small-screen build. Built in T10.
+- **A7. Batches, places and invitations.** The brief is followed and the older decisions are changed: the waitlist opens in batches with a real count of places (replaces "no admission in weekly cohorts" and "no public counts" for the waitlist, 2026-11-12 answers 4 and 7); each active founder has three named invitations to send (replaces "no invite passes"); inviting earns no reward (replaces the credits for both sides in docs/NETWORK.md); the waitlist page is public and indexable now (an exception to "indexing follows `SIGNUP_OPEN`", `wp03-founder-decisions`, for that page only). Built in T15.
+- **A8. Leaderboards** stay removed. Deleted from the brief.
+- **A9. The phone.** The brief's mobile web view is dropped. The native app is the phone's home; docs/mobile is untouched.
+- **A10. The first user** stays the young first-time solo founder. The day-job description is deleted from the brief.
+- **A11. "Customer #1"** is deleted. DESIGN §9f's "no counts" holds on shared cards.
+
+## Still open
+
+- **O1. The never-list.** Four additions to CLAUDE.md's Never section are proposed and wait for the founder's yes: never stop a team mid-task because a balance ran out; never make canceling harder than subscribing; never put a dollar figure for included credits in the hero; never turn the cycle into a continuous stream. The fifth (never offer the own key to a founder out of budget) is withdrawn by A3.
+- **O2. People who joined while sign-up was invite-only.** The brief says they never pay the Founder plan's monthly fee. #274 says test users convert to the $5 plan on the day of the switch. A1 says Try becomes $5 at opening and does not say which holds for them. Until answered: T14 builds no waiver and no "free for good" sentence.
+- **O3. Studio's prices in the test.** The brief paired Founder $5 with Studio $50 and Founder $20 with Studio $100. With Founder at $15 or $25, T14 keeps Studio at $50 and $100 as config behind the same switch and flags it.
+- **O4. Seats.** The brief lists seats under Studio. CLAUDE.md says people are free on every plan and "seat" leaves default copy; that rule was not named in A2. T14 builds no limit on people.
+- **O5. Budgets and models for each plan.** The brief gives Founder $5.00 and Studio $50.00 of team budget a month. #274 gives the $5 plan Haiku 5.5 and GLM-5.3 Flash, with Opus and Sonnet unlocked by a credit pack of $20 or more. Whether Founder and Studio unlock every model without a pack, and whether a $15 to $25 plan carries the same $5.00 as Try, is not said. T14 writes the brief's two numbers as config and leaves model access as #274 has it.
 
 ## Tasks
 
@@ -57,7 +64,7 @@ Steps:
 1. A new state word, **Resting**: a team that has used the month's budget. Add to `terms.ts` and the voice skill: "Paused is a choice. Resting is a team out of budget until the date shown." It replaces "Used up: team paused" and "Used up: conversations and Refresh paused". verify: the Billing spec reads the new word.
 2. Before a session is dispatched, compare what is left with a reserve for it: the larger of a config minimum and the recent average cost of that agent type's sessions times a safety factor. Below the reserve the session does not start and the team rests; what is left stays in the balance. verify: a test with a balance just under the reserve starts nothing and books nothing.
 3. A backstop: a session already running that outgrows its reserve still finishes, up to a small hard ceiling in config, booked to the usage ledger, and logged each time so the reserve can be tuned. verify: a test drives a session past its reserve and sees it finish and the log line.
-4. The note comes from the Chief of Staff: "We've used this month's team budget. Here's what we finished, and here's what we'd do next. You can top up, change plan, or let us rest until <date>, when your budget resets." It lists finished and next items from real records, and names the plan by its config value, never "free". The own-key sentence stays as WP-09 T13 has it until D3 is answered.
+4. The note comes from the Chief of Staff: "We've used this month's team budget. Here's what we finished, and here's what we'd do next. You can top up, change plan, or let us rest until <date>, when your budget resets." It lists finished and next items from real records, and names the plan by its config value, never "free". The own-key sentence stays: a founder can always bring their own Anthropic key (A3), so the note offers topping up, changing plan and the key.
 Two numbers are the session's to propose and flag in the pull request: the safety factor (the brief suggests 1.5) and the backstop ceiling.
 Collides with: WP-13 T4 (a free session waits while the cap is held) and T6 (the $600 cap). A team at the platform cap is waiting, not Resting: keep the two states apart.
 Done when: a founder at zero sees the last task finished, a small amount left, the word Resting with a date, and one note with a way on.
@@ -71,7 +78,8 @@ Steps:
 3. Once the first ideas show, offer the long form once as "Help your team help you": "Fit is based on your quick answers. Two minutes to sharpen it?" Saving re-rates fit on every idea in place, reorders them, and offers to redraft.
 4. In the long form, "Every concept, forecast and decision is shaped by this." becomes "Your team will suggest ideas that fit your skills, your time and your budget." Keep "Be honest: the team hires to cover what you don't have."
 5. An eval: Ideation drafts sensibly from the short profile and from none.
-Not here: time, residence or a budget question before the first ideas (D5).
+6. Time and where you live (A5): add both to the first profile, with the title "Tell your team about you" ("What should your team call you?", "How much time can you give?", where you live). At take charge, a person without both is asked there and cannot take charge until they answer. verify: a spec takes an idea from the idea box to take charge with an empty profile and is stopped for exactly these two answers.
+Supersedes: the two-required-inputs target of WP-04 T1, by A5.
 Done when: a new person sees a fit number with its basis on the first ideas, and sharpening changes the numbers in place.
 
 ### T3: Team budget, outcomes first, on Billing            [M] [ships alone; after WP-09 T1 and T2 (#251)]
@@ -111,7 +119,7 @@ Done when: closing a chapter on a seeded project writes one note whose every cla
 
 ### T9: Share a Customer Update as a card            [M] [ships alone; after #244]
 Brief: A12. Why: milestone cards can be shared; a Customer Update cannot.
-Steps: export a Customer Update the way a milestone card is exported today (image and a public read-only page): project name and logo, date, Lead channel, Standout agent, and the "Built on Foundmill" mark by the existing plan rule. Sharing is the founder's own action each time; nothing is public by default; the customer's name and any personal data are left out unless the founder adds them; not on example businesses; DESIGN §9f holds (no counts, and public only when tied to a real payment). No "Customer #1" until D11. Run the `security-reviewer` checklist for the new public route.
+Steps: export a Customer Update the way a milestone card is exported today (image and a public read-only page): project name and logo, date, Lead channel, Standout agent, and the "Built on Foundmill" mark by the existing plan rule. Sharing is the founder's own action each time; nothing is public by default; the customer's name and any personal data are left out unless the founder adds them; not on example businesses; DESIGN §9f holds (no counts, and public only when tied to a real payment), so there is no customer number on the card (A11). Run the `security-reviewer` checklist for the new public route.
 Done when: the spec shares one update from a real seeded project, the public page shows no personal data, and an example business has no share action.
 
 ### T10: The tour and landing copy            [M] [the landing session; one pull request]
@@ -130,11 +138,20 @@ On `/`:
 - A vacation section: "Take a vacation." / "Vacation mode: your Chief of Staff keeps things moving within the limits you set, and writes you a report for when you come back."
 - An honesty line by the control rules: "Every number we didn't measure says so." (After T7 merges, or reword to what is true today.)
 - "You make the calls. Your team does the rest." and "The team you could never afford." as two more headline variants on the existing variant seam (`fm_lp`), not as a replacement H1. Measuring them waits for analytics.
-Not here: "Free to start · no card" (D1: from opening the first run needs the plan), any "big screen" line (D6), the pill "First company? The team comes with it." on `/` (a removed claim).
+- Hero assurance lines (A6, A1): "Built for a big screen and your full attention", "Nothing spends, signs or files without you", and "Free to start · no card" while sign-up is invite-only. The last one reads the stage from config and is replaced on the day Try becomes $5 a month; no dollar figure in the hero either way.
+- The small-screen wall (`NeedsLargerWindow`): "Foundmill is built for a big screen." followed by the existing "Email me a link" action (`ContinueLater`). The page still works at 390 px; update `removed-claims.test.tsx` only where these exact lines need it, and say so.
+- The not-invited page follows T15's wording once T15 lands; do not change it here.
+Not here: the pill "First company? The team comes with it." on `/` unless `removed-claims.test.tsx` is changed with a reason; any sentence that promises the product stays free.
 Done when: `LandingPage.test.tsx`, `TourPage.test.tsx`, `removed-claims.test.tsx` and `e2e/landing.spec.ts` pass with the new strings.
 
-### T11: Commit's last two lines            [S] [ships alone]
-Brief: A4. `includedCreditsLine()` reads "Starts with $5.00 of included credits this month. No card." Take the dollar figure out of Commit and let the line come from the plan's config, so it is true before and after sign-up opens. The lede and "what happens next" stay as WP-04 T2 and T7 wrote them. Not here: the spend cap and Autopilot defaults (D4).
+### T11: Commit's defaults and its credits line            [S] [ships alone]
+Brief: A4. Founder's answer A4.
+Steps:
+1. What is selected when Commit opens, inside "More options": mode Assisted, Personal, a spend cap for each action of 5.00 in the project's currency ($5 for a USD project), Autopilot off, the first generated logo and its colors. Every one can be changed there and later in Settings. Above the form: "Name your business. We've set everything else to the careful option, and you can change any of it later." (use "project" where the stage rule asks for it). verify: the Commit spec reads each default and changes two of them.
+2. Find what "Autopilot off" switches in today's code. If the overnight shift is a separate switch, say so in the pull request and set only what the Commit page shows; do not turn a running project's overnight shift off.
+3. `includedCreditsLine()` loses its dollar figure and reads the plan from config, so it is true before and after sign-up opens.
+Supersedes, as defaults only: the spend line starting at $0 (WP-04 D4) and the overnight shift on by default (WP-09 D7). "Commit with no budget starts no cycle" (WP-04 D1) is not changed: check that a 5.00 cap for each action does not by itself start spending a founder did not choose, and flag it if it does.
+Done when: a new project commits with these defaults and a founder who changes them gets what they chose.
 
 ### T12: Four measures            [S] [amends WP-02 T10's nightly numbers]
 Brief: B7, B6.9. Add to `platform_metric_days`: minutes from commit to the first plan and to the first approved outcome, for every new project; the share of new founders whose first Continue press succeeds; the share of projects that reach Resting and what they do next (top up, change plan, wait, leave), after T1; shares for each Customer Update, after T9. If the median time to the first plan passes ten minutes, raise a note to the operator to change T10's "within minutes" line.
@@ -143,22 +160,52 @@ Brief: B7, B6.9. Add to `platform_metric_days`: minutes from commit to the first
 Brief: B1, B4, B7. `docs/foundmill-plan/foundmill-plan.md` is the seed for Foundmill's own project, not the roadmap sessions execute; edit it so the seed agrees with this package.
 - Vision › Principles, add: "The cycle is a rhythm, not a stream. Read, decide, press, wait, read. Do not optimize it into continuous activity." and "The gates are the premium. What the team will never do without you is a selling point, stated with pride."
 - Value proposition leads with what the founder is getting: being a founder without doing every part alone, fewer ways to get it badly wrong (the house rules), a team for company, and visible progress. Add "The team you could never afford"; never "replace a team" or "no need to hire".
-- Customers › First: one goal, a first paying customer; Development and Distribution get depth first, Finance and Legal stay competent and quiet. Put the same sentence in Risks item 6 (Scope) as its mitigation. The description of the person waits for D10.
+- Customers › First: one goal, a first paying customer; Development and Distribution get depth first, Finance and Legal stay competent and quiet. Put the same sentence in Risks item 6 (Scope) as its mitigation. The description of the person stays as it is (A10).
 - Retention loops: add the chapter report (T8) and the "Working now" strip (T5); Vacation mode becomes a named headline feature.
 - Supporting metrics: T12's measures.
-Not here: Pricing (D1, D2), the go-to-market order's batches and invitations (D7), leaderboards (D8), the phone (D9).
+- Pricing: rewrite to T14 (Try free today and $5 a month at opening; Founder tested at $15 and $25; Studio; Partner at $250 by application; what each plan includes; credit packages carry most of the model revenue and the subscription price is set by what the plan is worth and tested; never "Price to be announced" in public). Leave O2 to O5 out.
+- Go-to-market order: the brief's eight steps, with batches, the places count, personal notes for the first hundred, Foundmill's own project in public, shared cards, three named invitations with no reward, the gallery, paid acquisition last.
+- A section of experiments, each with a stop rule: the brief's B6.1 to B6.9, with the price test as in T14. Those that need analytics say so.
+Not here: leaderboards (A8), the phone (A9).
+
+### T14: Plans, prices and what each plan includes            [L] [amends WP-09 T14 and T16; the session holding them takes it]
+Brief: A7, B2, B6.3. Founder's answers A1 and A2. Why: `pricing.ts` has `free`, `pro`, `scale` with "TBD" and "Price to be announced".
+Steps:
+1. Display names (keys unchanged): **Try**, **Founder**, **Studio**, and a fourth, **Partner**, in `TIERS` display data as not purchasable.
+2. One config value, `EARLY_ACCESS_STAGE` (`invite_only` now, `open` later); reconcile it with #273's proposed `ENTRY_PLAN` so there is one switch, not two. While `invite_only`: Try is free and nobody is charged a subscription. On `open`: Try is $5 a month with $5.00 of credits, as #273 and #274 describe, and the first press of Continue needs it.
+3. `PRICE_TBA_LABEL` goes. While `invite_only` a plan shows "Free while in early access"; nothing says it stays free.
+4. The Founder price test: two paired sets as config behind a switch that is off, Founder $15 with Studio $50 and Founder $25 with Studio $100 (O3), Partner $250 in both, credit packages the same in both. Shown only as figures marked "Indicative" on the waitlist page (T15), half of visitors seeing each; a visitor keeps the set first given, stored with the waitlist entry. Nobody is charged. When charging opens nobody pays more than the figures they were shown, and the first Founder or Studio price a person pays is stored for that owner and kept for as long as they stay subscribed. Tests now, with charging off: a stored price survives a price change in config.
+5. Partner: "by application". The plan adds a monthly review of the project by "experienced venture-backed founders and venture capital investors" (this wording; name no person). The only action is "Join the Partner waitlist", which records the owner, the project and consent. The price shows, nothing is charged, and the copy says reviews begin once the plan opens and promises no date.
+6. What each plan includes, as one table in config that the product reads: Try has the team and everything not listed here; Founder adds Vacation mode, card sharing (T9 and milestone cards), named agents (T6) and the phone Inbox; Studio adds several projects and more agents at once. The founder's own Anthropic key works on every plan (A3). Checks take effect on `open`; while `invite_only` everyone has everything, so no invited tester loses what they use today. Flag this reading in the pull request.
+7. Included team budget as config: Try $5.00, Founder $5.00, Studio $50.00 (O5). "Monthly credits to be announced" goes.
+8. CLAUDE.md is already changed for A2 in this package's own pull request; `tierShowsBuiltOnMark` is untouched.
+Not here: any waiver or "free for good" line for invited people (O2); any limit on people (O4); a live subscription checkout or live Stripe prices before sign-up opens.
+Done when: Billing lists four plans by their new names with true labels for the stage, the config tests pass, and no checkout can charge a subscription while `invite_only`.
+
+### T15: The waitlist in batches, and invitations to give            [L] [amends WP-03 T2 and T10 and WP-12's invitation tasks; coordinate with the network session]
+Brief: A6, B3.2, B3.3, B3.6, B6.2, B6.4, B6.5. Founder's answer A7.
+Steps:
+1. A public waitlist page, separate from the app: "Foundmill opens in batches. Batch N opens <day>. <n> places." The numbers are live and real; with no batch set, the page says so and shows none. It is indexable now, with its own robots rule; the rest of the product still follows `SIGNUP_OPEN`. It shows T14's indicative prices.
+2. Admission by batch on the existing waitlist (WP-03 T2, T10): the operator sets a batch's day and size; the order inside a batch stays as T10 built it unless the founder says otherwise.
+3. The not-invited page: "<email> isn't on this batch's list yet. Join the waitlist, and we'll send your invitation when the next batch opens." Only while the waitlist email switch is on; otherwise keep today's sentence.
+4. Each active founder gets three named invitations to send. No reward for either side: remove the invitation credits described in docs/NETWORK.md and say so there. Reconcile with the inviter rules of 2026-11-13 (`INVITATION_ADMISSIONS_PER_INVITER_PER_DAY`): three in total replaces three a day for this kind.
+5. The founder's personal note to each of the first hundred, and a card by post for one batch, are the founder's own actions: build only what records that a note was sent.
+6. Measures: activation by personal note against standard email; acceptance and activation of named invitations against waitlist batches; organic visits and sign-ups for the page. Each needs a stop rule; those that need analytics wait for it.
+Done when: the page shows a real batch or none, an operator can admit a batch, an active founder can send three named invitations, and docs/NETWORK.md and the log record what was replaced.
 
 ## Amendments to other packages' tasks
 
-- **WP-09 T16** (the plan checkout): canceling, and pausing a project, are each one action from Settings, with a test that canceling takes no more steps than subscribing (brief A7). Subscription charging stays off until sign-up opens: the brief and `wp09-paid-entry-plan` agree.
-- **WP-09 T13**: takes T1 above.
-- **WP-09 T14**: its numbers wait for D1 as well as its own D1 and D8.
+- **WP-09 T14 and T16**: take T14 above. T16 also: canceling, and pausing a project, are each one action from Settings, with a test that canceling takes no more steps than subscribing. Subscription charging stays off until sign-up opens.
+- **WP-09 T13**: takes T1 above, and keeps the own-key offer (A3).
+- **WP-13 T7 and T11**: the own key is always offered, on every plan (A3). At opening, T7's copy uses the plan names of T14.
 - **WP-10 T9, T12**: take T7 above.
-- **WP-13 T7**: its upgrade prompt keeps the own-key offer until D3 is answered.
 - **WP-02 T10**: takes T12 above.
+- **WP-03 T2, T10, T6 and WP-00 S7**: take T15's waitlist page, batches and the one indexable page.
+- **WP-04 T1 and T2**: changed by T2 step 6 (time and where you live) and T11 (defaults).
+- **WP-12 and the network session (#217, #208)**: three named invitations with no reward (T15 step 4).
 
 ## Starting prompt
 
 ```
-You are taking tasks from docs/holistic-plan/WP-14-behavior-brief.md in reidjxn/foundmill. Read CLAUDE.md, docs/holistic-plan/README.md, STATUS.md and the whole of WP-14 first. Take only the tasks STATUS.md gives to you or leaves unowned; a task marked "amends" belongs to the session holding the task it amends. Build nothing under "Decisions for the founder". One task, one pull request, pushed once when ready. Re-find every file and string in the code as it is now: if a step no longer applies, say what changed and make the smallest change that meets "Done when".
+You are taking tasks from docs/holistic-plan/WP-14-behavior-brief.md in reidjxn/foundmill. Read CLAUDE.md, docs/holistic-plan/README.md, STATUS.md and the whole of WP-14 first. Take only the tasks STATUS.md gives to you or leaves unowned; a task marked "amends" belongs to the session holding the task it amends. Build nothing under "Still open". One task, one pull request, pushed once when ready. Re-find every file and string in the code as it is now: if a step no longer applies, say what changed and make the smallest change that meets "Done when".
 ```

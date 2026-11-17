@@ -1,40 +1,56 @@
 ---
 date: 2026-11-17
 branch: claude/wp14-behavior-brief
-title: WP-14, the behavior brief of Nov 17 as it stands against main (the plan)
+pr: 287
+title: WP-14, the behavior brief of Nov 17 with the founder's answers (the plan)
 areas: [docs]
-supersedes: []
+supersedes:
+  - "Plans differ by agent work only (2026-11-11, CLAUDE.md)"
+  - "No admission in weekly cohorts; no public counts, for the waitlist (2026-11-12, answers 4 and 7)"
+  - "No invite passes (2026-11-12, answer 7)"
+  - "Both sides of an invitation get credits (docs/NETWORK.md)"
+  - "The spend line starts at $0 (WP-04 D4, 2026-11-16), as a default"
+  - "The overnight shift is on by default (WP-09 D7), as a default"
+  - "The charge that empties a balance pauses the team (2026-10-12)"
 ---
 ## What changed
-Added docs/holistic-plan/WP-14-behavior-brief.md and its rows in docs/holistic-plan/STATUS.md. The founder handed over a
-change brief on Nov 17, 2026, written from an outside report against an older copy of the repository. Three read-only
-checks compared every item with main at 5b6541d6. The package lists what main already does, thirteen tasks that still
-apply, the amendments to WP-02 T10, WP-09 T13 and T16, WP-10 T9 and T12 and WP-13 T7, and twelve points where the
-brief disagrees with a recorded decision or a CLAUDE.md rule. No code changed.
+Added docs/holistic-plan/WP-14-behavior-brief.md and its rows in docs/holistic-plan/STATUS.md, and changed two lines
+of CLAUDE.md. The founder handed over a change brief on Nov 17, 2026, written from an outside report against an older
+copy of the repository. Three read-only checks compared every item with main at 5b6541d6 and found twelve points where
+it disagreed with a recorded decision. The founder answered eleven the same afternoon, in the Desktop session that
+wrote this package. The package lists what main already does, fifteen tasks, the amendments to other packages' tasks,
+the eleven answers and five open points. No code changed.
 
 ## Decisions
-### The brief's reversals that clash with nothing newer are taken as the founder's word
-"The last task always finishes" replaces "the charge that empties a balance pauses the team" (2026-10-12), and one
-style for estimates with one legend replaces DESIGN §10's chip beside every figure. Both are written into tasks (T1,
-T7) with the supersession named, because the founder handed over the brief and no later decision speaks against them.
+### The founder's answers of Nov 17, 2026 (afternoon), which win over #273 and #274 where they differ
+- The entry plan is named Try. It is free today and becomes $5 a month on the day sign-up opens to the public.
+- Plans are Try, Founder, Studio and Partner. The Founder price is tested at $15 and $25 a month.
+- "Plans differ by agent work only" is dropped. Plans differ by the features the brief lists (WP-14 T14).
+- A founder can always bring their own Anthropic key, on every plan; it stays offered wherever a way on is offered.
+- Commit opens with a spend cap for each action of 5.00 and Autopilot off selected; the founder can change both.
+- Time and where you live are asked with the first profile and must be known before a person takes charge.
+- "Built for a big screen" is used as copy. The outer product still works from 390 px.
+- The waitlist opens in batches with a real count of places; each active founder has three named invitations;
+  inviting earns no reward; the waitlist page is public and indexable now.
+- Leaderboards stay removed. The mobile web view, the day-job description of the first user and "Customer #1" on
+  shared cards are deleted from the brief.
 
-### Where the brief disagrees with a decision of Nov 11 to 17, nothing is built
-Plans and prices (against #273 and #274 of the same morning), what a plan includes (against "plans differ by agent
-work only"), the own key at zero, Commit's defaults, questions before the first ideas, "built for a big screen",
-batches and invitation passes, leaderboards, the phone web view, the day-job first user, and "Customer #1" on a
-public card. Each is a numbered decision for the founder in the package. The brief carries no time of day, so it
-cannot be read as later than the merged answers.
+### The brief's reversals that clash with nothing newer are taken as the founder's word
+"The last task always finishes" replaces pausing on the charge that empties a balance, and one style for estimates
+with one legend replaces DESIGN §10's chip beside every figure (T1, T7).
+
+### Readings this session made, flagged for the founder
+- "Built for a big screen" changes words only; the small-screens build rule in CLAUDE.md is untouched.
+- Plan feature checks take effect when sign-up opens; while it is invite-only every tester keeps what they have.
+- The indexable waitlist page is an exception for that one page; everything else still follows `SIGNUP_OPEN`.
+- Three named invitations in total replaces three admissions a day for this kind of invitation.
 
 ### Work goes to the session that owns the area
-A task that changes another package's task is marked "amends" and travels with that task, so two sessions do not
-edit `BillingTab.tsx`, `session-credits.ts` or the provenance components at once. The landing copy (T10) was sent
-to the Desktop landing session directly; the cloud sessions learn of the rest from STATUS.md.
-
-### STATUS.md was not rebuilt
-Its WP-04 rows are behind main (T2, T4, T7, T9 and T15 are merged). This change adds WP-14's rows and one decision
-bullet only.
+A task that changes another package's task is marked "amends" and travels with that task. The landing copy (T10)
+was sent to the Desktop landing session directly; the cloud sessions learn of the rest from STATUS.md.
 
 ## Not done
-- The founder's answers D1 to D12.
-- The brief's five additions to CLAUDE.md's Never section (D12).
-- HOLISTIC_PLAN.md, OUTLINE.md and CLOUD_PROMPT.md still list WP-00 to WP-12, as they did after WP-13.
+- O1 to O5 in the package: the never-list, invited people at opening, Studio's test prices, seats, and budgets and
+  models for each plan.
+- docs/NETWORK.md, docs/DESIGN.md §10 and docs/foundmill-plan are changed by the tasks that own them (T15, T7, T13).
+- STATUS.md's WP-04 rows are behind main and were not rebuilt.
