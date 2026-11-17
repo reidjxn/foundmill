@@ -64,12 +64,16 @@ A security review of the change found nothing blocking. Fixed in the same change
 
 The later release should record its release per role (for example `role@2`) when it adds `default_since` to the generator. Nothing changes until then.
 
+### Ratings on agents with a training run (founder, Nov 17, 2026)
+Defaults can land on an agent with a promoted run or a run awaiting a decision (the seed's Frontend Engineer; one real run has awaited a decision since Oct 22). Its other ratings were measured without those skills.
+
+The founder agreed (about 7:12 PM UTC, Nov 17) with the recommendation: the backfill leaves those ratings alone and does not hold those agents' default skills back. T9's "Not tested yet" handles them later.
+
 ### Model note
 The defaults are plain Markdown instructions, and nothing depends on the model key (Haiku 5.5, GLM or a paid model).
 
 ## Not done
-- **D5 (attributes follow setup).** Defaults can land on an agent that has a promoted run or a run awaiting a decision (the seed's Frontend Engineer; e0 found one real run awaiting a decision since Oct 22). Its other ratings were measured without those skills, and this change does not reset or relabel them.
-  - T9 (after T8) is where ratings become measured values or "Not tested yet". The founder's call is needed on whether the backfill should hold off agents with a run awaiting a decision until then.
+- Ratings on agents with a promoted run or a run awaiting a decision are left as they are (the founder's decision above); T9, after T8's measuring run, shows them as measured values or "Not tested yet".
 - WP-10 renders the catalogue's `defaultSkills` ("Comes with") and owns the picker's final look. The welcome note saying the team arrives with skills is WP-04's.
 - Live sessions still list added skills by name until #255's held `session.ts` lines land (WP-06 T4's follow-up). Conversation, training and the T1 builders already use the index.
 - The live eval was not run (no key here). The Playwright suite runs in CI; the full local run is noted in the pull request.
