@@ -187,7 +187,7 @@ export function SessionScrubber({ events, startedAt, endedAt, position, onPositi
             );
           })}
         </div>
-        <Slider value={[clamped]} min={0} max={Math.max(1, length)} step={Math.max(1, Math.round(length / 500))} onValueChange={(v) => onPositionChange(v[0] ?? 0)} thumbLabels={["Replay position"]} aria-valuetext={formatClock(clamped)} />
+        <Slider value={[clamped]} min={0} max={Math.max(1, length)} step={Math.max(1, Math.round(length / 500))} onValueChange={(v) => onPositionChange(v[0] ?? 0)} thumbLabels={["Replay position"]} thumbValueText={[formatClock(clamped)]} />
         <ul className="sr-only" aria-label="Event markers">
           {markers.map((m, i) => (
             <li key={i}>

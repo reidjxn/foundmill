@@ -515,7 +515,7 @@ test.describe("seeded business (Northwind Skincare)", () => {
     await expect(page.getByTestId("crm-table-panel")).toContainText("Pennine Contract Cosmetics", { timeout: LONG });
   });
 
-  test("NeedsLargerWindow replaces a desktop-only screen below 1280 px (Needs you stays) and the shell returns at 1440 px; the shell renders without React update loops", async ({ page }) => {
+  test("a desktop-only screen scrolls sideways from 640 to 1279 px, NeedsLargerWindow replaces it below 640 px (Needs you stays) and the shell returns at 1440 px; the shell renders without React update loops", async ({ page }) => {
     const loops: string[] = [];
     page.on("console", (msg) => {
       if (msg.type() === "error" && /Maximum update depth/.test(msg.text())) loops.push(msg.text());
@@ -525,10 +525,14 @@ test.describe("seeded business (Northwind Skincare)", () => {
     await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/inbox`);
     await expect(page.getByTestId("inbox-list").getByRole("option").first()).toBeVisible({ timeout: LONG });
     // The Inbox (Needs you) works from 390 px since package 2.1, so it stays on screen below 1280; a desktop-only route
-    // (the CRM) is the one that asks for a larger window.
+    // (the CRM) keeps the console at its 1280 px floor in a sideways scroll from 640 px (founder decision 3, Nov 16, 2026)
+    // and asks for a larger window below that.
     await page.setViewportSize({ width: 1279, height: 900 });
     await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
     await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/crm`);
+    await expect(page.getByTestId("scroll-shell").getByTestId("app-shell")).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
+    await page.setViewportSize({ width: 639, height: 900 });
     await expect(page.getByTestId("needs-larger-window")).toBeVisible({ timeout: LONG });
     // The note replaces the shell: no shell is left in the document. For a moment after hydration one still can be, hidden:
     // DesktopOnly drops the business layout's Suspense boundary (app/b/loading.tsx) before React has revealed it, and

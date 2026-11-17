@@ -39,7 +39,7 @@ export function PlanView({ plan, tests, className }: PlanViewProps) {
           {done} of {plan.length} steps
         </span>
       </div>
-      <ol className="min-h-0 flex-1 overflow-y-auto py-1">
+      <ol tabIndex={0} aria-label="Plan steps" className="focus-ring min-h-0 flex-1 overflow-y-auto py-1">
         {plan.map((step, i) => {
           const s = STEP[step.state];
           return (

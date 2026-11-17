@@ -132,10 +132,12 @@ describe("ratings with Builder view off", () => {
     expect(word.querySelectorAll(".cell-lit, .cell-empty")).toHaveLength(0);
   });
 
-  it("SkillGrid shows each skill's band word with no figures", () => {
+  it("SkillGrid shows each skill's figure out of 20 and its band word, and no cells (founder decision 5, WP-10 T9)", () => {
     render(<SkillGrid skills={[{ id: "comm", name: "Communication", group: "craft", value: 15 }]} />);
-    expect(document.querySelector("[data-rating-figure]")).toBeNull();
+    expect(document.querySelector("[data-rating-figure]")?.textContent).toContain("15");
     expect(document.querySelector("[data-skill-band]")?.textContent).toBe("Good");
+    expect(document.querySelector("[data-skill-band]")?.getAttribute("aria-label")).toBe("Communication: 15 of 20 · Good");
+    expect(document.querySelector("[data-rating]")).toBeNull();
   });
 
   it("the team rows still render (the gated columns are simply absent)", () => {

@@ -14,7 +14,7 @@
  */
 import { createContext, useContext, useLayoutEffect, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
-import { NeedsLargerWindow, isViewportTooSmall, useViewportWidth } from "@foundmill/dugout";
+import { NeedsLargerWindow, isViewportTooNarrowToScroll, useViewportWidth } from "@foundmill/dugout";
 import { isPublicPath } from "@/lib/auth/redirects";
 import { ContinueLater } from "./ContinueLater";
 
@@ -103,7 +103,9 @@ export function DesktopOnly({ children }: { children: ReactNode }) {
   // branch here on `publicEnv().storeLinks` (lib/env.ts), the same value every "Get the app" prompt reads. Not built yet.
   // The note carries its exits (WP-03 T3): Email me a link (or Copy link) and one way back. Every route the proxy does
   // not serve signed out (`isPublicPath`) is a signed-in one: the proxy sends a signed-out visitor to sign in first.
-  if (!allowed && !worksOnSmallScreens(pathname) && isViewportTooSmall(width))
+  // Below 640 px the note; from 640 to 1279 px the console renders at 1280 px and scrolls sideways (founder decision 3,
+  // Nov 16, 2026: AppShell draws the scrolling shell and its note).
+  if (!allowed && !worksOnSmallScreens(pathname) && isViewportTooNarrowToScroll(width))
     return <NeedsLargerWindow width={width} actions={<ContinueLater pathname={pathname ?? "/"} signedIn={!isPublicPath(pathname ?? "/")} />} />;
   return <SmallScreenAllowance.Provider value={setAllowed}>{children}</SmallScreenAllowance.Provider>;
 }

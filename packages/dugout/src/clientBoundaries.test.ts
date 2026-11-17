@@ -116,6 +116,7 @@ export const SERVER_SAFE_FILES = [
   // render; the next-step rules are pure; the fixture map and the keyboard-focus tracker hold no React at all.
   "components/guidance/ConsequenceLine.tsx",
   "components/guidance/ScaleLabel.tsx",
+  "components/guidance/RatingKey.tsx",
   "components/guidance/fixtures.ts",
   "components/guidance/keyboardFocus.ts",
   "components/firstrun/nextSteps.ts",

@@ -17,6 +17,10 @@ import { KeyboardHelp } from "./KeyboardHelp";
 import type { ConnectionChipProps } from "./ConnectionChip";
 import { KitBar, kitStyle, type KitBarBusinessMenu, type KitBarNav } from "./KitBar";
 import { NeedsLargerWindow } from "./NeedsLargerWindow";
+import { NarrowWindowNote } from "./NarrowWindowNote";
+
+/** sessionStorage: the narrow-window note was dismissed in this tab. */
+const NARROW_NOTE_KEY = "fm.narrow-window-note";
 import { PhoneBar, PhoneMenu } from "./PhoneBar";
 import { ProcessingStrip, processingStatusText } from "./ProcessingStrip";
 import { RightRail } from "./RightRail";
@@ -26,7 +30,7 @@ import type { StopAllAgentsProps } from "./StopAllAgents";
 import { TabBar, type TabBarProps } from "./TabBar";
 import { AREA_LETTERS, SHELL_FIXED_LETTERS, shellDepartmentLetters, useKeyboardMap, type DepartmentForKeys, type GoToTarget, type KeyboardMapContext } from "./keyboard";
 import type { BreadcrumbItem, ContinueState, Kit, ProcessingSegment, SidebarBrand, SidebarItem } from "./types";
-import { isViewportTooSmall, MIN_VIEWPORT_WIDTH, useViewportWidth } from "./useViewportWidth";
+import { isViewportTooNarrowToScroll, isViewportTooSmall, MIN_VIEWPORT_WIDTH, useViewportWidth } from "./useViewportWidth";
 
 export interface AppShellSidebar {
   items: SidebarItem[];
@@ -324,6 +328,20 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
   const width = viewportWidth ?? measured;
   const tooSmall = isViewportTooSmall(width, minViewportWidth);
   const phoneLayout = phone && tooSmall;
+  const scrollShell = tooSmall && !phone && !isViewportTooNarrowToScroll(width);
+  const [narrowNoteOpen, setNarrowNoteOpen] = useState(() => {
+    try {
+      return typeof window === "undefined" || window.sessionStorage.getItem(NARROW_NOTE_KEY) !== "hidden";
+    } catch {
+      return true;
+    }
+  });
+  const dismissNarrowNote = useCallback(() => {
+    setNarrowNoteOpen(false);
+    try {
+      window.sessionStorage.setItem(NARROW_NOTE_KEY, "hidden");
+    } catch {}
+  }, []);
   const [menuOpen, setMenuOpen] = useState(false);
 
   const items = useMemo(() => withSidebarKeys(sidebar.items), [sidebar.items]);
@@ -401,7 +419,8 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
   // Toasts stack bottom left beside the sidebar, at its real width (collapsed or not), while the shell is mounted.
   useToastPlacement({ position: "bottom-left", sidebar: sidebar.collapsed ? "collapsed" : "expanded" });
 
-  if (tooSmall && !phone) return <NeedsLargerWindow width={width} minWidth={minViewportWidth} />;
+  // Below 640 px the console asks for a larger window; from 640 px it renders and scrolls sideways (decision 3).
+  if (tooSmall && !phone && isViewportTooNarrowToScroll(width)) return <NeedsLargerWindow width={width} minWidth={minViewportWidth} />;
 
   const homeItem = items.find((it) => it.fixed === "home");
   const rootStyle: CSSProperties = { ...kitStyle(kit), ...style };
@@ -424,6 +443,9 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
             style={rootStyle}
             {...rest}
           >
+            {/* The page's header (banner): the skip link, the bar, the title and the tabs, so every one of them is inside a
+                landmark (axe "region" at 390 px, WP-10 T7). The skip link stays the first thing Tab reaches. */}
+            <header className="flex shrink-0 flex-col" data-testid="shell-header">
             <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded-panel focus:bg-panel-alt focus:px-2 focus:py-1">
               Skip to content
             </a>
@@ -458,6 +480,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
                 {tabs?.trailing ? <div className="rule-under flex shrink-0 items-center gap-2 pr-gutter [&_a]:min-h-tap [&_button]:min-h-tap">{tabs.trailing}</div> : null}
               </div>
             ) : null}
+            </header>
             <main id="main" tabIndex={-1} className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto outline-none" data-testid="shell-content">
               {children}
             </main>
@@ -490,7 +513,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
     );
   }
 
-  return (
+  const shellTree = (
     <TooltipProvider delayDuration={400} skipDelayDuration={300}>
       <PageExplainProvider>
       <div
@@ -520,6 +543,8 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
           }}
         />
         <div className="flex min-w-0 flex-1 flex-col">
+          {/* The page's header (banner): the bar, the tab row and the breadcrumbs, so every one of them is inside a landmark. */}
+          <header className="flex shrink-0 flex-col" data-testid="shell-header">
           <KitBar
             kit={kit}
             logoSrc={logoSrc}
@@ -581,6 +606,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
               {pageActions}
             </div>
           ) : null}
+          </header>
           <div className="flex min-h-0 flex-1">
             <main id="main" tabIndex={-1} className="min-w-0 flex-1 overflow-auto outline-none" data-testid="shell-content">
               {children}
@@ -607,4 +633,13 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
       </PageExplainProvider>
     </TooltipProvider>
   );
+  // Between 640 and 1279 px (founder decision 3): the console at its 1280 px layout, the window scrolling sideways.
+  if (scrollShell)
+    return (
+      <div className="h-screen w-full overflow-x-auto overflow-y-hidden" data-testid="scroll-shell">
+        {shellTree}
+        {narrowNoteOpen ? <NarrowWindowNote onDismiss={dismissNarrowNote} /> : null}
+      </div>
+    );
+  return shellTree;
 });

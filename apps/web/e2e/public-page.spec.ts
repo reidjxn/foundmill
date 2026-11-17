@@ -2,6 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Browser, type Page } from "@playwright/test";
 import { LONG, commitThrowaway, dismissCoachmarks, expectTapTarget, settled } from "./helpers";
+import { expectNoAxeViolations } from "./axe";
 
 /**
  * A project's public page (docs/THESIS_REVIEW.md package 1.1): Product › Public page in the console (fields with
@@ -79,6 +80,8 @@ async function expectPublicPage(page: Page, pagePath: string, width: number, sho
   await expect(howUsed).toHaveAttribute("target", "_blank");
   await expectTapTarget(howUsed, "the How your email is used link is a 44 px target");
   await expect(article.getByRole("link")).toHaveCount(3);
+  // The page and its form pass axe (WCAG 2.2 AA, the stories' rules; e2e/accessibility.spec.ts has the rest).
+  await expectNoAxeViolations(page, `${pagePath} at ${width} px, signed out`);
   const smallest = await article.evaluate((root) => Math.min(...[...root.querySelectorAll<HTMLElement>("p, h1, h2, span, a")].filter((e) => e.textContent?.trim()).map((e) => parseFloat(getComputedStyle(e).fontSize))));
   expect(smallest).toBeGreaterThanOrEqual(11);
   if (process.env.E2E_UX_AUDIT) {
@@ -90,7 +93,8 @@ async function expectPublicPage(page: Page, pagePath: string, width: number, sho
 
 test.describe("public page", () => {
   test("write it, preview it at phone width, publish it after a confirmation, open it signed out at 390 and 1280 px, take it down", async ({ page, browser }) => {
-    test.setTimeout(240_000);
+    // Four widths of a published page, each now with an axe run (WP-10 T7).
+    test.setTimeout(360_000);
     const bid = await commitThrowaway(page, `Doorstep Bikes ${Date.now().toString(36)}`);
 
     // Today (packages 1.2 and 1.3): the team drafted the page first, and the Product lead's note asks for it in Needs you;

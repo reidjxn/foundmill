@@ -58,7 +58,8 @@ function Outline({ groups, selectedId, onSelect }: { groups: SectionGroup[]; sel
   return (
     <nav aria-label="Spec outline" className="flex flex-col" onKeyDown={onKeyDown}>
       {groups.map((g) => (
-        <section key={g.section} aria-label={g.section}>
+        // A group, not a landmark: the document beside it has its own section of the same name (axe landmark-unique).
+        <div key={g.section} role="group" aria-label={g.section}>
           <h3 className="t-label sticky top-0 bg-panel px-panel-pad py-1.5">{g.section}</h3>
           <ul>
             {g.blocks.map((b) => {
@@ -86,7 +87,7 @@ function Outline({ groups, selectedId, onSelect }: { groups: SectionGroup[]; sel
               );
             })}
           </ul>
-        </section>
+        </div>
       ))}
     </nav>
   );
