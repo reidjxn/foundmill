@@ -124,8 +124,6 @@ Generated from the templates as they were before the removal; one table per temp
 
 | Connector | Capability | Why it resolved to nothing |
 | --- | --- | --- |
-| `platform` | `crm.entities.create` | no tool serves this capability |
-| `platform` | `crm.interactions.append` | no tool serves this capability |
 | `platform` | `documents.read` | no tool serves this capability |
 | `platform` | `documents.write` | no tool serves this capability |
 
@@ -478,8 +476,6 @@ Generated from the templates as they were before the removal; one table per temp
 
 | Connector | Capability | Why it resolved to nothing |
 | --- | --- | --- |
-| `platform` | `crm.entities.create` | no tool serves this capability |
-| `platform` | `crm.interactions.append` | no tool serves this capability |
 | `platform` | `documents.read` | no tool serves this capability |
 | `platform` | `documents.write` | no tool serves this capability |
 | `platform` | `rfq.create` | no tool serves this capability |
@@ -493,8 +489,6 @@ Generated from the templates as they were before the removal; one table per temp
 
 | Connector | Capability | Why it resolved to nothing |
 | --- | --- | --- |
-| `platform` | `crm.entities.create` | no tool serves this capability |
-| `platform` | `crm.interactions.append` | no tool serves this capability |
 | `platform` | `documents.read` | no tool serves this capability |
 | `platform` | `documents.write` | no tool serves this capability |
 | `platform` | `rfq.create` | no tool serves this capability |
@@ -511,8 +505,6 @@ Generated from the templates as they were before the removal; one table per temp
 
 | Connector | Capability | Why it resolved to nothing |
 | --- | --- | --- |
-| `platform` | `crm.entities.create` | no tool serves this capability |
-| `platform` | `crm.interactions.append` | no tool serves this capability |
 | `platform` | `documents.read` | no tool serves this capability |
 | `platform` | `documents.write` | no tool serves this capability |
 | `platform` | `rfq.create` | no tool serves this capability |
@@ -526,8 +518,6 @@ Generated from the templates as they were before the removal; one table per temp
 
 | Connector | Capability | Why it resolved to nothing |
 | --- | --- | --- |
-| `platform` | `crm.entities.create` | no tool serves this capability |
-| `platform` | `crm.interactions.append` | no tool serves this capability |
 | `platform` | `documents.read` | no tool serves this capability |
 | `platform` | `documents.write` | no tool serves this capability |
 | `platform` | `rfq.create` | no tool serves this capability |
@@ -541,8 +531,6 @@ Generated from the templates as they were before the removal; one table per temp
 
 | Connector | Capability | Why it resolved to nothing |
 | --- | --- | --- |
-| `platform` | `crm.entities.create` | no tool serves this capability |
-| `platform` | `crm.interactions.append` | no tool serves this capability |
 | `platform` | `documents.read` | no tool serves this capability |
 | `platform` | `documents.write` | no tool serves this capability |
 | `platform` | `rfq.create` | no tool serves this capability |
@@ -559,8 +547,6 @@ Generated from the templates as they were before the removal; one table per temp
 
 | Connector | Capability | Why it resolved to nothing |
 | --- | --- | --- |
-| `platform` | `crm.entities.create` | no tool serves this capability |
-| `platform` | `crm.interactions.append` | no tool serves this capability |
 | `platform` | `documents.read` | no tool serves this capability |
 | `platform` | `documents.write` | no tool serves this capability |
 | `platform` | `rfq.create` | no tool serves this capability |
@@ -574,8 +560,6 @@ Generated from the templates as they were before the removal; one table per temp
 
 | Connector | Capability | Why it resolved to nothing |
 | --- | --- | --- |
-| `platform` | `crm.entities.create` | no tool serves this capability |
-| `platform` | `crm.interactions.append` | no tool serves this capability |
 | `platform` | `documents.read` | no tool serves this capability |
 | `platform` | `documents.write` | no tool serves this capability |
 | `platform` | `rfq.create` | no tool serves this capability |
@@ -598,8 +582,6 @@ Generated from the templates as they were before the removal; one table per temp
 
 | Connector | Capability | Why it resolved to nothing |
 | --- | --- | --- |
-| `platform` | `crm.entities.create` | no tool serves this capability |
-| `platform` | `crm.interactions.append` | no tool serves this capability |
 | `platform` | `documents.read` | no tool serves this capability |
 | `platform` | `documents.write` | no tool serves this capability |
 | `platform` | `rfq.create` | no tool serves this capability |

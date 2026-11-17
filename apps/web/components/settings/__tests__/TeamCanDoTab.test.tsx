@@ -43,6 +43,7 @@ vi.mock("@/lib/trpc-react", () => ({
       setSpendCap: mutation("setSpendCap", setSpendCap as never),
       startHoliday: mutation("startHoliday", noop as never),
       endHoliday: mutation("endHoliday", noop as never),
+      setPaymentPowers: mutation("setPaymentPowers", noop as never),
       // When the team stops reads Autopilot's settings (the same query AutopilotSection reads).
       autopilot: { get: { queryOptions: () => ({ queryKey: [["business", "autopilot", "get"]], queryFn: async () => autopilot }) } },
     },

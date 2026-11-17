@@ -62,7 +62,9 @@ describe("stripe hard gates", () => {
       expect(stripeMock.policyHints[tool]?.hardGate).toBe(true);
     }
     expect(stripeMock.policyHints.create_payout).toMatchObject({ spendsMoney: true, irreversible: true });
-    expect(stripeMock.policyHints.create_checkout_session).toEqual({});
+    // Founder, Nov 16, 2026: a payment page and a finalized invoice ask first (payment powers decide automated mode).
+    expect(stripeMock.policyHints.create_checkout_session).toEqual({ irreversible: true });
+    expect(stripeMock.policyHints.create_invoice).toEqual({ irreversible: true });
     expect(stripeMock.policyHints.send_invoice).toEqual({ contactsThirdParty: true, irreversible: true });
   });
 });

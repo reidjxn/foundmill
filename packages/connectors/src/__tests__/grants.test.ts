@@ -132,7 +132,7 @@ describe("servedGrants (what a founder is shown)", () => {
   it("drops grants on connectors that are not built and capabilities no tool serves, and keeps the rest as stored", () => {
     // What an agent hired before Nov 11, 2026 still holds: a social engine's version copied from the old template.
     const stored = [
-      { connectorKey: "platform", tools: ["tasks.list", "campaigns.create", "assets.create", "inbox.request_human_action", "crm.entities.create"] },
+      { connectorKey: "platform", tools: ["tasks.list", "campaigns.create", "assets.create", "inbox.request_human_action", "documents.write"] },
       { connectorKey: "quarantine", tools: ["read_untrusted"] },
       { connectorKey: "instagram", tools: ["media.publish", "comments.list"] },
       { connectorKey: "x_publishing", tools: ["posts.publish"] },

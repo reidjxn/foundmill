@@ -33,7 +33,7 @@ describe("outcome evals with scripted agents (mock)", () => {
 
   it("names the cases of the spec and runs mock (no key)", () => {
     expect(env.live).toBe(false);
-    expect(SESSION_CASES.map((c) => c.id)).toEqual(["researcher.report_saved", "researcher.real_citations", "researcher.unmet_line_is_not_done", "channel_email_automation.not_connected_is_not_sent", "isolation.refused_tools", "backend_engineer.fixes_failing_test"]);
+    expect(SESSION_CASES.map((c) => c.id)).toEqual(["researcher.report_saved", "researcher.real_citations", "researcher.unmet_line_is_not_done", "sourcing_manufacturing.records_suppliers", "channel_email_automation.not_connected_is_not_sent", "isolation.refused_tools", "backend_engineer.fixes_failing_test"]);
   });
 
   it("backend_engineer.fixes_failing_test: the failing run goes back with its output, and the run after the fix passes", async () => {

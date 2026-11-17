@@ -119,6 +119,20 @@ export async function buildMetricsFixture(h: TestHarness, opts: { withDemo: bool
   await event(h, bravo, "cycle.started", "2026-11-11T12:30:00Z", { kind: "system", id: "autopilot" });
   await h.db.execute(sql`insert into founder_visit_days (user_id, business_id, day, first_at, last_at) values (${bob}, ${bravo}, '2026-11-12', '2026-11-12T08:00:00Z', '2026-11-12T09:00:00Z')`);
 
+  // The first session (WP-14 T12). Alpha: the plan was asked for 6 minutes after commit and approved by the founder
+  // after 30, and her first press of Continue worked. Bravo: the plan came after 24 minutes and still waits, and his
+  // first press was refused before the second one worked.
+  await h.db.execute(sql`insert into product_signoffs (business_id, kind, round, status, requested_at, decided_at, decided_by_kind) values
+    (${alpha}, 'spec', 1, 'approved', '2026-11-05T08:06:00Z', '2026-11-05T08:30:00Z', 'user'),
+    (${alpha}, 'roadmap', 1, 'approved', '2026-11-05T08:07:00Z', '2026-11-05T08:40:00Z', 'user'),
+    (${bravo}, 'spec', 1, 'pending', '2026-11-11T10:24:00Z', null, null)`);
+  await h.db.execute(sql`insert into audit_log (business_id, actor_kind, actor_id, action, created_at) values
+    (${alpha}, 'user', ${alice}, 'business.continue', '2026-11-05T10:30:00Z')`);
+  await h.db.execute(sql`insert into audit_log (business_id, actor_kind, actor_id, action, created_at) values
+    (${bravo}, 'user', ${bob}, 'business.continue_refused', '2026-11-11T10:20:00Z')`);
+  await h.db.execute(sql`insert into audit_log (business_id, actor_kind, actor_id, action, created_at) values
+    (${bravo}, 'user', ${bob}, 'business.continue', '2026-11-11T10:30:00Z')`);
+
   // The house: a real page and a real follow, never in the north star (it is not an outside project).
   await event(h, house, "page.published", "2026-11-12T09:00:00Z", { kind: "user", id: houseOwner }, { pageId: house, slug: "foundmill" });
   await event(h, house, "page.followed", "2026-11-12T09:30:00Z", { kind: "system", id: "public-page" }, { pageId: house });
@@ -137,6 +151,12 @@ export async function buildMetricsFixture(h: TestHarness, opts: { withDemo: bool
     await h.db.execute(sql`insert into invitations (business_id, token_hash, role, email, expires_at, created_at) values (${demo}, ${"d".repeat(64)}, 'cofounder', 'invitee@test.local', '2026-11-20T00:00:00Z', '2026-11-06T00:00:00Z')`);
     await h.db.insert(s.integrations).values({ businessId: demo, connectorKey: "stripe", status: "mock", authKind: "api_key" });
     await agentWork(h, demo, "2026-11-07");
+    // WP-14 T12's sources, all for nothing in a demo: a plan, a refused press, a rest, a Customer Update and its share.
+    await h.db.execute(sql`insert into product_signoffs (business_id, kind, round, status, requested_at, decided_at, decided_by_kind) values (${demo}, 'spec', 1, 'approved', '2026-11-06T03:00:00Z', '2026-11-06T04:00:00Z', 'user')`);
+    await h.db.execute(sql`insert into audit_log (business_id, actor_kind, actor_id, action, created_at) values (${demo}, 'user', ${demoOwner}, 'business.continue_refused', '2026-11-06T03:00:00Z')`);
+    await event(h, demo, "team.resting", "2026-11-06T05:00:00Z", { kind: "system", id: "orchestrator" });
+    await event(h, demo, "customer.converted", "2026-11-07T02:00:00Z", { kind: "webhook", id: "stripe" }, { conversionId: "demo-conversion" });
+    await event(h, demo, "customer_update.shared", "2026-11-07T03:00:00Z", { kind: "user", id: demoOwner }, { conversionId: "demo-conversion" });
   }
   return { alpha, bravo, demo, alice, bob };
 }

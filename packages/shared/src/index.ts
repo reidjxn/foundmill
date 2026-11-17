@@ -65,6 +65,7 @@ export * from "./streak";
 export * from "./notify-words";
 export * from "./lifecycle-email";
 export * from "./morning-brief";
+export * from "./chapter-report";
 export * from "./loop-stops";
 export * from "./idea-box";
 export * from "./page-quiz";
