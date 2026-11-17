@@ -381,6 +381,19 @@ export const businessRouter = router({
    * every spend asks the founder first, whatever the mode (the gateway lowers each agent's approval threshold to it).
    * Null removes the business cap; each agent's own threshold then applies.
    */
+  /**
+   * Payment powers (founder, Nov 16, 2026): whether agents may create invoices and payment pages without asking in
+   * automated mode and on vacation. Only `inbound` exists; agent code never moves money out.
+   */
+  setPaymentPowers: adminProcedure.input(z.object({ paymentPowers: z.array(z.enum(["inbound"])).max(1) })).mutation(({ ctx, input }) =>
+    ctx.rls(async (tx) => {
+      const from = ctx.business.paymentPowers ?? [];
+      const business = await repos.businesses.setPaymentPowers(tx, ctx.businessId, input.paymentPowers);
+      if (from.join() !== business.paymentPowers.join()) await audit(tx, ctx, { action: "business.set_payment_powers", target: { kind: "business", id: ctx.businessId }, details: { from, to: business.paymentPowers } });
+      return business;
+    }),
+  ),
+
   setSpendCap: adminProcedure.input(z.object({ spendCapMinor: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).nullable() })).mutation(({ ctx, input }) =>
     ctx.rls(async (tx) => {
       const from = ctx.business.spendCapMinor;
@@ -432,6 +445,8 @@ export const businessRouter = router({
         /** The ceiling's currency; absent: the business's own (0025). */
         currency: CurrencyCode.optional(),
         wakeEvents: z.array(z.enum(EVENT_TYPES)).max(EVENT_TYPES.length).default(["credential.expiring", "filing.due", "runway.threshold_crossed"]),
+        /** Decided when the vacation starts (founder, Nov 16, 2026): absent keeps the business's current payment powers. */
+        paymentPowers: z.array(z.enum(["inbound"])).max(1).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -447,6 +462,11 @@ export const businessRouter = router({
       // with the vacation the first started, and nothing of its own (event, audit) is kept.
       const started = await ctx
         .rls(async (tx) => {
+          if (input.paymentPowers !== undefined) {
+            const from = ctx.business.paymentPowers ?? [];
+            const updated = await repos.businesses.setPaymentPowers(tx, ctx.businessId, input.paymentPowers);
+            if (from.join() !== updated.paymentPowers.join()) await audit(tx, ctx, { action: "business.set_payment_powers", target: { kind: "business", id: ctx.businessId }, details: { from, to: updated.paymentPowers, at: "vacation_start" } });
+          }
           const h = await repos.holidays.start(tx, ctx.businessId, {
             untilAt: input.until.kind === "date" ? input.until.date : null,
             untilCondition: input.until.kind === "condition" ? { text: input.until.condition } : input.until.kind === "return" ? { text: "you return" } : null,
