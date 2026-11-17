@@ -92,6 +92,8 @@ export interface SinceLastVisitLike {
   wins: number;
   newDecisions: number;
   milestones: readonly string[];
+  /** Accounts that arrived through the project's page since the previous visit (absent or 0: no line). */
+  arrived?: number;
   spend: { amountMinor: number; currency: string } | null;
 }
 
@@ -105,6 +107,8 @@ export function sinceLastVisitLines(view: SinceLastVisitLike, businessId: string
   if (view.wins > 0) lines.push({ id: "wins", text: `${countOf(view.wins, "customer")} won.`, tone: "gold", link: { href: routes.inbox(businessId), label: "Open" } });
   if (view.newDecisions > 0) lines.push({ id: "decisions", text: `${countOf(view.newDecisions, "new decision")} ${view.newDecisions === 1 ? "needs" : "need"} you.`, link: { href: needsYouHref(businessId), label: "Answer" } });
   view.milestones.forEach((m, i) => lines.push({ id: `milestone-${i}`, text: `Milestone: ${m}.`, tone: "gold", link: { href: `/b/${businessId}/milestones`, label: "See" } }));
+  // A count and nothing else: no name, no link, nothing public (docs/NETWORK.md §14 answer 4).
+  if ((view.arrived ?? 0) > 0) lines.push({ id: "arrived", text: `${view.arrived === 1 ? "1 person" : `${view.arrived} people`} arrived through your page.` });
   if (view.spend) lines.push({ id: "spend", text: `Team spend ${money(view.spend)} (Estimate).` });
   return lines;
 }

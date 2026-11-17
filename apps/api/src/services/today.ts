@@ -24,7 +24,7 @@
  *   off the specification and the roadmap.
  */
 import { APPROVAL_OPTIONS, approvalSection, buildDestinationOf, repos, type DbTx, type InboxItem, type Task } from "@foundmill/db";
-import { CREDITS_CURRENCY } from "@foundmill/config";
+import { CREDITS_CURRENCY, FLAGS } from "@foundmill/config";
 import { GOAL_OPTION_IDS, PAGE_READY_NOTE, POSTAL_ADDRESS_NOTE, WRITE_ROLES, addDaysToDay, dailyStreak, dayKeyIn, firstWeekTimeline, firstWeekVisible, hasSectionAccess, isPageReadyDecision, isPostalAddressDecision, vacationDayKeys, weekPlanWords, type FirstWeekWords, type Streak, type WeekFacts, type WeekPlanWords } from "@foundmill/shared";
 import { channelRowsFor } from "./channel-availability";
 import type { BusinessContext } from "../trpc";
@@ -294,6 +294,8 @@ export interface SinceLastVisit {
   wins: number;
   newDecisions: number;
   milestones: string[];
+  /** Accounts that arrived through this project's page, credited to the reader, since the previous visit (0 when `FLAGS.referralLine` is off). */
+  arrived: number;
   /** Model cost of the rounds, an Estimate (null when the reader cannot read Finance). */
   spend: { amountMinor: number; currency: string } | null;
 }
@@ -303,16 +305,18 @@ export async function sinceLastVisitFor(ctx: BusinessContext, now: Date = new Da
 }
 
 /** "Since you were last here" from the reader's presence row, already read. */
-async function sinceVisit(ctx: BusinessContext, presence: { previousSeenAt: string | null } | null, now: Date): Promise<SinceLastVisit | null> {
+async function sinceVisit(ctx: BusinessContext, presence: { previousSeenAt: string | null } | null, now: Date, options: { referralLine?: boolean } = {}): Promise<SinceLastVisit | null> {
   if (!presence?.previousSeenAt) return null;
   const since = new Date(presence.previousSeenAt);
   if (since.getTime() >= now.getTime()) return null;
   const can = (s: Parameters<typeof hasSectionAccess>[1]) => hasSectionAccess(ctx.membership, s, "read");
   const itemTypes = [...(can("crm") ? ["customer_won"] : []), ...(can("inbox") ? ["decision"] : [])];
-  const [events, items, milestones] = await Promise.all([
+  const [events, items, milestones, arrived] = await Promise.all([
     can("development") || can("finance") ? repos.notifyFacts.eventsSince(ctx.db, ctx.businessId, ["cycle.completed"], since) : Promise.resolve([]),
     itemTypes.length ? repos.notifyFacts.itemsSince(ctx.db, ctx.businessId, itemTypes, since) : Promise.resolve([]),
     can("inbox") ? repos.notifyFacts.milestonesSince(ctx.db, ctx.businessId, since) : Promise.resolve([]),
+    // Only the person credited for the page reads this, and only a count (D1, Nov 16, 2026).
+    (options.referralLine ?? FLAGS.referralLine) ? repos.attributions.countArrivedSince(ctx.db, { referrerUserId: ctx.userId, businessId: ctx.businessId, since }) : Promise.resolve(0),
   ]);
   const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
   const cost = events.reduce((n, e) => n + num((e.payload.cost as { amountMinor?: unknown } | undefined)?.amountMinor), 0);
@@ -324,9 +328,10 @@ async function sinceVisit(ctx: BusinessContext, presence: { previousSeenAt: stri
     wins: items.filter((i) => i.type === "customer_won").length,
     newDecisions: items.filter((i) => i.type === "decision" && (i.state === "unread" || i.state === "read")).length,
     milestones: milestones.map((m) => m.label).slice(0, 3),
+    arrived,
     spend: can("finance") && cost > 0 ? { amountMinor: cost, currency } : null,
   };
-  const nothing = view.rounds === 0 && view.tasksDone === 0 && view.wins === 0 && view.newDecisions === 0 && view.milestones.length === 0;
+  const nothing = view.rounds === 0 && view.tasksDone === 0 && view.wins === 0 && view.newDecisions === 0 && view.milestones.length === 0 && view.arrived === 0;
   return nothing ? null : view;
 }
 
