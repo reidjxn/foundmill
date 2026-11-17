@@ -15,6 +15,18 @@ import { oauthRedirectUri, signConnectState, signInstallState, verifyConnectStat
 import { ANTHROPIC, revokeAnthropicKey, storeAnthropicKey, validateAnthropicKey } from "../services/keys";
 import { Id, audit, router, sectionAdmin, sectionRead } from "../trpc";
 
+/** What a project is told when the Stripe account it signed in with is another project's (0137; the gateway's own words). */
+export const STRIPE_ACCOUNT_IN_USE = "This Stripe account is already connected to another project.";
+
+/** A Postgres unique violation of one named index, however the driver wraps it. */
+function isUniqueViolation(e: unknown, constraint: string): boolean {
+  for (let cur: unknown = e, i = 0; cur && i < 4; cur = (cur as { cause?: unknown }).cause, i++) {
+    const err = cur as { code?: unknown; constraint?: unknown; message?: unknown };
+    if (err.code === "23505" && (err.constraint === constraint || (typeof err.message === "string" && err.message.includes(constraint)))) return true;
+  }
+  return false;
+}
+
 const read = sectionRead("settings");
 
 /**
@@ -115,7 +127,7 @@ export const integrationsRouter = router({
       const finish = AppInstallation.parse(input.input);
       verifyInstallState(ctx.env.SESSION_TOKEN_SECRET, finish.state, { userId: ctx.userId!, businessId: ctx.businessId });
       connected = await ctx.gateway.connect(ctx.businessId, input.connectorKey, { installationId: finish.installationId, code: finish.code });
-    } else if (mode === "live" && connector.auth.authorizationCode) {
+    } else if (mode === "live" && connector.auth.authorizationCode && typeof input.input.apiKey !== "string") {
       // OAuth (Google, Notion, Shopify): the founder consents on the vendor's page, which sends them back to
       // /integrations/oauth/callback (apps/web) with a code and the state signed here. Nothing is written before the code
       // comes back signed for this founder, business and connector; the redirect URI is always the api's own. The
@@ -133,7 +145,8 @@ export const integrationsRouter = router({
       if (account !== null && finish.shop?.toLowerCase() !== account) throw new ForbiddenError("This sign-in came back for a different store: connect again from Settings › Integrations");
       connected = await ctx.gateway.connect(ctx.businessId, input.connectorKey, { code: finish.code, redirectUri, ...(account ? { shop: account } : {}) });
     } else if (mode === "live") {
-      // An API key the founder entered (SendGrid, Dropbox Sign, Cloudflare), a platform-key registry, a Plaid or Tink link.
+      // An API key the founder entered (SendGrid, Dropbox Sign, Cloudflare, or Stripe's second way in beside "Sign in with
+      // Stripe"), a platform-key registry, a Plaid or Tink link.
       connected = await ctx.gateway.connect(ctx.businessId, input.connectorKey, input.input);
     } else {
       // Mock: the connector's mock answers here, so the golden path needs no gateway. It reaches nothing and hands back no
@@ -144,6 +157,8 @@ export const integrationsRouter = router({
 
     const { record, credential } = connected;
     const integration = await ctx.db.transaction(async (tx: Executor) => {
+      const before = await repos.integrations.getByKey(tx, ctx.businessId, input.connectorKey);
+      const previousAccount = before && before.status !== "disconnected" ? ((before.settings as { externalAccountId?: string | null } | null)?.externalAccountId ?? null) : null;
       // The gateway already wrote this row (and sealed the credential with it) when the vendor handed back a secret;
       // the founder's choices, the settings and who connected it are written here.
       const row = await repos.integrations.upsert(tx, ctx.businessId, {
@@ -152,11 +167,17 @@ export const integrationsRouter = router({
         authKind: connector.auth.kind,
         scopes: record.scopes,
         accountLabel: record.accountLabel,
-        settings: { ...keptSettings(await repos.integrations.getByKey(tx, ctx.businessId, input.connectorKey), record.externalAccountId), externalAccountId: record.externalAccountId, config: record.config, expiresAt: record.expiresAt },
+        settings: { ...keptSettings(before, record.externalAccountId), externalAccountId: record.externalAccountId, config: record.config, expiresAt: record.expiresAt },
         connectedBy: ctx.userId,
       });
-      await audit(tx, ctx, { action: "integrations.connect", target: { kind: "integration", id: row.id }, details: { connectorKey: input.connectorKey, status: row.status, accountLabel: record.accountLabel, secretStored: credential !== null, secretHint: credential?.hint ?? null, ...(credential ? { credentialId: credential.credentialId } : {}) } });
+      // A reconnect to another account names both, so the audit says which account replaced which.
+      const replaced = previousAccount !== null && record.externalAccountId !== null && previousAccount !== record.externalAccountId ? { previousAccount, account: record.externalAccountId } : {};
+      await audit(tx, ctx, { action: "integrations.connect", target: { kind: "integration", id: row.id }, details: { connectorKey: input.connectorKey, status: row.status, accountLabel: record.accountLabel, secretStored: credential !== null, secretHint: credential?.hint ?? null, ...(credential ? { credentialId: credential.credentialId } : {}), ...replaced } });
       return row;
+    }).catch((e: unknown) => {
+      // 0137: a Stripe account signed in with belongs to one project (the gateway refuses it first; this is the race).
+      if (isUniqueViolation(e, "integrations_stripe_connect_account_key")) throw new AppError("account_in_use", STRIPE_ACCOUNT_IN_USE, 409, { connector: input.connectorKey });
+      throw e;
     });
     const consentUrl = typeof record.config.linkUrl === "string" ? record.config.linkUrl : typeof record.config.consentUrl === "string" ? record.config.consentUrl : typeof record.config.authorizeUrl === "string" ? record.config.authorizeUrl : null;
     return { integration, record: { ...record, connectorKey: input.connectorKey }, consentUrl, founderConsentRequired: consentUrl !== null };
@@ -171,12 +192,16 @@ export const integrationsRouter = router({
       await revokeAnthropicKey(ctx);
       return repos.integrations.get(ctx.db, ctx.businessId, target.id);
     }
+    // A Stripe sign-in also has Foundmill's access withdrawn in Stripe first (the gateway does it; best effort, so a
+    // founder who already removed it there can still disconnect here).
+    const mode = connectorMode(ctx.env, target.connectorKey);
+    const vendorAccess = mode === "live" && ctx.connectors.has(target.connectorKey) && typeof ctx.connectors.get(target.connectorKey, mode).disconnect === "function" && ctx.gateway.disconnect ? await ctx.gateway.disconnect(ctx.businessId, target.connectorKey).catch(() => ({ released: false })) : null;
     return ctx.db.transaction(async (tx: Executor) => {
       const integration = await repos.integrations.get(tx, ctx.businessId, input.integrationId);
       const metas = await repos.credentials.listMetadata(tx, ctx.businessId, { integrationId: integration.id });
       for (const m of metas) await repos.credentials.revoke(tx, ctx.businessId, m.id);
       const row = await repos.integrations.disconnect(tx, ctx.businessId, integration.id);
-      await audit(tx, ctx, { action: "integrations.disconnect", target: { kind: "integration", id: row.id }, details: { connectorKey: row.connectorKey, credentialsRevoked: metas.length } });
+      await audit(tx, ctx, { action: "integrations.disconnect", target: { kind: "integration", id: row.id }, details: { connectorKey: row.connectorKey, credentialsRevoked: metas.length, ...(vendorAccess ? { vendorAccessReleased: vendorAccess.released } : {}) } });
       return row;
     });
   }),

@@ -241,6 +241,12 @@ export interface ConnectorWebhook {
    * (SECURITY_REVIEW SEC-10). Reads a clone, like `verify`. Absent: the vendor's scheme names no account.
    */
   accountOf?(req: Request): Promise<string | null>;
+  /**
+   * The vendor account a delivery says withdrew the platform's access (Stripe `account.application.deauthorized`), or
+   * null for any other delivery. `apps/ingest` marks that business's connection expired, after `verify` and the same
+   * account check as `accountOf`. Absent: the vendor sends no such notice.
+   */
+  revokedAccount?(req: Request): Promise<string | null>;
 }
 
 /**
@@ -274,6 +280,12 @@ export interface Connector<Cfg = unknown> {
    * passes it for a live check); an API-key connector checks with it and never with a platform key.
    */
   healthcheck(integration: IntegrationRecord, credential?: DecryptedCredential): Promise<HealthResult>;
+  /**
+   * Withdraws the platform's access at the vendor when the founder disconnects (Stripe Connect: `oauth.deauthorize`).
+   * The gateway calls it before the api revokes the stored credentials; absent, disconnecting is local only. True when
+   * access was withdrawn, false when this connection had none at the vendor to withdraw (a pasted key).
+   */
+  disconnect?(integration: IntegrationRecord): Promise<boolean>;
   tools: McpToolDefinition[]; // JSON-schema inputs/outputs
   callTool(name: string, args: unknown, ctx: ToolContext): Promise<ToolResult>;
   webhooks?: ConnectorWebhook[];

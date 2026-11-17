@@ -14,7 +14,7 @@ import { serve, type ServerType } from "@hono/node-server";
 import { Redis } from "ioredis";
 import { APP_NAME, FLAGS } from "@foundmill/config";
 import { createDefaultRegistry, mockWebhooksAllowed, platformSecretsFromEnv, type BusinessResolver, type ConnectorRegistry } from "@foundmill/connectors";
-import { closeDb, createServiceDb, watchPoolOrExit, type Db } from "@foundmill/db";
+import { closeDb, createServiceDb, repos, watchPoolOrExit, type Db } from "@foundmill/db";
 import { liveConnectorKeys, loadEnv, platformMailDomain, platformMailSigningSecret, servicePort, type Env } from "@foundmill/shared";
 import { createLogger } from "@foundmill/shared/logger";
 import { createVault, type Vault } from "@foundmill/shared/crypto";
@@ -117,7 +117,7 @@ export function buildIngest(options: BuildIngestOptions = {}): BuiltIngest {
     createDefaultRegistry({
       secrets: platformSecretsFromEnv(env),
       now,
-      resolveBusinessId: options.resolveBusinessId ?? unresolvedBusiness(log),
+      resolveBusinessId: options.resolveBusinessId ?? accountBusinessResolver(db, log),
       getBusinessSecret: createBusinessSecretResolver(db, vault, log),
     });
 
@@ -160,12 +160,18 @@ export function buildIngest(options: BuildIngestOptions = {}): BuiltIngest {
 }
 
 /**
- * Shared (Connect-style) endpoints need a cross-business lookup from vendor account to business, which the
- * business-scoped repositories do not offer yet; until packages/db exposes one, URL-less deliveries are refused.
+ * Shared (Connect-style) endpoints: a delivery without a project in the address is routed by the account the vendor
+ * signed for. Only Stripe's platform endpoint has one ("Sign in with Stripe", 0137 keeps an account to one project);
+ * any other URL-less delivery is refused.
  */
-function unresolvedBusiness(log: IngestLogger): BusinessResolver {
+export function accountBusinessResolver(db: Db, log: IngestLogger): BusinessResolver {
   return async (hint) => {
-    log.warn({ connector: hint.connectorKey, externalAccountId: hint.externalAccountId }, "webhook without a business in the URL; no account→business resolver is configured");
+    if (hint.connectorKey === "stripe" && hint.externalAccountId) {
+      const businessId = await repos.integrations.businessForStripeAccount(db, hint.externalAccountId);
+      if (!businessId) log.warn({ connector: hint.connectorKey, externalAccountId: hint.externalAccountId }, "Stripe delivery for an account no project is signed in with");
+      return businessId;
+    }
+    log.warn({ connector: hint.connectorKey, externalAccountId: hint.externalAccountId }, "webhook without a business in the URL; no account→business resolver for this connector");
     return null;
   };
 }

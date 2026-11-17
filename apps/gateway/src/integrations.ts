@@ -151,6 +151,7 @@ export async function connectIntegration(deps: GatewayDeps, input: ConnectInput,
   connectInput = webhook.input;
   const record = await connector.connect(input.businessId, connectInput).catch((e: unknown) => vendorFailure(e, connector.key));
   const safe = stripSecret(record);
+  if (mode === "live" && record.status === "connected") await replacePreviousConnection(deps, input.businessId, connector, record, service);
 
   if (connector.auth.kind === "app") {
     const { verifiedBy, verifiedAt } = record.config as { verifiedBy?: unknown; verifiedAt?: unknown };
@@ -203,6 +204,55 @@ export async function connectIntegration(deps: GatewayDeps, input: ConnectInput,
   });
   await auditIntegration(deps, input.businessId, "gateway.integration.connect", connector.key, { service, mode, status: record.status, secretStored: true, integrationId: stored.integrationId, credentialId: stored.credentialId, ...(webhook.secret ? { webhookSecretStored: webhook.secret.kind } : {}) });
   return { mode, record: safe, integrationId: stored.integrationId, credential: { stored: true, credentialId: stored.credentialId, hint: redactSecret(credential.secret) } };
+}
+
+/** What a project is told when the Stripe account it signed in with is another project's (0137). */
+export const STRIPE_ACCOUNT_IN_USE = "This Stripe account is already connected to another project.";
+
+const isSignIn = (config: unknown): boolean => (config as { kind?: unknown } | null | undefined)?.kind === "connect";
+
+/**
+ * Before a new live connection replaces the project's previous one (Stripe, "Sign in with Stripe"):
+ * - an account signed in with may belong to one project only, so another project's account is refused before anything
+ *   changes (0137 also refuses it in the database);
+ * - a previous sign-in to another account, or one replaced by a pasted key, has Foundmill's access withdrawn at Stripe,
+ *   so two accounts are never connected to one project; a previous pasted key replaced by a sign-in is revoked here.
+ * Withdrawing is best effort (the founder may already have removed access in Stripe) and audited either way.
+ */
+async function replacePreviousConnection(deps: GatewayDeps, businessId: string, connector: Connector, record: IntegrationRecord, service: string): Promise<void> {
+  if (connector.key !== "stripe" || !record.externalAccountId) return;
+  if (isSignIn(record.config)) {
+    const owner = await repos.integrations.businessForStripeAccount(deps.db, record.externalAccountId);
+    if (owner !== null && owner !== businessId) throw new GatewayError("account_in_use", STRIPE_ACCOUNT_IN_USE, 409, { connector: connector.key });
+  }
+  const existing = await repos.integrations.getByKey(deps.db, businessId, connector.key);
+  if (!existing || existing.archivedAt !== null || existing.status === "disconnected") return;
+  const previous = toIntegrationRecord(existing, null);
+  const sameAccount = previous.externalAccountId?.toLowerCase() === record.externalAccountId.toLowerCase();
+  if (isSignIn(previous.config) && connector.disconnect && !(isSignIn(record.config) && sameAccount)) {
+    const released = await connector.disconnect(previous).catch((e: unknown) => (deps.log.warn({ connector: connector.key, businessId, err: (e as Error).message }, "previous Stripe sign-in could not be withdrawn"), false));
+    await auditIntegration(deps, businessId, "gateway.integration.access_released", connector.key, { service, released, from: previous.externalAccountId, to: record.externalAccountId, reason: "replaced" });
+  }
+  if (isSignIn(record.config) && !isSignIn(previous.config)) {
+    const metas = await repos.credentials.listMetadata(deps.db, businessId, { integrationId: existing.id });
+    for (const m of metas) await repos.credentials.revoke(deps.db, businessId, m.id);
+    if (metas.length > 0) await auditIntegration(deps, businessId, "gateway.integration.credentials_revoked", connector.key, { service, revoked: metas.length, reason: "replaced by a sign-in" });
+  }
+}
+
+/**
+ * Disconnecting: withdraws the platform's access at the vendor where the connector does that (a Stripe sign-in), before
+ * the api forgets the connection and revokes its credentials. Best effort: the founder may already have removed it.
+ */
+export async function releaseIntegration(deps: GatewayDeps, input: HealthInput, service: string): Promise<{ released: boolean }> {
+  const connector = connectableConnector(deps, input.connector);
+  await limitIntegrations(deps, input.businessId);
+  const row = await repos.integrations.getByKey(deps.db, input.businessId, connector.key);
+  if (!row || row.archivedAt !== null || row.status === "disconnected" || modeFor(deps, connector.key) !== "live" || !connector.disconnect) return { released: false };
+  const record = toIntegrationRecord(row, null);
+  const released = await connector.disconnect(record).catch((e: unknown) => (deps.log.warn({ connector: connector.key, businessId: input.businessId, err: (e as Error).message }, "vendor access could not be withdrawn"), false));
+  await auditIntegration(deps, input.businessId, "gateway.integration.access_released", connector.key, { service, released, from: record.externalAccountId, reason: "disconnected" });
+  return { released };
 }
 
 export async function integrationHealth(deps: GatewayDeps, input: HealthInput, service: string): Promise<{ health: HealthResult }> {

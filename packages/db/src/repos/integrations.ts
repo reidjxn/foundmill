@@ -3,7 +3,7 @@
  * disconnect / health). Secrets never live here: they are ciphertext rows in `credentials` (repos.credentials).
  */
 import { CONNECTOR_AUTH_KINDS, INTEGRATION_STATUSES, ValidationError, type IntegrationStatus } from "@foundmill/shared";
-import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { appInstallations, credentials, integrations, WEBHOOK_STATUSES, webhooks, type AppInstallation, type Integration, type Webhook } from "../schema";
 import { defined, Id, IsoDateInput, JsonObject, one, parseInput, type Executor } from "./_shared";
@@ -110,6 +110,22 @@ export const integrationsRepo = {
   async getByKey(db: Executor, businessId: string, connectorKey: string): Promise<Integration | null> {
     const rows = await db.select().from(integrations).where(and(eq(integrations.businessId, businessId), eq(integrations.connectorKey, connectorKey))).limit(1);
     return rows[0] ?? null;
+  },
+
+  /**
+   * The one project a Stripe account signed in with ("Sign in with Stripe") is connected to, or null (0137 keeps it to
+   * one). The only lookup here that crosses businesses: ingest's platform Stripe endpoint receives a connected account's
+   * payments without a project in the address and routes them by the account Stripe signed for. Service role only; under
+   * RLS a member sees only their own projects' rows. Only the business id comes back.
+   */
+  async businessForStripeAccount(db: Executor, externalAccountId: string): Promise<string | null> {
+    if (!/^acct_[A-Za-z0-9]{1,64}$/.test(externalAccountId)) return null;
+    const rows = await db
+      .select({ businessId: integrations.businessId })
+      .from(integrations)
+      .where(and(eq(integrations.connectorKey, "stripe"), ne(integrations.status, "disconnected"), isNull(integrations.archivedAt), sql`${integrations.settings}->'config'->>'kind' = 'connect'`, sql`lower(${integrations.settings}->>'externalAccountId') = ${externalAccountId.toLowerCase()}`))
+      .limit(2);
+    return rows.length === 1 ? rows[0]!.businessId : null;
   },
 
   /** The GitHub repository the business's code tasks push to, or null when GitHub is not connected or none is chosen. */
