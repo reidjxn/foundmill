@@ -60,6 +60,8 @@ const Env = z.object({
    * Nov 16, 2026): GLM-5.3 Flash once a measured session costs about $0.019 or less (T8), Haiku 5.5 until then.
    */
   FREE_SESSION_MODEL: z.enum(["haiku", "glm"]).default("haiku"),
+  /** evals only: "1" runs every live eval route as the free plan does, on Haiku 5.5 (WP-13 T8); the grader keeps its model. */
+  EVAL_FREE_PLAN: z.enum(["1"]).optional(),
   VOYAGE_API_KEY: z.string().optional(),
   /** apps/gateway: the platform key behind the `openai_images` connector (AI-generated faces of anthropomorphic agents). */
   OPENAI_API_KEY: z.string().optional(),
