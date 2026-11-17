@@ -30,6 +30,8 @@ export const TEST_READS = {
   "@foundmill/agents": { paths: /^scripts\/(banned-terms|build-skill-library)\.mjs$/ },
   // terms.test.ts runs scripts/us-english.mjs on the vocabulary.
   "@foundmill/shared": { paths: /^scripts\/us-english\.mjs$/ },
+  // mobile-contract.test.ts reads docs/mobile/skills/*/SKILL.md and checks the names against the api's router.
+  "@foundmill/api": { paths: /^docs\/mobile\/skills\// },
   // model-ids.test.ts scans every source file under apps/, packages/ and scripts/ for a model id outside routing.ts.
   "@foundmill/models": { paths: /^(apps|packages|scripts)\// },
   // content/legal/__tests__/legal-content.test.ts scans apps/ and packages/ for the legal entity's name and address.

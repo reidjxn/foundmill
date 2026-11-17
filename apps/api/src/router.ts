@@ -22,6 +22,7 @@ import { integrationsRouter, keysRouter } from "./routers/integrations";
 import { journeyRouter } from "./routers/journey";
 import { legalRouter } from "./routers/legal";
 import { liveRouter } from "./routers/live";
+import { operatorRouter, reportRouter } from "./routers/report";
 import { pageRouter, publicPageRouter } from "./routers/page";
 import { siteRouter } from "./routers/site";
 import { payLinkRouter } from "./routers/pay-link";
@@ -87,6 +88,8 @@ export const appRouter = router({
   keys: keysRouter,
   billing: billingRouter,
   live: liveRouter,
+  report: reportRouter,
+  operator: operatorRouter,
 });
 
 export type AppRouter = typeof appRouter;

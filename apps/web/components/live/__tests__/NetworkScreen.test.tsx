@@ -201,6 +201,20 @@ describe("/network", () => {
     expect(within(screen.getByTestId("network-strip")).getByText("Accept, ignore or block each one")).toBeTruthy();
   });
 
+  it("the thread pane reports someone in it by their latest message (NETWORK F21)", async () => {
+    api.handlers["report.create"] = () => ({ reported: true, blocked: false });
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: /Fintech ops intro/ }));
+    await screen.findByRole("log", { name: "Conversation with Ana Ruiz" });
+    fireEvent.keyDown(await screen.findByTestId("thread-menu"), { key: "Enter" });
+    fireEvent.click(screen.getByRole("menuitem", { name: "Report Ana Ruiz" }));
+    const dialog = await screen.findByTestId("report-person-dialog");
+    expect(within(dialog).getByText("Report this message")).toBeTruthy();
+    fireEvent.click(within(dialog).getByTestId("report-person-send"));
+    await waitFor(() => expect(callsTo(api, "report.create")).toEqual([{ target: { kind: "message", messageId: "m3" }, reason: "spam", note: undefined, block: false }]));
+    expect(await screen.findByText("Report sent")).toBeTruthy();
+  });
+
   it("audit #34: the thread pane mutes, leaves, and blocks someone in it with no connection needed", async () => {
     mount();
     fireEvent.click(await screen.findByRole("button", { name: /Fintech ops intro/ }));

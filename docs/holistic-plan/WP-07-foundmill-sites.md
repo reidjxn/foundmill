@@ -63,7 +63,7 @@ Order: T1, T11, T12 any time. Then T2 → T3 → T4 → T5 → T6 → T7 → T8 
 
 ### T1: Specialists can record a supplier and an interaction   [M] [ships alone] [no go-ahead needed]
 
-- [ ] done
+- [x] done
 
 **Why:** A4-07. Acceptance "At least 20 suppliers recorded as CRM entities" against a grant list with no CRM write (`packages/agents/src/templates/specialists/_specialist.ts:33-36`); the description still says "Tools: documents in Google Drive, CRM search, email drafts" (`:39`).
 

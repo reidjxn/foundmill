@@ -32,6 +32,7 @@ export const SERVICE_CONNECTION_ROUTERS: Readonly<Record<string, { lines: number
   "dev.ts": { lines: 1, why: "mixed", note: "development and test only" },
   "team-call.ts": { lines: 1, why: "mixed", note: "not classified line by line" },
   "people.ts": { lines: 1, why: "signed_out", note: "public person pages; public procedures only" },
+  "report.ts": { lines: 4, why: "person", note: "reports (service-role-only table) filed by a person, the operators' queue, and whether /u/<handle> shows Report" },
 };
 
 describe("the service connection in apps/api/src/routers", () => {

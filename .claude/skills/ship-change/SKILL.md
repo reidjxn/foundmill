@@ -11,3 +11,4 @@ description: Commit, push and open a pull request for a finished Foundmill chang
 4. Push only your own branch. Never push to `main`, never merge, never approve your own PR.
 5. Every push to a PR starts paid builds (Vercel previews, CI minutes): push once when ready, not after every edit.
 6. Open the PR with: **What changed**, **Why**, **Tested** (exact commands and results), **Not verified**. If a coordinating session runs a merge queue, tell it the PR, its migrations and anything it must merge after.
+7. A change to a procedure or event that the mobile backend skill names (`docs/mobile/skills/foundmill-backend/SKILL.md`) updates the skill in the same pull request; `apps/api/src/__tests__/mobile-contract.test.ts` fails otherwise.

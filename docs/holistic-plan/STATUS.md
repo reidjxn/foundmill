@@ -227,12 +227,12 @@ All by the coordinating session on the founder's word (reported by that session,
 | WP-14 | T5 | Show the work | not started |  |
 | WP-14 | T6 | Named agents on by default for first-time founders | not started |  |
 | WP-14 | T7 | One style for estimates, one legend | not started | amends WP-10 T9 and T12; changes docs/DESIGN.md §10; owner: the session "WP-14 estimates style and measures" (founder, Nov 17) |
-| WP-14 | T8 | The chapter report | not started |  |
+| WP-14 | T8 | The chapter report | pull request open | `claude/wp14-t8-chapter-report`; a template over records, no model call (see the log entry) |
 | WP-14 | T9 | Share a Customer Update as a card | not started | #244 |
 | WP-14 | T10 | The tour and landing copy | not started | the landing session (Desktop), told on Nov 17 |
-| WP-14 | T11 | Commit's defaults and its credits line | pull request open (`claude/wp14-t11-commit-defaults`, on top of T2's #299) | replaces WP-04 D4 and WP-09 D7 as defaults; flagged: a 5.00 cap lets an action of 5.00 or less run without asking in Assisted mode |
-| WP-14 | T12 | Four measures | not started | amends WP-02 T10; two of the four need T1 and T9; owner: the session "WP-14 estimates style and measures"; the two measures that need T1 and T9 follow them (founder, Nov 17) |
-| WP-14 | T13 | The plan document | not started | docs only |
+| WP-14 | T11 | Commit's defaults and its credits line | not started | replaces WP-04 D4 and WP-09 D7 as defaults |
+| WP-14 | T12 | Four measures | pull request open | amends WP-02 T10; owner: the session "WP-14 estimates style and measures"; Resting and the shares read zero until T1, T14 and T9 write the events named in `PENDING_SOURCES` (founder, Nov 17) |
+| WP-14 | T13 | The plan document | pull request open (#288) | docs only; the experiments' stop rules are proposals for the founder |
 | WP-14 | T14 | Plans, prices, companies and what each plan includes | not started | amends WP-09 T14 and T16 and WP-13 T7's server check; owner: the session "WP-14 money: plans, Resting, team budget", after #251 (founder, Nov 17) |
 | WP-14 | T15 | The waitlist in batches, and invitations to give | not started | amends WP-03 T2, T6, T10 and WP-12; coordinate with the network session; owner: the landing idea-card session, with the network session told (assigned Nov 17), except step 4 (three named invitations, no reward, docs/NETWORK.md), which the invitations session (session_01CJRTqPdPGy7AVuYv4eZNtd) takes at the founder's request of Nov 17: it wrote the invitation admission rules (#120) |
 
