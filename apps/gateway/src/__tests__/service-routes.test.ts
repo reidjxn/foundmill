@@ -441,28 +441,27 @@ describe("Sign in with Stripe through the gateway (WP-11, Nov 17, 2026)", () => 
     expect(seen).toEqual(["token"]); // nothing withdrawn: the account stays connected to the first project
   });
 
-  it("signing in to another account withdraws the previous sign-in; the same account is kept", async () => {
+  it("connecting withdraws nothing itself: the previous sign-in waits for the api's save (security review, Nov 17)", async () => {
     const seen: string[] = [];
     const biz = (await repos.businesses.create(db, { name: "Stripe Switch" })).id;
     await signedInRow(biz, "acct_1Previous0000001");
-    expect((await post(signIn("acct_1Previous0000001", seen), "/v1/integrations/connect", { businessId: biz, connector: "stripe", input: code })).status).toBe(200);
-    expect(seen).toEqual(["token"]);
     expect((await post(signIn("acct_1Next000000000002", seen), "/v1/integrations/connect", { businessId: biz, connector: "stripe", input: code })).status).toBe(200);
-    expect(seen).toEqual(["token", "token", "deauthorize acct_1Previous0000001"]);
-    expect(JSON.stringify(await repos.audit.list(db, biz, { limit: 50 }))).toContain("gateway.integration.access_released");
+    expect(seen).toEqual(["token"]);
   });
 
-  it("a sign-in replacing a pasted key revokes the key; a pasted key replacing a sign-in withdraws it", async () => {
+  it("POST /v1/integrations/release withdraws an account no project holds, and never one a project is signed in with", async () => {
     const seen: string[] = [];
-    const biz = (await repos.businesses.create(db, { name: "Stripe Key Then Sign In" })).id;
-    const pasted = await post(signIn("acct_1Unused000000003", seen), "/v1/integrations/connect", { businessId: biz, connector: "stripe", input: { apiKey: "rk_test_founder" } });
-    const integrationId = pasted.body.integrationId as string;
-    expect(await repos.credentials.latest(db, biz, integrationId)).not.toBeNull();
-    expect((await post(signIn("acct_1SignedIn0000004", seen), "/v1/integrations/connect", { businessId: biz, connector: "stripe", input: code })).status).toBe(200);
-    expect(await repos.credentials.latest(db, biz, integrationId)).toBeNull();
-    await signedInRow(biz, "acct_1SignedIn0000004");
-    await post(signIn("acct_1Unused000000003", seen), "/v1/integrations/connect", { businessId: biz, connector: "stripe", input: { apiKey: "rk_test_founder" } });
-    expect(seen.at(-1)).toBe("deauthorize acct_1SignedIn0000004");
+    const biz = (await repos.businesses.create(db, { name: "Stripe Release" })).id;
+    const other = (await repos.businesses.create(db, { name: "Stripe Release Other" })).id;
+    await signedInRow(other, "acct_1HeldElsewhere001");
+    expect(await post(signIn("x", seen), "/v1/integrations/release", { businessId: biz, connector: "stripe", externalAccountId: "acct_1HeldElsewhere001" })).toMatchObject({ status: 409, body: { error: { code: "account_in_use" } } });
+    await signedInRow(biz, "acct_1Current0000001");
+    expect((await post(signIn("x", seen), "/v1/integrations/release", { businessId: biz, connector: "stripe", externalAccountId: "acct_1Current0000001" })).status).toBe(409);
+    expect(seen).toEqual([]);
+    expect(await post(signIn("x", seen), "/v1/integrations/release", { businessId: biz, connector: "stripe", externalAccountId: "acct_1Replaced000001" })).toMatchObject({ status: 200, body: { released: true } });
+    expect(seen).toEqual(["deauthorize acct_1Replaced000001"]);
+    expect((await post(signIn("x", seen), "/v1/integrations/release", { businessId: biz, connector: "stripe", externalAccountId: "not-an-account" })).status).toBe(400);
+    expect(JSON.stringify(await repos.audit.list(db, biz, { limit: 50 }))).toContain("gateway.integration.access_released");
   });
 
   it("POST /v1/integrations/disconnect withdraws a sign-in at Stripe, and only a sign-in", async () => {

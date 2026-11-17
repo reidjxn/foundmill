@@ -3,7 +3,7 @@
  * disconnect / health). Secrets never live here: they are ciphertext rows in `credentials` (repos.credentials).
  */
 import { CONNECTOR_AUTH_KINDS, INTEGRATION_STATUSES, ValidationError, type IntegrationStatus } from "@foundmill/shared";
-import { and, asc, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { appInstallations, credentials, integrations, WEBHOOK_STATUSES, webhooks, type AppInstallation, type Integration, type Webhook } from "../schema";
 import { defined, Id, IsoDateInput, JsonObject, one, parseInput, type Executor } from "./_shared";
@@ -123,7 +123,7 @@ export const integrationsRepo = {
     const rows = await db
       .select({ businessId: integrations.businessId })
       .from(integrations)
-      .where(and(eq(integrations.connectorKey, "stripe"), ne(integrations.status, "disconnected"), isNull(integrations.archivedAt), sql`${integrations.settings}->'config'->>'kind' = 'connect'`, sql`lower(${integrations.settings}->>'externalAccountId') = ${externalAccountId.toLowerCase()}`))
+      .where(and(eq(integrations.connectorKey, "stripe"), inArray(integrations.status, ["connected", "degraded"]), isNull(integrations.archivedAt), sql`${integrations.settings}->'config'->>'kind' = 'connect'`, sql`lower(${integrations.settings}->>'externalAccountId') = ${externalAccountId.toLowerCase()}`))
       .limit(2);
     return rows.length === 1 ? rows[0]!.businessId : null;
   },

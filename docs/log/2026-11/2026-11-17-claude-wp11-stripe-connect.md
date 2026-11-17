@@ -21,10 +21,11 @@ The rest of the change:
 - **One account, one project.** Migration 0137 adds a partial unique index on signed-in accounts. The gateway refuses
   first with "This Stripe account is already connected to another project.", and the api maps the index's race the
   same way.
-- **Replacing and disconnecting.** Signing in to another account, or pasting a key over a sign-in, has the gateway
-  withdraw the previous sign-in at Stripe (`oauth.deauthorize`). A sign-in over a pasted key revokes the key. The
-  audit names the old and new account. Disconnecting withdraws access first (new `POST /v1/integrations/disconnect`;
-  `Connector.disconnect` in the contract).
+- **Replacing and disconnecting.** Signing in to another account, or pasting a key over a sign-in, withdraws the
+  previous sign-in at Stripe (`oauth.deauthorize`) once the new connection is saved (new `POST
+  /v1/integrations/release`, refused for any account a project is still signed in with). A sign-in over a pasted key
+  revokes the key in the same save. The audit names the old and new account. Disconnecting withdraws access first
+  (new `POST /v1/integrations/disconnect`; `Connector.disconnect` in the contract).
 - **Webhooks.** Ingest's platform endpoint `/webhooks/stripe` routes a delivery by the account Stripe signed for
   (`repos.integrations.businessForStripeAccount`, the one cross-business lookup). `account.application.deauthorized`
   marks that connection expired with "Stripe access was removed in your Stripe dashboard. Sign in with Stripe again
@@ -41,7 +42,8 @@ The rest of the change:
   `/webhooks/stripe/connect` and a new variable as first planned. The webhook code already treated a URL-less delivery
   as the platform's, and SEC-10's account check already covered the Connect kind. Only the lookup was missing.
 - A delivery for an account no project signed in with is acknowledged and written nowhere, so Stripe stops retrying.
-- An expired connection still receives deliveries (unchanged `RECEIVING_STATUSES`): money that arrived is recorded.
+- Only a live sign-in (connected or degraded) holds its account, in the index and in the lookup. A test connection
+  (`mock`, whose fixture account every demo shares) and an expired one (access removed in Stripe) leave it free.
 - Withdrawing access at Stripe is best effort. A founder who already removed it in Stripe can still disconnect here,
   and the audit records whether it was withdrawn.
 - A refused sign-in (account already in another project) withdraws nothing, because that would cut the other
@@ -49,7 +51,20 @@ The rest of the change:
 - `authKind` stays `oauth` for both ways in, since sign-in is the first way. `config.kind` (`connect` or `own`) tells
   them apart.
 
+## Security review (Nov 17, 2026)
+The security-reviewer agent found these, and all are fixed here:
+- **High.** A blank `apiKey` beside a code skipped the state check. The api now takes the key path only for a
+  non-blank key, and strips `code`, `state`, `redirectUri` and `shop` from it.
+- **Medium.** Mock rows fell under the index.
+- **Low.** The previous sign-in was withdrawn before the new one was saved.
+- **Low.** An expired sign-in kept its account locked.
+- **Gap.** The money-out guard did not look at the running tools' input fields (it does now, with `cancelUrl` named
+  as the one allowed field).
+
 ## Not done
+- Archiving a project does not withdraw its Stripe sign-in at Stripe. The connection stays on Foundmill's platform until
+  the founder removes it in Stripe, and the account is held until then. Left for the archive flow (WP-11 T16's closing
+  plan names connections).
 - `stripe` stays out of `LIVE_CONNECTORS` everywhere until payment powers is on main and the founder's test-mode
   sign-in works end to end (DEPLOY §5.5 steps 1 to 7).
 - The migration number 0137 is the coordinator's (Nov 17, 2026), after #208's 0136.

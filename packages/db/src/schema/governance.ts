@@ -38,7 +38,7 @@ export const integrations = pgTable(
     // 0137: a Stripe account signed in with ("Sign in with Stripe") is connected to one project at a time.
     uniqueIndex("integrations_stripe_connect_account_key")
       .on(sql`lower(${t.settings}->>'externalAccountId')`)
-      .where(sql`${t.connectorKey} = 'stripe' and ${t.status} <> 'disconnected' and ${t.archivedAt} is null and ${t.settings}->'config'->>'kind' = 'connect'`),
+      .where(sql`${t.connectorKey} = 'stripe' and ${t.status} in ('connected', 'degraded') and ${t.archivedAt} is null and ${t.settings}->'config'->>'kind' = 'connect'`),
   ],
 );
 export type Integration = typeof integrations.$inferSelect;

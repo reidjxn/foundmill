@@ -259,6 +259,18 @@ describe("stripe live (canned responses)", () => {
       if (MONEY_OUT.test(name) || /\b(refunds?|pays? out|transfers?|cancels?)\b/i.test(description)) expect(gated, name).toContain(name);
     }
     expect(gated.sort()).toEqual(["create_payout", "create_transfer", "refund_payment", "start_connect_onboarding"]);
+    // A running tool cannot do it through an argument either (an update tool with `cancel_at`, a "refund" flag).
+    // `cancelUrl` is only the page a customer returns to when they leave checkout.
+    const ALLOWED = new Set(["cancelUrl"]);
+    const fieldsOf = (schema: unknown): string[] => {
+      if (!schema || typeof schema !== "object") return [];
+      const o = schema as { properties?: Record<string, unknown>; items?: unknown };
+      return [...Object.entries(o.properties ?? {}).flatMap(([k, v]) => [k, ...fieldsOf(v)]), ...fieldsOf(o.items)];
+    };
+    for (const name of RUNS) {
+      const risky = fieldsOf(live.tools.find((t) => t.name === name)?.inputSchema).filter((f) => !ALLOWED.has(f) && /cancel|refund|payout|transfer|void|reverse|credit_?note|destination/i.test(f));
+      expect(risky, name).toEqual([]);
+    }
     // A hard-gated tool has no handler: the live call is answered with the founder's card and never reaches Stripe,
     // even with the founder's own key and a signed-in account present.
     const ARGS: Record<string, unknown> = { create_payout: { amountMinor: 1000, currency: "USD" }, create_transfer: { amountMinor: 1000, currency: "USD", destinationAccountId: "acct_1Other000" }, refund_payment: { paymentIntentId: "pi_Test000001" }, start_connect_onboarding: {} };

@@ -105,6 +105,10 @@ describe("integrations.connect: Sign in with Stripe", () => {
     expect(r.integration).toMatchObject({ status: "connected", settings: { externalAccountId: "acct_1PastedKey0000003", config: { kind: "own" } } });
     expect(r.consentUrl).toBeNull();
     expect(seen).toContain("deauthorize acct_1FounderA0000001");
+    expect(await repos.credentials.listMetadata(hz.db, businessId, { integrationId: r.integration!.id })).toHaveLength(1);
+    // Signing in over the pasted key revokes it in the same save.
+    await signIn(ownerId, businessId, "acct_1FounderA0000001");
+    expect(await repos.credentials.listMetadata(hz.db, businessId, { integrationId: r.integration!.id })).toHaveLength(0);
   });
 
   it("disconnecting a sign-in withdraws Foundmill's access in Stripe first and audits it; collaborators cannot", async () => {

@@ -32,6 +32,20 @@ describe("Stripe accounts signed in with (0137)", () => {
     expect(await repos.integrations.businessForStripeAccount(r.db, "acct_1Founder00000001")).toBe(B);
   });
 
+  it("a test connection, or one whose access was removed in Stripe, leaves the account free (security review, Nov 17)", async () => {
+    const A = r.A.businessId;
+    const B = r.B.businessId;
+    const mock = { connectorKey: "stripe", status: "mock" as const, authKind: "oauth" as const, settings: { externalAccountId: "acct_1MockShared000001", config: { kind: "connect" } } };
+    await repos.integrations.upsert(r.db, A, mock);
+    await repos.integrations.upsert(r.db, B, mock);
+    expect(await repos.integrations.businessForStripeAccount(r.db, "acct_1MockShared000001")).toBeNull();
+    const a = await repos.integrations.upsert(r.db, A, signedIn("acct_1Expiring0000001"));
+    await repos.integrations.setStatus(r.db, A, a.id, "expired", "Stripe access was removed");
+    expect(await repos.integrations.businessForStripeAccount(r.db, "acct_1Expiring0000001")).toBeNull();
+    await repos.integrations.upsert(r.db, B, signedIn("acct_1Expiring0000001"));
+    expect(await repos.integrations.businessForStripeAccount(r.db, "acct_1Expiring0000001")).toBe(B);
+  });
+
   it("answers nothing for an unknown or malformed account", async () => {
     expect(await repos.integrations.businessForStripeAccount(r.db, "acct_1Nobody000000009")).toBeNull();
     expect(await repos.integrations.businessForStripeAccount(r.db, "' or 1=1 --")).toBeNull();

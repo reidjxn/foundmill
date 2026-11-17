@@ -151,7 +151,7 @@ export async function connectIntegration(deps: GatewayDeps, input: ConnectInput,
   connectInput = webhook.input;
   const record = await connector.connect(input.businessId, connectInput).catch((e: unknown) => vendorFailure(e, connector.key));
   const safe = stripSecret(record);
-  if (mode === "live" && record.status === "connected") await replacePreviousConnection(deps, input.businessId, connector, record, service);
+  if (mode === "live" && record.status === "connected") await replacePreviousConnection(deps, input.businessId, connector, record);
 
   if (connector.auth.kind === "app") {
     const { verifiedBy, verifiedAt } = record.config as { verifiedBy?: unknown; verifiedAt?: unknown };
@@ -212,32 +212,32 @@ export const STRIPE_ACCOUNT_IN_USE = "This Stripe account is already connected t
 const isSignIn = (config: unknown): boolean => (config as { kind?: unknown } | null | undefined)?.kind === "connect";
 
 /**
- * Before a new live connection replaces the project's previous one (Stripe, "Sign in with Stripe"):
- * - an account signed in with may belong to one project only, so another project's account is refused before anything
- *   changes (0137 also refuses it in the database);
- * - a previous sign-in to another account, or one replaced by a pasted key, has Foundmill's access withdrawn at Stripe,
- *   so two accounts are never connected to one project; a previous pasted key replaced by a sign-in is revoked here.
- * Withdrawing is best effort (the founder may already have removed access in Stripe) and audited either way.
+ * Before a new live connection replaces the project's previous one: an account signed in with ("Sign in with Stripe")
+ * may belong to one project only, so another project's account is refused before anything changes (0137 also refuses
+ * it in the database). Withdrawing the previous sign-in waits until the api has saved the new connection
+ * (`releaseAccount`), so a failed save never leaves the project without either (security review, Nov 17, 2026).
  */
-async function replacePreviousConnection(deps: GatewayDeps, businessId: string, connector: Connector, record: IntegrationRecord, service: string): Promise<void> {
-  if (connector.key !== "stripe" || !record.externalAccountId) return;
-  if (isSignIn(record.config)) {
-    const owner = await repos.integrations.businessForStripeAccount(deps.db, record.externalAccountId);
-    if (owner !== null && owner !== businessId) throw new GatewayError("account_in_use", STRIPE_ACCOUNT_IN_USE, 409, { connector: connector.key });
-  }
-  const existing = await repos.integrations.getByKey(deps.db, businessId, connector.key);
-  if (!existing || existing.archivedAt !== null || existing.status === "disconnected") return;
-  const previous = toIntegrationRecord(existing, null);
-  const sameAccount = previous.externalAccountId?.toLowerCase() === record.externalAccountId.toLowerCase();
-  if (isSignIn(previous.config) && connector.disconnect && !(isSignIn(record.config) && sameAccount)) {
-    const released = await connector.disconnect(previous).catch((e: unknown) => (deps.log.warn({ connector: connector.key, businessId, err: (e as Error).message }, "previous Stripe sign-in could not be withdrawn"), false));
-    await auditIntegration(deps, businessId, "gateway.integration.access_released", connector.key, { service, released, from: previous.externalAccountId, to: record.externalAccountId, reason: "replaced" });
-  }
-  if (isSignIn(record.config) && !isSignIn(previous.config)) {
-    const metas = await repos.credentials.listMetadata(deps.db, businessId, { integrationId: existing.id });
-    for (const m of metas) await repos.credentials.revoke(deps.db, businessId, m.id);
-    if (metas.length > 0) await auditIntegration(deps, businessId, "gateway.integration.credentials_revoked", connector.key, { service, revoked: metas.length, reason: "replaced by a sign-in" });
-  }
+async function replacePreviousConnection(deps: GatewayDeps, businessId: string, connector: Connector, record: IntegrationRecord): Promise<void> {
+  if (connector.key !== "stripe" || !record.externalAccountId || !isSignIn(record.config)) return;
+  const owner = await repos.integrations.businessForStripeAccount(deps.db, record.externalAccountId);
+  if (owner !== null && owner !== businessId) throw new GatewayError("account_in_use", STRIPE_ACCOUNT_IN_USE, 409, { connector: connector.key });
+}
+
+/**
+ * After the api saved a new connection over a sign-in: withdraws Foundmill's access to the previous account at Stripe.
+ * Only for an account no project is signed in with any more, so it can never cut another project's connection (nor this
+ * project's current one). Best effort and audited either way.
+ */
+export async function releaseAccount(deps: GatewayDeps, input: { businessId: string; connector: string; externalAccountId: string }, service: string): Promise<{ released: boolean }> {
+  const connector = connectableConnector(deps, input.connector);
+  await limitIntegrations(deps, input.businessId);
+  if (connector.key !== "stripe" || !connector.disconnect || modeFor(deps, connector.key) !== "live") return { released: false };
+  if ((await repos.integrations.businessForStripeAccount(deps.db, input.externalAccountId)) !== null) throw new GatewayError("account_in_use", "That Stripe account is still connected to a project, so its access is kept", 409, { connector: connector.key });
+  const now = (deps.now ?? (() => new Date()))().toISOString();
+  const previous: IntegrationRecord = { id: "released", businessId: input.businessId, connectorKey: connector.key, status: "connected", scopes: [], accountLabel: null, externalAccountId: input.externalAccountId, config: { kind: "connect" }, credentialRef: null, expiresAt: null, lastHealthAt: null, createdAt: now };
+  const released = await connector.disconnect(previous).catch((e: unknown) => (deps.log.warn({ connector: connector.key, businessId: input.businessId, err: (e as Error).message }, "previous Stripe sign-in could not be withdrawn"), false));
+  await auditIntegration(deps, input.businessId, "gateway.integration.access_released", connector.key, { service, released, from: input.externalAccountId, reason: "replaced" });
+  return { released };
 }
 
 /**

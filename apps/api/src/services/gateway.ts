@@ -326,6 +326,8 @@ export interface ApiGatewayClient {
   health(businessId: string, connector: string): Promise<GatewayHealth>;
   /** Withdraws the vendor-side access of a connection before it is disconnected (a Stripe sign-in); false when there was none. */
   disconnect?(businessId: string, connector: string): Promise<{ released: boolean }>;
+  /** After a sign-in was replaced and saved: withdraws the previous account's access, which the gateway does only when no project holds it. */
+  release?(businessId: string, connector: string, externalAccountId: string): Promise<{ released: boolean }>;
   /** A founder's own Anthropic key, checked with Anthropic (a one-token call, then the routed models); asked only with live models. */
   validateKey(businessId: string, apiKey: string): Promise<GatewayKeyValidation>;
   /** A company-registry lookup for Legal › Import; asked only when the registry runs live. */
@@ -451,6 +453,7 @@ export function createApiGatewayClient(opts: CreateApiGatewayClientOptions): Api
     connect: (businessId, connector, input) => post<GatewayConnectResult>("/v1/integrations/connect", { businessId, connector, input }),
     health: async (businessId, connector) => (await post<{ health: GatewayHealth }>("/v1/integrations/health", { businessId, connector })).health,
     disconnect: (businessId, connector) => post<{ released: boolean }>("/v1/integrations/disconnect", { businessId, connector }),
+    release: (businessId, connector, externalAccountId) => post<{ released: boolean }>("/v1/integrations/release", { businessId, connector, externalAccountId }),
     createCheckout: (input) => post<GatewayCheckout>("/v1/billing/checkout-sessions", input),
     checkDomains: async (ownerKey, domains) => (await post<{ results: GatewayDomainAnswer[] }>("/v1/domains/check", { ownerKey, domains })).results,
     generatePortrait: (personaKey, businessId, style) => post<GatewayPortrait>("/v1/personas/portrait", { personaKey, ...(style ? { style } : {}), ...(businessId ? { businessId } : {}) }, Math.max(timeoutMs, PORTRAIT_TIMEOUT_MS)),

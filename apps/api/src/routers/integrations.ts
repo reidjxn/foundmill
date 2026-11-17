@@ -18,6 +18,18 @@ import { Id, audit, router, sectionAdmin, sectionRead } from "../trpc";
 /** What a project is told when the Stripe account it signed in with is another project's (0137; the gateway's own words). */
 export const STRIPE_ACCOUNT_IN_USE = "This Stripe account is already connected to another project.";
 
+/** A Stripe connection made by signing in (Connect), as `config.kind` records it. */
+const isSignIn = (config: unknown): boolean => (config as { kind?: unknown } | null | undefined)?.kind === "connect";
+
+/** A non-blank pasted key: the one input that takes a sign-in connector (Stripe) down the key path instead of OAuth. */
+const pastedKey = (input: Record<string, unknown>): boolean => typeof input.apiKey === "string" && input.apiKey.trim() !== "";
+
+/** The connect input without what only the OAuth exchange may carry. */
+function withoutOAuthFields(input: Record<string, unknown>): Record<string, unknown> {
+  const { code: _code, state: _state, redirectUri: _redirectUri, shop: _shop, ...rest } = input;
+  return rest;
+}
+
 /** A Postgres unique violation of one named index, however the driver wraps it. */
 function isUniqueViolation(e: unknown, constraint: string): boolean {
   for (let cur: unknown = e, i = 0; cur && i < 4; cur = (cur as { cause?: unknown }).cause, i++) {
@@ -113,6 +125,9 @@ export const integrationsRouter = router({
     // A mock connect on a person's project writes a row that looks connected and does nothing (audit a5 GTM-16).
     if (mode === "mock" && !mockResultsAllowed(ctx.env.APP_ENV, ctx.business.isDemo)) throw new AppError("connector_not_live", `${connector.displayName} is not available yet. Nothing was connected.`, 409, { connector: input.connectorKey });
 
+    // The connection as it was before this connect: the gateway rewrites the row itself when it seals a key, so what is
+    // replaced (the previous sign-in to withdraw, a key to revoke) is read first.
+    const prior = await repos.integrations.getByKey(ctx.db, ctx.businessId, input.connectorKey);
     let connected: GatewayConnectResult;
     if (mode === "live" && connector.auth.kind === "app") {
       // App connectors (GitHub) connect in the gateway, which holds the App's keys and checks with GitHub that the
@@ -127,7 +142,7 @@ export const integrationsRouter = router({
       const finish = AppInstallation.parse(input.input);
       verifyInstallState(ctx.env.SESSION_TOKEN_SECRET, finish.state, { userId: ctx.userId!, businessId: ctx.businessId });
       connected = await ctx.gateway.connect(ctx.businessId, input.connectorKey, { installationId: finish.installationId, code: finish.code });
-    } else if (mode === "live" && connector.auth.authorizationCode && typeof input.input.apiKey !== "string") {
+    } else if (mode === "live" && connector.auth.authorizationCode && !pastedKey(input.input)) {
       // OAuth (Google, Notion, Shopify): the founder consents on the vendor's page, which sends them back to
       // /integrations/oauth/callback (apps/web) with a code and the state signed here. Nothing is written before the code
       // comes back signed for this founder, business and connector; the redirect URI is always the api's own. The
@@ -147,7 +162,9 @@ export const integrationsRouter = router({
     } else if (mode === "live") {
       // An API key the founder entered (SendGrid, Dropbox Sign, Cloudflare, or Stripe's second way in beside "Sign in with
       // Stripe"), a platform-key registry, a Plaid or Tink link.
-      connected = await ctx.gateway.connect(ctx.businessId, input.connectorKey, input.input);
+      // Beside a sign-in (Stripe), the key path carries no OAuth fields: a code reaches the gateway only through the
+      // branch above, after its state was checked for this founder, project and connector (security review, Nov 17).
+      connected = await ctx.gateway.connect(ctx.businessId, input.connectorKey, connector.auth.authorizationCode ? withoutOAuthFields(input.input) : input.input);
     } else {
       // Mock: the connector's mock answers here, so the golden path needs no gateway. It reaches nothing and hands back no
       // secret; one it did hand back would be dropped, never sealed as a business's credential.
@@ -156,9 +173,17 @@ export const integrationsRouter = router({
     }
 
     const { record, credential } = connected;
+    let releaseAfter: string | null = null;
     const integration = await ctx.db.transaction(async (tx: Executor) => {
       const before = await repos.integrations.getByKey(tx, ctx.businessId, input.connectorKey);
-      const previousAccount = before && before.status !== "disconnected" ? ((before.settings as { externalAccountId?: string | null } | null)?.externalAccountId ?? null) : null;
+      const previousAccount = prior && prior.status !== "disconnected" ? ((prior.settings as { externalAccountId?: string | null } | null)?.externalAccountId ?? null) : null;
+      const priorConfig = (prior?.settings as { config?: unknown } | null | undefined)?.config;
+      // A sign-in that replaces a pasted key revokes the key in the same transaction (Stripe); the previous sign-in is
+      // withdrawn at Stripe only after this commits (below).
+      if (before && isSignIn(record.config) && !isSignIn(priorConfig)) {
+        for (const m of await repos.credentials.listMetadata(tx, ctx.businessId, { integrationId: before.id })) await repos.credentials.revoke(tx, ctx.businessId, m.id);
+      }
+      if (previousAccount && isSignIn(priorConfig) && !(isSignIn(record.config) && previousAccount === record.externalAccountId)) releaseAfter = previousAccount;
       // The gateway already wrote this row (and sealed the credential with it) when the vendor handed back a secret;
       // the founder's choices, the settings and who connected it are written here.
       const row = await repos.integrations.upsert(tx, ctx.businessId, {
@@ -179,6 +204,8 @@ export const integrationsRouter = router({
       if (isUniqueViolation(e, "integrations_stripe_connect_account_key")) throw new AppError("account_in_use", STRIPE_ACCOUNT_IN_USE, 409, { connector: input.connectorKey });
       throw e;
     });
+    // The new connection is saved: the previous sign-in's access at Stripe can go (best effort; the gateway audits it).
+    if (releaseAfter && mode === "live" && ctx.gateway.release) await ctx.gateway.release(ctx.businessId, input.connectorKey, releaseAfter).catch(() => null);
     const consentUrl = typeof record.config.linkUrl === "string" ? record.config.linkUrl : typeof record.config.consentUrl === "string" ? record.config.consentUrl : typeof record.config.authorizeUrl === "string" ? record.config.authorizeUrl : null;
     return { integration, record: { ...record, connectorKey: input.connectorKey }, consentUrl, founderConsentRequired: consentUrl !== null };
   }),
