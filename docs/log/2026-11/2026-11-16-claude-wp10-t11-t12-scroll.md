@@ -32,7 +32,8 @@ Decision 3: `MIN_SCROLL_WIDTH = 640` and `isViewportTooNarrowToScroll`. From 640
 console at its 1280 px floor inside `scroll-shell` (`overflow-x: auto`) with `NarrowWindowNote` (new, with story and
 test), dismissed for the tab's session. `DesktopOnly` shows the larger-window note only below 640 px. Below 640 px and on
 phones nothing changes; Today and Needs you keep their phone layout under 1280 px. `shell.spec.ts` checks it at 1152 ×
-800. CLAUDE.md's "Never show the dense console below 1280 px" becomes "never lay it out narrower than 1280 px" with the
+800; the golden path's larger-window test and `gate0-screens.spec.ts` now check the scroll at 1279 px and the note at
+639 px (its screenshot is `gate0-needs-larger-window-639.png`). CLAUDE.md's "Never show the dense console below 1280 px" becomes "never lay it out narrower than 1280 px" with the
 640 px rule, as the work package said the decision needs; DESIGN.md §1 and §2 and packages/dugout/CLAUDE.md say the same.
 
 ## Decisions
