@@ -2,9 +2,9 @@ import { getArchetypeSeed } from "@foundmill/agents";
 import { FIRST_CYCLE_SESSION_CAP_MINOR, includedCreditsMinor } from "@foundmill/config";
 import { CREDITS_EXHAUSTED_SUBJECT, repos } from "@foundmill/db";
 import { agentPrincipal, evaluate } from "@foundmill/policy";
-import { CHANNEL_KEYS } from "@foundmill/shared";
+import { CHANNEL_KEYS, FIRST_DAY_PROMISE, OLD_FIRST_DAY_WORDS, emptyWhy } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { BOARD_FIRST_DECISION_LINE } from "../services/commit";
+import { BOARD_FIRST_DECISION_LINE, welcomeNote } from "../services/commit";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
@@ -85,15 +85,16 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     const inbox = await caller.inbox.list({ businessId: bid, limit: 50 });
     expect(inbox.items.map((i) => ({ id: i.id, type: i.type, blocksContinue: i.blocksContinue }))).toEqual([{ id: result.firstItem.id, type: "update", blocksContinue: false }]);
     expect(result.firstItem.fromAgentId).toBe(result.chiefOfStaffId);
-    expect(result.firstItem.subject).toBe("Your team is drafting your page and your plan");
-    // The founder meets the Chief of Staff and what is always theirs in the first note (UX plan §7.19, E5).
-    expect(result.firstItem.bodyMd.startsWith("I'm your Chief of Staff. I run the team beside you and tell you what matters and why. Some things are always yours: money, signatures, contracts, deleting things.")).toBe(true);
-    expect(result.firstItem.bodyMd).toContain("Nothing is spent on distribution until you start it");
-    // No head count (WP-04 T4): the founder is shown a starting team, not every agent hired behind it.
-    expect(result.firstItem.bodyMd).toContain("The team is hired.");
-    expect(result.firstItem.bodyMd).not.toMatch(/\d+ agents in \d+ departments/);
-    // The page comes first, then the plan (WP-02 T6).
-    expect(result.firstItem.bodyMd).toMatch(/is drafting your public page first, from .+: check it and put it live\. Your plan follows as one note to approve\. Building starts when you approve it\./);
+    // One first-day story (WP-04 T7): the project has started, its page first, then one plan note; the founder by name.
+    expect(result.firstItem.subject).toBe("Ledgerly Test has started");
+    expect(result.firstItem.bodyMd.split("\n\n")).toEqual([
+      "Hi Reid. Ledgerly Test is yours, and it has started.",
+      expect.stringMatching(/^.+ is drafting its public page from your own words\. In about a minute you can check it and publish it\.$/),
+      "After that your plan arrives as one note. Nothing costs money or goes out in your name unless you say so.",
+    ]);
+    // No head count (WP-04 T4), and none of the old two-documents story.
+    expect(result.firstItem.bodyMd).not.toMatch(/\d+ agents|departments/);
+    expect(`${result.firstItem.subject} ${result.firstItem.bodyMd}`).not.toMatch(OLD_FIRST_DAY_WORDS);
     expect(inbox.continueState).toEqual({ kind: "idle" });
     expect((await caller.business.get({ businessId: bid })).productStage).toBe("drafting");
 
@@ -195,7 +196,8 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
 
     // The page and the plan still draft on the first open; the welcome note still says so.
     expect(result.foundations.status).toBe("pending");
-    expect(result.firstItem.subject).toBe("Your team is drafting your page and your plan");
+    expect(result.firstItem.subject).toBe("Night Plates has started");
+    expect(result.firstItem.bodyMd.startsWith("Hi Noa. Night Plates is yours, and it has started.")).toBe(true);
     // Cycles are numbered from history, so the first one Continue or Autopilot starts is still cycle 1.
     expect((await caller.cycle.status({ businessId: bid })).nextCycleNumber).toBe(1);
 
@@ -464,5 +466,30 @@ describe("the business currency (0025)", () => {
     const chosen = await other.idea.commit({ ideaId: otherIdeas.ideas[0]!.id, name: "Krona Books", archetype: "b2b_saas", gameMode: "personal", currency: "sek" });
     expect(chosen.business.currency).toBe("SEK");
     expect((await repos.businesses.get(hz.db, chosen.business.id)).currency).toBe("SEK");
+  });
+});
+
+describe("one first-day story (WP-04 T7)", () => {
+  it("the welcome note, Commit's lines and Today's empty Needs you tell the page first, never the two documents", () => {
+    const note = welcomeNote({ displayName: "Sam", businessName: "Shift Cafe", productLeadName: "Ada Byrne", door: "ideation" });
+    expect(note.subject).toBe("Shift Cafe has started");
+    expect(note.bodyMd).toBe(
+      [
+        "Hi Sam. Shift Cafe is yours, and it has started.",
+        "Ada Byrne is drafting its public page from your own words. In about a minute you can check it and publish it.",
+        "After that your plan arrives as one note. Nothing costs money or goes out in your name unless you say so.",
+      ].join("\n\n"),
+    );
+    // The note and Commit's "What happens next" share the promise's last line, so they cannot drift.
+    expect(note.bodyMd).toContain(FIRST_DAY_PROMISE[3]);
+    for (const text of [note.subject, note.bodyMd, ...FIRST_DAY_PROMISE, emptyWhy("today_needs_you", { firstDays: true }).text]) {
+      expect(text).not.toMatch(OLD_FIRST_DAY_WORDS);
+      expect(text).not.toMatch(/two notes/i);
+    }
+  });
+
+  it("without a name, a Product lead or with an import, the note still reads whole", () => {
+    const note = welcomeNote({ displayName: "  ", businessName: "Ledgerly", productLeadName: null, door: "import" });
+    expect(note.bodyMd.split("\n\n").slice(0, 2)).toEqual(["Hi. Ledgerly is yours, and it has started.", "The Product lead is drafting its public page from what you imported. In about a minute you can check it and publish it."]);
   });
 });

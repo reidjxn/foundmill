@@ -6,7 +6,7 @@
 import { createModelClient } from "@foundmill/models";
 import { founderJargonHits, founderTitleProblems } from "@foundmill/shared";
 import { describe, expect, it } from "vitest";
-import { FOUNDER_TITLE_CORPUS, founderTitlesSystemPrompt, runFounderTitlesCase, summariseFounderTitles } from "../founder-strings";
+import { FIRST_DAY_STRINGS, FOUNDER_TITLE_CORPUS, founderTitlesSystemPrompt, runFounderTitlesCase, summariseFounderTitles } from "../founder-strings";
 
 const silent = { debug() {}, info() {}, warn() {}, error() {} };
 
@@ -56,5 +56,13 @@ describe("founder-language eval", () => {
     // The engine's numbers (Builder view, Nov 8, 2026): the Composer re-asks a note that carries them.
     expect(founderJargonHits("Cycle 4: 105 tests passed on PR #41, ETA 3:45 PM, 12,400 tokens").map((h) => h.term)).toEqual(["Cycle 4", "105 tests passed", "PR #41", "ETA", "12,400 tokens"]);
     expect(founderJargonHits("The team finished a round of work; the quality checks passed.")).toEqual([]);
+  });
+
+  it("the first-day story (WP-04 T7) is plain: no jargon, and none of the old two-documents words", () => {
+    expect(FIRST_DAY_STRINGS).toHaveLength(6);
+    for (const line of FIRST_DAY_STRINGS) {
+      expect(founderJargonHits(line), line).toEqual([]);
+      expect(line).not.toMatch(/specification|roadmap|two notes|sign them off/i);
+    }
   });
 });

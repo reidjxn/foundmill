@@ -13,6 +13,19 @@ const B = `/b/${NORTHWIND_BUSINESS_ID}`;
 /** A tile of a status strip by its label, as text (label, figure, caption). */
 const tileText = async (page: Page, strip: string, label: RegExp): Promise<string> => ((await page.locator(strip).locator("[role=listitem]").filter({ hasText: label }).first().innerText()) ?? "").replace(/\s+/g, " ").trim();
 
+/** The sections of Today that are on the page, by test id, in DOM order (WP-04 T7: Today's order). */
+async function todayOrder(page: Page): Promise<string[]> {
+  const ids = ["needs-you", "public-page-note", "first-week-timeline", "goal-panel", "week-plan", "since-last-visit", "streak-strip", "today-health"];
+  return page.evaluate((list) => {
+    const found = list.flatMap((id) => {
+      const el = document.querySelector(`[data-testid="today-screen"] [data-testid="${id}"]`);
+      return el ? [{ id, el }] : [];
+    });
+    found.sort((a, b) => (a.el.compareDocumentPosition(b.el) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
+    return found.map((f) => f.id);
+  }, ids);
+}
+
 /** Reload Today until `check` passes: Today reads once per visit and the e2e stack has no stream to push changes. */
 async function untilOnToday(page: Page, bid: string, check: () => Promise<void>, timeout = LONG * 3): Promise<void> {
   await expect(async () => {
@@ -71,6 +84,26 @@ test.describe("today", () => {
     await expect(health.locator("[role=listitem]").filter({ hasText: /^Runway/ }).first()).not.toContainText("…", { timeout: LONG });
     const runwayToday = await tileText(page, "[data-testid=today-health]", /^Runway/);
 
+    // The order (WP-04 T7, D5): a project past its first day and its page, on a computer: the goal beside Needs you,
+    // then the week, Since you were last here, the quiet streak and the health figures last.
+    await expect(page.getByTestId("streak-strip")).toBeVisible({ timeout: LONG });
+    const desktop = (await todayOrder(page)).filter((id) => id !== "since-last-visit");
+    expect(desktop).toEqual(["goal-panel", "needs-you", "week-plan", "streak-strip", "today-health"]);
+    // Explain this page, in the tab row: what Today is, what Needs you is, what Continue does.
+    await dismissCoachmarks(page);
+    await page.getByRole("button", { name: /Explain this page/ }).click();
+    const explain = page.getByTestId("explain-page-panel");
+    await expect(explain).toContainText("Today is your project's front door");
+    await expect(explain).toContainText("Continue runs one round of work.");
+    await page.keyboard.press("Escape");
+
+    // At 390 px Needs you leads, and the streak and health still come last.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect.poll(async () => (await todayOrder(page)).filter((id) => id !== "since-last-visit"), { timeout: LONG }).toEqual(["needs-you", "goal-panel", "week-plan", "streak-strip", "today-health"]);
+    await expect(page.getByTestId("phone-title-row").getByRole("button", { name: /Explain this page/ })).toBeVisible();
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await expect(page.locator("nav[aria-label=Primary]")).toBeVisible({ timeout: LONG });
+
     // See all in the Inbox.
     await needs.getByRole("link", { name: "See all" }).click();
     await expect(page).toHaveURL(new RegExp(`${B}/inbox\\?tab=respond`), { timeout: LONG });
@@ -107,6 +140,13 @@ test.describe("today", () => {
     // Your first week: Day 1 is under way, the rest are planned with Estimate dates, and what you will be asked is said.
     const timeline = page.getByTestId("first-week-timeline");
     await expect(timeline).toBeVisible({ timeout: LONG });
+    // Day one (WP-04 T7, D5): no streak and no health figures yet. The page waits to be checked, so Needs you leads,
+    // then the first week, then the goal, on a computer as on a phone.
+    await expect(page.getByTestId("week-plan")).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("streak-strip")).toHaveCount(0);
+    await expect(page.getByTestId("today-health")).toHaveCount(0);
+    await expect.poll(async () => (await todayOrder(page)).filter((id) => id !== "public-page-note"), { timeout: LONG }).toEqual(["needs-you", "first-week-timeline", "goal-panel", "week-plan"]);
+    await expect(page.getByTestId("needs-you")).toContainText(/Your page is being drafted and will show here in about a minute|Check it and publish|Approve the plan/);
     await expect(timeline.locator("[data-first-week-step=day1]")).toHaveAttribute("data-state", "now");
     await expect(timeline.locator("[data-first-week-step=days2to3]")).toHaveAttribute("data-state", "next");
     await expect(timeline.locator("[data-first-week-step=days2to3] [data-first-week-when]")).toHaveText(/^[A-Z][a-z]{2} \d{1,2} – \d{1,2} \(Estimate\)$/);

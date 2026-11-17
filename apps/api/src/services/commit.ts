@@ -11,7 +11,7 @@
  * the business is complete without them, and a source nothing will read is marked not read). A founder with no budget
  * (WP-04 T3; founder, 2026-11-16 D1) gets no finance or legal task and no cycle at commit: the open-questions task waits
  * `ready` for the plan's approval, a press of Continue or the first overnight shift, whichever comes first. The vision, specification content and roadmap are
- * drafted on the first open (services/foundations.ts), and the founder is asked to sign them off; the channel engines,
+ * drafted on the first open (services/foundations.ts), and the founder approves them as one plan note; the channel engines,
  * the channel-scoring task and the Board's question wait for the founder's Start distribution (founder, 2026-10-18;
  * services/signoff.ts).
  *
@@ -31,7 +31,7 @@ import { CREDITS_CURRENCY, firstCycleInput, initialModelBilling } from "@foundmi
 const WAGE_CURRENCY = CREDITS_CURRENCY;
 import { assertBusinessAllowance, autopilotChangedPayload, creditsUsedUp, includedCreditsFor, periodOf, repos, type Business, type Db, type DbTx, type InboxItem } from "@foundmill/db";
 import { writeEventRow } from "./events";
-import { CHANNEL_KEYS, CHANNEL_META, CurrencyCode, DEFAULT_BUSINESS_CURRENCY, DEFAULT_BUSINESS_MODE, OVERNIGHT_SHIFT, ValidationError, isValidTimeZone, loadEnv, overnightUtcHour, slugify, type AgentStyle, type Archetype, type BusinessMode, type Env, type GameMode, type OptionAction } from "@foundmill/shared";
+import { CHANNEL_KEYS, CHANNEL_META, CurrencyCode, DEFAULT_BUSINESS_CURRENCY, DEFAULT_BUSINESS_MODE, FIRST_DAY_PROMISE, OVERNIGHT_SHIFT, ValidationError, isValidTimeZone, loadEnv, overnightUtcHour, slugify, type AgentStyle, type Archetype, type BusinessMode, type Env, type GameMode, type OptionAction } from "@foundmill/shared";
 import { presetLayout } from "../presets";
 import { channelRowsFor } from "./channel-availability";
 import { QUEUE_ACTION } from "./cycle";
@@ -66,6 +66,8 @@ export interface CommitIdeaInput {
    * one, commit seeds no finance or legal task and starts no cycle (WP-04 T3). Absent: treated as having one.
    */
   hasBudget?: boolean;
+  /** The founder's name for the welcome note ("Hi Sam."; idea.commit reads it from the profile). Absent: "Hi." */
+  displayName?: string | null;
   /** With `autopilot`: the overnight shift (daily cadence at about 2 AM in this zone; retention plan, 2026-11-11). */
   overnight?: { timeZone: string };
   /** The Launch step's "Anthropomorphic agents" switch: written to the founder's account preferences when given (0067). */
@@ -151,21 +153,20 @@ export function importBoardDecision(name: string, link: ImportLink): ReturnType<
 }
 
 /**
- * The Chief of Staff's welcome note at Take charge (non-blocking): who the Chief of Staff is and what is always the
- * founder's (the house rules' founder line, UX plan §7.19), the team is hired, the Product lead is drafting the
- * foundations, the plan note follows, and nothing is spent on distribution until the founder starts it.
+ * The Chief of Staff's welcome note at Take charge (non-blocking; WP-04 T7 "one first-day story"): the project has
+ * started, the Product lead is drafting its public page, the plan note follows, and nothing costs money or goes out in
+ * the founder's name unless they say so. Its last line is `FIRST_DAY_PROMISE`'s, so Commit and the note agree.
  */
-export function welcomeNote(input: { productLeadName: string | null; door: "ideation" | "import" }): { subject: string; bodyMd: string } {
-  const from = input.door === "import" ? "the Import report" : "your idea and your founder profile";
+export function welcomeNote(input: { displayName: string | null; businessName: string; productLeadName: string | null; door: "ideation" | "import" }): { subject: string; bodyMd: string } {
+  const from = input.door === "import" ? "what you imported" : "your own words";
   const who = input.productLeadName ?? "The Product lead";
+  const name = input.displayName?.trim();
   return {
-    subject: "Your team is drafting your page and your plan",
+    subject: `${input.businessName} has started`,
     bodyMd: [
-      prompts.HOUSE_RULES_FOUNDER_LINE,
-      // No head count (WP-04 T4): a new project is shown its starting team, not the 27 agents hired behind it.
-      "The team is hired.",
-      `${who} is drafting your public page first, from ${from}: check it and put it live. Your plan follows as one note to approve. Building starts when you approve it.`,
-      "Nothing is spent on distribution until you start it from Customers › Board.",
+      `${name ? `Hi ${name}.` : "Hi."} ${input.businessName} is yours, and it has started.`,
+      `${who} is drafting its public page from ${from}. In about a minute you can check it and publish it.`,
+      `After that your plan arrives as one note. ${FIRST_DAY_PROMISE[3]}`,
     ].join("\n\n"),
   };
 }
@@ -363,7 +364,7 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
     // Start distribution and Door B's import decisions for the build start (services/signoff.ts).
     const productDept = seed.departments.find((d) => d.moduleKeys.includes("product"));
     const productLeadId = productDept ? leadByDepartment.get(departmentIdBySlug.get(productDept.slug)!) : undefined;
-    const welcome = welcomeNote({ productLeadName: hired.find((h) => h.agent.id === productLeadId)?.agent.name ?? null, door: importLink ? "import" : "ideation" });
+    const welcome = welcomeNote({ displayName: input.displayName ?? null, businessName: business.name, productLeadName: hired.find((h) => h.agent.id === productLeadId)?.agent.name ?? null, door: importLink ? "import" : "ideation" });
     const firstItem = await repos.inbox.createItem(tx, businessId, {
       type: "update",
       from_agent_id: chief.agent.id,

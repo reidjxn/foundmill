@@ -177,7 +177,7 @@ Order: T1, T2, T3 first (the path), then T6, T5, T4, T7, T8; T9 to T16 in any or
 **Tests and evals:** as above, both widths; Storybook story of the screen at 390.
 **Done when:** Done-when 1 of this package passes.
 
-### T7: One first-day story; guidance on Today   [M] [ships after T5 and T6]
+### [x] T7: One first-day story; guidance on Today   [M] [ships after T5 and T6]
 
 **Why:** FR-07, FR-16 rows 2 and "also weak", FR-18 (tour), A2-05, A2-06 (Today only; the other screens are WP-10), A2-10, s1 §3.8 and §3.9.
 

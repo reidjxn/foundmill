@@ -1,5 +1,5 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
-import { LONG, UUID, devApi, ensureDeck, inboxRow, logoPng, openSettings, signIn } from "./helpers";
+import { expect, test, type Page } from "@playwright/test";
+import { FIRST_NOTE, LONG, foundationsStatus, UUID, devApi, ensureDeck, inboxRow, logoPng, openSettings, signIn } from "./helpers";
 
 /**
  * /new/commit/[ideaId] — the Commit screen (BUILD §11.1; AC-11.1.6, AC-11.1.7; WP-04 T2 "name and go"). The test
@@ -18,15 +18,6 @@ async function openMore(page: Page): Promise<void> {
   await expect(page.getByTestId("business-mode-panel")).toBeVisible();
 }
 
-/** The foundations' status as the api has it (`product.foundations.get`), read as the dev founder. */
-async function foundationsStatus(api: APIRequestContext, businessId: string): Promise<string | null> {
-  const input = encodeURIComponent(JSON.stringify({ json: { businessId } }));
-  const res = await api.get(`/trpc/product.foundations.get?input=${input}`);
-  if (!res.ok()) return null;
-  const body = (await res.json()) as { result?: { data?: { json?: { status?: string } } } };
-  return body.result?.data?.json?.status ?? null;
-}
-
 /** The default view, at any width: the name prefilled, what happens next, one button, More options closed. */
 async function expectNameAndGo(page: Page): Promise<void> {
   const form = page.getByTestId("commit-form");
@@ -34,7 +25,8 @@ async function expectNameAndGo(page: Page): Promise<void> {
   await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
   await expect(page.getByLabel(/Business name/)).not.toHaveValue("");
   await expect(form.locator("input:not([type=hidden]), textarea, select")).toHaveCount(1);
-  await expect(page.getByTestId("what-happens-next")).toContainText("Your team is hired");
+  // One first-day story (WP-04 T7): the page first.
+  await expect(page.getByTestId("what-happens-next")).toContainText("Your page is drafted first, from your own words. About a minute.");
   await expect(page.getByTestId("commit-credits-line").or(page.getByTestId("commit-credits-notice"))).toBeVisible();
   // The starting team in one line (WP-04 T4).
   await expect(page.getByTestId("starting-team-line")).toHaveText(/^Your starting team: Chief of Staff, Product Lead and Researcher\. \d+ more join as the work needs them\.$/, { timeout: LONG });
@@ -196,8 +188,9 @@ test.describe("commit", () => {
 
   test("says what happens next in the real order, with an example per mode and a change-it-later line (A4, §7.6)", async ({ page }) => {
     const next = page.getByTestId("what-happens-next");
-    await expect(next).toContainText("Your team is hired");
-    await expect(next).toContainText("Then your plan arrives as one note to approve");
+    // The shared first-day lines (WP-04 T7), in order: the page, checking it, the plan, nothing without you.
+    await expect(next.getByRole("listitem")).toHaveText([/^1\s*Your page is drafted first/, /^2\s*You check it and publish it/, /^3\s*Your plan arrives as one note to approve/, /^4\s*Nothing costs money or goes out in your name/]);
+    await expect(next).not.toContainText(/specification|roadmap|two notes|sign them off/);
     await expect(next).not.toContainText("Board");
     await openMore(page);
     await expect(page.locator("[data-mode-example]")).toHaveCount(3);
@@ -296,8 +289,8 @@ test.describe("commit", () => {
     // The Inbox has the Chief of Staff's welcome note (an Update), or its note of the day once an agent's update was
     // folded into it (WP-04 T8: it replaces the welcome); Continue is not "Respond" for it.
     await page.goto(`/b/${bid}/inbox`);
-    await expect(inboxRow(page, /Your team is drafting your page and your plan|What your team did today/)).toBeVisible({ timeout: LONG });
-    await inboxRow(page, /Your team is drafting your page and your plan|What your team did today/).click();
+    await expect(inboxRow(page, FIRST_NOTE)).toBeVisible({ timeout: LONG });
+    await inboxRow(page, FIRST_NOTE).click();
     await expect(page.getByTestId("inbox-item")).toHaveAttribute("data-type", "update", { timeout: LONG });
     await expect(page.getByTestId("decision-bar")).toHaveCount(0);
     // The spend cap per action chosen on Commit (the Assisted default, 250) is kept on the business, editable in Settings › What the team can do.

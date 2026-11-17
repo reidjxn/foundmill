@@ -341,9 +341,10 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
   it("says what happens next in the real order, with the included credits and no card (A4, A10)", () => {
     renderForm();
     const next = screen.getByTestId("what-happens-next");
-    // The steps are the shared first-day promise itself, not a copy of it (WP-02 T6).
-    expect(WHAT_HAPPENS_NEXT).toBe(FIRST_DAY_PROMISE.steps);
-    expect(WHAT_HAPPENS_NEXT).toEqual(["Your team is hired", "Your public page is drafted first: check it and put it live", "Then your plan arrives as one note to approve", "Nothing is spent on finding customers until you say so"]);
+    // The steps are the shared first-day promise itself, not a copy of it (WP-02 T6), and the welcome note repeats it (WP-04 T7).
+    expect(WHAT_HAPPENS_NEXT).toBe(FIRST_DAY_PROMISE);
+    expect(WHAT_HAPPENS_NEXT).toEqual(["Your page is drafted first, from your own words. About a minute.", "You check it and publish it. Then you have a link to send.", "Your plan arrives as one note to approve.", "Nothing costs money or goes out in your name unless you say so."]);
+    expect(next.textContent).not.toMatch(/specification|roadmap|two notes|sign them off/i);
     for (const step of WHAT_HAPPENS_NEXT) expect(next.textContent).toContain(step);
     expect(next.textContent).not.toMatch(/Board|three decisions|first cycle/);
     expect(includedCreditsLine()).toBe("Starts with $5.00 of included credits this month. No card.");

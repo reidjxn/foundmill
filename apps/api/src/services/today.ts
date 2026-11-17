@@ -25,7 +25,7 @@
  */
 import { APPROVAL_OPTIONS, approvalSection, buildDestinationOf, repos, type DbTx, type InboxItem, type Task } from "@foundmill/db";
 import { CREDITS_CURRENCY } from "@foundmill/config";
-import { GOAL_OPTION_IDS, PAGE_READY_NOTE, POSTAL_ADDRESS_NOTE, WRITE_ROLES, addDaysToDay, dailyStreak, dayKeyIn, firstWeekTimeline, firstWeekVisible, hasSectionAccess, isPageReadyDecision, isPostalAddressDecision, vacationDayKeys, weekPlanWords, type FirstWeekWords, type Streak, type WeekFacts, type WeekPlanWords } from "@foundmill/shared";
+import { GOAL_OPTION_IDS, daysBetweenDays, PAGE_READY_NOTE, POSTAL_ADDRESS_NOTE, WRITE_ROLES, addDaysToDay, dailyStreak, dayKeyIn, firstWeekTimeline, firstWeekVisible, hasSectionAccess, isPageReadyDecision, isPostalAddressDecision, vacationDayKeys, weekPlanWords, type FirstWeekWords, type Streak, type WeekFacts, type WeekPlanWords } from "@foundmill/shared";
 import { channelRowsFor } from "./channel-availability";
 import type { BusinessContext } from "../trpc";
 import { autopilotStatus } from "./autopilot";
@@ -64,6 +64,16 @@ export interface TodaySpend {
 export interface TodayView {
   /** The business's day ("2026-11-07"). */
   today: string;
+  /**
+   * Which day of the project this is in its own calendar: 1 on the day it was created (WP-04 T7). Today shows the
+   * streak and the health figures from day 2.
+   */
+  projectDay: number;
+  /**
+   * The project's first day (WP-04 D5: no streak and no health figures yet): day 1, and neither a sample business (its
+   * seed creates it "today" though it reads two years in) nor one already selling.
+   */
+  firstDay: boolean;
   /** Null without Inbox read. */
   needsYou: { items: NeedsYouItem[]; total: number } | null;
   /** Null without Development read. */
@@ -277,7 +287,10 @@ export async function todayView(ctx: BusinessContext, now: Date = new Date()): P
         ? repos.teamPosts.waiting(tx, ctx.businessId).then((rows) => (rows[0] ? { count: rows.length, assetId: rows[0].id } : null))
         : Promise.resolve(null),
     ]);
-    return { today: dayKeyIn(now, ctx.business.timeZone), needsYou, week: words, spend, chiefOfStaff: chief ? { id: chief.id, name: chief.name } : null, firstWeek, pageReady, postsReady };
+    const today = dayKeyIn(now, ctx.business.timeZone);
+    const projectDay = daysBetweenDays(dayKeyIn(ctx.business.createdAt, ctx.business.timeZone), today) + 1;
+    const firstDay = projectDay <= 1 && !ctx.business.isDemo && !ctx.business.distributionStartedAt;
+    return { today, projectDay, firstDay, needsYou, week: words, spend, chiefOfStaff: chief ? { id: chief.id, name: chief.name } : null, firstWeek, pageReady, postsReady };
   });
 }
 
@@ -336,6 +349,8 @@ async function sinceVisit(ctx: BusinessContext, presence: { previousSeenAt: stri
  */
 export interface TodayVisit {
   sinceLastVisit: SinceLastVisit | null;
+  /** The reader has been here in an earlier session (a previous presence): Today's tour waits for this (WP-04 T7). */
+  returning: boolean;
   streak: Streak;
 }
 
@@ -352,7 +367,7 @@ export async function visitFor(ctx: BusinessContext, now: Date = new Date()): Pr
     visitDays: await repos.presence.visitDays(tx, ctx.businessId, ctx.userId, { from: addDaysToDay(today, -400), to: today }),
   }));
   const [sinceLastVisit, holidays] = await Promise.all([sinceVisit(ctx, own.presence, now), repos.holidays.list(ctx.db, ctx.businessId, 50)]);
-  return { sinceLastVisit, streak: dailyStreak({ today, visitDays: own.visitDays, vacationDays: vacationDayKeys(holidays, now, (d) => dayKeyIn(d, zone)) }) };
+  return { sinceLastVisit, returning: Boolean(own.presence?.previousSeenAt), streak: dailyStreak({ today, visitDays: own.visitDays, vacationDays: vacationDayKeys(holidays, now, (d) => dayKeyIn(d, zone)) }) };
 }
 
 export async function streakFor(ctx: BusinessContext, now: Date = new Date()): Promise<Streak> {

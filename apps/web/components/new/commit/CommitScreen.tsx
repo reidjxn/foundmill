@@ -18,7 +18,7 @@ import { ArrowLeft, ArrowRight, Check, ChevronDown, ChevronUp, Globe, Lock, Rock
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { CREDITS_CURRENCY, includedCreditsMinor } from "@foundmill/config";
-import { ARCHETYPES, ARCHETYPE_LABELS, FIRST_DAY_PROMISE, startingTeam, type Archetype, type BusinessMode, type DeptColourToken, type GameMode } from "@foundmill/shared";
+import { ARCHETYPES, ARCHETYPE_LABELS, FIRST_DAY_PROMISE, FIRST_DAY_TOAST, startingTeam, type Archetype, type BusinessMode, type DeptColourToken, type GameMode } from "@foundmill/shared";
 import { DEFAULT_AGENT_STYLE, type AgentStyle } from "@foundmill/shared/personas";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { AgentStylePicker, BuilderOnly, Button, Checkbox, Chip, ConceptCard, EmptyState, Field, Icon, Input, Label, MoneyInput, Panel, ProvenanceChip, RadioGroup, RadioGroupItem, ReassuranceLine, SkeletonRows, StartingTeamList, StatusPill, Switch, Term, cn, fieldDescribedBy, formatMoney, useDateFormat, useBuilderView, useFormatters, useToast, type Kit } from "@foundmill/dugout";
@@ -119,9 +119,8 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
     trpc.idea.commit.mutationOptions({
       onSuccess: (res) => {
         // A second Take charge of this idea (another tab, a retried request) answers with the business the first created.
-        // The first days are about the product (founder, 2026-10-18): Home shows the foundations drafting; the Inbox has
-        // the Chief of Staff's welcome note and, once drafted, the plan note.
-        toast({ title: res.alreadyCommitted ? `${res.business.name} is already yours` : `${res.business.name} is yours`, description: FIRST_DAY_PROMISE.sentence, tone: "good" });
+        // One first-day story (WP-04 T7): the page is drafted first and the founder checks it; then the plan note.
+        toast({ title: res.alreadyCommitted ? `${res.business.name} is already yours` : `${res.business.name} is yours`, description: FIRST_DAY_TOAST, tone: "good" });
         const to = routes.today(res.business.id);
         // The new business is in the founder's lists at once (Switch business, Your businesses).
         void queryClient.invalidateQueries({ queryKey: trpcPathPrefix("founder") as unknown[] });
@@ -243,11 +242,11 @@ export const COMMIT_WORDS = {
 } as const;
 
 /**
- * What happens after Start my project, in the order `apps/api/src/services/commit.ts` runs it (A4): the team is hired, the
- * Product lead drafts the foundations, the plan note lands, then building starts. Nothing is spent before the
- * founder approves it.
+ * What happens after Start my project, in the order `apps/api/src/services/commit.ts` runs it (A4): the page is drafted
+ * first, the founder checks and publishes it, then the plan note lands. Nothing costs money or goes out in the founder's
+ * name unless they say so. The shared first-day promise itself (WP-04 T7), which the welcome note repeats.
  */
-export const WHAT_HAPPENS_NEXT: readonly string[] = FIRST_DAY_PROMISE.steps;
+export const WHAT_HAPPENS_NEXT: readonly string[] = FIRST_DAY_PROMISE;
 
 /** "Starts with $5.00 of included credits this month. No card." — the free tier's grant, in credits' own currency (A10). */
 export function includedCreditsLine(): string {

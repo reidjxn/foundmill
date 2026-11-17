@@ -74,6 +74,11 @@ export const SMALL_SCREEN_PATTERNS: readonly RegExp[] = [
   /^\/new\/commit\/[0-9a-f-]{36}\/?$/i,
 ];
 
+/** Today in a project (`/b/<id>/today`): its phone title row carries "Explain this page" (WP-04 T7). */
+export function isTodayPath(pathname: string | null | undefined): boolean {
+  return !!pathname && SMALL_SCREEN_PATTERNS[0]!.test(pathname);
+}
+
 /** Whether `pathname` renders at every width (one of `SMALL_SCREEN_PREFIXES` or `SMALL_SCREEN_PATTERNS`). */
 export function worksOnSmallScreens(pathname: string | null | undefined): boolean {
   if (!pathname) return false;

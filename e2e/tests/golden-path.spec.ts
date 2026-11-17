@@ -63,7 +63,8 @@ async function commitFreshBusiness(page: Page, name: string): Promise<{ bid: str
   return { bid };
 }
 
-const WELCOME_NOTE = "Your team is drafting your page and your plan";
+/** The Chief of Staff's welcome note, "{Project} has started" (WP-04 T7), never "Distribution has started". */
+const WELCOME_NOTE = "(?<!Distribution) has started";
 /** The Chief of Staff's note of the day in a project's first week (WP-04 T8, `DIGEST_SUBJECT`): it replaces the welcome note once an agent's update is folded into it. */
 const DIGEST_NOTE = "What your team did today";
 /** Whichever of the two is there: both are updates with no decision. */

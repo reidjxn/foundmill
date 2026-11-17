@@ -19,6 +19,11 @@
  *    (`finance.overview`, `journey.ribbon`), so they always match Details; then the week's spend, never added across
  *    currencies (AI usage in US dollars, channel spend in the business's currency; one figure for a dollar business).
  *
+ * Order (WP-04 T7, `todaySections`): on a phone, and on a computer while the page waits to be checked and published,
+ * Needs you leads; otherwise the first week and the goal. The week, Since you were last here, the streak and Health
+ * come after, and the streak and Health only after the project's first day (WP-04 D5). Today's tour (three steps) starts
+ * on the second visit, never on a phone; the phone title row carries "Explain this page".
+ *
  * The tab bar is Today | Details. `goal.ensure` runs once per visit (lead.tsx).
  */
 import { emptyWhy } from "@foundmill/shared/empty-why";
@@ -26,8 +31,8 @@ import { PAGE_READY_NOTE } from "@foundmill/shared/project-page";
 import { POSTAL_ADDRESS_NOTE } from "@foundmill/shared/platform-mail";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { useCallback, useMemo, useState } from "react";
-import { FirstWeekTimeline, GoalPanel, NeedsYouList, PageGrid, Panel, PostReadyNote, PublicPageNote, SinceLastVisit, StatusStrip, StreakStrip, Term, WeekPlan, formatDateTime, useAgentPersona, useDateFormat, useToast, type MetricTileProps, type NeedsYouRow } from "@foundmill/dugout";
+import { Fragment, useCallback, useMemo, useState, type ReactNode } from "react";
+import { Explainer, FirstWeekTimeline, GoalPanel, NeedsYouList, PageGrid, Panel, PostReadyNote, PublicPageNote, SinceLastVisit, StatusStrip, StreakStrip, Term, WeekPlan, formatDateTime, isViewportTooSmall, useAgentPersona, useDateFormat, useToast, useViewportWidth, type MetricTileProps, type NeedsYouRow } from "@foundmill/dugout";
 import { cashTile, customersWeekTile, moduleHref, moduleTabHref, routes, runwayTile, spendWeekTiles, unavailableTile, type StatusTile } from "@foundmill/widgets";
 import type { FinanceOverview, RibbonResponse } from "@foundmill/widgets/shared/types";
 import { useGlossary, useToday } from "@foundmill/widgets/data";
@@ -40,7 +45,8 @@ import { shellPollIntervals } from "@/components/shell/BusinessShell";
 import { useBusinessLive } from "@/lib/stream-status";
 import { GoalEnsure, HomeBlockers, HomeFoundations } from "@/components/home/lead";
 import { formatMoney } from "@/lib/format";
-import { needsYouHref, sinceLastVisitLines, streakStripProps, toNeedsYouRows, toPanelGoal, toPanelProposal } from "./today-view";
+import { needsYouHref, sinceLastVisitLines, streakStripProps, toNeedsYouRows, toPanelGoal, toPanelProposal, todaySections, type TodaySection } from "./today-view";
+import { LazyTour } from "@/components/tours/LazyTour";
 import { FormerProjects } from "@/components/home/FormerProjects";
 
 /** The reads a Today answer changes. */
@@ -52,6 +58,14 @@ export const TODAY_WORDS = {
   health: "Health",
   noInbox: "Members who can read the Inbox see what needs them here.",
   noWeek: "Members who can read Development see the week here.",
+} as const;
+
+/** "Explain this page" on Today (WP-04 T7): what Today is, what Needs you is, what Continue does. */
+export const TODAY_EXPLAINER = {
+  screenId: "today",
+  purpose: "Today is your project's front door: the one thing to do now, your goal and your week.",
+  action: "Answer what is in Needs you. Those are the notes waiting for you.",
+  watchFor: "Continue runs one round of work. What the team needs from you lands in Needs you.",
 } as const;
 
 export function TodayScreen() {
@@ -193,54 +207,79 @@ export function TodayScreen() {
   const week = todayQ.data?.week;
   // "Your first week": the API answers it only while the business is in its first days and not yet selling (packages/shared first-week.ts).
   const firstWeek = todayQ.data?.firstWeek ?? null;
+  const pageReady = todayQ.data?.pageReady ?? false;
+  // The page first (WP-04 T7): while its "ready" note is open, or nothing is live yet, Needs you leads on a computer too.
+  const pageFirst = pageReady || rows.some((r) => r.quickOption?.id === PAGE_READY_NOTE.options.check);
+  const phone = isViewportTooSmall(useViewportWidth());
+  const firstDay = todayQ.data ? todayQ.data.firstDay : null;
+  const order = todaySections({ phone, pageFirst, firstDay });
+  const lead = phone || pageFirst;
+
+  const sections: Record<TodaySection, ReactNode> = {
+    "first-week": firstWeek ? <FirstWeekTimeline span={12} steps={firstWeek.steps} paused={firstWeek.paused} /> : null,
+    goal: (
+      <GoalPanel
+        span={lead ? 12 : 6}
+        active={active}
+        proposed={proposed}
+        canDecide={goalQ.data?.canDecide ?? false}
+        loading={goalQ.isLoading}
+        error={goalQ.error && !goalQ.data ? errorMessage(goalQ.error) : undefined}
+        onRetry={() => void goalQ.refetch()}
+        onApprove={(goalId) => approve.mutate({ businessId, goalId })}
+        approving={approve.isPending}
+        onRequestChange={requestChange}
+      />
+    ),
+    "needs-you": (
+      <NeedsYouList
+        span={lead ? 12 : 6}
+        items={rows}
+        total={needsYou?.total ?? 0}
+        seeAllHref={needsYouHref(businessId)}
+        onQuickAnswer={onQuickAnswer}
+        pendingId={pendingId}
+        // The first-days line says the page is on its way only while it is (WP-04 T7); after, the calm line.
+        emptyText={todayQ.data && !needsYou ? TODAY_WORDS.noInbox : emptyWhy("today_needs_you", { firstDays: firstWeek !== null && pageReady }).text}
+        loading={todayQ.isLoading}
+        error={todayQ.error && !todayQ.data ? errorMessage(todayQ.error) : undefined}
+        onRetry={() => void todayQ.refetch()}
+      />
+    ),
+    "public-page": pageReady ? <PublicPageNote span={12} href={moduleTabHref(businessId, departments, "product", "public-page")} /> : null,
+    "post-ready": todayQ.data?.postsReady ? <PostReadyNote span={12} waiting={todayQ.data.postsReady.count} href={`${moduleTabHref(businessId, departments, "distribution", "creative")}?asset=${todayQ.data.postsReady.assetId}`} /> : null,
+    week: (
+      <WeekPlan
+        span={12}
+        done={week?.done ?? []}
+        next={week?.next ?? []}
+        empty={todayQ.data && !week ? TODAY_WORDS.noWeek : undefined}
+        loading={todayQ.isLoading}
+        error={todayQ.error && !todayQ.data ? errorMessage(todayQ.error) : undefined}
+        onRetry={() => void todayQ.refetch()}
+      />
+    ),
+    since: since && sinceLines.length ? <SinceLastVisit span={12} meta={`Since ${formatDateTime(since.since, datePrefs)}`} lines={sinceLines} /> : null,
+    streak: visitQ.data ? <StreakStrip span={12} {...streakStripProps(visitQ.data.streak)} /> : null,
+    health: (
+      <Panel title={TODAY_WORDS.health} span={12} flush data-testid="today-health">
+        <StatusStrip tiles={tiles} wrap className="rounded-none border-0" aria-label="Business health" />
+      </Panel>
+    ),
+  };
   return (
     <div className="flex min-h-full flex-col gap-gutter p-gutter" data-testid="today-screen">
+      <Explainer {...TODAY_EXPLAINER} />
+      {/* Today's tour from the second visit (WP-04 T7), never on a phone: not in the sitting that started the project. */}
+      {!phone && (visitQ.data?.returning || firstDay === false) ? <LazyTour id="today" /> : null}
       <FormerProjects className="flex flex-col gap-gutter" />
       <HomeBlockers />
       <GoalEnsure />
       <HomeFoundations />
-      <PageGrid flush stack>
-        {since && sinceLines.length ? <SinceLastVisit span={12} meta={`Since ${formatDateTime(since.since, datePrefs)}`} lines={sinceLines} /> : null}
-        {visitQ.data ? <StreakStrip span={12} {...streakStripProps(visitQ.data.streak)} /> : null}
-        {firstWeek ? <FirstWeekTimeline span={12} steps={firstWeek.steps} paused={firstWeek.paused} /> : null}
-        <GoalPanel
-          span={6}
-          active={active}
-          proposed={proposed}
-          canDecide={goalQ.data?.canDecide ?? false}
-          loading={goalQ.isLoading}
-          error={goalQ.error && !goalQ.data ? errorMessage(goalQ.error) : undefined}
-          onRetry={() => void goalQ.refetch()}
-          onApprove={(goalId) => approve.mutate({ businessId, goalId })}
-          approving={approve.isPending}
-          onRequestChange={requestChange}
-        />
-        <NeedsYouList
-          span={6}
-          items={rows}
-          total={needsYou?.total ?? 0}
-          seeAllHref={needsYouHref(businessId)}
-          onQuickAnswer={onQuickAnswer}
-          pendingId={pendingId}
-          emptyText={todayQ.data && !needsYou ? TODAY_WORDS.noInbox : emptyWhy("today_needs_you", { firstDays: firstWeek !== null }).text}
-          loading={todayQ.isLoading}
-          error={todayQ.error && !todayQ.data ? errorMessage(todayQ.error) : undefined}
-          onRetry={() => void todayQ.refetch()}
-        />
-        {todayQ.data?.pageReady ? <PublicPageNote span={12} href={moduleTabHref(businessId, departments, "product", "public-page")} /> : null}
-        {todayQ.data?.postsReady ? <PostReadyNote span={12} waiting={todayQ.data.postsReady.count} href={`${moduleTabHref(businessId, departments, "distribution", "creative")}?asset=${todayQ.data.postsReady.assetId}`} /> : null}
-        <WeekPlan
-          span={12}
-          done={week?.done ?? []}
-          next={week?.next ?? []}
-          empty={todayQ.data && !week ? TODAY_WORDS.noWeek : undefined}
-          loading={todayQ.isLoading}
-          error={todayQ.error && !todayQ.data ? errorMessage(todayQ.error) : undefined}
-          onRetry={() => void todayQ.refetch()}
-        />
-        <Panel title={TODAY_WORDS.health} span={12} flush data-testid="today-health">
-          <StatusStrip tiles={tiles} wrap className="rounded-none border-0" aria-label="Business health" />
-        </Panel>
+      <PageGrid flush stack data-order={order.join(" ")}>
+        {order.map((id) => (
+          <Fragment key={id}>{sections[id]}</Fragment>
+        ))}
       </PageGrid>
     </div>
   );

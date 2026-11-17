@@ -167,7 +167,7 @@ describe("today.get › firstWeek", () => {
 
   it("reads Day 1 from the page and the sign-offs (package 1.3): both sign-offs leave the page to publish", async () => {
     const b = await business("Today First Week Facts");
-    expect((await b.owner.today.get({ businessId: b.id })).firstWeek!.steps[0]).toMatchObject({ team: "Your team drafts your page, your specification and your roadmap.", asks: "You are asked to publish your page and approve your plan." });
+    expect((await b.owner.today.get({ businessId: b.id })).firstWeek!.steps[0]).toMatchObject({ team: "Your team drafts your page first, then your plan.", asks: "You are asked to publish your page and approve your plan." });
     await repos.productSignoffs.seedApproved(hz.db, b.id, { spec: { at: new Date() }, roadmap: { at: new Date() }, decidedBy: b.ownerId });
     const signed = await b.owner.today.get({ businessId: b.id });
     expect(signed.firstWeek!.steps.map((s) => s.state)).toEqual(["now", "next", "next"]);
@@ -177,6 +177,19 @@ describe("today.get › firstWeek", () => {
     const view = await b.owner.today.get({ businessId: b.id });
     expect(view.firstWeek!.steps.map((s) => s.state)).toEqual(["done", "now", "next"]);
     expect(view.firstWeek!.steps[0]!.when).toMatch(/^Done [A-Z][a-z]{2} \d{1,2}$/);
+  });
+
+  it("says which day of the project it is: 1 on the day it was created (WP-04 T7)", async () => {
+    const b = await business("Today Project Day");
+    expect(await b.owner.today.get({ businessId: b.id })).toMatchObject({ projectDay: 1, firstDay: true });
+    await hz.db.execute(sql`update businesses set created_at = now() - interval '1 day' where id = ${b.id}`);
+    expect(await b.viewer.today.get({ businessId: b.id })).toMatchObject({ projectDay: 2, firstDay: false });
+    await hz.db.execute(sql`update businesses set created_at = now() - interval '30 days' where id = ${b.id}`);
+    expect((await b.owner.today.get({ businessId: b.id })).projectDay).toBe(31);
+    // A project created today that is already selling is past its first day.
+    const selling = await business("Today Project Day Selling");
+    await repos.businesses.startDistribution(hz.db, selling.id, { at: new Date() });
+    expect(await selling.owner.today.get({ businessId: selling.id })).toMatchObject({ projectDay: 1, firstDay: false });
   });
 
   it("is away for a business past its first days and for one that is already selling", async () => {

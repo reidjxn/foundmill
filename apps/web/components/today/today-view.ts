@@ -121,8 +121,27 @@ export interface StreakLike {
 
 const WEEKDAY = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "UTC" });
 
-/** The StreakStrip's props: the shared words and a short weekday under each dot ("Mon"). */
-export function streakStripProps(s: StreakLike): { headline: string; line: string; atRisk: boolean; milestone: boolean; week: { day: string; label: string; state: StreakLike["week"][number]["state"] }[] } {
-  const words = streakWords(s);
-  return { ...words, atRisk: s.atRisk, milestone: s.milestone !== null, week: s.week.map((d) => ({ ...d, label: WEEKDAY.format(new Date(`${d.day}T12:00:00Z`)) })) };
+/**
+ * The StreakStrip's props (WP-04 D5: quieter): the shared words, never the at-risk line (the founder is here now), and
+ * only the days of the last seven the founder opened the business, each with its short weekday ("Mon").
+ */
+export function streakStripProps(s: StreakLike): { headline: string; line: string; milestone: boolean; opened: { day: string; label: string }[] } {
+  const words = streakWords({ ...s, atRisk: false });
+  return { ...words, milestone: s.milestone !== null, opened: s.week.filter((d) => d.state === "visited").map((d) => ({ day: d.day, label: WEEKDAY.format(new Date(`${d.day}T12:00:00Z`)) })) };
+}
+
+/** Today's sections, by the test id each one draws. */
+export type TodaySection = "needs-you" | "public-page" | "post-ready" | "first-week" | "goal" | "week" | "since" | "streak" | "health";
+
+/**
+ * Today's reading order (WP-04 T7): one thing to do first. On a phone, and on a computer while the page waits to be
+ * checked and published, Needs you leads, then the page line, the first week and the goal; otherwise the first week,
+ * the goal beside Needs you. The week plan, Since you were last here, the streak and the health figures always come
+ * after, in that order, and the streak and health only after the project's first day (`today.get` › `firstDay`, WP-04
+ * D5; s1 §3.8: four empty figures on day one). Not known yet (`null`): not yet.
+ */
+export function todaySections(f: { phone: boolean; pageFirst: boolean; firstDay: boolean | null }): TodaySection[] {
+  const lead: TodaySection[] = f.phone || f.pageFirst ? ["needs-you", "public-page", "post-ready", "first-week", "goal"] : ["first-week", "goal", "needs-you", "public-page", "post-ready"];
+  const later: TodaySection[] = f.firstDay === false ? ["week", "since", "streak", "health"] : ["week", "since"];
+  return [...lead, ...later];
 }

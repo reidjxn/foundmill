@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { viewport } from "../../../app/layout";
 import { renderToString } from "react-dom/server";
 import { hydrateRoot } from "react-dom/client";
-import { DesktopOnly, SMALL_SCREEN_PREFIXES, WorksOnSmallScreens, worksOnSmallScreens } from "../DesktopOnly";
+import { DesktopOnly, SMALL_SCREEN_PREFIXES, WorksOnSmallScreens, isTodayPath, worksOnSmallScreens } from "../DesktopOnly";
 
 let pathname = "/b/x/today";
 vi.mock("next/navigation", () => ({ usePathname: () => pathname }));
@@ -23,6 +23,13 @@ describe("desktop only (audit PAS-4: a phone rendered a 390 px slice of a 1280 p
   afterEach(() => {
     setWidth(original);
     pathname = "/b/x/today";
+  });
+
+  it("knows Today's path, for the phone title row's Explain this page (WP-04 T7)", () => {
+    const id = "0f9b5f8e-3c1d-4d2a-9b7e-2a6c8d1e4f00";
+    expect(isTodayPath(`/b/${id}/today`)).toBe(true);
+    expect(isTodayPath(`/b/${id}/inbox`)).toBe(false);
+    expect(isTodayPath(null)).toBe(false);
   });
 
   it("does not force a 1280 px layout viewport: the meta keeps Next's device-width, so a phone reports its real width", () => {
