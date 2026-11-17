@@ -164,6 +164,12 @@ export function firstCycleTasksFor(seed: Pick<ArchetypeSeed, "firstCycleTasks">,
   return seed.firstCycleTasks.filter((t) => t.kind !== "finance" && t.kind !== "legal");
 }
 
+/**
+ * The first build of a project whose code lands on its Foundmill site (WP-07 T9), whatever the archetype: one offer
+ * page a stranger can open, sign up on or pay from.
+ */
+export const SITE_FIRST_BUILD = { title: "Build the offer page", goal: "One page that says what this is, who it is for and what it costs, with a way to sign up or pay.", acceptance: ["The page reads well on a phone", "The sign-up form is on the page", "A price is shown, or the page says how to ask for one"] } as const;
+
 /** The Planner's fallback goal once the founder has signed off and Now is empty (`ArchetypeSeed.firstBuild`). */
 const FIRST_BUILD = (title: string, goal: string, acceptance: string[]): FirstBuild => ({ title, goal, acceptance });
 

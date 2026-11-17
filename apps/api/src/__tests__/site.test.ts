@@ -145,6 +145,22 @@ describe("site.setSlug", () => {
   });
 });
 
+describe("the note in Needs you", () => {
+  it("writes one note for a first preview, and Publish it publishes the newest version", async () => {
+    const A = hz.A;
+    const owner = hz.caller({ userId: A.ownerId });
+    await repos.sites.ensure(hz.db, A.businessId, { slug: `note-site-${n}` });
+    const release = await repos.sites.saveRelease(hz.db, A.businessId, { files: [FILE], state: "preview" });
+    const item = await repos.sites.writeReadyNote(hz.db, A.businessId, { agentId: A.agentId, agentName: "Riley", previewUrl: "http://p-x.sites.localhost/" });
+    expect(item?.subject).toBe("Your site is ready to look at");
+    expect(await repos.sites.writeReadyNote(hz.db, A.businessId, { agentId: A.agentId, agentName: "Riley", previewUrl: "http://p-x.sites.localhost/" })).toBeNull();
+    await owner.inbox.decide({ businessId: A.businessId, itemId: item!.id, chosenOption: "site_publish" });
+    const view = await owner.site.get({ businessId: A.businessId });
+    expect(view.site).toMatchObject({ status: "live", liveReleaseNumber: release.number });
+    expect(await repos.sites.openReadyNote(hz.db, A.businessId)).toBeNull();
+  });
+});
+
 describe("no agent capability reaches the site procedures", () => {
   it("names no site tool in any connector's capability map", () => {
     const names = Object.values(CAPABILITY_TOOLS).flatMap((m) => Object.entries(m as Record<string, readonly string[]>).flatMap(([cap, tools]) => [cap, ...tools]));

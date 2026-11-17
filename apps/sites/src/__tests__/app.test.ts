@@ -31,6 +31,7 @@ const SITES: Record<string, ResolvedSite> = {
 
 function makeApp(overrides: Partial<SitesDeps> = {}) {
   const reports: { label: string; reason: string; detail: string }[] = [];
+  const submits: Parameters<SitesDeps["follow"]["submit"]>[0][] = [];
   const deps: SitesDeps = {
     env: { APP_ENV: "production", APP_URL: "https://foundmill.com", SITES_DOMAIN: DOMAIN },
     resolve: async (label) => SITES[label] ?? null,
@@ -40,12 +41,20 @@ function makeApp(overrides: Partial<SitesDeps> = {}) {
       return "recorded";
     },
     ping: async () => true,
+    follow: {
+      consent: async (slug) => (SITES[slug]?.kind === "live" ? { consentText: "I agree to get email from Lunchbox about the project. I can stop at any time." } : null),
+      submit: async (input) => {
+        submits.push(input);
+        return { ok: true };
+      },
+    },
+    turnstileSiteKey: null,
     log: { info: () => {}, warn: () => {} },
     ...overrides,
   };
   const app = createSitesApp(deps);
   const req = (host: string, path = "/", init: RequestInit = {}) => app.request(`http://${host}${path}`, { ...init, headers: { host, ...(init.headers as Record<string, string> | undefined) } });
-  return { app, req, reports };
+  return { app, req, reports, submits };
 }
 
 const EXPECTED_LIVE = {
@@ -232,3 +241,61 @@ describe("helpers", () => {
     expect(siteCsp({ kind: "preview", appOrigin: null })).toContain("frame-ancestors 'none'");
   });
 });
+
+describe("the sign-up form", () => {
+  const form = (body: Record<string, string>) => ({ method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(body).toString() });
+
+  it("asks for consent on the platform's own page: the address escaped, the box unticked, the hidden field", async () => {
+    const { req, submits } = makeApp();
+    const res = await req(`lunchbox.${DOMAIN}`, "/_fm/follow", form({ email: "ME@example.com", name: "<b>x</b>", card: "4242424242424242" }));
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("me@example.com");
+    expect(html).toContain('type="checkbox" name="consent" value="yes" required>');
+    expect(html).not.toMatch(/checked/);
+    expect(html).toContain('name="website"');
+    expect(html).toContain("I agree to get email from Lunchbox");
+    expect(html).not.toContain("4242");
+    expect(submits).toEqual([]);
+  });
+
+  it("escapes an address that is not one, and refuses it", async () => {
+    const res = await makeApp().req(`lunchbox.${DOMAIN}`, "/_fm/follow", form({ email: '"><script>x</script>@example.com' }));
+    expect(res.status).toBe(400);
+    expect(await res.text()).not.toContain("<script>x");
+  });
+
+  it("calls the api's follow path once the box is ticked, with nothing else the visitor typed", async () => {
+    const { req, submits } = makeApp();
+    const res = await req(`lunchbox.${DOMAIN}`, "/_fm/follow/confirm", form({ email: "me@example.com", consent: "yes", website: "", "cf-turnstile-response": "tok", extra: "ignored" }));
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("Check your inbox");
+    expect(submits).toEqual([{ slug: "lunchbox", email: "me@example.com", consent: true, website: "", turnstile: "tok" }]);
+  });
+
+  it("refuses without the box, and shows the api's refusal in plain words", async () => {
+    const { req, submits } = makeApp({ follow: { consent: async () => ({ consentText: "x" }), submit: async () => ({ refused: "We could not check this browser." }) } });
+    expect((await req(`lunchbox.${DOMAIN}`, "/_fm/follow/confirm", form({ email: "me@example.com" }))).status).toBe(400);
+    const refused = await req(`lunchbox.${DOMAIN}`, "/_fm/follow/confirm", form({ email: "me@example.com", consent: "yes" }));
+    expect(await refused.text()).toContain("We could not check this browser.");
+    expect(submits).toEqual([]);
+  });
+
+  it("never posts onward from a preview, refuses over 4 KB, and answers GET with 405", async () => {
+    const { req, submits } = makeApp();
+    expect(await (await req(`p-${TOKEN}.${DOMAIN}`, "/_fm/follow", form({ email: "me@example.com" }))).text()).toContain("Sign-ups open when the site is published.");
+    expect(await (await req(`p-${TOKEN}.${DOMAIN}`, "/_fm/follow/confirm", form({ email: "me@example.com", consent: "yes" }))).text()).toContain("Sign-ups open");
+    expect((await req(`lunchbox.${DOMAIN}`, "/_fm/follow", form({ email: "me@example.com", pad: "x".repeat(5000) }))).status).toBe(413);
+    expect((await req(`lunchbox.${DOMAIN}`, "/_fm/follow")).status).toBe(405);
+    expect(submits).toEqual([]);
+  });
+
+  it("lets the bot check's script run on the sign-up page only, when a site key is set", async () => {
+    const { req } = makeApp({ turnstileSiteKey: "0x4AAA" });
+    const res = await req(`lunchbox.${DOMAIN}`, "/_fm/follow", form({ email: "me@example.com" }));
+    expect(res.headers.get("content-security-policy")).toContain("script-src https://challenges.cloudflare.com");
+    expect(await res.text()).toContain('data-sitekey="0x4AAA"');
+    expect((await req(`lunchbox.${DOMAIN}`, "/")).headers.get("content-security-policy")).not.toContain("script-src");
+  });
+});
+

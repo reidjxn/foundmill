@@ -16,7 +16,8 @@
  *
  * Nothing here calls a model except the Planner (through `planTaskGraph`); no plan compiler runs for a sign-off.
  */
-import { CHANNEL_SCORING_TASK, getArchetypeSeed, planRoadmapHref } from "@foundmill/agents";
+import { CHANNEL_SCORING_TASK, getArchetypeSeed, planRoadmapHref, SITE_FIRST_BUILD } from "@foundmill/agents";
+import { sitesEnabled } from "@foundmill/shared/sites";
 import { LIMITS } from "@foundmill/config";
 import { bothSignedOff, buildDestinationOf, loadProductStage, planDecisionBlock, repos, signoffDecisionBlock, type Decision, type DbTx, type InboxItem, type PlanWithActions, type ProductSignoff, type Task } from "@foundmill/db";
 import { AppError, CHANNEL_KEYS, CHANNEL_META, channelEngineMayRun, ConflictError, ForbiddenError, isAdminRole, isPlanReadyDecision, PLAN_READY_NOTE, ValidationError, type BuildDestination, type ChannelKey, type ProductStage, type SignoffKind, type SignoffStatus } from "@foundmill/shared";
@@ -401,7 +402,10 @@ export async function startBuilding(ctx: BusinessContext): Promise<BuildStart> {
   const plannedTaskIds: string[] = [];
   const planned: string[] = [];
   const failed: { title: string; reason: string }[] = [];
-  const requests = items.length ? items.map((i) => ({ title: i.title, input: { roadmapItemId: i.id } })) : seed ? [{ title: seed.firstBuild.title, input: { goal: `${seed.firstBuild.title}: ${seed.firstBuild.goal}\n\nAcceptance:\n${seed.firstBuild.acceptance.map((a) => `- ${a}`).join("\n")}`, ...(development ? { departmentId: development.id } : {}) } }] : [];
+  // A project whose code lands on its Foundmill site starts with an offer page, whatever its archetype (WP-07 T9).
+  const onSite = sitesEnabled(ctx.env) && !ctx.business.isDemo && (await repos.integrations.codeRepository(ctx.db, ctx.businessId)) === null;
+  const firstBuild = onSite ? SITE_FIRST_BUILD : (seed?.firstBuild ?? null);
+  const requests = items.length ? items.map((i) => ({ title: i.title, input: { roadmapItemId: i.id } })) : firstBuild ? [{ title: firstBuild.title, input: { goal: `${firstBuild.title}: ${firstBuild.goal}\n\nAcceptance:\n${firstBuild.acceptance.map((a) => `- ${a}`).join("\n")}`, ...(development ? { departmentId: development.id } : {}) } }] : [];
   for (const r of requests) {
     try {
       const result = await planTaskGraph(ctx, r.input);
