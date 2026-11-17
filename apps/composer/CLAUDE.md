@@ -28,4 +28,4 @@ The Inbox Composer service: narrates events into Inbox notes, the Refresh buffer
 - `src/compose.ts`: the narration pipeline (model, schema, entity check, re-ask)
 - `src/persist.ts`: the one-transaction write of a note
 - `src/refresh.ts`: Refresh and the 3-item buffer
-- `src/commentary.ts`, `src/chapter.ts`, `src/founder-titles.ts`
+- `src/commentary.ts`, `src/chapter.ts`, `src/chapter-report.ts` (the Chief of Staff's page at the end of a chapter: a template over records, no model call), `src/founder-titles.ts`

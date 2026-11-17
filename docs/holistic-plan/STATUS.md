@@ -227,7 +227,7 @@ All by the coordinating session on the founder's word (reported by that session,
 | WP-14 | T5 | Show the work | not started |  |
 | WP-14 | T6 | Named agents on by default for first-time founders | not started |  |
 | WP-14 | T7 | One style for estimates, one legend | not started | amends WP-10 T9 and T12; changes docs/DESIGN.md §10; owner: the session "WP-14 estimates style and measures" (founder, Nov 17) |
-| WP-14 | T8 | The chapter report | not started |  |
+| WP-14 | T8 | The chapter report | pull request open | `claude/wp14-t8-chapter-report`; a template over records, no model call (see the log entry) |
 | WP-14 | T9 | Share a Customer Update as a card | not started | #244 |
 | WP-14 | T10 | The tour and landing copy | not started | the landing session (Desktop), told on Nov 17 |
 | WP-14 | T11 | Commit's defaults and its credits line | not started | replaces WP-04 D4 and WP-09 D7 as defaults |
