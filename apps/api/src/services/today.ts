@@ -14,6 +14,9 @@
  *   week-outcomes.ts over `realOutcomes`), each kind behind its own wall; never for a sample business, never anything
  *   simulated. A week with none has no count: it says what the team is working toward. Today carries no cost figure
  *   (the brief of Nov 17, 2026, A11): spend is on Details, Finance and Billing.
+ * - **Working now** (WP-14 T5): `workingNow`, one line for each agent with a piece of work in hand right now (the tasks
+ *   that are running, by their founder-facing titles), for a reader of Development. Empty when nobody is working, and
+ *   while the founder has stopped the agents.
  * - **Public page**: `pageReady` while a project (never a sample business) has no public page live, for a reader with
  *   Product read, and the Product lead's "Your project's page is ready" note is not open (package 1.3: the note while it
  *   is open, in Needs you with its one tap "Check it and publish"; the line otherwise). Today shows one quiet line to
@@ -76,6 +79,12 @@ export interface TodayView {
   week: WeekPlanWords | null;
   /** The headline (WP-14 T4): the week's real outcomes as a count, or what the team is working toward. Never a cost. */
   outcomes: WeekOutcomesWords;
+  /**
+   * Who is working right now and on what (WP-14 T5): one entry for each agent with a running task, oldest work first,
+   * with what the web needs to name the agent under the reader's preference. Empty when nobody is. Null without
+   * Development read.
+   */
+  workingNow: WorkingNowLine[] | null;
   /** The business's Chief of Staff by its stored name (the goal's proposer). */
   chiefOfStaff: { id: string; name: string } | null;
   /** "Your first week": null once the business is past it (packages/shared first-week.ts), so an older business reads nothing extra. */
@@ -104,6 +113,15 @@ export interface TodayView {
    */
   followersUpdate: { kind: "draft"; updateId: string } | { kind: "invite"; followers: number } | null;
 }
+
+export interface WorkingNowLine {
+  agent: { id: string; name: string; role: string | null; personaKey: string | null; layer: string | null };
+  /** What it is doing, in the founder's words: the task's founder-facing title. */
+  doing: string;
+}
+
+/** At most this many agents are listed on Today's strip. */
+export const WORKING_NOW_MAX = 6;
 
 interface DecisionOption {
   id: string;
@@ -202,6 +220,24 @@ export async function weekFactsFor(tx: DbTx, ctx: BusinessContext, options: { no
     roadmapDue: due ? { title: due.title, dueOn: due.targetEnd! } : null,
     rounds: { completed: cycle.completedCount, running: cycle.running || cycle.queued, runOpen: cycle.run !== null, autopilotNextOn: options.autopilotNextOn ?? null },
   };
+}
+
+/**
+ * Today's "Working now" strip (WP-14 T5): the running tasks that have an agent, one line an agent (its oldest running
+ * task), oldest first. Nothing while the agents are stopped: a task left "running" by a stop is not work in hand.
+ */
+export async function workingNowFor(tx: DbTx, ctx: BusinessContext): Promise<WorkingNowLine[]> {
+  if (ctx.business.agentsStoppedAt) return [];
+  const running = (await repos.tasks.list(tx, ctx.businessId, { status: "running", limit: 20 })).items.filter((t) => t.assigneeAgentId).sort((a, b) => (a.startedAt ?? a.createdAt).getTime() - (b.startedAt ?? b.createdAt).getTime());
+  const first = new Map<string, (typeof running)[number]>();
+  for (const t of running) if (!first.has(t.assigneeAgentId!)) first.set(t.assigneeAgentId!, t);
+  const agents = new Map((await repos.agents.byIds(tx, ctx.businessId, [...first.keys()])).map((a) => [a.id, a]));
+  return [...first.values()]
+    .flatMap((t) => {
+      const a = agents.get(t.assigneeAgentId!);
+      return a && !a.archivedAt ? [{ agent: { id: a.id, name: a.name, role: a.role || null, personaKey: a.personaKey ?? null, layer: a.layer ?? null }, doing: titleOf(t) }] : [];
+    })
+    .slice(0, WORKING_NOW_MAX);
 }
 
 /**
@@ -323,9 +359,10 @@ export async function todayView(ctx: BusinessContext, now: Date = new Date()): P
   const week = hasSectionAccess(m, "development", "read");
   const autopilotNextOn = week ? await autopilotNextDay(ctx) : null;
   return ctx.rls(async (tx) => {
-    const [needsYou, facts, real, goals, chief, firstWeek, page, postsReady, founderTask, followersUpdate] = await Promise.all([
+    const [needsYou, facts, workingNow, real, goals, chief, firstWeek, page, postsReady, founderTask, followersUpdate] = await Promise.all([
       hasSectionAccess(m, "inbox", "read") ? needsYouFor(tx, ctx) : Promise.resolve(null),
       week ? weekFactsFor(tx, ctx, { now, autopilotNextOn }) : Promise.resolve(null),
+      week ? workingNowFor(tx, ctx) : Promise.resolve(null),
       weekOutcomesFor(tx, ctx, now),
       repos.goals.current(tx, ctx.businessId),
       repos.agents.chiefOfStaff(tx, ctx.businessId),
@@ -346,7 +383,7 @@ export async function todayView(ctx: BusinessContext, now: Date = new Date()): P
     const projectDay = daysBetweenDays(dayKeyIn(ctx.business.createdAt, ctx.business.timeZone), today) + 1;
     const firstDay = projectDay <= 1 && !ctx.business.isDemo && !ctx.business.distributionStartedAt;
     const outcomes = weekOutcomesWords(real, (section) => hasSectionAccess(m, section, "read"), { goal: goalAsSeenBy(goals.active, ctx)?.sentence ?? null, pageNotLive: page.unpublished, work: facts?.running?.title ?? facts?.next?.title ?? null });
-    return { today, projectDay, firstDay, needsYou, week: facts ? weekPlanWords(facts) : null, outcomes, chiefOfStaff: chief ? { id: chief.id, name: chief.name } : null, firstWeek, pageReady: page.ready, postsReady, founderTask, followersUpdate };
+    return { today, projectDay, firstDay, needsYou, week: facts ? weekPlanWords(facts) : null, workingNow, outcomes, chiefOfStaff: chief ? { id: chief.id, name: chief.name } : null, firstWeek, pageReady: page.ready, postsReady, founderTask, followersUpdate };
   });
 }
 

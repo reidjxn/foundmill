@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, dismissCoachmarks, ensureDeck, inboxRow, settled, signIn, takeChargeToToday } from "./helpers";
+import { LEDGERLY_BUSINESS_ID, LONG, NORTHWIND_BUSINESS_ID, dismissCoachmarks, ensureDeck, inboxRow, settled, signIn, takeChargeToToday } from "./helpers";
 
 /**
  * Today, the business's front door (founder, 2026-11-07; DESIGN §9 "Today"): `/b/<id>` lands here; the goal with its
@@ -135,6 +135,31 @@ test.describe("today", () => {
     await expect(screen).toBeVisible({ timeout: LONG });
   });
 
+  test("WP-14 T5: while agents have work in hand, Today shows a quiet Working now strip with one line for each of them", async ({ page }) => {
+    await signIn(page);
+    await page.goto(`/b/${LEDGERLY_BUSINESS_ID}/today`);
+    await expect(page.getByTestId("today-screen")).toBeVisible({ timeout: LONG });
+    // The sample business's seed has agents part-way through their work.
+    const strip = page.getByTestId("working-now");
+    await expect(strip).toBeVisible({ timeout: LONG });
+    await expect(strip.getByRole("heading", { name: "Working now" })).toBeVisible();
+    const lines = strip.locator("[data-working-now-line]");
+    expect(await lines.count()).toBeGreaterThanOrEqual(1);
+    // Each line is "<agent>: <what it is doing>", with no cost and no progress figure.
+    for (const text of await lines.allInnerTexts()) expect(text).toMatch(/^[^:]+: \S.+$/);
+    await expect(strip).not.toContainText(/\$|%|Estimate/);
+    // At 390 px it is still there, with no sideways scroll.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(strip).toBeVisible({ timeout: LONG });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await expect(page.locator("nav[aria-label=Primary]")).toBeVisible({ timeout: LONG });
+    // The link opens the Working now tab.
+    await dismissCoachmarks(page);
+    await strip.getByRole("link", { name: "See the work" }).click();
+    await expect(page).toHaveURL(/\/training-ground/, { timeout: LONG });
+  });
+
   test("a fresh business: the goal waits, one tap approves both sign-offs, the Chief of Staff proposes, Change it rewrites it, one tap approves it", async ({ page }) => {
     test.setTimeout(420_000);
     await signIn(page);
@@ -152,6 +177,8 @@ test.describe("today", () => {
     await expect(page.getByTestId("week-plan")).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("streak-strip")).toHaveCount(0);
     await expect(page.getByTestId("today-health")).toHaveCount(0);
+    // Nobody is working yet (WP-14 T5): the Working now strip is absent, not empty.
+    await expect(page.getByTestId("working-now")).toHaveCount(0);
     // The headline (WP-14 T4): nothing real has happened outside the project yet, so no count line and no zero, only
     // what the team is working toward.
     const outcomes = page.getByTestId("week-outcomes");

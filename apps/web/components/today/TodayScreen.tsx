@@ -6,6 +6,10 @@
  * The headline (`today.get` › `outcomes`, WP-14 T4): the week's real outcomes as one count with what they were, above
  * every section in both orders. A week with none shows no count and no zero, only what the team is working toward.
  * Today carries no cost figure: spend is on Details, Finance and Billing.
+ *
+ * Working now (`today.get` › `workingNow`, WP-14 T5): right under the headline while the team is working, one quiet
+ * line for each agent with what it is doing, named as the reader names agents, with a link to the Working now tab.
+ * Absent when nobody is working.
  * 0. Your first week (`today.get` › `firstWeek`): Day 1, Days 2–3 and Week 1, only in a business's first days.
  * 1. Your goal (`goal.current`): the active goal with its progress bar and pace sentence, the Chief of Staff's proposal
  *    with Approve this goal (one tap, `goal.approve`) and Change it (`goal.requestChange`), or the waiting line.
@@ -39,7 +43,7 @@ import { PROJECT_UPDATE_WORDS } from "@foundmill/shared/project-updates";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { Fragment, useCallback, useMemo, useState, type ReactNode } from "react";
-import { Explainer, FirstWeekTimeline, FounderTaskPanel, GoalPanel, NeedsYouList, PageGrid, Panel, PostReadyNote, PublicPageNote, SinceLastVisit, StatusStrip, StreakStrip, Term, WeekOutcomes, WeekPlan, formatDateTime, isViewportTooSmall, useAgentPersona, useDateFormat, useToast, useViewportWidth, type MetricTileProps, type NeedsYouRow } from "@foundmill/dugout";
+import { Explainer, FirstWeekTimeline, FounderTaskPanel, GoalPanel, NeedsYouList, PageGrid, Panel, PostReadyNote, PublicPageNote, SinceLastVisit, StatusStrip, StreakStrip, Term, WeekOutcomes, WeekPlan, WorkingNowStrip, formatDateTime, isViewportTooSmall, useAgentPersona, useDateFormat, useToast, useViewportWidth, type MetricTileProps, type NeedsYouRow } from "@foundmill/dugout";
 // Deep imports, not the barrel: the barrel registers every widget, which Today does not draw (WP-10 T13).
 import { routes } from "@foundmill/widgets/shared/routes";
 import { moduleHref, moduleTabHref } from "@foundmill/widgets/shared/departments";
@@ -208,6 +212,8 @@ export function TodayScreen() {
     [router, businessId, departments, needsYou, rows, shareOpened, toast],
   );
   const founderTask = todayQ.data?.founderTask ?? null;
+  // Working now (WP-14 T5): each working agent under the reader's naming preference, as Needs you names its senders.
+  const workingNow = useMemo(() => (todayQ.data?.workingNow ?? []).map((w) => ({ id: w.agent.id, agent: persona.labelFor(w.agent), doing: w.doing })), [todayQ.data?.workingNow, persona]);
 
   // --- health -----------------------------------------------------------------------------------------------------------
   const currency = business.business.currency;
@@ -346,6 +352,7 @@ export function TodayScreen() {
       <HomeFoundations />
       <PageGrid flush stack data-order={order.join(" ")}>
         {todayQ.data ? <WeekOutcomes span={12} headline={todayQ.data.outcomes.headline} detail={todayQ.data.outcomes.detail} toward={todayQ.data.outcomes.toward} /> : null}
+        <WorkingNowStrip span={12} lines={workingNow} href={moduleTabHref(businessId, departments, "development", "training-ground")} />
         {order.map((id) => (
           <Fragment key={id}>{sections[id]}</Fragment>
         ))}
