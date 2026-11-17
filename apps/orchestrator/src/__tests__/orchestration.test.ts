@@ -24,7 +24,7 @@ const uuidOf = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, 
 
 const plan = () => ({ summary: "s", timeBoxHours: 4, starts: [], deferred: [], approvalsNeeded: [], modelKey: "opus" as const, warning: null, costMinor: 0 });
 
-describe("cycle events are written once per cycle id", () => {
+describe("round of work events are written once per round of work id", () => {
   it("startCycle and completeCycle find the event a retried attempt already wrote", async () => {
     const acts = createCycleActivities(t.deps);
     const brief = await createBriefActivities(t.deps).loadBrief({ businessId: t.businessId });
@@ -45,7 +45,7 @@ describe("cycle events are written once per cycle id", () => {
   });
 });
 
-describe("a failed cycle is closed and announced once (audit O-07)", () => {
+describe("a failed round of work is closed and announced once (audit O-07)", () => {
   it("failCycle writes one cycle.completed(failed) and one Inbox note however often it is retried, and a late completeCycle is a no-op", async () => {
     const acts = createCycleActivities(t.deps);
     const cycleId = uuidOf(9002);
@@ -67,7 +67,7 @@ describe("a failed cycle is closed and announced once (audit O-07)", () => {
   });
 });
 
-describe("a cycle with nothing to start (audit OL-10, SOAK-04)", () => {
+describe("a round of work with nothing to start (audit OL-10, SOAK-04)", () => {
   it("plans without calling a model, names what is in the way, and leaves one note that is not repeated", async () => {
     const acts = createCycleActivities(t.deps);
     const brief = await createBriefActivities(t.deps).loadBrief({ businessId: t.businessId });
@@ -186,7 +186,7 @@ describe("the planner sees every kind of work once (audit SOAK-04, #84)", () => 
   });
 });
 
-describe("the planner is told only about blockers that are still open (Foundmill cycle 12)", () => {
+describe("the planner is told only about blockers that are still open (Foundmill round of work 12)", () => {
   it("drops a finished or archived blocker from blocked_by, so an unblocked task never looks blocked", async () => {
     const acts = createCycleActivities(t.deps);
     const brief = await createBriefActivities(t.deps).loadBrief({ businessId: t.businessId });
@@ -215,7 +215,7 @@ describe("the planner is told only about blockers that are still open (Foundmill
   });
 });
 
-describe("the cycle summary leads with what really starts (Foundmill cycle 12)", () => {
+describe("the round of work summary leads with what really starts (Foundmill round of work 12)", () => {
   const brief = {
     businessName: "Foundmill",
     productStage: "building",

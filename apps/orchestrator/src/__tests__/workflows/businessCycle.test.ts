@@ -245,7 +245,7 @@ describe("businessCycle workflow", () => {
     expect(m.calls.narrateInputs[0]!.summary).not.toContain("Import agent skills");
   });
 
-  it("starts the merge review of each code task that waits in review with nothing moving it, once per task, outliving the cycle", async () => {
+  it("starts the merge review of each code task that waits in review with nothing moving it, once per task, outliving the round of work", async () => {
     const waiting: MergeInput = { businessId: B, taskId: id(901), agentId: id(902), sessionId: id(903), branch: `agent/${id(901)}`, acceptance: { passing: 145, total: 145 }, summary: "Hydration fix" };
     const m = mockActivities({ merges: [waiting] });
     const result = await rig.run(m.acts, async (client, taskQueue) => {
@@ -259,7 +259,7 @@ describe("businessCycle workflow", () => {
     expect(result.cycle.tasksDispatched).toBe(4);
   });
 
-  it("stop ends the cycle early and fans the stop out to the running sessions", async () => {
+  it("stop ends the round of work early and fans the stop out to the running sessions", async () => {
     const m = mockActivities({ holdSessions: true });
     const result = await rig.run(m.acts, async (client, taskQueue) => {
       const handle = await client.workflow.start(businessCycle, { workflowId: `cycle:${B}:2`, taskQueue, args: [{ businessId: B, cycleNumber: 2, trigger: "continue" }] });
@@ -308,7 +308,7 @@ describe("businessCycle workflow", () => {
     expect(m.calls.openInputs[0]!.sessionId).toMatch(/^[0-9a-f-]{36}$/);
   });
 
-  it("a retried openSession and a retried startCycle carry the same ids (no second session, no second cycle)", async () => {
+  it("a retried openSession and a retried startCycle carry the same ids (no second session, no second round of work)", async () => {
     const m = mockActivities({ planned: 1, openFailsOnce: true, startFailsOnce: true });
     const result = await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(businessCycle, { workflowId: `cycle:${B}:6`, taskQueue, args: [{ businessId: B, cycleNumber: 6, trigger: "continue" }] }));
     expect(result.outcome).toBe("completed");
@@ -319,7 +319,7 @@ describe("businessCycle workflow", () => {
     expect(m.calls.opened).toHaveLength(1);
   });
 
-  it("a planner that throws ends the cycle failed with a plain reason in the Inbox, recorded under the id the workflow chose (audit O-07, BILL-06)", async () => {
+  it("a planner that throws ends the round of work failed with a plain reason in the Inbox, recorded under the id the workflow chose (audit O-07, BILL-06)", async () => {
     const m = mockActivities({ planFails: true });
     const result = await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(businessCycle, { workflowId: `cycle:${B}:7`, taskQueue, args: [{ businessId: B, cycleNumber: 7, trigger: "continue" }] }));
     expect(result.outcome).toBe("failed");
@@ -329,7 +329,7 @@ describe("businessCycle workflow", () => {
     expect(m.calls.failed).toHaveLength(0);
   });
 
-  it("any other failure (the brief cannot load) closes the cycle as failed and tells the founder, instead of leaving it running (audit O-07)", async () => {
+  it("any other failure (the brief cannot load) closes the round of work as failed and tells the founder, instead of leaving it running (audit O-07)", async () => {
     const m = mockActivities({});
     m.acts.loadBrief = async () => {
       throw new Error("The planner is unavailable");
@@ -342,7 +342,7 @@ describe("businessCycle workflow", () => {
     expect(String(m.calls.failed[0]!.reason)).toContain("The planner is unavailable");
   });
 
-  it("a cycle with nothing to start leaves one plain note and calls no narrator (audit O-02, SOAK-04)", async () => {
+  it("a round of work with nothing to start leaves one plain note and calls no narrator (audit O-02, SOAK-04)", async () => {
     const m = mockActivities({ idle: true });
     const result = await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(businessCycle, { workflowId: `cycle:${B}:8`, taskQueue, args: [{ businessId: B, cycleNumber: 8, trigger: "continue" }] }));
     expect(result).toMatchObject({ outcome: "waiting", tasksDispatched: 0, inboxItemIds: [id(557)] });
@@ -351,7 +351,7 @@ describe("businessCycle workflow", () => {
     expect(m.calls.completed[0]).toMatchObject({ outcome: "waiting" });
   });
 
-  it("a paused cycle opens nothing new until it is resumed", async () => {
+  it("a paused round of work opens nothing new until it is resumed", async () => {
     const m = mockActivities({ planned: 1 });
     const result = await rig.run(m.acts, async (client, taskQueue) => {
       const handle = await client.workflow.start(businessCycle, { workflowId: `cycle:${B}:9`, taskQueue, args: [{ businessId: B, cycleNumber: 9, trigger: "continue" }] });
@@ -377,7 +377,7 @@ describe("businessCycle workflow", () => {
     expect(m.calls.completed[0]).toMatchObject({ outcome: "stopped", tasksDispatched: 1 });
   });
 
-  it("a finished session gives its reserve back and takes what it really cost, so the cycle's credits last for the whole plan (audit O-29)", async () => {
+  it("a finished session gives its reserve back and takes what it really cost, so the round of work's credits last for the whole plan (audit O-29)", async () => {
     // 1,500 US cents of credits: the first sessions reserve it all, and the task whose scope waits for the first can only
     // start once that session returned its reserve (it cost 5).
     const m = mockActivities({ budgetMinor: 1_500 });
@@ -386,7 +386,7 @@ describe("businessCycle workflow", () => {
     expect(m.calls.opened.map((o) => o.taskId).sort()).toEqual(tasks.map((t) => t.id).sort());
   });
 
-  it("a session that cost more than its reserve ends the dispatching: later tasks wait for the next cycle", async () => {
+  it("a session that cost more than its reserve ends the dispatching: later tasks wait for the next round of work", async () => {
     const expensive = mockActivities({ budgetMinor: 1_500 });
     expensive.acts.runAgentSession = async (input) => {
       await new Promise((r) => setTimeout(r, 100));
@@ -398,7 +398,7 @@ describe("businessCycle workflow", () => {
     expect(result.tasksDispatched).toBe(3);
   });
 
-  it("a capped cycle (Autopilot's own spend, 0077) starts work only within its cap, and hands each session its share", async () => {
+  it("a capped round of work (Autopilot's own spend, 0077) starts work only within its cap, and hands each session its share", async () => {
     // Plenty of credits, but a cap of 10 cents: the reserves stop new starts at the cap.
     const m = mockActivities({ budgetMinor: 100_000 });
     const caps: (number | null | undefined)[] = [];
@@ -415,7 +415,7 @@ describe("businessCycle workflow", () => {
     expect(result.tasksDispatched).toBeLessThan(tasks.length + 1);
   });
 
-  it("a capped cycle under the floor runs one session with the whole cap (WP-05 T15)", async () => {
+  it("a capped round of work under the floor runs one session with the whole cap (WP-05 T15)", async () => {
     // The overnight round: 15 cents and three free slots. Split three ways each session would get 5, too little to
     // finish anything; at the floor (10 cents a session) the cap pays for one, so one runs, with all 15.
     const m = mockActivities({ budgetMinor: 100_000 });
@@ -438,7 +438,7 @@ describe("businessCycle workflow", () => {
     await expect(Worker.runReplayHistory({ workflowsPath: WORKFLOWS_PATH, replayName: "cycle-cap-floor" }, history)).resolves.toBeUndefined();
   });
 
-  it("a capped cycle runs as many sessions at a time as its cap pays for at the floor, never more than its slots", async () => {
+  it("a capped round of work runs as many sessions at a time as its cap pays for at the floor, never more than its slots", async () => {
     const m = mockActivities({ budgetMinor: 100_000 });
     const caps: number[] = [];
     // Sessions are held until two have started, and a while after, so a third would have had the time to start too.
@@ -459,7 +459,7 @@ describe("businessCycle workflow", () => {
     expect(caps.slice(0, 2).sort((a, b) => a - b)).toEqual([12, 13]);
   });
 
-  it("an uncapped cycle hands sessions no cap of its own", async () => {
+  it("an uncapped round of work hands sessions no cap of its own", async () => {
     const m = mockActivities({ budgetMinor: 100_000 });
     const caps: (number | null | undefined)[] = [];
     m.acts.runAgentSession = async (input) => {
@@ -471,7 +471,7 @@ describe("businessCycle workflow", () => {
     expect(caps.every((c) => c === undefined)).toBe(true);
   });
 
-  it("a plan the model account cannot pay for ends the cycle failed at once, with the reason in the Inbox (audit BILL-06)", async () => {
+  it("a plan the model account cannot pay for ends the round of work failed at once, with the reason in the Inbox (audit BILL-06)", async () => {
     const billing = "This round's plan could not run: the model account that runs Foundmill is out of credit. Our team has been alerted, and nothing was charged to your credits. Try again later.";
     const m = mockActivities({ planError: () => ApplicationFailure.create({ type: CYCLE_PLAN_FAILURE, message: billing, nonRetryable: true, details: [{ kind: "billing", billedTo: "credits", reason: "credit_balance" }] }) });
     const result = await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(businessCycle, { workflowId: `cycle:${B}:6`, taskQueue, args: [{ businessId: B, cycleNumber: 6, trigger: "continue" }] }));
@@ -485,7 +485,7 @@ describe("businessCycle workflow", () => {
     expect(m.calls.completed[0]).toMatchObject({ outcome: "failed", tasksDispatched: 0, inboxItemIds: [id(556)] });
   });
 
-  it("a plan that fails every retry ends the cycle failed with a plain reason instead of failing the workflow", async () => {
+  it("a plan that fails every retry ends the round of work failed with a plain reason instead of failing the workflow", async () => {
     const m = mockActivities({ planError: () => new Error("Anthropic unavailable after 4 attempts for route \"chiefOfStaff\": overloaded") });
     const result = await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(businessCycle, { workflowId: `cycle:${B}:7`, taskQueue, args: [{ businessId: B, cycleNumber: 7, trigger: "continue" }] }));
     expect(result.outcome).toBe("failed");
@@ -525,8 +525,8 @@ describe("businessCycle workflow", () => {
     expect(stoppedTeam.calls.roadmapPlans).toBe(0);
   });
 
-  it("a cycle whose first task finishes gets the task it unblocked dispatched in the same cycle (decision 8)", async () => {
-    const followUp: CycleStart = { taskId: id(5), agentId: agents[1]!, departmentId: id(50), priority: 6, reason: "its earlier work finished during this cycle", kind: "code", fileScope: [], budgetMinor: null };
+  it("a round of work whose first task finishes gets the task it unblocked dispatched in the same round of work (decision 8)", async () => {
+    const followUp: CycleStart = { taskId: id(5), agentId: agents[1]!, departmentId: id(50), priority: 6, reason: "its earlier work finished during this round of work", kind: "code", fileScope: [], budgetMinor: null };
     const m = mockActivities({ planned: 1, followUp });
     const result = await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(businessCycle, { workflowId: `cycle:${B}:84`, taskQueue, args: [{ businessId: B, cycleNumber: 84, trigger: "continue" }] }));
     expect(result.outcome).toBe("completed");
@@ -540,7 +540,7 @@ describe("businessCycle workflow", () => {
     expect(m.calls.completed[0]).toMatchObject({ tasksDispatched: 2, tasksCompleted: 2 });
   });
 
-  it("a brief that says the team is stopped dispatches nothing and records the cycle as stopped", async () => {
+  it("a brief that says the team is stopped dispatches nothing and records the round of work as stopped", async () => {
     const m = mockActivities({ stoppedBrief: true });
     const result = await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(businessCycle, { workflowId: `cycle:${B}:5`, taskQueue, args: [{ businessId: B, cycleNumber: 5, trigger: "continue" }] }));
     expect(result).toMatchObject({ outcome: "stopped", tasksDispatched: 0, costMinor: 0 });

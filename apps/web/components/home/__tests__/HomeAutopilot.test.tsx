@@ -50,7 +50,7 @@ afterEach(() => {
 });
 
 describe("Home Autopilot chip", () => {
-  it("shows On with the next cycle labeled Estimate, and makes sure the workflow runs", async () => {
+  it("shows On with the next round of work labeled Estimate, and makes sure the workflow runs", async () => {
     status = { enabled: true, state: "on", label: "On", detail: "Autopilot is running the business.", pausedReason: null, nextAt: "2026-10-14T15:45:00.000Z" };
     renderChip();
     const chip = await screen.findByTestId("autopilot-chip");
@@ -85,14 +85,14 @@ describe("Home Autopilot chip", () => {
   });
 
   it("shows Off and never nudges", async () => {
-    status = { enabled: false, state: "off", label: "Off", detail: "Cycles start when you press Continue.", pausedReason: null, nextAt: null };
+    status = { enabled: false, state: "off", label: "Off", detail: "Rounds of work start when you press Continue.", pausedReason: null, nextAt: null };
     renderChip();
     expect((await screen.findByTestId("autopilot-chip")).textContent).toContain("Off");
     expect(ensure).not.toHaveBeenCalled();
   });
 
   it("says beside the chip what Autopilot does and never does, in guided mode only (UX plan B16)", async () => {
-    status = { enabled: false, state: "off", label: "Off", detail: "Cycles start when you press Continue.", pausedReason: null, nextAt: null };
+    status = { enabled: false, state: "off", label: "Off", detail: "Rounds of work start when you press Continue.", pausedReason: null, nextAt: null };
     const { unmount } = renderChip("on");
     await screen.findByTestId("autopilot-chip");
     const guide = screen.getByTestId("home-autopilot").querySelector("[data-autopilot-guide]");

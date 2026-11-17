@@ -18,7 +18,7 @@ describe("fitColumns", () => {
 
 describe("humanise and plural", () => {
   it("turns keys into sentence-case words with initialisms in capitals", () => {
-    expect(humanise("cycle_planning")).toBe("Cycle planning");
+    expect(humanise("cycle_planning")).toBe("Round of work planning");
     expect(humanise("api_design")).toBe("API design");
     expect(humanise("ci_cd")).toBe("CI/CD");
     expect(humanise("dtc-physical")).toBe("DTC physical");

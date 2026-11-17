@@ -31,7 +31,7 @@ describe("empty patches (BILL-23)", () => {
     await expect(repos.departments.update(r.db, businessId, departmentId, {})).rejects.toThrow(/Nothing to update on the department/);
     await expect(repos.tasks.update(r.db, businessId, taskId, {})).rejects.toThrow(/Nothing to update/);
     // A real change still goes through.
-    expect((await repos.agents.update(r.db, businessId, agentId, { role: "Runs the cycle" })).role).toBe("Runs the cycle");
+    expect((await repos.agents.update(r.db, businessId, agentId, { role: "Runs the round of work" })).role).toBe("Runs the round of work");
   });
 });
 

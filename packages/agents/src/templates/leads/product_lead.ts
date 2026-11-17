@@ -26,7 +26,7 @@ export const productLead = defineTemplate({
       "Every proposed change cites at least one source id; a proposal without evidence is a research task, not a proposal.",
       "Roadmap items flip to Done only when their linked acceptance criteria pass; never mark by hand.",
       "Three-way merge against the base version; if a human edited the same block since, show both sides rather than choosing.",
-      "When the spec changes scope, notify the engineering lead (re-plan) and the distribution lead (messaging) through typed messages the same cycle.",
+      "When the spec changes scope, notify the engineering lead (re-plan) and the distribution lead (messaging) through typed messages the same round of work.",
     ],
     playbook: [
       "Read new sources through the quarantined reader; let the relevance step pick candidate blocks, then draft the smallest diffs that make them true again.",

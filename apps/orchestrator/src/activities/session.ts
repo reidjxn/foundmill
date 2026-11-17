@@ -1577,7 +1577,7 @@ export function classifyTurnEnd(result: SdkTurnResult, apiError: { kind: string 
     };
   }
   if (kind === "rate_limit" || kind === "overloaded" || status === 429 || status === 529) {
-    return { outcome: "blocked", blockedReason: "rate_limit", reason: `rate limited by the model provider (${text})`.slice(0, 500), summary: "Blocked: the model provider is rate limiting or overloaded; the task runs again on a later cycle." };
+    return { outcome: "blocked", blockedReason: "rate_limit", reason: `rate limited by the model provider (${text})`.slice(0, 500), summary: "Blocked: the model provider is rate limiting or overloaded; the task runs again on a later round of work." };
   }
   return { outcome: "failed", blockedReason: "error", reason: `the model call failed${status ? ` (${status})` : ""}: ${text}`.slice(0, 500), summary: "The agent run ended with an error from the model provider." };
 }

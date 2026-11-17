@@ -74,7 +74,7 @@ export function createAutopilotActivities(deps: OrchestratorDeps) {
             type: "warning",
             from_agent_id: chief.id,
             subject: "Autopilot paused: nothing got done",
-            body_md: `${note}\n\nAutopilot starts no more cycles until you turn it back on in Settings › What the team can do. Look at the last cycle's tasks for what is stuck; a blocked task, a missing connection or an empty plan are the usual causes.`,
+            body_md: `${note}\n\nAutopilot starts no more rounds of work until you turn it back on in Settings › What the team can do. Look at the last round of work's tasks for what is stuck; a blocked task, a missing connection or an empty plan are the usual causes.`,
             status_strip: [],
             exhibit: { kind: "none", spec_ref: null },
             decision: null,
@@ -121,12 +121,12 @@ export function createAutopilotActivities(deps: OrchestratorDeps) {
       if (daily && max !== null) {
         const chief = await repos.agents.chiefOfStaff(db, input.businessId);
         if (chief) {
-          const what = input.reason === "daily_cycles" ? `today's limit of ${max} cycle${max === 1 ? "" : "s"}` : "today's spend ceiling (Estimate)";
+          const what = input.reason === "daily_cycles" ? `today's limit of ${max} ${max === 1 ? "round" : "rounds"} of work` : "today's spend ceiling (Estimate)";
           const item = await repos.inbox.createItem(db, input.businessId, {
             type: "update",
             from_agent_id: chief.id,
-            subject: input.reason === "daily_cycles" ? "Today's cycle limit is reached" : "Today's spend ceiling is reached (Estimate)",
-            body_md: `The team worked through ${rounds.rounds} cycle${rounds.rounds === 1 ? "" : "s"} after you pressed Continue and stopped at ${what}. No more cycles start on their own today. Press Continue for one more, or raise the limit in Settings › What the team can do.`,
+            subject: input.reason === "daily_cycles" ? "Today's round of work limit is reached" : "Today's spend ceiling is reached (Estimate)",
+            body_md: `The team worked through ${rounds.rounds} ${rounds.rounds === 1 ? "round" : "rounds"} of work after you pressed Continue and stopped at ${what}. No more rounds of work start on their own today. Press Continue for one more, or raise the limit in Settings › What the team can do.`,
             status_strip: [],
             exhibit: { kind: "none", spec_ref: null },
             decision: null,

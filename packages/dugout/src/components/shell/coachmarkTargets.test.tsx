@@ -53,7 +53,7 @@ describe("shell coach-mark anchors", () => {
     }
   });
 
-  it("the processing strip is data-coachmark=processing-strip, at rest and while a cycle runs", () => {
+  it("the processing strip is data-coachmark=processing-strip, at rest and while a round of work runs", () => {
     const { rerender } = render(
       <TooltipProvider>
         <ProcessingStrip segments={NORTHWIND_SEGMENTS} active={false} />

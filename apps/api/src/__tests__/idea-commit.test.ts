@@ -15,7 +15,7 @@ beforeAll(async () => {
 afterAll(() => hz.close());
 
 describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
-  it("creates the full structure with default mode assisted and, for a founder with a budget, starts the first cycle", async () => {
+  it("creates the full structure with default mode assisted and, for a founder with a budget, starts the first round of work", async () => {
     const userId = await hz.h.createUser("founder@test.local");
     const caller = hz.caller({ userId, email: "founder@test.local" });
     // A founder with a budget: the first cycle starts at commit, as before WP-04 T3.
@@ -171,7 +171,7 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     await expect(other.idea.commit(input)).rejects.toThrow(/not found/);
   });
 
-  it("a founder with no budget (WP-04 T3, D1): one ready task, no finance or legal task, and no cycle at commit; the page and the plan still draft on the first open", async () => {
+  it("a founder with no budget (WP-04 T3, D1): one ready task, no finance or legal task, and no round of work at commit; the page and the plan still draft on the first open", async () => {
     const userId = await hz.h.createUser("nobudget@test.local");
     const caller = hz.caller({ userId, email: "nobudget@test.local" });
     await caller.founder.profile.update({ confirmAdult: true, displayName: "Noa", experience: "first-time", skills: { engineering: 10 }, targetMarkets: ["US"], riskAppetite: "low", budgetMinor: null });
@@ -382,7 +382,7 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     expect(survey.relevance).toMatchObject({ summary: "Two in three clinics still book by phone.", provenance: "Estimate", origin: { kind: "concept_card", ideaId: idea.id } });
   });
 
-  it("the Board's item never promises that nothing is spent before the decision: the first cycle starts at commit (audit api-services-13)", async () => {
+  it("the Board's item never promises that nothing is spent before the decision: the first round of work starts at commit (audit api-services-13)", async () => {
     expect(BOARD_FIRST_DECISION_LINE).toMatch(/started on the basics/);
     expect(BOARD_FIRST_DECISION_LINE).not.toMatch(/spends anything/);
     const archetypeCopy = JSON.stringify(getArchetypeSeed("b2b_saas"));

@@ -176,7 +176,7 @@ describe("What the team can do", () => {
     view.unmount();
     autopilot = { enabled: true, settings: { maxIdleCycles: 3 } };
     renderTab();
-    expect((await screen.findByTestId("stop-autopilot_idle")).textContent).toContain("3 cycles in a row fail or get nothing done");
+    expect((await screen.findByTestId("stop-autopilot_idle")).textContent).toContain("3 rounds of work in a row fail or get nothing done");
   });
 
   it("offers the Chief of Staff only once there is one", async () => {

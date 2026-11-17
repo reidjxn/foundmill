@@ -318,7 +318,7 @@ function LiveColumn({ business, feed, state, progress, paused, onTogglePaused, c
       </ul>
       <div className="flex shrink-0 flex-col gap-1.5 border-t border-subtle px-3 py-3">
         <span className="t-label">
-          This <Term id="cycle">cycle</Term>
+          This <Term id="cycle">round of work</Term>
         </span>
         <dl className="flex flex-col gap-1.5">
           <DeckStat label="Tasks done" value={`${done} of ${t.tasks}`} />

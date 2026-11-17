@@ -98,5 +98,5 @@ export function draftChanged(d: AutopilotDraft, saved: AutopilotSettingsLike): b
 /** "2 of 6 cycles today" */
 export function cyclesTodayLine(done: number, max: number): string {
   // plain-allow: shown only in Settings › What the team can do › Autopilot, whose help line defines "cycle" with a Term.
-  return `${done} of ${max} cycle${max === 1 ? "" : "s"} today`;
+  return `${done} of ${max} ${max === 1 ? "round" : "rounds"} of work today`;
 }

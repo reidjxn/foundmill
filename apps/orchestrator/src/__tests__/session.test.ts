@@ -430,7 +430,7 @@ describe("a Redis outage never takes a session or the worker down (O-10)", () =>
 const resultOf = (outcome: SessionResult["outcome"], blockedReason: SessionResult["blockedReason"], reason: string = outcome): SessionResult => ({ outcome, reason, blockedReason, approvalId: null, progress: { planStepsDone: 0, planSteps: 0, acceptanceTestsPassing: 0, acceptanceTests: 0, reviewPassed: false, merged: false, phase: null, progress: 0.5, etaAt: null, at: null }, eventsEmitted: 3, toolCalls: 1, toolFailures: 0, tokensIn: 0, tokensOut: 0, costMinor: 0, durationMs: 60_000, prNumber: null, summary: outcome, providerSessionId: null });
 
 describe("a session the platform cancelled is not a Stop", () => {
-  it("returns its task to ready for a later cycle (or keeps the founder's pause), where a Stop leaves it stopped", async () => {
+  it("returns its task to ready for a later round of work (or keeps the founder's pause), where a Stop leaves it stopped", async () => {
     for (const [before, reason, expected] of [["running", "cancelled", "ready"], ["paused", "cancelled", "paused"], ["running", "founder_stop", "stopped"]] as const) {
       const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
       const input = { businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId };
@@ -474,7 +474,7 @@ describe("a paused agent stays paused (O-06)", () => {
     }
   });
 
-  it("a session ending done, blocked, failed or stopped never un-pauses its agent, and a stopped one leaves the task paused for the next cycle", async () => {
+  it("a session ending done, blocked, failed or stopped never un-pauses its agent, and a stopped one leaves the task paused for the next round of work", async () => {
     for (const [outcome, blockedReason] of [["done", null], ["blocked", "dependency"], ["failed", "error"], ["failed", "loop_detected"], ["stopped", "stopped"]] as const) {
       const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
       const input = { businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId };

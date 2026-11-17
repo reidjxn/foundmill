@@ -140,7 +140,7 @@ describe("TourPage (signed-out /)", () => {
     expect(screen.getAllByRole("img", { name: /Your team: you at the center/ })).toHaveLength(1);
   });
 
-  it("runs a cycle in the hero deck: a decision comes back, then a customer", async () => {
+  it("runs a round of work in the hero deck: a decision comes back, then a customer", async () => {
     vi.useFakeTimers();
     renderPage();
     const deck = screen.getByTestId("cycle-deck");
@@ -283,7 +283,7 @@ describe("TourPage (signed-out /)", () => {
     const note = screen.getByRole("article", { name: "Example Inbox note" });
     expect(note.querySelector('[data-value="$480.00"]')).toBeTruthy();
     expect(within(note).getByText(/^It costs \$480, above the \$250 cap/)).toBeTruthy();
-    expect(within(note).getByText(/^Mon, Oct 12 · /).textContent).toBe("Mon, Oct 12 · cycle 215");
+    expect(within(note).getByText(/^Mon, Oct 12 · /).textContent).toBe("Mon, Oct 12 · round of work 215");
     expect(screen.getByText("$10K MRR")).toBeTruthy();
     // Nothing of the earlier sterling, UK-schooled example is left.
     const text = container.textContent ?? "";
@@ -371,7 +371,7 @@ describe("TourPage (signed-out /)", () => {
     vi.setSystemTime(new Date("2026-10-15T12:00:00Z"));
     renderPage();
     expect(within(screen.getByTestId("cycle-deck")).getByTestId("kitbar-date").textContent).toBe("Oct 15, 2026");
-    expect(within(screen.getByRole("article", { name: "Example Inbox note" })).getByText(/^Thu, Oct 15 · /).textContent).toBe("Thu, Oct 15 · cycle 215");
+    expect(within(screen.getByRole("article", { name: "Example Inbox note" })).getByText(/^Thu, Oct 15 · /).textContent).toBe("Thu, Oct 15 · round of work 215");
     // The Customer Update moves with the story: first seen on Sunday, Sep 20 on its calendar, eight days later today.
     expect(within(screen.getByRole("region", { name: "Customer Update" })).getByText(/to the site on a Monday evening\.$/)).toBeTruthy();
   });

@@ -96,7 +96,7 @@ describe("openSession", () => {
     expect((await cycle.openSession({ businessId: B(), agentId: t.workerId, taskId: task.id })).sessionId).toBeTruthy();
   });
 
-  it("refuses once every concurrent agent the plan holds is working, for a cycle's start and a plan's task alike (SEC2 S2)", async () => {
+  it("refuses once every concurrent agent the plan holds is working, for a round of work's start and a plan's task alike (SEC2 S2)", async () => {
     const business = await repos.businesses.get(t.db, B());
     const { room } = await concurrencyAllowance(t.db, business, t.clock.now());
     for (let i = 0; i < room; i++) await repos.agents.createSession(t.db, B(), { agentId: t.workerId, startedAt: t.clock.now() });

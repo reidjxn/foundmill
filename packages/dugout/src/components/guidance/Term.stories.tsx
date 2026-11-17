@@ -39,7 +39,7 @@ export const InASentence: Story = {
   name: "In a sentence, with a fact",
   render: () => (
     <p className="text-secondary">
-      Your <Term id="runway" fact="£18,400 · 7 months">runway</Term> is 7 months. Each <Term id="cycle">cycle</Term> costs about £12 <Term id="estimate" always>(Estimate)</Term>.
+      Your <Term id="runway" fact="£18,400 · 7 months">runway</Term> is 7 months. Each <Term id="cycle">round of work</Term> costs about £12 <Term id="estimate" always>(Estimate)</Term>.
     </p>
   ),
 };

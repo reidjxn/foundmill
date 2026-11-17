@@ -244,7 +244,7 @@ export const REMOVED_CLAIMS = [
   "checks it against real sources",
   "against real sources",
   "reconcile your Stripe",
-  "Better every cycle",
+  "Better every round of work",
   "Six departments work at once",
   "Nothing is spent until you approve it",
   "Start your business",

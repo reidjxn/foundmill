@@ -97,7 +97,7 @@ const FAMILY_ORDER: Record<TemplateRow["family"], number> = { assistant: 0, lead
 export const TEAM_RECRUITMENT_EXPLAINER = {
   screenId: "team-recruitment",
   purpose: "Hire new agents: describe the work to find the closest role, or pick one from the catalog.",
-  action: "Say what the agent should do and press Find the closest role; or use the … on a template and choose Hire…. It joins a department and starts next cycle.",
+  action: "Say what the agent should do and press Find the closest role; or use the … on a template and choose Hire…. It joins a department and starts next round of work.",
   watchFor: (
     <>
       The <Term id="wage_cap">wage cap</Term>: the most an agent may cost per month, in US dollars (Estimate).

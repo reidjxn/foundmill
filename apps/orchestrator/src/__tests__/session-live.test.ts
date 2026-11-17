@@ -681,7 +681,7 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
     }
   });
 
-  it("a session started without the cycle's brief (Start, a plan, a playbook) still knows what the project is and can read the product notes (WP-05 T4)", async () => {
+  it("a session started without the round of work's brief (Start, a plan, a playbook) still knows what the project is and can read the product notes (WP-05 T4)", async () => {
     const business = await repos.businesses.get(t.db, t.businessId);
     const { sessionId, input, launch } = await start();
     script = success(sessionId);
@@ -735,7 +735,7 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
     expect(expected).toBeGreaterThan(0);
   });
 
-  it("a cancel (the worker shutting down for a deploy) interrupts the turn, books what was spent and returns the task for a later cycle (O-04)", async () => {
+  it("a cancel (the worker shutting down for a deploy) interrupts the turn, books what was spent and returns the task for a later round of work (O-04)", async () => {
     const { sessionId, input, launch } = await start();
     const env = new MockActivityEnvironment();
     script = async function* (call) {
@@ -1225,7 +1225,7 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
     expect((await notesOf(sessionId)).some((n) => /^Acceptance tests not run: the sandbox could not be started \(E2B sandbox creation failed/.test(n.text))).toBe(true);
   });
 
-  it("the SDK is given a budget: the task's own, or the cycle's default, less what the task's earlier sessions cost (O-29, BF-11)", async () => {
+  it("the SDK is given a budget: the task's own, or the round of work's default, less what the task's earlier sessions cost (O-29, BF-11)", async () => {
     const { sessionId, input, launch } = await start();
     script = success(sessionId);
     calls.length = 0;
@@ -1286,7 +1286,7 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
     expect(calls[0]!.options.maxBudgetUsd).toBe(1.8);
   });
 
-  it("a session handed a share of a capped cycle under the floor ends blocked for budget before any model call (WP-05 T15)", async () => {
+  it("a session handed a share of a capped round of work under the floor ends blocked for budget before any model call (WP-05 T15)", async () => {
     const task = await budgeted(300);
     const { input, launch } = await start(task.id);
     script = async function* () {

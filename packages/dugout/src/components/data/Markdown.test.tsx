@@ -104,7 +104,7 @@ describe("defined terms in a note (docs/UX_AUDIT_AND_PLAN.md §6.2 Term, Markdow
 
   it("marks the first whole-word occurrence of each term once, case-insensitively, never inside code, links or mentions", async () => {
     const { markTerms, unmarkTerms } = await import("./Markdown");
-    const text = `The runway is 7 months; runway again. Net burn fell, so burn is lower. \`runway\` and [runway](/x) and [[ent:${ID}|Runway Ltd]] stay. MRRX is not MRR. Cycles end.`;
+    const text = `The runway is 7 months; runway again. Net burn fell, so burn is lower. \`runway\` and [runway](/x) and [[ent:${ID}|Runway Ltd]] stay. MRRX is not MRR. Rounds of work end.`;
     const marked = markTerms(text, TERMS);
     const marks = [...marked.matchAll(/([^]*)([^]*)/g)].map((m) => [m[1], m[2]]);
     expect(marks).toEqual([
@@ -142,7 +142,7 @@ describe("defined terms in a note (docs/UX_AUDIT_AND_PLAN.md §6.2 Term, Markdow
     const { Markdown, preloadMarkdown } = await import("./Markdown");
     const { GuidanceProvider } = await import("../guidance/GuidanceProvider");
     await preloadMarkdown();
-    const text = `**Runway** is 7 months. The runway page: [runway](/x). Cycle 3 ran for [[ent:${ID}|Runway Ltd]].`;
+    const text = `**Runway** is 7 months. The runway page: [runway](/x). Round of work 3 ran for [[ent:${ID}|Runway Ltd]].`;
     const on = render(
       <GuidanceProvider value={{ guidance: "on", terms: TERMS }}>
         <Markdown variant="body" terms>
@@ -160,7 +160,7 @@ describe("defined terms in a note (docs/UX_AUDIT_AND_PLAN.md §6.2 Term, Markdow
     expect(terms[0]!.closest("strong")).not.toBeNull();
     expect(on.container.querySelector("a[href='/x']")?.textContent).toBe("runway");
     expect(on.container.querySelector("[data-entity-id]")?.textContent).toBe("Runway Ltd");
-    expect(on.container.textContent).toBe("Runway is 7 months. The runway page: runway. Cycle 3 ran for Runway Ltd.");
+    expect(on.container.textContent).toBe("Runway is 7 months. The runway page: runway. Round of work 3 ran for Runway Ltd.");
     expect(on.container.querySelector("[data-markdown]")?.getAttribute("data-terms")).toBe("true");
     on.unmount();
 

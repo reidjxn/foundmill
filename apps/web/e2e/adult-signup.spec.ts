@@ -74,7 +74,7 @@ test.describe("18 or older at sign-up", () => {
       const drafted = await api.post("/trpc/idea.generate", { data: { json: { prompt: "bike repair bookings for commuters" } } });
       expect(drafted.ok(), `idea.generate answered ${drafted.status()}: ${await drafted.text()}`).toBe(true);
       const ideaId = ((await drafted.json()) as { result: { data: { json: { ideas: { id: string }[] } } } }).result.data.json.ideas[0]!.id;
-      const committed = await api.post("/trpc/idea.commit", { data: { json: { ideaId, name: "Adult Check Cycles", archetype: "b2b_saas" } } });
+      const committed = await api.post("/trpc/idea.commit", { data: { json: { ideaId, name: "Adult Check Rounds of work", archetype: "b2b_saas" } } });
       expect(committed.ok(), `idea.commit answered ${committed.status()}: ${await committed.text()}`).toBe(true);
       const businessId = ((await committed.json()) as { result: { data: { json: { business: { id: string } } } } }).result.data.json.business.id;
       const made = await api.post("/trpc/invitation.create", { data: { json: { businessId, role: "collaborator" } } });

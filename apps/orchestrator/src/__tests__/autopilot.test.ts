@@ -44,7 +44,7 @@ describe("autopilotEvaluate", () => {
     expect((await acts.autopilotEvaluate({ businessId: B() })).decision).toEqual({ action: "off" });
   });
 
-  it("starts a cycle once the interval since the last one has passed, and waits (with a planned time) before", async () => {
+  it("starts a round of work once the interval since the last one has passed, and waits (with a planned time) before", async () => {
     const now = t.clock.nowMs();
     await repos.autopilot.set(t.db, B(), { enabled: true }, new Date(now - 10 * H));
     await cycleStarted(1, new Date(now - 6 * H).toISOString());
@@ -75,7 +75,7 @@ describe("autopilotEvaluate", () => {
     await repos.inbox.archive(t.db, B(), item.id, { force: true });
   });
 
-  it("never starts while stopped or out of credits, and a vacation or a running cycle holds it", async () => {
+  it("never starts while stopped or out of credits, and a vacation or a running round of work holds it", async () => {
     await repos.autopilot.set(t.db, B(), { enabled: true }, new Date(t.clock.nowMs() - 10 * H));
     await stopBusinessAgents(t.db, B(), { reason: "kill_switch" });
     expect((await acts.autopilotEvaluate({ businessId: B() })).decision).toMatchObject({ action: "paused", reason: "kill_switch" });
@@ -91,7 +91,7 @@ describe("autopilotEvaluate", () => {
     expect((await acts.autopilotEvaluate({ businessId: B() })).decision).toMatchObject({ action: "wait", why: "cycle_running" });
   });
 
-  it("pauses after N failed or empty cycles in a row (counting only cycles since it was turned on)", async () => {
+  it("pauses after N failed or empty rounds of work in a row (counting only rounds of work since it was turned on)", async () => {
     const now = t.clock.nowMs();
     // An older failed cycle from before it was turned on does not count.
     await cycleStarted(10, new Date(now - 30 * H).toISOString(), "continue");
@@ -107,7 +107,7 @@ describe("autopilotEvaluate", () => {
     expect((await acts.autopilotEvaluate({ businessId: B(), unrecordedFailures: 4 })).decision).toMatchObject({ action: "pause", reason: "idle_cycles" });
   });
 
-  it("holds at the day's cycle cap and at the day's spend ceiling, until tomorrow (UTC)", async () => {
+  it("holds at the day's round of work cap and at the day's spend ceiling, until tomorrow (UTC)", async () => {
     const now = t.clock.nowMs();
     await repos.autopilot.set(t.db, B(), { enabled: true, maxCyclesPerDay: 2, cadence: "after_cycle" }, new Date(now - 10 * H));
     await cycleStarted(21, new Date(now - 3 * H).toISOString());
@@ -121,7 +121,7 @@ describe("autopilotEvaluate", () => {
     expect((await acts.autopilotEvaluate({ businessId: B() })).decision).toMatchObject({ action: "wait", why: "daily_spend" });
   });
 
-  it("a project committed without a budget (no cycle yet, one ready task) starts cycle 1 at the overnight shift's first look, and its empty history is not an idle night (WP-04 T3)", async () => {
+  it("a project committed without a budget (no round of work yet, one ready task) starts round of work 1 at the overnight shift's first look, and its empty history is not an idle night (WP-04 T3)", async () => {
     const now = t.clock.nowMs();
     const committedAt = now - 2 * H;
     // The overnight shift as Commit turns it on, due one hour ago (its daily hour falls after the commit).
@@ -171,7 +171,7 @@ describe("autopilotCycleStarted and autopilotCycleFailed", () => {
     expect((await repos.events.list(t.db, B(), { type: "autopilot.cycle_started" })).items[0]!.payload).toMatchObject({ cycleNumber: 30, cadence: "every_4h", cyclesToday: 2 });
   });
 
-  it("closes a crashed cycle as failed once, so it counts toward the streak and is no longer running", async () => {
+  it("closes a crashed round of work as failed once, so it counts toward the streak and is no longer running", async () => {
     const now = t.clock.nowMs();
     await cycleStarted(40, new Date(now - 1 * H).toISOString());
     const closed = await acts.autopilotCycleFailed({ businessId: B(), workflowId: `cycle:${B()}:40`, error: "boom" });
@@ -189,7 +189,7 @@ describe("autopilotCycleStarted and autopilotCycleFailed", () => {
 describe("Continue runs until done: the run's look and its end (Nov 7, 2026)", () => {
   const RUN = "5a1d2c3b-4a5e-4f60-8a71-0b2c3d4e5f62";
 
-  it("a run decides before the schedule, with Autopilot off: start, wait for a running cycle, end when a round did nothing", async () => {
+  it("a run decides before the schedule, with Autopilot off: start, wait for a running round of work, end when a round did nothing", async () => {
     const now = t.clock.nowMs();
     const run = { id: RUN, startedAt: now - 3 * H };
     // No round finished yet and nothing open: the next round starts (Autopilot itself is off).
@@ -209,7 +209,7 @@ describe("Continue runs until done: the run's look and its end (Nov 7, 2026)", (
     expect((await acts.autopilotEvaluate({ businessId: B() })).run).toBeNull();
   });
 
-  it("the press and its rounds count toward the day's cycle cap, which ends the run", async () => {
+  it("the press and its rounds count toward the day's round of work cap, which ends the run", async () => {
     const now = t.clock.nowMs();
     await repos.autopilot.set(t.db, B(), { maxCyclesPerDay: 2 });
     await cycleStarted(60, new Date(now - 3 * H).toISOString(), "continue");
@@ -233,17 +233,17 @@ describe("Continue runs until done: the run's look and its end (Nov 7, 2026)", (
     expect(events).toHaveLength(1);
     expect(events[0]!.payload).toEqual({ runId: RUN, reason: "daily_cycles", rounds: 2, cost: { amountMinor: 20, currency: "USD" }, maxCyclesPerDay: 6 });
     expect((await repos.audit.list(t.db, B(), { action: "cycle.run_end" })).items[0]!.details).toMatchObject({ runId: RUN, reason: "daily_cycles", rounds: 2 });
-    const notes = (await repos.inbox.list(t.db, B(), { limit: 100 })).items.filter((i) => i.subject === "Today's cycle limit is reached");
+    const notes = (await repos.inbox.list(t.db, B(), { limit: 100 })).items.filter((i) => i.subject === "Today's round of work limit is reached");
     expect(notes).toHaveLength(1);
     expect(notes[0]).toMatchObject({ type: "update", blocksContinue: false });
     expect(notes[0]!.bodyMd).toMatch(/Settings › What the team can do/);
     // A second end (a retry, or the workflow after the API wrote Pause's end) changes nothing.
     expect(await acts.autopilotRunEnded({ businessId: B(), runId: RUN, startedAt: now - 3 * H, reason: "done" })).toMatchObject({ recorded: false });
     expect((await repos.events.list(t.db, B(), { type: "cycle.run_ended" })).items).toHaveLength(1);
-    expect((await repos.inbox.list(t.db, B(), { limit: 100 })).items.filter((i) => i.subject === "Today's cycle limit is reached")).toHaveLength(1);
+    expect((await repos.inbox.list(t.db, B(), { limit: 100 })).items.filter((i) => i.subject === "Today's round of work limit is reached")).toHaveLength(1);
   });
 
-  it("a run that is done leaves no extra note (the idle cycle's own note says what is in the way)", async () => {
+  it("a run that is done leaves no extra note (the idle round of work's own note says what is in the way)", async () => {
     const before = (await repos.inbox.list(t.db, B(), { limit: 200 })).items.length;
     expect(await acts.autopilotRunEnded({ businessId: B(), runId: RUN, startedAt: t.clock.nowMs() - H, reason: "done" })).toEqual({ recorded: true, rounds: 0 });
     expect((await repos.inbox.list(t.db, B(), { limit: 200 })).items.length).toBe(before);

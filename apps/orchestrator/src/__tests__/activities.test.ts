@@ -293,8 +293,8 @@ describe("training honours the team-wide stop (SEC3)", () => {
   });
 });
 
-describe("cycle narration", () => {
-  it("a cycle in which nothing finished still ends with a Chief of Staff note, in staging too, without asking the composer", async () => {
+describe("round of work narration", () => {
+  it("a round of work in which nothing finished still ends with a Chief of Staff note, in staging too, without asking the composer", async () => {
     const narrated: string[][] = [];
     const composer = { ...t.deps.composer, narrate: async (input: { eventIds: string[] }) => {
       narrated.push(input.eventIds);
@@ -302,12 +302,12 @@ describe("cycle narration", () => {
     } } as typeof t.deps.composer;
     const acts = createCycleActivities({ ...t.deps, composer, env: { ...t.deps.env, APP_ENV: "staging" } });
     const summary = "Plan: ship the pricing page.\n\nCycle 3: 0 sessions dispatched, 0 finished, 0 blocked; 2 tasks deferred.";
-    const out = await acts.narrateCycle({ businessId: t.businessId, eventIds: [], summary, fallbackSubject: "Cycle 3 completed" });
+    const out = await acts.narrateCycle({ businessId: t.businessId, eventIds: [], summary, fallbackSubject: "Round of work 3 completed" });
     expect(narrated).toEqual([]);
     expect(out.viaComposer).toBe(false);
     expect(out.inboxItemIds).toHaveLength(1);
     const item = await repos.inbox.get(t.db, t.businessId, out.inboxItemIds[0]!);
-    expect(item).toMatchObject({ type: "update", subject: "Cycle 3 completed", fromAgentId: t.chiefId });
+    expect(item).toMatchObject({ type: "update", subject: "Round of work 3 completed", fromAgentId: t.chiefId });
     expect(item.bodyMd).toContain("2 tasks deferred");
     expect(item.bodyMd).not.toMatch(/service unavailable/);
     // With events to narrate, staging still surfaces a composer outage (the workflow retries it).
@@ -320,12 +320,12 @@ describe("cycle narration", () => {
       throw new ComposerRequestError("validation", "Composer /v1/narrate returned 400", 400);
     } } as typeof t.deps.composer;
     const acts = createCycleActivities({ ...t.deps, composer, env: { ...t.deps.env, APP_ENV: "staging" } });
-    const out = await acts.narrateCycle({ businessId: t.businessId, eventIds: [ev.id], summary: "Cycle 4: 1 session dispatched, 1 finished, 0 blocked.", fallbackSubject: "Cycle 4 completed" });
+    const out = await acts.narrateCycle({ businessId: t.businessId, eventIds: [ev.id], summary: "Round of work 4: 1 session dispatched, 1 finished, 0 blocked.", fallbackSubject: "Round of work 4 completed" });
     expect(out).toMatchObject({ viaComposer: false, inboxItemIds: [expect.any(String)] });
     const item = await repos.inbox.get(t.db, t.businessId, out.inboxItemIds[0]!);
-    expect(item).toMatchObject({ subject: "Cycle 4 completed", sourceEventIds: [ev.id] });
+    expect(item).toMatchObject({ subject: "Round of work 4 completed", sourceEventIds: [ev.id] });
     // A refusal is the composer turning down the request, not an outage: the plain summary goes out as written (audit CML-05).
-    expect(item.bodyMd).toBe("Cycle 4: 1 session dispatched, 1 finished, 0 blocked.");
+    expect(item.bodyMd).toBe("Round of work 4: 1 session dispatched, 1 finished, 0 blocked.");
     expect((await repos.events.get(t.db, t.businessId, ev.id)).narrated).toBe(true);
   });
 

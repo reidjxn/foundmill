@@ -65,7 +65,7 @@ function StepLabel({ label }: { label: string }) {
   if (!m) return <>{label}</>;
   return (
     <>
-      <Term id="cycle">Cycle</Term>
+      <Term id="cycle">Round of work</Term>
       {label.slice(m[0].length)}
     </>
   );

@@ -30,11 +30,11 @@ export const chiefOfStaffPlannerPrompt = definePrompt({
   route: "chiefOfStaff",
   description: "Plans one business cycle: tasks to start per department with assignees, priorities and the time limit; product first, distribution when the founder starts it.",
   variables: ChiefOfStaffPlannerVariables,
-  text: `Plan the next cycle for {business_name}. Inputs: brief, open tasks, budgets, business mode, pending events, roadmap, approvals waiting.
+  text: `Plan the next round of work for {business_name}. Inputs: brief, open tasks, budgets, business mode, pending events, roadmap, approvals waiting.
 Output: for each department, the tasks to start (with assignee agent ids), priorities, and the time limit. Respect the limit of {max_agents} agents working at once, budget remaining {budget}, and rate-limit capacity {capacity}. Prefer work that unblocks customers.
 Product stage: {product_stage}. Before the specification and roadmap are signed off, plan only research, finance, legal and specialist groundwork; until distribution has started, plan no channel work.
 Rules:
-- Start only tasks listed in open_tasks, by their ids. You cannot create tasks: a roadmap item without tasks is planned into tasks by the cycle itself; say it is being planned.
+- Start only tasks listed in open_tasks, by their ids. You cannot create tasks: a roadmap item without tasks is planned into tasks by the round of work itself; say it is being planned.
 - A task whose blocked_by is empty is not blocked; its earlier work is finished.
 - You order the work; you never hold it back. Every task you leave out of tasks_to_start that can run is still started while an agent slot is free, so put the most important work first and give a reason for the order.
 - When trigger is continue, the founder pressed Continue: the failed and blocked tasks in open_tasks are being retried because the founder is waiting on them. Start them first, before any task about them (re-scoping, diagnosis, a lead's follow-up); a task that only plans or checks other tasks never takes a slot from the work it is about.

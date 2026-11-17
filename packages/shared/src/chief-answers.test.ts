@@ -122,7 +122,7 @@ describe("What's blocking us?", () => {
   it("reports a round that did not finish, and a paused one", () => {
     expect(ask("blocking", { ...quiet, failure: "This month's credits ran out." })).toBe("The last round of work did not finish: This month's credits ran out.");
     expect(ask("blocking", { ...quiet, failure: "This round's plan could not run: the model account that runs Foundmill is out of credit. Our team has been alerted." })).toBe("The last round of work did not finish: the model account that runs Foundmill is out of credit. Our team has been alerted.");
-    expect(ask("blocking", { ...quiet, failure: "This cycle's plan could not run: the model service refused the request." })).toBe("The last round of work did not finish: the model service refused the request.");
+    expect(ask("blocking", { ...quiet, failure: "This round of work's plan could not run: the model service refused the request." })).toBe("The last round of work did not finish: the model service refused the request.");
     expect(ask("blocking", { ...quiet, paused: true })).toContain("The round of work is paused.");
   });
 

@@ -395,7 +395,7 @@ describe("status strip in guided mode", () => {
 describe("first-week checklist widget", () => {
   const def = () => getWidget("first_week_checklist")!;
 
-  it("lists the seven items with the done ones ticked, Go links to the product tabs and a Go button for running a cycle", () => {
+  it("lists the seven items with the done ones ticked, Go links to the product tabs and a Go button for running a round of work", () => {
     const { container } = mountGuided(def(), dataResponses());
     expect(screen.getByRole("region", { name: "Your first week" })).toBeTruthy();
     expect(screen.getByText("2 of 7 done")).toBeTruthy();

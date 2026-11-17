@@ -239,11 +239,11 @@ export const ContinueBlocked: Story = {
 export const ContinueProcessing: Story = {
   args: { ...baseArgs, continueButton: { state: { kind: "processing" }, cycleNumber: 3 } },
   render: (args) => <Shell {...args} tabs={{ tabs: DISTRIBUTION_TABS, activeId: "formation" }} />,
-  parameters: { docs: { description: { story: "A cycle runs: Continue reads Pause (its tooltip “The team is working · cycle 3”), the strip travels, and while guidance is on the strip's sentence sits in words at the right end of the tab bar. The shell root carries data-coachmark-pause." } } },
+  parameters: { docs: { description: { story: "A round of work runs: Continue reads Pause (its tooltip “The team is working · round of work 3”), the strip travels, and while guidance is on the strip's sentence sits in words at the right end of the tab bar. The shell root carries data-coachmark-pause." } } },
 };
 export const ContinueAnswered: Story = {
   name: "Continue · the press answered",
-  args: { ...baseArgs, continueButton: { state: { kind: "processing", run: true }, cycleNumber: 2 }, processing: { segments: NORTHWIND_SEGMENTS, active: false, notice: "Cycle 2 started: 6 tasks ready to build" } },
+  args: { ...baseArgs, continueButton: { state: { kind: "processing", run: true }, cycleNumber: 2 }, processing: { segments: NORTHWIND_SEGMENTS, active: false, notice: "Round of work 2 started: 6 tasks ready to build" } },
   render: (args) => <Shell {...args} tabs={{ tabs: DISTRIBUTION_TABS, activeId: "formation" }} />,
   parameters: { docs: { description: { story: "One press of Continue, answered (first-time founder report, Nov 8, 2026): the strip's sentence and the tab bar's line read what the press did the moment the answer lands, guidance on or off, so “The team is idle” never stays unchanged after a press. The orchestrator's own `cycle.started` catches the strip up moments later." } } },
 };

@@ -40,7 +40,7 @@ describe("shell words with Builder view off", () => {
   });
 
   it("Builder view keeps the engine's word", () => {
-    expect(processingStatusText([], false, null, true)).toBe("No cycle running");
+    expect(processingStatusText([], false, null, true)).toBe("No round of work running");
   });
 
   it("the stopped Autopilot notice sends the founder to Needs you", () => {

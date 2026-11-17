@@ -1097,10 +1097,10 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
       { fixtures: { tasks: "fixtures/planning/tasks_{business}.json" } },
     ),
     bp(
-      "Find the cycle at {business}",
-      "The fixture graph for {business} has a cycle. Find it, explain the cause, and propose the smallest change that removes it.",
+      "Find the round of work at {business}",
+      "The fixture graph for {business} has a round of work. Find it, explain the cause, and propose the smallest change that removes it.",
       [
-        "Cycle correctly identified.",
+        "Round of work correctly identified.",
         "Minimal fix proposed.",
         "Explanation clear.",
       ],

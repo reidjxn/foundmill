@@ -139,10 +139,10 @@ export function describeEvent(e: WidgetEvent, opts: DescribeOptions = {}): Descr
     }
     case "cycle.started":
       if (!builder) return { title: "The team started a round of work", icon: Play, tone: "info" };
-      return { title: `Cycle ${String(p.cycleNumber ?? "")} started`.replace("  ", " "), icon: Play, tone: "info" };
+      return { title: `Round of work ${String(p.cycleNumber ?? "")} started`.replace("  ", " "), icon: Play, tone: "info" };
     case "cycle.completed":
       if (!builder) return { title: `${own(ROUND_OUTCOME, str(p.outcome)) ?? ROUND_OUTCOME.completed} · ${countOf(typeof p.tasksCompleted === "number" ? p.tasksCompleted : 0, "task")} done`, icon: CircleCheck, tone: p.outcome === "failed" ? "bad" : p.outcome === "completed" ? "good" : "neutral" };
-      return { title: `Cycle ${String(p.cycleNumber ?? "")} ${own(CYCLE_OUTCOME, str(p.outcome)) ?? "completed"}`.replace("  ", " "), description: `${countOf(typeof p.tasksCompleted === "number" ? p.tasksCompleted : 0, "task")} done`, icon: CircleCheck, tone: p.outcome === "failed" ? "bad" : p.outcome === "completed" ? "good" : "neutral" };
+      return { title: `Round of work ${String(p.cycleNumber ?? "")} ${own(CYCLE_OUTCOME, str(p.outcome)) ?? "completed"}`.replace("  ", " "), description: `${countOf(typeof p.tasksCompleted === "number" ? p.tasksCompleted : 0, "task")} done`, icon: CircleCheck, tone: p.outcome === "failed" ? "bad" : p.outcome === "completed" ? "good" : "neutral" };
     case "inbox.item_created":
       // A reader walled from Finance or the CRM gets the note without its subject (apps/stream walls).
       return { title: str(p.subject) ?? "New inbox note", icon: MessageSquare, tone: p.blocksContinue ? "bad" : "neutral", statusWord: p.blocksContinue ? "Needs you" : undefined };
@@ -201,10 +201,10 @@ function LiveFeedWidget({ settings }: WidgetProps<LiveFeedSettings>) {
   return (
     <WidgetFrame
       title="Live feed"
-      help={builder ? "Everything that happens in the business, newest first. A cycle is one round of work that ends with notes in your Inbox; the business mode is how much the team may do on its own." : "Everything that happens in the business, newest first. The team works in rounds that end with notes in your Inbox; the business mode is how much the team may do on its own."}
+      help={builder ? "Everything that happens in the business, newest first. A round of work is one round of work that ends with notes in your Inbox; the business mode is how much the team may do on its own." : "Everything that happens in the business, newest first. The team works in rounds that end with notes in your Inbox; the business mode is how much the team may do on its own."}
       data-widget="live_feed"
       queries={[tasks]}
-      empty={tasks.data && events.length === 0 ? { icon: Radio, text: builder ? "Events appear here the moment agents start working. Press Continue to begin a cycle." : "Events appear here the moment agents start working. Press Continue to start a round of work." } : null}
+      empty={tasks.data && events.length === 0 ? { icon: Radio, text: builder ? "Events appear here the moment agents start working. Press Continue to begin a round of work." : "Events appear here the moment agents start working. Press Continue to start a round of work." } : null}
       footer={<span>{live.length > 0 ? `${live.length} live` : "Waiting for live events"}</span>}
     >
       <Timeline events={events} order="desc" emptyText="Nothing yet." />

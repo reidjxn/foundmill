@@ -311,7 +311,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
   return (
     <Screen name="development/plan">
       {startsBlocked ? (
-        <Panel span={12} title="Tasks cannot start right now" help="The orchestrator is the service that runs the team's work: every cycle and every task session goes through it." data-testid="plan-orchestrator-banner">
+        <Panel span={12} title="Tasks cannot start right now" help="The orchestrator is the service that runs the team's work: every round of work and every task session goes through it." data-testid="plan-orchestrator-banner">
           <p className="text-body text-secondary">
             The orchestrator is not reachable from this server, so no task can start and a press of Continue writes one note in its place. Start comes back by itself once it is reachable again. If you run this server yourself, start the orchestrator; otherwise, whoever runs it has to.
           </p>

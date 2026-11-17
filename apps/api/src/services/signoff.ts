@@ -422,7 +422,7 @@ export async function startBuilding(ctx: BusinessContext): Promise<BuildStart> {
   let cycle: BuildStart["cycle"];
   try {
     const started: StartCycleResult = await startCycle(ctx);
-    cycle = { started: started.action !== "already_running" || started.status.running, mode: started.mode, workflowId: started.status.workflowId ?? started.workflow?.workflowId ?? null, reason: started.action === "already_running" ? "a cycle is already running" : null };
+    cycle = { started: started.action !== "already_running" || started.status.running, mode: started.mode, workflowId: started.status.workflowId ?? started.workflow?.workflowId ?? null, reason: started.action === "already_running" ? "a round of work is already running" : null };
   } catch (err) {
     if (!(err instanceof AppError)) throw err;
     cycle = { started: false, mode: null, workflowId: null, reason: err.message };

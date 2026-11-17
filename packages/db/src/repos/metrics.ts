@@ -146,14 +146,14 @@ select to_char(o.week, 'YYYY-MM-DD') as week,
   {
     name: "retention_cycles",
     text: `with per as (
-  select e.business_id, count(*) as cycles, extract(epoch from max(e.occurred_at) - min(e.occurred_at)) / 86400 as span_days
+  select e.business_id, count(*) as rounds of work, extract(epoch from max(e.occurred_at) - min(e.occurred_at)) / 86400 as span_days
     from events e join businesses b on b.id = e.business_id
    where not b.is_demo and e.type = 'cycle.started' and e.occurred_at < :as_of_end
    group by e.business_id
 )
 select count(*)::int as projects_with_cycles,
-       coalesce(sum(cycles), 0)::int as cycles,
-       percentile_cont(0.5) within group (order by cycles) as cycles_median,
+       coalesce(sum(rounds of work), 0)::int as rounds of work,
+       percentile_cont(0.5) within group (order by rounds of work) as cycles_median,
        percentile_cont(0.5) within group (order by floor(span_days)) as span_days_median,
        count(*) filter (where span_days < 1)::int as ran_only_first_day
   from per`,

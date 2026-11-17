@@ -36,19 +36,19 @@ const status = (over: Partial<ContinueResult["status"]> = {}): ContinueResult["s
 });
 
 type Summary = ContinueResult["summary"];
-const summary = (over: Partial<Summary> = {}): Summary => ({ kind: "started", headline: "Cycle 2 started: 6 tasks ready to build", plainHeadline: "The next round of work started: 6 tasks ready to build", detail: `The team is at work. What they finish and what they need from you come back as notes in the Inbox. ${RUN_UNTIL_DONE}`, readyTasks: 6, stage: "building", orchestrator: true, ...over });
+const summary = (over: Partial<Summary> = {}): Summary => ({ kind: "started", headline: "Round of work 2 started: 6 tasks ready to build", plainHeadline: "The next round of work started: 6 tasks ready to build", detail: `The team is at work. What they finish and what they need from you come back as notes in the Inbox. ${RUN_UNTIL_DONE}`, readyTasks: 6, stage: "building", orchestrator: true, ...over });
 // A cast: the answer is a union (the note of an in-process step comes back as the person may read it), and a Partial of a union spreads into neither member.
 const result = (over: Partial<ContinueResult>): ContinueResult => ({ action: "started", mode: "temporal", workflow: null, item: null, status: status(), continueState: { kind: "processing" }, run: null, summary: summary(), ...over }) as ContinueResult;
 const RUN = { id: "22222222-2222-4222-8222-222222222222", startedAt: "2026-11-07T10:00:00.000Z", rounds: 0 };
 
 describe("one press of Continue (BUILD §9.4; first-time founder report, Nov 8, 2026: the api's one sentence is the toast)", () => {
-  it("the toast is the api's sentence: the cycle and what is ready, nothing ready and why, resumed, already running; cycle numbers only in Builder view", () => {
+  it("the toast is the api's sentence: the round of work and what is ready, nothing ready and why, resumed, already running; round of work numbers only in Builder view", () => {
     // Builder view off (the founder's default): the plain line, no cycle number.
     expect(describeContinue(result({}))).toEqual({ title: "The next round of work started: 6 tasks ready to build", description: summary().detail, tone: "info", itemId: null });
-    expect(describeContinue(result({}), true).title).toBe("Cycle 2 started: 6 tasks ready to build");
-    expect(describeContinue(result({ summary: summary({ kind: "nothing_ready", headline: "Cycle 1 started: nothing is ready to build yet", plainHeadline: "The next round of work started: nothing is ready to build yet", detail: "The specification and the roadmap are waiting for your sign-off in the Inbox.", readyTasks: 0, stage: "awaiting_signoff" }) }), true)).toMatchObject({ title: "Cycle 1 started: nothing is ready to build yet", tone: "info" });
-    expect(describeContinue(result({ action: "resumed", summary: summary({ kind: "resumed", headline: "Cycle 4 resumed", plainHeadline: "The round of work resumed", detail: "2 tasks pick up where they stopped." }) }))).toMatchObject({ title: "The round of work resumed", tone: "good", itemId: null });
-    expect(describeContinue(result({ action: "already_running", summary: summary({ kind: "already_running", headline: "Cycle 5 is already running", plainHeadline: "A round of work is already running", detail: "The team is still working." }) }), true)).toMatchObject({ title: "Cycle 5 is already running", tone: "info" });
+    expect(describeContinue(result({}), true).title).toBe("Round of work 2 started: 6 tasks ready to build");
+    expect(describeContinue(result({ summary: summary({ kind: "nothing_ready", headline: "Round of work 1 started: nothing is ready to build yet", plainHeadline: "The next round of work started: nothing is ready to build yet", detail: "The specification and the roadmap are waiting for your sign-off in the Inbox.", readyTasks: 0, stage: "awaiting_signoff" }) }), true)).toMatchObject({ title: "Round of work 1 started: nothing is ready to build yet", tone: "info" });
+    expect(describeContinue(result({ action: "resumed", summary: summary({ kind: "resumed", headline: "Round of work 4 resumed", plainHeadline: "The round of work resumed", detail: "2 tasks pick up where they stopped." }) }))).toMatchObject({ title: "The round of work resumed", tone: "good", itemId: null });
+    expect(describeContinue(result({ action: "already_running", summary: summary({ kind: "already_running", headline: "Round of work 5 is already running", plainHeadline: "A round of work is already running", detail: "The team is still working." }) }), true)).toMatchObject({ title: "Round of work 5 is already running", tone: "info" });
   });
 
   it("no orchestrator: a warning that says no agent worked, with the note that stood in to open", () => {
@@ -56,8 +56,8 @@ describe("one press of Continue (BUILD §9.4; first-time founder report, Nov 8, 
     const local = result({ mode: "local", item: item as never, summary: summary({ kind: "orchestrator_unreachable", headline: "The team cannot run right now: the orchestrator is not reachable", plainHeadline: "The team cannot run right now: the orchestrator is not reachable", detail: "No agent worked. One note was written from what the business already knows: “Three decisions for the Board”.", orchestrator: false }) });
     expect(describeContinue(local)).toEqual({ title: "The team cannot run right now: the orchestrator is not reachable", description: "No agent worked. One note was written from what the business already knows: “Three decisions for the Board”.", tone: "warn", itemId: item.id });
     // The e2e specs' toast regex matches every headline the api writes, Builder view on or off.
-    for (const t of ["Cycle 2 started: 6 tasks ready to build", "The next round of work started: 6 tasks ready to build", "The next round of work started: nothing is ready to build yet", "The team cannot run right now: the orchestrator is not reachable", "Cycle 4 resumed", "The round of work resumed", "A round of work is already running"]) expect(t).toMatch(/(cycle \d+|round of work) started|cannot run right now|(cycle \d+|round of work) resumed|already running/i);
-    expect(RUN_UNTIL_DONE).toBe("New cycles start on their own until nothing is left to do, or until you pause.");
+    for (const t of ["Round of work 2 started: 6 tasks ready to build", "The next round of work started: 6 tasks ready to build", "The next round of work started: nothing is ready to build yet", "The team cannot run right now: the orchestrator is not reachable", "Round of work 4 resumed", "The round of work resumed", "A round of work is already running"]) expect(t).toMatch(/(cycle \d+|round of work) started|cannot run right now|(cycle \d+|round of work) resumed|already running/i);
+    expect(RUN_UNTIL_DONE).toBe("New rounds of work start on their own until nothing is left to do, or until you pause.");
     expect(RUN).toBeTruthy();
   });
 
@@ -67,12 +67,12 @@ describe("one press of Continue (BUILD §9.4; first-time founder report, Nov 8, 
     expect(orchestratorDown({ orchestrator: { reachable: true } })).toBe(false);
     expect(orchestratorDown(undefined)).toBe(false);
     expect(ORCHESTRATOR_DOWN_CAVEAT).toBe("The team cannot start right now. Pressing Continue will only write a short note.");
-    expect(CONTINUE_PRESSED_NOTICE).toBe("Starting the next cycle…");
+    expect(CONTINUE_PRESSED_NOTICE).toBe("Starting the next round of work…");
     expect(continuePressedNotice(false)).toBe("Starting the next round of work…");
     expect(continuePressedNotice(true)).toBe(CONTINUE_PRESSED_NOTICE);
   });
 
-  it("the last cycle's cost rides under Continue's tooltip as an Estimate; none before the first cycle", () => {
+  it("the last round of work's cost rides under Continue's tooltip as an Estimate; none before the first round of work", () => {
     expect(lastCycleCostLine({ amountMinor: 52, currency: "USD" })).toBe("The last round of work cost $0.52 · Estimate");
     expect(lastCycleCostLine({ amountMinor: 0, currency: "USD" })).toBe("The last round of work cost $0.00 · Estimate");
     expect(lastCycleCostLine(null)).toBeNull();
@@ -91,14 +91,14 @@ describe("Pause and the end of a run (Nov 7, 2026)", () => {
   it("Pause says what stopped and that Continue picks up again", () => {
     expect(describePause({ paused: true, pausedTasks: 2, runEnded: true })).toEqual({ title: "Paused", description: "2 running tasks paused. Press Continue to pick up where the team stopped.", tone: "warn" });
     expect(describePause({ paused: true, pausedTasks: 1, runEnded: false }).description).toBe("1 running task paused. Press Continue to pick up where the team stopped.");
-    expect(describePause({ paused: false, pausedTasks: 0, runEnded: true, reason: "no cycle is running; no new cycle starts on its own" })).toEqual({ title: "Paused", description: "No new round of work starts. Press Continue to pick up where the team stopped.", tone: "warn" });
-    expect(describePause({ paused: false, pausedTasks: 0, runEnded: false, reason: "no cycle is running" })).toEqual({ title: "Nothing to pause", description: "no cycle is running", tone: "info" });
+    expect(describePause({ paused: false, pausedTasks: 0, runEnded: true, reason: "no round of work is running; no new round of work starts on its own" })).toEqual({ title: "Paused", description: "No new round of work starts. Press Continue to pick up where the team stopped.", tone: "warn" });
+    expect(describePause({ paused: false, pausedTasks: 0, runEnded: false, reason: "no round of work is running" })).toEqual({ title: "Nothing to pause", description: "no round of work is running", tone: "info" });
   });
 
   it("a run's end on the stream: the team is done, a day's limit with its number; nothing for Pause, a stop or another event", () => {
     const ended = (payload: Record<string, unknown>) => ({ type: "cycle.run_ended", payload });
     expect(describeRunEnded(ended({ reason: "done" }))).toEqual({ title: "The team has done all it can for now", description: "Anything waiting for you is in the Inbox's Needs you tab.", tone: "good" });
-    expect(describeRunEnded(ended({ reason: "daily_cycles", maxCyclesPerDay: 6 }))).toMatchObject({ title: "Today's limit of 6 cycles is reached", description: "No more cycles start on their own today. Raise the limit in Settings › What the team can do, or press Continue for one more." });
+    expect(describeRunEnded(ended({ reason: "daily_cycles", maxCyclesPerDay: 6 }))).toMatchObject({ title: "Today's limit of 6 rounds of work is reached", description: "No more rounds of work start on their own today. Raise the limit in Settings › What the team can do, or press Continue for one more." });
     expect(describeRunEnded(ended({ reason: "daily_spend" }))!.title).toBe("Today's spend ceiling is reached (Estimate)");
     expect(describeRunEnded(ended({ reason: "paused" }))).toBeNull();
     expect(describeRunEnded(ended({ reason: "stopped" }))).toBeNull();
@@ -106,13 +106,13 @@ describe("Pause and the end of a run (Nov 7, 2026)", () => {
     expect(describeRunEnded({ type: "cycle.completed", payload: { reason: "done" } })).toBeNull();
   });
 
-  it("the run's events refresh the cycle status and the Autopilot chip", () => {
+  it("the run's events refresh the round of work status and the Autopilot chip", () => {
     expect(INVALIDATE_ON_EVENT["cycle.run_started"]).toEqual(["cycle", "business.autopilot"]);
     expect(INVALIDATE_ON_EVENT["cycle.run_ended"]).toEqual(["cycle", "business.autopilot"]);
   });
 });
 
-describe("shell cycle reducer", () => {
+describe("shell round of work reducer", () => {
   it("adopts cycle.status snapshots without letting the pulse key go backwards, and applies pause locally", () => {
     const pulsed = { ...EMPTY_CYCLE, completedCount: 3 };
     const adopted = cycleReducer(pulsed, { type: "snapshot", status: cycleFromSnapshot({ running: true, cycleId: "c4", completedCount: 1 }) });
@@ -125,7 +125,7 @@ describe("shell cycle reducer", () => {
 });
 
 describe("the first-Continue callout (UX plan §7.7)", () => {
-  it("shows until the first cycle the founder starts has completed (commit runs cycle 1 itself), never for a read-only role", () => {
+  it("shows until the first round of work the founder starts has completed (commit runs round of work 1 itself), never for a read-only role", () => {
     expect(wantsFirstContinueCallout({ completedCount: 0 }, true)).toBe(true);
     expect(wantsFirstContinueCallout({ completedCount: 1 }, true)).toBe(true);
     expect(wantsFirstContinueCallout({ completedCount: 2 }, true)).toBe(false);
@@ -248,7 +248,7 @@ describe("changes another member makes reach an open Inbox (audit RUI-09)", () =
     for (const type of Object.keys(INVALIDATE_ON_EVENT)) expect(EVENT_TYPES as readonly string[], type).toContain(type);
   });
 
-  it("polls the inbox and cycle every 30 s while the channel is not live and as a safety net while it is; the departments always at the safety pace", () => {
+  it("polls the inbox and round of work every 30 s while the channel is not live and as a safety net while it is; the departments always at the safety pace", () => {
     expect(shellPollIntervals(false)).toEqual({ inbox: 30_000, cycle: 30_000, departments: SAFETY_POLL_MS });
     // A live channel never turns polling off (a read, a department edit or a hire by another member publishes no event).
     expect(shellPollIntervals(true)).toEqual({ inbox: SAFETY_POLL_MS, cycle: SAFETY_POLL_MS, departments: SAFETY_POLL_MS });
@@ -257,7 +257,7 @@ describe("changes another member makes reach an open Inbox (audit RUI-09)", () =
 });
 
 describe("the Autopilot chip stays fresh on the stream", () => {
-  it("refetches business.autopilot when Autopilot changes, a cycle starts or ends, or an Inbox item that can block Continue arrives or is decided", async () => {
+  it("refetches business.autopilot when Autopilot changes, a round of work starts or ends, or an Inbox item that can block Continue arrives or is decided", async () => {
     expect(INVALIDATE_ON_EVENT["autopilot.changed"]).toContain("business");
     for (const type of ["autopilot.cycle_started", "cycle.started", "cycle.completed", "inbox.item_created", "decision.made"]) {
       expect(INVALIDATE_ON_EVENT[type]!.some((p) => p === "business" || p === "business.autopilot")).toBe(true);

@@ -12,7 +12,7 @@ import { Container, Eyebrow, Reveal } from "./parts";
 const PILLARS: ReadonlyArray<{ icon: LucideIcon; title: string; text: ReactNode; href: string; link: string; tone: string }> = [
   { icon: Layers, title: "A whole company, in parallel", text: (
       <>
-        Departments work side by side every <Term id="cycle">cycle</Term>, against one plan, one budget and one picture of the business. A <Term id="chief_of_staff">Chief of Staff</Term> keeps them in step.
+        Departments work side by side every <Term id="cycle">round of work</Term>, against one plan, one budget and one picture of the business. A <Term id="chief_of_staff">Chief of Staff</Term> keeps them in step.
       </>
     ), href: "#team", link: "Meet the team", tone: "var(--dept-1)" },
   { icon: BadgeCheck, title: "Real work, real outcomes", text: (

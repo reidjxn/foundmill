@@ -312,14 +312,14 @@ describe("AppShell", () => {
     const tabs = { tabs: [{ id: "a", label: "Overview" }], activeId: "a" };
     render(
       <GuidanceProvider value={{ guidance: "off" }}>
-        <AppShell {...shellProps({ tabs, processing: { segments: NORTHWIND_SEGMENTS, active: false, notice: "Cycle 2 started: 6 tasks ready to build" } })} />
+        <AppShell {...shellProps({ tabs, processing: { segments: NORTHWIND_SEGMENTS, active: false, notice: "Round of work 2 started: 6 tasks ready to build" } })} />
       </GuidanceProvider>,
     );
     // Never "The team is idle" over a press that was answered.
     expect(screen.queryByRole("status", { name: "The team is idle" })).toBeNull();
-    expect(screen.getByRole("status", { name: "Cycle 2 started: 6 tasks ready to build" }).hasAttribute("data-notice")).toBe(true);
+    expect(screen.getByRole("status", { name: "Round of work 2 started: 6 tasks ready to build" }).hasAttribute("data-notice")).toBe(true);
     const line = screen.getByTestId("processing-line");
-    expect(line.textContent).toBe("Cycle 2 started: 6 tasks ready to build");
+    expect(line.textContent).toBe("Round of work 2 started: 6 tasks ready to build");
     expect(line.hasAttribute("data-notice")).toBe(true);
     expect(line.className).toMatch(/text-secondary/);
   });
@@ -340,7 +340,7 @@ describe("AppShell", () => {
     expect(PROCESSING_LINE_MIN_PX).toBe(11);
   });
 
-  it("opens the keyboard shortcuts from the sidebar's \"?\" cap and from the palette's Help row, and pauses coach marks while an overlay is open or a cycle runs (B15)", async () => {
+  it("opens the keyboard shortcuts from the sidebar's \"?\" cap and from the palette's Help row, and pauses coach marks while an overlay is open or a round of work runs (B15)", async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
     const { unmount } = render(<AppShell {...shellProps({ search: { items: PALETTE_ITEMS, onSelect } })} />);

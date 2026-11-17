@@ -67,7 +67,7 @@ function mockActivities(opts: { active?: (checks: number, cycles: number) => Aut
 }
 
 describe("automated mode workflow", () => {
-  it("runs a cycle on each tick with the schedule trigger, and ends with the mode", async () => {
+  it("runs a round of work on each tick with the schedule trigger, and ends with the mode", async () => {
     // Active for the first three checks (three ticks), then the founder switches the mode.
     const m = mockActivities({ active: (checks) => (checks <= 3 ? { active: true, hold: null, reason: "" } : { active: false, hold: null, reason: "mode_changed" }) });
     const result = await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(automatedMode, { workflowId: `automated:${B}`, taskQueue, args: [{ businessId: B }] }));
@@ -78,7 +78,7 @@ describe("automated mode workflow", () => {
     expect(m.calls.decides).toBe(6);
   });
 
-  it("runs the next cycle straight away while the decisions it raised keep unblocking work, up to a few times", async () => {
+  it("runs the next round of work straight away while the decisions it raised keep unblocking work, up to a few times", async () => {
     const m = mockActivities({ decided: () => 1, active: (checks) => (checks <= 1 ? { active: true, hold: null, reason: "" } : { active: false, hold: null, reason: "archived" }) });
     const result = await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(automatedMode, { workflowId: `automated:${B}-chain`, taskQueue, args: [{ businessId: B }] }));
     expect(result.reason).toBe("archived");

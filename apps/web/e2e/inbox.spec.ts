@@ -103,7 +103,7 @@ test.describe("inbox", () => {
     await expect(rows).toHaveCount(before + 1);
   });
 
-  test("the plan note waits in Needs you without holding Continue; 1 approves it and starts the build, Continue runs a cycle step, and 1 approves the first goal", async ({ page, playwright }) => {
+  test("the plan note waits in Needs you without holding Continue; 1 approves it and starts the build, Continue runs a round of work step, and 1 approves the first goal", async ({ page, playwright }) => {
     test.setTimeout(360_000);
     await signIn(page);
     const { bid } = await commitFreshBusiness(page, `Playwright Inbox ${Date.now().toString(36)}`);

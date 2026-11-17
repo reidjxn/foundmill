@@ -93,7 +93,7 @@ describe("product.research — the plan after the foundations", () => {
     expect(booked[0]!.agentId).toBe(researcher.id);
   });
 
-  it("writes the first research tasks for the cycles, the researcher's note and the events in the same transaction", async () => {
+  it("writes the first research tasks for the rounds of work, the researcher's note and the events in the same transaction", async () => {
     const view = await a.caller.product.research.get({ businessId: a.businessId });
     const researcher = view.agent!;
     const product = (await repos.departments.list(hz.db, a.businessId)).find((d) => d.moduleKeys.includes("product"))!;

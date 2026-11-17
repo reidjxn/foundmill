@@ -32,7 +32,7 @@ function EditorDemo() {
   const live = versions.find((v) => v.state === "live")!.instructions;
   const [value, setValue] = useState<AgentInstructions>({
     ...live,
-    goals: [...live.goals, "Answer every review comment within one cycle."],
+    goals: [...live.goals, "Answer every review comment within one round of work."],
     rules: [...live.rules.slice(0, 2), "You may merge schema changes without asking when tests pass.", ...live.rules.slice(2)],
     tone: "Plain and specific. Short sentences. No exclamation marks. Warm with customers.",
   });

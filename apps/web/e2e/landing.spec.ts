@@ -48,7 +48,7 @@ test.describe("the tour (/tour)", () => {
     await expect(how.getByText("Example", { exact: true })).toHaveCount(4);
     const firstDay = how.getByRole("region", { name: "Vision, specification and roadmap · Drafting" });
     await expect(firstDay).toContainText("Drafting your vision, specification and roadmap…");
-    await expect(firstDay).toContainText("Iris, Product lead, writes it from your idea and your profile. Orla, Chief of Staff, plans the first cycle from the roadmap.");
+    await expect(firstDay).toContainText("Iris, Product lead, writes it from your idea and your profile. Orla, Chief of Staff, plans the first round of work from the roadmap.");
     const signoffs = how.getByRole("list", { name: "Inbox" }).getByRole("listitem");
     await expect(signoffs).toHaveText([/Your plan is ready/]);
     await expect(how.getByRole("list", { name: "Inbox" }).getByText("Needs you", { exact: true })).toHaveCount(1);

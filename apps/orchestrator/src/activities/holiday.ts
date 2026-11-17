@@ -473,7 +473,7 @@ export function createHolidayActivities(deps: OrchestratorDeps) {
       const awayFor = describeAway(now.getTime() - since.getTime());
 
       const lines = [
-        `You were away ${awayFor}; the team ran ${input.cyclesRun} cycle${input.cyclesRun === 1 ? "" : "s"} and the vacation ended because ${describeReason(input.reason, input.wakeEventType)}.`,
+        `You were away ${awayFor}; the team ran ${input.cyclesRun} ${input.cyclesRun === 1 ? "round" : "rounds"} of work and the vacation ended because ${describeReason(input.reason, input.wakeEventType)}.`,
         ``,
         `**Decisions I took (${chiefDecisions.length})** — each one inside the authority you set, run as a plan like your own decisions; open any item to see the plan and how far it got.`,
         ...taken,
@@ -540,7 +540,7 @@ function describeReason(reason: NonNullable<HolidayCheck["reason"]>, wake: strin
     case "kill_switch":
       return "the kill switch was pressed";
     case "cycle_cap":
-      return `it reached its safety limit of ${MAX_HOLIDAY_CYCLES} cycles without you coming back`;
+      return `it reached its safety limit of ${MAX_HOLIDAY_CYCLES} rounds of work without you coming back`;
   }
 }
 

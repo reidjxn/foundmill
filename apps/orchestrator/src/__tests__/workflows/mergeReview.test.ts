@@ -278,7 +278,7 @@ describe("mergeReview workflow", () => {
     expect(m.calls.at(-1)).toBe(`handBack:checks_failed:${m.approvalId}`);
   });
 
-  it("checks that never conclude hold the merge for the next cycle (time skipped to the limit)", async () => {
+  it("checks that never conclude hold the merge for the next round of work (time skipped to the limit)", async () => {
     const m = mockActivities({ checks: ["pending"] });
     const result = await reviewDecided(m, "approved");
     expect(result).toMatchObject({ status: "held", reason: "checks_timeout" });

@@ -15,7 +15,7 @@ const status = (patch: Record<string, unknown> = {}) => ({
   enabled: false,
   state: "off",
   label: "Off",
-  detail: "Cycles start when you press Continue.",
+  detail: "Rounds of work start when you press Continue.",
   pausedReason: null,
   waitingFor: null,
   nextAt: null,
@@ -87,7 +87,7 @@ describe("Autopilot section", () => {
     expect(screen.getByTestId("autopilot-detail").textContent).toContain("2 notes in the Inbox need your answer. Autopilot never answers them for you.");
     // The next cycle is a forecast and says so.
     expect(chip.querySelector("[data-provenance='estimate']")).toBeTruthy();
-    expect(screen.getByTestId("autopilot-today").textContent).toContain("2 of 6 cycles today");
+    expect(screen.getByTestId("autopilot-today").textContent).toContain("2 of 6 rounds of work today");
     expect(screen.getByTestId("autopilot-today").textContent).toContain("Estimate");
   });
 

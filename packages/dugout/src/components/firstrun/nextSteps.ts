@@ -71,7 +71,7 @@ function agents(n: number): string {
  */
 export function cycleRunningLine(cycleNumber: number | null, agentsWorking: number): string {
   // plain-allow: the strip that shows this line (NextStep.tsx StepLabel) renders "Cycle" as a Term.
-  const base = cycleNumber === null ? "The team is working" : `Cycle ${Math.max(1, cycleNumber)} is running`;
+  const base = cycleNumber === null ? "The team is working" : `Round of work ${Math.max(1, cycleNumber)} is running`;
   return agentsWorking > 0 ? `${base} · ${agents(agentsWorking)} at work` : base;
 }
 
