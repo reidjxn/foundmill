@@ -15,11 +15,11 @@ supersedes: []
 - Guard test 1, a named agent is labeled as an agent wherever it appears: `packages/shared/src/personas.test.ts`
   checks every character of every style (960 in all). Named alone, an agent reads "Name (Position)"; with no role, its
   own title stands in for the position; stored text carries the stored name.
-- Guard test 2, a named agent never writes to a third party as though it were a person:
-  `apps/gateway/src/__tests__/named-agents-outward.test.ts` scans the code that acts outward (gateway, connectors,
-  agents, orchestrator, composer, sandbox) and fails if a file outside a listed three reads the display rules; it
-  checks the one listed file that sends mail uses "Name (Position)", that the project's mail goes out as "<Project>
-  via Foundmill", and that the mail tool refuses any sender field.
+- Guard test 2, a named agent never writes to a third party as though it were a person, in three parts.
+  `apps/web/lib/__tests__/named-agents-outward.test.ts` scans the code that acts outward (gateway, connectors, agents,
+  orchestrator, composer, sandbox) and fails if a file outside a listed three reads the display rules, and checks the
+  one listed file that sends mail uses "Name (Position)". `apps/gateway/src/__tests__/named-agents-outward.test.ts`
+  checks the project's mail goes out as "<Project> via Foundmill" and that the mail tool refuses any sender field.
   `packages/agents/src/__tests__/named-agents.test.ts` checks that every agent template's system prompt opens with
   "You are an AI agent working for <business>" and house rule 3.
 - Tests: `founder-profile-guidance.test.ts` (the default by experience; the person's own choice after; an account from
@@ -50,6 +50,10 @@ no name, which the first profile never does.
 ### Guard test 2 reads source files
 Whether a name can leave the product is a property of which code can read it, so the test lists that code. A new file
 that reads the display rules under those roots fails the test until it is listed with the reason it is not outward.
+### The source scan lives in apps/web
+It first sat in the gateway's tests, and CI's `ci-affected` self-test refused it: a test that reads other packages by
+a relative path must be declared, and declaring it for the gateway would widen what runs. The web package's tests
+already run on any change under apps/ and packages/, so the scan moved there and nothing in CI changed.
 ### Plan gating is not here
 WP-14 T14 lists named agents under the Founder plan from the day sign-up opens. Nothing in this change checks a plan.
 
