@@ -259,6 +259,14 @@ export const agentsRepo = {
     return one(await db.select().from(agents).where(scoped(businessId, agentId)).limit(1), "agent", agentId);
   },
 
+  /**
+   * The agent's row, locked until the caller's transaction ends (`SELECT … FOR UPDATE`): a check over the agent's
+   * other rows (its skills' limits) then sees every write made before it, and a second writer waits. 404 outside the business.
+   */
+  async lockForUpdate(tx: Executor, businessId: string, agentId: string): Promise<Agent> {
+    return one(await tx.select().from(agents).where(scoped(businessId, agentId)).limit(1).for("update"), "agent", agentId);
+  },
+
   /** Agents by ids (only those in the business). */
   async byIds(db: Executor, businessId: string, ids: readonly string[]): Promise<Agent[]> {
     if (ids.length === 0) return [];

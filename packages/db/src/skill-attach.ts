@@ -7,7 +7,7 @@
  * Callers audit each addition under their own actor.
  */
 import { createHash } from "node:crypto";
-import { ADDED_SKILLS_MAX_TOTAL_CHARS, LIBRARY_SKILL_PREFIX, MAX_ADDED_SKILLS_PER_AGENT, SKILL_LIBRARY, SKILL_LIBRARY_CATEGORY_LABELS, getLibrarySkill, getSkillDefinition, getTemplateByAgentType, librarySkillKey, parseSkillFile, uploadSkillKey } from "@foundmill/agents";
+import { LIBRARY_SKILL_PREFIX, MAX_SKILLS_PER_AGENT, SKILL_INDEX_MAX_CHARS, SKILL_LIBRARY, attachedSkills, renderSkillIndex, SKILL_LIBRARY_CATEGORY_LABELS, getLibrarySkill, getSkillDefinition, getTemplateByAgentType, librarySkillKey, parseSkillFile, uploadSkillKey } from "@foundmill/agents";
 import { ConflictError, ValidationError, type AddedSkillSource, type SkillGroup } from "@foundmill/shared";
 import { repos, type AddedAgentSkill } from "./repos";
 import type { Agent, SkillDefinition } from "./schema";
@@ -52,8 +52,8 @@ const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().t
 /**
  * Attaches resolved skills to an agent in the caller's (service) transaction: the definitions for the agent's type and
  * the rating rows at the template's baseline (untested). `onAdded` runs once per definition (the caller's audit row).
- * Refuses (409) a skill the agent already has, by key or by name (a rating it carries counts, TS-12), and (400) more than `MAX_ADDED_SKILLS_PER_AGENT`
- * added skills or more than `ADDED_SKILLS_MAX_TOTAL_CHARS` of their instructions.
+ * Refuses (409) a skill the agent already has, by key or by name (a rating it carries counts, TS-12), and (400) more than `MAX_SKILLS_PER_AGENT`
+ * added skills or a skills index past `SKILL_INDEX_MAX_CHARS` (WP-06 T4). Each skill's 20,000 characters and each file's 64 KB stay.
  */
 export async function attachAddedSkills(
   tx: Executor,
@@ -63,6 +63,8 @@ export async function attachAddedSkills(
   onAdded: (definition: SkillDefinition, skill: ResolvedSkill) => Promise<void>,
 ): Promise<AddedAgentSkill[]> {
   if (skills.length === 0) return [];
+  // Lock the agent first, so two adds at once cannot both pass the count and index limits (they run one after the other).
+  await repos.agents.lockForUpdate(tx, businessId, agent.id);
   const [existing, ratings] = await Promise.all([repos.skills.listAddedForAgent(tx, businessId, agent.id, agent.agentType), repos.skills.listForAgent(tx, businessId, agent.id)]);
   const seen: { key: string; name: string }[] = existing.map((e) => ({ key: e.skillKey, name: e.name }));
   // The ratings the agent carries, by their catalog name ("Debugging"): an added skill may not read as one of them,
@@ -77,9 +79,11 @@ export async function attachAddedSkills(
     if (readsAsRating || ratings.some((r) => r.skillKey === s.skillKey) || seen.some((x) => x.key === s.skillKey || sameName(x.name, s.name))) throw new ConflictError(`${agent.name} already has a skill called "${s.name}"`, { skillKey: s.skillKey });
     seen.push({ key: s.skillKey, name: s.name });
   }
-  if (seen.length > MAX_ADDED_SKILLS_PER_AGENT) throw new ValidationError(`An agent carries at most ${MAX_ADDED_SKILLS_PER_AGENT} skills from the library or files; remove one first`);
-  const total = existing.reduce((n, e) => n + e.instructionsMd.length, 0) + skills.reduce((n, s) => n + s.instructionsMd.length, 0);
-  if (total > ADDED_SKILLS_MAX_TOTAL_CHARS) throw new ValidationError(`${agent.name}'s skills would pass ${ADDED_SKILLS_MAX_TOTAL_CHARS.toLocaleString("en-US")} characters of instructions; remove one or upload a shorter file`);
+  if (seen.length > MAX_SKILLS_PER_AGENT) throw new ValidationError(`An agent carries at most ${MAX_SKILLS_PER_AGENT} skills from the library or files; remove one first`);
+  // Bodies load on demand (read_skill); what every prompt carries is the index, so that is what is bounded (WP-06 T4).
+  const template = getTemplateByAgentType(agent.agentType);
+  const rows = [...existing, ...skills.map((s) => ({ skillKey: s.skillKey, name: s.name, source: s.source, description: s.description, instructionsMd: s.instructionsMd }))];
+  if (renderSkillIndex(attachedSkills(template?.skills ?? [], rows)).length > SKILL_INDEX_MAX_CHARS) throw new ValidationError(`${agent.name}'s list of skills would pass ${SKILL_INDEX_MAX_CHARS.toLocaleString("en-US")} characters; remove one or give an uploaded skill a shorter description`);
   const baseline = getTemplateByAgentType(agent.agentType)?.baselineRating ?? 8;
   for (const s of skills) {
     const definition = await repos.skills.upsertAddedDefinition(tx, businessId, { agentType: agent.agentType, skillKey: s.skillKey, name: s.name, description: s.description, group: s.group, source: s.source, instructionsMd: s.instructionsMd, fileName: s.fileName, contentHash: s.contentHash });
