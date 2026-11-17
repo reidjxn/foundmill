@@ -86,7 +86,7 @@ describe("#65 / FU-S-2: requests and messages reach the recipient alone", () => 
     const asker = await founder("asker");
     const target = await founder("target");
     const staff = await staffOf(target.businessId, "target");
-    await repos.founders.upsert(hz.db, asker.userId, { displayName: "Ana Ruiz", visibility: "private" });
+    await repos.founders.upsert(hz.db, asker.userId, { displayName: "Ana Ruiz", timeCommitment: "full_time", residence: "United States", visibility: "private" });
     const c = await as(asker.userId).live.connections.request({ businessId: asker.businessId, toUserId: target.userId, message: "Loved your post on pricing" });
     expect(c).toMatchObject({ fromUser: asker.userId, toUser: target.userId, status: "requested" });
 
@@ -477,7 +477,7 @@ describe("#28: the network is for adults", () => {
     const userId = await hz.h.createUser("adult-commit@live-social.test");
     const caller = as(userId);
     // A profile from before 0100: no confirmation on record.
-    await repos.founders.upsert(hz.db, userId, { displayName: "Noor", experience: "first-time", skills: { sales: 10 }, targetMarkets: ["EU"], riskAppetite: "medium" });
+    await repos.founders.upsert(hz.db, userId, { displayName: "Noor", timeCommitment: "full_time", residence: "United States", experience: "first-time", skills: { sales: 10 }, targetMarkets: ["EU"], riskAppetite: "medium" });
     const [first] = (await caller.idea.generate({ prompt: "invoicing for freelance designers" })).ideas;
     // Without the confirmation nothing is created: no business, and the idea stays uncommitted.
     const refused = await failure(caller.idea.commit({ ideaId: first!.id, name: "Noor Live", archetype: "b2b_saas", gameMode: "live" }));
@@ -489,7 +489,7 @@ describe("#28: the network is for adults", () => {
     // free plan holds one business each).
     const otherId = await hz.h.createUser("adult-commit-personal@live-social.test");
     const other = as(otherId);
-    await other.founder.profile.update({ confirmAdult: true, displayName: "Mika", experience: "first-time", skills: { sales: 10 }, targetMarkets: ["EU"], riskAppetite: "medium" });
+    await other.founder.profile.update({ confirmAdult: true, displayName: "Mika", timeCommitment: "full_time", residence: "United States", experience: "first-time", skills: { sales: 10 }, targetMarkets: ["EU"], riskAppetite: "medium" });
     const [second] = (await other.idea.generate({ prompt: "invoicing for freelance designers" })).ideas;
     expect((await other.idea.commit({ ideaId: second!.id, name: "Mika Live", archetype: "b2b_saas", gameMode: "live" })).business.gameMode).toBe("live");
     expect(await repos.social.adultConfirmedAt(hz.db, otherId)).not.toBeNull();

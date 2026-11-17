@@ -44,6 +44,9 @@ export type AddIdeaVersionInput = z.input<typeof AddIdeaVersionInput>;
 /** How many ideas `getMany` reads at once (the Studio's shortlisted and restored cards that are not on a loaded page). */
 export const IDEAS_BY_ID_MAX = 100;
 
+/** How many of a person's ideas (newest first) a change of their skill ratings re-rates at once. */
+export const RERATE_IDEAS_MAX = 200;
+
 const ownedIdea = (userId: string, ideaId: string) => and(eq(ideas.id, ideaId), eq(ideas.ownerUserId, userId), isNull(ideas.archivedAt));
 
 export interface IdeaWithVersion extends Idea {
@@ -259,6 +262,39 @@ export const ideasRepo = {
     parseInput(Id, ideaId, "ideaId");
     await db.update(ideas).set({ archivedAt: null }).where(and(eq(ideas.id, ideaId), eq(ideas.ownerUserId, userId), isNotNull(ideas.archivedAt)));
     return ideasRepo.get(db, userId, ideaId);
+  },
+
+  /**
+   * Founder fit re-rated in place on every idea the person still holds as an idea (not committed, not discarded), when
+   * their skill ratings change (WP-14 T2: the quick profile, then "sharpen"). `rerate` is given the current version's
+   * Founder fit (null when the card has none) and the idea's kind of business, and answers the new rating and its
+   * evidence, or null to leave the card as it is. Only the current version's `founder_fit` entry is written: no new
+   * version, since nothing the person or the agent wrote changed. Answers how many cards changed.
+   */
+  async rerateFounderFit(db: Executor, userId: string, rerate: (current: number | null, archetype: Idea["archetype"]) => { value: number; evidence: string } | null): Promise<number> {
+    return db.transaction(async (tx) => {
+      const rows = await tx
+        .select({ versionId: ideaVersions.id, attributes: ideaVersions.attributes, archetype: ideas.archetype })
+        .from(ideas)
+        .innerJoin(ideaVersions, eq(ideaVersions.id, ideas.currentVersionId))
+        .where(and(eq(ideas.ownerUserId, userId), isNull(ideas.archivedAt), isNull(ideas.committedAt)))
+        .orderBy(desc(ideas.createdAt))
+        .limit(RERATE_IDEAS_MAX)
+        .for("update", { of: ideaVersions });
+      let changed = 0;
+      for (const row of rows) {
+        const attributes = (row.attributes ?? {}) as Record<string, { value: number; evidence?: string }>;
+        // A card still being drafted has no ratings yet: its fit is rated when it is written, from the profile as it is then.
+        if (Object.keys(attributes).length === 0) continue;
+        const current = attributes.founder_fit?.value ?? null;
+        const next = rerate(current, row.archetype);
+        if (!next || next.value === current) continue;
+        const value = Math.min(20, Math.max(1, Math.round(next.value)));
+        await tx.update(ideaVersions).set({ attributes: { ...attributes, founder_fit: { value, evidence: next.evidence } } }).where(eq(ideaVersions.id, row.versionId));
+        changed += 1;
+      }
+      return changed;
+    });
   },
 
   /**

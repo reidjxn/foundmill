@@ -5,12 +5,17 @@
  *   2. every slate item got a card that keeps its name and archetype;
  *   3. every card is tight (pitch at most 50 words, each attribute's evidence at most 30: the prompt asks for 40 and
  *      25), has at least two citations, and a potential no lower than its current stars;
- *   4. no card uses an archetype the founder ruled out (the brief's `forbiddenArchetypes`).
+ *   4. no card uses an archetype the founder ruled out (the brief's `forbiddenArchetypes`);
+ *   5. Founder fit rests on what the founder said and nothing else (WP-14 T2; the brief's `fit`). With no profile
+ *      every card's founder_fit stays in the neutral band (7 to 13): nothing is known, so nothing is extreme. With the
+ *      first profile's quick answers (`skills_basis` "quick_answers"), the kinds of business that lean on a skill the
+ *      founder picked are not rated a worse fit, on average, than the kinds that lean on none.
  * It also reports how many card calls read the shared system prefix from the prompt cache (the fan-out's cost and
  * latency rest on it), as a measurement rather than a gate.
  * `runIdeationEval` drives the real requests through a model client (live in `pnpm evals`; the unit suite feeds it the mock).
  */
-import { buildIdeationCardRequest, buildIdeationSlateRequest, IDEATION_MAX_CONCEPTS, IDEATION_MIN_CONCEPTS, type IdeationBrief } from "@foundmill/agents";
+import { buildIdeationCardRequest, buildIdeationSlateRequest, IDEATION_MAX_CONCEPTS, IDEATION_MIN_CONCEPTS, QUICK_SKILLS_BASIS, type IdeationBrief } from "@foundmill/agents";
+import { QUICK_PROFILE_RATINGS, quickSkillRatings, skillsFit } from "@foundmill/config";
 import { streamStructured, type ConceptCard, type IdeationSlateItem, type ModelClient } from "@foundmill/models";
 import type { Archetype } from "@foundmill/shared";
 
@@ -19,7 +24,15 @@ export interface IdeationEvalBrief {
   brief: IdeationBrief;
   /** Archetypes the founder's constraints rule out. */
   forbiddenArchetypes: Archetype[];
+  /** What Founder fit is checked against: nothing known ("neutral") or the first profile's quick answers ("quick"). Absent: not checked. */
+  fit?: "neutral" | "quick";
 }
+
+/** The first profile of a person who picked two of the five skill tags and answered time and where they live. */
+const QUICK_PROFILE_SKILLS = quickSkillRatings(["Finding and winning customers", "Product and brand"]);
+
+/** With no profile, Founder fit stays in this band: nothing is known about the founder, so nothing is extreme. */
+export const NEUTRAL_FIT_BAND = { min: 7, max: 13 } as const;
 
 export const IDEATION_BRIEFS: readonly IdeationEvalBrief[] = [
   {
@@ -44,10 +57,22 @@ export const IDEATION_BRIEFS: readonly IdeationEvalBrief[] = [
     id: "no_profile",
     brief: { prompt: "tools for independent physiotherapy clinics", archetypeHint: null, founder: null },
     forbiddenArchetypes: [],
+    fit: "neutral",
+  },
+  {
+    // The short profile (WP-14 T2): the first profile's answers and nothing from the long one.
+    id: "quick_profile",
+    brief: {
+      prompt: "surprise me within my constraints",
+      archetypeHint: null,
+      founder: { experience: null, skills: QUICK_PROFILE_SKILLS, skills_basis: QUICK_SKILLS_BASIS, time_commitment: "evenings_weekends", budget_minor: null, citizenship: null, residence: "Canada", target_markets: [], constraints: [], risk_appetite: null },
+    },
+    forbiddenArchetypes: [],
+    fit: "quick",
   },
 ];
 
-export type IdeationProblemKind = "slate" | "card" | "constraint";
+export type IdeationProblemKind = "slate" | "card" | "constraint" | "fit";
 
 export interface IdeationProblem {
   kind: IdeationProblemKind;
@@ -64,8 +89,33 @@ export interface IdeationSetCheck {
 const words = (s: string) => s.trim().split(/\s+/).filter(Boolean).length;
 const norm = (s: string) => s.trim().toLowerCase();
 
+const mean = (xs: readonly number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+
+/**
+ * Check 5: Founder fit against what the founder said. `skills` are the quick ratings for "quick". A card with no
+ * founder_fit rating is a problem either way.
+ */
+export function checkFounderFit(cards: readonly (ConceptCard | undefined)[], fit: "neutral" | "quick", skills: Readonly<Record<string, unknown>> | null = null): IdeationProblem[] {
+  const problems: IdeationProblem[] = [];
+  const rated = cards.flatMap((c) => {
+    if (!c) return [];
+    const value = c.attributes.find((a) => a.key === "founder_fit")?.value;
+    if (typeof value !== "number") problems.push({ kind: "fit", message: `"${c.name}" has no founder_fit rating` });
+    return typeof value === "number" ? [{ card: c, value }] : [];
+  });
+  if (fit === "neutral") {
+    for (const { card, value } of rated) if (value < NEUTRAL_FIT_BAND.min || value > NEUTRAL_FIT_BAND.max) problems.push({ kind: "fit", message: `"${card.name}" rates founder_fit ${value} with nothing known about the founder (want ${NEUTRAL_FIT_BAND.min}-${NEUTRAL_FIT_BAND.max})` });
+    return problems;
+  }
+  // The kinds of business that lean on a picked skill (their two skills average above neutral) against those that lean on none.
+  const leaning = rated.filter((r) => skillsFit(skills, r.card.archetype) > QUICK_PROFILE_RATINGS.neutral).map((r) => r.value);
+  const rest = rated.filter((r) => skillsFit(skills, r.card.archetype) < QUICK_PROFILE_RATINGS.neutral).map((r) => r.value);
+  if (leaning.length > 0 && rest.length > 0 && mean(leaning) < mean(rest)) problems.push({ kind: "fit", message: `kinds of business that lean on a picked skill average founder_fit ${mean(leaning).toFixed(1)}, below ${mean(rest).toFixed(1)} for the kinds that lean on none` });
+  return problems;
+}
+
 /** The checks above, on a slate and the cards drafted from it (cards by slate position; undefined = no card). */
-export function checkIdeationSet(slate: readonly IdeationSlateItem[], cards: readonly (ConceptCard | undefined)[], forbidden: readonly Archetype[] = []): IdeationSetCheck {
+export function checkIdeationSet(slate: readonly IdeationSlateItem[], cards: readonly (ConceptCard | undefined)[], forbidden: readonly Archetype[] = [], fit?: { kind: "neutral" | "quick"; skills?: Readonly<Record<string, unknown>> | null }): IdeationSetCheck {
   const problems: IdeationProblem[] = [];
   const add = (kind: IdeationProblemKind, message: string) => problems.push({ kind, message });
   if (slate.length < IDEATION_MIN_CONCEPTS || slate.length > IDEATION_MAX_CONCEPTS) add("slate", `slate has ${slate.length} concepts (want ${IDEATION_MIN_CONCEPTS}-${IDEATION_MAX_CONCEPTS})`);
@@ -86,6 +136,7 @@ export function checkIdeationSet(slate: readonly IdeationSlateItem[], cards: rea
     if (forbidden.includes(card.archetype)) add("constraint", `card ${i} ("${card.name}") is ${card.archetype}, which the founder ruled out`);
   });
   for (const item of slate) if (forbidden.includes(item.archetype)) add("constraint", `slate item "${item.name}" is ${item.archetype}, which the founder ruled out`);
+  if (fit) problems.push(...checkFounderFit(cards, fit.kind, fit.skills ?? null));
   return { passed: problems.length === 0, slateSize: slate.length, cards: cards.filter(Boolean).length, problems };
 }
 
@@ -126,7 +177,7 @@ export async function runIdeationEval(entry: IdeationEvalBrief, client: ModelCli
     });
     cost += slate.cost.costMinor;
     await Promise.all(pending);
-    return { briefId: entry.id, check: checkIdeationSet(slate.elements, cards, entry.forbiddenArchetypes), costMinor: Math.round(cost), cacheReads, cardCalls: slate.elements.length, totalMs: Date.now() - started, firstCardMs };
+    return { briefId: entry.id, check: checkIdeationSet(slate.elements, cards, entry.forbiddenArchetypes, entry.fit ? { kind: entry.fit, skills: (entry.brief.founder?.skills as Record<string, unknown> | undefined) ?? null } : undefined), costMinor: Math.round(cost), cacheReads, cardCalls: slate.elements.length, totalMs: Date.now() - started, firstCardMs };
   } catch (err) {
     await Promise.allSettled(pending);
     const message = err instanceof Error ? err.message : String(err);

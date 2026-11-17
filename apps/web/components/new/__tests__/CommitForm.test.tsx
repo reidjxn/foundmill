@@ -157,6 +157,40 @@ describe("CommitForm: name and go (WP-04 T2)", () => {
     expect(screen.getByTestId("archetype-panel")).toBeTruthy();
   });
 
+  it("asks for time and where you live when the profile lacks them, and Start waits for exactly those two (WP-14 T2)", async () => {
+    const onCommit = renderForm(vi.fn(), { aboutMissing: ["timeCommitment", "residence"] }, { collapsed: true });
+    const panel = screen.getByTestId("commit-about-you");
+    expect(within(panel).getAllByRole("radio").length).toBe(4);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("take-charge"));
+    });
+    expect(onCommit).not.toHaveBeenCalled();
+    expect(screen.getByText("2 things to fix first")).toBeTruthy();
+    expect(within(panel).getByText("Pick how much time you can give.")).toBeTruthy();
+    expect(within(panel).getByText("Tell your team where you live.")).toBeTruthy();
+    fireEvent.click(within(panel).getByRole("radio", { name: /A few hours a week/ }));
+    fireEvent.change(within(panel).getByLabelText(/Where do you live/), { target: { value: " Canada " } });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("take-charge"));
+    });
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(onCommit.mock.calls[0]![0]).toMatchObject({ ideaId: IDEA_ID, name: "Ledgerly", timeCommitment: "few_hours", residence: "Canada" });
+  });
+
+  it("asks only for the one that is missing, and for nothing when the profile has both", async () => {
+    renderForm(vi.fn(), { aboutMissing: ["residence"] }, { collapsed: true });
+    expect(within(screen.getByTestId("commit-about-you")).queryAllByRole("radio").length).toBe(0);
+    expect(screen.getByLabelText(/Where do you live/)).toBeTruthy();
+    cleanup();
+    const onCommit = renderForm(vi.fn(), {}, { collapsed: true });
+    expect(screen.queryByTestId("commit-about-you")).toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("take-charge"));
+    });
+    expect(onCommit.mock.calls[0]![0]).not.toHaveProperty("timeCommitment");
+    expect(onCommit.mock.calls[0]![0]).not.toHaveProperty("residence");
+  });
+
   it("starts with the defaults in one press when nothing is opened", async () => {
     const onCommit = renderForm(vi.fn(), {}, { collapsed: true });
     await act(async () => {

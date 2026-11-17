@@ -221,7 +221,7 @@ All by the coordinating session on the founder's word (reported by that session,
 | WP-13 | T11 | The api and composer use a founder's own Anthropic key | pull request open | the composer needs `COMPOSER_SERVICE_TOKEN_SECRET` (composer and gateway) and `GATEWAY_URL` on Railway |
 | WP-13 | T10 | Switch it on | not started | T4 to T9, T11; setup Z2 |
 | WP-14 | T1 | Resting, and the last task always finishes | not started | amends WP-09 T13: the session that takes T13 takes this; the own key stays offered; owner: the session "WP-14 money: plans, Resting, team budget", after #251 (founder, Nov 17) |
-| WP-14 | T2 | Quick fit before the ideas, sharpen after; time and where you live before take charge | not started | changes WP-04 T1's first profile |
+| WP-14 | T2 | Quick fit before the ideas, sharpen after; time and where you live before take charge | pull request open (`claude/vibrant-dirac-xkj04i`) | changes WP-04 T1's first profile; the ratings 14 and 7 are flagged for the founder |
 | WP-14 | T3 | Team budget, outcomes first, on Billing | not started | WP-09 T1 and T2 (#251); owner: the session "WP-14 money: plans, Resting, team budget", after T14 (founder, Nov 17) |
 | WP-14 | T4 | Outcomes first on Today | not started |  |
 | WP-14 | T5 | Show the work | not started |  |

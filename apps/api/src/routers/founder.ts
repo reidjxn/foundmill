@@ -30,10 +30,12 @@ import { VIA_MAX_LENGTH } from "@foundmill/shared/via";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { adultConfirmedAt, recordAdultConfirmation, requireAdult } from "../services/adults";
+import { rerateFitForProfileChange } from "../services/founder-fit";
 import { IDEA_DRAFT_TOKEN_MAX_LENGTH, onPersonCreated } from "../services/person-created";
 import { writeEventRow } from "../services/events";
 import { getPublicProfile, publicPersonByHandle, publishPublicProfile, unpublishPublicProfile, updateFounderProfile, updatePublicProfile } from "../services/person-profile";
 import { protectedProcedure, publicProcedure, router, signedInProcedure } from "../trpc";
+import type { Context } from "../context";
 import { founderBusinessesRouter } from "./founder-businesses";
 import { cancelDeletionAsFormerFounder, formerProjectCards } from "../services/founder-notices";
 import { sendContinueLink } from "../services/continue-link";
@@ -42,6 +44,18 @@ import { modelLimited } from "../services/model-limits";
 /** Runs fn as the signed-in user, so Postgres RLS holds every row it touches to that user. */
 function asUser<T>(ctx: { db: Db; userId: string; email?: string | null }, fn: (tx: DbTx) => Promise<T>): Promise<T> {
   return withRls(ctx.db, { userId: ctx.userId, claims: ctx.email ? { email: ctx.email } : undefined }, fn);
+}
+
+/**
+ * Founder fit follows the profile's skill ratings on every idea the person holds (services/founder-fit.ts, WP-14 T2).
+ * The profile is saved already: a re-rating that fails is logged with the account id and never changes the answer.
+ */
+async function rerateFit(ctx: Pick<Context, "db" | "log"> & { userId: string }, before: Readonly<Record<string, number>> | null, after: { skills: Record<string, number>; experience: string | null }): Promise<void> {
+  try {
+    await rerateFitForProfileChange(ctx.db, ctx.userId, before, after);
+  } catch (err) {
+    ctx.log.warn({ userId: ctx.userId, reason: err instanceof Error ? err.name : "unknown" }, "founder fit was not re-rated after a profile save");
+  }
 }
 
 /**
@@ -193,7 +207,11 @@ export const founderRouter = router({
      */
     update: protectedProcedure.input(FounderProfileUpdateInput).mutation(async ({ ctx, input: { via, ideaDraftToken, confirmAdult, ...input } }) => {
       const existing = await repos.founders.get(ctx.db, ctx.userId);
-      if (existing) return { ...(await updateFounderProfile(ctx, input)), guidanceTurnedOff: false };
+      if (existing) {
+        const updated = await updateFounderProfile(ctx, input);
+        await rerateFit(ctx, existing.skills, updated);
+        return { ...updated, guidanceTurnedOff: false };
+      }
       // 18 or older, for the whole product (services/adults.ts): a new account creates its profile only with the box
       // ticked on this save, or an earlier confirmation (an invitation's accept, the network). The confirmation is
       // recorded here, before the profile, so a profile never exists without it; the step after it writes nothing then.
@@ -204,6 +222,8 @@ export const founderRouter = router({
       if (guidanceTurnedOff) await asUser(ctx, (tx) => repos.preferences.update(tx, ctx.userId, { guidance: "off", builderView: true, keyboardShortcuts: true }));
       // A guided first-timer starts on comfortable text (WP-10 T5, DESIGN §4); existing accounts keep their setting.
       else await asUser(ctx, (tx) => repos.preferences.update(tx, ctx.userId, { textSize: "comfortable" }));
+      // A card kept before the profile existed (the landing page's idea box) gets its Founder fit from these answers.
+      await rerateFit(ctx, null, profile);
       await onPersonCreated(ctx, ctx.userId, { via, ideaDraftToken, confirmAdult, client: ctx.clientKind });
       return { ...profile, guidanceTurnedOff };
     }),
