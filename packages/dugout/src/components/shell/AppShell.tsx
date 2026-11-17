@@ -31,6 +31,7 @@ import { TabBar, type TabBarProps } from "./TabBar";
 import { AREA_LETTERS, SHELL_FIXED_LETTERS, shellDepartmentLetters, useKeyboardMap, type DepartmentForKeys, type GoToTarget, type KeyboardMapContext } from "./keyboard";
 import type { BreadcrumbItem, ContinueState, Kit, ProcessingSegment, SidebarBrand, SidebarItem } from "./types";
 import { isViewportTooNarrowToScroll, isViewportTooSmall, MIN_VIEWPORT_WIDTH, useViewportWidth } from "./useViewportWidth";
+import { EstimateLegendScope } from "../guidance/EstimateLegend";
 
 export interface AppShellSidebar {
   items: SidebarItem[];
@@ -482,7 +483,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
             ) : null}
             </header>
             <main id="main" tabIndex={-1} className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto outline-none" data-testid="shell-content">
-              {children}
+              <EstimateLegendScope legendClassName="px-gutter pb-6 pt-2">{children}</EstimateLegendScope>
             </main>
             <PhoneMenu
               open={menuOpen}
@@ -609,7 +610,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
           </header>
           <div className="flex min-h-0 flex-1">
             <main id="main" tabIndex={-1} className="min-w-0 flex-1 overflow-auto outline-none" data-testid="shell-content">
-              {children}
+              <EstimateLegendScope legendClassName="px-gutter pb-6 pt-2">{children}</EstimateLegendScope>
             </main>
             {rightRail ? (
               <RightRail title={rightRail.title} open={rightRail.open} onOpenChange={rightRail.onOpenChange} actions={rightRail.actions}>

@@ -439,6 +439,29 @@
   vertical-align: 0.12em;
   color: var(--text-2);
 }
+/*
+ * The one style for a figure that was not measured (WP-14 T7, Nov 17, 2026): the figure itself, in its own type, with
+ * a dashed underline, the same dashed mark that means "not measured" everywhere. It is a button only so the word and its
+ * meaning open on hover and focus; it reads as text.
+ */
+@utility est-figure {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  text-align: inherit;
+  cursor: help;
+  text-decoration-line: underline;
+  text-decoration-style: dashed;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in oklab, var(--white) 45%, transparent);
+  text-underline-offset: 0.22em;
+  text-decoration-skip-ink: none;
+  border-radius: var(--r-xs);
+}
 /* An ISO code or short id on a plate (the currency select's code chip). */
 @utility code-chip {
   display: inline-flex;

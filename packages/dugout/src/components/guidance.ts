@@ -9,6 +9,9 @@ export * from "./guidance/DefinitionCard";
 export * from "./guidance/Term";
 export * from "./guidance/InfoTip";
 export * from "./guidance/ProvenanceTip";
+// One style for a figure that was not measured, and one legend line for each screen (WP-14 T7).
+export * from "./guidance/Estimated";
+export * from "./guidance/EstimateLegend";
 export * from "./guidance/Explainer";
 export { PageExplainProvider, usePageExplain, type PageExplainEntry } from "./guidance/PageExplain";
 export { ExplainPageButton, ExplainTrigger, EXPLAIN_PAGE_LABEL, type ExplainTriggerProps } from "./guidance/ExplainPageButton";

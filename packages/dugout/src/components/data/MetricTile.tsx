@@ -9,7 +9,8 @@ import {
   formatNumber,
   formatPercent,
 } from "../../lib/format";
-import { ProvenanceChip, type ProvenanceKind } from "../foundation/Chip";
+import type { ProvenanceKind } from "../foundation/Chip";
+import { Estimated } from "../guidance/Estimated";
 import { Icon } from "../foundation/Icon";
 import { Skeleton } from "../foundation/Skeleton";
 import { useFormatters } from "../foundation/DateFormatProvider";
@@ -288,9 +289,14 @@ export const MetricTile = forwardRef<HTMLDivElement, MetricTileProps>(function M
               fallback={fallback && unit ? `${fallback} ${unit}` : fallback}
               tooltip={false}
             >
-              <Figure id={`${id}-value`} value={text} unit={unit} data-value={text} />
+              {estimate ? (
+                <Estimated kind={estimate} className="relative z-10">
+                  <Figure id={`${id}-value`} value={text} unit={unit} data-value={text} />
+                </Estimated>
+              ) : (
+                <Figure id={`${id}-value`} value={text} unit={unit} data-value={text} />
+              )}
             </FitText>
-            {estimate ? <ProvenanceChip kind={estimate} className="relative z-10 ml-0.5" /> : null}
             {delta ? <DeltaBadge delta={delta} id={`${id}-delta`} /> : null}
           </div>
         </PlainFigure>
