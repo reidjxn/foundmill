@@ -79,7 +79,7 @@ export async function proxyOwnKeyMessage(deps: GatewayDeps, req: OwnKeyMessageRe
     return anthropicError(400, "invalid_request_error", "The request body is not a JSON object.");
   }
   const model = parsed.model;
-  if (typeof model !== "string" || !ROUTED_ANTHROPIC_MODELS.has(model)) return anthropicError(400, "invalid_request_error", "Only Foundmill's routed Claude models run on a founder's key.");
+  if (typeof model !== "string" || !ROUTED_ANTHROPIC_MODELS.has(model)) return anthropicError(400, "invalid_request_error", "Only the routed Claude models run on a founder's key.");
   if (REFUSED_FIELDS.some((f) => f in parsed)) return anthropicError(400, "invalid_request_error", "MCP servers and containers do not run on a founder's key.");
   const tools = Array.isArray(parsed.tools) ? (parsed.tools as { type?: unknown }[]) : [];
   if (tools.some((t) => t && typeof t === "object" && t.type !== undefined && t.type !== "custom")) return anthropicError(400, "invalid_request_error", "Server tools do not run on a founder's key.");

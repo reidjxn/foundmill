@@ -22,7 +22,9 @@ supersedes: []
   - `ownKeyViaGateway` gives one live client per business, whose Messages endpoint is that route, signed with a service token and carrying no key;
   - `routeOwnKeyCalls` sends a call there when its business is on its own key, and every other call, web search included, to the platform client;
   - a 401 or 403 reads as `OWN_KEY_REFUSED` and the 409 as `OWN_KEY_MISSING`, never a fallback to Foundmill's key or to GLM.
-- **The api** (`createApiModelClient`, `context.ts`): in live mode an own-key business's calls take that route, booked `byok`, signed as the api's other gateway calls. Every procedure calls `ctx.models`, so every call site in the work package's list takes it: desk, team calls, goal proposal, plan compiler, task graph, research, recommenders, logo, page quiz, post drafts and the agent builder. `toTRPCError` maps the two sentences to PRECONDITION_FAILED.
+- **The api** (`createApiModelClient`, `context.ts`): in live mode an own-key business's calls take that route, booked `byok`, signed as the api's other gateway calls.
+  - Every procedure calls `ctx.models`, so every call site in the work package's list takes it: desk, team calls, goal proposal, plan compiler, task graph, research, recommenders, logo, page quiz, post drafts and the agent builder.
+  - `toTRPCError` maps the two sentences to PRECONDITION_FAILED.
 - **The composer** (`composerModelClient`, `index.ts`): the same for the Inbox notes, founder titles, journey commentary and chapter notes. It signs `svc: composer` per business with its own `COMPOSER_SERVICE_TOKEN_SECRET` (HS256 with `node:crypto`, the claims the gateway checks), so no JWT dependency was added. Without that secret its own-key calls run as the plan says.
 - **Tests:**
   - gateway `model-proxy.test.ts`: answered on the founder's key; credits, no key, wrong service and unrouted models refused with no call; the key in no log;
