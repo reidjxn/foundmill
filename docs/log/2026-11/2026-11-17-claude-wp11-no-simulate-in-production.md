@@ -37,5 +37,5 @@ DEPLOY §6 gains a Nov 17 table: F5 done, DMARC `p=quarantine`, Supabase backups
 ## Not done
 - The connector list's "Not available yet" labels are unchanged.
 - A connection's stored error (`lastError`) and its permission names in the tooltip are shown as the vendor gave them.
-- Rows already written on production by Simulate are not cleaned up here, since this change touches nothing in
-  production.
+- Nothing to clean up. The coordinator ran the read-only count query against production on Nov 17, 2026: 0 rows.
+  No real project carries simulated events, conversions, journeys, customer records or inbox items.
