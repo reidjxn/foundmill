@@ -225,7 +225,7 @@ All by the coordinating session on the founder's word (reported by that session,
 | WP-14 | T3 | Team budget, outcomes first, on Billing | not started | WP-09 T1 and T2 (#251); owner: the session "WP-14 money: plans, Resting, team budget", after T14 (founder, Nov 17) |
 | WP-14 | T4 | Outcomes first on Today | not started |  |
 | WP-14 | T5 | Show the work | not started |  |
-| WP-14 | T6 | Named agents on by default for first-time founders | not started |  |
+| WP-14 | T6 | Named agents on by default for first-time founders | pull request open (`claude/wp14-t6-named-agents`, on top of T2's #299) | plan gating is T14's; every account made through the first profile reads as first-time |
 | WP-14 | T7 | One style for estimates, one legend | not started | amends WP-10 T9 and T12; changes docs/DESIGN.md §10; owner: the session "WP-14 estimates style and measures" (founder, Nov 17) |
 | WP-14 | T8 | The chapter report | not started |  |
 | WP-14 | T9 | Share a Customer Update as a card | not started | #244 |

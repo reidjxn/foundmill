@@ -45,7 +45,11 @@ export function useGuidanceSignal(): GuidanceSignalFn {
   return useContext(GuidanceSignalCtx);
 }
 
-/** What everyone reads until the account answers, and on every signed-out page. */
+/**
+ * What everyone reads until the account answers, and on every signed-out page. Named agents stay off here: a
+ * first-time founder's account has them on (the api turns the switch on when their profile is created, WP-14 T6), and
+ * that answer arrives with the account's own preferences, so nobody who starts with them off sees a name flash by.
+ */
 export const DEFAULT_GUIDANCE_PREFS: Readonly<GuidancePrefs> = Object.freeze({ guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: DEFAULT_AGENT_STYLE, builderView: false, keyboardShortcuts: false });
 
 /** True on the pages the proxy reserves for a signed-in founder; `/` is the landing page for a visitor, so it is not one. */

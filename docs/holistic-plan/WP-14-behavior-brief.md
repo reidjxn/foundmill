@@ -107,6 +107,7 @@ Steps:
 Done when: the strip shows during a run and is absent otherwise, and the digest test asserts counts that match the records.
 
 ### T6: Named agents on by default for first-time founders            [S] [ships alone]
+Built on Nov 17, 2026 (`claude/wp14-t6-named-agents`; log `2026-11-17-claude-wp14-t6-named-agents`). What differs from the steps is in the log's Decisions.
 Brief: A9. Why: the default is off for everyone (`guidance-context.ts`, migration 0067).
 Steps: default the per-person switch on when the profile says first-time founder; leave it for everyone else. In code and in tests: a named agent is labeled an AI agent wherever it appears (already true; add the test), and a named agent never writes to a third party as though it were a person. Use the name from "what should your team call you" wherever the product addresses the founder.
 Done when: a new first-time profile sees named agents, an experienced one does not, and the third-party test passes.
