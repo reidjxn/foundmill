@@ -172,6 +172,31 @@ describe("today.get", () => {
     expect((await b.owner.today.get({ businessId: b.id })).outcomes.toward).toBe("Working toward: Get the first 10 paying customers by Dec 19");
   });
 
+  it("Working now lists each agent with a running task in the founder's words, and nothing when nobody is working (WP-14 T5)", async () => {
+    const b = await business("Today Working");
+    expect((await b.owner.today.get({ businessId: b.id })).workingNow).toEqual([]);
+    const builder = await repos.agents.create(hz.db, b.id, { name: "Rhea Stone", agentType: "backend_engineer", status: "healthy" });
+    const start = async (title: string, founderTitle: string, assigneeAgentId: string | null) => {
+      const t = await repos.tasks.create(hz.db, b.id, { kind: "code", title, founderTitle, status: "ready", assigneeAgentId });
+      await repos.tasks.setStatus(hz.db, b.id, t.id, "running", { force: true });
+    };
+    await start("stripe-integration", "Set up card payments", builder.id);
+    await start("stripe-webhooks", "Record each payment", builder.id);
+    await start("orphan", "Work with no agent yet", null);
+    await repos.tasks.create(hz.db, b.id, { kind: "code", title: "queued", founderTitle: "Waiting to start", status: "ready", assigneeAgentId: b.chief.id });
+
+    const view = await b.owner.today.get({ businessId: b.id });
+    // One line an agent (its oldest running work), by the founder-facing title; queued work and work with no agent are not "working now".
+    expect(view.workingNow).toEqual([{ agent: expect.objectContaining({ id: builder.id, name: "Rhea Stone" }), doing: "Set up card payments" }]);
+    expect(JSON.stringify(view.workingNow)).not.toContain("stripe-integration");
+
+    // Walled from Development: not theirs to read. Agents stopped: nobody is working.
+    await repos.memberships.setSectionPermissions(hz.db, b.id, b.memberId, { development: "none" });
+    expect((await b.member.today.get({ businessId: b.id })).workingNow).toBeNull();
+    await hz.db.execute(sql`update businesses set agents_stopped_at = now(), agents_stopped_reason = 'founder' where id = ${b.id}`);
+    expect((await b.owner.today.get({ businessId: b.id })).workingNow).toEqual([]);
+  });
+
   it("is business-scoped: someone outside the business cannot read it", async () => {
     const b = await business("Today Walls");
     await expect(hz.caller({ userId: hz.A.ownerId }).today.get({ businessId: b.id })).rejects.toThrow();
