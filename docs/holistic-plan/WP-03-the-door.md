@@ -351,7 +351,7 @@ The api admits them on their next request and the sweep emails them within 15 mi
 **Done when:** Done-when 4.
 **Needs setup:** the Follow lines in the examples assume a follower gets the confirmation email: WP-00 S1 recorded done. If it is not, ship with "leave an email address on the page" cut from Day 2 and restore it later.
 
-### T6: Findable by search engines and AI readers [M] [ships alone, after T5]
+### [x] T6: Findable by search engines and AI readers [M] [ships alone, after T5]
 
 **Why:** FR-06 (indexing), s3 findings 1, 2, 3, 5, 9, 13, 16.
 
