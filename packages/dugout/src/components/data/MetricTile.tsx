@@ -122,7 +122,8 @@ export function DeltaBadge({ delta, className, id }: { delta: MetricDelta; class
       <span className="sr-only">{word} </span>
       {/* A flat change reads as "no change": the visible 0 would only repeat it. */}
       <span aria-hidden={flat || undefined}>{flat ? "0" : body}</span>
-      {delta.label ? <span className="font-normal opacity-80">{delta.label}</span> : null}
+      {/* Set apart by weight, not opacity: a dimmed label fell under AA on the tinted chip (axe color-contrast). */}
+      {delta.label ? <span className="font-normal">{delta.label}</span> : null}
     </span>
   );
 }

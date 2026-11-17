@@ -293,8 +293,8 @@ test.describe("entity profile for a collaborator", () => {
       // A new account confirms it is 18 or older on the invitation (0100).
       await theirs.getByTestId("invitation-adult").getByRole("checkbox", { name: "I am 18 or older" }).check();
       await theirs.getByTestId("invitation-accept").click();
-      await theirs.waitForURL(new RegExp(`/b/${bid}/|/onboarding`), { timeout: LONG });
-      // A new person first meets their profile (the project's layout asks for it), then opens the record.
+      // A new person is asked for a name on the invitation card (WP-12 T2); this case fills in the full profile instead.
+      await expect(theirs.getByTestId("invitation-name")).toBeVisible({ timeout: LONG });
       await theirs.goto("/onboarding");
       await completeProfile(theirs);
       await theirs.goto(commercial);

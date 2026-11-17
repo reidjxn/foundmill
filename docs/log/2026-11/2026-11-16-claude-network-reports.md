@@ -7,7 +7,7 @@ supersedes: []
 ---
 ## What changed
 The people layer is open in production (`LIVE_MODE=1` since Nov 15), so safety came first (docs/NETWORK.md F21; WP-12 T4).
-- Migration 0129 `reports`: person-level, service role only (RLS on, no policy, clients revoked), one open report per reporter and target, never about oneself; `rls/reports.test.ts`.
+- Migration 0136 `reports`: person-level, service role only (RLS on, no policy, clients revoked), one open report per reporter and target, never about oneself; `rls/reports.test.ts`.
 - `report.create` (a `protectedProcedure`, not behind `liveGate`): a person, a public profile by handle, or a message from a thread the reporter is or was in; optional `block`; ten a day in the shared limit store. Every answer reads the same whatever was stored (`blocked` echoes the ask). A reported message's words are kept on the report.
 - `operator.reports.list|resolve` behind `operatorProcedure` (`OPERATOR_USER_IDS` on the api; everyone else gets NOT_FOUND). `/operator/reports` (desktop): oldest first, due time (48 hours), overdue marked, the open reports about the same person, the reported message as it read when reported and the note, as plain text.
 - `/operator/reports` checks the queue on the server first, so a non-operator gets the plain not-found page.

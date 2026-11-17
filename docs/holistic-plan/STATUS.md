@@ -18,6 +18,7 @@ Recorded in docs/log/2026-11/ (find them with `node scripts/decisions-index.mjs 
 - **WP-03** (Nov 15, `wp03-founder-decisions`): index once sign-up opens, indexing follows `SIGNUP_OPEN`; training crawlers allowed on Foundmill's own pages and kept off `/p/` and `/u/`; the Terms sentence and date were approved on Nov 16 (WP-03 T6). **WP-05** (Nov 16, `wp05-founder-decisions`) D1 to D4. **WP-11** (Nov 16, `wp11-decisions`): the items accepted for now, with what reopens each.
 - **One operator** (Nov 17, `foundmill-runs-on-foundmill`): only the founder's own account has operator privileges (`OPERATOR_USER_IDS`); the reports queue is #208 (WP-12 T4). The goal once the product works end to end is to run Foundmill itself on Foundmill; agents are onboarded from docs/log, the package guides and the skills.
 - **CI** (Nov 16): the Actions budget was raised and the minutes rules are in CLAUDE.md; one push per pull request.
+- **The behavior brief** (Nov 17, `wp14-behavior-brief`): created WP-14, with the founder's answers of the same afternoon. The entry plan is **Try**: free today, $5 a month from the day sign-up opens; plans are Try, Founder, Studio, Partner; the Founder price is tested at **$15 and $25**; "plans differ by agent work only" is dropped (CLAUDE.md changed); **a founder can always bring their own Anthropic key, on every plan**; Commit's defaults are a 5.00 spend cap and Autopilot off; time and where you live are known before take charge; the waitlist opens in batches with a places count, three named invitations with no reward, and an indexable waitlist page; "built for a big screen" is allowed copy. Amends WP-09 T13, T14 and T16, WP-13 T7 and T11, WP-10 T9 and T12, WP-02 T10, WP-03 T2, T6 and T10, WP-04 T1 and T2, and the network session's invitations. In the evening: people invited while sign-up is invite-only never pay the Founder fee (replaces #274's answer 4); plans limit companies, not people (Try 1, Founder up to 5, Studio any number, deleted ones not counted); Founder carries $10.00 and Studio $50.00 of budget and both reach Opus and Sonnet without a credit pack. On Try a credit pack of $20 or more still adds credits and unlocks Opus and Sonnet (#274 stands). Four never-list lines are in CLAUDE.md. Nothing is open with the founder.
 - **WP-08 D1 to D6** (Nov 16) are recorded in pull request #244, which is open, so they are not on main yet.
 
 ## Production changes since Nov 15
@@ -211,14 +212,29 @@ All by the coordinating session on the founder's word (reported by that session,
 | WP-13 | T1 | Probe Z.ai's Anthropic-compatible endpoint | merged (#250) | the SDK run moves into T4 |
 | WP-13 | T2 | The GLM key, the provider seam and the guard | merged (#250) |  |
 | WP-13 | T3 | Api, composer, gateway readers and the idea box choose by who pays | merged (#257) |  |
-| WP-13 | T4 | Free projects' agent sessions run on GLM | not started | T2 (merged); a word from the plan-execution session on session.ts |
+| WP-13 | T4 | Free projects' agent sessions run on GLM | merged (#284) | on Haiku 5.5 by default; `FREE_SESSION_MODEL=glm` is the founder's switch |
 | WP-13 | T5 | Free web search through Z.ai's Web Search API | merged (#260) | on Haiku 5.5 instead of Z.ai (founder, Nov 16); production switch is WP-00 S6 |
-| WP-13 | T6 | The $600 monthly cap, and slowing down at it | not started | T3 (merged) |
+| WP-13 | T6 | The $600 monthly cap, and slowing down at it | merged (#283) | the sessions' part is in T4 |
 | WP-13 | T7 | The model dialog shows GLM, and Anthropic models offer an upgrade | not started | T2 (merged); at opening its copy says "buy a credit pack" (Nov 17) |
-| WP-13 | T8 | Evals on GLM-5.3 Flash | not started |  |
+| WP-13 | T8 | Evals on GLM-5.3 Flash | partly merged | the session cost run (#283: $0.0068 a GLM session); the platform suites on Haiku 5.5 and GLM: not started |
 | WP-13 | T9 | The privacy policy names Z.ai | merged (#260) | the DPA and SCCs are the founder's (Z3) |
-| WP-13 | T11 | The api and composer use a founder's own Anthropic key | not started | T3 (merged) |
+| WP-13 | T11 | The api and composer use a founder's own Anthropic key | pull request open | the composer needs `COMPOSER_SERVICE_TOKEN_SECRET` (composer and gateway) and `GATEWAY_URL` on Railway |
 | WP-13 | T10 | Switch it on | not started | T4 to T9, T11; setup Z2 |
+| WP-14 | T1 | Resting, and the last task always finishes | not started | amends WP-09 T13: the session that takes T13 takes this; the own key stays offered; owner: the session "WP-14 money: plans, Resting, team budget", after #251 (founder, Nov 17) |
+| WP-14 | T2 | Quick fit before the ideas, sharpen after; time and where you live before take charge | not started | changes WP-04 T1's first profile |
+| WP-14 | T3 | Team budget, outcomes first, on Billing | not started | WP-09 T1 and T2 (#251); owner: the session "WP-14 money: plans, Resting, team budget", after T14 (founder, Nov 17) |
+| WP-14 | T4 | Outcomes first on Today | not started |  |
+| WP-14 | T5 | Show the work | not started |  |
+| WP-14 | T6 | Named agents on by default for first-time founders | not started |  |
+| WP-14 | T7 | One style for estimates, one legend | not started | amends WP-10 T9 and T12; changes docs/DESIGN.md §10; owner: the session "WP-14 estimates style and measures" (founder, Nov 17) |
+| WP-14 | T8 | The chapter report | not started |  |
+| WP-14 | T9 | Share a Customer Update as a card | not started | #244 |
+| WP-14 | T10 | The tour and landing copy | not started | the landing session (Desktop), told on Nov 17 |
+| WP-14 | T11 | Commit's defaults and its credits line | not started | replaces WP-04 D4 and WP-09 D7 as defaults |
+| WP-14 | T12 | Four measures | not started | amends WP-02 T10; two of the four need T1 and T9; owner: the session "WP-14 estimates style and measures"; the two measures that need T1 and T9 follow them (founder, Nov 17) |
+| WP-14 | T13 | The plan document | not started | docs only |
+| WP-14 | T14 | Plans, prices, companies and what each plan includes | not started | amends WP-09 T14 and T16 and WP-13 T7's server check; owner: the session "WP-14 money: plans, Resting, team budget", after #251 (founder, Nov 17) |
+| WP-14 | T15 | The waitlist in batches, and invitations to give | not started | amends WP-03 T2, T6, T10 and WP-12; coordinate with the network session; owner: the landing idea-card session, with the network session told (assigned Nov 17), except step 4 (three named invitations, no reward, docs/NETWORK.md), which the invitations session (session_01CJRTqPdPGy7AVuYv4eZNtd) takes at the founder's request of Nov 17: it wrote the invitation admission rules (#120) |
 
 ## Unknown, for the founder or the session that owns each
 

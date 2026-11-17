@@ -24,6 +24,8 @@ let acts: ReturnType<typeof createSessionActivities>;
 
 beforeAll(async () => {
   t = await setupOrchestratorHarness({ prefix: "sess" });
+  // These tests cover a paid plan's sessions; a free business runs every session on the free plan's model (WP-13 T4).
+  await repos.businesses.update(t.db, t.businessId, { planTier: "pro" });
   acts = createSessionActivities(t.deps);
 });
 afterAll(async () => {

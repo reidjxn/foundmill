@@ -3,6 +3,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Browser, type Page } from "@playwright/test";
 import { LONG, answerFirstProfile } from "./helpers";
+import { PLACEHOLDER_IDEAS } from "../components/landing/idea-box/typing";
+import { VARIANT_EXAMPLES } from "../components/landing/variant-examples";
 
 /**
  * The landing page's idea box (founder, 2026-11-13; docs/IDEA_BOX.md) against the local stack (mock models, the mock
@@ -265,3 +267,66 @@ test("on a phone at 390 px the same page works: Surprise me drafts from an inter
     await close();
   }
 });
+
+/**
+ * The field at rest (founder, 2026-11-17: "the example text should never come out of the text box"): at every width
+ * from 390 px, each example the placeholder types fits inside the field whole, the "Shape my idea" button is whole,
+ * beside the field or under it and never over it, and the page never scrolls sideways. Each example is set into the
+ * typing overlay directly, so the longest is measured without waiting for the animation to reach it.
+ */
+for (const [width, height] of [
+  [390, 844],
+  [768, 1024],
+  [1024, 768],
+  [1080, 800],
+  [1280, 800],
+  [1440, 900],
+] as const) {
+  test(`at ${width} px the examples stay inside the field, the button is whole and the example label fits`, async ({ browser }) => {
+    const { page, close } = await visitor(browser, width, height);
+    try {
+      await page.goto("/");
+      await expect(page.getByTestId("idea-placeholder")).toBeVisible({ timeout: LONG });
+      const report = await page.evaluate((ideas) => {
+        const overlay = document.querySelector<HTMLElement>("[data-testid=idea-placeholder]")!;
+        const text = overlay.firstElementChild as HTMLElement;
+        const input = document.querySelector<HTMLElement>("[data-testid=idea-input]")!.getBoundingClientRect();
+        const field = document.querySelector<HTMLElement>("[data-testid=idea-field]")!.getBoundingClientRect();
+        const button = document.querySelector<HTMLElement>("[data-testid=idea-generate]")!;
+        const b = button.getBoundingClientRect();
+        const problems: string[] = [];
+        for (const idea of ideas) {
+          text.textContent = idea;
+          const o = overlay.getBoundingClientRect();
+          const t = text.getBoundingClientRect();
+          if (t.right > input.right + 0.5 || o.right > input.right + 0.5) problems.push(`"${idea}" runs past the field (${Math.round(Math.max(t.right, o.right))} > ${Math.round(input.right)})`);
+          if (text.scrollWidth > text.clientWidth + 0.5) problems.push(`"${idea}" is cut short (${text.scrollWidth} > ${text.clientWidth})`);
+        }
+        if (b.right > window.innerWidth + 0.5 || b.left < -0.5) problems.push(`the button leaves the view (${Math.round(b.left)}–${Math.round(b.right)} of ${window.innerWidth})`);
+        if (button.scrollWidth > button.clientWidth + 0.5) problems.push("the button's label is cut short");
+        const beside = b.left >= field.right - 0.5;
+        const under = b.top >= field.bottom - 0.5;
+        if (!beside && !under) problems.push("the button overlaps the field");
+        if (document.documentElement.scrollWidth > document.documentElement.clientWidth) problems.push("the page scrolls sideways");
+        // The example's label (founder, 2026-11-17): whole, on one line, inside its frame.
+        const frame = document.querySelector<HTMLElement>("#hero [data-screen-frame]")!;
+        const chip = frame.querySelector<HTMLElement>("figcaption")!;
+        const c = chip.getBoundingClientRect();
+        const fr = frame.getBoundingClientRect();
+        if (chip.textContent !== "Example companies you can create") problems.push(`the label reads "${chip.textContent}"`);
+        if (chip.scrollWidth > chip.clientWidth + 0.5 || chip.scrollHeight > chip.clientHeight + 0.5) problems.push("the label is cut short or wraps");
+        if (c.left < fr.left - 0.5 || c.right > fr.right + 0.5) problems.push(`the label leaves its frame (${Math.round(c.left)}–${Math.round(c.right)} of ${Math.round(fr.left)}–${Math.round(fr.right)})`);
+        // The examples in the founder's order (2026-11-17), on one line from 768 px (founder, 2026-11-16).
+        const pills = [...frame.querySelectorAll<HTMLElement>("[role=radio]")];
+        const names = pills.map((p) => p.textContent);
+        if (names.join(",") !== "Northwind,Tutorlane,Sole Revival,Glitchwick") problems.push(`the examples read ${names.join(", ")}`);
+        if (window.innerWidth >= 768 && new Set(pills.map((p) => Math.round(p.getBoundingClientRect().top))).size !== 1) problems.push("the examples wrap onto two lines");
+        return problems;
+      }, [...PLACEHOLDER_IDEAS, ...VARIANT_EXAMPLES]);
+      expect(report, report.join("\n")).toEqual([]);
+    } finally {
+      await close();
+    }
+  });
+}
+

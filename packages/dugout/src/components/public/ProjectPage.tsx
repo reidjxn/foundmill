@@ -87,8 +87,11 @@ export function ProjectPage({ name, pitch, about, forWhom, stage, publishedAt, b
   const published = publishedAt ? formatDate(publishedAt, "date") : null;
   const whoId = useId();
   const rootStyle: CSSProperties = { ...kitStyle({ primary: brandPrimary, secondary: brandSecondary }), ...style };
+  // A full page is the document's one main landmark; a preview sits inside the console's own <main>, as an article.
+  const Root = variant === "page" ? "div" : "article";
+  const Body = variant === "page" ? "main" : "div";
   return (
-    <article
+    <Root
       data-project-page=""
       data-variant={variant}
       className={cn("@container relative flex flex-col bg-canvas text-primary", variant === "page" ? "min-h-dvh" : "min-h-full", className)}
@@ -97,7 +100,7 @@ export function ProjectPage({ name, pitch, about, forWhom, stage, publishedAt, b
     >
       {/* The brand line, as on the top bar's lower edge: the business's color, never a fill behind text. */}
       <div aria-hidden className="h-1 w-full shrink-0 bg-kit-primary" data-brand-line="" />
-      <div className="mx-auto flex w-full max-w-reading min-w-0 flex-1 flex-col gap-8 px-gutter py-10 @page-wide:gap-10 @page-wide:py-16">
+      <Body className="mx-auto flex w-full max-w-reading min-w-0 flex-1 flex-col gap-8 px-gutter py-10 @page-wide:gap-10 @page-wide:py-16">
         <header className="flex min-w-0 flex-col gap-5">
           <div className="flex min-w-0 items-center gap-3">
             <BusinessLogo src={logo} name={name} primary={brandPrimary} size={48} title="" />
@@ -151,7 +154,7 @@ export function ProjectPage({ name, pitch, about, forWhom, stage, publishedAt, b
             {follow}
           </div>
         ) : null}
-      </div>
+      </Body>
       {mark === "none" ? null : (
         <footer className="border-t border-line-faint" data-project-mark={mark}>
           <div className="mx-auto flex w-full max-w-reading px-gutter">
@@ -165,6 +168,6 @@ export function ProjectPage({ name, pitch, about, forWhom, stage, publishedAt, b
           </div>
         </footer>
       )}
-    </article>
+    </Root>
   );
 }

@@ -5,7 +5,7 @@ import { expect, test } from "@playwright/test";
 
 /**
  * Gate 0 evidence (BUILD §16.1, docs/GATES.md): "shell renders seeded data at 1440 px" and "NeedsLargerWindow below
- * 1280 px". Signs in through the dev bypass as the seed owner, opens the seeded Northwind Skincare Home, waits until the
+ * 1280 px" (below 640 px since founder decision 3, Nov 16, 2026). Signs in through the dev bypass as the seed owner, opens the seeded Northwind Skincare Home, waits until the
  * seeded data is on screen (the Journey Ribbon's accessible summary names its milestones only once the two years of
  * `journey_daily` are drawn; the department cards come from the seeded departments) and writes full-page screenshots
  * under e2e/screens/. The files are the evidence linked from docs/GATES.md; the assertions make the spec fail rather
@@ -56,13 +56,17 @@ test.describe("Gate 0 screenshots (seeded Northwind Skincare)", () => {
     await page.screenshot({ path: screen("gate0-home-1440.png"), fullPage: false });
   });
 
-  test("NeedsLargerWindow replaces the shell at 1279 × 900 → e2e/screens/gate0-needs-larger-window-1279.png", async ({ page }) => {
+  test("NeedsLargerWindow replaces the shell below 640 px → e2e/screens/gate0-needs-larger-window-639.png; from 640 to 1279 px the shell scrolls sideways", async ({ page }) => {
+    // Founder decision 3 (Nov 16, 2026): from 640 to 1279 px the console keeps its 1280 px floor in a sideways scroll.
     await page.setViewportSize({ width: 1279, height: 900 });
     await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/home`);
+    await expect(page.getByTestId("scroll-shell").getByTestId("app-shell")).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
+    await page.setViewportSize({ width: 639, height: 900 });
     const notice = page.getByTestId("needs-larger-window");
     await expect(notice).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("app-shell")).toHaveCount(0);
-    await page.screenshot({ path: screen("gate0-needs-larger-window-1279.png"), fullPage: false });
+    await page.screenshot({ path: screen("gate0-needs-larger-window-639.png"), fullPage: false });
     // And the shell comes back once the window is wide enough again.
     await page.setViewportSize({ width: 1440, height: 900 });
     await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });

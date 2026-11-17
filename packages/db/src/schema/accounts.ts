@@ -255,6 +255,11 @@ export const businesses = pgTable(
      * when an owner or admin turns it on again; `autopilotChangedAt` is when it was last turned on (the idle streak
      * counts from there); `autopilotNextAt` is the next planned cycle (an Estimate, written by the workflow).
      */
+    /**
+     * 0135 — payment powers (founder, Nov 16, 2026): `inbound` lets agents create invoices and payment pages without
+     * asking in automated mode and on vacation. Empty: they ask. No outbound power exists.
+     */
+    paymentPowers: text("payment_powers", { enum: ["inbound"] }).array().notNull().default(sql`'{}'::text[]`),
     autopilotEnabled: boolean("autopilot_enabled").notNull().default(false),
     autopilotCadence: text("autopilot_cadence", { enum: AUTOPILOT_CADENCES }).notNull().default("every_4h"),
     autopilotDailyHour: integer("autopilot_daily_hour").notNull().default(9),

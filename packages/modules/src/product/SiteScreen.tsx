@@ -9,6 +9,7 @@ import { APP_NAME } from "@foundmill/config";
 import { Button, Explainer, Panel, StatusPill, useFormatters } from "@foundmill/dugout";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
 import type { ModuleScreenProps } from "../registry";
+import { PayLinksPanel } from "./PayLinksPanel";
 import { Screen, errorMessage } from "./shared";
 
 export interface SiteFlagView {
@@ -195,6 +196,8 @@ export function SiteScreen(_props: ModuleScreenProps) {
           </ul>
         </Panel>
       ) : null}
+
+      {site && data?.enabled ? <PayLinksPanel canEdit={data.canPublish} /> : null}
     </Screen>
   );
 }

@@ -10,7 +10,7 @@ import path from "node:path";
 import { screenSiteFiles, starterFiles } from "@foundmill/agents";
 import { repos } from "@foundmill/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { applySiteChanges, buildSiteRelease, isSiteProject, siteCheckout } from "../activities/site-workspace";
+import { applySiteChanges, buildSiteRelease, isSiteProject, siteCheckout, siteTaskNote } from "../activities/site-workspace";
 import { saveWorkspace } from "../activities/workspace-store";
 import { openSessionRow, setupOrchestratorHarness, type OrchestratorTestHarness } from "./harness";
 
@@ -40,6 +40,13 @@ async function session(taskId: string, write: Record<string, string>, remove: st
   await saveWorkspace(t.db, { businessId: t.businessId, taskId, sessionId, agentId: t.workerId, branch: `agent/${taskId}` }, cwd, { base: started.base });
   return { cwd, started, finish: () => buildSiteRelease(t.db, ENV, { businessId: t.businessId, taskId, sessionId, agentId: t.workerId, agentName: "Riley" }) };
 }
+
+describe("siteTaskNote", () => {
+  it("tells the team how to place a pay button, by key, never by a payment address (WP-07 T7)", () => {
+    expect(siteTaskNote()).toContain('<a href="/_fm/pay/<key>">');
+    expect(siteTaskNote()).toContain("list_pay_links");
+  });
+});
 
 describe("applySiteChanges", () => {
   const f = (p: string, sha: string) => ({ path: p, sha256: sha, size: 1 });

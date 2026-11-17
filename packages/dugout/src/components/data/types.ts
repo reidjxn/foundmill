@@ -1,3 +1,4 @@
+import type { RatingSource } from "../../lib/rating-words";
 /** Shared types for the data group (BUILD §5.4 DataTable/EntityLink/SkillGrid/DiffView/WidgetGrid, §11.2, §11.10). */
 import type { ReactNode } from "react";
 import type {
@@ -134,6 +135,8 @@ export interface SkillRow {
   potential?: number;
   /** "Custom skill" or other note shown as a chip. */
   note?: string;
+  /** What the rating is from (WP-10 T9): the starting estimate, practice tests, or real work. */
+  source?: RatingSource;
 }
 
 export interface AttributeRow {

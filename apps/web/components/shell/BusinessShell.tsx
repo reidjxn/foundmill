@@ -57,7 +57,7 @@ import { AgentDeskHost, prefetchAgentDesk, type AgentDeskApi } from "@/component
 import { useNetworkBadge } from "@/components/live/signals";
 import { termsFor } from "@/components/providers/GuidanceHost";
 import { useKeyboardShortcutsOn } from "@/components/providers/guidance-context";
-import { worksOnSmallScreens } from "@/components/providers/DesktopOnly";
+import { isTodayPath, worksOnSmallScreens } from "@/components/providers/DesktopOnly";
 import { agentOfAskItem, agentOfCallItem, askPaletteItems, askQuestion, callPaletteItems, generatePaletteItems, paletteAgents } from "@/components/conversation/palette";
 import { BusinessProvider, makeBusinessContext, type BusinessGet, type DepartmentList } from "./business-context";
 import { switcherBusinesses } from "./business-switcher";
@@ -840,6 +840,8 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
               <AppShell
                 // Today and Needs you work from 390 px (package 2.1): the shell's phone layout; other routes keep the 1280 px floor.
                 phone={worksOnSmallScreens(pathname)}
+                // "Explain this page" in the phone title row on Today only (WP-04 T7).
+                phoneExplain={isTodayPath(pathname)}
                 mode={business.gameMode}
                 businessMode={business.businessMode}
                 // The mode chip says the setting in words with the business's own currency ("Asks before spending over £50").

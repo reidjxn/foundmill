@@ -2,6 +2,15 @@
 
 **Goal:** Everyone who has not paid for a plan runs on the cheapest models that hold quality: Haiku 5.5 on Foundmill's Anthropic key for everything before sign-up and every platform task, and GLM-5.3 Flash through Z.ai for agent sessions while a measured session costs at most $0.019. A paid plan, or the founder's own Anthropic key, reaches every model.
 
+## Founder's answers of Nov 17, 2026 (relayed by the coordination session)
+
+- **Privacy policy (T9, #260):** read; the founder confirmed Z.ai's terms cover the transfer clauses.
+- **`ZAI_API_KEY`:** pasted on the orchestrator service in Railway. Both spend alerts (Z.ai and Anthropic) are set.
+- **T8 live evals:** go-ahead for one run, $2 to $5 in total.
+- **The 80% slow-down** to a quarter of the usual limits is confirmed. **How the $600 is counted** (list-price Estimates from the usage ledger, plus idea drafts and free searches, by UTC month) stands.
+- **The message at the cap:** the founder's wording is "You've used all your included AI! It is back on Dec 1. To keep going now, connect your own Anthropic key." The coordination session is asking whether it fits the platform-wide cap, which a person can reach having used little of their own. T6's pull request waits for that answer.
+- **Sign-up and the free plan (design note, no code yet):** sign-up will not open publicly with a free plan. Today's free plan stays while sign-up is invite-only, with the founder paying for test users' AI. When sign-up opens, the free plan becomes $5 a month with credits addable; a person can still use the idea box, their profile, the Ideation Studio, take charge and see their project, but subscribes before the first AI run (Continue). From then on "free plan" in this work package means "before paying". Code reads "the plan the person is on", never a hard-coded "free". WP-09 writes the record and the copy list.
+
 ## Revision of Nov 16, 2026, about 3:30 PM UTC (founder): read this first
 
 The price comparison of OpenAI, Mistral, Anthropic and Z.ai (session `Free open source LLM for pre-purchase`) found that Haiku 5.5 ($0.10 / $0.50 per 1M tokens, cache reads $0.01) costs as little as GLM-5.3 Flash. Z.ai showed no cache reads on short prompts. The founder then decided:

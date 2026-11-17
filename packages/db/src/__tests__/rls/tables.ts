@@ -179,6 +179,8 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   spec("team_calls", s.teamCalls, "member", (f) => ({ kind: "one_to_one", agentIds: [f.agentId], startedBy: f.memberId, topic: uniq("topic") })),
   spec("team_call_turns", s.teamCallTurns, "append", (f) => ({ callId: f.teamCallId, seq: 1000 + counter(), speaker: "founder", userId: f.memberId, via: "typed", text: uniq("What is on our list?") }), { text: "tampered" }),
   spec("team_call_actions", s.teamCallActions, "append", (f) => ({ callId: f.teamCallId, position: 1000 + counter(), actionType: "create_task", title: uniq("Draft the launch email"), status: "not_filed", reason: "Example" }), { title: "tampered" }),
+  // 0131: the founder's own payment links; owner and admin write (WP-07 T7).
+  spec("pay_links", s.payLinks, "admin", () => ({ key: uniq("pay").toLowerCase(), label: "Starter", url: `https://buy.stripe.com/${uniq("test")}`, source: "pasted" }), { archivedAt: new Date("2026-11-16T00:00:00Z") }),
 ];
 
 /**
@@ -227,7 +229,7 @@ export const NON_TENANT_TABLES = [
   // 0109: the nightly numbers, one row per day of counts across projects (no business_id, no ids; service role only);
   // covered by rls/platform-metric-days.test.ts.
   "platform_metric_days",
-  // 0129: reports of a person, a profile or a message (person-level, service role only); covered by rls/reports.test.ts.
+  // 0136: reports of a person, a profile or a message (person-level, service role only); covered by rls/reports.test.ts.
   "reports",
   // 0086 the idea box (docs/IDEA_BOX.md): a signed-out visitor's card and the waitlist; the api's alone (no client
   // role, RLS on, no policy); covered by rls/idea-drafts.test.ts.
@@ -266,6 +268,13 @@ export const NON_TENANT_TABLES = [
   // site; services write both, owners and admins publish; covered by rls/sites.test.ts.
   "sites",
   "site_releases",
+  // 0130: a platform table (no business_id: the hold outlives the project that gave the address up), service role
+  // only; covered by rls/site-address-holds.test.ts.
+  "site_address_holds",
+  // 0134: follower updates (members write a draft's subject and body only; status is the services') and their delivery
+  // record (service role only, no policy); covered by rls/project-updates.test.ts.
+  "project_updates",
+  "project_update_deliveries",
   // 0083: one person's rows in one business (presence, visit days, founder emails); covered by rls/founder-return.test.ts.
   "founder_presence",
   "founder_visit_days",

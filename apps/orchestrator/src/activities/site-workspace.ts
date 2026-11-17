@@ -75,6 +75,7 @@ export function siteTaskNote(): string {
     "Work inside your working directory; it holds the project's site as it stands now. The site is static: HTML, CSS and images only. Do not write JavaScript, a server, a package.json or tests; none of them are served.",
     "When your session ends the platform saves your changes as a new version of the site and gives the founder a preview link; the founder decides what goes live. Never block the task because you cannot run or open the site yourself.",
     'A sign-up form is `<form method="post" action="/_fm/follow">` with one `<input type="email" name="email" required>`; the platform asks the visitor for consent and sends the confirmation email. Do not add other fields, scripts, embeds or links that are not https.',
+    'A pay button is `<a href="/_fm/pay/<key>">` for a key that `list_pay_links` returns; never write a payment address into a page.',
   ].join("\n\n");
 }
 

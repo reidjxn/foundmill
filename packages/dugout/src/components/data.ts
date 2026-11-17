@@ -18,6 +18,7 @@ export * from "./data/DiffView";
 export * from "./data/CodeViewer";
 export * from "./data/WidgetGrid";
 export * from "./data/MetricTile";
+export * from "./data/PayLinkList";
 export * from "./data/Figure";
 export * from "./data/Lists";
 export * from "./data/VirtualList";

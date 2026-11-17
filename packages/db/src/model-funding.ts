@@ -3,10 +3,10 @@
  * billing, else the person's (the highest tier among the projects they own, `businessAllowance`), else a visitor who
  * is signed out (the free plan). Each service passes the answer to `enforceModelFunding` (packages/models).
  *
- * `ownKeyServed`: whether the calling service can run a business's calls on that business's own Anthropic key (the
- * orchestrator and the gateway can; the api and the composer cannot until WP-13 T11 routes them through the gateway).
- * A service that cannot treats an own-key business as its plan says: a paid plan runs as routed, the free plan runs on
- * Haiku 5.5 on Foundmill's key, never on a model the founder has not paid for.
+ * `ownKeyServed`: whether the calling client runs a business's calls on that business's own Anthropic key (the
+ * orchestrator's per-business client; the api's and the composer's route to the gateway, WP-13 T11). A client that does
+ * not (the platform side of those routers, web search) treats an own-key business as its plan says: a paid plan runs as
+ * routed, the free plan on Haiku 5.5 on Foundmill's key, never on a model the founder has not paid for.
  */
 import { modelFundingFor, type ModelFundingKind } from "@foundmill/config";
 import type { Executor } from "./repos/_shared";

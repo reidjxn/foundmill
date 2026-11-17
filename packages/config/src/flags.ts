@@ -1,13 +1,16 @@
 /** Feature flags. Defaults are safe for staging in mock mode. */
 export const FLAGS = {
   liveMode: false, // LIVE game mode surfaces (Phase 4)
-  devSimulatePanel: true, // Settings → Integrations → Simulate (dev/staging only; see simulatePanelHonoured)
+  devSimulatePanel: true, // Settings → Integrations → Simulate (development only; see simulatePanelHonoured)
   holidayMode: true,
   trainingGround: true,
   matchDaySound: false,
   // Agent work funded by the founder's own AI plan at a provider (founder, 2026-11-13): only through a provider's official
   // program, and none is integrated yet (`OWN_PLAN_PROVIDERS`). Off: no business runs on its own plan.
   ownPlanFunding: false,
+  // The private "someone arrived through your page" line in "Since you were last here" (founder, Nov 16, 2026: yes): a count for
+  // the credited founder and the project, never a name or a link (docs/NETWORK.md §14 answer 4). Off: the line never shows.
+  referralLine: true,
 } as const;
 export type FlagKey = keyof typeof FLAGS;
 
@@ -37,10 +40,12 @@ export function liveModeOpen(env: { LIVE_MODE?: string | undefined }, flag: bool
 
 /**
  * Simulate panel gate (docs/SECURITY_REVIEW.md SEC-2). `FLAGS.devSimulatePanel` alone never opens the route: it is
- * honoured only where `APP_ENV` is development or staging **and** the request carries a verified service token
+ * honoured only where `APP_ENV` is development **and** the request carries a verified service token
  * minted by apps/api for the signed-in owner/admin. Production never honours it, whatever the flag says.
  */
-export const SIMULATE_ENVS = ["development", "staging"] as const;
+// Development only (Nov 17, 2026): production runs APP_ENV=staging with INTEGRATIONS_MODE=mock, so staging here put a
+// Simulate panel in front of real founders, writing simulated conversions beside real ones.
+export const SIMULATE_ENVS = ["development"] as const;
 export type SimulateEnv = (typeof SIMULATE_ENVS)[number];
 
 /** JWT audience of the service token apps/api mints and apps/ingest verifies (HS256 with SESSION_TOKEN_SECRET). */
@@ -63,7 +68,7 @@ export interface SimulateGate {
   serviceTokenVerified: boolean;
 }
 
-/** The only predicate that may let a simulation run: flag on, development/staging, verified service token. */
+/** The only predicate that may let a simulation run: flag on, development, verified service token. */
 export function simulatePanelHonoured({ appEnv, flag = FLAGS.devSimulatePanel, serviceTokenVerified }: SimulateGate): boolean {
   if (appEnv === "production") return false;
   return flag && isSimulateEnv(appEnv) && serviceTokenVerified === true;

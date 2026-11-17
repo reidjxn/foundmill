@@ -4,6 +4,7 @@
  * enforce (no script runs whatever a release holds); screening exists so a bad release is held with a reason a person
  * and an agent can read, instead of a preview that looks broken.
  */
+import { PAY_LINK_HOSTS } from "@foundmill/shared/pay-links";
 import { SITE_FILE_TYPES, SITE_LIMITS } from "@foundmill/shared/sites";
 import { communityScreenLocalFlags } from "./community-screen";
 
@@ -75,7 +76,9 @@ const extOf = (path: string): string => {
 
 const SIGNUP_ACTION = "/_fm/follow";
 /** Hosted payment pages (the hosts pay links may point at; WP-07 D4: Stripe only at first). */
-const PAYMENT_HOSTS = /^(?:https?:)?\/\/(?:buy|checkout)\.stripe\.com(?:[/:?#]|$)/i;
+/** Payment pages a release may not link to directly: the pay-link hosts (a button is `/_fm/pay/<key>`) and Stripe Checkout. */
+const PAYMENT_PAGE_HOSTS = [...PAY_LINK_HOSTS, "checkout.stripe.com"];
+const PAYMENT_HOSTS = new RegExp(`^(?:https?:)?//(?:${PAYMENT_PAGE_HOSTS.map((h) => h.replace(/\./g, "\\.")).join("|")})(?:[/:?#]|$)`, "i");
 const ATTR = (name: string) => new RegExp(String.raw`\b${name}\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))`, "gi");
 const attrValues = (tag: string, name: string): string[] => [...tag.matchAll(ATTR(name))].map((m) => (m[1] ?? m[2] ?? m[3] ?? "").trim());
 const tagsOf = (html: string, name: string): string[] => html.match(new RegExp(String.raw`<\s*${name}\b[^>]*>`, "gi")) ?? [];

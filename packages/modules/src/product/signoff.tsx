@@ -10,7 +10,7 @@ import { useState } from "react";
 import { Check, MessageSquareText } from "lucide-react";
 import { Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Panel, StatusPill, Term, Textarea, useFormatters, type StatusTone } from "@foundmill/dugout";
 import { useBuilderView } from "@foundmill/dugout";
-import { useBusinessEvents, useWidgetQuery } from "@foundmill/widgets";
+import { useBusinessEvents, useWidgetQuery } from "@foundmill/widgets/data";
 import { InlineError, useAction } from "./shared";
 import type { SignoffView, SignoffViews } from "./types";
 

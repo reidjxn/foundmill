@@ -294,7 +294,7 @@ export async function classifyProjectMail(db: PlatformMailDeps["db"], businessId
  * The founders' note to add the address, from the Chief of Staff (else the agent that tried to send), once while open
  * and quiet for a week after "Later" (`repos.postalAddress.raiseNote`), through the outbox like every Inbox note.
  */
-async function raisePostalAddressNote(db: PlatformMailDeps["db"], businessId: string, input: { agentId: string | null; now: number }): Promise<void> {
+export async function raisePostalAddressNote(db: PlatformMailDeps["db"], businessId: string, input: { agentId: string | null; now: number }): Promise<void> {
   const chief = await repos.agents.chiefOfStaff(db, businessId).catch(() => null);
   const fromAgentId = chief?.id ?? input.agentId;
   if (!fromAgentId) return;

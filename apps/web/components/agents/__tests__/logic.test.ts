@@ -52,6 +52,7 @@ import {
   type ModelCompare,
   type ModelSetResult,
   type TrainingRunRecord,
+  skillSource,
 } from "../logic";
 
 const skill = (over: Partial<AgentSkillRecord>): AgentSkillRecord =>
@@ -436,3 +437,19 @@ describe("founder copy on the profile (the instructions are written to the model
     expect(toolDisplay({ name: "send_mail", title: "Send an email", description: "Sends mail (never claiming to be human — BUILD §2.3: disclosed)." })).toEqual({ label: "Send an email", description: "Sends mail (never claiming to be human; disclosed).", hardGate: false });
   });
 });
+
+describe("where a skill's rating comes from (WP-10 T9)", () => {
+  it("a new agent's skill is a starting estimate; a scored one is from practice tests on the run's day; one with live tasks is from real work", () => {
+    expect(toSkillRows([skill({ skillKey: "testing" })])[0]!.source).toEqual({ kind: "starting" });
+    const promoted = run({ decision: "promoted", results: { testing: { old: 12, new: 14 } } as TrainingRunRecord["results"], endedAt: new Date("2026-11-14T15:00:00Z") });
+    expect(toSkillRows([skill({ skillKey: "testing" })], [promoted])[0]!.source).toEqual({ kind: "tested", on: "2026-11-14T15:00:00.000Z" });
+    expect(toSkillRows([skill({ skillKey: "testing", nLive: 12 })])[0]!.source).toEqual({ kind: "work", tasks: 12 });
+    expect(skillSource(0, null)).toEqual({ kind: "starting" });
+  });
+  it("a skill with no rating at all keeps its Untested chip and no source", () => {
+    const row = toSkillRows([skill({ skillKey: "x", tested: null, proven: null })])[0]!;
+    expect(row.note).toBe("Untested");
+    expect(row.source).toBeUndefined();
+  });
+});
+

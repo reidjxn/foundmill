@@ -74,3 +74,20 @@ export const siteReleases = pgTable(
 );
 export type SiteRelease = typeof siteReleases.$inferSelect;
 export type NewSiteRelease = typeof siteReleases.$inferInsert;
+
+/**
+ * 0130 — addresses a site gave up (a renamed slug, a deleted site), held for `fm_site_address_hold_days()` days before
+ * another project may take them. A platform table: `released_by_business` has no foreign key (the hold outlives a
+ * deleted business); service role only (no app-role grant or policy); written by the `sites` triggers.
+ */
+export const siteAddressHolds = pgTable(
+  "site_address_holds",
+  {
+    id: id(),
+    slug: text("slug").notNull(),
+    releasedByBusiness: uuid("released_by_business").notNull(),
+    releasedAt: tstz("released_at").notNull().defaultNow(),
+    ...timestamps(),
+  },
+  (t) => [uniqueIndex("site_address_holds_slug_key").on(t.slug)],
+);

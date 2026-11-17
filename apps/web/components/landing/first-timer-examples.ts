@@ -70,8 +70,8 @@ export interface ExampleIdea {
 }
 
 /**
- * The rated examples beside the idea box (founder, 2026-11-16): Northwind Skincare first, then Sole Revival, Tutorlane
- * and Glitchwick, switched just under the Example line. The three businesses are the tour's examples (examples/*.ts):
+ * The rated examples beside the idea box (founder, 2026-11-16): Northwind Skincare first, then Tutorlane, Sole Revival
+ * and Glitchwick (founder, 2026-11-17), switched just under the "Example companies you can create" line. The three businesses are the tour's examples (examples/*.ts):
  * their pitch, stars and ratings are copied here so the landing page does not load the tour's data.
  */
 export const EXAMPLE_IDEAS: readonly ExampleIdea[] = [
@@ -99,7 +99,6 @@ export const EXAMPLE_IDEAS: readonly ExampleIdea[] = [
       ]),
     },
   },
-  { id: "sole-revival", label: "Sole Revival", logo: SOLE_REVIVAL_LOGO, card: EXAMPLE_CARD },
   {
     id: "tutorlane",
     label: EXAMPLE_IDENTITIES.tutorlane.name,
@@ -124,6 +123,7 @@ export const EXAMPLE_IDEAS: readonly ExampleIdea[] = [
       ]),
     },
   },
+  { id: "sole-revival", label: "Sole Revival", logo: SOLE_REVIVAL_LOGO, card: EXAMPLE_CARD },
   {
     id: "glitchwick",
     label: EXAMPLE_IDENTITIES.glitchwick.name,

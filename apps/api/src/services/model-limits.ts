@@ -12,6 +12,7 @@
  * allowances that predate this one keep their own rules inside their services (drafting in ideation.ts, logo sets in
  * logo.ts, conversation sends in conversation.ts); their procedures still spend from the shared ceiling.
  */
+import { FREE_CAP_SLOW_SCALE } from "@foundmill/db";
 import { gateModelClient } from "@foundmill/models";
 import { TRPCError } from "@trpc/server";
 import type { Context } from "../context";
@@ -79,11 +80,13 @@ export const MODEL_LIMITS = {
   continueLink: { what: "Emailing a link", user: [{ limit: 5, windowMs: MINUTE }, { limit: 20, windowMs: DAY }] },
   /** crm.replies.answer (WP-08 T2): one email per press from the project's address; the project's day cap still applies. */
   replyAnswer: { what: "Answering an email", user: [{ limit: 10, windowMs: MINUTE }, { limit: 100, windowMs: DAY }] },
+  /** updates.send (WP-08 T3): one press sends up to the project's day of email; the gateway counts every message. */
+  followerUpdate: { what: "Sending an update", user: [{ limit: 5, windowMs: MINUTE }, { limit: 20, windowMs: DAY }] },
 } as const satisfies Record<string, ModelLimitRule>;
 
 export type ModelLimitName = keyof typeof MODEL_LIMITS;
 
-const scaled = (w: WindowLimit, scale: number): WindowLimit => (scale === 1 ? w : { ...w, limit: Math.round(w.limit * scale) });
+const scaled = (w: WindowLimit, scale: number): WindowLimit => (scale === 1 ? w : { ...w, limit: Math.max(1, Math.round(w.limit * scale)) });
 
 /**
  * The factor applied to every allowance: `MODEL_LIMIT_SCALE` on the development and test stacks (the Playwright suites commit
@@ -128,13 +131,16 @@ export function modelLimited(name: ModelLimitName, options: ModelLimitOptions = 
     const c = ctx as Context & { businessId?: string };
     if (!c.userId) throw new TRPCError({ code: "UNAUTHORIZED", message: "Sign in to continue" });
     if (options.when && !options.when(await getRawInput())) return next();
-    const taken = await c.limits.take(modelLimitEntries(name, { userId: c.userId, businessId: c.businessId ?? null }, modelLimitScale(c.env)));
+    const scope = { userId: c.userId, businessId: c.businessId ?? null };
+    // Past 80% of the month's free-plan cap, a free request gets a quarter of its allowances (WP-13 T6).
+    const slow = c.freePlanSlow ? await c.freePlanSlow(scope) : false;
+    const taken = await c.limits.take(modelLimitEntries(name, scope, modelLimitScale(c.env) * (slow ? FREE_CAP_SLOW_SCALE : 1)));
     if (!taken.ok) throw new RateLimitedError(MODEL_LIMITS[name].what, taken.retryAfterMs);
     // The procedure gets a model client that notes every call as it starts (the api's own already does, at its credits gate,
     // once the gate let the call through; any other client is wrapped), so a request that reached the model keeps its hit
     // whatever refuses it afterwards.
-    const { result, scope } = await withModelCallScope(() => next({ ctx: { ...ctx, models: notesCalls(c.models) ? c.models : gateModelClient(c.models, async () => noteModelCall()) } }));
-    if (!result.ok && scope.calls === 0 && REFUNDED_CODES.has(toTRPCError(result.error).code)) await c.limits.refund(taken.ticket);
+    const { result, scope: calls } = await withModelCallScope(() => next({ ctx: { ...ctx, models: notesCalls(c.models) ? c.models : gateModelClient(c.models, async () => noteModelCall()) } }));
+    if (!result.ok && calls.calls === 0 && REFUNDED_CODES.has(toTRPCError(result.error).code)) await c.limits.refund(taken.ticket);
     return result;
   });
 }

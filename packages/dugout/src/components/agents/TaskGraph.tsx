@@ -444,7 +444,7 @@ export function TaskGraph({ nodes, selectedId, onSelect, layout: layoutOpts, hei
           ))}
         </ul>
       </div>
-      <div className="flex min-h-control-lg shrink-0 flex-wrap items-center gap-1.5 border-t border-line px-panel-pad py-1.5" aria-label="Legend">
+      <div className="flex min-h-control-lg shrink-0 flex-wrap items-center gap-1.5 border-t border-line px-panel-pad py-1.5" role="group" aria-label="Legend">
         {present.map((s) => (
           <StatusPill key={s} tone={TASK_STATUS_META[s].tone} icon={TASK_STATUS_META[s].icon}>
             {TASK_STATUS_META[s].word}

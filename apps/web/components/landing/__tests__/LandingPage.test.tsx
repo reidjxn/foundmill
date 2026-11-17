@@ -55,12 +55,15 @@ describe("LandingPage (signed-out /, DIRECTION §3)", () => {
     }
   });
 
-  it("shows a real rated example, labeled Example, beside the box, and says what comes back", () => {
+  it("shows a real rated example, labeled with the founder's words, beside the box, and says what comes back", () => {
     renderPage();
     const hero = document.getElementById("hero")!;
-    // Four examples to switch between, Northwind Skincare first (founder, 2026-11-16).
-    const example = within(hero).getByRole("figure", { name: "Example" });
-    expect(within(example).getAllByRole("radio").map((r) => r.textContent)).toEqual(["Northwind", "Sole Revival", "Tutorlane", "Glitchwick"]);
+    // Four examples to switch between, Northwind Skincare first (founder, 2026-11-16), then Tutorlane (2026-11-17).
+    const example = within(hero).getByRole("figure", { name: "Example companies you can create" });
+    expect(W.hero.exampleLabel).toBe("Example companies you can create");
+    expect(within(example).getAllByRole("radio").map((r) => r.textContent)).toEqual(["Northwind", "Tutorlane", "Sole Revival", "Glitchwick"]);
+    // "companies" is the landing page's one exception to the project/business rule: this label only.
+    expect(document.body.textContent!.match(/\bcompanies\b/gi)?.length ?? 0).toBe(1);
     expect(example.querySelector("[data-idea-name]")!.textContent).toBe("Northwind Skincare");
     const result = document.getElementById("result")!;
     expect(within(result).getByRole("heading", { level: 2 }).textContent).toBe(W.result.title);

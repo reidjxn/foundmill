@@ -15,6 +15,7 @@
  *
  * `/v1/call` and `/mcp/:connector` both run this function; nothing reaches a vendor any other way.
  */
+import type { RecipientBasisCheck } from "./follower-update";
 import { createHash } from "node:crypto";
 import { LIMITS } from "@foundmill/config";
 import type { TurnstileConfig } from "./turnstile";
@@ -104,8 +105,12 @@ export interface GatewayDeps {
    * `validateApiKey` in live mode. Tests pass one over a fake Anthropic.
    */
   validateModelKey?: (apiKey: string) => Promise<KeyValidation>;
+  /** Anthropic's Messages API for the own-key model route (model-proxy.ts, WP-13 T11); default `fetch`. Tests pass a fake. */
+  anthropicFetch?: typeof globalThis.fetch;
   /** A project's Foundmill sending address (platform-mail.ts); absent or with no domain, `platform_mail` refuses every send. */
   platformMail?: PlatformMailConfig;
+  /** Replaces WP-08 T10's recipient basis check in the follower update (follower-update.ts); for tests. */
+  recipientBasis?: RecipientBasisCheck;
   /** The idea box's bot check (turnstile.ts); no secret: mock on a development stack, refused elsewhere. */
   turnstile?: TurnstileConfig;
 }
@@ -242,10 +247,16 @@ export { AGENT_ARCHIVED_POLICY_ID, AGENT_PAUSED_POLICY_ID, AGENTS_STOPPED_POLICY
 export const FINANCE_CONNECTORS: ReadonlySet<string> = new Set(["tink", "plaid", "ecb_rates"]);
 /** Tools that create or amend a contract (assisted mode asks; signing itself is hard-gated by the connector). */
 export const CONTRACT_TOOLS: ReadonlySet<string> = new Set(["dropbox_sign:send_signature_request"]);
+/**
+ * Tools that create an immutable or customer-visible record that brings money in (founder, Nov 16, 2026). They ask in
+ * every mode, and in automated mode and on vacation unless the business gave agents the inbound payment power.
+ * Paying out, refunding and transferring are hard gates and never on this list.
+ */
+export const PAYMENT_RECORD_TOOLS: ReadonlySet<string> = new Set(["stripe:create_invoice", "stripe:create_checkout_session"]);
 
 /** `Tool.finance` / `Tool.contract` come from the gateway, not from `policyHints` (DECISIONS "Tool attributes beyond connector policyHints"). */
-export function toolAttributes(connector: string, tool: string): { finance: boolean; contract: boolean } {
-  return { finance: FINANCE_CONNECTORS.has(connector), contract: CONTRACT_TOOLS.has(toolRef(connector, tool)) };
+export function toolAttributes(connector: string, tool: string): { finance: boolean; contract: boolean; paymentRecord: boolean } {
+  return { finance: FINANCE_CONNECTORS.has(connector), contract: CONTRACT_TOOLS.has(toolRef(connector, tool)), paymentRecord: PAYMENT_RECORD_TOOLS.has(toolRef(connector, tool)) };
 }
 
 // The principal's autonomy and thresholds live in @foundmill/policy, shared with plan evaluation (audit api-services-03).
@@ -562,6 +573,7 @@ async function buildPolicyInput(deps: GatewayDeps, session: SessionToken, req: C
     hardGate: hints.hardGate ?? false,
     finance: attrs.finance,
     contract: attrs.contract,
+    paymentRecord: attrs.paymentRecord,
     // Decided here from the call's arguments (never reported by the agent): a DNS change that routes or authenticates email.
     securitySettings: securitySettingsChange(connector.key, tool.name, args) !== null,
   };
@@ -609,7 +621,7 @@ async function buildPolicyInput(deps: GatewayDeps, session: SessionToken, req: C
   return {
     principal,
     tool: toolCtx,
-    business: { id: business.id, businessMode: business.businessMode, holidayActive: loaded.holidayActive },
+    business: { id: business.id, businessMode: business.businessMode, holidayActive: loaded.holidayActive, paymentPowers: business.paymentPowers ?? [] },
     context: {
       amountMinor: policyAmountMinor({ spendsMoney: toolCtx.spendsMoney ?? false, declaredMinor: connector.estimateCostMinor?.(tool.name, args) ?? null, reportedMinor: req.context.amountMinor ?? 0, thresholdMinor: principal.approvalThresholdMinor }),
       ...(recipient ? { recipient } : {}),
@@ -803,6 +815,9 @@ function decisionTypeFor(loaded: Loaded, req: CallRequestParsed, decision: Evalu
   const hints = loaded.connector.policyHints[loaded.tool.name] ?? {};
   // A merge is a merge whatever its amount: checked before the spend threshold, so a merge carrying an amount is not routed as spend.
   if (loaded.connector.key === "github" && loaded.tool.name === "merge_pr") return "merge_to_main" as const;
+  // An invoice or payment page is the founder's to approve (founder, Nov 16, 2026): never routed as spend, so an agent
+  // reporting a large amount cannot hand it to an agent the Responsibilities matrix names.
+  if (toolAttributes(loaded.connector.key, loaded.tool.name).paymentRecord) return null;
   if (decision.policyIds.some((id) => id.endsWith("above-threshold")) || (hints.spendsMoney && (req.context.amountMinor ?? 0) > 0)) return "spend_above_threshold" as const;
   if (toolAttributes(loaded.connector.key, loaded.tool.name).contract || loaded.connector.key === "dropbox_sign") return "sign_contracts" as const;
   if (hints.contactsThirdParty) return "message_customers" as const;

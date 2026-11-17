@@ -219,8 +219,26 @@ export interface GatewayAnswerReplyRequest {
   interactionId: string;
   userId: string;
   text: string;
+  /** One per answer written; the gateway sends a repeated one once. */
+  requestId: string;
 }
 export type GatewayAnswerReplyResult = { sent: true; simulated: boolean } | { sent: false; reason: ReplyNotSent };
+
+/** The founders' update to their followers, one press (WP-08 T3): ids only; the gateway reads the followers. */
+export interface GatewaySendUpdateRequest {
+  businessId: string;
+  updateId: string;
+  userId: string;
+  /** When the words the founder previewed were saved: a draft edited since is not sent. */
+  seenUpdatedAt?: string;
+}
+export interface GatewaySendUpdateResult {
+  sent: number;
+  skipped: number;
+  remaining: number;
+  simulated: boolean;
+  refusal: string | null;
+}
 
 /** One email from Foundmill to one of its users (apps/gateway notify-email.ts `NotifyEmailRequest`): ids only. */
 export type GatewayNotifyEmailRequest =
@@ -357,6 +375,8 @@ export interface ApiGatewayClient {
   toolCall?(input: GatewayToolCallRequest): Promise<GatewayToolCallOutcome>;
   /** A founder's answer to a kept reply, from the project's address (`POST /v1/platform-mail/answer-reply`). Absent (test doubles): not sent. */
   answerReply?(input: GatewayAnswerReplyRequest): Promise<GatewayAnswerReplyResult>;
+  /** The founders' update to their followers (`POST /v1/platform-mail/send-update`). Absent (test doubles): not sent. */
+  sendUpdate?(input: GatewaySendUpdateRequest): Promise<GatewaySendUpdateResult>;
 }
 
 export interface CreateApiGatewayClientOptions {
@@ -367,8 +387,9 @@ export interface CreateApiGatewayClientOptions {
   timeoutMs?: number;
 }
 
-export async function signApiServiceToken(secret: string): Promise<string> {
-  return new SignJWT({ svc: "api" }).setProtectedHeader({ alg: "HS256", typ: "JWT" }).setIssuer(TOKEN_ISSUER).setAudience(SERVICE_AUDIENCE).setIssuedAt().setExpirationTime("60s").setJti(randomUUID()).sign(new TextEncoder().encode(secret));
+/** `businessId`: the one business the token acts for, where a route needs it (the own-key model route, WP-13 T11). */
+export async function signApiServiceToken(secret: string, businessId?: string): Promise<string> {
+  return new SignJWT({ svc: "api", ...(businessId ? { businessId } : {}) }).setProtectedHeader({ alg: "HS256", typ: "JWT" }).setIssuer(TOKEN_ISSUER).setAudience(SERVICE_AUDIENCE).setIssuedAt().setExpirationTime("60s").setJti(randomUUID()).sign(new TextEncoder().encode(secret));
 }
 
 export function createApiGatewayClient(opts: CreateApiGatewayClientOptions): ApiGatewayClient {
@@ -433,6 +454,8 @@ export function createApiGatewayClient(opts: CreateApiGatewayClientOptions): Api
     repository: (businessId, owner, repo) => post<{ mode: "mock" | "live"; repository: GatewayRepository }>("/v1/github/repository", { businessId, owner, repo }),
     sendPush: (input) => post<GatewayPushResult>("/v1/push/send", input),
     confirmFollow: (input) => post<GatewayConfirmFollowResult>("/v1/platform-mail/confirm-follow", input, Math.min(timeoutMs, CONFIRM_FOLLOW_TIMEOUT_MS)),
+    // Up to 50 messages in sequence: the press waits for them (the client's timeout, at least a minute).
+    sendUpdate: (input) => post<GatewaySendUpdateResult>("/v1/platform-mail/send-update", input, Math.max(timeoutMs, 60_000)),
     answerReply: (input) => post<GatewayAnswerReplyResult>("/v1/platform-mail/answer-reply", input, Math.min(timeoutMs, CONFIRM_FOLLOW_TIMEOUT_MS)),
     verifyTurnstile: (input) => post<GatewayTurnstileResult>("/v1/turnstile/verify", input, Math.min(timeoutMs, TURNSTILE_CLIENT_TIMEOUT_MS)),
     notifyEmail: (input) => post<GatewayNotifyEmailResult>("/v1/notify/email", input, Math.min(timeoutMs, CONFIRM_FOLLOW_TIMEOUT_MS)),

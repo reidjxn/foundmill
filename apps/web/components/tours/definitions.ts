@@ -1,6 +1,6 @@
 /**
- * The three first-visit tours (docs/UX_AUDIT_AND_PLAN.md §6.2 Coachmark, §10 Phase 3): Home, the Inbox and the first
- * department tab a founder opens. Each is a list of Coachmark steps, one sentence each, anchored by a `data-coachmark`
+ * The first-visit tours (docs/UX_AUDIT_AND_PLAN.md §6.2 Coachmark, §10 Phase 3): Home, the Inbox, the first
+ * department tab a founder opens, and Today (WP-04 T7). Each is a list of Coachmark steps, one sentence each, anchored by a `data-coachmark`
  * attribute on the element it points at. A tour runs once per account (`account_preferences.tours_done`, read and
  * written through `useGuidance`'s `toursDone` and `markTourDone`), only while guidance is on, never while a dialog is
  * open or Continue is processing (the Coachmark itself waits), and "Replay the tour" in Settings › Preferences
@@ -13,7 +13,7 @@
  */
 import type { CoachmarkStep } from "@foundmill/dugout";
 
-export type TourId = "home" | "inbox" | "department";
+export type TourId = "home" | "inbox" | "department" | "today";
 
 /** A target outside the shell: the tour stamps `data-coachmark="<targetId>"` on the first element the selector finds. */
 export interface TourStamp {
@@ -25,6 +25,8 @@ export interface TourDefinition {
   id: TourId;
   steps: readonly CoachmarkStep[];
   stamps: readonly TourStamp[];
+  /** Other tours this one stands in for: when it ends they are marked done too, so the founder is not walked twice. */
+  alsoDone?: readonly TourId[];
 }
 
 /**
@@ -77,7 +79,25 @@ export const DEPARTMENT_TOUR: TourDefinition = {
   ],
 };
 
-export const TOURS: readonly TourDefinition[] = [HOME_TOUR, INBOX_TOUR, DEPARTMENT_TOUR];
+/**
+ * Today (WP-04 T7, three steps): Needs you, the first week, Continue. From the second visit, never on a phone (Today
+ * mounts it). Today is the front door, so ending it marks the Home tour done too: Details does not walk the founder again.
+ */
+export const TODAY_TOUR: TourDefinition = {
+  id: "today",
+  steps: [
+    { targetId: "needs-you", title: "What needs you", body: "Notes waiting for your answer land here, the most important first.", side: "bottom" },
+    { targetId: "first-week-timeline", title: "Your first week", body: "What the team does each day this week, and what you will be asked.", side: "bottom" },
+    { targetId: "continue", title: "Continue: one round of work", body: "Press it and the team works; what they need from you lands in Needs you.", side: "bottom", align: "end" },
+  ],
+  stamps: [
+    { targetId: "needs-you", selector: '[data-testid="needs-you"]' },
+    { targetId: "first-week-timeline", selector: '[data-testid="first-week-timeline"]' },
+  ],
+  alsoDone: ["home"],
+};
+
+export const TOURS: readonly TourDefinition[] = [HOME_TOUR, INBOX_TOUR, DEPARTMENT_TOUR, TODAY_TOUR];
 
 /** A tour's card in the DOM: `[data-coachmark][data-tour="<id>"]` (the Coachmark stamps both on its popover). */
 export function tourCardSelector(id: TourId): string {

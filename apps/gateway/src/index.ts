@@ -101,7 +101,7 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
   const mode = effectiveModelMode(env.MODEL_MODE, env.ANTHROPIC_API_KEY, log);
   const onUsage = gatewayUsageSink(db, log);
   const ungated = options.models ?? createModelClient({ mode, apiKey: env.ANTHROPIC_API_KEY, logger: log, onUsage, ...(options.modelFetch ? { fetch: options.modelFetch } : {}) });
-  const models = gatePlatformModels(ungated, db);
+  const models = gatePlatformModels(ungated, db, env.FREE_PLAN_MONTHLY_CAP_CENTS);
   const readerDeps: QuarantinedReaderDeps = { db, vault, models, ...(ungated.mode === "mock" ? { ungatedMock: ungated } : {}), mode: models.mode, log, onUsage, ...(options.modelFetch ? { fetch: options.modelFetch } : {}) };
   let registry = options.registry;
   // The skill tools read the business's repository through this gateway's own pipeline, built further down.
@@ -151,6 +151,7 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
     sessionTokenSecret: config.sessionTokenSecret,
     apiServiceTokenSecret: config.apiServiceTokenSecret,
     apiServiceTokenLegacy: config.apiServiceTokenLegacy,
+    composerServiceTokenSecret: config.composerServiceTokenSecret,
     sessionTokenTtlSeconds: config.sessionTokenTtlSeconds,
     sessionTokenMaxTtlSeconds: config.sessionTokenMaxTtlSeconds,
     rateLimitStoreKind: rateLimitStoreInUse,

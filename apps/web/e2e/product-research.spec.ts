@@ -82,6 +82,9 @@ test.describe("product research", () => {
     // The tab opens on Simple while guidance is on (Agent, Status, Current task, Rating; UX plan §7.10), which has no
     // Role column; General carries it.
     await chooseTableView(page, "General");
+    // In the project's first week the tab shows the starting team and whoever has work (WP-04 T4); "Show all" opens
+    // everyone, the researcher of the plan included.
+    await page.getByTestId("squad-show-all").click({ timeout: LONG });
     // Leads first (Nov 8, 2026): specialists sit collapsed under their lead; open every lead to find the researcher.
     const expanders = page.getByRole("button", { name: /^Show \d+ specialists? under / });
     await expect(expanders.first()).toBeVisible({ timeout: LONG });

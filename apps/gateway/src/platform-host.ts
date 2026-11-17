@@ -10,7 +10,7 @@
  * and answered with a plain "try again".
  */
 import { CREDITS_CURRENCY } from "@foundmill/config";
-import { AppError, ConflictError, NotFoundError, filingWindow, positioningFromInput, renderPositioning, uuid, type TaskStatus } from "@foundmill/shared";
+import { AppError, ConflictError, NotFoundError, filingWindow, positioningFromInput, renderPositioning, updateProblems, uuid, type TaskStatus } from "@foundmill/shared";
 import { attachAddedSkills, repos, resolveLibrarySkill, resolveSkillFile, skillLibraryEntries, type Agent, type Db, type Executor, type ResolvedSkill, type Task } from "@foundmill/db";
 import { acceptanceLines, acceptanceRefusal, PlatformToolError, type PlatformCaller, type PlatformHost, type TaskSummaryT } from "@foundmill/connectors";
 import { writeGatewayEvent } from "./events";
@@ -300,6 +300,11 @@ export function createDbPlatformHost({ db, log, now = () => new Date(), reposito
       const result = await repos.entities.search(db, caller.businessId, { q: query, limit });
       return { items: result.hits.map((h) => ({ id: h.entity.id, kind: h.entity.kind, name: h.entity.displayName })) };
     },
+    async listPayLinks(caller) {
+      // Never a simulated link (a mock connector's): it is not on the site. Never the URL either: the site's button is /_fm/pay/<key>.
+      const links = await repos.payLinks.list(db, caller.businessId);
+      return { items: links.filter((l) => !l.simulated).map((l) => ({ key: l.key, label: l.label, priceMinor: l.priceMinor, currency: l.currency })) };
+    },
     async listApprovals(caller, { limit }) {
       const pending = await repos.approvals.pending(db, caller.businessId, limit);
       return { items: pending.map((a) => ({ id: a.id, agentId: a.agentId, connectorKey: a.connectorKey, tool: a.tool, reasons: a.reasons, requestedAt: a.requestedAt.toISOString() })) };
@@ -480,6 +485,17 @@ export function createDbPlatformHost({ db, log, now = () => new Date(), reposito
         return written;
       });
       return { draftVersion: out.written ? (copies.approved?.version ?? 0) + 1 : 0 };
+    },
+    async draftFollowerUpdate(caller, { subject, body }) {
+      const problem = updateProblems(subject, body);
+      if (problem) throw new PlatformToolError("invalid_state", problem);
+      const row = await db.transaction(async (tx) => {
+        const draft = await repos.updates.draftByAgent(tx, caller.businessId, { subject, body, agentId: caller.agentId });
+        await repos.audit.append(tx, caller.businessId, { actorKind: "agent", actorId: caller.agentId, action: "updates.drafted", target: { kind: "project_update", id: draft.id }, details: { sessionId: caller.sessionId } });
+        await writeGatewayEvent(tx, { businessId: caller.businessId, type: "update.drafted", actor: { kind: "agent", id: caller.agentId }, payload: { updateId: draft.id, agentId: caller.agentId } });
+        return draft;
+      });
+      return { updateId: row.id, followers: await repos.followers.count(db, caller.businessId) };
     },
   };
 

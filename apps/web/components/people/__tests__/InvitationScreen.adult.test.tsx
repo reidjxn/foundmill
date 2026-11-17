@@ -15,7 +15,7 @@ const push = vi.fn();
 
 vi.mock("@/lib/trpc-react", () => ({
   useTRPC: () => ({
-    founder: { adult: { get: { queryOptions: (_input: unknown, opts: Record<string, unknown>) => ({ queryKey: [["founder", "adult", "get"]], queryFn: () => adultGet(), ...opts }) } } },
+    founder: { adult: { get: { queryOptions: (_input: unknown, opts: Record<string, unknown>) => ({ queryKey: [["founder", "adult", "get"]], queryFn: () => adultGet(), ...opts }) } }, profile: { update: { mutationOptions: (opts: Record<string, unknown>) => ({ mutationFn: async () => ({}), ...opts }) } } },
     invitation: {
       accept: { mutationOptions: (opts: Record<string, unknown>) => ({ mutationKey: [["invitation", "accept"]], mutationFn: (vars: unknown) => accept(vars), ...opts }) },
       decline: { mutationOptions: (opts: Record<string, unknown>) => ({ mutationKey: [["invitation", "decline"]], mutationFn: async () => ({ ok: true }), ...opts }) },
@@ -44,7 +44,7 @@ function renderScreen(props: Partial<React.ComponentProps<typeof InvitationScree
 
 beforeEach(() => {
   adultGet.mockReset();
-  accept.mockReset().mockResolvedValue({ businessId: "b1", already: false });
+  accept.mockReset().mockResolvedValue({ businessId: "b1", already: false, hasProfile: true });
   push.mockReset();
 });
 afterEach(() => cleanup());
@@ -78,7 +78,7 @@ describe("InvitationScreen and 18 or older", () => {
   });
 
   it("an Accept refused with adult_unconfirmed shows the box, even when the page was told it was on record", async () => {
-    accept.mockReset().mockRejectedValueOnce(refusedAdult()).mockResolvedValue({ businessId: "b1", already: false });
+    accept.mockReset().mockRejectedValueOnce(refusedAdult()).mockResolvedValue({ businessId: "b1", already: false, hasProfile: true });
     renderScreen({ adultConfirmed: true });
     expect(screen.queryByTestId("invitation-adult")).toBeNull();
     await act(async () => {

@@ -253,6 +253,13 @@ describe("dugout.css", () => {
     expect(code).not.toMatch(/#[0-9a-f]{3,8}\b/i);
     expect(code).not.toMatch(/rgba?\(/);
   });
+  it("a focused field and the forced-colors block keep focus and edges visible in Windows High Contrast (WP-10 T7)", () => {
+    const controlsCss = readFileSync(join(__dirname, "controls.css"), "utf8");
+    const well = /@utility field-well \{([\s\S]*?)\n\}/.exec(controlsCss)?.[1] ?? "";
+    expect(well).toMatch(/&:focus-within \{\s*outline: 2px solid transparent;/);
+    expect(dugoutCss).toMatch(/@media \(forced-colors: active\) \{[\s\S]*?\.surface-panel[\s\S]*?border: 1px solid CanvasText;/);
+    expect(utility("hit-target")).toContain("var(--target-size)");
+  });
   it("keeps a transparent outline under the focus rings, so forced-colors mode draws them (WP-10 T5)", () => {
     for (const name of ["focus-ring", "focus-within-ring"]) {
       expect(utility(name), name).toContain("outline: 2px solid transparent");

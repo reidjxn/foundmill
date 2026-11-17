@@ -41,12 +41,12 @@ export function TaskResult({ title, bodyMd, sources, simulated, className }: Tas
       </Markdown>
       {sources.length > 0 ? (
         <section className="mt-4" aria-label="Sources">
-          <h4 className="t-title mb-1 text-secondary">Sources</h4>
+          <p className="t-title mb-1 text-secondary">Sources</p>
           <ul className="my-0 list-disc pl-5 text-small marker:text-secondary">
             {sources.map((s, i) => (
               <li key={`${i}-${s.url}`} className="my-0.5">
                 {isWebAddress(s.url) ? (
-                  <a href={s.url} target="_blank" rel="noopener noreferrer" className="entity-link">
+                  <a href={s.url} target="_blank" rel="noopener noreferrer" className="entity-link inline-flex min-h-target items-center">
                     {s.title}
                     <span className="sr-only"> (opens in a new tab)</span>
                   </a>

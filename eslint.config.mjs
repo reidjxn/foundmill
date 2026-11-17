@@ -2,6 +2,7 @@
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 import reactHooks from "eslint-plugin-react-hooks";
+import jsxA11y from "eslint-plugin-jsx-a11y";
 import globals from "globals";
 
 /** fm/no-raw-db: raw Drizzle query-builder calls on `db`/`tx` are only allowed inside packages/db repos, migrations, seeds, tests and the events outbox. */
@@ -77,6 +78,31 @@ export default tseslint.config(
       "@typescript-eslint/consistent-type-imports": ["warn", { fixStyle: "inline-type-imports" }],
       "no-console": ["warn", { allow: ["warn", "error"] }],
       "no-empty": ["error", { allowEmptyCatch: true }],
+    },
+  },
+  // Accessibility of JSX (WP-10 T7): the plugin's recommended rules on every component file. A rule that fires on a
+  // Radix pattern is turned off below for that rule, with its reason, never per file.
+  { files: ["**/*.tsx"], ignores: ["**/*.test.tsx"], ...jsxA11y.flatConfigs.recommended },
+  {
+    files: ["**/*.tsx"],
+    ignores: ["**/*.test.tsx"],
+    rules: {
+      // Dialogs and one-question steps put focus on their first field, as Radix Dialog does on open.
+      "jsx-a11y/no-autofocus": "off",
+      // A scrollable region takes tabIndex 0 so a keyboard can scroll it (axe scrollable-region-focusable).
+      "jsx-a11y/no-noninteractive-tabindex": "off",
+      // Roving-tabindex composites (tablist, radiogroup, menu, grid): the container takes the arrow keys, the items focus.
+      "jsx-a11y/interactive-supports-focus": "off",
+      // A <ul role="list"> keeps its list semantics in Safari, which drops them under list-style: none.
+      "jsx-a11y/no-redundant-roles": "off",
+      // A preview of the founder's own upload: there is no caption file to attach.
+      "jsx-a11y/media-has-caption": "off",
+      // Radix controls render a <button> inside the <label>; name them so the label counts as associated.
+      "jsx-a11y/label-has-associated-control": ["error", { controlComponents: ["Switch", "Checkbox", "Input", "Textarea", "RadioGroupItem"], depth: 3 }],
+      // A pointer convenience on a card or row whose real control is inside it: reported, reviewed case by case.
+      "jsx-a11y/click-events-have-key-events": "warn",
+      "jsx-a11y/no-noninteractive-element-interactions": "warn",
+      "jsx-a11y/no-static-element-interactions": "warn",
     },
   },
 );

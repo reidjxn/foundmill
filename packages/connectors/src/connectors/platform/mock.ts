@@ -29,6 +29,7 @@ export function platformHandlers(host: PlatformHost) {
     send_message: async (args: Parameters<PlatformHost["sendMessage"]>[1], ctx: ToolContext) => host.sendMessage(caller(ctx), args),
     list_messages: async (args: Parameters<PlatformHost["listMessages"]>[1], ctx: ToolContext) => host.listMessages(caller(ctx), args),
     read_business: async (_args: unknown, ctx: ToolContext) => host.readBusiness(caller(ctx)),
+    list_pay_links: async (_args: unknown, ctx: ToolContext) => host.listPayLinks(caller(ctx)),
     search_entities: async (args: Parameters<PlatformHost["searchEntities"]>[1], ctx: ToolContext) => host.searchEntities(caller(ctx), args),
     list_approvals: async (args: Parameters<PlatformHost["listApprovals"]>[1], ctx: ToolContext) => host.listApprovals(caller(ctx), args),
     list_sessions: async (args: Parameters<PlatformHost["listSessions"]>[1], ctx: ToolContext) => host.listSessions(caller(ctx), args),
@@ -45,6 +46,7 @@ export function platformHandlers(host: PlatformHost) {
     remove_skill: async (args: Parameters<PlatformHost["removeSkill"]>[1], ctx: ToolContext) => host.removeSkill(caller(ctx), args),
     read_positioning: async (_args: unknown, ctx: ToolContext) => host.readPositioning(caller(ctx)),
     propose_positioning_change: async (args: Parameters<PlatformHost["proposePositioningChange"]>[1], ctx: ToolContext) => host.proposePositioningChange(caller(ctx), args),
+    draft_follower_update: async (args: Parameters<PlatformHost["draftFollowerUpdate"]>[1], ctx: ToolContext) => host.draftFollowerUpdate(caller(ctx), args),
   };
 }
 
@@ -55,7 +57,7 @@ export function createMemoryPlatformHost(): PlatformHost {
   const world = perBusiness((businessId) => {
     const task = (n: number, title: string, kind: TaskDetailT["kind"], status: TaskDetailT["status"]): TaskDetailT => ({ id: uuidFromSeed("mock-platform", businessId, "task", n), title, kind, status, priority: 10 * n, progress: 0, assigneeAgentId: null, updatedAt: MOCK_NOW.toISOString(), goalMd: `${title}.`, acceptance: [], fileScope: [], dependsOn: [], lastReport: null, lastBlock: null });
     const tasks = new Map<string, TaskDetailT>([task(1, "Draft the pricing page", "code", "ready"), task(2, "Research three competitors", "research", "ready"), task(3, "Reconcile last month's bank feed", "finance", "planned")].map((t) => [t.id, t]));
-    return { tasks, messages: [] as AgentMessageT[], reports: new Map<string, MockReport>(), proposals: 0, positioningDrafts: 0, skills: new Map<string, { skillKey: string; name: string; source: string }[]>() };
+    return { tasks, messages: [] as AgentMessageT[], reports: new Map<string, MockReport>(), proposals: 0, positioningDrafts: 0, updateDrafts: 0, skills: new Map<string, { skillKey: string; name: string; source: string }[]>() };
   });
   const summary = ({ goalMd: _g, acceptance: _a, fileScope: _f, dependsOn: _d, lastReport: _r, lastBlock: _b, ...s }: TaskDetailT) => s;
   const report = (caller: PlatformCaller, t: TaskDetailT, input: { title: string; bodyMd: string; sources: { url: string; title: string }[] }) => {
@@ -154,6 +156,9 @@ export function createMemoryPlatformHost(): PlatformHost {
       const all = [{ id: uuidFromSeed("mock-platform", "entity", "maja"), kind: "person", name: "Maja Lindgren" }, { id: uuidFromSeed("mock-platform", "entity", "hallbergs"), kind: "organisation", name: "Hallbergs Hud AB" }];
       return { items: all.filter((e) => e.name.toLowerCase().includes(query.toLowerCase())).slice(0, limit) };
     },
+    async listPayLinks() {
+      return { items: [{ key: "starter-kit", label: "Starter kit", priceMinor: 1900, currency: "USD" }] };
+    },
     async listApprovals() {
       return { items: [] };
     },
@@ -223,6 +228,11 @@ export function createMemoryPlatformHost(): PlatformHost {
       const w = world(caller.businessId);
       w.positioningDrafts += 1;
       return { draftVersion: w.positioningDrafts };
+    },
+    async draftFollowerUpdate(caller) {
+      const w = world(caller.businessId);
+      w.updateDrafts += 1;
+      return { updateId: `00000000-0000-4000-8000-${String(w.updateDrafts).padStart(12, "0")}`, followers: 0 };
     },
   };
 }

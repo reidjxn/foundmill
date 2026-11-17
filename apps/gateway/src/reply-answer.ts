@@ -29,6 +29,8 @@ import { modeFor, vendorRefusedOutright, type GatewayDeps } from "./pipeline";
 import { classifyProjectMail, PLATFORM_MAIL_POLICY, platformMailSwitchRefusal, preparePlatformMail } from "./platform-mail";
 
 export const ANSWER_REPLY_ROUTE = "/v1/platform-mail/answer-reply";
+/** How long an answer's request id is remembered: longer than any retry of a press. */
+export const ANSWER_REPLY_DEDUPE_MS = 24 * 60 * 60 * 1000;
 
 export const AnswerReplyRequest = z.strictObject({
   businessId: z.guid(),
@@ -36,6 +38,8 @@ export const AnswerReplyRequest = z.strictObject({
   /** The member who wrote the answer (the api checked their access). */
   userId: z.guid(),
   text: z.string().trim().min(1).max(REPLY_ANSWER_MAX),
+  /** One per answer the founder writes (the browser makes it): the same answer pressed again goes out once. */
+  requestId: z.guid(),
 });
 export type AnswerReplyRequest = z.infer<typeof AnswerReplyRequest>;
 
@@ -81,10 +85,21 @@ export async function answerReply(deps: GatewayDeps, input: AnswerReplyRequest, 
   const mailClass = await classifyProjectMail(deps.db, input.businessId, { purpose: "reply", email: reply.email, now: now.getTime() });
   if (mailClass !== "transactional") return notSent("not_recent");
 
+  // One answer, one message (WP-05 T14's rule for outward calls): the request id is claimed on the shared count for
+  // ANSWER_REPLY_DEDUPE_MS and given back only when nothing can have gone out, so a press repeated after a timeout
+  // sends nothing more.
+  const dedupeKey = `ra:${input.businessId}:${input.requestId}`;
+  const claimed = await deps.rateLimits.hit(dedupeKey, ANSWER_REPLY_DEDUPE_MS, now.getTime());
+  if (claimed.count > 1) return notSent("duplicate");
+  const giveBack = () => deps.rateLimits.release?.(dedupeKey, ANSWER_REPLY_DEDUPE_MS, now.getTime()) ?? Promise.resolve();
+
   // 4. Every guard of the project's address.
   const args = { to: { email: reply.email }, subject: answerSubject(reply.subject), text: input.text, purpose: "reply" as const };
   const decision = await preparePlatformMail(mailDeps, { business, args, mode, now: now.getTime(), log: deps.log });
-  if (!decision.ok) return notSent(POLICY_REASON[decision.policyId] ?? "vendor");
+  if (!decision.ok) {
+    await giveBack();
+    return notSent(POLICY_REASON[decision.policyId] ?? "vendor");
+  }
   const prepared = decision.prepared;
 
   const ctx: ToolContext = { businessId: input.businessId, agentId: NIL_ID, sessionId: NIL_ID, integration: mockIntegrationRecord(PLATFORM_MAIL_KEY, input.businessId), log: deps.log, mode, platformMail: prepared.envelope };
@@ -94,12 +109,19 @@ export async function answerReply(deps: GatewayDeps, input: AnswerReplyRequest, 
     result = await connector.callTool("send_mail", args, ctx);
   } catch (e) {
     await prepared.release();
-    if (isConfigError(e)) return notSent("unconfigured");
+    if (isConfigError(e)) {
+      await giveBack();
+      return notSent("unconfigured");
+    }
     throw e;
   }
   if (!result.ok) {
-    // A definite refusal sent nothing and is given back; a timeout or a 5xx may have gone out and stays counted.
-    if (vendorRefusedOutright(result.error)) await prepared.release();
+    // A definite refusal sent nothing and is given back; a timeout or a 5xx may have gone out and stays counted, and
+    // its request id stays claimed, so pressing Send again cannot send it twice.
+    if (vendorRefusedOutright(result.error)) {
+      await prepared.release();
+      await giveBack();
+    }
     return notSent("vendor");
   }
   const simulated = mode === "mock";

@@ -260,7 +260,7 @@ export interface MetricFacts {
     fabricated_left: { mock_leads: number; estimate_rows: number; mock_integrations: number; live_campaigns: number; stale_launch_approvals: number };
     simulated_outcomes_excluded: number;
   };
-  /** Reports of people, profiles and messages waiting for review, and those past the response target (0129). */
+  /** Reports of people, profiles and messages waiting for review, and those past the response target (0136). */
   safety: { reports_open: number; reports_overdue: number };
 }
 

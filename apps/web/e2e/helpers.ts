@@ -374,6 +374,12 @@ export const takeChargeToHome = takeChargeToToday;
 /** The one plan note (WP-04 T5, `PLAN_READY_NOTE.subject`): the specification and roadmap rounds are answered from it. */
 export const PLAN_NOTE = "Your plan is ready";
 
+/**
+ * The Chief of Staff's first note: the welcome, "{Project} has started" (WP-04 T7), or its note of the day once an
+ * agent's update was folded into it (WP-04 T8). Never "Distribution has started".
+ */
+export const FIRST_NOTE = /(?<!Distribution) has started|What your team did today/;
+
 /** The Inbox row of a note by its subject. */
 export function inboxRow(page: Page, subject: string | RegExp): Locator {
   return page.getByTestId("inbox-list").getByRole("option").filter({ hasText: subject }).first();
@@ -476,4 +482,13 @@ export async function openExplainer(page: Page, screenId: string): Promise<Locat
   const panel = page.getByTestId("explain-page-panel");
   await expect(panel).toBeVisible();
   return panel;
+}
+
+/** The foundations' status as the api has it (`product.foundations.get`), read as the dev founder. */
+export async function foundationsStatus(api: APIRequestContext, businessId: string): Promise<string | null> {
+  const input = encodeURIComponent(JSON.stringify({ json: { businessId } }));
+  const res = await api.get(`/trpc/product.foundations.get?input=${input}`);
+  if (!res.ok()) return null;
+  const body = (await res.json()) as { result?: { data?: { json?: { status?: string } } } };
+  return body.result?.data?.json?.status ?? null;
 }
