@@ -46,6 +46,5 @@ export const integrationAgent = defineTemplate({
   tools: [grant("platform", [...PLATFORM_BASE_TOOLS, "business.mode.read"]), grant("sandbox", SANDBOX_TOOLS), grant("github", ["repos.read", "pulls.create", "pulls.read", "pulls.update", "pulls.merge", "checks.read"])],
   skills: withCoreSkills(["conflict_resolution", "ci_cd", "release_hygiene"]),
   autonomy: AUTONOMY_INHERIT,
-  schedule: { triggers: ["task.completed", "approval.resolved"] },
   neverDoes: ["Merge a red build", "Guess at semantic conflicts", "Merge in Augmented mode without approval", "Push to main directly"],
 });

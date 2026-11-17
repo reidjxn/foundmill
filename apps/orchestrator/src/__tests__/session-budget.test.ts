@@ -2,8 +2,33 @@
  * What bounds a live session (audit BF-11, O-29, #15): the smallest of the task's budget, the month's credits (platform
  * key), the business's monthly model budget and the agent's wage cap, and the words each gives the founder.
  */
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { bookUsage } from "@foundmill/db";
 import { boundSpend, budgetSummary, LIMIT_WORDS, type BudgetLimit } from "../activities/session-budget";
+import { unbookedTokens } from "../activities/session-credits";
+import { openSessionRow, setupOrchestratorHarness, type OrchestratorTestHarness } from "./harness";
+
+describe("what a session still books at its end (WP-09 T3)", () => {
+  let t: OrchestratorTestHarness;
+  beforeAll(async () => {
+    t = await setupOrchestratorHarness({ prefix: "session-budget" });
+  });
+  afterAll(async () => {
+    await t?.close();
+  });
+
+  it("a row another service booked under the session id (the gateway's reader, a web search) leaves unbookedTokens unchanged", async () => {
+    const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
+    const totals = { tokens: 1_000, costMinor: 40 };
+    // What the session booked itself while it ran (session-credits.ts): its own rows count against its totals.
+    await bookUsage(t.db, t.businessId, { agentId: t.workerId, sessionId, kind: "tokens", modelKey: "sonnet", quantity: 300, unit: "tokens", costMinor: 10, currency: "USD", billedTo: "credits", details: { source: "claude-agent-sdk", label: "Estimate", partial: true } });
+    const before = await unbookedTokens(t.deps, t.businessId, sessionId, totals);
+    expect(before).toEqual({ tokens: 700, costMinor: 30 });
+    // The gateway's reader books its own call under the session id; the SDK's totals never included it.
+    await bookUsage(t.db, t.businessId, { agentId: t.workerId, sessionId, kind: "tokens", modelKey: "haiku", quantity: 6_000, unit: "tokens", costMinor: 1, costMicroMinor: 600_000, currency: "USD", billedTo: "credits", details: { service: "gateway", route: "quarantinedReader", label: "Estimate" } });
+    expect(await unbookedTokens(t.deps, t.businessId, sessionId, totals)).toEqual(before);
+  });
+});
 
 const task = { taskBudgetMinor: 2_000, taskSpentMinor: 500 };
 

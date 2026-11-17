@@ -214,7 +214,7 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     const next = screen.getByTestId("what-happens-next");
     // The steps are the shared first-day promise itself, not a copy of it (WP-02 T6).
     expect(WHAT_HAPPENS_NEXT).toBe(FIRST_DAY_PROMISE.steps);
-    expect(WHAT_HAPPENS_NEXT).toEqual(["Your team is hired", "Your public page is drafted first: check it and put it live", "Then your plan arrives as two notes to sign off", "Nothing is spent on finding customers until you say so"]);
+    expect(WHAT_HAPPENS_NEXT).toEqual(["Your team is hired", "Your public page is drafted first: check it and put it live", "Then your plan arrives as one note to approve", "Nothing is spent on finding customers until you say so"]);
     for (const step of WHAT_HAPPENS_NEXT) expect(next.textContent).toContain(step);
     expect(next.textContent).not.toMatch(/Board|three decisions|first cycle/);
     expect(includedCreditsLine()).toBe("Starts with $5.00 of included credits this month. No card.");
@@ -264,6 +264,18 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     fireEvent.change(screen.getByLabelText(/Spend cap per action/), { target: { value: "75" } });
     fireEvent.click(screen.getByLabelText(/Augmented/));
     expect((screen.getByLabelText(/Spend cap per action/) as HTMLInputElement).value).toBe("75");
+  });
+
+  it("starts the spend line at 0 for a founder with no budget, in every mode, so every spend asks first (WP-04 T3)", async () => {
+    const onCommit = renderForm(vi.fn(), { hasBudget: false });
+    expect((screen.getByLabelText(/Spend cap per action/) as HTMLInputElement).value).toBe("0");
+    expect(screen.getByTestId("how-it-runs-summary").querySelector('[data-summary="spend-cap"]')?.textContent).toBe("Asks you above €0.00");
+    fireEvent.click(screen.getByLabelText(/Automated/));
+    expect((screen.getByLabelText(/Spend cap per action/) as HTMLInputElement).value).toBe("0");
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("take-charge"));
+    });
+    expect(onCommit).toHaveBeenCalledWith(expect.objectContaining({ spendCapMinor: 0 }));
   });
 
   it("offers the overnight shift, on by default, and sends the choice with idea.commit", async () => {
@@ -492,7 +504,7 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
 
   it("says what is happening while the business is set up", () => {
     renderForm(vi.fn(), { committing: true });
-    expect(screen.getByTestId("committing-status").textContent).toBe("Setting up your business: departments, team and the first cycle. This takes a few seconds.");
+    expect(screen.getByTestId("committing-status").textContent).toBe("Setting up your business: departments, team and the first tasks. This takes a few seconds.");
     // The header says it too, beside the top button, which reads as the work in progress rather than the action.
     expect(screen.getAllByText(/^Setting up your business/)).toHaveLength(2);
     expect(screen.getByTestId("take-charge").textContent).toMatch(/Setting up…/);

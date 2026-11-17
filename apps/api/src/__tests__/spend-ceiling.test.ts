@@ -98,7 +98,8 @@ describe("the credits gate on the api's model calls (S2)", () => {
       const owner = hz.caller({ userId: hz.A.ownerId });
       await owner.plan.preview({ businessId: A, text: "Pause the ads for a week" });
       const charged = await repos.usage.creditBalance(hz.db, A, period());
-      expect(Number(charged?.spentMinor)).toBeGreaterThan(0);
+      // A free business's call runs on Haiku 5.5 (WP-13) and costs a fraction of a cent: whole cents plus the carry.
+      expect(Number(charged?.spentMinor) * 1_000_000 + Number(charged?.carryMicroMinor ?? 0)).toBeGreaterThan(0);
       await useUpCredits(A);
       expect(await refusal(owner.plan.preview({ businessId: A, text: "Pause the ads for a week" }))).toMatchObject({ code: "PAYMENT_REQUIRED", message: expect.stringMatching(/Your agents keep working on your own Anthropic key\.$/) });
       // The plan shows those credits for a business on its own key as well.

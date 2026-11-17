@@ -294,7 +294,9 @@ export const usageRepo = {
     const [row] = await db
       .select({ cost: sql<number>`coalesce(sum(${usageLedger.costMinor}), 0)::bigint`, quantity: sql<number>`coalesce(sum(${usageLedger.quantity}), 0)::bigint` })
       .from(usageLedger)
-      .where(and(eq(usageLedger.businessId, businessId), eq(usageLedger.sessionId, sessionId), eq(usageLedger.kind, "tokens"), eq(usageLedger.currency, CREDITS_CURRENCY)));
+      // Only the session's own rows (the Agent SDK's, booked as it ran): rows another service books under the session id
+      // (the gateway's reader, a web search) are not in the SDK's totals, so they must not shrink its final booking (WP-09 T3).
+      .where(and(eq(usageLedger.businessId, businessId), eq(usageLedger.sessionId, sessionId), eq(usageLedger.kind, "tokens"), eq(usageLedger.currency, CREDITS_CURRENCY), sql`${usageLedger.details}->>'source' = 'claude-agent-sdk'`));
     return { costMinor: Number(row?.cost ?? 0), quantity: Number(row?.quantity ?? 0) };
   },
 

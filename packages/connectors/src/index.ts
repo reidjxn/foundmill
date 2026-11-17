@@ -32,7 +32,7 @@ export { createEcbRatesConnector, ecbRatesMock, ECB_KEY } from "./connectors/ecb
 export { createDomainsConnector, domainsMock, DOMAINS_KEY, mockDomainAnswer, type DnsLike, type DomainAnswer } from "./connectors/domains";
 export { createWebConnector, webMock, WEB_KEY, WEB_USER_AGENT, WEB_ROBOTS_TOKEN, isPrivateAddress, publicOnlyLookup, type WebConnectorOptions } from "./connectors/web";
 export { createStripeConnector, isPlatformBillingIntegration, PLATFORM_BILLING_INTEGRATION_ID, stripeMock, STRIPE_KEY, normaliseStripeEvent, verifyStripeSignature, stripeSignatureHeader, signedStripeRequest } from "./connectors/stripe";
-export { createSendgridConnector, sendgridMock, SENDGRID_KEY, emailEntityId, normaliseSendgridEvents, normaliseInboundMail, verifySendgridSignature, signedEventRequest as signedSendgridEventRequest, inboundParseRequest as sendgridInboundParseRequest } from "./connectors/sendgrid";
+export { createSendgridConnector, sendgridMock, SENDGRID_KEY, emailEntityId, inboundReplyText, normaliseSendgridEvents, normaliseInboundMail, verifySendgridSignature, signedEventRequest as signedSendgridEventRequest, inboundParseRequest as sendgridInboundParseRequest } from "./connectors/sendgrid";
 export { createShopifyConnector, shopifyMock, SHOPIFY_KEY, normaliseShopifyEvent, shopifyHmac, signedShopifyRequest } from "./connectors/shopify";
 export { createTinkConnector, tinkMock, TINK_KEY } from "./connectors/tink";
 export { createPlaidConnector, plaidMock, PLAID_KEY } from "./connectors/plaid";
@@ -52,6 +52,7 @@ export { createBufferConnector, bufferMock, BUFFER_KEY } from "./connectors/buff
 export * from "./grants";
 export * from "./channel-availability";
 export { createPlatformConnector, platformMock, createPlatformMock, createMemoryPlatformHost, PLATFORM_KEY, PlatformToolError, MESSAGE_TYPES, type PlatformHost, type PlatformCaller, type PlatformArgs, type PlatformResult, type TaskSummaryT, type TaskDetailT, type AgentMessageT } from "./connectors/platform";
+export { AcceptanceResult, acceptanceLines, acceptanceRefusal, toolKeys, toolUseKey, unmetAcceptanceLines, type AcceptanceResultT, type ToolUse } from "./connectors/platform/acceptance";
 export { createQuarantineConnector, quarantineMock, QUARANTINE_KEY, quarantinedReaderRequest } from "./connectors/quarantine";
 export * from "./connectors/platform_mail";
 export * from "./connectors/platform_notify";

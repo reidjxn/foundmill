@@ -59,6 +59,8 @@ export const MODEL_LIMITS = {
   foundations: { what: "Drafting the foundations", business: [{ limit: 3, windowMs: HOUR }, { limit: 10, windowMs: DAY }] },
   /** product.research.retry: the Product Researcher's plan drafted again (one worker call). */
   research: { what: "Drafting the research plan", business: [{ limit: 3, windowMs: HOUR }, { limit: 10, windowMs: DAY }] },
+  /** positioning.requestDraft: the Product lead's first positioning notes (one call; WP-08 T1). */
+  positioning: { what: "Drafting the positioning notes", business: [{ limit: 3, windowMs: HOUR }, { limit: 10, windowMs: DAY }] },
   /** agent.training.run and agent.model.set (its retests): training runs on the orchestrator. */
   training: { what: "Training", user: [{ limit: 20, windowMs: HOUR }], business: [{ limit: 60, windowMs: DAY }] },
   /** business.continue: a cycle (the Chief of Staff's plan, or a composer note when nothing is ready). */
@@ -75,6 +77,8 @@ export const MODEL_LIMITS = {
   checkout: { what: "Checkout", user: [{ limit: 10, windowMs: HOUR }], business: [{ limit: 30, windowMs: DAY }] },
   /** founder.email.sendLink (WP-03 T3): one email per press; the gateway sends three a day per person and refuses the rest. */
   continueLink: { what: "Emailing a link", user: [{ limit: 5, windowMs: MINUTE }, { limit: 20, windowMs: DAY }] },
+  /** crm.replies.answer (WP-08 T2): one email per press from the project's address; the project's day cap still applies. */
+  replyAnswer: { what: "Answering an email", user: [{ limit: 10, windowMs: MINUTE }, { limit: 100, windowMs: DAY }] },
 } as const satisfies Record<string, ModelLimitRule>;
 
 export type ModelLimitName = keyof typeof MODEL_LIMITS;

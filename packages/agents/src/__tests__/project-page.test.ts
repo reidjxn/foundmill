@@ -9,7 +9,18 @@ import { describe, expect, it } from "vitest";
 import { draftProjectPage, runProjectPageStep, type ProjectPageStore } from "../foundations-steps";
 import { PROJECT_PAGE_ROUTE, buildProjectPageRequest, finaliseProjectPage, inventedFigures, projectPageReadyNote, starterProjectPage } from "../project-page";
 import { projectPagePrompt } from "../prompts/project-page";
+import { getTemplate } from "../registry";
+import { agentParts, expectFollowsAgent } from "./agent-parts.fixtures";
 import { ideationInputs } from "./foundations.fixtures";
+
+describe("buildProjectPageRequest follows the business's Product lead (WP-06 T1)", () => {
+  it("with `agent`, its instructions and skills; without, the template as before", () => {
+    const template = getTemplate("product_lead");
+    const inputs = ideationInputs();
+    const withAgent = buildProjectPageRequest({ ...inputs, agent: agentParts(template) }).system[0]!;
+    expectFollowsAgent(withAgent, buildProjectPageRequest(inputs).system[0]!, template, inputs.businessName);
+  });
+});
 
 const WORDS = "Same-day cafe shifts for students in Manchester. Cafes post a shift in the morning and a student picks it up by lunch.";
 const withWords = () => {

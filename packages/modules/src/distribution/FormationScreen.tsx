@@ -216,7 +216,7 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
         >
           <p className="text-body text-secondary">
             {nothingToShow ? "No channel can run yet, so nothing starts today. You can still start distribution, and a channel starts the day it opens." : "The channels on the board keep their place; their engines start when you start distribution."}{" "}
-            {stage.stage === "building" ? "The team is building the first roadmap items now." : stage.stage === "awaiting_signoff" || stage.stage === "drafting" ? "Sign off the specification and the roadmap first." : ""}
+            {stage.stage === "building" ? "The team is building the first roadmap items now." : stage.stage === "awaiting_signoff" || stage.stage === "drafting" ? "Approve your plan first." : ""}
           </p>
           <Dialog open={startOpen} onOpenChange={setStartOpen}>
             <DialogContent size="sm">

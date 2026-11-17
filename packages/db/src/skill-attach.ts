@@ -7,7 +7,7 @@
  * Callers audit each addition under their own actor.
  */
 import { createHash } from "node:crypto";
-import { ADDED_SKILLS_MAX_TOTAL_CHARS, MAX_ADDED_SKILLS_PER_AGENT, SKILL_LIBRARY, SKILL_LIBRARY_CATEGORY_LABELS, getLibrarySkill, getTemplateByAgentType, librarySkillKey, parseSkillFile, uploadSkillKey } from "@foundmill/agents";
+import { ADDED_SKILLS_MAX_TOTAL_CHARS, LIBRARY_SKILL_PREFIX, MAX_ADDED_SKILLS_PER_AGENT, SKILL_LIBRARY, SKILL_LIBRARY_CATEGORY_LABELS, getLibrarySkill, getSkillDefinition, getTemplateByAgentType, librarySkillKey, parseSkillFile, uploadSkillKey } from "@foundmill/agents";
 import { ConflictError, ValidationError, type AddedSkillSource, type SkillGroup } from "@foundmill/shared";
 import { repos, type AddedAgentSkill } from "./repos";
 import type { Agent, SkillDefinition } from "./schema";
@@ -52,7 +52,7 @@ const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().t
 /**
  * Attaches resolved skills to an agent in the caller's (service) transaction: the definitions for the agent's type and
  * the rating rows at the template's baseline (untested). `onAdded` runs once per definition (the caller's audit row).
- * Refuses (409) a skill the agent already has, by key or by name, and (400) more than `MAX_ADDED_SKILLS_PER_AGENT`
+ * Refuses (409) a skill the agent already has, by key or by name (a rating it carries counts, TS-12), and (400) more than `MAX_ADDED_SKILLS_PER_AGENT`
  * added skills or more than `ADDED_SKILLS_MAX_TOTAL_CHARS` of their instructions.
  */
 export async function attachAddedSkills(
@@ -65,8 +65,16 @@ export async function attachAddedSkills(
   if (skills.length === 0) return [];
   const [existing, ratings] = await Promise.all([repos.skills.listAddedForAgent(tx, businessId, agent.id, agent.agentType), repos.skills.listForAgent(tx, businessId, agent.id)]);
   const seen: { key: string; name: string }[] = existing.map((e) => ({ key: e.skillKey, name: e.name }));
+  // The ratings the agent carries, by their catalog name ("Debugging"): an added skill may not read as one of them,
+  // unless it is a library skill that names that rating in `improves` (it sharpens it; TS-12).
+  const rated = ratings.flatMap((r) => {
+    const d = getSkillDefinition(r.skillKey);
+    return d ? [{ key: r.skillKey, name: d.name }] : [];
+  });
   for (const s of skills) {
-    if (ratings.some((r) => r.skillKey === s.skillKey) || seen.some((x) => x.key === s.skillKey || sameName(x.name, s.name))) throw new ConflictError(`${agent.name} already has a skill called "${s.name}"`, { skillKey: s.skillKey });
+    const improves = s.source === "library" ? (getLibrarySkill(s.skillKey.slice(LIBRARY_SKILL_PREFIX.length))?.improves ?? []) : [];
+    const readsAsRating = rated.some((r) => sameName(r.name, s.name) && !improves.includes(r.key));
+    if (readsAsRating || ratings.some((r) => r.skillKey === s.skillKey) || seen.some((x) => x.key === s.skillKey || sameName(x.name, s.name))) throw new ConflictError(`${agent.name} already has a skill called "${s.name}"`, { skillKey: s.skillKey });
     seen.push({ key: s.skillKey, name: s.name });
   }
   if (seen.length > MAX_ADDED_SKILLS_PER_AGENT) throw new ValidationError(`An agent carries at most ${MAX_ADDED_SKILLS_PER_AGENT} skills from the library or files; remove one first`);

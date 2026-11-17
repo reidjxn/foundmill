@@ -164,6 +164,7 @@ export const TERMS: LegalDocument = {
       blocks: [
         { kind: "p", text: "You can build on your own or with others. Cofounders have equal standing in a project; collaborators have limited access. What the people in a project agree among themselves about who owns what is between them; we follow the project's settings." },
         { kind: "p", text: `Your idea and your project stay private until you choose to share them. When you publish a public page or profile, anyone can see it, search engines may index it, and others may copy what they see. ${N} hosts a project's public page at a ${N} address for free.` },
+        { kind: "p", text: `We ask AI training crawlers not to collect public project pages and profiles. They may read ${N}'s own pages.` },
       ],
     },
     {

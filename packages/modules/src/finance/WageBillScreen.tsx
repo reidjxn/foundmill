@@ -309,7 +309,7 @@ export function WageBillScreen({ businessId }: ModuleScreenProps) {
           columns={[
             { id: "who", header: "Member", cell: (m) => <StaffName member={m} businessId={businessId} /> },
             { id: "role", header: "Role", width: 84, cell: (m) => <Chip tone="neutral">{memberRoleWord(m.role)}</Chip> },
-            { id: "since", header: "Since", width: 80, cell: (m) => <span className="tabular-nums">{m.createdAt ? formatMonthYear(m.createdAt) : "—"}</span> },
+            { id: "since", header: "Since", width: 96, cell: (m) => <span className="tabular-nums">{m.createdAt ? formatMonthYear(m.createdAt) : "—"}</span> },
           ]}
           caption={pnlFailed ? <span>Payroll: {unavailableWords(pnl.error, "Finance").caption}</span> : <span className="tabular-nums">Payroll {fmtMoney(payrollMinor, currency)} · Estimate</span>}
         />

@@ -27,7 +27,7 @@ test.describe("the tour (/tour)", () => {
     const hero = page.locator("section", { has: page.locator("#hero-title") });
     // The hero's assurances sit under the idea box (founder, 2026-11-13; docs/IDEA_BOX.md); the included credits are said
     // once a card lands, beside the ways to keep it.
-    await expect(hero.getByText("Your first card is free and needs no sign-up")).toBeVisible();
+    await expect(hero.getByText("Shaping your first idea is free and needs no sign-up")).toBeVisible();
     await expect(hero.getByText("Your idea stays private until you choose to share it")).toBeVisible();
     await expect(hero.getByText(/Anthropic key/)).toHaveCount(0);
     await expect(page.getByText(/Bring your own Anthropic key/)).toHaveCount(1);
@@ -40,7 +40,7 @@ test.describe("the tour (/tour)", () => {
       await expect(page.locator(`#${id}`)).toBeInViewport();
     }
 
-    // How it works: four beats, each labeled Example; the fourth is day one as it runs (drafting → two sign-offs →
+    // How it works: four beats, each labeled Example; the fourth is day one as it runs (drafting → the plan note →
     // Continue), drawn with the product's parts.
     const how = page.locator("#how");
     await how.scrollIntoViewIfNeeded();
@@ -50,8 +50,8 @@ test.describe("the tour (/tour)", () => {
     await expect(firstDay).toContainText("Drafting your vision, specification and roadmap…");
     await expect(firstDay).toContainText("Iris, Product lead, writes it from your idea and your profile. Orla, Chief of Staff, plans the first cycle from the roadmap.");
     const signoffs = how.getByRole("list", { name: "Inbox" }).getByRole("listitem");
-    await expect(signoffs).toHaveText([/Sign off the product specification/, /Sign off the product roadmap/]);
-    await expect(how.getByRole("list", { name: "Inbox" }).getByText("Needs you", { exact: true })).toHaveCount(2);
+    await expect(signoffs).toHaveText([/Your plan is ready/]);
+    await expect(how.getByRole("list", { name: "Inbox" }).getByText("Needs you", { exact: true })).toHaveCount(1);
     await expect(how.getByText("Building starts: 11 tasks planned")).toBeVisible();
     await expect(how.getByText("The team drafts; you sign off; then they build. Your project's money is never spent without your approval; agent work uses your monthly allowance.")).toBeVisible();
 

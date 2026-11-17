@@ -279,6 +279,14 @@ export const BUSINESS_MODE_CARDS: ModeCard<BusinessMode>[] = [
  */
 export const DEFAULT_SPEND_CAP_MINOR = Object.fromEntries(BUSINESS_MODES.map((m) => [m, recommendedSpendLineMinor(m, LIMITS.approvalThresholdMinorDefault)])) as Record<BusinessMode, number>;
 
+/**
+ * The spend line Commit starts with: the mode's default, or 0 for a founder whose profile names no budget, so every
+ * spend asks first in every mode (WP-04 T3; founder, 2026-11-16 D4). 0 is "ask above nothing"; empty is no limit.
+ */
+export function defaultSpendCapMinor(mode: BusinessMode, founder: { hasBudget: boolean }): number {
+  return founder.hasBudget ? DEFAULT_SPEND_CAP_MINOR[mode] : 0;
+}
+
 export interface ArchetypeCard {
   value: Archetype;
   label: string;
@@ -322,7 +330,7 @@ export interface CommitForm {
   agentStyle: AgentStyle;
 }
 
-export function initialCommitForm(idea: { title: string; archetype: Archetype | null }, kit: Kit, currency: string, anthropomorphicAgents = false, agentStyle: AgentStyle = DEFAULT_AGENT_STYLE): CommitForm {
+export function initialCommitForm(idea: { title: string; archetype: Archetype | null }, kit: Kit, currency: string, anthropomorphicAgents = false, agentStyle: AgentStyle = DEFAULT_AGENT_STYLE, founder: { hasBudget: boolean } = { hasBudget: true }): CommitForm {
   return {
     name: idea.title.replace(VARIANT_SUFFIX_RE, "").trim(),
     kit,
@@ -331,7 +339,7 @@ export function initialCommitForm(idea: { title: string; archetype: Archetype | 
     adult: false,
     archetype: idea.archetype,
     businessMode: "assisted",
-    spendCap: String(DEFAULT_SPEND_CAP_MINOR.assisted / 100),
+    spendCap: String(defaultSpendCapMinor("assisted", founder) / 100),
     currency,
     autopilot: true,
     anthropomorphicAgents,

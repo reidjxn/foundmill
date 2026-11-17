@@ -33,7 +33,9 @@
   /* ---------- Lines: alpha on white, so one set sits on every surface ---------- */
   --line-faint: rgba(255, 255, 255, 0.045); /* row dividers */
   --line: rgba(255, 255, 255, 0.075); /* hairlines, panel header rule */
-  --line-strong: rgba(255, 255, 255, 0.13); /* control borders */
+  --line-strong: rgba(255, 255, 255, 0.13); /* panel, divider and button borders */
+  --line-control: rgba(255, 255, 255, 0.34); /* the edge of a field, checkbox, radio or switch: >= 3 : 1 on canvas and surface-1…3 (WCAG 1.4.11) */
+  --line-control-hover: rgba(255, 255, 255, 0.42);
   --edge-hi: rgba(255, 255, 255, 0.24); /* light caught at a corner */
   /* The panel's 1 px gradient edge: lit at the top left, falling away, catching light again at the bottom right. */
   --edge-gradient: linear-gradient(
@@ -65,11 +67,11 @@
      raised surface. */
   --status-good: #3dd68c;
   --status-warn: #f5b841;
-  --status-bad: #f36066;
-  --status-info: #5e8eff;
+  --status-bad: #f57a7f;
+  --status-info: #7ba1ff;
 
   /* ---------- Rating ramp 1–20 ---------- */
-  --rating-1: #f2545b; /* 1-5 */
+  --rating-1: var(--status-bad); /* 1-5: one red */
   --rating-2: #f5b841; /* 6-10 */
   --rating-3: #9adf7e; /* 11-15, light green */
   --rating-4: #3dd68c; /* 16-20, set in 600 */
@@ -115,14 +117,14 @@
   --elev-1: inset 0 1px 0 rgba(255, 255, 255, 0.035), 0 1px 2px rgba(0, 0, 0, 0.45), 0 12px 28px -16px rgba(0, 0, 0, 0.75); /* panels */
   --elev-2: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 2px 6px rgba(0, 0, 0, 0.4), 0 18px 44px -16px rgba(0, 0, 0, 0.8); /* hover cards, menus, sticky bars */
   --elev-3: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 4px 12px rgba(0, 0, 0, 0.45), 0 32px 80px -20px rgba(0, 0, 0, 0.9); /* dialogs, palette */
-  --ring: 0 0 0 1px rgba(124, 196, 255, 0.65), 0 0 0 4px rgba(124, 196, 255, 0.16); /* focus, every focusable element */
+  --ring: 0 0 0 2px rgba(124, 196, 255, 0.8), 0 0 0 5px rgba(124, 196, 255, 0.18); /* focus, every focusable element */
 
   /* ---------- Glows: coloured light from a source only (dots, badges, Today, the active edge, Generate, running
      strip segments, presence rings, Continue). Never on a static panel, never on text. ---------- */
   --glow-good: 0 0 10px -1px rgba(61, 214, 140, 0.7);
   --glow-warn: 0 0 10px -1px rgba(245, 184, 65, 0.7);
-  --glow-bad: 0 0 10px -1px rgba(243, 96, 102, 0.7); /* status-bad #F36066 */
-  --glow-info: 0 0 10px -1px rgba(94, 142, 255, 0.7); /* status-info #5E8EFF */
+  --glow-bad: 0 0 10px -1px rgba(245, 122, 127, 0.7); /* status-bad #F57A7F */
+  --glow-info: 0 0 10px -1px rgba(123, 161, 255, 0.7); /* status-info #7BA1FF */
   --glow-accent: 0 0 10px -1px rgba(124, 196, 255, 0.7);
   --glow-gold: 0 0 12px -1px rgba(232, 197, 107, 0.65);
 
@@ -207,9 +209,9 @@
   --ls-data: 0.09em;
   --fs-body: 13px;
   --lh-body: 19px;
-  --fs-reading: 15px;
-  --lh-reading: 24px;
-  --ls-reading: -0.006em;
+  --fs-reading: 16px;
+  --lh-reading: 26px;
+  --ls-reading: 0em;
   --fs-chat: 13.5px;
   --lh-chat: 20px;
   --fs-small: 12px;
@@ -332,8 +334,10 @@
   /* ---------- The landing page (DESIGN §9a; docs/holistic-plan/landing/DIRECTION.md §7) ---------- */
   /* Its own type scale, so the console's 13 px root and every token it reads never move. Body 16 px is the size an
      iPhone does not zoom a field at; headings scale with the page's width between a phone and 1440 px. */
-  --fs-landing-h1: clamp(36px, 4.6vw + 18px, 72px);
-  --lh-landing-h1: 1.04;
+  --fs-landing-h1: clamp(42px, 5vw + 22px, 92px);
+  --lh-landing-h1: 0.98;
+  --fs-landing-h3: clamp(22px, 1vw + 18px, 30px);
+  --lh-landing-h3: 1.14;
   --fs-landing-h2: clamp(26px, 1.8vw + 19px, 40px);
   --lh-landing-h2: 1.12;
   --fs-landing-lede: clamp(17px, 0.3vw + 16px, 19px);
@@ -348,6 +352,31 @@
   --landing-field-h: 56px; /* the idea field and its button, side by side from 640 px */
   --landing-gen-h: 52px; /* the idea button, full width under the field on a phone */
   --line-control: rgba(255, 255, 255, 0.34); /* a field's edge on the landing page: 3 : 1 against the canvas (s1 §2, WCAG 1.4.11) */
+
+  /* ---------- Daylight: the top of the landing page only (founder, 2026-11-16; DESIGN §9a) ----------
+     The landing page opens in daylight and descends into the product's night. These are the only light values in the
+     system, read through the `landing-day` scope (landing.css), which points the semantic tokens at them; nothing in
+     the console reads them. Ink is the canvas's own blue-black, so the two halves share one hue. Contrast on
+     day-canvas: ink 17.0 : 1, ink-2 8.6 : 1, ink-3 5.4 : 1, day-accent 5.9 : 1, day-good 5.2 : 1 (tokens.test.ts). */
+  --day-canvas: #f1f5fb; /* the page in daylight */
+  --day-surface-1: #ffffff; /* the idea field, raised tiles */
+  --day-surface-2: #e6ecf5; /* secondary buttons, hover */
+  --day-surface-3: #d9e1ee; /* active */
+  --day-surface-4: #cbd5e5; /* pressed */
+  --day-ink: #0a1322; /* content */
+  --day-ink-2: #3a4759; /* secondary text */
+  --day-ink-3: #566273; /* captions, placeholders */
+  --day-ink-4: #9aa4b2; /* disabled only */
+  --day-line-faint: rgba(10, 19, 34, 0.06);
+  --day-line: rgba(10, 19, 34, 0.1);
+  --day-line-strong: rgba(10, 19, 34, 0.18);
+  --day-line-control: rgba(10, 19, 34, 0.52); /* a field's edge: 3 : 1 against day-canvas */
+  --day-accent: #1b58bd; /* links and focus in daylight */
+  --day-good: #0c7446; /* the assurance icons in daylight */
+  --day-warn: #855600;
+  --day-bad: #b3262d;
+  --day-shadow: 0 1px 2px rgba(10, 19, 34, 0.08), 0 18px 40px -18px rgba(21, 50, 94, 0.35); /* a tile lifted off the day canvas */
+  --day-screen-shadow: 0 2px 6px rgba(10, 19, 34, 0.18), 0 40px 80px -30px rgba(21, 50, 94, 0.6); /* a dark product screen standing in daylight */
 }
 
 /*

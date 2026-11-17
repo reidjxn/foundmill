@@ -14,9 +14,9 @@
  */
 import { z } from "zod";
 import { APP_NAME } from "@foundmill/config";
-import { ARCHETYPE_LABELS, type Archetype, ENTITY_MARKUP_RE, type FoundationsDoor, ROADMAP_HORIZONS, type RoadmapHorizon } from "@foundmill/shared";
+import { ARCHETYPE_LABELS, type Archetype, ENTITY_MARKUP_RE, type FoundationsDoor, PLAN_READY_NOTE, ROADMAP_HORIZONS, type RoadmapHorizon } from "@foundmill/shared";
 import { FoundationsOutput, type FoundationsRoadmapItem, type FoundationsSection, type FoundationsVision, IDEA_ATTRIBUTE_LABELS, type FigureLabel, type IdeaAttributeKey, type TiptapBlock, type TiptapDoc, type TiptapParagraph, type TiptapText } from "@foundmill/models/schemas";
-import { buildSystemPrompt } from "./club-rules";
+import { agentPromptFields, buildSystemPrompt, type AgentPromptParts } from "./club-rules";
 import { modelBillingFacts, modelBillingMessage } from "./model-billing";
 import { foundationsPrompt } from "./prompts/foundations";
 import { getTemplate } from "./registry";
@@ -108,6 +108,8 @@ export interface FoundationsInputs {
   importedSources: FoundationsImportedSource[];
   /** The agent the drafting is attributed to: the Product lead, else the Chief of Staff. */
   authorAgentId: string | null;
+  /** The business's Product lead as it is now (its live instructions and skills); the template when absent. */
+  agent?: AgentPromptParts;
 }
 
 /** Attribute key → display label (the idea's attributes are stored by key). */
@@ -158,9 +160,12 @@ export interface FoundationsRequest {
   maxTokens: number;
 }
 
-/** The system prompt every foundations call starts with: the house rules and the Product lead's instructions. */
-export function foundationsSystem(inputs: Pick<FoundationsInputs, "businessName">): string {
-  return buildSystemPrompt({ businessName: inputs.businessName, appName: APP_NAME, template: getTemplate(FOUNDATIONS_TEMPLATE_KEY) });
+/**
+ * The system prompt every foundations call starts with: the house rules and the Product lead's instructions (the
+ * business's own lead and its skills when `agent` is given).
+ */
+export function foundationsSystem(inputs: Pick<FoundationsInputs, "businessName" | "agent">): string {
+  return buildSystemPrompt({ businessName: inputs.businessName, appName: APP_NAME, ...agentPromptFields(inputs.agent, getTemplate(FOUNDATIONS_TEMPLATE_KEY)) });
 }
 
 /** The variables the foundations prompts share (business, archetype, door, outline). */
@@ -751,48 +756,40 @@ export interface NoteDraft {
   bodyMd: string;
 }
 
-export const SPEC_SIGNOFF_SUBJECT = "Sign off the product specification";
-export const ROADMAP_SIGNOFF_SUBJECT = "Sign off the product roadmap";
-
-/** Keep a note's body under 180 words by dropping its last lines (never the first three). */
-function within180(lines: string[]): string {
-  let body = lines.join("\n\n");
-  while (words(body).length > 180 && lines.length > 3) {
-    lines.pop();
-    body = lines.join("\n\n");
-  }
-  return body;
+/**
+ * Where "Read the full plan" points: the Roadmap tab by its module key (`product`), which the web sends on to whichever
+ * department carries the product module (`relocatedModuleHref`), so no department name is written here.
+ */
+export function planRoadmapHref(businessId: string): string {
+  return `/b/${businessId}/d/product/roadmap`;
 }
 
-/**
- * The two decision notes the Product lead posts when the foundations are ready (BUILD §11.3 note style: fact → why it
- * matters → ask; under 180 words each, no padding): "Sign off the product specification" and "Sign off the product roadmap". The
- * founder approves each, or asks for changes in their own words. Deterministic from the draft, so they need no second
- * model call and invent nothing; model text goes in as plain, escaped text (the notes render as Markdown).
- */
-export function foundationsSignoffNotes(draft: FoundationsDraft, door: FoundationsDoor, stats: FoundationsNoteStats): { spec: NoteDraft; roadmap: NoteDraft } {
-  const from = door === "import" ? "the Import report (it says which of your sources have been read)" : "your idea and your founder profile";
-  const md = (s: string) => escapeMarkdown(plainLine(s));
-  const sectionNames = draft.sections.filter((s) => s.drafted).map((s) => md(s.section));
-  const named = sectionNames.slice(0, 3).join(", ") + (sectionNames.length > 3 ? ", …" : "");
-  const kept = stats.sectionsKept ? ` ${stats.sectionsKept} section${stats.sectionsKept === 1 ? " was" : "s were"} left as the team wrote ${stats.sectionsKept === 1 ? "it" : "them"}.` : "";
-  const specLines = [
-    `**Vision.** ${md(clipWords(draft.vision.statement, 40))}`,
-    `The specification is drafted: ${stats.sectionsWritten} of ${stats.sectionsTotal} sections${named ? ` (${named})` : ""}, from ${from}.${kept} Figures that are not yours are marked Estimate or Forecast.`,
-    `Read it on the Specification tab. Approve it and the team builds from this version; ask for changes in your own words and I revise it. Blocks you edit yourself are pinned, so agents propose changes to them rather than overwrite them.`,
-  ];
-  const question = draft.openQuestions[0];
-  if (question) specLines.push(`First open question: ${md(clipWords(question, 25))}`);
+/** The plan note's body is at most this many lines (WP-04 T5). */
+export const PLAN_NOTE_MAX_LINES = 5;
 
-  const issues = stats.importedIssues ? `, including ${stats.importedIssues} open issue${stats.importedIssues === 1 ? "" : "s"} from the import` : "";
+/** The note's first sentence of a description, for "When it is done" when an item has no acceptance criterion. */
+const firstSentence = (s: string) => (s.split(/(?<=[.!?])\s+/)[0] ?? "").trim();
+const endWithStop = (s: string) => (/[.!?…]$/.test(s) ? s : `${s}.`);
+
+/**
+ * The one decision note the Product lead posts when the foundations are ready (WP-04 T5; founder, 2026-11-16 D3: it
+ * replaces the two sign-off notes). Five lines at most, all from the draft: what gets built first (the first Now item),
+ * who it is for (the vision's audience), what is true when it is done (that item's first acceptance criterion), what it
+ * costs, and a link to the full plan (`links.roadmapHref`, the Roadmap tab; without one the tab is named). Deterministic,
+ * so it needs no second model call and invents nothing; model text goes in as plain, escaped text (the note renders as
+ * Markdown). Its subject and decision block are `PLAN_READY_NOTE` (packages/shared) and `planDecisionBlock` (packages/db).
+ */
+export function foundationsSignoffNotes(draft: FoundationsDraft, links: { roadmapHref?: string | null } = {}): { plan: NoteDraft } {
+  const md = (s: string) => escapeMarkdown(plainLine(s));
   const firstNow = [...draft.roadmap].filter((r) => r.horizon === "now").sort((a, b) => a.position - b.position)[0];
-  const roadmapLines = [
-    `The first roadmap has ${stats.roadmap.now} item${stats.roadmap.now === 1 ? "" : "s"} in Now, ${stats.roadmap.next} in Next and ${stats.roadmap.later} in Later${issues}.${firstNow ? ` First in Now: ${md(clipWords(firstNow.title, 16))}.` : ""}`,
-    `Approve it and building starts: the Planner turns the Now items into tasks and the team starts on them in its next round of work. Ask for changes if the order or the scope is wrong; nothing is spent on distribution until you start it.`,
-    `**North star.** ${md(draft.vision.northStar.metric)}: ${md(clipWords(draft.vision.northStar.target, 24))}. Every roadmap item names the specification blocks it serves, so a change to one shows up on the other.`,
+  const forWhom = draft.vision.forWhom.trim();
+  const outcome = firstNow ? (firstNow.acceptanceCriteria.find((a) => a.trim()) ?? firstSentence(firstNow.descriptionMd)) : "";
+  const lines = [
+    ...(firstNow ? [`**First we build:** ${endWithStop(md(clipWords(firstNow.title, 16)))}`] : []),
+    ...(forWhom ? [`**It is for:** ${endWithStop(md(clipWords(forWhom, 24)))}`] : []),
+    ...(outcome.trim() ? [`**When it is done:** ${endWithStop(md(clipWords(outcome, 24)))}`] : []),
+    "**What it costs:** Nothing until you approve a spend.",
+    links.roadmapHref ? `[Read the full plan](${links.roadmapHref})` : "Read the full plan on the Roadmap tab.",
   ];
-  return {
-    spec: { subject: SPEC_SIGNOFF_SUBJECT, bodyMd: within180(specLines) },
-    roadmap: { subject: ROADMAP_SIGNOFF_SUBJECT, bodyMd: within180(roadmapLines) },
-  };
+  return { plan: { subject: PLAN_READY_NOTE.subject, bodyMd: lines.slice(0, PLAN_NOTE_MAX_LINES).join("\n\n") } };
 }

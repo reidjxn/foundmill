@@ -10,6 +10,7 @@ export type ModelErrorCode =
   | "unavailable"
   | "aborted"
   | "billing"
+  | "not_funded"
   | "mock";
 
 export class ModelError extends Error {
@@ -115,5 +116,19 @@ export class ModelAbortedError extends ModelError {
   constructor(message = "Model call aborted") {
     super("aborted", message, false);
     this.name = "ModelAbortedError";
+  }
+}
+
+/**
+ * A call refused before it left because Foundmill's key must not pay for it (WP-13, `enforceModelFunding`): a business
+ * on its own Anthropic key is served on that key.
+ */
+export class ModelNotFundedError extends ModelError {
+  constructor(
+    message: string,
+    readonly reason: "own_key_route",
+  ) {
+    super("not_funded", message, false, { reason });
+    this.name = "ModelNotFundedError";
   }
 }

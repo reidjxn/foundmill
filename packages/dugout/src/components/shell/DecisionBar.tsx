@@ -251,6 +251,8 @@ export const DecisionBar = forwardRef<HTMLDivElement, DecisionBarProps>(function
       ref={setRootRef}
       role="group"
       aria-label="Decision"
+      // The shell's 1–4 choose only with focus in here (keyboard.ts DECISION_BAR_ATTRIBUTE, WP-04 T13).
+      data-decision-bar=""
       data-testid="decision-bar"
       data-state={answered ? "answered" : executing ? "executing" : disabled ? "disabled" : "open"}
       // The Inbox tour (Coachmark) rings the bar ("Every option says what it costs…") and then its ask button.

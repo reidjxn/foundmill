@@ -1,5 +1,5 @@
 /**
- * Reports of a person, a profile or a message, and the platform's review queue (docs/NETWORK.md F21; migration 0115).
+ * Reports of a person, a profile or a message, and the platform's review queue (docs/NETWORK.md F21; migration 0127).
  * The lists here are the database's checks, in the same order (packages/db `rls/reports.test.ts` compares them).
  *
  * A report is private to the platform: the person reported never learns who sent it, and the reporter never reads it

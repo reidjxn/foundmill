@@ -38,7 +38,7 @@ function printFacts(m: MetricFacts): void {
   print(`  task.blocked ${a.events.task_blocked}, task.completed ${a.events.task_completed}; approval.requested ${a.events.approval_requested_total} (${pairs(a.events.approval_requested)}); approval.resolved ${a.events.approval_resolved_total} (${pairs(a.events.approval_resolved)})`);
   print(`  approvals open ${a.approvals_open} (over 9 days ${a.approvals_open_over_9d}); stopped for a missing tool ${a.tool_missing_stopped}; notes in a project's first 24 hours: max ${a.notes_day_one.max}, median ${a.notes_day_one.median ?? "n/a"}`);
   print(`Honesty: fabricated left ${pairs(m.honesty.fabricated_left)}; simulated outcomes left out of the north star ${m.honesty.simulated_outcomes_excluded}`);
-  // Days recorded before 0115 carry no safety block.
+  // Days recorded before 0127 carry no safety block.
   if (m.safety) print(`Safety: reports open ${m.safety.reports_open}, past the review target ${m.safety.reports_overdue}`);
 }
 

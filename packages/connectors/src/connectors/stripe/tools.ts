@@ -16,6 +16,9 @@ export const STRIPE_KEY = "stripe";
  */
 export const STRIPE_CONNECT_FIELDS: ConnectField[] = [
   { name: "apiKey", label: "Restricted key", secret: true, required: true, placeholder: "rk_live_…", hint: "A restricted key from your Stripe dashboard with read access plus write access to customers, invoices and Checkout. Stripe fees stay on your account." },
+  // WP-11 T20 (N2): the signing secret of the webhook endpoint the founder adds in their own Stripe account, so its
+  // deliveries verify at ingest and a payment reaches the project. Sealed by the gateway as its own credential; optional.
+  { name: "webhookSecret", label: "Payment signing secret", secret: true, required: false, placeholder: "whsec_…", hint: "In your Stripe dashboard, under Developers, add your project's payment address as an endpoint and paste the signing secret Stripe shows, so payments reach your project." },
 ];
 export const STRIPE_API_VERSION = "2025-09-30.clover";
 export const STRIPE_DASHBOARD_URL = "https://dashboard.stripe.com";
@@ -66,11 +69,11 @@ export const stripeTools = [
   defineTool({ name: "get_balance", description: "Available and pending balance per currency.", input: z.object({}), output: z.object({ available: z.array(z.object({ amountMinor: z.number().int(), currency: z.string() })), pending: z.array(z.object({ amountMinor: z.number().int(), currency: z.string() })) }), hints: {}, annotations: { readOnlyHint: true } }),
   defineTool({ name: "list_customers", description: "Customers, newest first; filter by exact email.", input: z.object({ email: z.email().optional(), limit: z.number().int().min(1).max(100).default(20), startingAfter: z.string().optional() }), output: z.object({ items: z.array(Customer), hasMore: z.boolean() }), hints: {}, untrusted: "api", untrustedRef: (a) => `customers:${a.email ?? "all"}`, annotations: { readOnlyHint: true } }),
   defineTool({ name: "get_customer", description: "One customer by id.", input: z.object({ customerId: StripeId("cus") }), output: Customer, hints: {}, untrusted: "api", untrustedRef: (a) => a.customerId, annotations: { readOnlyHint: true } }),
-  defineTool({ name: "create_customer", description: "Create a customer record (no email is sent).", input: z.object({ email: z.email(), name: z.string().min(1).max(200).optional(), metadata: z.record(z.string().max(40), z.string().max(500)).default({}) }), output: Customer, hints: {}, annotations: { idempotentHint: true } }),
+  defineTool({ name: "create_customer", description: "Create a customer record (no email is sent).", input: z.object({ email: z.email(), name: z.string().min(1).max(200).optional(), metadata: z.record(z.string().max(40), z.string().max(500)).default({}) }), output: Customer, hints: {}, annotations: { readOnlyHint: false, idempotentHint: true } }),
   defineTool({ name: "list_invoices", description: "Invoices, newest first; filter by customer and status.", input: z.object({ customerId: StripeId("cus").optional(), status: z.enum(["draft", "open", "paid", "uncollectible", "void"]).optional(), limit: z.number().int().min(1).max(100).default(20) }), output: z.object({ items: z.array(Invoice), hasMore: z.boolean() }), hints: {}, untrusted: "api", untrustedRef: (a) => `invoices:${a.customerId ?? "all"}:${a.status ?? "any"}`, annotations: { readOnlyHint: true } }),
   defineTool({ name: "get_invoice", description: "One invoice with its lines.", input: z.object({ invoiceId: StripeId("in") }), output: Invoice, hints: {}, untrusted: "api", untrustedRef: (a) => a.invoiceId, annotations: { readOnlyHint: true } }),
   defineTool({
-    name: "create_invoice",
+    name: "create_invoice", annotations: { readOnlyHint: false },
     description: "Create and finalize an invoice for a customer (collection by email, due in N days). Nothing is sent until send_invoice.",
     input: z.object({ customerId: StripeId("cus"), currency: Currency, lines: z.array(LineItem).min(1).max(50), daysUntilDue: z.number().int().min(1).max(90).default(14), memo: z.string().max(2000).optional() }),
     output: Invoice,
@@ -78,7 +81,7 @@ export const stripeTools = [
   }),
   defineTool({ name: "send_invoice", description: "Email a finalized invoice to the customer (external message on behalf of the business; BUILD §2.3).", input: z.object({ invoiceId: StripeId("in") }), output: Invoice, hints: { contactsThirdParty: true, irreversible: true } }),
   defineTool({
-    name: "create_checkout_session",
+    name: "create_checkout_session", annotations: { readOnlyHint: false },
     description: "Hosted checkout link for a one-off payment or a subscription. The customer pays; the business spends nothing.",
     input: z.object({ mode: z.enum(["payment", "subscription"]), priceId: StripeId("price").optional(), lines: z.array(LineItem.extend({ currency: Currency })).max(20).default([]), successUrl: z.url(), cancelUrl: z.url(), customerEmail: z.email().optional(), customerId: StripeId("cus").optional(), metadata: z.record(z.string().max(40), z.string().max(500)).default({}) }).refine((a) => a.priceId || a.lines.length > 0, { message: "priceId or lines required" }),
     output: CheckoutSession,

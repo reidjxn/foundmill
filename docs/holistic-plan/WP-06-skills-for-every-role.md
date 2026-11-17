@@ -55,7 +55,7 @@ Migrations: each takes the next free number when its branch is cut (0108, journa
 
 ## Tasks
 
-### T1: One resolver, so skills and the live version follow an agent into every call   [M] [ships alone]
+### [x] T1: One resolver, so skills and the live version follow an agent into every call   [M] [ships alone]
 
 **Why:** TS-01 (P0). Only `session.ts:1449`, `conversation.ts:845` and `training.ts:210` pass the agent's own version and skills; ten other builders call `buildSystemPrompt` with the static template.
 
@@ -89,7 +89,7 @@ export async function resolveAgentPrompt(db: Executor, businessId: string, targe
 
 **Tests and evals:** as in steps 1, 3, 5. **Done when:** Done-when 5 above. **Does not cover:** whether a skill improves the output (T8).
 
-### T2: The library as Markdown with a generated catalog; the five bodies fixed   [M] [ships alone]
+### [x] T2: The library as Markdown with a generated catalog; the five bodies fixed   [M] [ships alone]
 
 **Why:** planner's decision 1; TS-07; decision 7 (the tools-that-exist test).
 
@@ -123,7 +123,7 @@ export async function resolveAgentPrompt(db: Executor, businessId: string, targe
 
 **Tests and evals:** steps 1, 2, 5; `evals/src/__tests__/skills.test.ts` unchanged and green (`skills.prompt.library_newsletter`, `…library_nda`). **Done when:** Done-when 1 and 2 for the 20 skills.
 
-### T3: The library type grows; the drafts move in   [L] [ships alone]
+### [x] T3: The library type grows; the drafts move in   [L] [ships alone]
 
 **Why:** TS-05, TS-10 (the rewrite each outside text needs), TS-12, §6e provenance (before any adapted skill ships), planner's decisions 6 and 7.
 
@@ -296,7 +296,7 @@ repos.skills.backfillDefaultSkills(db): Promise<{ businesses: number; agents: nu
 
 **Done when:** Done-when 3 and 7. **Does not cover:** the welcome note saying the team arrives with skills (WP-04 owns first notes).
 
-### T7: Picker data: suggestions, the body on request, availability   [S] [after T3]
+### [x] T7: Picker data: suggestions, the body on request, availability   [S] [after T3]
 
 **Why:** TS-09; a3b §6b (api), §6f (the two cases kept apart). WP-10 owns the look.
 
@@ -386,7 +386,7 @@ alter table training_runs add column skill_keys text[];
 
 **Done when:** an instruction edit reaches the next session at no model cost.
 
-### T12: Two honesty fixes in Recruitment and Training copy   [S] [ships alone]
+### [x] T12: Two honesty fixes in Recruitment and Training copy   [S] [ships alone]
 
 **Why:** TS-08. The real builder and a wired Coach are under Not now.
 

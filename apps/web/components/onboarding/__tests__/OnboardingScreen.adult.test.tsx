@@ -17,7 +17,11 @@ const replace = vi.fn();
 vi.mock("@/lib/trpc-react", () => ({
   useTRPC: () => ({
     founder: {
-      profile: { update: { mutationOptions: (opts: Record<string, unknown>) => ({ mutationKey: [["founder", "profile", "update"]], mutationFn: (vars: unknown) => update(vars), ...opts }) } },
+      profile: { update: { mutationOptions: (opts: Record<string, unknown> = {}) => ({ mutationKey: [["founder", "profile", "update"]], mutationFn: (vars: unknown) => update(vars), ...opts }) } },
+      publicProfile: {
+        update: { mutationOptions: (opts: Record<string, unknown> = {}) => ({ mutationFn: async () => ({ outcome: "saved" }), ...opts }) },
+        get: { queryOptions: (_i?: unknown, opts: Record<string, unknown> = {}) => ({ queryKey: [["founder", "publicProfile", "get"]], queryFn: async () => null, ...opts }) },
+      },
       adult: { confirm: { mutationOptions: (opts: Record<string, unknown>) => ({ mutationKey: [["founder", "adult", "confirm"]], mutationFn: (vars: unknown) => confirm(vars), ...opts }) } },
     },
   }),
@@ -51,16 +55,21 @@ function renderScreen(props: Partial<React.ComponentProps<typeof OnboardingScree
   );
 }
 
+/** The create path is the three questions (WP-04 T1): the name is prefilled, so Continue is the only press. */
 async function answerAndSubmit() {
-  fireEvent.click(screen.getByLabelText(/^First-time founder/));
-  fireEvent.click(screen.getByLabelText(/^Full time/));
-  fireEvent.change(screen.getByLabelText("Residence"), { target: { value: "United States" } });
   await act(async () => {
-    fireEvent.click(screen.getByTestId("profile-submit-bottom"));
+    fireEvent.click(screen.getByTestId("first-profile-submit"));
   });
 }
 
+/** The long form (editing) is for a computer: below 1280 px an edit renders the three questions. */
+function setWidth(width: number) {
+  Object.defineProperty(window, "innerWidth", { value: width, configurable: true });
+  window.dispatchEvent(new Event("resize"));
+}
+
 beforeEach(() => {
+  setWidth(1440);
   update.mockReset().mockResolvedValue({ guidanceTurnedOff: false });
   confirm.mockReset().mockResolvedValue({ confirmed: true, confirmedAt: "2026-11-14T10:00:00.000Z" });
   replace.mockReset();
@@ -76,10 +85,10 @@ describe("OnboardingScreen and 18 or older", () => {
     renderScreen({ adultConfirmed: false });
     await answerAndSubmit();
     expect(update).not.toHaveBeenCalled();
-    expect(screen.getByTestId("profile-adult").textContent).toContain(ADULT_FORM_NEEDED);
+    expect(screen.getByTestId("first-profile-adult").textContent).toContain(ADULT_FORM_NEEDED);
     fireEvent.click(screen.getByRole("checkbox", { name: "I am 18 or older" }));
     await act(async () => {
-      fireEvent.click(screen.getByTestId("profile-submit-bottom"));
+      fireEvent.click(screen.getByTestId("first-profile-submit"));
     });
     await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
     expect(update.mock.calls[0]![0]).toMatchObject({ confirmAdult: true });
@@ -87,7 +96,7 @@ describe("OnboardingScreen and 18 or older", () => {
 
   it("a founder already confirmed is never shown the box, and the save carries nothing about it", async () => {
     renderScreen({ adultConfirmed: true });
-    expect(screen.queryByTestId("profile-adult")).toBeNull();
+    expect(screen.queryByTestId("first-profile-adult")).toBeNull();
     await answerAndSubmit();
     await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
     expect(update.mock.calls[0]![0]).not.toHaveProperty("confirmAdult");
@@ -96,12 +105,12 @@ describe("OnboardingScreen and 18 or older", () => {
   it("a save the api refuses with adult_unconfirmed shows the box, even when the page believed it was on record", async () => {
     update.mockReset().mockRejectedValueOnce(Object.assign(new Error("Foundmill is for people 18 or older."), { data: { code: "FORBIDDEN", appCode: "adult_unconfirmed" } })).mockResolvedValue({ guidanceTurnedOff: false });
     renderScreen({ adultConfirmed: true });
-    expect(screen.queryByTestId("profile-adult")).toBeNull();
+    expect(screen.queryByTestId("first-profile-adult")).toBeNull();
     await answerAndSubmit();
-    await waitFor(() => expect(screen.getByTestId("profile-adult")).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId("first-profile-adult")).toBeTruthy());
     fireEvent.click(screen.getByRole("checkbox", { name: "I am 18 or older" }));
     await act(async () => {
-      fireEvent.click(screen.getByTestId("profile-submit-bottom"));
+      fireEvent.click(screen.getByTestId("first-profile-submit"));
     });
     await waitFor(() => expect(update).toHaveBeenCalledTimes(2));
     expect(update.mock.calls[1]![0]).toMatchObject({ confirmAdult: true });

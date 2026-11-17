@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, ROADMAP_SIGNOFF, SPEC_SIGNOFF, UUID, approveBothSignoffs, approveFromInbox, dismissCoachmarks, ensureDeck, inboxRow, openBoardQuestion, openBusiness, signIn, startDistributionFromBoard, takeChargeToHome, setBuilderView } from "./helpers";
+import { LONG, NORTHWIND_BUSINESS_ID, PLAN_NOTE, UUID, approvePlan, devApi, dismissCoachmarks, ensureDeck, focusDecisionBar, inboxRow, openBoardQuestion, openBusiness, signIn, startDistributionFromBoard, takeChargeToHome, setBuilderView } from "./helpers";
 
 // Builder view on for this file (it opens an approval's Details); global-setup.ts starts every run with it off. Restored afterwards.
 let builderViewBefore = false;
@@ -103,19 +103,19 @@ test.describe("inbox", () => {
     await expect(rows).toHaveCount(before + 1);
   });
 
-  test("the two sign-off notes wait in Needs you without holding Continue; 1 approves each (the second starts the build), Continue runs a cycle step, and 1 approves the first goal", async ({ page }) => {
+  test("the plan note waits in Needs you without holding Continue; 1 approves it and starts the build, Continue runs a cycle step, and 1 approves the first goal", async ({ page, playwright }) => {
     test.setTimeout(360_000);
     await signIn(page);
     const { bid } = await commitFreshBusiness(page, `Playwright Inbox ${Date.now().toString(36)}`);
-    // The foundations draft in the background (mock models); their two sign-off notes wait in Needs you. Since Nov 7, 2026
-    // a decision never holds Continue: the button stays Continue and the Inbox counts what needs the founder (the two
-    // sign-offs and, since package 1.3, the Product lead's "Your project's page is ready").
+    // The foundations draft in the background (mock models); the one plan note (WP-04 T5) waits in Needs you. Since Nov 7,
+    // 2026 a decision never holds Continue: the button stays Continue and the Inbox counts what needs the founder (the
+    // plan and, since package 1.3, the Product lead's "Your project's page is ready").
     await page.goto(`/b/${bid}/inbox`);
-    await expect(inboxRow(page, SPEC_SIGNOFF)).toBeVisible({ timeout: LONG });
-    await expect(inboxRow(page, ROADMAP_SIGNOFF)).toBeVisible({ timeout: LONG });
-    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Needs you/ })).toContainText("3", { timeout: LONG });
+    await expect(inboxRow(page, PLAN_NOTE)).toBeVisible({ timeout: LONG });
+    await expect(inboxRow(page, /Sign off the product/)).toHaveCount(0);
+    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Needs you/ })).toContainText("2", { timeout: LONG });
     await expect(page.getByRole("button", { name: /^Continue$/ })).toBeVisible({ timeout: LONG });
-    await inboxRow(page, SPEC_SIGNOFF).click();
+    await inboxRow(page, PLAN_NOTE).click();
     const item = page.getByTestId("inbox-item");
     await expect(item).toHaveAttribute("data-type", "decision", { timeout: LONG });
     const bar = page.getByTestId("decision-bar");
@@ -125,22 +125,22 @@ test.describe("inbox", () => {
     const desk = page.getByTestId("agent-desk");
     await expect(desk.locator('[data-quick-reply="go_with"]')).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("signoff-panel")).toBeVisible();
-    // The number keys decide the note from the page (the shell's main content), not from the list row that opened it.
+    // The number keys decide the note from inside its decision bar (WP-04 T13), not from the list row that opened it.
     // Request changes without words asks for them instead of sending (the option stays open). On the account's first
     // Inbox visit the Inbox tour (then the first-decision callout) opens, and an open card holds the number keys (UX plan
     // §6.2, §7.9): close what shows, press, and try again if a card opened in between (a second 2 only asks again).
     await expect(async () => {
       await dismissCoachmarks(page);
-      await page.getByTestId("shell-content").focus();
+      await focusDecisionBar(page);
       await page.keyboard.press("2");
       await expect(page.getByTestId("signoff-panel")).toContainText("Say what should change", { timeout: 10_000 });
     }).toPass({ timeout: LONG * 2 });
     await expect(item).toHaveAttribute("data-state", /unread|read/);
-    // The notes field took the focus so the founder can type; back on the page, 1 approves.
+    // The notes field took the focus so the founder can type; back in the decision bar, 1 approves.
     await expect(page.getByTestId("signoff-notes")).toBeFocused();
     await expect(async () => {
       await dismissCoachmarks(page);
-      await page.getByTestId("shell-content").focus();
+      await focusDecisionBar(page);
       await page.keyboard.press("1");
       await expect(item).toHaveAttribute("data-state", "answered", { timeout: 10_000 });
     }).toPass({ timeout: LONG * 2 });
@@ -148,10 +148,12 @@ test.describe("inbox", () => {
     await expect(answered).toBeVisible();
     // Decided from the DecisionBar: the desk keeps 2–4 replies but no longer offers "Go with: …" (no second decision).
     await expect(desk.locator('[data-quick-reply="go_with"]')).toHaveCount(0, { timeout: LONG });
-    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Needs you/ })).toContainText("2", { timeout: LONG });
-    // The second approval starts the build: Development › Plan gets the Planner's first tasks.
-    await approveFromInbox(page, bid, ROADMAP_SIGNOFF);
-    await expect(inboxRow(page, /Building starts:/)).toBeVisible({ timeout: LONG });
+    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Needs you/ })).toContainText("1", { timeout: LONG });
+    // The one approval starts the build: Development › Plan gets the Planner's first tasks. In the project's first week
+    // the Product lead's "Building starts: …" is folded into the Chief of Staff's note of the day (WP-04 T8): one row in
+    // the Inbox, the update itself in Archive.
+    await expect(inboxRow(page, "What your team did today")).toBeVisible({ timeout: LONG });
+    await expect(inboxRow(page, /Building starts:/)).toHaveCount(0);
     const idle = page.getByRole("button", { name: /^Continue$/ });
     await expect(idle).toBeVisible({ timeout: LONG });
     // One press of Continue → business.continue → within a second the strip under the top bar says what the press is
@@ -162,10 +164,15 @@ test.describe("inbox", () => {
     await expect(page.locator("[data-coachmark='processing-strip'][data-notice]")).toHaveAttribute("aria-label", /Starting the next (cycle|round of work)|(cycle \d+|round of work) started|cannot run right now|(cycle \d+|round of work) resumed|already running/i, { timeout: 1_000 });
     await expect(page.getByText(/(cycle \d+|round of work) started|cannot run right now|(cycle \d+|round of work) resumed|already running/i).first()).toBeVisible({ timeout: LONG });
 
-    // After both sign-offs and a round of work the Chief of Staff proposes the first goal (founder, 2026-11-07): Home asks
+    // After the plan's approval and a round of work the Chief of Staff proposes the first goal (founder, 2026-11-07): Home asks
     // `goal.ensure` once per visit, the proposal is a decision note in Needs you that never holds Continue, and one tap on
-    // the recommended option (1) approves it.
-    const goalRow = () => inboxRow(page, /Your first goal: get 10 paying customers by [A-Z][a-z]{2} \d{1,2}/);
+    // the recommended option (1) approves it. On a project's first day the goal waits for the page (WP-04 T8), so the
+    // page goes live first, through the api as the founder's own press.
+    const api = await devApi(playwright);
+    const published = await api.post("/trpc/page.publish", { data: { json: { businessId: bid, content: { pitch: "Fresh bread by bike, every morning.", about: "We bake overnight and deliver before work.", stage: "building" } } } });
+    expect(published.ok(), `page.publish answered ${published.status()}: ${await published.text()}`).toBe(true);
+    await api.dispose();
+    const goalRow =() => inboxRow(page, /Your first goal: get 10 paying customers by [A-Z][a-z]{2} \d{1,2}/);
     await expect(async () => {
       const ensured = page.waitForResponse((r) => /goal\.ensure/.test(r.url()), { timeout: 20_000 });
       await page.goto(`/b/${bid}/home`);
@@ -184,7 +191,7 @@ test.describe("inbox", () => {
     await expect(goalBar.getByRole("group", { name: "Options" }).getByRole("button")).toHaveText([/Approve this goal/, /Change it/]);
     await expect(async () => {
       await dismissCoachmarks(page);
-      await page.getByTestId("shell-content").focus();
+      await focusDecisionBar(page);
       await page.keyboard.press("1");
       await expect(goalNote).toHaveAttribute("data-state", "answered", { timeout: 10_000 });
     }).toPass({ timeout: LONG * 2 });
@@ -318,6 +325,38 @@ test.describe("inbox", () => {
     await page.unroute(lost);
   });
 
+  test("a digit outside the decision bar does nothing; with focus in the bar it chooses (WP-04 T13)", async ({ page }) => {
+    await openInbox(page, "respond");
+    const decision = rowsOf(page).filter({ hasText: "Approve batch 002" }).first();
+    await expect(decision, "the seed gives Northwind the batch 002 decision").toBeVisible({ timeout: LONG });
+    await decision.click();
+    const item = page.getByTestId("inbox-item");
+    await expect(item).toHaveAttribute("data-type", "decision", { timeout: LONG });
+    await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open");
+    // Count the answers the keys send, and send none on: the seed's decision stays open for the other tests.
+    let decided = 0;
+    await page.route(/\/trpc\/[^?]*inbox\.decide/, (route) => {
+      decided++;
+      return route.abort();
+    });
+    await dismissCoachmarks(page);
+    // The note's body, the list row and the page: a digit there answers nothing.
+    await page.getByTestId("shell-content").focus();
+    await page.keyboard.press("1");
+    await decision.focus();
+    await page.keyboard.press("1");
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.keyboard.press("1");
+    await page.waitForTimeout(500);
+    expect(decided).toBe(0);
+    await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open");
+    // From inside the bar the same key chooses.
+    await focusDecisionBar(page);
+    await page.keyboard.press("1");
+    await expect.poll(() => decided, { timeout: LONG }).toBeGreaterThan(0);
+    await page.unroute(/\/trpc\/[^?]*inbox\.decide/);
+  });
+
   test("number keys in an agent's sheet opened over a decision answer the sheet, never the note underneath", async ({ page }) => {
     await openInbox(page, "respond");
     const decision = rowsOf(page).filter({ hasText: "Approve batch 002" }).first();
@@ -409,9 +448,9 @@ test.describe("inbox", () => {
   test("a \"Go with: …\" quick reply decides the note through the decide path", async ({ page }) => {
     await signIn(page);
     const { bid } = await commitFreshBusiness(page, `Playwright Desk ${Date.now().toString(36)}`);
-    // The first open decision of a new business is the specification sign-off (founder, 2026-10-18).
+    // The first open decision of a new business is the plan note (WP-04 T5).
     await page.goto(`/b/${bid}/inbox`);
-    await inboxRow(page, SPEC_SIGNOFF).click();
+    await inboxRow(page, PLAN_NOTE).click();
     const item = page.getByTestId("inbox-item");
     await expect(item).toHaveAttribute("data-type", "decision", { timeout: LONG });
     const desk = page.getByTestId("agent-desk");
@@ -478,7 +517,7 @@ test.describe("inbox", () => {
     test.setTimeout(300_000);
     const { bid } = await commitFreshBusiness(page, `Playwright Go-ahead ${Date.now().toString(36)}`);
     // The Board's question arrives once the product is signed off and distribution started (founder, 2026-10-18).
-    await approveBothSignoffs(page, bid);
+    await approvePlan(page, bid);
     const { boardItemId: itemId } = await startDistributionFromBoard(page, bid);
     await openBoardQuestion(page, bid, itemId);
     const item = page.getByTestId("inbox-item");
@@ -577,7 +616,7 @@ test.describe("inbox", () => {
     await signIn(page);
     const { bid } = await commitFreshBusiness(page, `Playwright Double ${Date.now().toString(36)}`);
     await page.goto(`/b/${bid}/inbox`);
-    await inboxRow(page, SPEC_SIGNOFF).click();
+    await inboxRow(page, PLAN_NOTE).click();
     await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open", { timeout: LONG });
     let sent = 0;
     await page.route("**/trpc/**", async (route) => {

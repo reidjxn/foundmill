@@ -27,7 +27,7 @@ async function axeViolations(page: Page): Promise<string[]> {
 }
 
 const overflow = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-const SECTIONS = ["hero", "card", "people", "first-week", "control", "cost", "questions", "start"];
+const SECTIONS = ["hero", "result", "ways", "studio", "people", "first-week", "control", "questions", "start"];
 
 for (const [width, height] of [
   [390, 844],
@@ -62,9 +62,9 @@ test("at 768 px a card lands with the mock model, the page stays one column wide
   await page.getByLabel("What do you want to make?").fill("Dog walking in my neighborhood, booked by text");
   await page.getByTestId("idea-generate").click();
   await expect(page.getByTestId("idea-keep")).toBeVisible({ timeout: LONG });
-  const name = (await page.locator("#hero [data-idea-name]").textContent())!.trim();
+  const name = (await page.locator("#hero [data-idea-box] [data-idea-name]").textContent())!.trim();
   await expect(page.locator("h1")).toHaveText(`${name} is yours to keep.`);
-  await expect(page.locator("#card [data-screen-frame]")).toBeHidden();
+  await expect(page.locator("#hero [data-screen-frame]")).toBeHidden();
   expect(await overflow(page)).toBeLessThanOrEqual(0);
   expect(await axeViolations(page)).toEqual([]);
 });

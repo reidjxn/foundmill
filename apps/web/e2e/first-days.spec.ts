@@ -1,5 +1,5 @@
 import { expect, test, type PlaywrightWorkerArgs } from "@playwright/test";
-import { LONG, ROADMAP_SIGNOFF, SPEC_SIGNOFF, approveFromInbox, devApi, ensureDeck, inboxRow, openBoardQuestion, settled, signIn, startDistributionFromBoard, takeChargeToHome } from "./helpers";
+import { LONG, PLAN_NOTE, approveFromInbox, devApi, ensureDeck, inboxRow, openBoardQuestion, settled, signIn, startDistributionFromBoard, takeChargeToHome } from "./helpers";
 
 /**
  * The dev founder's guidance switch (Settings › Preferences): the next-step strip, the checklist and the callout render
@@ -18,7 +18,8 @@ async function guidanceOn(playwright: PlaywrightWorkerArgs["playwright"]): Promi
 
 /**
  * The first days of a new business are about the product (founder, 2026-10-18): Take charge → Home shows the drafting →
- * two sign-off notes → the specification approved from its tab and the roadmap from the Inbox → "Building starts:" and
+ * the plan note (WP-04 T5) → the specification approved from its tab, which leaves the plan note open for the roadmap, then
+ * the plan approved from the Inbox → "Building starts:" and
  * the Planner's first tasks on Development › Plan → the Board waits for the product until Start distribution posts the
  * Board's question and starts the engines. A second business takes the Request changes path. The stack runs
  * MODEL_MODE=mock without Temporal (apps/web/e2e/README.md), so the api drafts and plans in-process.
@@ -26,7 +27,7 @@ async function guidanceOn(playwright: PlaywrightWorkerArgs["playwright"]): Promi
 test.describe("first days", () => {
   test.setTimeout(300_000);
 
-  test("approving both sign-offs plans the first build; distribution waits for Start distribution, which posts the Board's question", async ({ page, playwright }) => {
+  test("approving the plan plans the first build; distribution waits for Start distribution, which posts the Board's question", async ({ page, playwright }) => {
     const { guided, firstContinueDone } = await guidanceOn(playwright);
     await signIn(page);
     await ensureDeck(page, 1);
@@ -90,10 +91,14 @@ test.describe("first days", () => {
     await page.goto(`/b/${bid}/d/development/plan`);
     await expect(page.getByTestId("plan-stage-banner")).toHaveAttribute("data-product-stage", "awaiting_signoff", { timeout: LONG });
 
-    // The roadmap, approved from the Inbox: the second approval starts the build.
+    // The plan note stays open for the roadmap (WP-04 T5): approved from the Inbox, it starts the build.
     await page.goto(`/b/${bid}/inbox`);
-    await expect(inboxRow(page, SPEC_SIGNOFF)).toBeVisible({ timeout: LONG });
-    await approveFromInbox(page, bid, ROADMAP_SIGNOFF);
+    await expect(inboxRow(page, PLAN_NOTE)).toBeVisible({ timeout: LONG });
+    await approveFromInbox(page, bid, PLAN_NOTE);
+    // In the project's first week the Product lead's "Building starts: …" is folded into the Chief of Staff's note of the
+    // day (WP-04 T8); the update itself is kept in Archive.
+    await expect(inboxRow(page, "What your team did today")).toBeVisible({ timeout: LONG });
+    await page.goto(`/b/${bid}/inbox?tab=archive`);
     const building = inboxRow(page, /Building starts: \d+ tasks? planned/);
     await expect(building).toBeVisible({ timeout: LONG });
     await building.click();
@@ -134,7 +139,7 @@ test.describe("first days", () => {
     await expect(page.getByText("4 of 15 on the board · waiting for the product")).toBeVisible();
     // Nothing waits for an answer before distribution starts: the Board's question is not asked yet.
     await page.goto(`/b/${bid}/inbox`);
-    await expect(inboxRow(page, SPEC_SIGNOFF)).toBeVisible({ timeout: LONG });
+    await expect(inboxRow(page, PLAN_NOTE)).toBeVisible({ timeout: LONG });
     // The Chief of Staff's goal proposal (Nov 7, 2026) may already wait in Needs you, and so does the Product lead's
     // "Your project's page is ready" (package 1.3); neither is a distribution question.
     await expect(page.getByTestId("inbox-list").locator("[data-inbox-row][data-needs-answer='true']").filter({ hasNotText: /goal/i }).filter({ hasNotText: /page is ready/i })).toHaveCount(0);
@@ -145,6 +150,8 @@ test.describe("first days", () => {
     await openBoardQuestion(page, bid, boardItemId);
     // The Board's question waits in Needs you; it never holds Continue (Nov 7, 2026).
     await expect(page.getByRole("button", { name: /^Continue$/ })).toBeVisible({ timeout: LONG });
+    // Folded into the note of the day in the first week (WP-04 T8): the update itself is in Archive.
+    await page.goto(`/b/${bid}/inbox?tab=archive`);
     await expect(inboxRow(page, "Distribution has started")).toBeVisible({ timeout: LONG });
     await page.goto(`/b/${bid}/d/distribution/channels`);
     await expect(channels).toBeVisible({ timeout: LONG });
@@ -181,10 +188,12 @@ test.describe("first days", () => {
     await expect(banner.getByTestId("signoff-approve")).toBeVisible();
     await page.goto(`/b/${bid}/d/development/plan`);
     await expect(page.getByRole("grid", { name: "Tasks" }).getByRole("row").filter({ hasText: /Revise the specification from your notes/ })).toHaveCount(1, { timeout: LONG });
-    // The Inbox note was answered by the tab's decision and the follow-up says so.
-    await page.goto(`/b/${bid}/inbox`);
+    // The plan note was answered by the tab's decision and the follow-up says so.
+    // In the first week that follow-up is folded into the note of the day (WP-04 T8) and kept in Archive.
+    await page.goto(`/b/${bid}/inbox?tab=archive`);
     await expect(inboxRow(page, "Changes requested: the specification")).toBeVisible({ timeout: LONG });
-    await inboxRow(page, SPEC_SIGNOFF).click();
+    await page.goto(`/b/${bid}/inbox`);
+    await inboxRow(page, PLAN_NOTE).click();
     await expect(page.getByTestId("inbox-item")).toHaveAttribute("data-state", "answered", { timeout: LONG });
     await expect(page.getByTestId("signoff-panel")).toContainText("Changes requested by you");
   });

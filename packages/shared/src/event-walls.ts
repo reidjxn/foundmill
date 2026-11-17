@@ -108,6 +108,11 @@ export const EVENT_WALLS = {
   "page.unpublished": { sections: ["product"] },
   // Someone followed the page (0079): ids only; the follower's record is the CRM's to show.
   "page.followed": { sections: ["product"], hide: { crm: ["entityId", "consentId"] } },
+  // The project's site (WP-07): ids, counts and addresses. A preview address is unlisted, so it is Product's like the
+  // releases themselves; the live address is public anyway.
+  "site.release_created": { sections: ["product"] },
+  "site.published": { sections: ["product"] },
+  "site.unpublished": { sections: ["product"] },
   // The guided layer's product signals (one founder's own use of tours, explainers and definitions): metrics only, so
   // on the stream they reach no one but the readers of Settings.
   "guidance.tour_completed": { sections: ["settings"] },
@@ -133,6 +138,8 @@ export const EVENT_WALLS = {
   "post.drafted": { sections: ["distribution"] },
   // The page quiz approved, turned on or off (0105): ids and its shape, never the words. The Public page tab follows.
   "quiz.approved": { sections: ["product"] },
+  // The positioning notes approved (0118, WP-08 T1): the version and the names of the sections that changed, never the words.
+  "positioning.approved": { sections: ["product"] },
   "quiz.published": { sections: ["product"] },
   "quiz.unpublished": { sections: ["product"] },
   // Invitations to the project: the People tab (Settings, under the Team section).

@@ -1,6 +1,7 @@
 /** Single place that reads process.env (docs/ARCHITECTURE.md §3). */
 import { z } from "zod";
 import { MAIL_LOCAL_PART_PATTERN, mailLocalPartReserved } from "./platform-mail";
+import { sitesDomainProblem } from "./sites";
 
 const Env = z.object({
   APP_ENV: z.enum(["development", "test", "staging", "production"]).default("development"),
@@ -48,6 +49,10 @@ const Env = z.object({
   /** Every Node service: time from SIGTERM to exit, draining requests, sockets and workers; keep below railway.toml `drainingSeconds`. */
   SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(600_000).catch(45_000).default(45_000),
   ANTHROPIC_API_KEY: z.string().optional(),
+  /** Foundmill's Z.ai key: GLM-5.3 Flash for every account not on a paid plan (WP-13). Unset: free calls are refused. */
+  ZAI_API_KEY: z.string().optional(),
+  /** The month's ceiling on the platform's Z.ai spend, in US cents (founder, Nov 16, 2026: $600). Read by WP-13 T6. */
+  ZAI_MONTHLY_CAP_CENTS: z.coerce.number().int().min(0).max(10_000_000).default(60_000),
   VOYAGE_API_KEY: z.string().optional(),
   /** apps/gateway: the platform key behind the `openai_images` connector (AI-generated faces of anthropomorphic agents). */
   OPENAI_API_KEY: z.string().optional(),
@@ -75,6 +80,10 @@ const Env = z.object({
   KMS_KEY_ID: z.string().optional(),
   DEV_MASTER_KEY: z.string().optional(),
   SESSION_TOKEN_SECRET: z.string().optional(),
+  /** The api's own service-token secret for its calls to the gateway (WP-11 T12, N4); 32+ characters. Unset: the shared one. */
+  API_SERVICE_TOKEN_SECRET: z.string().optional(),
+  /** "1" while the switch to API_SERVICE_TOKEN_SECRET is in progress: the gateway still accepts the api signed with the shared secret. */
+  API_SERVICE_TOKEN_LEGACY: z.string().optional(),
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
   /**
@@ -114,6 +123,16 @@ const Env = z.object({
     .optional()
     .transform((v) => v?.trim().toLowerCase() || undefined)
     .refine((v) => v === undefined || /^(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(v), { message: "PLATFORM_MAIL_DOMAIN must be a domain name such as mail.foundmill.com" }),
+  /**
+   * Foundmill Sites (WP-07): the domain project sites are served on (`<slug>.<domain>`, previews `p-<token>.<domain>`),
+   * read by api, orchestrator and sites. Unset means the feature is off everywhere: no tab, no note, no Planner
+   * destination. Outside development and test it must not be APP_URL's host or a parent or subdomain of it.
+   */
+  SITES_DOMAIN: z
+    .string()
+    .optional()
+    .transform((v) => v?.trim().toLowerCase() || undefined)
+    .refine((v) => v === undefined || /^(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(v), { message: "SITES_DOMAIN must be a domain name such as example-sites.app" }),
   /** Messages one project may send from its Foundmill address per UTC day (gateway; the api shows it). An operator raises one project's cap in `project_mail.daily_cap`. */
   PLATFORM_MAIL_DAILY_CAP: z.coerce.number().int().min(1).max(10_000).default(50),
   /** Messages every project together may send from the platform domain per UTC day: protects the domain's reputation (gateway). */
@@ -300,6 +319,10 @@ export function loadEnv(overrides: Partial<NodeJS.ProcessEnv> = {}): Env {
     // falls back to it) never waits on purpose.
     env.MOCK_MODEL_LATENCY_MS = 0;
     env.MOCK_MODEL_STREAM_MS = 0;
+  }
+  if (env.SITES_DOMAIN && env.APP_ENV !== "development" && env.APP_ENV !== "test") {
+    const problem = sitesDomainProblem(env.SITES_DOMAIN, env.APP_URL);
+    if (problem) throw new Error(`Invalid environment: ${problem}`);
   }
   if (Object.keys(overrides).length === 0) cached = env;
   return env;

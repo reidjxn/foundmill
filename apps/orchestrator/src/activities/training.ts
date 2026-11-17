@@ -39,7 +39,7 @@ const cannotStart = (message: string) => ApplicationFailure.create({ message, ty
 /** A run starts from queued; running too, when `loadTrainingRun` itself is retried after it moved the run. */
 const STARTABLE = ["queued", "running"] as const;
 
-const MODEL_NAMES: Record<ModelKey, string> = { opus: "Opus", sonnet: "Sonnet", haiku: "Haiku" };
+const MODEL_NAMES: Record<ModelKey, string> = { opus: "Opus", sonnet: "Sonnet", haiku: "Haiku", glm: "GLM-5.3 Flash" };
 
 const STOP_WORDS: Record<AgentStopReason, string> = { kill_switch: "Stop all agents", key_revoked: "the Anthropic key was revoked", credits_exhausted: "the credits ran out" };
 
@@ -178,7 +178,7 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
      * run has ended (canceled by the founder or by a stop lifted since) no further test starts either. The tests already
      * run are booked.
      */
-    async runSkillTests(input: TrainingRunInput & { agentId: string; draftVersionId: string; skillKey: string; modelKey: "opus" | "sonnet" | "haiku" }): Promise<SkillTestsOutcome> {
+    async runSkillTests(input: TrainingRunInput & { agentId: string; draftVersionId: string; skillKey: string; modelKey: ModelKey }): Promise<SkillTestsOutcome> {
       const { db } = deps;
       const [agent, draft, business] = await Promise.all([repos.agents.get(db, input.businessId, input.agentId), repos.agents.getVersion(db, input.businessId, input.draftVersionId), repos.businesses.get(db, input.businessId)]);
       const template = templateForAgent(agent);

@@ -24,9 +24,11 @@ import { foundersRepo } from "./founders";
 import { goalsRepo } from "./goals";
 import { pagesRepo } from "./pages";
 import { pageQuizzesRepo } from "./page-quizzes";
+import { positioningRepo } from "./positioning";
 import { personProfilesRepo } from "./person-profiles";
 import { mailRepo } from "./mail";
 import { postalAddressRepo } from "./postal-address";
+import { repliesRepo } from "./replies";
 import { followersRepo } from "./followers";
 import { notifyEmailRepo } from "./notify-email";
 import { holidaysRepo } from "./holidays";
@@ -76,6 +78,7 @@ import { founderCancelLinksRepo, founderDeparturesRepo } from "./founder-departu
 import { metricsRepo } from "./metrics";
 import { taskReportsRepo } from "./task-reports";
 import { reportsRepo } from "./reports";
+import { sitesRepo } from "./sites";
 
 export const repos = {
   businesses: businessesRepo,
@@ -90,9 +93,11 @@ export const repos = {
   goals: goalsRepo,
   pages: pagesRepo,
   pageQuizzes: pageQuizzesRepo,
+  positioning: positioningRepo,
   personProfiles: personProfilesRepo,
   projectMail: mailRepo,
   postalAddress: postalAddressRepo,
+  replies: repliesRepo,
   followers: followersRepo,
   notifyEmail: notifyEmailRepo,
   departments: departmentsRepo,
@@ -155,6 +160,7 @@ export const repos = {
   metrics: metricsRepo,
   taskReports: taskReportsRepo,
   reports: reportsRepo,
+  sites: sitesRepo,
 } as const;
 export type Repos = typeof repos;
 export type RepoArea = keyof Repos;
@@ -163,6 +169,8 @@ export type { Executor, Page, PageInput, DateRange, DayRange } from "./_shared";
 export { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, encodeCursor, decodeCursor, decodeTimeCursor, sqlState, uniqueViolation } from "./_shared";
 
 export * from "./agents";
+export * from "./positioning";
+export * from "./replies";
 export * from "./approvals";
 export * from "./audit";
 export { formerFounderSince, type FounderDepartureView } from "./founder-departures";
@@ -231,3 +239,4 @@ export * from "./people";
 export * from "./showcase";
 export { SaveTaskReportInput, TASK_REPORT_LIMITS } from "./task-reports";
 export { reportsRepo, type FileReportInput, type OpenReport } from "./reports";
+export { SaveSiteReleaseInput, SITE_REPORT_REASONS, siteContentHash, type SiteFile, type SiteHost, type SiteReportReason, type SiteReportResult } from "./sites";

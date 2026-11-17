@@ -1,10 +1,14 @@
 "use client";
 /**
  * The keyboard map (BUILD §5.5):
- * Space = Continue (unless a control has focus: then Space is the control's) · R = refresh Inbox · G then letter = go to
- * section (G H Today, G I Needs you, then the founder areas: G P Plan, G C Customers, G M Money, G R Product, G T
- * Team; a department with no modules keeps its stored letter, or gets one from its name, around those) · / or Cmd-K = search · J/K = next/prev inbox item · 1–4 = choose decision option · E = edit layout ·
- * Esc = close overlay.
+ * / or Cmd-K = search · ? = keyboard shortcuts · Esc = close overlay: always on.
+ * Single keys, off until the person turns them on in Settings › Preferences (WP-04 T13; audit A2-03, WCAG 2.1.4):
+ * R = refresh Inbox · G then letter = go to section (G H Today, G I Needs you, then the founder areas: G P Plan, G C
+ * Customers, G M Money, G R Product, G T Team; a department with no modules keeps its stored letter, or gets one from its
+ * name, around those) · J/K = next/prev inbox item · 1–4 = choose a decision option, only with focus inside the decision
+ * bar · E = edit layout.
+ * Space is never bound here: it presses Continue only when Continue has focus (the button's own behavior), and on the
+ * page it scrolls, so a stray Space never starts paid work.
  *
  * `departmentLetters` (in @foundmill/shared, so the API stores the same letters) is pure and tested; `useKeyboardMap`
  * binds the keys with react-hotkeys-hook. The G chord is tracked here rather than with the library's `g>h` sequences
@@ -72,9 +76,16 @@ export function spaceBelongsTo(target: EventTarget | null): boolean {
 
 export type GoToTarget = { kind: "home" } | { kind: "inbox" } | { kind: "area"; area: AreaKey } | { kind: "department"; id: string };
 
+/** The attribute that marks a decision bar: 1–4 choose only while focus is inside one (DecisionBar sets it). */
+export const DECISION_BAR_ATTRIBUTE = "data-decision-bar";
+
+/** True when the event's target sits inside a decision bar. */
+export function insideDecisionBar(target: EventTarget | null): boolean {
+  if (typeof Element === "undefined" || !(target instanceof Element)) return false;
+  return target.closest(`[${DECISION_BAR_ATTRIBUTE}]`) !== null;
+}
+
 export interface KeyboardMapContext {
-  /** Space. */
-  onContinue?: () => void;
   /** R. */
   onRefreshInbox?: () => void;
   /** G then a letter. */
@@ -89,7 +100,10 @@ export interface KeyboardMapContext {
   onNextInboxItem?: () => void;
   /** K. */
   onPrevInboxItem?: () => void;
-  /** 1–4. Only bound when provided, so a DecisionBar with its own hotkeys does not double-fire. */
+  /**
+   * 1–4, only with focus inside a decision bar (`DECISION_BAR_ATTRIBUTE`). Only bound when provided, so a DecisionBar
+   * with its own hotkeys does not double-fire.
+   */
   onChooseOption?: (option: 1 | 2 | 3 | 4) => void;
   /** E. */
   onEditLayout?: () => void;
@@ -99,6 +113,11 @@ export interface KeyboardMapContext {
   onHelp?: () => void;
   /** Master switch (default true). */
   enabled?: boolean;
+  /**
+   * The single-key shortcuts (R, G chords, J, K, 1–4, E): the account's `keyboardShortcuts` preference. Default false:
+   * only /, Cmd-K, ? and Esc act until the person turns them on.
+   */
+  singleKeys?: boolean;
 }
 
 export interface KeyboardMapResult {
@@ -118,6 +137,7 @@ const LETTER_KEYS = Array.from({ length: 26 }, (_, i) => String.fromCharCode(97 
 /** Binds BUILD §5.5 to callbacks. Call once per shell. */
 export function useKeyboardMap(ctx: KeyboardMapContext): KeyboardMapResult {
   const enabled = ctx.enabled ?? true;
+  const singleKeys = enabled && ctx.singleKeys === true;
   const ctxRef = useRef(ctx);
   ctxRef.current = ctx;
   const letters = useMemo(() => shellDepartmentLetters(ctx.departments ?? []), [ctx.departments]);
@@ -145,20 +165,16 @@ export function useKeyboardMap(ctx: KeyboardMapContext): KeyboardMapResult {
 
   useEffect(() => () => cancelChord(), [cancelChord]);
 
-  /** Single keys are suppressed while a chord is pending and for the event that completed one. */
-  const single = useCallback((e: KeyboardEvent) => enabled && !pendingRef.current && e !== consumedRef.current, [enabled]);
-  const whilePending = useCallback(() => enabled && pendingRef.current, [enabled]);
+  /** Keys are suppressed while a chord is pending and for the event that completed one. */
+  const free = useCallback((e: KeyboardEvent) => enabled && !pendingRef.current && e !== consumedRef.current, [enabled]);
+  /** The single-key shortcuts: `free`, and only while the person has turned them on. */
+  const single = useCallback((e: KeyboardEvent) => singleKeys && free(e), [singleKeys, free]);
+  const whilePending = useCallback(() => singleKeys && pendingRef.current, [singleKeys]);
 
-  useHotkeys(
-    "space",
-    (e) => {
-      if (!ctxRef.current.onContinue) return;
-      e.preventDefault();
-      ctxRef.current.onContinue();
-    },
-    // Space stays with a focused control (it presses the button, ticks the box); Continue only takes it from the page.
-    { enabled: (e) => single(e) && !spaceBelongsTo(e.target) },
-  );
+  // A chord left pending when single keys turn off would swallow the next key: cancel it.
+  useEffect(() => {
+    if (!singleKeys) cancelChord();
+  }, [singleKeys, cancelChord]);
   useHotkeys(
     "r",
     (e) => {
@@ -176,7 +192,7 @@ export function useKeyboardMap(ctx: KeyboardMapContext): KeyboardMapResult {
       if (pendingRef.current) cancelChord();
       else startChord();
     },
-    { enabled },
+    { enabled: singleKeys },
   );
   useHotkeys(
     LETTER_KEYS,
@@ -216,7 +232,7 @@ export function useKeyboardMap(ctx: KeyboardMapContext): KeyboardMapResult {
       e.preventDefault();
       ctxRef.current.onSearch();
     },
-    { enabled: single, useKey: true },
+    { enabled: free, useKey: true },
   );
   useHotkeys(
     "mod+k",
@@ -225,7 +241,7 @@ export function useKeyboardMap(ctx: KeyboardMapContext): KeyboardMapResult {
       e.preventDefault();
       ctxRef.current.onSearch();
     },
-    { enabled: single, enableOnFormTags: true },
+    { enabled: free, enableOnFormTags: true },
   );
   useHotkeys(
     "j",
@@ -254,7 +270,8 @@ export function useKeyboardMap(ctx: KeyboardMapContext): KeyboardMapResult {
       e.preventDefault();
       choose(n as 1 | 2 | 3 | 4);
     },
-    { enabled: (e) => single(e) && !!ctxRef.current.onChooseOption },
+    // Only from inside the decision bar: a digit typed anywhere else never answers a note.
+    { enabled: (e) => single(e) && !!ctxRef.current.onChooseOption && insideDecisionBar(e.target) },
   );
   useHotkeys(
     "e",
@@ -288,7 +305,7 @@ export function useKeyboardMap(ctx: KeyboardMapContext): KeyboardMapResult {
       e.preventDefault();
       ctxRef.current.onHelp();
     },
-    { enabled: single, useKey: true, ignoreModifiers: true },
+    { enabled: free, useKey: true, ignoreModifiers: true },
   );
 
   return { letters, chordPending, cancelChord };
@@ -307,7 +324,8 @@ export interface KeyboardShortcut {
 
 /** The fixed list from BUILD §5.5. Area and department chords are inserted by `shortcutList`. */
 export const KEYBOARD_SHORTCUTS: readonly KeyboardShortcut[] = [
-  { id: "continue", keys: ["Space"], label: "Continue", group: "Navigation" },
+  // A control hint, not a shortcut: Space presses Continue the way it presses any focused button.
+  { id: "continue", keys: ["Space"], label: "Continue, when it has focus", group: "Navigation" },
   { id: "search", keys: ["/"], label: "Search", group: "Navigation" },
   { id: "search-cmd", keys: ["⌘K"], label: "Search (Ctrl-K on Windows and Linux)", group: "Navigation" },
   { id: "go-home", keys: ["G", "H"], label: "Go to Today", group: "Navigation" },
@@ -316,11 +334,14 @@ export const KEYBOARD_SHORTCUTS: readonly KeyboardShortcut[] = [
   { id: "refresh", keys: ["R"], label: "Refresh Inbox: one new note", group: "Inbox" },
   { id: "next", keys: ["J"], label: "Next inbox item", group: "Inbox" },
   { id: "prev", keys: ["K"], label: "Previous inbox item", group: "Inbox" },
-  { id: "option", keys: ["1", "–", "4"], label: "Choose a decision option", group: "Decisions" },
+  { id: "option", keys: ["1", "–", "4"], label: "Choose a decision option, from inside the decision bar", group: "Decisions" },
   { id: "edit", keys: ["E"], label: "Edit layout", group: "Layout" },
   { id: "escape", keys: ["Esc"], label: "Close overlay", group: "Layout" },
   { id: "help", keys: ["?"], label: "Keyboard shortcuts", group: "Help" },
 ];
+
+/** The shortcuts that work whatever the single-key preference: search, its chord, the help overlay and Esc. */
+export const ALWAYS_ON_SHORTCUT_IDS: ReadonlySet<string> = new Set(["search", "search-cmd", "help", "escape"]);
 
 /**
  * The fixed shortcuts plus, after Go to Needs you, one "Go to <area>" chord per area the sidebar shows (Contacts is a

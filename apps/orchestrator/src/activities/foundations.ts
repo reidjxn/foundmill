@@ -26,8 +26,11 @@ import {
   describeFoundationsFailure,
   finaliseFoundations,
   foundationsSignoffNotes,
+  planRoadmapHref,
   PROJECT_PAGE_ROUTE,
+  POSITIONING_USAGE_KIND,
   PROJECT_PAGE_USAGE_KIND,
+  runPositioningDraft,
   progressEventPayload,
   readFoundationsProgress,
   readyEventPayload,
@@ -204,7 +207,7 @@ export function createFoundationsActivities(deps: OrchestratorDeps) {
         if (!row || row.status !== "drafting" || row.attempt !== input.attempt) return skipped;
         const inputs = await repos.foundations.inputs(deps.db, input.businessId);
         const done = await runProjectPageStep(
-          { models: deps.models, inputs, signal: ctx?.cancellationSignal, scope: `foundations:${input.businessId}`, attribution: { businessId: input.businessId, agentId: inputs.authorAgentId ?? undefined, kind: PROJECT_PAGE_USAGE_KIND }, log: deps.log },
+          { models: deps.models, inputs, positioning: await repos.positioning.approvedText(deps.db, input.businessId), signal: ctx?.cancellationSignal, scope: `foundations:${input.businessId}`, attribution: { businessId: input.businessId, agentId: inputs.authorAgentId ?? undefined, kind: PROJECT_PAGE_USAGE_KIND }, log: deps.log },
           projectPageStore(deps.db, input.businessId, inputs.authorAgentId),
         );
         return { current: true, written: done.written, source: done.source, inboxItemId: done.inboxItemId, usage: usageModel(done.usage) };
@@ -214,6 +217,36 @@ export function createFoundationsActivities(deps: OrchestratorDeps) {
       } finally {
         if (beat) clearInterval(beat);
       }
+    },
+
+    /**
+     * After the page (WP-08 T1): the Product lead's first positioning notes, from the founder's own words, written as the
+     * copy waiting for the founder with one note. Nothing is asked of the model when the project already has a copy, so
+     * a retry or a second run writes nothing. The starter (the one line only) is written when the call fails. Never
+     * approved here: approving is the founder's act.
+     */
+    async draftPositioning(input: BusinessFoundationsInput): Promise<{ written: boolean; source: "model" | "starter" | null }> {
+      const row = await repos.foundations.get(deps.db, input.businessId);
+      if (!row || row.status !== "drafting" || row.attempt !== input.attempt) return { written: false, source: null };
+      const copies = await repos.positioning.get(deps.db, input.businessId);
+      if (copies.approved || copies.draft) return { written: false, source: null };
+      const inputs = await repos.foundations.inputs(deps.db, input.businessId);
+      const ctx = activityContext();
+      const drafted = await runPositioningDraft(deps.models, inputs, { attribution: { businessId: input.businessId, agentId: inputs.authorAgentId ?? undefined, kind: POSITIONING_USAGE_KIND }, signal: ctx?.cancellationSignal, scope: `foundations:${input.businessId}` });
+      const out = await repos.positioning.writeDraft(deps.db, input.businessId, {
+        notes: drafted.notes,
+        agentId: inputs.authorAgentId,
+        note: true,
+        onlyIfEmpty: true,
+        onInboxItem: (tx, item) =>
+          emitEvent(tx, {
+            businessId: input.businessId,
+            type: "inbox.item_created",
+            actor: agentActor(item.fromAgentId!),
+            payload: { inboxItemId: item.id, type: item.type, fromAgentId: item.fromAgentId, subject: item.subject, blocksContinue: item.blocksContinue, sourceEventIds: [], cost: { amountMinor: drafted.costMinor, currency: CREDITS_CURRENCY } },
+          }),
+      });
+      return { written: out.written, source: drafted.source };
     },
 
     /** Step 1: start or resume the progress, then the plan (the vision first). Returns the section batches still to write. */
@@ -263,10 +296,9 @@ export function createFoundationsActivities(deps: OrchestratorDeps) {
         if (!progress) throw ApplicationFailure.create({ message: "The drafting finished but could not be saved. Try again.", type: FOUNDATIONS_DRAFT_ERROR, nonRetryable: true });
         draft = assembleFoundationsDraft(progress, inputs);
       }
-      const door = input.door ?? inputs.door;
       const res = await repos.foundations.apply(deps.db, input.businessId, input.attempt, draft, {
-        // The two sign-off notes (founder, 2026-10-18): the specification and the roadmap, each a decision from the Product lead.
-        signoffs: { spec: (stats) => foundationsSignoffNotes(draft, door, stats).spec, roadmap: (stats) => foundationsSignoffNotes(draft, door, stats).roadmap },
+        // The one plan note (WP-04 T5): both rounds, the specification's and the roadmap's, are answered from it.
+        signoffs: { plan: foundationsSignoffNotes(draft, { roadmapHref: planRoadmapHref(input.businessId) }).plan },
         model: input.model,
         // The Inbox events go through the outbox in the same transaction as the items (a retried apply writes neither).
         onInboxItem: async (tx, item) => {

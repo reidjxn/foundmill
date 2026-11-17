@@ -27,6 +27,5 @@ export const channelOutdoor = defineChannelTemplate({
   ],
   craftSkills: ["media_research", "creative_sizing", "kit_preparation", "lift_measurement"],
   spendCapMinor: 0,
-  kitMode: true,
   neverDoes: ["book without founder approval", "sign site contracts", "run creative without QR or short URL", "report lift without a holdout"],
 });

@@ -11,9 +11,14 @@
  * Tap-to-post (docs/NETWORK.md F3; docs/DESIGN.md §9g): once the page is live, "Share your page" beside "Copy link"
  * opens the share panel with a plain draft (the project's name, the published one-line pitch, the page's address with
  * `via`). A press is recorded as a share that was opened (`share.opened`), fire-and-forget.
+ *
+ * On any screen (WP-04 T6): the tab renders in the shell's phone layout, so below 1280 px the form and the preview stack
+ * in one column (the preview under the form) and the actions are finger-sized, full width while the shell is narrower
+ * than `page-wide`. A publish on such a screen opens the share panel in place with a message that asks whether people
+ * would use it (`pageAskDraft`); on a desktop the buttons stay as they are, and "Copy message" copies the same words.
  */
 import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
-import { Copy, ExternalLink, Globe, Pencil, Rocket, Share2, Undo2 } from "lucide-react";
+import { Copy, ExternalLink, Globe, MessageSquareText, Pencil, Rocket, Share2, Undo2 } from "lucide-react";
 import { APP_NAME } from "@foundmill/config";
 import {
   Button,
@@ -36,7 +41,9 @@ import {
   StatusPill,
   Switch,
   Textarea,
+  isViewportTooSmall,
   useFormatters,
+  useViewportWidth,
 } from "@foundmill/dugout";
 import {
   PAGE_ABOUT_MAX,
@@ -57,7 +64,8 @@ import {
   type PageStage,
   type ProjectPageContent,
 } from "@foundmill/shared/project-page";
-import { SHARE_OPEN_WORDS, pagePostDraft } from "@foundmill/shared/share-drafts";
+import { SHARE_OPEN_WORDS, pagePostDraft, type PagePostInput } from "@foundmill/shared/share-drafts";
+import { postTextWithLink, type PostDraft } from "@foundmill/shared/post-draft";
 import type { ShareOpened } from "@foundmill/shared/share-targets";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
 import type { ModuleScreenProps } from "../registry";
@@ -126,6 +134,11 @@ export const PUBLIC_PAGE_WORDS = {
   cancel: "Cancel",
   copyLink: "Copy link",
   copied: "Link copied",
+  copyMessage: "Copy message",
+  messageCopied: "Message copied",
+  askTitle: "Send your page to three people",
+  askDescription: "Ask if they would use it. What they say shapes what your team does next.",
+  starterNote: "This is a first draft from your own words. Your team's version replaces it in about a minute. Your edits are never overwritten.",
   share: SHARE_OPEN_WORDS.sharePage,
   open: "Open",
   readOnly: "An owner or an admin of this project can edit and publish this page.",
@@ -145,6 +158,19 @@ export function publishConsequence(content: ProjectPageContent, names: readonly 
   if (content.followForm) parts.push("a form to follow it");
   const list = `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
   return `Anyone with the link can read ${list}. You can take it down any time.`;
+}
+
+/**
+ * The message a founder sends to a few people once the page is live (WP-04 T6): "I'm starting Northwood. Candles that
+ * smell like a walk in the woods. Would you use this?" with the page's address and its `via`. The founder's own voice,
+ * since they send it themselves; the link and the picture are the page draft's (`pagePostDraft`).
+ */
+export function pageAskDraft(input: PagePostInput): PostDraft {
+  const post = pagePostDraft(input);
+  const name = input.projectName.replace(/\s+/g, " ").trim();
+  const pitch = input.pitch.replace(/\s+/g, " ").trim();
+  const said = !pitch || pitch.toLowerCase() === name.toLowerCase() ? "" : ` ${/[.!?…]$/.test(pitch) ? pitch : `${pitch}.`}`;
+  return { ...post, text: `I'm starting ${name}.${said} Would you use this?` };
 }
 
 const count = (n: number, max: number) => `${n.toLocaleString("en-US")} / ${max.toLocaleString("en-US")}`;
@@ -199,8 +225,13 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
   const [editingSlug, setEditingSlug] = useState(false);
   const [slug, setSlug] = useState("");
   const [slugError, setSlugError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<null | "link" | "message">(null);
   const [sharing, setSharing] = useState(false);
+  // The ask (WP-04 T6), opened in place after a publish on a narrow screen.
+  const [asking, setAsking] = useState(false);
+  // The shell's phone layout (below 1280 px): finger-sized actions, the ask after a publish.
+  const narrow = isViewportTooSmall(useViewportWidth());
+  const tap = (desktop: "sm" | "md") => (narrow ? ({ size: "lg", className: "min-h-tap @max-page-wide:w-full" } as const) : ({ size: desktop } as const));
 
   const content = draft ?? data?.draft ?? null;
   const problems: PageFieldErrors = useMemo(() => (content ? pageContentProblems(content) : {}), [content]);
@@ -241,6 +272,7 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
       setConfirming(false);
       apply(result.page);
       if (result.outcome === "held") setHeld(result.message);
+      else if (narrow && result.page.live) setAsking(true);
     });
   const unpublish = () =>
     run("unpublish", async () => {
@@ -261,20 +293,26 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
       }
     });
   };
-  const copy = async () => {
+  const copy = async (what: "link" | "message") => {
     if (!data) return;
+    const value = what === "message" && askDraft ? postTextWithLink(askDraft) : data.url;
     try {
-      await navigator.clipboard.writeText(data.url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      await navigator.clipboard.writeText(value);
+      setCopied(what);
+      setTimeout(() => setCopied(null), 2000);
     } catch {
-      setError("The link could not be copied. Select the address and copy it instead.");
+      setError(what === "message" ? "The message could not be copied. Select the address and add your own words to it." : "The link could not be copied. Select the address and copy it instead.");
     }
   };
 
   // Tap-to-post: the draft says what the live page says (its published pitch), never what is still being written.
   const shareDraft = useMemo(
     () => (data?.live && data.published ? pagePostDraft({ origin: new URL(data.url).origin, slug: data.slug, projectName: data.preview.name, pitch: data.published.pitch }) : null),
+    [data?.live, data?.published, data?.url, data?.slug, data?.preview.name],
+  );
+  // The ask (WP-04 T6): the same live facts, in the founder's voice, for the few people they send it to.
+  const askDraft = useMemo(
+    () => (data?.live && data.published ? pageAskDraft({ origin: new URL(data.url).origin, slug: data.slug, projectName: data.preview.name, pitch: data.published.pitch }) : null),
     [data?.live, data?.published, data?.url, data?.slug, data?.preview.name],
   );
   const recordShare = (opened: ShareOpened) => {
@@ -295,7 +333,7 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
   const followOpen = data?.followAvailable !== false;
 
   return (
-    <Screen name="product/public-page">
+    <Screen name="product/public-page" stack>
       <Panel
         title={PUBLIC_PAGE_WORDS.yourPage}
         span={6}
@@ -315,6 +353,12 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
         {data && content ? (
           <div className="flex flex-col gap-5">
             {data.isSample ? <p className="t-body text-secondary">{PUBLIC_PAGE_WORDS.sample}</p> : !canEdit ? <p className="t-body text-secondary" data-testid="page-read-only">{PUBLIC_PAGE_WORDS.readOnly}</p> : null}
+            {/* No row yet: the fields hold the starter draft from the founder's own words until the team's arrives. */}
+            {canEdit && !data.saved ? (
+              <p className="t-body text-secondary" data-testid="page-starter-note">
+                {PUBLIC_PAGE_WORDS.starterNote}
+              </p>
+            ) : null}
 
             <Counted id={`${id}-pitch`} label={PUBLIC_PAGE_WORDS.pitch} hint={PUBLIC_PAGE_WORDS.pitchHint} error={showErrors ? problems.pitch : undefined} used={content.pitch.length} max={PAGE_PITCH_MAX}>
               <Input id={`${id}-pitch`} value={content.pitch} readOnly={!canEdit} onChange={(e) => set("pitch", e.target.value)} onBlur={() => setTouched(true)} controlSize="lg" />
@@ -368,10 +412,10 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
                     <Input id={`${id}-slug`} value={slug} maxLength={PAGE_SLUG_MAX + 10} prefix={data.url.slice(0, data.url.length - data.slug.length)} onChange={(e) => setSlug(e.target.value)} mono />
                   </Field>
                   <div className="flex flex-wrap gap-2">
-                    <Button size="sm" variant="primary" onClick={saveSlug} loading={pending === "slug"}>
+                    <Button {...tap("sm")} variant="primary" onClick={saveSlug} loading={pending === "slug"}>
                       {PUBLIC_PAGE_WORDS.saveAddress}
                     </Button>
-                    <Button size="sm" variant="ghost" onClick={() => (setEditingSlug(false), setSlugError(null))}>
+                    <Button {...tap("sm")} variant="ghost" onClick={() => (setEditingSlug(false), setSlugError(null))}>
                       {PUBLIC_PAGE_WORDS.cancel}
                     </Button>
                   </div>
@@ -382,22 +426,27 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
                     {data.url}
                   </span>
                   {canEdit ? (
-                    <Button size="sm" variant="ghost" icon={Pencil} onClick={() => (setSlug(data.slug), setEditingSlug(true))}>
+                    <Button {...tap("sm")} variant="ghost" icon={Pencil} onClick={() => (setSlug(data.slug), setEditingSlug(true))}>
                       {PUBLIC_PAGE_WORDS.changeAddress}
                     </Button>
                   ) : null}
                   {data.live ? (
                     <>
-                      <Button size="sm" icon={Copy} onClick={() => void copy()}>
-                        {copied ? PUBLIC_PAGE_WORDS.copied : PUBLIC_PAGE_WORDS.copyLink}
+                      <Button {...tap("sm")} icon={Copy} onClick={() => void copy("link")}>
+                        {copied === "link" ? PUBLIC_PAGE_WORDS.copied : PUBLIC_PAGE_WORDS.copyLink}
                       </Button>
-                      <Button size="sm" icon={ExternalLink} asChild>
+                      {askDraft ? (
+                        <Button {...tap("sm")} icon={MessageSquareText} onClick={() => void copy("message")} data-testid="page-copy-message">
+                          {copied === "message" ? PUBLIC_PAGE_WORDS.messageCopied : PUBLIC_PAGE_WORDS.copyMessage}
+                        </Button>
+                      ) : null}
+                      <Button {...tap("sm")} icon={ExternalLink} asChild>
                         <a href={data.url} target="_blank" rel="noopener noreferrer">
                           {PUBLIC_PAGE_WORDS.open}
                         </a>
                       </Button>
                       {shareDraft ? (
-                        <Button size="sm" icon={Share2} onClick={() => setSharing(true)} data-testid="page-share">
+                        <Button {...tap("sm")} icon={Share2} onClick={() => setSharing(true)} data-testid="page-share">
                           {PUBLIC_PAGE_WORDS.share}
                         </Button>
                       ) : null}
@@ -426,15 +475,15 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
             {canEdit ? (
               <div className="flex flex-wrap items-center gap-2 border-t border-line pt-4" data-testid="page-actions">
                 {!data.live || changedFromLive || data.changed ? (
-                  <Button variant="primary" icon={Rocket} disabled={!canPress} onClick={() => (setTouched(true), setConfirming(true))}>
+                  <Button {...tap("md")} variant="primary" icon={Rocket} disabled={!canPress} onClick={() => (setTouched(true), setConfirming(true))}>
                     {publishLabel}
                   </Button>
                 ) : null}
-                <Button onClick={save} loading={pending === "save"} disabled={!dirty}>
+                <Button {...tap("md")} onClick={save} loading={pending === "save"} disabled={!dirty}>
                   {PUBLIC_PAGE_WORDS.save}
                 </Button>
                 {data.live ? (
-                  <Button variant="ghost" icon={Undo2} onClick={unpublish} loading={pending === "unpublish"}>
+                  <Button {...tap("md")} variant="ghost" icon={Undo2} onClick={unpublish} loading={pending === "unpublish"}>
                     {PUBLIC_PAGE_WORDS.takeDown}
                   </Button>
                 ) : null}
@@ -475,6 +524,7 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
       {data && !data.isSample && data.saved ? <PageQuizPanel /> : null}
 
       {shareDraft ? <SharePost open={sharing} onOpenChange={setSharing} title={SHARE_OPEN_WORDS.pageTitle} description={SHARE_OPEN_WORDS.description} draft={shareDraft} appName={APP_NAME} onShare={recordShare} /> : null}
+      {askDraft ? <SharePost open={asking} onOpenChange={setAsking} title={PUBLIC_PAGE_WORDS.askTitle} description={PUBLIC_PAGE_WORDS.askDescription} draft={askDraft} appName={APP_NAME} onShare={recordShare} /> : null}
       <Dialog open={confirming} onOpenChange={setConfirming}>
         <DialogContent size="sm" aria-describedby={`${id}-confirm`}>
           <DialogHeader>
@@ -488,10 +538,10 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
             </p>
           </DialogBody>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setConfirming(false)}>
+            <Button {...tap("md")} variant="ghost" onClick={() => setConfirming(false)}>
               {PUBLIC_PAGE_WORDS.cancel}
             </Button>
-            <Button variant="primary" icon={Rocket} loading={pending === "publish"} onClick={publish} data-testid="page-confirm-publish">
+            <Button {...tap("md")} variant="primary" icon={Rocket} loading={pending === "publish"} onClick={publish} data-testid="page-confirm-publish">
               {PUBLIC_PAGE_WORDS.confirmPublish}
             </Button>
           </DialogFooter>

@@ -25,7 +25,7 @@ describe("agent voice (audit-conversation §3)", () => {
   it("sounds like the agent: terse engineers, a calm Chief of Staff, a measured legal lead, silent utilities", () => {
     expect(voiceRegister("lead", getTemplate("engineering_lead").instructions.tone)).toBe("terse");
     expect(voiceRegister("worker", getTemplate("backend_engineer").instructions.tone)).toBe("terse");
-    expect(voiceRegister("assistant", chiefOfStaff.instructions.tone)).toBe("calm");
+    expect(voiceRegister("assistant", chiefOfStaff.instructions.tone)).toBe("mentor");
     expect(voiceRegister("lead", getTemplate("legal_lead").instructions.tone)).toBe("measured");
     expect(voiceRegister("lead", getTemplate("finance_lead").instructions.tone)).toBe("numerate");
     expect(voiceRegister("lead", getTemplate("operations_lead").instructions.tone)).toBe("practical");

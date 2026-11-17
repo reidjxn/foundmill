@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CREDITS_CURRENCY, higherTier, includedCreditsMinor, initialModelBilling, sandboxCostMicroMinor, SANDBOX_MICRO_MINOR_PER_SECOND, TIER_ORDER, TIERS, tierBusinessLimit, tierShowsBuiltOnMark, tierSeatLimit, tierIncludedCreditPlaces } from "../pricing";
+import { CREDITS_CURRENCY, FIRST_CYCLE_SESSION_CAP_MINOR, firstCycleInput, higherTier, includedCreditsMinor, initialModelBilling, sandboxCostMicroMinor, SANDBOX_MICRO_MINOR_PER_SECOND, TIER_ORDER, TIERS, tierBusinessLimit, tierShowsBuiltOnMark, tierSeatLimit, tierIncludedCreditPlaces } from "../pricing";
 
 describe("pricing tiers (BUILD §10.5)", () => {
   it("keeps credits in US dollars and includes a bounded platform credit on every tier", () => {
@@ -58,5 +58,32 @@ describe("sandbox time (audit BILL-11, O-32)", () => {
   it("only the free plan carries the 'Built on' mark; every paid plan removes it", () => {
     expect(tierShowsBuiltOnMark("free")).toBe(true);
     expect(TIER_ORDER.filter((t) => t !== "free").map(tierShowsBuiltOnMark)).toEqual([false, false]);
+  });
+});
+
+describe("the first round of a free project (WP-09 T11, founder D6)", () => {
+  it("runs one session at a time under a 75-cent cap (Estimate) on the free plan's credits", () => {
+    expect(FIRST_CYCLE_SESSION_CAP_MINOR).toBe(75);
+    expect(firstCycleInput({ modelBilling: "credits", tier: "free" })).toEqual({ budgetCapMinor: 75, maxConcurrent: 1 });
+  });
+
+  it("leaves a project on its own key or a paid plan as today", () => {
+    expect(firstCycleInput({ modelBilling: "byok", tier: "free" })).toEqual({});
+    expect(firstCycleInput({ modelBilling: "credits", tier: "pro" })).toEqual({});
+    expect(firstCycleInput({ modelBilling: "credits", tier: "scale" })).toEqual({});
+  });
+});
+
+describe("who pays for a model call (WP-13)", () => {
+  it("puts everyone not on a paid plan on the free plan, a business on its own key on that key, and a paid plan on every model", async () => {
+    const { modelFundingFor, tierIsPaid } = await import("../pricing");
+    expect(tierIsPaid("free")).toBe(false);
+    expect(tierIsPaid("pro")).toBe(true);
+    expect(tierIsPaid("scale")).toBe(true);
+    expect(modelFundingFor({ planTier: "free", modelBilling: "credits" })).toBe("free_plan");
+    expect(modelFundingFor({ planTier: "free", modelBilling: "byok" })).toBe("own_key");
+    expect(modelFundingFor({ planTier: "pro", modelBilling: "credits" })).toBe("paid_plan");
+    expect(modelFundingFor({ planTier: "pro", modelBilling: "byok" })).toBe("own_key");
+    expect(modelFundingFor({ planTier: null, modelBilling: null })).toBe("free_plan");
   });
 });

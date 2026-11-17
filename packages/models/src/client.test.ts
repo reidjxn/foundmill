@@ -294,7 +294,7 @@ describe("LiveModelClient.complete", () => {
     expect(truncated.calls).toHaveLength(1);
   });
 
-  it("sends each route's budget when the request has none: planning routes leave room for thinking, Haiku routes stay small", async () => {
+  it("sends each route's budget when the request has none: every route leaves room for thinking, Haiku 5.5's included", async () => {
     const sent: Record<string, unknown> = {};
     for (const route of ["planner", "chiefOfStaff", "departmentLead", "inboxComposer", "conversation", "classifier"] as const) {
       const { fetch, calls } = fakeFetch([() => message("ok", { model: route === "classifier" ? MODELS.haiku : MODELS.opus })]);
@@ -302,10 +302,10 @@ describe("LiveModelClient.complete", () => {
       await client.complete({ route, messages: [{ role: "user", content: "go" }] });
       sent[route] = calls[0]!.body.max_tokens;
     }
-    expect(sent).toEqual({ planner: 16_000, chiefOfStaff: 16_000, departmentLead: 16_000, inboxComposer: 16_000, conversation: 8_000, classifier: 4_096 });
+    expect(sent).toEqual({ planner: 16_000, chiefOfStaff: 16_000, departmentLead: 16_000, inboxComposer: 16_000, conversation: 8_000, classifier: 16_000 });
   });
 
-  it("drops temperature for Opus/Sonnet 5.5 and keeps it for Haiku", async () => {
+  it("drops temperature on every Anthropic 5.5 model and sends Haiku 5.5 its effort", async () => {
     const opus = fakeFetch([() => message("ok")]);
     const c1 = new LiveModelClient({ apiKey: "k", fetch: opus.fetch, sleep: noSleep });
     await c1.complete({ route: "worker", messages: [{ role: "user", content: "go" }], temperature: 0.2 });
@@ -314,10 +314,10 @@ describe("LiveModelClient.complete", () => {
     const haiku = fakeFetch([() => message("ok", { model: MODELS.haiku })]);
     const c2 = new LiveModelClient({ apiKey: "k", fetch: haiku.fetch, sleep: noSleep });
     await c2.complete({ route: "classifier", messages: [{ role: "user", content: "go" }], temperature: 0.2, effort: "low" });
-    expect(haiku.calls[0]!.body.temperature).toBe(0.2);
+    // Haiku 5.5 refuses non-default sampling parameters (400) and takes effort (WP-13, taking WP-09 T4).
+    expect(haiku.calls[0]!.body.temperature).toBeUndefined();
     expect(haiku.calls[0]!.body.model).toBe(MODELS.haiku);
-    // Haiku 4.5 has no effort parameter: sending one would be a 400, so the client drops it.
-    expect(haiku.calls[0]!.body.output_config).toBeUndefined();
+    expect(haiku.calls[0]!.body.output_config).toEqual({ effort: "low" });
   });
 
   it("honours locked routes and surfaces the warning", async () => {

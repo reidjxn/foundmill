@@ -105,10 +105,7 @@ describe("costReportRepo.run", () => {
   });
 
   it("always lists what is not measured", () => {
-    expect(report.notMeasured).toEqual([
-      "Model calls before a project exists (ideas, compare, logo) are not in the ledger (A7-02)",
-      "The gateway's reader and web search are not booked (A7-03)",
-    ]);
+    expect(report.notMeasured).toEqual(["Model calls before a project exists (ideas, compare, logo) are not in the ledger (A7-02)"]);
   });
 
   it("applies the date range", async () => {
@@ -117,7 +114,7 @@ describe("costReportRepo.run", () => {
     expect(later.projectWeeks.rows.reduce((sum, r) => sum + r.usd, 0)).toBe(0.1);
     expect(later.firstDayPerProject.rows).toEqual([]);
     expect(later.sessionsByModelAndOutcome).toEqual([]);
-    expect(later.notMeasured).toHaveLength(2);
+    expect(later.notMeasured).toHaveLength(1);
   });
 
   it("reads in a read-only transaction, so Postgres refuses any write", () => {

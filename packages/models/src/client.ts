@@ -47,7 +47,7 @@ import { clearPlatformBillingRefusal, notePlatformBillingRefusal } from "./billi
 import { IMAGE_TOKEN_ESTIMATE, assertImagesAllowed } from "./images";
 import { parseJsonLoose } from "./json";
 import { MockModelClient, type MockModelClientOptions } from "./mock";
-import { type MeterResult, ZERO_USAGE, addUsage, estimateTokens, meter, sumMeters } from "./pricing";
+import { type MeterResult, ZERO_USAGE, addUsage, estimateTokens, meter, meterWebSearch, sumMeters } from "./pricing";
 import { RateLimiter, backoffWithJitter, parseRateLimitHeaders } from "./rate-limit";
 import { FAST_MODE_BETA, MODELS, MODEL_CAPABILITIES, type RouteResolution, resolveModel } from "./routing";
 import { type StreamCallArgs, type StreamCallResult, StreamInterruptedError, runStructuredStream } from "./structured-stream";
@@ -69,7 +69,12 @@ import type {
   UsageEvent,
   BilledTo,
   UsageSink,
+  WebSearchRequest,
+  WebSearchResult,
 } from "./types";
+
+/** `max_tokens` of a web search request: the search's titles and addresses are short (as the gateway sent it before T3). */
+export const WEB_SEARCH_MAX_TOKENS = 2_048;
 
 /**
  * Highest budget the truncation retry doubles up to. A non-streaming call this long still finishes well inside
@@ -189,7 +194,7 @@ export function createModelClient(opts: CreateModelClientOptions = {}): ModelCli
 }
 
 /** The request fields that shape the API call (shared by `complete` and `streamStructured`). */
-type PlanInput = Pick<CompleteRequest<unknown>, "route" | "modelOverride" | "lowCredits" | "maxTokens" | "reserveTokens" | "system" | "cacheSystem" | "effort" | "temperature"> & { schema?: z.ZodType };
+type PlanInput = Pick<CompleteRequest<unknown>, "route" | "modelOverride" | "lowCredits" | "freePlan" | "maxTokens" | "reserveTokens" | "system" | "cacheSystem" | "effort" | "temperature"> & { schema?: z.ZodType };
 /** The request fields the retry policy and metering read. */
 type CallContext = Pick<CompleteRequest<unknown>, "route" | "signal" | "scope" | "attribution">;
 
@@ -330,9 +335,48 @@ export class LiveModelClient implements ModelClient {
     });
   }
 
+  /**
+   * One server web search (WP-09 T3; moved unchanged in content from the gateway's `web.search_web`): the `webSearch`
+   * route's model at its effort, `web_search_20260209` used at most once, `max_tokens` 2,048. Sent through `send()`, so
+   * the limiter, the retry policy and billing refusals apply as to any call; metered once at the tokens' price plus the
+   * fee for each search the response counts (none for a search that came back as an error, which then throws).
+   */
+  async searchWeb(req: WebSearchRequest): Promise<WebSearchResult> {
+    const started = Date.now();
+    const route = "webSearch" as const;
+    const plan = this.plan({ route, maxTokens: WEB_SEARCH_MAX_TOKENS, freePlan: req.freePlan });
+    // One search whose results are listed as they come: on the free plan's Haiku 5.5 the search is called directly
+    // (`allowed_callers: ["direct"]`), so no code execution runs to filter what is only listed (WP-13).
+    const direct = plan.resolution.modelKey === "haiku";
+    const params: Anthropic.MessageCreateParamsNonStreaming = {
+      ...plan.base,
+      tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 1, ...(direct ? { allowed_callers: ["direct"] } : {}) } as Anthropic.WebSearchTool20260209],
+      messages: [{ role: "user", content: `Search the web for: ${req.query}\nList what the search returns; do not add anything.` }],
+    };
+    const call = { route, signal: req.signal, scope: req.scope, attribution: req.attribution };
+    const { message, requestId } = await this.send(params, call, req.scope ?? "default", 0, plan);
+    const results: WebSearchResult["results"] = [];
+    let failed: string | null = null;
+    for (const block of message.content) {
+      if (block.type !== "web_search_tool_result") continue;
+      // An error comes back as an object, results as a list (HTTP 200 either way).
+      if (!Array.isArray(block.content)) {
+        failed = block.content.error_code;
+        continue;
+      }
+      for (const r of block.content) results.push({ url: r.url, title: r.title, pageAge: r.page_age ?? null });
+    }
+    const usage = toUsage(message.usage);
+    const searches = failed ? 0 : (message.usage.server_tool_use?.web_search_requests ?? 0);
+    const cost = meterWebSearch(usage, plan.resolution.modelId, searches);
+    await this.emit({ route, model: plan.resolution.modelId, modelKey: plan.resolution.modelKey, mode: "live", usage, cost, scope: req.scope, attribution: req.attribution, durationMs: Date.now() - started, occurredAt: new Date().toISOString(), requestId, attempt: 0 });
+    if (failed) throw new ModelUnavailableError(`web search failed: ${failed}`, { errorCode: failed, requestId });
+    return { results: results.slice(0, req.limit), usage, cost, mode: "live" };
+  }
+
   /** Model, max_tokens, reservation, effort, speed and the request body shared by every call of one request. */
   private plan(req: PlanInput): CallPlan {
-    const resolution = resolveModel(req.route, req.modelOverride, { lowCredits: req.lowCredits });
+    const resolution = resolveModel(req.route, req.modelOverride, { lowCredits: req.lowCredits, freePlan: req.freePlan });
     if (resolution.warning) this.opts.logger?.warn({ route: req.route, override: req.modelOverride }, resolution.warning);
     const sized = req.maxTokens ?? this.opts.defaultMaxTokens;
     const maxTokens = sized ?? resolution.maxTokens;
@@ -355,7 +399,7 @@ export class LiveModelClient implements ModelClient {
     if (effort) outputConfig.effort = effort;
     if (outputConfig.format || outputConfig.effort) base.output_config = outputConfig;
     if (req.temperature !== undefined) {
-      if (resolution.modelKey === "haiku") base.temperature = req.temperature;
+      if (MODEL_CAPABILITIES[resolution.modelKey].temperature) base.temperature = req.temperature;
       else this.opts.logger?.debug({ route: req.route, model: resolution.modelId }, "temperature dropped: this model rejects sampling parameters");
     }
     const fast = resolution.speed === "fast" && this.opts.fastMode === true;

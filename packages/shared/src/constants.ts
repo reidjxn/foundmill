@@ -232,8 +232,15 @@ export type AgentPauseReason = (typeof AGENT_PAUSE_REASONS)[number];
 export const AGENT_LAYERS = ["assistant", "lead", "worker", "utility"] as const;
 export type AgentLayer = (typeof AGENT_LAYERS)[number];
 
-export const MODEL_KEYS = ["opus", "sonnet", "haiku"] as const;
+export const MODEL_KEYS = ["opus", "sonnet", "haiku", "glm"] as const;
 export type ModelKey = (typeof MODEL_KEYS)[number];
+/**
+ * The models an agent can be set to today (the model dialog, a plan's model change, a draft). GLM joins on the free
+ * plan when WP-13 T7 (the picker by plan) and T4 (sessions on the chosen model) land (founder, Nov 16, 2026: a free
+ * founder chooses Haiku 5.5 or GLM-5.3 Flash per agent); until then an agent cannot be set to it.
+ */
+export const CHOOSABLE_MODEL_KEYS = ["opus", "sonnet", "haiku"] as const satisfies readonly ModelKey[];
+export type ChoosableModelKey = (typeof CHOOSABLE_MODEL_KEYS)[number];
 
 export const SKILL_GROUPS = ["craft", "judgement", "execution"] as const;
 export type SkillGroup = (typeof SKILL_GROUPS)[number];
@@ -303,8 +310,8 @@ export const CHANNEL_META: Record<ChannelKey, { label: string; line: ChannelLine
   geo: { label: "GEO", line: "defence", coreMetric: "AI answer share", kitModeByDefault: false },
   content: { label: "Content marketing", line: "defence", coreMetric: "Leads from content", kitModeByDefault: false },
   direct_mail: { label: "Direct mail", line: "wings", coreMetric: "Response rate", kitModeByDefault: false },
-  print: { label: "Print", line: "wings", coreMetric: "Code redemptions", kitModeByDefault: true },
-  broadcast: { label: "Broadcast", line: "wings", coreMetric: "Vanity URL visits, lift", kitModeByDefault: true },
+  print: { label: "Print", line: "wings", coreMetric: "Code redemptions", kitModeByDefault: false },
+  broadcast: { label: "Broadcast", line: "wings", coreMetric: "Vanity URL visits, lift", kitModeByDefault: false },
   outdoor: { label: "Outdoor", line: "wings", coreMetric: "QR scans, geo-lift", kitModeByDefault: false },
 };
 
@@ -467,6 +474,7 @@ export const EVENT_TYPES = [
   "product.research_drafted",
   "goal.proposed", "goal.approved", "goal.change_requested", "goal.achieved",
   "page.published", "page.unpublished", "page.followed",
+  "site.release_created", "site.published", "site.unpublished",
   "guidance.tour_completed", "guidance.tour_skipped", "guidance.explainer_dismissed", "guidance.term_opened", "guidance.turned_off",
   "push.sent",
   "mail.sent",
@@ -480,6 +488,7 @@ export const EVENT_TYPES = [
   "referral.arrived",
   "post.drafted",
   "quiz.approved", "quiz.published", "quiz.unpublished",
+  "positioning.approved",
   "invitation.sent", "invitation.accepted", "invitation.declined",
   "showcase.requested", "showcase.approved", "showcase.withdrawn", "showcase.asked", "showcase.settled",
   "visit.attributed", "post.outcome_attributed",

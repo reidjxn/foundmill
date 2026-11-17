@@ -70,7 +70,7 @@ describe("TourPage (signed-out /)", () => {
     const hero = screen.getByRole("heading", { level: 1 }).closest("section")!;
     // The figure is the free plan's included credits, from packages/config, in credits' own currency (said once the card lands).
     expect(INCLUDED_CREDITS_ASSURANCE).toBe("Starts with $5.00 of included credits · no card");
-    expect(within(hero).getByText("Your first card is free and needs no sign-up")).toBeTruthy();
+    expect(within(hero).getByText("Shaping your first idea is free and needs no sign-up")).toBeTruthy();
     expect(within(hero).getByText("Your idea stays private until you choose to share it")).toBeTruthy();
     expect(within(hero).getByText("Nothing spends money or signs in your name without you")).toBeTruthy();
     expect(within(hero).getByRole("textbox", { name: "What do you want to make?" })).toBeTruthy();
@@ -96,12 +96,13 @@ describe("TourPage (signed-out /)", () => {
     expect(within(panel).getByText("Drafting")).toBeTruthy();
     expect(within(panel).getByText("Drafting your vision, specification and roadmap…")).toBeTruthy();
     expect(within(panel).getByText(/^Iris, Product lead, writes it from your idea and your profile\. Orla, Chief of Staff, plans the first cycle from the roadmap\.$/)).toBeTruthy();
-    // Then the two sign-off notes in the Inbox, each tagged Respond, then Continue.
+    // Then the one plan note in the Inbox (WP-04 T5), tagged Respond, then Continue.
     const inbox = within(how).getByRole("list", { name: "Inbox" });
     // Each row: the Product lead's portrait (its name is text too), the subject, the Needs you tag.
     const rows = within(inbox).getAllByRole("listitem");
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(1);
     rows.forEach((li, i) => expect(li.textContent).toBe(`Iris${FIRST_DAY_SIGNOFFS[i]}Needs you`));
+    expect(FIRST_DAY_SIGNOFFS).toEqual(["Your plan is ready"]);
     const day = panel.parentElement!;
     expect(within(day).getByText("Continue")).toBeTruthy();
     const planned = TUTORLANE.howItWorks.firstCyclePlan.reduce((s, p) => s + p.tasks, 0);

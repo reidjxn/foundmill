@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { SAMPLE_LOGOS } from "../foundation/logo-samples";
 import { IdeaCard, type IdeaCardData } from "./IdeaCard";
 
 const KEYS = ["market_pull", "market_size", "competition", "speed_to_first_customer", "capital_intensity", "agent_executability", "founder_fit", "defensibility", "regulatory_load", "distribution_clarity"];
@@ -27,3 +28,11 @@ export const Drafting: Story = { args: { drafting: true, justIn: false, card: { 
 export const NameOnly: Story = { args: { drafting: true, justIn: false, card: { name: "Firstframe" } } };
 export const Sample: Story = { args: { sample: true } };
 export const FounderFitKnown: Story = { args: { founderFitKnown: true, justIn: false } };
+/** An example with a mark of its own (the landing page's examples): the logo replaces the initials tile. */
+export const WithLogo: Story = { args: { logo: SAMPLE_LOGOS.orbit } };
+/** The landing page's result (founder, 2026-11-16): the card fills its column; from 576 px the ratings sit beside the pitch. */
+export const Wide: Story = {
+  args: { wide: true },
+  parameters: { layout: "padded" },
+  decorators: [(Story) => <div className="w-full max-w-160">{Story()}</div>],
+};

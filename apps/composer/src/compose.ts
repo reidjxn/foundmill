@@ -14,7 +14,7 @@ import { APP_NAME, LIMITS } from "@foundmill/config";
 import type { ComposerItem, Event } from "@foundmill/db";
 import { checkComposerText, linkComposerText, stripMarkup, type LinkedText, type ValidationResult } from "@foundmill/entity-linker";
 import { ComposerOutput, ModelAbortedError, type ChatMessage, type CompleteResultWithJson, type ComposerOption, type ModelClient, type ModelLogger, type TokenUsage } from "@foundmill/models";
-import { AppError, founderJargonHits, futureDeadline, PARKED_DETAIL_MAX, PARKED_TASKS_MAX, PARKED_TITLE_MAX, type InboxItemType, type ParkedTask } from "@foundmill/shared";
+import { AppError, UNKNOWN_FOUNDER_CONTEXT, founderContextJson, founderJargonHits, futureDeadline, PARKED_DETAIL_MAX, PARKED_TASKS_MAX, PARKED_TITLE_MAX, type InboxItemType, type ParkedTask } from "@foundmill/shared";
 import { businessBrief, type ComposeContext } from "./context";
 import type { NextBestDecision } from "./decisions";
 import { namedQueryCatalogue, sanitizeExhibit } from "./exhibits";
@@ -138,6 +138,9 @@ export function composerInputs(ctx: ComposeContext, brief: ComposeBrief): Record
     glossary: ctx.glossary,
     // The model has no clock: without today's date it guesses deadlines, and a guessed one in the past locks the options.
     now: ctx.now.toISOString(),
+    // Who the note is written to (WP-04 T10): trusted JSON from their own profile, never in the system text, which stays
+    // the same for every founder (the cached prefix). A hand-built context without one still says the experience.
+    founder: founderContextJson(ctx.founder ?? { ...UNKNOWN_FOUNDER_CONTEXT, experience: ctx.founderExperience }),
   };
   switch (brief.mode) {
     case "events": {
@@ -175,12 +178,12 @@ export function composerInputs(ctx: ComposeContext, brief: ComposeBrief): Record
   }
 }
 
-/** The house rules, then the Composer's own rules, which know who the founder is (`founder_experience`, UX plan §7.19). */
+/** The house rules, then the Composer's own rules, the same for every founder: who the founder is travels in the inputs (`founder`, UX plan §7.19, WP-04 T10). */
 export function systemPrompt(ctx: ComposeContext): string[] {
   return [
     clubRulesPrompt.render({ business_name: ctx.business.name, APP_NAME }),
     // plain-allow: agent-facing. The fallback role fills the system prompt's from_agent_role; only the model reads it.
-    prompts.inboxComposerPrompt.render({ business_name: ctx.business.name, from_agent_name: ctx.voice.name, from_agent_role: ctx.voice.role || "Chief of Staff", founder_experience: ctx.founderExperience }),
+    prompts.inboxComposerPrompt.render({ business_name: ctx.business.name, from_agent_name: ctx.voice.name, from_agent_role: ctx.voice.role || "Chief of Staff" }),
   ];
 }
 

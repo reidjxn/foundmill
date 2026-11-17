@@ -227,7 +227,7 @@ export const NON_TENANT_TABLES = [
   // 0109: the nightly numbers, one row per day of counts across projects (no business_id, no ids; service role only);
   // covered by rls/platform-metric-days.test.ts.
   "platform_metric_days",
-  // 0115: reports of a person, a profile or a message (person-level, service role only); covered by rls/reports.test.ts.
+  // 0127: reports of a person, a profile or a message (person-level, service role only); covered by rls/reports.test.ts.
   "reports",
   // 0086 the idea box (docs/IDEA_BOX.md): a signed-out visitor's card and the waitlist; the api's alone (no client
   // role, RLS on, no policy); covered by rls/idea-drafts.test.ts.
@@ -262,6 +262,10 @@ export const NON_TENANT_TABLES = [
   "retired_mail_local_parts",
   // 0101: business-scoped, one row per business, founders only; covered by rls/project-postal-address.test.ts.
   "project_postal_addresses",
+  // 0124: business-scoped, one site per business (the generated suite inserts a second), and releases that need that
+  // site; services write both, owners and admins publish; covered by rls/sites.test.ts.
+  "sites",
+  "site_releases",
   // 0083: one person's rows in one business (presence, visit days, founder emails); covered by rls/founder-return.test.ts.
   "founder_presence",
   "founder_visit_days",

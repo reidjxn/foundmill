@@ -1,5 +1,5 @@
 /**
- * reports (0115) — a person's report of a person, a profile or a message, and the platform's review queue
+ * reports (0127) — a person's report of a person, a profile or a message, and the platform's review queue
  * (docs/NETWORK.md F21). Service connection only, every function: the table is the service role's.
  *
  * The api resolves what a report names before it files one (`profileOwner`, `messageAuthor`), so a report always holds

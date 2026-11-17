@@ -17,6 +17,7 @@
  *   POST /v1/push/send             service JWT (api) → one push notification to registered phones of the mobile app (push.ts)
  *   POST /v1/turnstile/verify              service JWT (api) → the idea box's bot check (turnstile.ts)
  *   POST /v1/platform-mail/confirm-follow  service JWT (api) → the one email asking a page signup to confirm (follow-confirm.ts)
+ *   POST /v1/platform-mail/answer-reply    service JWT (api) → a founder's answer to a reply the project received (reply-answer.ts)
  *   POST /v1/notify/email          service JWT (api, orchestrator) → one email from Foundmill to one of its users about their own project (notify-email.ts; an invitation: notify-address-email.ts; a founder notice: notify-founder-notice.ts; the waitlist's place is open: notify-account-email.ts)
  *   POST /v1/call                  session JWT → the pipeline (allow / ask / deny / rate_limited)
  *   POST /v1/github/archive        session JWT → the Code-tab repository's tarball for a code session's checkout (archive.ts)
@@ -30,7 +31,7 @@ import { APP_NAME } from "@foundmill/config";
 import { AppError, UnauthorizedError } from "@foundmill/shared";
 import { repos } from "@foundmill/db";
 import { cedarVersion, getPolicyEngine } from "@foundmill/policy";
-import { bearerToken, mintSessionToken, sessionKey, verifyServiceToken, verifySessionToken, type ServiceToken, type SessionToken } from "./tokens";
+import { apiServiceTokenMode, bearerToken, mintSessionToken, sessionKey, verifyServiceTokenFor, verifySessionToken, type ServiceToken, type SessionToken } from "./tokens";
 import { GatewayError, safeError, type GatewayDeps } from "./pipeline";
 import { connectIntegration, integrationHealth } from "./integrations";
 import { KEYS_VALIDATE_ROUTE, ValidateKeyRequest, validateFounderKey } from "./keys";
@@ -41,6 +42,7 @@ import { generatePortrait, PortraitRequest } from "./portraits";
 import { sendPush, SendPushRequest } from "./push";
 import { MAX_TRANSCRIBE_BODY_BYTES, SPEECH_STREAM_ROUTE, SPEECH_SYNTHESIZE_ROUTE, SPEECH_TRANSCRIBE_ROUTE, streamSpeech, SynthesizeSpeechRequest, synthesizeSpeech, TranscribeSpeechRequest, transcribeSpeech } from "./speech";
 import { CONFIRM_FOLLOW_ROUTE, ConfirmFollowRequest, sendFollowConfirmation } from "./follow-confirm";
+import { ANSWER_REPLY_ROUTE, AnswerReplyRequest, answerReply } from "./reply-answer";
 import { TURNSTILE_ROUTE, TurnstileVerifyRequest, verifyTurnstile } from "./turnstile";
 import { NOTIFY_EMAIL_ROUTE, NotifyEmailRequest, sendNotifyEmail } from "./notify-email";
 import { AddressEmailRequest, isAddressEmailKind, sendAddressEmail } from "./notify-address-email";
@@ -57,6 +59,9 @@ import { DEFAULT_SESSION_TTL_SECONDS, MAX_SESSION_TTL_SECONDS } from "./config";
 
 export interface GatewayAppOptions {
   sessionTokenSecret: string;
+  /** API_SERVICE_TOKEN_SECRET and API_SERVICE_TOKEN_LEGACY (WP-11 T12); absent in tests that do not need them. */
+  apiServiceTokenSecret?: string | null;
+  apiServiceTokenLegacy?: boolean;
   sessionTokenTtlSeconds?: number;
   sessionTokenMaxTtlSeconds?: number;
   /** For `/health`: the rate-limit store in use (a function reads it per request; memory while a Redis store falls back). */
@@ -79,6 +84,7 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   const app = new Hono<{ Variables: Variables }>();
   const now = deps.now ?? (() => new Date());
   const secret = options.sessionTokenSecret;
+  const serviceSecrets = { shared: secret, api: options.apiServiceTokenSecret ?? null, legacy: options.apiServiceTokenLegacy ?? false };
   const defaultTtl = options.sessionTokenTtlSeconds ?? DEFAULT_SESSION_TTL_SECONDS;
   const maxTtl = options.sessionTokenMaxTtlSeconds ?? MAX_SESSION_TTL_SECONDS;
 
@@ -113,6 +119,7 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   // A recording of up to 8 MiB travels as base64 in JSON.
   app.use(SPEECH_TRANSCRIBE_ROUTE, limit(MAX_TRANSCRIBE_BODY_BYTES));
   app.use(CONFIRM_FOLLOW_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
+  app.use(ANSWER_REPLY_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
   app.use(NOTIFY_EMAIL_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
   app.use(KEYS_VALIDATE_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
   app.use(REGISTRY_LOOKUP_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
@@ -128,6 +135,7 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
       db,
       mode: deps.mode,
       liveConnectors: [...(deps.liveConnectors ?? [])],
+      apiServiceToken: apiServiceTokenMode(serviceSecrets),
       connectors: deps.registry.keys().length,
       policy: { cedar: cedarVersion(), policies: Object.keys(engine.policySet.byId).length },
       vault: deps.vault?.kind ?? "none",
@@ -144,7 +152,7 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   const requireService = async (c: { req: { header(name: string): string | undefined }; set(key: "service", value: ServiceToken): void }, next: () => Promise<void>) => {
     const token = bearerToken(c.req.header("authorization"));
     if (!token) throw new UnauthorizedError("A service Bearer token is required");
-    c.set("service", await verifyServiceToken(secret, token));
+    c.set("service", await verifyServiceTokenFor(serviceSecrets, token));
     await next();
   };
   app.use("/v1/session-tokens", requireService);
@@ -251,6 +259,19 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     return c.json(await sendFollowConfirmation(deps, parsed.data, c.var.service.svc));
   });
 
+  // A founder's answer to a reply the project received (WP-08 T2): only the api asks, from Customers (reply-answer.ts).
+  app.use(ANSWER_REPLY_ROUTE, requireService);
+  app.use(ANSWER_REPLY_ROUTE, async (c, next) => {
+    if (c.var.service.svc !== "api") throw new GatewayError("forbidden_service", "Only the api asks to answer a reply", 403);
+    await next();
+  });
+  app.post(ANSWER_REPLY_ROUTE, async (c) => {
+    // Never the Zod issues: they would put the founder's words back in the answer and the log.
+    const parsed = AnswerReplyRequest.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) throw new GatewayError("validation", "Send a business id, the reply's id, the member's id and the answer (1 to 5,000 characters)", 400);
+    return c.json(await answerReply(deps, parsed.data, c.var.service.svc));
+  });
+
   // Foundmill's own email to one of its users (packages 1.5 and 5.1), the one sender of every kind: the api's notify
   // pass asks for a waiting decision, the orchestrator's notify sweep for the rest (notify-email.ts).
   app.use(NOTIFY_EMAIL_ROUTE, requireService);
@@ -299,6 +320,9 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     const input = MintSessionTokenRequest.parse(await c.req.json());
     const ttl = Math.min(maxTtl, input.ttlSeconds ?? defaultTtl);
     const { ttlSeconds: _ttl, untrusted, ...claims } = input;
+    // Who may mint what (A7-15, SEC-17), before the business is read.
+    const refusal = mintRefusal(c.var.service.svc, { sessionId: claims.sessionId, allowedTools: claims.allowedTools, kitMode: claims.kitMode ?? false });
+    if (refusal) throw new GatewayError(refusal.code, refusal.message, 403);
     // The business and the agent must exist: a token can only be minted for a real session of a real club.
     const business = await repos.businesses.get(deps.db, claims.businessId, { includeArchived: true }).catch(() => {
       throw new GatewayError("business_not_found", `business ${claims.businessId} is not available to this gateway`, 404);
@@ -385,4 +409,26 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   });
 
   return app;
+}
+
+/**
+ * Who may mint a session token, and for what (WP-11 T11; A7-15, SEC-17). Only the orchestrator (agent sessions and the
+ * platform's own steps) and the api (one tool call outside a session, `services/gateway.ts` `toolCall`) mint. Nobody gets
+ * the bare `*`. The api gets exactly one tool, no wildcard, no session and no offline tracking. The mint does not
+ * intersect with the agent's grants and does not refuse an ended session: the orchestrator's workspace push, merge and
+ * checkout mint for tools the agent does not hold, some after the session ended (WP-11 "Corrections to the audits" 4).
+ * A third caller is added here with its reason.
+ */
+export const MINTING_SERVICES: ReadonlySet<string> = new Set(["orchestrator", "api"]);
+
+export function mintRefusal(svc: string, claims: { sessionId: string | null; allowedTools: string[]; kitMode: boolean }): { code: "forbidden_service" | "mint_scope_refused"; message: string } | null {
+  if (!MINTING_SERVICES.has(svc)) return { code: "forbidden_service", message: `Service ${svc} does not mint session tokens` };
+  if (claims.allowedTools.includes("*")) return { code: "mint_scope_refused", message: "A session token never allows every tool" };
+  if (svc === "api") {
+    if (claims.sessionId !== null) return { code: "mint_scope_refused", message: "The api mints only outside an agent session" };
+    if (claims.allowedTools.length !== 1) return { code: "mint_scope_refused", message: "The api mints for exactly one tool" };
+    if (claims.allowedTools[0]!.includes("*")) return { code: "mint_scope_refused", message: "The api mints for one named tool, never a wildcard" };
+    if (claims.kitMode) return { code: "mint_scope_refused", message: "The api never mints in offline tracking" };
+  }
+  return null;
 }

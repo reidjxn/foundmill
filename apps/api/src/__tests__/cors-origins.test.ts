@@ -14,19 +14,28 @@ afterEach(() => {
 });
 
 describe("allowedOrigins", () => {
-  it("allows the apex and its www twin in staging", () => {
-    expect(allowedOrigins({ APP_URL: "https://foundmill.com" })).toEqual(["http://localhost:3000", "http://127.0.0.1:3000", "https://foundmill.com", "https://www.foundmill.com"]);
+  it("answers localhost only on a local stack: staging and production refuse it", () => {
+    for (const APP_ENV of ["staging", "production"]) {
+      const origins = allowedOrigins({ APP_URL: "https://foundmill.com", APP_ENV });
+      expect(origins, APP_ENV).toEqual(["https://foundmill.com", "https://www.foundmill.com"]);
+      expect(origins).not.toContain("http://localhost:3000");
+    }
+    expect(allowedOrigins({ APP_URL: "https://foundmill.com", APP_ENV: "development" })).toContain("http://localhost:3000");
+  });
+
+  it("allows the apex and its www twin", () => {
+    expect(allowedOrigins({ APP_URL: "https://foundmill.com", APP_ENV: "test" })).toEqual(["http://localhost:3000", "http://127.0.0.1:3000", "https://foundmill.com", "https://www.foundmill.com"]);
   });
 
   it("works from a www APP_URL too, and from NEXT_PUBLIC_APP_URL", () => {
-    expect(allowedOrigins({ APP_URL: "https://www.foundmill.com/" })).toEqual(expect.arrayContaining(["https://www.foundmill.com", "https://foundmill.com"]));
+    expect(allowedOrigins({ APP_URL: "https://www.foundmill.com/", APP_ENV: "test" })).toEqual(expect.arrayContaining(["https://www.foundmill.com", "https://foundmill.com"]));
     vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://staging.example.com");
-    expect(allowedOrigins({ APP_URL: "" })).toEqual(["http://localhost:3000", "http://127.0.0.1:3000", "https://staging.example.com", "https://www.staging.example.com"]);
+    expect(allowedOrigins({ APP_URL: "", APP_ENV: "test" })).toEqual(["http://localhost:3000", "http://127.0.0.1:3000", "https://staging.example.com", "https://www.staging.example.com"]);
   });
 
   it("adds no twin for http, localhost, IPs or a malformed URL", () => {
-    expect(allowedOrigins({ APP_URL: "http://localhost:3000" })).toEqual(["http://localhost:3000", "http://127.0.0.1:3000"]);
-    expect(allowedOrigins({ APP_URL: "not a url" })).toEqual(["http://localhost:3000", "http://127.0.0.1:3000"]);
+    expect(allowedOrigins({ APP_URL: "http://localhost:3000", APP_ENV: "test" })).toEqual(["http://localhost:3000", "http://127.0.0.1:3000"]);
+    expect(allowedOrigins({ APP_URL: "not a url", APP_ENV: "test" })).toEqual(["http://localhost:3000", "http://127.0.0.1:3000"]);
     for (const origin of ["http://foundmill.com", "https://localhost:3000", "https://127.0.0.1", "https://[::1]:3000", "https://www.com", "nope"]) expect(wwwTwinOrigin(origin), origin).toBeNull();
     expect(wwwTwinOrigin("https://foundmill.com:8443")).toBe("https://www.foundmill.com:8443");
   });

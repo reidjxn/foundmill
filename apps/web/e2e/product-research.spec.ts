@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, UUID, chooseTableView, commitThrowaway, openBusiness, openExplainer } from "./helpers";
+import { LONG, UUID, chooseTableView, commitThrowaway, inboxRow, openBusiness, openExplainer } from "./helpers";
 
 /**
  * The Product Researcher (BUILD §11.5 Research tab; the founder's 2026-10-18 request): the seeded Northwind reads its
@@ -64,10 +64,16 @@ test.describe("product research", () => {
     expect(await panel.getByRole("list", { name: "Research artifacts" }).getByRole("listitem").count()).toBeGreaterThanOrEqual(5);
     await expect(panel.locator("[data-research-first-steps]")).toContainText(/research tasks? for the next cycles/);
 
-    // The researcher's note is an Update in the Inbox (it blocks nothing).
+    // The researcher's note is an update (it blocks nothing). In the project's first week it is folded into the Chief of
+    // Staff's note of the day (WP-04 T8), which lists it by its subject.
     await page.goto(`/b/${bid}/inbox`);
-    const note = page.getByText(/^How we'll test the specification with/).first();
-    await expect(note).toBeVisible({ timeout: LONG });
+    const digest = inboxRow(page, "What your team did today");
+    await expect(async () => {
+      await page.reload();
+      await expect(digest).toBeVisible({ timeout: 10_000 });
+    }).toPass({ timeout: LONG });
+    await digest.click();
+    await expect(page.getByTestId("inbox-item")).toContainText("How we'll test the specification with", { timeout: LONG });
 
     // Team › Agents lists the Product Researcher, hired at Take charge into the Product department (the Team
     // department keeps the archetype's slug; its agents tab keeps the slug `squad`).

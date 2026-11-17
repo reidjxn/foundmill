@@ -29,6 +29,7 @@ import {
   type TeamCallTurnsContext,
   type TeamCallWrapUpInput,
 } from "../prompts/team-call";
+import { agentParts, expectFollowsAgent } from "./agent-parts.fixtures";
 
 const COS = "11111111-1111-4111-8111-111111111111";
 const PRODUCT = "22222222-2222-4222-8222-222222222222";
@@ -60,6 +61,14 @@ const turnInput = (over: Partial<TeamCallTurnInput> = {}): TeamCallTurnInput => 
 
 const ctx = (over: Partial<TeamCallTurnsContext> = {}): TeamCallTurnsContext => ({ ...teamCallTurnsContext(turnInput()), ...over });
 const turn = (agent_id: string, text: string, to: unknown = "founder") => ({ agent_id, to, text });
+
+describe("team calls follow the business's Chief of Staff (WP-06 T1)", () => {
+  it("with `chiefOfStaff` and its skills, its instructions and skills; without, the template as before", () => {
+    const agent = agentParts(chiefOfStaff);
+    expectFollowsAgent(buildTeamCallTurnRequest(turnInput({ chiefOfStaff: agent })).system[0]!, buildTeamCallTurnRequest(turnInput()).system[0]!, chiefOfStaff, "Shiftly");
+    expectFollowsAgent(buildTeamCallWrapUpRequest(wrapInput({ chiefOfStaff: agent })).system[0]!, buildTeamCallWrapUpRequest(wrapInput()).system[0]!, chiefOfStaff, "Shiftly");
+  });
+});
 
 describe("buildTeamCallTurnRequest", () => {
   it("house rules and the Chief of Staff first, then the call rules; founder lines trusted, agent turns untrusted", () => {
@@ -135,7 +144,7 @@ describe("teamCallDoneClaim and teamCallRemit", () => {
   });
 
   it("a remit is the first sentence that is not an introduction, at most 200 characters", () => {
-    expect(teamCallRemit(chiefOfStaff.description)).toBe("I run the team so you only read and decide.");
+    expect(teamCallRemit(chiefOfStaff.description)).toBe("I run the team beside you and tell you what matters and why.");
     expect(teamCallRemit(productLead.description)).toBe("I own the living specification and the roadmap.");
     expect(teamCallRemit("word ".repeat(100)).length).toBeLessThanOrEqual(200);
   });

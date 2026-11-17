@@ -15,7 +15,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { ELEVENLABS_SPEECH_TIMEOUT_MS, ELEVENLABS_TRANSCRIPTION_TIMEOUT_MS, OPENAI_IMAGES_GENERATION_TIMEOUT_MS } from "@foundmill/connectors";
-import { AppError, type AgentStyle, type EmailNotificationKind, type IntegrationStatus, type NotificationKind, type SpeechAccentKey, type TeamCallAudioMime } from "@foundmill/shared";
+import { AppError, type AgentStyle, type EmailNotificationKind, type IntegrationStatus, type NotificationKind, type ReplyNotSent, type SpeechAccentKey, type TeamCallAudioMime } from "@foundmill/shared";
 import { SignJWT } from "jose";
 
 export const TOKEN_ISSUER = "foundmill-gateway";
@@ -213,6 +213,15 @@ export interface GatewayConfirmFollowRequest {
 /** Sent (on the mock: simulated, nothing left), or not, and why; never an error for "not sent". */
 export type GatewayConfirmFollowResult = { sent: true; simulated: boolean } | { sent: false; reason: string };
 
+/** A founder's answer to a reply the project received (WP-08 T2): ids and the words, never an address. */
+export interface GatewayAnswerReplyRequest {
+  businessId: string;
+  interactionId: string;
+  userId: string;
+  text: string;
+}
+export type GatewayAnswerReplyResult = { sent: true; simulated: boolean } | { sent: false; reason: ReplyNotSent };
+
 /** One email from Foundmill to one of its users (apps/gateway notify-email.ts `NotifyEmailRequest`): ids only. */
 export type GatewayNotifyEmailRequest =
   | {
@@ -346,6 +355,8 @@ export interface ApiGatewayClient {
   verifyTurnstile?(input: GatewayTurnstileRequest): Promise<GatewayTurnstileResult>;
   /** One tool call on the gateway's generic path (`GatewayToolCallRequest`). Optional so test doubles need not carry it. */
   toolCall?(input: GatewayToolCallRequest): Promise<GatewayToolCallOutcome>;
+  /** A founder's answer to a kept reply, from the project's address (`POST /v1/platform-mail/answer-reply`). Absent (test doubles): not sent. */
+  answerReply?(input: GatewayAnswerReplyRequest): Promise<GatewayAnswerReplyResult>;
 }
 
 export interface CreateApiGatewayClientOptions {
@@ -366,7 +377,7 @@ export function createApiGatewayClient(opts: CreateApiGatewayClientOptions): Api
   const timeoutMs = opts.timeoutMs ?? 30_000;
 
   const post = async <T>(path: string, body: unknown, callTimeoutMs = timeoutMs): Promise<T> => {
-    if (!opts.secret || opts.secret.length < 16) throw new AppError("config", "SESSION_TOKEN_SECRET is not set on the api, so it cannot call the gateway", 412);
+    if (!opts.secret || opts.secret.length < 16) throw new AppError("config", "Neither API_SERVICE_TOKEN_SECRET nor SESSION_TOKEN_SECRET is set on the api, so it cannot call the gateway", 412);
     const token = await signApiServiceToken(opts.secret);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), callTimeoutMs);
@@ -390,7 +401,7 @@ export function createApiGatewayClient(opts: CreateApiGatewayClientOptions): Api
 
   /** Like `post`, but answers the gateway's streamed body; the timeout covers only the wait for the first byte. */
   const stream = async (path: string, body: unknown, signal?: AbortSignal): Promise<Response> => {
-    if (!opts.secret || opts.secret.length < 16) throw new AppError("config", "SESSION_TOKEN_SECRET is not set on the api, so it cannot call the gateway", 412);
+    if (!opts.secret || opts.secret.length < 16) throw new AppError("config", "Neither API_SERVICE_TOKEN_SECRET nor SESSION_TOKEN_SECRET is set on the api, so it cannot call the gateway", 412);
     const token = await signApiServiceToken(opts.secret);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), Math.max(timeoutMs, SPEECH_CLIENT_TIMEOUT_MS));
@@ -422,6 +433,7 @@ export function createApiGatewayClient(opts: CreateApiGatewayClientOptions): Api
     repository: (businessId, owner, repo) => post<{ mode: "mock" | "live"; repository: GatewayRepository }>("/v1/github/repository", { businessId, owner, repo }),
     sendPush: (input) => post<GatewayPushResult>("/v1/push/send", input),
     confirmFollow: (input) => post<GatewayConfirmFollowResult>("/v1/platform-mail/confirm-follow", input, Math.min(timeoutMs, CONFIRM_FOLLOW_TIMEOUT_MS)),
+    answerReply: (input) => post<GatewayAnswerReplyResult>("/v1/platform-mail/answer-reply", input, Math.min(timeoutMs, CONFIRM_FOLLOW_TIMEOUT_MS)),
     verifyTurnstile: (input) => post<GatewayTurnstileResult>("/v1/turnstile/verify", input, Math.min(timeoutMs, TURNSTILE_CLIENT_TIMEOUT_MS)),
     notifyEmail: (input) => post<GatewayNotifyEmailResult>("/v1/notify/email", input, Math.min(timeoutMs, CONFIRM_FOLLOW_TIMEOUT_MS)),
     addressEmail: (input) => post<GatewayNotifyEmailResult>("/v1/notify/email", input, Math.min(timeoutMs, CONFIRM_FOLLOW_TIMEOUT_MS)),

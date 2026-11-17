@@ -10,11 +10,13 @@
  * layout (WidgetScreen: the gallery widgets and the grid) is its own chunk too, loaded only by tabs that have one.
  */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, House, LayoutGrid, Pencil } from "lucide-react";
+import { ArrowLeft, ArrowRight, House, LayoutGrid, Pencil } from "lucide-react";
 import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { Button, EmptyState, Kbd, Panel, useGuided, useToast, type TabItem } from "@foundmill/dugout";
+import { Button, EmptyState, Kbd, Panel, isViewportTooSmall, useGuided, useToast, useViewportWidth, type TabItem } from "@foundmill/dugout";
+import { LinkButton } from "@/components/new/LinkButton";
+import { worksOnSmallScreens } from "@/components/providers/DesktopOnly";
 import { useModulePacks } from "@foundmill/modules/lazy";
 import { getModuleScreen, type ModuleScreen } from "@foundmill/modules/registry";
 import type { ModuleKey } from "@foundmill/shared";
@@ -143,6 +145,12 @@ export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScree
   const openingOf = areaOpeningOf(department, tabSlug, area, inArea);
   const opening = openingOf ? <AreaOpening {...openingOf} className="px-gutter pt-gutter" /> : null;
 
+  // A department tab that works from 390 px (Product › Public page, WP-04 T6) in the shell's phone layout: no tab bar,
+  // since every other tab asks for a larger window; the tab's own name as the title; and a way back to Today.
+  const pathname = usePathname();
+  const phone = isViewportTooSmall(useViewportWidth()) && worksOnSmallScreens(pathname);
+  const phoneTitle = tabs.find((t) => t.id === activeTabId)?.label;
+
   // --- Edit mode (E) for widget layouts ---------------------------------------------------------------------------
   const [editing, setEditing] = useState(false);
   const editable = canEditLayout({ hasScreen: Boolean(screenRow), isModuleScreen: Boolean(moduleScreen), modulePending, access });
@@ -150,9 +158,9 @@ export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScree
 
   useShellChrome(
     {
-      title: department?.name ?? "Department",
+      title: (phone ? phoneTitle : undefined) ?? department?.name ?? "Department",
       breadcrumbs,
-      tabs: tabs.length
+      tabs: tabs.length && !phone
         ? {
             tabs,
             activeId: activeTabId,
@@ -166,7 +174,7 @@ export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScree
           }
         : undefined,
     },
-    [department?.name, area, breadcrumbs?.[0]?.href, tabs, activeTabId, subView, editable, editing],
+    [department?.name, area, breadcrumbs?.[0]?.href, tabs, activeTabId, subView, editable, editing, phone, phoneTitle],
   );
 
   if (!department) {
@@ -217,11 +225,19 @@ export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScree
     return (
       // Each module screen pads itself (its own Screen wrapper, p-gutter), so the content gutter is 16 px as on Home.
       <div className="min-h-full" data-testid="module-screen" data-module={`${moduleScreen.moduleKey}/${moduleScreen.tabSlug}`}>
+        {phone ? (
+          <div className="px-gutter pt-gutter">
+            <LinkButton variant="ghost" size="lg" href={routes.today(businessId)} icon={ArrowLeft} className="min-h-tap" data-testid="phone-back-to-today">
+              Back to Today
+            </LinkButton>
+          </div>
+        ) : null}
         {opening}
         {stale}
         <Component businessId={businessId} departmentId={department.id} subView={subView} />
-        {/* The first-visit tour (once per account, guidance on), on whichever department tab is opened first. */}
-        <DepartmentTour />
+        {/* The first-visit tour (once per account, guidance on), on whichever department tab is opened first; its
+            callouts point at the tab bar, which a phone does not draw. */}
+        {phone ? null : <DepartmentTour />}
       </div>
     );
   }

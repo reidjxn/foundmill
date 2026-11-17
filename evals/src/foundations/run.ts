@@ -4,7 +4,7 @@
  * the case's rubric (BUILD §12.5). The checks look at what the model wrote itself: a section the normaliser had to fill,
  * an import seed it had to add or a figure it had to label counts against the model.
  */
-import { assembleFoundationsDraft, buildFoundationsRequest, docText, finaliseFoundations, foundationsSignoffNotes, memoryProgressStore, prompts, type FoundationsDraft } from "@foundmill/agents";
+import { assembleFoundationsDraft, buildFoundationsRequest, docText, finaliseFoundations, foundationsSignoffNotes, memoryProgressStore, numbersIn, PLAN_NOTE_MAX_LINES, prompts, type FoundationsDraft, type NoteDraft } from "@foundmill/agents";
 import { draftFoundationsStaged } from "@foundmill/agents/foundations-steps";
 import { type ModelClient, SkillGradeOutput, type StreamStructuredRequest } from "@foundmill/models";
 import { weightedScore } from "../harness";
@@ -38,12 +38,25 @@ export function storedStrings(c: FoundationsCase, draft: FoundationsDraft): stri
     else if (v && typeof v === "object") Object.values(v).forEach(walk);
   };
   walk(draft);
-  const r = { now: 0, next: 0, later: 0 };
-  for (const i of draft.roadmap) r[i.horizon]++;
-  // The two sign-off notes the Product lead posts from the draft (founder, 2026-10-18): checked like any founder-facing text.
-  const notes = foundationsSignoffNotes(draft, c.inputs.door, { sectionsWritten: draft.sections.filter((s) => s.drafted).length, sectionsTotal: draft.sections.length, sectionsKept: 0, roadmap: r, importedIssues: draft.roadmap.filter((i) => i.imported).length });
-  out.push(notes.spec.subject, notes.spec.bodyMd, notes.roadmap.subject, notes.roadmap.bodyMd);
+  // The plan note the Product lead posts from the draft (WP-04 T5): checked like any founder-facing text. Built without
+  // its link, which is the product's own markup (`planRoadmapHref`), not text from the model.
+  const { plan } = foundationsSignoffNotes(draft);
+  out.push(plan.subject, plan.bodyMd);
   return out;
+}
+
+/**
+ * The plan note's shape (WP-04 T5): at most `PLAN_NOTE_MAX_LINES` lines, and no figure the draft does not hold (a link's
+ * address aside), so the note can only repeat the draft. Empty = pass.
+ */
+export function planNoteProblems(draft: FoundationsDraft, note: NoteDraft = foundationsSignoffNotes(draft).plan): string[] {
+  const problems: string[] = [];
+  const lines = note.bodyMd.split(/\n+/).filter((l) => l.trim());
+  if (lines.length > PLAN_NOTE_MAX_LINES) problems.push(`the plan note has ${lines.length} lines (at most ${PLAN_NOTE_MAX_LINES})`);
+  const known = numbersIn(JSON.stringify(draft));
+  const invented = [...numbersIn(note.bodyMd.replace(/\]\([^)]*\)/g, "]"))].filter((n) => !known.has(n));
+  if (invented.length) problems.push(`the plan note has figures the draft does not: ${invented.join(", ")}`);
+  return problems;
 }
 
 /** Deterministic checks over the finalised draft and the raw model text. Empty = pass. */
@@ -77,6 +90,7 @@ export function checkFoundations(c: FoundationsCase, draft: FoundationsDraft, ra
   for (const bad of c.mustNotStore) if (storedText.includes(bad.toLowerCase())) problems.push(`stored text contains "${bad}"`);
   // The founder's own words are ground truth: the stored draft carries them whole, not a paraphrase.
   for (const words of c.mustStore ?? []) if (!storedText.includes(words.toLowerCase())) problems.push(`the founder's words were not kept verbatim: "${words.slice(0, 80)}"`);
+  problems.push(...planNoteProblems(draft));
   return problems;
 }
 

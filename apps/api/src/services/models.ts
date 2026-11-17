@@ -14,9 +14,14 @@
  * credits from a simulated payment are left. A call that passes is noted on the request (services/model-calls.ts), so
  * its allowance is never given back. While the credits are low, a call that passes runs with `lowCredits` (the credit
  * saver): a routine route moves to its lower-cost model (packages/models routing.ts), a founder-facing one keeps its own.
+ *
+ * Who pays decides the model (WP-13; founder, Nov 16, 2026): every call for an account not on a paid plan (a free
+ * business, a person before commit, the signed-out idea box) runs on Haiku 5.5 (`enforceModelFunding`). The api cannot
+ * use a business's own key (above), so an own-key business runs as its plan says until WP-13 T11 sends these calls
+ * through the gateway on that key.
  */
-import { assertPlatformCredits, bookUsage, type Db } from "@foundmill/db";
-import { createModelClient, gateModelClient, type ModelCallGate, type ModelClient, type UsageEvent, type UsageSink } from "@foundmill/models";
+import { assertPlatformCredits, bookUsage, cachedModelFundingOf, type Db } from "@foundmill/db";
+import { createModelClient, enforceModelFunding, gateModelClient, type ModelCallGate, type ModelClient, type UsageEvent, type UsageSink } from "@foundmill/models";
 import type { Env } from "@foundmill/shared";
 import type { ApiLogger } from "./log";
 import { markNotesCalls, noteModelCall } from "./model-calls";
@@ -100,5 +105,6 @@ export function createApiModelClient(env: Pick<Env, "MODEL_MODE" | "ANTHROPIC_AP
     log.error({}, "MODEL_MODE=live but ANTHROPIC_API_KEY is missing; falling back to the mock model client");
     client = createModelClient({ mode: "mock", onUsage: usage, logger: log });
   } else client = createModelClient({ mode: env.MODEL_MODE, apiKey: env.ANTHROPIC_API_KEY, onUsage: usage, logger: log });
-  return markNotesCalls(gateModelClient(client, opts.db ? apiCreditsGate(opts.db, client.mode === "live") : async () => noteModelCall()));
+  const gated = gateModelClient(client, opts.db ? apiCreditsGate(opts.db, client.mode === "live") : async () => noteModelCall());
+  return markNotesCalls(opts.db ? enforceModelFunding(gated, cachedModelFundingOf(opts.db, { ownKeyServed: false })) : gated);
 }

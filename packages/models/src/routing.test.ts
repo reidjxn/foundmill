@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { ALWAYS_THINKS, IMAGE_MODELS, VIDEO_MODELS, LOW_EFFORT_MAX_TOKENS, MODELS, MODEL_CAPABILITIES, PLAIN_MAX_TOKENS, ROUTES, THINKING_MAX_TOKENS, lowCreditsModel, maxTokensFor, resolveModel, routeAcceptsImages, type RouteKey } from "./routing";
+import { ALWAYS_THINKS, IMAGE_MODELS, VIDEO_MODELS, LOW_EFFORT_MAX_TOKENS, MODELS, MODEL_CAPABILITIES, PLAIN_MAX_TOKENS, ROUTES, THINKING_MAX_TOKENS, lowCreditsModel, maxTokensFor, resolveModel, routeAcceptsImages, type RouteKey, MODEL_ENDPOINTS, MODEL_PROVIDER } from "./routing";
 
 describe("routing (BUILD §10.1)", () => {
   it("MODELS and ROUTES are exactly the spec table", () => {
-    expect(MODELS).toEqual({ opus: "claude-opus-5-5", sonnet: "claude-sonnet-5-5", haiku: "claude-haiku-4-5-20251001" });
+    expect(MODELS).toEqual({ opus: "claude-opus-5-5", sonnet: "claude-sonnet-5-5", haiku: "claude-haiku-5-5", glm: "glm-5.3-flash" });
     expect(ROUTES).toEqual({
       inboxComposer: { model: "opus", lowCredits: "keep", locked: true, effort: "low", maxTokens: 16_000 },
       planCompiler: { model: "opus", lowCredits: "keep", locked: true, effort: "low", maxTokens: 16_000 },
@@ -35,6 +35,7 @@ describe("routing (BUILD §10.1)", () => {
       teamCallTurn: { model: "sonnet", lowCredits: "keep", effort: "low", maxTokens: 8_000 },
       teamCallWrapUp: { model: "opus", lowCredits: "keep", effort: "low", maxTokens: 8_000 },
       designReview: { model: "opus", lowCredits: "keep", effort: "low", vision: true, maxTokens: 8_000 },
+      webSearch: { model: "sonnet", lowCredits: "keep", effort: "low", maxTokens: 8_000 },
     });
   });
 
@@ -100,15 +101,32 @@ describe("routing (BUILD §10.1)", () => {
   it("conversation replies run on Sonnet at low effort without fast mode (founder, 2026-10-15)", () => {
     expect(resolveModel("conversation")).toMatchObject({ route: "conversation", modelKey: "sonnet", modelId: MODELS.sonnet, effort: "low", locked: false, batch: false, maxTokens: 8_000 });
     expect(resolveModel("conversation").speed).toBeUndefined();
-    expect(resolveModel("conversation", "haiku").effort).toBeUndefined();
+    // Haiku 5.5 takes effort (WP-13, taking WP-09 T4): an override keeps the route's.
+    expect(resolveModel("conversation", "haiku").effort).toBe("low");
   });
 
-  it("drops effort and fast mode when an override moves a route to a model without them", () => {
+  it("drops fast mode when an override moves a route to a model without it, and keeps effort on every current model", () => {
     const haiku = resolveModel("ideation", "haiku");
-    expect([haiku.modelKey, haiku.effort, haiku.speed]).toEqual(["haiku", undefined, undefined]);
+    expect([haiku.modelKey, haiku.effort, haiku.speed]).toEqual(["haiku", "low", undefined]);
     const sonnet = resolveModel("ideation", "sonnet");
     expect([sonnet.modelKey, sonnet.effort, sonnet.speed]).toEqual(["sonnet", "low", undefined]);
-    expect(MODEL_CAPABILITIES).toEqual({ opus: { effort: true, fastMode: true }, sonnet: { effort: true, fastMode: false }, haiku: { effort: false, fastMode: false } });
+    expect(MODEL_CAPABILITIES).toEqual({
+      opus: { effort: true, fastMode: true, temperature: false },
+      sonnet: { effort: true, fastMode: false, temperature: false },
+      haiku: { effort: true, fastMode: false, temperature: false },
+      glm: { effort: true, fastMode: false, temperature: true },
+    });
+  });
+
+  it("runs every route on Haiku 5.5 on the free plan and on GLM in a free session, locked ones included, with no warning and no credit saver (WP-13)", () => {
+    for (const route of Object.keys(ROUTES) as RouteKey[]) {
+      const free = resolveModel(route, "opus", { lowCredits: true, freePlan: true });
+      expect([free.modelKey, free.modelId, free.warning, free.lowCredits, free.speed]).toEqual(["haiku", MODELS.haiku, undefined, undefined, undefined]);
+      const session = resolveModel(route, "glm", { lowCredits: true });
+      expect([session.modelKey, session.modelId, session.warning, session.lowCredits, session.speed]).toEqual(["glm", MODELS.glm, undefined, undefined, undefined]);
+    }
+    expect(resolveModel("ideation", undefined, { freePlan: true }).effort).toBe("low");
+    expect([MODEL_PROVIDER.glm, MODEL_PROVIDER.haiku, MODEL_ENDPOINTS.zai.baseURL]).toEqual(["zai", "anthropic", "https://api.z.ai/api/anthropic"]);
   });
 
   it("sizes max_tokens for the reply plus the thinking the resolved model always does (audit CML-03)", () => {
@@ -121,7 +139,7 @@ describe("routing (BUILD §10.1)", () => {
       else expect(r.maxTokens).toBe(Math.max(ROUTES[route].maxTokens, r.effort === "low" ? LOW_EFFORT_MAX_TOKENS : THINKING_MAX_TOKENS));
     }
     expect(THINKING_MAX_TOKENS).toBeGreaterThanOrEqual(12_000);
-    // An override onto a thinking model never keeps a Haiku-sized budget; one onto Haiku keeps the route's.
+    // An override onto a thinking model never keeps a utility-sized budget.
     expect(resolveModel("classifier", "opus").maxTokens).toBe(THINKING_MAX_TOKENS);
     expect(resolveModel("classifier", "sonnet").maxTokens).toBe(THINKING_MAX_TOKENS);
     expect(resolveModel("ideation", "sonnet").maxTokens).toBe(LOW_EFFORT_MAX_TOKENS);
@@ -129,7 +147,9 @@ describe("routing (BUILD §10.1)", () => {
     expect(maxTokensFor(PLAIN_MAX_TOKENS, "opus")).toBe(THINKING_MAX_TOKENS);
     expect(maxTokensFor(PLAIN_MAX_TOKENS, "opus", "low")).toBe(LOW_EFFORT_MAX_TOKENS);
     expect(maxTokensFor(30_000, "opus", "low")).toBe(30_000);
-    expect(maxTokensFor(PLAIN_MAX_TOKENS, "haiku")).toBe(PLAIN_MAX_TOKENS);
+    // Haiku 5.5 thinks by default too (WP-13): its utility routes get the thinking floor, a cap and not a spend.
+    expect(maxTokensFor(PLAIN_MAX_TOKENS, "haiku")).toBe(THINKING_MAX_TOKENS);
+    expect(resolveModel("classifier").maxTokens).toBe(THINKING_MAX_TOKENS);
   });
 
   it("plain routes accept any override silently", () => {
@@ -140,7 +160,7 @@ describe("routing (BUILD §10.1)", () => {
 
 describe("low credits (credit saver)", () => {
   const routes = Object.keys(ROUTES) as RouteKey[];
-  const RANK = { haiku: 0, sonnet: 1, opus: 2 } as const;
+  const RANK = { glm: 0, haiku: 0, sonnet: 1, opus: 2 } as const;
 
   it("founder-facing and high-stakes work keeps its model", () => {
     const kept: RouteKey[] = ["inboxComposer", "planCompiler", "chiefOfStaff", "conversation", "leadRecommendation", "codeReview", "projectPage", "goalProposal", "teamCallTurn", "teamCallWrapUp", "quarantinedReader", "moderation"];

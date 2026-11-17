@@ -35,7 +35,12 @@ export interface ModelPrice {
 export const MODEL_PRICING: Record<ModelId, ModelPrice> = {
   [MODELS.opus]: { displayName: "Claude Opus 5.5", inputPerMTok: 4, outputPerMTok: 20, cacheWritePerMTok: 5, cacheReadPerMTok: 0.2 },
   [MODELS.sonnet]: { displayName: "Claude Sonnet 5.5", inputPerMTok: 2, outputPerMTok: 10, cacheWritePerMTok: 2.5, cacheReadPerMTok: 0.2 },
-  [MODELS.haiku]: { displayName: "Claude Haiku 4.5", inputPerMTok: 1, outputPerMTok: 5, cacheWritePerMTok: 1.25, cacheReadPerMTok: 0.1 },
+  // Haiku 5.5 for prompts up to 100K tokens (Anthropic's model reference, Nov 16, 2026); a longer prompt is billed at
+  // $0.50 / $2.50, which this table does not model (no route sends one).
+  [MODELS.haiku]: { displayName: "Claude Haiku 5.5", inputPerMTok: 0.1, outputPerMTok: 0.5, cacheWritePerMTok: 0.125, cacheReadPerMTok: 0.01 },
+  // Z.ai's list price on Nov 16, 2026 (docs.z.ai/guides/overview/pricing): $0.15 in, $0.03 cached, $0.50 out; no cache
+  // write fee is listed, so a write is priced as plain input.
+  [MODELS.glm]: { displayName: "GLM-5.3 Flash", inputPerMTok: 0.15, outputPerMTok: 0.5, cacheWritePerMTok: 0.15, cacheReadPerMTok: 0.03 },
 };
 
 /**
@@ -47,11 +52,24 @@ export const FAST_MODE_PRICING: Partial<Record<ModelId, ModelPrice>> = {
   [MODELS.opus]: { displayName: "Claude Opus 5.5 (fast mode)", inputPerMTok: 8, outputPerMTok: 40, cacheWritePerMTok: 10, cacheReadPerMTok: 0.4 },
 };
 
+/**
+ * The server web search fee (`web_search_20260209`), on top of the tokens: $10 per 1,000 searches, one per search the
+ * response counts in `usage.server_tool_use.web_search_requests`; a search that fails with an error is not billed.
+ * Read from Anthropic's pricing page (platform.claude.com/docs/en/about-claude/pricing, "Web search tool") on
+ * `WEB_SEARCH_PRICING_AS_OF`. An Estimate like every price here.
+ */
+export const WEB_SEARCH_USD_PER_SEARCH = 0.01;
+export const WEB_SEARCH_PRICING_AS_OF = "2026-11-16";
+/** One search's fee in micro-minor units (1e-6 cent): 1 cent. */
+export const WEB_SEARCH_FEE_MICRO_MINOR = Math.round(WEB_SEARCH_USD_PER_SEARCH * 100 * 1_000_000);
+
 export interface MeterBreakdown {
   input: number;
   output: number;
   cacheWrite: number;
   cacheRead: number;
+  /** The server web search fee in minor units, when the call searched (`meterWebSearch`). */
+  webSearch?: number;
 }
 
 export interface MeterResult {
@@ -117,6 +135,14 @@ export function meter(usage: TokenUsage, modelId: ModelId, opts: MeterOptions = 
     batch,
     ...(fastPrice ? { fast: true as const } : {}),
   };
+}
+
+/** Cost of a web search call: its tokens at the model's price plus the fee for each search it ran (labelled estimate). */
+export function meterWebSearch(usage: TokenUsage, modelId: ModelId, searches: number): MeterResult {
+  const tokens = meter(usage, modelId);
+  const feeMicro = Math.max(0, Math.floor(Number.isFinite(searches) ? searches : 0)) * WEB_SEARCH_FEE_MICRO_MINOR;
+  const costMicroMinor = tokens.costMicroMinor + feeMicro;
+  return { ...tokens, costMinor: costMicroMinor / 1_000_000, costMinorInt: Math.round(costMicroMinor / 1_000_000), costMicroMinor, breakdown: { ...tokens.breakdown, webSearch: feeMicro / 1_000_000 } };
 }
 
 /** Sum several meter results (same currency). Rounds once at the end. */

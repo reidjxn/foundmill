@@ -18,7 +18,8 @@
 import { createHash } from "node:crypto";
 import { LIMITS } from "@foundmill/config";
 import type { TurnstileConfig } from "./turnstile";
-import { AppError, mockResultsAllowed, NotFoundError } from "@foundmill/shared";
+import { AppError, isMailSendTool, mockResultsAllowed, NotFoundError, type RecipientBasis } from "@foundmill/shared";
+import { mailRecipientEmails, recipientBasis, weakestBasis } from "./recipient-basis";
 import type { Vault } from "@foundmill/shared/crypto";
 import type { KeyValidation } from "@foundmill/models";
 import { bookUsage, codeRepositoryOf, openApprovalItem, repos, type Db, type Agent, type AppInstallation, type Approval, type Business, type Integration } from "@foundmill/db";
@@ -229,6 +230,8 @@ export class SessionStateDenied extends Error {
 }
 
 export const SESSION_SCOPE_POLICY_ID = "session-scope";
+/** A tool its connector declares no policy hints for is refused: a missing entry must not read as "internal, never asks". */
+export const MISSING_POLICY_HINTS_POLICY_ID = "missing-policy-hints";
 export const HARD_GATE_POLICY_ID = "hard-gate";
 /** The Cedar policy that forbids a call the gateway recognised as a security-settings change (security-settings.ts). */
 export const SECURITY_SETTINGS_POLICY_ID = "hard-gate-security-settings";
@@ -335,6 +338,14 @@ export async function executeToolCall(deps: GatewayDeps, session: SessionToken, 
   }
   const tool = findTool(connector, req.tool);
   if (!tool) throw new GatewayError("unknown_tool", `${req.connector} has no tool "${req.tool}"`, 404, { connector: req.connector, tool: req.tool });
+  // 2b. A tool with no policy hints entry fails closed (A7-16). The contract suite demands an entry for every tool, so
+  // this guards a connector that skipped it, not one that passed.
+  if (!Object.hasOwn(connector.policyHints, tool.name)) {
+    const reasons = [`Tool ${ref} declares no policy hints`];
+    const audit = await appendAudit(deps, session, req, { outcome: "deny", reasons, policyIds: [MISSING_POLICY_HINTS_POLICY_ID] });
+    log.warn({ reasons }, "tool call without policy hints");
+    return { status: 403, body: { outcome: "deny", reasons, policyIds: [MISSING_POLICY_HINTS_POLICY_ID], costMinor: 0, auditId: audit.id } };
+  }
 
   // 3. Rate limit per connector per business.
   const limit = await checkRateLimit(deps.rateLimits, { businessId, connector: connector.key, limits: connector.rateLimits ?? {} }, now().getTime());
@@ -574,6 +585,7 @@ async function buildPolicyInput(deps: GatewayDeps, session: SessionToken, req: C
   let recipient = req.context.recipient;
   let suppressed = false;
   let recipientFirstSeenInUntrusted = false;
+  let recipientBasisFound: RecipientBasis | undefined;
   if (toolCtx.contactsThirdParty) {
     const candidates = candidatesFromArgs(args, req.context.recipient);
     recipient ??= candidates[0]?.value;
@@ -585,6 +597,13 @@ async function buildPolicyInput(deps: GatewayDeps, session: SessionToken, req: C
     // whose only basis it is counts as an address first seen in untrusted content, so the same policy refuses it.
     const emails = candidates.filter((c) => c.kind === "email").map((c) => c.value);
     if (!recipientFirstSeenInUntrusted && emails.length > 0) recipientFirstSeenInUntrusted = (await repos.followers.awaitingConfirmation(deps.db, session.businessId, emails)).length > 0;
+    // No email without a basis (WP-08 T10, 15-mail-basis.cedar): for the mail-sending tools, the weakest basis among the
+    // addresses the mail goes to. A campaign to one of the founder's own lists names nobody: the founder decides it.
+    if (isMailSendTool(connector.key, tool.name)) {
+      const at = (deps.now ?? (() => new Date()))();
+      const to = mailRecipientEmails(args);
+      recipientBasisFound = to.length ? weakestBasis(await Promise.all(to.map((e) => recipientBasis(deps.db, session.businessId, e, at)))) : "recorded";
+    }
   }
 
   return {
@@ -598,6 +617,7 @@ async function buildPolicyInput(deps: GatewayDeps, session: SessionToken, req: C
       ...(req.context.recipientCountry ? { recipientCountry: req.context.recipientCountry } : {}),
       ...(req.context.localTimeAtRecipient ? { localTimeAtRecipient: req.context.localTimeAtRecipient } : {}),
       suppressed,
+      ...(recipientBasisFound ? { recipientBasis: recipientBasisFound } : {}),
       holidayActive: loaded.holidayActive,
       // The session's flag, minted by the orchestrator: a kit-mode channel is never unlocked by an argument of the call.
       kitMode: session.kitMode,

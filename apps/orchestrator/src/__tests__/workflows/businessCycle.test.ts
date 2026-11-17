@@ -7,6 +7,8 @@ import type { Activities, BusinessBrief, CyclePlan, CycleStart, MergeInput, Road
 import { ApplicationFailure } from "@temporalio/common";
 import { CYCLE_PLAN_FAILURE, PLAN_FAILED_MESSAGE } from "../../cycle-contract";
 import { businessCycle, fileScopesOverlap, pauseSignal, resumeSignal, stopSignal } from "../../workflows";
+import { Worker } from "@temporalio/worker";
+import { WORKFLOWS_PATH } from "../../index";
 import { createTemporalRig, type TemporalRig } from "./temporal";
 
 let rig: TemporalRig;
@@ -411,6 +413,50 @@ describe("businessCycle workflow", () => {
     // What the sessions were allowed to spend never adds up past the cap.
     expect(caps.reduce<number>((n, c) => n + (c ?? 0), 0)).toBeLessThanOrEqual(10);
     expect(result.tasksDispatched).toBeLessThan(tasks.length + 1);
+  });
+
+  it("a capped cycle under the floor runs one session with the whole cap (WP-05 T15)", async () => {
+    // The overnight round: 15 cents and three free slots. Split three ways each session would get 5, too little to
+    // finish anything; at the floor (10 cents a session) the cap pays for one, so one runs, with all 15.
+    const m = mockActivities({ budgetMinor: 100_000 });
+    const caps: (number | null | undefined)[] = [];
+    m.acts.runAgentSession = async (input) => {
+      caps.push(input.spendCapMinor);
+      m.calls.running.add(input.taskId);
+      m.calls.maxConcurrent = Math.max(m.calls.maxConcurrent, m.calls.running.size);
+      await new Promise((r) => setTimeout(r, 100));
+      m.calls.running.delete(input.taskId);
+      return { ...done(), costMinor: input.spendCapMinor ?? 5 };
+    };
+    const workflowId = `cycle:${B}:75`;
+    await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(businessCycle, { workflowId, taskQueue, args: [{ businessId: B, cycleNumber: 75, trigger: "autopilot", budgetCapMinor: 15 }] }));
+    expect(caps[0]).toBe(15);
+    expect(m.calls.maxConcurrent).toBe(1);
+    expect(caps.reduce<number>((n, c) => n + (c ?? 0), 0)).toBeLessThanOrEqual(15);
+    // The new history (with the floor's marker) replays too.
+    const history = await rig.client.workflow.getHandle(workflowId).fetchHistory();
+    await expect(Worker.runReplayHistory({ workflowsPath: WORKFLOWS_PATH, replayName: "cycle-cap-floor" }, history)).resolves.toBeUndefined();
+  });
+
+  it("a capped cycle runs as many sessions at a time as its cap pays for at the floor, never more than its slots", async () => {
+    const m = mockActivities({ budgetMinor: 100_000 });
+    const caps: number[] = [];
+    // Sessions are held until two have started, and a while after, so a third would have had the time to start too.
+    let release = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    m.acts.runAgentSession = async (input) => {
+      caps.push(input.spendCapMinor ?? -1);
+      m.calls.running.add(input.taskId);
+      m.calls.maxConcurrent = Math.max(m.calls.maxConcurrent, m.calls.running.size);
+      if (caps.length === 2) setTimeout(release, 500);
+      await held;
+      m.calls.running.delete(input.taskId);
+      return { ...done(), costMinor: input.spendCapMinor ?? 0 };
+    };
+    await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(businessCycle, { workflowId: `cycle:${B}:76`, taskQueue, args: [{ businessId: B, cycleNumber: 76, trigger: "autopilot", budgetCapMinor: 25 }] }));
+    // 25 cents pays for two sessions at the floor (three slots are free): the two share it, 12 and 13.
+    expect(m.calls.maxConcurrent).toBe(2);
+    expect(caps.slice(0, 2).sort((a, b) => a - b)).toEqual([12, 13]);
   });
 
   it("an uncapped cycle hands sessions no cap of its own", async () => {

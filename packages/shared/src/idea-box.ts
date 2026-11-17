@@ -89,17 +89,21 @@ export type IdeaBoxEvent =
   | { type: "started" }
   | { type: "partial"; card: IdeaBoxPartialCard }
   | { type: "rating"; index: number; rating: IdeaBoxRating }
-  /** `claim`: the one-time token the sign-in link carries so another device can claim the card (`/start?claim=`). */
-  | { type: "card"; card: IdeaBoxCard; prompt: string; interest: string | null; sample: boolean; again: boolean; claim: string | null }
+  /**
+   * `claim`: the one-time token the sign-in link carries so another device can claim the card (`/start?claim=`).
+   * `redrawsLeft`: how many more times "Try another idea" can replace this card today (of
+   * `IDEA_BOX_REDRAWS_PER_BROWSER`); null when the api could not tell. The per-address and daily limits still apply.
+   */
+  | { type: "card"; card: IdeaBoxCard; prompt: string; interest: string | null; sample: boolean; again: boolean; claim: string | null; redrawsLeft: number | null }
   | { type: "error"; code: IdeaBoxErrorCode; message: string };
 
 /** What each refusal reads. Plain, short, never the vendor's or the model's own words. */
 export const IDEA_BOX_ERRORS: Record<IdeaBoxErrorCode, string> = {
   invalid: "Write your idea in a sentence, up to 500 characters.",
   bot: "We could not check this browser. Reload the page and try again.",
-  limit: "That is all the cards from this connection today. Come back tomorrow for another.",
+  limit: "That is all the ideas from this connection today. Come back tomorrow for another.",
   resting: "The idea box is resting until tomorrow. Come back then and it will shape your idea.",
   unavailable: "The idea box is not open right now. Try again in a minute.",
-  refused: "That one cannot become a card. Try another idea.",
-  failed: "The card could not be finished. Try again.",
+  refused: "That one cannot be shaped. Try another idea.",
+  failed: "Your idea could not be finished. Try again.",
 };

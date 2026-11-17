@@ -1,5 +1,5 @@
 /**
- * 0115 — reports of a person, a profile or a message (docs/NETWORK.md F21). Person-level, not business-scoped: RLS on,
+ * 0127 — reports of a person, a profile or a message (docs/NETWORK.md F21). Person-level, not business-scoped: RLS on,
  * no policy, service role only. Written by the api's `report.create` and resolved through `operator.reports.*`.
  */
 import { REPORT_REASONS, REPORT_RESOLUTIONS, REPORT_TARGET_KINDS } from "@foundmill/shared/reports";

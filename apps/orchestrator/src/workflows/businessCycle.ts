@@ -15,7 +15,7 @@
  */
 import { ActivityFailure, ApplicationFailure, CancellationScope, ParentClosePolicy, allHandlersFinished, condition, isCancellation, patched, proxyActivities, setHandler, startChild, uuid4, workflowInfo, type ChildWorkflowHandle } from "@temporalio/workflow";
 import type { Activities, BusinessBrief, BusinessCycleInput, BusinessCycleResult, CyclePlan, CycleStart, RoadmapPlanResult } from "../activities";
-import { CYCLE_PLAN_FAILURE, DEFAULT_TASK_RESERVE_MINOR, PLAN_FAILED_MESSAGE, cycleOutcomeSubject, cycleTallyLine, type PlanFailureDetails } from "../cycle-contract";
+import { CYCLE_PLAN_FAILURE, DEFAULT_TASK_RESERVE_MINOR, MIN_SESSION_CAP_MINOR, PLAN_FAILED_MESSAGE, cycleOutcomeSubject, cycleTallyLine, type PlanFailureDetails } from "../cycle-contract";
 import { agentSession, type AgentSessionOutcome } from "./agentSession";
 import { mergeReview } from "./mergeReview";
 import { decisionSignal, pauseSignal, resumeSignal, shoutSignal, stopSignal } from "./signals";
@@ -35,6 +35,8 @@ export const CYCLE_BUDGET_RECONCILE_PATCH = "cycle-budget-reconcile";
 export const CYCLE_PLANS_ROADMAP_PATCH = "cycle-plans-roadmap";
 /** A cycle keeps going when a session finishes: tasks that became dispatchable start within the time box (decision 8; histories before it replay without). */
 export const CYCLE_FOLLOW_UPS_PATCH = "cycle-follow-ups";
+/** A capped cycle runs only as many sessions at a time as its cap pays for at the floor (WP-05 T15; histories before it replay without). */
+export const CYCLE_CAP_FLOOR_PATCH = "cycle-cap-floor";
 /** The tasks the plan parked for want of a tool reach the round's note, said once (WP-05 T18; histories before it replay without). */
 export const CYCLE_PARKED_SAID_ONCE_PATCH = "cycle-parked-said-once";
 
@@ -45,6 +47,11 @@ export const CYCLE_PARKED_SAID_ONCE_PATCH = "cycle-parked-said-once";
  */
 export function taskReserveMinor(budgetMinor: number | null, budgetRemaining: number, freeSlots: number): number {
   return Math.max(0, Math.min(budgetMinor ?? DEFAULT_TASK_RESERVE_MINOR, Math.floor(budgetRemaining / Math.max(1, freeSlots))));
+}
+
+/** How many sessions a capped cycle runs at a time: what it may spend pays for that many at the floor, at least one, at most its slots. */
+export function capSlots(capMinor: number, maxConcurrent: number): number {
+  return Math.max(1, Math.min(maxConcurrent, Math.floor(capMinor / MIN_SESSION_CAP_MINOR)));
 }
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -210,6 +217,9 @@ export async function businessCycle(input: BusinessCycleInput): Promise<Business
     // A capped cycle (Autopilot's own spend ceiling, 0077) has the smaller of its cap and the credits left.
     const cap = typeof input.budgetCapMinor === "number" ? Math.max(0, input.budgetCapMinor) : null;
     let budgetRemaining = cap === null ? brief.budgetRemainingMinor : brief.budgetRemainingMinor === null ? cap : Math.min(cap, brief.budgetRemainingMinor);
+    // Split across every free slot, a small cap gave each session too little to finish anything (15 cents in four shares
+    // of 3). A capped cycle runs as many at a time as what it may spend pays for at the floor, and always at least one.
+    const slots = cap !== null && budgetRemaining !== null && patched(CYCLE_CAP_FLOOR_PATCH) ? capSlots(budgetRemaining, maxConcurrent) : maxConcurrent;
     const reconcileBudget = patched(CYCLE_BUDGET_RECONCILE_PATCH);
     const pending: CycleStart[] = [...plan.starts];
     const skipped: { taskId: string; reason: string }[] = [];
@@ -219,12 +229,12 @@ export async function businessCycle(input: BusinessCycleInput): Promise<Business
     costMinor = plan.costMinor + (roadmapPlanned?.costMinor ?? 0);
 
     const canStart = (s: CycleStart): string | null => {
-      if (running.size >= maxConcurrent) return "concurrency";
+      if (running.size >= slots) return "concurrency";
       for (const r of running.values()) {
         if (r.start.agentId === s.agentId) return "agent busy";
         if (fileScopesOverlap(r.start.fileScope, s.fileScope)) return "file scope overlap";
       }
-      if (budgetRemaining !== null && (budgetRemaining <= 0 || budgetRemaining - taskReserveMinor(s.budgetMinor, budgetRemaining, maxConcurrent - running.size) < 0)) return "budget";
+      if (budgetRemaining !== null && (budgetRemaining <= 0 || budgetRemaining - taskReserveMinor(s.budgetMinor, budgetRemaining, slots - running.size) < 0)) return "budget";
       return null;
     };
 
@@ -253,7 +263,7 @@ export async function businessCycle(input: BusinessCycleInput): Promise<Business
         // chosen here, so a retried `openSession` finds the row it opened instead of opening a second session.
         const sessionId = uuid4();
         // A capped cycle hands each session its reserve as the most it may spend (decided before it is opened).
-        const sessionCap = cap !== null && budgetRemaining !== null ? taskReserveMinor(s.budgetMinor, budgetRemaining, maxConcurrent - running.size) : null;
+        const sessionCap = cap !== null && budgetRemaining !== null ? taskReserveMinor(s.budgetMinor, budgetRemaining, slots - running.size) : null;
         const opened = await acts.openSession({ businessId: input.businessId, agentId: s.agentId, taskId: s.taskId, sessionId });
         if (!opened.sessionId) {
           skipped.push({ taskId: s.taskId, reason: opened.detail ?? opened.refused ?? "not dispatched" });
@@ -268,7 +278,7 @@ export async function businessCycle(input: BusinessCycleInput): Promise<Business
         const entry: Running = { start: s, sessionId: opened.sessionId, handle, done: false, outcome: null, error: null, reservedMinor: 0 };
         running.set(s.taskId, entry);
         if (budgetRemaining !== null) {
-          entry.reservedMinor = sessionCap ?? taskReserveMinor(s.budgetMinor, budgetRemaining, maxConcurrent - running.size + 1);
+          entry.reservedMinor = sessionCap ?? taskReserveMinor(s.budgetMinor, budgetRemaining, slots - running.size + 1);
           budgetRemaining -= entry.reservedMinor;
         }
         // The stop landed while this session was being opened: the fan-out ran before the child existed, so it gets its own.

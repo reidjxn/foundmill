@@ -112,6 +112,9 @@ export const LIMIT_WORDS: Record<BudgetLimit, { used: string; spent: string }> =
   cycle: { used: "Autopilot's own spend for today is used up", spent: "its share of Autopilot's spend for today" },
 };
 
+/** What the founder reads when a session's share of Autopilot's spend for today is under `MIN_SESSION_CAP_MINOR` (WP-05 T15). */
+export const UNDER_FLOOR_SUMMARY = "Paused: what was left of Autopilot's own spend for today (an Estimate) was too little to start this task, so nothing was spent. The task carries on in the next round, or raise Autopilot's own limit in Settings › What the team can do.";
+
 const usd = (minor: number) => `$${(minor / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 /** What the founder reads when a session cannot start, or stops, because its budget is spent. */
