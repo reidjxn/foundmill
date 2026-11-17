@@ -61,6 +61,12 @@ The security-reviewer agent found these, and all are fixed here:
 - **Gap.** The money-out guard did not look at the running tools' input fields (it does now, with `cancelUrl` named
   as the one allowed field).
 
+## Also in this change
+`apps/gateway/src/__tests__/service-routes.test.ts`, the key-validation limit test, flaked on #237's CI (expected 429,
+got 200). The cause is the clock: the limiter counts per wall-clock minute, so the eleven calls could straddle a
+minute boundary and the over-limit one land in a fresh window. The test now pins the gateway's injected clock
+(`deps.now`) inside one minute. This is test-only, so the limiter is unchanged.
+
 ## Not done
 - Archiving a project does not withdraw its Stripe sign-in at Stripe. The connection stays on Foundmill's platform until
   the founder removes it in Stripe, and the account is held until then. Left for the archive flow (WP-11 T16's closing

@@ -189,12 +189,15 @@ describe("POST /v1/keys/validate", () => {
 
   it("is limited per business, apart from the agents' own anthropic calls", async () => {
     const rateLimits = new MemoryRateLimitStore();
-    const { app } = liveApp(messageOk, { rateLimits });
+    // Pinned inside one minute window: on the wall clock the calls could straddle a minute boundary and the over-limit
+    // call land in a fresh window (it flaked on #237's CI, expected 429, got 200).
+    const at = new Date("2026-11-17T12:00:30.000Z");
+    const { app } = liveApp(messageOk, { rateLimits, now: () => at });
     for (let i = 0; i < KEY_VALIDATION_LIMITS.perMinute; i++) expect((await post(app, "/v1/keys/validate", { businessId, apiKey: KEY })).status).toBe(200);
     const over = await post(app, "/v1/keys/validate", { businessId, apiKey: KEY });
     expect(over.status).toBe(429);
     expect(over.body.error?.code).toBe("rate_limited");
-    expect(rateLimits.peek(rateLimitKey(businessId, "anthropic", "minute"), Date.now())).toBe(0);
+    expect(rateLimits.peek(rateLimitKey(businessId, "anthropic", "minute"), at.getTime())).toBe(0);
   });
 });
 
