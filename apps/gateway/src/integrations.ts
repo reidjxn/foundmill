@@ -109,10 +109,10 @@ function takeWebhookSecret(connectorKey: string, connectInput: unknown): { input
   if (!spec || !connectInput || typeof connectInput !== "object") return { input: connectInput, secret: null };
   const { [spec.field]: raw, ...rest } = connectInput as Record<string, unknown>;
   const refuse = (message: string) => new GatewayError("invalid_webhook_secret", message, 400, { connector: connectorKey, field: spec.field });
-  if (raw !== undefined && raw !== null && typeof raw !== "string") throw refuse(`A webhook signing secret starts with ${spec.prefix}: copy it from the endpoint in your vendor's dashboard`);
+  if (raw !== undefined && raw !== null && typeof raw !== "string") throw refuse(`A signing secret starts with ${spec.prefix}: copy it from the endpoint in your Stripe dashboard`);
   const value = typeof raw === "string" ? raw.trim() : "";
   if (value === "") return { input: rest, secret: null };
-  if (!new RegExp(`^${spec.prefix}[A-Za-z0-9]{8,200}$`).test(value)) throw refuse(`A webhook signing secret starts with ${spec.prefix}: copy it from the endpoint in your vendor's dashboard`);
+  if (!new RegExp(`^${spec.prefix}[A-Za-z0-9]{8,200}$`).test(value)) throw refuse(`A signing secret starts with ${spec.prefix}: copy it from the endpoint in your Stripe dashboard`);
   // Stored only beside the founder's own key: a connect by account id alone verifies with the platform's secret.
   if (typeof (rest as { apiKey?: unknown }).apiKey !== "string" || !(rest as { apiKey: string }).apiKey.trim()) throw refuse("Add the signing secret together with your own restricted key");
   return { input: rest, secret: { kind: spec.kind, value } };

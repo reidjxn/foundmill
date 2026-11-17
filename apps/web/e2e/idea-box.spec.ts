@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { LONG } from "./helpers";
+import { LONG, answerFirstProfile } from "./helpers";
+import { PLACEHOLDER_IDEAS } from "../components/landing/idea-box/typing";
+import { VARIANT_EXAMPLES } from "../components/landing/variant-examples";
 
 /**
  * The landing page's idea box (founder, 2026-11-13; docs/IDEA_BOX.md) against the local stack (mock models, the mock
@@ -78,7 +80,7 @@ test("a visitor types an idea, watches the card arrive, keeps it by signing in a
   }
 });
 
-test("Shape it in the Ideation Studio keeps the card through sign-in and opens the Studio with it in the deck", async ({ browser }) => {
+test("Shape it in the Ideation Studio keeps the card through sign-in and opens the Studio on it, highlighted and focused", async ({ browser }) => {
   const { page, close } = await visitor(browser, 1440, 900);
   try {
     const address = `198.51.100.${1 + Math.floor(Math.random() * 250)}`;
@@ -94,8 +96,69 @@ test("Shape it in the Ideation Studio keeps the card through sign-in and opens t
     // The same keep step (kept only with a press), then the Studio instead of the card's page.
     await expect(page).toHaveURL(/\/new\/card\/keep\?.*then=studio/, { timeout: LONG });
     await page.getByTestId("card-keep").click();
-    await expect(page).toHaveURL(/\/new\/ideate$/, { timeout: LONG });
-    await expect(page.getByText(name, { exact: true }).first()).toBeVisible({ timeout: LONG });
+    await expect(page).toHaveURL(/\/new\/ideate\/[0-9a-f-]{36}$/, { timeout: LONG });
+    await expectStudioOnCard(page, name);
+  } finally {
+    await close();
+  }
+});
+
+/** The Studio opened on the kept card: it wears the just-landed highlight, is in view, and focus is inside it. */
+async function expectStudioOnCard(page: Page, name: string) {
+  const ideaId = new URL(page.url()).pathname.split("/").pop()!;
+  const card = page.locator(`#concept-${ideaId}`);
+  await expect(card).toBeVisible({ timeout: LONG });
+  await expect(card).toHaveAttribute("data-fresh", "true");
+  await expect(card).toContainText(name);
+  await expect(card).toBeInViewport();
+  await expect.poll(() => card.evaluate((el) => el.contains(document.activeElement)), { timeout: LONG }).toBe(true);
+}
+
+/**
+ * A new account that chose "Shape it in the Ideation Studio" (founder, 2026-11-16): the same keep step with `then=studio`
+ * that the first sign-in after admission reaches. The waitlist's own half (`waitlist.join` keeping the choice with the
+ * card, and `ideaBox.preview` returning it on admission) is the api test "the Studio choice goes with the waitlist's
+ * card…"; it cannot run here, as the stack's developer accounts have no confirmed address and the join refuses them.
+ */
+async function newAccountChoosesStudio(page: Page) {
+  const address = `198.51.100.${1 + Math.floor(Math.random() * 250)}`;
+  await page.route("**/idea-box/draft", (route) => route.continue({ headers: { ...route.request().headers(), "x-forwarded-for": address } }));
+  await page.goto("/");
+  await page.getByTestId("idea-input").fill("Plant care visits for busy offices");
+  await page.getByTestId("idea-generate").click();
+  await expect(page.getByTestId("idea-keep")).toBeVisible({ timeout: LONG });
+  const name = (await page.locator("#hero [data-idea-box] [data-idea-name]").textContent())!.trim();
+  await page.getByTestId("idea-open-studio").click();
+  await expect(page).toHaveURL(/\/login\?next=%2Fstart%3Fclaim%3D[^&]+%26then%3Dstudio/);
+  const next = new URL(page.url()).searchParams.get("next")!;
+  await page.goto(`/auth/dev?as=${randomUUID()}&next=${encodeURIComponent(next)}`);
+  await expect(page).toHaveURL(/\/new\/card\/keep\?.*then=studio/, { timeout: LONG });
+  await page.getByTestId("card-keep").click();
+  // A new account answers the three questions first; they go on to the Studio, opened on the card.
+  await expect(page).toHaveURL(/\/onboarding\?next=%2Fnew%2Fideate%2F[0-9a-f-]{36}$/, { timeout: LONG });
+  await answerFirstProfile(page, "Studio Founder");
+  await expect(page).toHaveURL(/\/new\/ideate\/[0-9a-f-]{36}$/, { timeout: LONG });
+  return name;
+}
+
+test("a new account that chose the Studio answers three questions and lands in the Studio on the card", async ({ browser }) => {
+  const { page, close } = await visitor(browser, 1440, 900);
+  try {
+    const name = await newAccountChoosesStudio(page);
+    await expectStudioOnCard(page, name);
+  } finally {
+    await close();
+  }
+});
+
+test("on a phone, the Studio choice ends at the Studio's own page: it opens on a computer and offers the link", async ({ browser }) => {
+  const { page, close } = await visitor(browser, 390, 844);
+  try {
+    await newAccountChoosesStudio(page);
+    // The Studio is desktop-only: the page says so and offers a link to this card's Studio page, never a dead end.
+    await expect(page.getByTestId("needs-larger-window")).toBeVisible({ timeout: LONG });
+    await expect(page.getByRole("button", { name: "Email me a link" })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
   } finally {
     await close();
   }
@@ -204,3 +267,66 @@ test("on a phone at 390 px the same page works: Surprise me drafts from an inter
     await close();
   }
 });
+
+/**
+ * The field at rest (founder, 2026-11-17: "the example text should never come out of the text box"): at every width
+ * from 390 px, each example the placeholder types fits inside the field whole, the "Shape my idea" button is whole,
+ * beside the field or under it and never over it, and the page never scrolls sideways. Each example is set into the
+ * typing overlay directly, so the longest is measured without waiting for the animation to reach it.
+ */
+for (const [width, height] of [
+  [390, 844],
+  [768, 1024],
+  [1024, 768],
+  [1080, 800],
+  [1280, 800],
+  [1440, 900],
+] as const) {
+  test(`at ${width} px the examples stay inside the field, the button is whole and the example label fits`, async ({ browser }) => {
+    const { page, close } = await visitor(browser, width, height);
+    try {
+      await page.goto("/");
+      await expect(page.getByTestId("idea-placeholder")).toBeVisible({ timeout: LONG });
+      const report = await page.evaluate((ideas) => {
+        const overlay = document.querySelector<HTMLElement>("[data-testid=idea-placeholder]")!;
+        const text = overlay.firstElementChild as HTMLElement;
+        const input = document.querySelector<HTMLElement>("[data-testid=idea-input]")!.getBoundingClientRect();
+        const field = document.querySelector<HTMLElement>("[data-testid=idea-field]")!.getBoundingClientRect();
+        const button = document.querySelector<HTMLElement>("[data-testid=idea-generate]")!;
+        const b = button.getBoundingClientRect();
+        const problems: string[] = [];
+        for (const idea of ideas) {
+          text.textContent = idea;
+          const o = overlay.getBoundingClientRect();
+          const t = text.getBoundingClientRect();
+          if (t.right > input.right + 0.5 || o.right > input.right + 0.5) problems.push(`"${idea}" runs past the field (${Math.round(Math.max(t.right, o.right))} > ${Math.round(input.right)})`);
+          if (text.scrollWidth > text.clientWidth + 0.5) problems.push(`"${idea}" is cut short (${text.scrollWidth} > ${text.clientWidth})`);
+        }
+        if (b.right > window.innerWidth + 0.5 || b.left < -0.5) problems.push(`the button leaves the view (${Math.round(b.left)}–${Math.round(b.right)} of ${window.innerWidth})`);
+        if (button.scrollWidth > button.clientWidth + 0.5) problems.push("the button's label is cut short");
+        const beside = b.left >= field.right - 0.5;
+        const under = b.top >= field.bottom - 0.5;
+        if (!beside && !under) problems.push("the button overlaps the field");
+        if (document.documentElement.scrollWidth > document.documentElement.clientWidth) problems.push("the page scrolls sideways");
+        // The example's label (founder, 2026-11-17): whole, on one line, inside its frame.
+        const frame = document.querySelector<HTMLElement>("#hero [data-screen-frame]")!;
+        const chip = frame.querySelector<HTMLElement>("figcaption")!;
+        const c = chip.getBoundingClientRect();
+        const fr = frame.getBoundingClientRect();
+        if (chip.textContent !== "Example companies you can create") problems.push(`the label reads "${chip.textContent}"`);
+        if (chip.scrollWidth > chip.clientWidth + 0.5 || chip.scrollHeight > chip.clientHeight + 0.5) problems.push("the label is cut short or wraps");
+        if (c.left < fr.left - 0.5 || c.right > fr.right + 0.5) problems.push(`the label leaves its frame (${Math.round(c.left)}–${Math.round(c.right)} of ${Math.round(fr.left)}–${Math.round(fr.right)})`);
+        // The examples in the founder's order (2026-11-17), on one line from 768 px (founder, 2026-11-16).
+        const pills = [...frame.querySelectorAll<HTMLElement>("[role=radio]")];
+        const names = pills.map((p) => p.textContent);
+        if (names.join(",") !== "Northwind,Tutorlane,Sole Revival,Glitchwick") problems.push(`the examples read ${names.join(", ")}`);
+        if (window.innerWidth >= 768 && new Set(pills.map((p) => Math.round(p.getBoundingClientRect().top))).size !== 1) problems.push("the examples wrap onto two lines");
+        return problems;
+      }, [...PLACEHOLDER_IDEAS, ...VARIANT_EXAMPLES]);
+      expect(report, report.join("\n")).toEqual([]);
+    } finally {
+      await close();
+    }
+  });
+}
+

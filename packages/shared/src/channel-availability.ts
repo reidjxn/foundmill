@@ -84,8 +84,31 @@ export interface ChannelAvailabilityRow extends ChannelAvailability {
   sentence: string | null;
 }
 
-/** The heading of the Builder view list of channels that cannot run yet. */
-export const CHANNELS_NOT_AVAILABLE_TITLE = "Not available yet";
+/** The heading of the list of channels that cannot run yet (WP-08 T9: shown to everyone, collapsed). */
+export const CHANNELS_NOT_AVAILABLE_TITLE = "Not now";
+
+/**
+ * Why a channel waits, in one sentence, for the channels week one leaves unbuilt (WP-08 "Not now"). Shown in place of
+ * the technical reason unless connecting a tool is the founder's own step now.
+ */
+export const CHANNEL_NOT_NOW: Partial<Readonly<Record<ChannelKey, string>>> = {
+  paid_ads: "Paid ads start when there is a budget and a page that sells.",
+  influencer: "Later, once people are buying.",
+  affiliate: "Later, once people are buying.",
+  print: "Offline channels come later.",
+  broadcast: "Offline channels come later.",
+  outdoor: "Offline channels come later.",
+  direct_mail: "Offline channels come later.",
+  lead_generation: "Start with ten people you can reach yourself.",
+  pr: "Later, with a milestone worth telling.",
+  events: "Later, with a milestone worth telling.",
+};
+
+/** The sentence beside a channel that cannot run: the week-one reason, or the API's when the founder can connect it now. */
+export function channelNotNowSentence(channelKey: ChannelKey, row: Pick<ChannelAvailabilityRow, "reason" | "connectable" | "sentence">): string {
+  const founderStep = row.reason === "not_connected" && row.connectable === true;
+  return (!founderStep && CHANNEL_NOT_NOW[channelKey]) || row.sentence || "Not now.";
+}
 
 /**
  * The plain reason a channel is not available, for a founder: null when it is available. `connectorName` is the
@@ -121,14 +144,13 @@ export function channelTeamRuns(availability: Pick<ChannelAvailability, "availab
 }
 
 /**
- * Whether a channel's engine may run (plan, draft, launch, measure): it is in offline tracking (the agent prepares, the
- * founder submits), simulated results are allowed (sample projects, development, tests), or nothing is known (an older
- * answer). The weekly engine's launch step sends nothing for any channel yet; a channel whose agents can act (`acts`)
- * does so through tasks and sessions, so it gets no engine and nothing is claimed as launched (WP-02 T2). WP-08 adds a
- * launcher per channel and lists it here. A channel the founder posts by tap never has an engine either.
+ * Whether a channel's engine may run (plan, draft, launch, measure): only where simulated results are allowed (sample
+ * projects, development, tests), or when nothing is known (an older answer). A real project runs no weekly engine, in
+ * offline tracking or not (WP-08 T9): its email is the follower update, its posts are by tap, its page is the team's
+ * page work, and a channel whose agents can act does so through tasks and sessions (WP-02 T2). `kitMode` is kept for the
+ * callers and no longer decides anything.
  */
-export function channelEngineMayRun(availability: Pick<ChannelAvailability, "available" | "reason"> | null | undefined, kitMode: boolean | null | undefined): boolean {
-  if (kitMode === true) return true;
+export function channelEngineMayRun(availability: Pick<ChannelAvailability, "available" | "reason"> | null | undefined, _kitMode?: boolean | null): boolean {
   if (!availability) return true;
   return availability.available !== false && availability.reason === "simulated_allowed";
 }

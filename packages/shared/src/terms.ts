@@ -558,7 +558,7 @@ export const TERMS = {
     id: "potential",
     word: "Potential",
     short: "How good an agent could become with training, shown as outlined stars beside its filled stars.",
-    long: "Filled stars are the rating now; outlined stars are the ceiling. An agent close to its ceiling is better replaced than trained.",
+    long: "Filled stars are the rating now; outlined stars are the ceiling. Training moves the filled stars toward the outlined ones.",
     learn: "team/agents",
   },
   form: {

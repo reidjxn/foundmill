@@ -73,6 +73,7 @@ export const CEDAR_SCHEMA: SchemaJson<string> = {
               recipientCountry: { ...str, required: false },
               localTimeAtRecipient: { ...str, required: false },
               suppressed: bool,
+              recipientBasis: { ...str, required: false },
               holidayActive: bool,
               kitMode: bool,
             },

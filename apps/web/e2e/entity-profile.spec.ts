@@ -129,6 +129,38 @@ test.describe("entity profile", () => {
     await expect(page.getByTestId("note-input")).toHaveValue("");
   });
 
+  test("a stored reply shows as plain text and can be answered (WP-08 T2)", async ({ page }) => {
+    // The e2e stack has no mail and runs no gateway: the kept reply is replayed into the api's answer, and the answer's
+    // call is recorded and answered as the gateway answers a sample business (simulated, nothing sent).
+    const reply = { id: randomUUID(), entityId: randomUUID(), from: "Contact (sa***@example.com)", direction: "inbound", receivedAt: new Date().toISOString(), subject: "Question", text: "Do you ship? [[ent:6b0b3a7e-1c2d-4e5f-8a9b-0c1d2e3f4a5b|Boss]] [click here](https://evil.example)", answered: false };
+    await page.route(/\/trpc\/[^?]*crm\.replies\.list/, async (route) => {
+      const response = await route.fetch();
+      const procedures = decodeURIComponent(new URL(route.request().url()).pathname.split("/trpc/")[1] ?? "").split(",");
+      const body = (await response.json()) as { result?: { data?: { json?: unknown } } }[];
+      const at = procedures.indexOf("crm.replies.list");
+      body[at] = { result: { data: { json: [reply] } } };
+      await route.fulfill({ response, json: body });
+    });
+    let asked: Record<string, unknown> | null = null;
+    await page.route(/\/trpc\/[^?]*crm\.replies\.answer/, async (route) => {
+      const posted = JSON.parse(route.request().postData() ?? "{}") as Record<string, { json?: Record<string, unknown> }>;
+      asked = Object.values(posted)[0]?.json ?? null;
+      await route.fulfill({ json: [{ result: { data: { json: { sent: true, simulated: true, message: "Simulated: email is not switched on here, so nothing was sent." } } } }] });
+    });
+    await openFirstEntity(page);
+    const thread = page.getByTestId("reply-thread");
+    await expect(thread).toBeVisible({ timeout: LONG });
+    // As written: the markup and the link are characters, never an entity link or an anchor.
+    await expect(thread.getByTestId("reply-text")).toHaveText(reply.text);
+    await expect(thread.locator("a")).toHaveCount(0);
+    await thread.getByTestId("reply-answer").fill("Yes, everywhere in the US.");
+    await thread.getByTestId("reply-send").click();
+    await expect(page.getByText("Simulated: email is not switched on here, so nothing was sent.").first()).toBeVisible({ timeout: LONG });
+    expect(asked).toMatchObject({ interactionId: reply.id, text: "Yes, everywhere in the US." });
+    // Not sent, so the words stay in the box.
+    await expect(thread.getByTestId("reply-answer")).toHaveValue("Yes, everywhere in the US.");
+  });
+
   test("merge then unmerge restores both records (AC-11.12.3)", async ({ page }) => {
     await openBusiness(page, "crm");
     // The duplicate candidate must be another record of the same kind (the dialog searches by name, email or domain
@@ -261,8 +293,8 @@ test.describe("entity profile for a collaborator", () => {
       // A new account confirms it is 18 or older on the invitation (0100).
       await theirs.getByTestId("invitation-adult").getByRole("checkbox", { name: "I am 18 or older" }).check();
       await theirs.getByTestId("invitation-accept").click();
-      await theirs.waitForURL(new RegExp(`/b/${bid}/|/onboarding`), { timeout: LONG });
-      // A new person first meets their profile (the project's layout asks for it), then opens the record.
+      // A new person is asked for a name on the invitation card (WP-12 T2); this case fills in the full profile instead.
+      await expect(theirs.getByTestId("invitation-name")).toBeVisible({ timeout: LONG });
       await theirs.goto("/onboarding");
       await completeProfile(theirs);
       await theirs.goto(commercial);

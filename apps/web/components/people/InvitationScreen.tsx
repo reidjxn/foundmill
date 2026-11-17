@@ -22,7 +22,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Check, RotateCw } from "lucide-react";
 import { APP_NAME } from "@foundmill/config";
-import { AdultCheck, Button, InvitationCard, type InvitationCardState } from "@foundmill/dugout";
+import { AdultCheck, Button, Field, InvitationCard, Input, type InvitationCardState } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { BrandFrame } from "@/components/shell/BrandFrame";
 import { invitationReadFailure, signInThenBackTo } from "@/lib/people";
@@ -47,6 +47,9 @@ const directApi = (): ApiClient => (direct ??= createApiClient({ getToken: () =>
 
 /** Under the box on an invitation: asked once, for the whole of the product. */
 export const INVITATION_ADULT_HINT = "You confirm this once.";
+/** Under a new person's first screen in the project: the one thing asked after Accept (WP-12 T2). */
+export const INVITATION_NAME_LABEL = "What should we call you?";
+export const INVITATION_NAME_HINT = "The people on this project see this name.";
 /** Accept pressed with the box empty. */
 export const INVITATION_ADULT_NEEDED = "Confirm that you are 18 or older to accept.";
 
@@ -57,7 +60,9 @@ export function InvitationScreen({ token, signedIn, preview: given, adultConfirm
   const read = useQuery({ queryKey: ["invitation.byToken", token], queryFn: () => directApi().invitation.byToken.query({ token }), enabled: given === undefined, retry: false, staleTime: Infinity, refetchOnWindowFocus: false });
   const accept = useMutation(
     trpc.invitation.accept.mutationOptions({
-      onSuccess: (r) => router.push(routes.today(r.businessId)),
+      // A person with a profile goes in; a new one names themselves first (the project's layout would otherwise send
+      // them to /onboarding, which is desktop only).
+      onSuccess: (r) => (r.hasProfile === false ? setNaming(r.businessId) : router.push(routes.today(r.businessId))),
       // The api says the confirmation is not on record: ask for it, whatever this page believed.
       onError: (err) => {
         if (!isAdultUnconfirmed(err)) return;
@@ -66,6 +71,10 @@ export function InvitationScreen({ token, signedIn, preview: given, adultConfirm
       },
     }),
   );
+  const [naming, setNaming] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [nameMissing, setNameMissing] = useState(false);
+  const saveName = useMutation(trpc.founder.profile.update.mutationOptions({ onSuccess: () => naming && router.push(routes.today(naming)) }));
   const decline = useMutation(trpc.invitation.decline.mutationOptions({ onSuccess: () => setDeclined(true) }));
   // 18 or older (0100): joining a project needs it on record, asked here once when it is not.
   const adultQ = useQuery(trpc.founder.adult.get.queryOptions(undefined, { enabled: signedIn && adultConfirmed === undefined, retry: false, staleTime: Infinity }));
@@ -83,8 +92,23 @@ export function InvitationScreen({ token, signedIn, preview: given, adultConfirm
   const pending = preview?.state === "pending" ? preview : null;
   const here = `/i/${token}`;
 
+  const continueNamed = () => {
+    const displayName = name.trim();
+    if (!displayName) setNameMissing(true);
+    else saveName.mutate({ displayName });
+  };
+
   const actions =
-    state === "checking" ? null : state === "busy" ? (
+    naming ? (
+      <>
+        <Field htmlFor="invitation-name" label={INVITATION_NAME_LABEL} hint={INVITATION_NAME_HINT} error={nameMissing ? "Enter a name to continue." : undefined} className="w-full basis-full">
+          <Input id="invitation-name" controlSize="lg" value={name} maxLength={80} autoComplete="name" onChange={(e) => (setName(e.target.value), setNameMissing(false))} data-testid="invitation-name" />
+        </Field>
+        <Button variant="primary" size="lg" className="min-h-tap" loading={saveName.isPending} onClick={continueNamed} data-testid="invitation-continue">
+          Continue
+        </Button>
+      </>
+    ) : state === "checking" ? null : state === "busy" ? (
       <Button variant="secondary" size="lg" className="min-h-tap" icon={RotateCw} loading={read.isFetching} onClick={() => void read.refetch()} data-testid="invitation-retry">
         Try again
       </Button>
@@ -131,7 +155,7 @@ export function InvitationScreen({ token, signedIn, preview: given, adultConfirm
     );
 
   // A refusal for want of the confirmation is said by the box itself.
-  const failure = (accept.error && !isAdultUnconfirmed(accept.error) ? accept.error : null) ?? decline.error;
+  const failure = (accept.error && !isAdultUnconfirmed(accept.error) ? accept.error : null) ?? decline.error ?? saveName.error;
   return (
     <BrandFrame smallScreen>
       <div className="@container" data-testid="invitation" data-state={state}>

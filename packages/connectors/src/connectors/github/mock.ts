@@ -424,7 +424,8 @@ export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal
         if (pr.state !== "open") throw conflict(`pull request #${prNumber} is closed`);
         if (conflictingBranches.has(pr.head.ref)) throw Object.assign(new Error(`Pull Request #${prNumber} is not mergeable`), { status: 405 });
         pr.draft = false; // marked ready first, as the real connector does
-        const sha = commitSha(r.repo.name, pr.base.ref, prNumber);
+        // The head goes into the sha: PR numbers come from a 900-wide hash, so two heads can share one, never a merge sha.
+        const sha = commitSha(r.repo.name, pr.base.ref, `${prNumber}:${pr.head.ref}`);
         pr.merged = true;
         pr.state = "closed";
         pr.merged_at = MOCK_NOW.toISOString();

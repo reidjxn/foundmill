@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 /**
  * The kept card's next step (WP-03 T3, WP-04 T1): the three questions work on a phone, so the card links to them with
- * Commit as where they go on to (`?next=`). Commit and the studio are still desktop-only, so on a phone Commit is
- * offered by email and the studio is not linked.
+ * Commit as where they go on to (`?next=`). Commit works on a phone too (WP-04 T2), so it is a link there; the studio
+ * is still desktop-only and is not linked.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen } from "@testing-library/react";
@@ -22,7 +22,6 @@ vi.mock("@/lib/trpc-react", () => ({
 }));
 
 import { CARD_KEPT_WORDS, CardKeptView } from "../card/CardKeptView";
-import { CONTINUE_LATER_WORDS } from "@/components/providers/ContinueLater";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const ONBOARDING_NEXT = `/onboarding?next=/new/commit/${ID}`;
@@ -43,8 +42,8 @@ function renderKept(profileComplete: boolean) {
   );
 }
 
-/** Links into pages that are still desktop-only (Commit, the studio). */
-const walled = (container: HTMLElement) => [...container.querySelectorAll("a")].map((a) => a.getAttribute("href") ?? "").filter((h) => h === "/new" || h.startsWith("/new/commit/") || h === "/new/ideate");
+/** Links into pages that are still desktop-only (the studio). */
+const walled = (container: HTMLElement) => [...container.querySelectorAll("a")].map((a) => a.getAttribute("href") ?? "").filter((h) => h === "/new" || h === "/new/ideate");
 
 describe("CardKeptView at 390 px", () => {
   afterEach(() => setWidth(1440));
@@ -59,13 +58,13 @@ describe("CardKeptView at 390 px", () => {
     expect(walled(container)).toEqual([]);
   });
 
-  it("offers Commit by email while Commit is desktop-only, and links into nothing walled", () => {
+  it("links to Commit, which works on a phone (WP-04 T2), and into nothing walled", () => {
     setWidth(390);
     const { container } = renderKept(true);
+    expect(screen.getByTestId("card-kept-next").getAttribute("href")).toBe(`/new/commit/${ID}`);
+    expect(screen.getByTestId("card-kept-next").textContent).toBe(CARD_KEPT_WORDS.build);
+    expect(screen.queryByTestId("next-step-on-computer")).toBeNull();
     expect(walled(container)).toEqual([]);
-    expect(screen.getByText(CONTINUE_LATER_WORDS.nextStep)).toBeTruthy();
-    expect(screen.getByTestId("next-step-on-computer").dataset.path).toBe(`/new/commit/${ID}`);
-    expect(screen.getByRole("button", { name: CONTINUE_LATER_WORDS.email })).toBeTruthy();
   });
 });
 

@@ -31,13 +31,13 @@ export interface PhoneBarProps extends Omit<HTMLAttributes<HTMLElement>, "title"
  * and Stop all agents at tap size. The shell draws the page's title on a thin row under it. No search chip, no runway or mode chips:
  * those are the console's, reached from the menu and the desktop.
  */
-export const PhoneBar = forwardRef<HTMLElement, PhoneBarProps>(function PhoneBar(
+export const PhoneBar = forwardRef<HTMLDivElement, PhoneBarProps>(function PhoneBar(
   { kit, logoSrc, logo, businessName, continueButton, continueSlot, stopAll, menuOpen, onMenuOpenChange, className, style, ...rest },
   ref,
 ) {
   const logoNode = logo ?? <BusinessLogo src={logoSrc} name={businessName} primary={kit.primary} size={28} data-testid="phone-bar-logo" />;
   return (
-    <header
+    <div
       ref={ref}
       data-testid="phone-bar"
       data-coachmark="top-bar"
@@ -70,7 +70,7 @@ export const PhoneBar = forwardRef<HTMLElement, PhoneBarProps>(function PhoneBar
         <ContinueButton {...continueButton} className={cn("h-kitbar-chip min-h-tap rounded-track", continueButton.className)} />
       )}
       <StopAllAgents {...stopAll} className={cn("min-h-tap min-w-tap", stopAll.className)} />
-    </header>
+    </div>
   );
 });
 
@@ -101,7 +101,7 @@ export function PhoneMenu({ open, onOpenChange, items, activeId, businessName, o
         <DialogPrimitive.Content
           aria-describedby={undefined}
           data-testid="phone-menu"
-          className="overlay-motion fixed inset-y-0 left-0 z-50 flex w-72 max-w-[85vw] flex-col border-r border-line bg-panel text-body text-primary outline-none"
+          className="overlay-motion fixed inset-y-0 left-0 z-50 flex w-72 max-w-(--phone-menu-max) flex-col border-r border-line bg-panel text-body text-primary outline-none"
         >
           <div className="flex h-kitbar shrink-0 items-center justify-between gap-2 border-b border-line-faint pl-gutter pr-2">
             <DialogPrimitive.Title className="t-display-sm min-w-0 truncate text-primary">{businessName}</DialogPrimitive.Title>

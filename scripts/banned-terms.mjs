@@ -115,6 +115,8 @@ const VOCAB_CODE_ROOTS = [
   // Mock session recordings replay in Live sessions; connector fixtures are the mock outputs agents and founders read.
   "packages/sandbox/src",
   "packages/connectors/src",
+  // The platform pages and footer apps/sites adds to every project site: read by the site's visitors.
+  "apps/sites/src",
 ];
 const VOCAB_DOC_FILES = ["docs/DESIGN.md", "docs/ARCHITECTURE.md"];
 // Developer-facing or historical documents that quote the old words on purpose.

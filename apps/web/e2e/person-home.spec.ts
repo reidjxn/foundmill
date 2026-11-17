@@ -34,6 +34,7 @@ test.describe("the home of a person with no project (2.4)", () => {
     await expect(page.getByTestId("home-start-link")).toHaveAttribute("href", "/new");
     // The people layer is open on the e2e stack (LIVE_MODE=1): the offer links to it. Nobody is suggested.
     await expect(page.getByTestId("home-find")).toContainText("you can do all of it on your own");
+    await expect(page.getByText("Opening soon")).toHaveCount(0);
     await expect(page.getByTestId("home-waiting")).toHaveCount(0);
     expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0);
     // Two columns on a wide screen: the offer sits beside Start something, not under it.
@@ -52,21 +53,44 @@ test.describe("the home of a person with no project (2.4)", () => {
     await expect(page).toHaveURL(/\/home$/, { timeout: LONG });
     await expect(page.getByTestId("person-home")).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
-    // WP-03 T3 (a stopgap WP-04 removes): the studio is desktop-only, so Start something offers the link by email.
-    await expect(page.getByTestId("home-start-link")).toHaveCount(0);
-    await expect(page.getByTestId("home-start").getByText("The next step needs a computer for now.")).toBeVisible();
-    const startButton = page.getByTestId("home-start").getByRole("button", { name: "Email me a link" });
-    await expect(startButton).toBeVisible();
-    expect(await page.locator('a[href="/new"], a[href^="/new/"]').count()).toBe(0);
+    // WP-04 T15: Start something goes to the phone start, never to the desktop-only doors.
+    const startLink = page.getByTestId("home-start-link");
+    await expect(startLink).toHaveAttribute("href", "/new/write");
+    await expect(page.locator('a[href="/new"]')).toHaveCount(0);
     await expect(page.getByTestId("home-find")).toBeVisible();
     expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0);
-    const start = await startButton.boundingBox();
+    const start = await startLink.boundingBox();
     expect(start && start.x >= 0 && start.x + start.width <= 390).toBe(true);
     // A finger's target (DESIGN §6 tap-target), and one column: the find card sits under Start something.
     expect(start!.height).toBeGreaterThanOrEqual(44);
     const startCard = await page.getByTestId("home-start").boundingBox();
     const findCard = await page.getByTestId("home-find").boundingBox();
     expect(findCard!.y).toBeGreaterThanOrEqual(startCard!.y + startCard!.height);
+  });
+
+  test("a phone starts without a card: Start something, one sentence, Shape it, Commit at 390 px (WP-04 T15)", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await signInWithProfile(page);
+    await expect(page.getByTestId("person-home")).toBeVisible({ timeout: LONG });
+    await page.getByTestId("home-start-link").click();
+    await expect(page).toHaveURL(/\/new\/write$/, { timeout: LONG });
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("What do you want to build?");
+    await expect(page.getByText("One sentence is enough.")).toBeVisible();
+    await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
+    expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0);
+    const writes: string[] = [];
+    page.on("request", (req) => {
+      if (req.url().includes("idea.write")) writes.push(req.url());
+    });
+    await page.getByLabel(/A working name/).fill(`Plant Swap ${Date.now().toString(36)}`);
+    await page.getByLabel(/Your idea, in your words/).fill("Neighbors on one street trade houseplant cuttings, so nobody buys a plant they could grow.");
+    const shape = page.getByRole("button", { name: "Shape it" });
+    expect((await shape.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await shape.click();
+    await expect(page).toHaveURL(/\/new\/commit\/[0-9a-f-]{36}$/, { timeout: LONG });
+    await expect(page.getByTestId("commit-form")).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
+    expect(writes).toHaveLength(1);
   });
   test("Find a project or people opens the Network in the person frame, with no connect control (2.4)", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });

@@ -75,7 +75,7 @@ describe("SkillGrid", () => {
     expect(document.querySelectorAll("[data-skill-band]")).toHaveLength(0);
     const figure = document.querySelector("[data-skill='comm'] [data-rating-figure]") as HTMLElement;
     expect(figure.getAttribute("title")).toBe("4 of 20 · Poor");
-    expect(figure.getAttribute("aria-label")).toBe("4 of 20, Poor");
+    expect(figure.getAttribute("aria-label")).toBe("4 of 20 · Poor");
   });
   it("focus mode allows at most three skills", async () => {
     const user = userEvent.setup();

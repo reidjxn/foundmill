@@ -19,6 +19,7 @@
  * (components/public/PostVisitBeacon.tsx): the post's link counts as visited, so a follow from it can be credited to the
  * post. Nothing on the page changes, and no visit count is ever shown.
  */
+import { PublicAppPrompt } from "@/components/shell/PublicAppPrompt";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { APP_NAME } from "@foundmill/config";
@@ -89,6 +90,7 @@ export default async function PublicProjectPageRoute({ params }: Props) {
           ) : null
         }
       />
+      <PublicAppPrompt />
     </>
   );
 }

@@ -311,3 +311,31 @@ describe("SquadScreen", () => {
     expect(failing.refetches["team.agents.list"]).toBe(1);
   });
 });
+
+describe("SquadScreen in the first week (WP-04 T4: everyone is hired, the starting team is shown)", () => {
+  it("shows the starting agents and anyone with a current task, says so, and opens everyone on Show all", async () => {
+    const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "today.get": { firstWeek: { days: [] } } } });
+    renderScreen(fake, operator(<SquadScreen {...props} />));
+    const table = await screen.findByRole("treegrid", { name: "Agents" });
+    await waitFor(() => expect(screen.getByTestId("squad-first-week")).toBeTruthy());
+    expect(screen.getByTestId("squad-first-week").textContent).toContain("Showing who is working this week");
+    openAll(table);
+    // Orla is the Chief of Staff (a starter); Juno has a task; Pike and Mara wait; the helper is never a row.
+    expect(within(table).getAllByRole("row").slice(1).map((r) => within(r).queryAllByRole("link")[0]?.textContent)).toEqual(["Orla", "Juno"]);
+    fireEvent.click(screen.getByRole("button", { name: "Show all 4" }));
+    openAll(table);
+    // The header row and the four agents.
+    expect(within(table).getAllByRole("row")).toHaveLength(5);
+    expect(screen.queryByTestId("squad-first-week")).toBeNull();
+  });
+
+  it("shows everyone once the first week is over", async () => {
+    const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "today.get": { firstWeek: null } } });
+    renderScreen(fake, operator(<SquadScreen {...props} />));
+    const table = await screen.findByRole("treegrid", { name: "Agents" });
+    openAll(table);
+    // The header row and the four agents.
+    expect(within(table).getAllByRole("row")).toHaveLength(5);
+    expect(screen.queryByTestId("squad-first-week")).toBeNull();
+  });
+});

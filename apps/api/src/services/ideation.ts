@@ -255,7 +255,7 @@ export async function draftIdeas(deps: DraftDeps, input: DraftInput, opts: Draft
 
   if (input.single) {
     emit({ type: "writing", index: 0, attempt: 1 });
-    const res = await models.complete({ ...buildSingleConceptRequest(brief), signal, scope, attribution: { kind: "ideation" } }).catch((err: unknown) => {
+    const res = await models.complete({ ...buildSingleConceptRequest(brief), signal, scope, attribution: { kind: "ideation", userId: deps.userId } }).catch((err: unknown) => {
       throw tooLong(err) ?? err;
     });
     costMicro += res.cost.costMicroMinor;
@@ -283,7 +283,7 @@ export async function draftIdeas(deps: DraftDeps, input: DraftInput, opts: Draft
         card = await limit(async () => {
           if (cardsAbort.signal.aborted) throw new ModelAbortedError();
           emit({ type: "writing", index, attempt });
-          const res = await models.complete({ ...buildIdeationCardRequest(brief, item), signal: cardsAbort.signal, scope, attribution: { kind: "ideation" } });
+          const res = await models.complete({ ...buildIdeationCardRequest(brief, item), signal: cardsAbort.signal, scope, attribution: { kind: "ideation", userId: deps.userId } });
           costMicro += res.cost.costMicroMinor;
           return res.json;
         });
@@ -325,7 +325,7 @@ export async function draftIdeas(deps: DraftDeps, input: DraftInput, opts: Draft
         ...slateRequest,
         signal,
         scope,
-        attribution: { kind: "ideation_slate" },
+        attribution: { kind: "ideation_slate", userId: deps.userId },
         onElement: ({ index, value }) => outline(index, value),
       });
       costMicro += result.cost.costMicroMinor;
@@ -392,7 +392,7 @@ export async function writeIdea(deps: DraftDeps, input: WriteIdeaInput, opts: { 
   const title = input.title.trim().slice(0, 60);
   const brief: IdeationBrief = { prompt: words, archetypeHint: input.archetype, founder: await founderBrief(deps.db, deps.userId) };
   const id = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "my-idea";
-  const res = await models.complete({ ...buildFounderCardRequest(brief, { id, name: title, archetype: input.archetype, words }), signal: opts.signal, scope: `ideation:${deps.userId}`, attribution: { kind: "ideation" } }).catch((err: unknown) => {
+  const res = await models.complete({ ...buildFounderCardRequest(brief, { id, name: title, archetype: input.archetype, words }), signal: opts.signal, scope: `ideation:${deps.userId}`, attribution: { kind: "ideation", userId: deps.userId } }).catch((err: unknown) => {
     throw tooLong(err) ?? err;
   });
   const card: ConceptCard = { ...res.json, name: title, pitch: words, archetype: input.archetype ?? res.json.archetype };

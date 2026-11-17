@@ -57,7 +57,7 @@ export function LandingPage({ variant = DEFAULT_LANDING_VARIANT, switches = SWIT
           signupOpen={switches.signupOpen}
           words={{ title: V.title, lede: V.lede, label: V.label, ideas: V.ideas, surpriseOpen: V.surpriseOpen }}
           example={
-            <ScreenFrame className="in-data-landed:hidden">
+            <ScreenFrame label={W.hero.exampleLabel} className="in-data-landed:hidden">
               <ExampleIdeas ideas={EXAMPLE_IDEAS} cardClassName="world-night landing-screen-lit max-w-full" />
             </ScreenFrame>
           }
@@ -353,9 +353,9 @@ function FirstWeekSection({ platformMail }: { platformMail: boolean }) {
   );
 }
 
-/** The questions, the door's only while sign-up is closed, the limits line by whether platform mail is on. */
+/** The questions, the door's only while sign-up is closed. */
 function questions(switches: LandingSwitches): QuestionItem[] {
   const q = W.questions;
-  const limits = [q.limitsBase, switches.platformMail ? null : q.limitsMail, q.limitsEnd].filter(Boolean).join(" ");
+  const limits = q.limitsEnd;
   return [...(switches.signupOpen ? [] : [q.getIn]), ...q.always, { ...q.limits, answer: limits }, q.adults];
 }

@@ -3,8 +3,8 @@
  * Settings › Integrations (BUILD §11.15, §13): the connector catalogue with connect / disconnect / health, scopes
  * and status pills, plus the dev-only Simulate panel (BUILD §13.3). The panel calls `dev.simulate` on apps/api
  * (owner/admin only), which mints the service token and proxies to apps/ingest over the private network
- * (docs/SECURITY_REVIEW.md SEC-2); the browser never talks to ingest. The procedure exists in development and
- * staging only.
+ * (docs/SECURITY_REVIEW.md SEC-2); the browser never talks to ingest. The procedure exists in development only
+ * (never staging: production runs APP_ENV=staging).
  */
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Activity, ExternalLink, FlaskConical, FolderGit2, KeyRound, MapPin, Plug, RefreshCw, Unplug } from "lucide-react";
@@ -62,12 +62,12 @@ export const AUTH_WORD: Record<string, string> = {
 
 /** The six panel actions BUILD §13.3 names; the ingest catalogue may add more. */
 export const SIMULATIONS: { name: string; label: string; description: string }[] = [
-  { name: "signup.created", label: "Signup", description: "A new signup from the mock Stripe customer" },
+  { name: "signup.created", label: "Signup", description: "A made-up signup, as if from Stripe" },
   { name: "payment.received", label: "Payment", description: "A paid invoice: records a new paying customer, a journey and a Customer Update" },
-  { name: "lead.replied", label: "Lead reply", description: "An inbound reply through the mock SendGrid parse" },
-  { name: "bank.balance_updated", label: "Bank sync", description: "A mock open-banking balance update" },
+  { name: "lead.replied", label: "Lead reply", description: "A made-up reply from a lead, as if by email" },
+  { name: "bank.balance_updated", label: "Bank sync", description: "A made-up bank balance update" },
   { name: "channel.threshold_breached", label: "Customer cost spike", description: "A channel's cost to win a customer jumps past its threshold" },
-  { name: "credential.expiring", label: "Credential expiry", description: "A connector credential about to expire" },
+  { name: "credential.expiring", label: "Credential expiry", description: "A connection whose sign-in is about to expire" },
 ];
 
 /** What `dev.simulate` answers: ingest's status and body, shown verbatim (ingest labels it "Simulated"). */
@@ -105,6 +105,11 @@ export function modeLabel(mode: string, rows: readonly { displayName: string; li
   if (mode !== "mock") return "Live";
   const live = rows.filter((r) => r.live).map((r) => r.displayName);
   return live.length ? `Test mode · ${live.join(", ")} live` : "Test mode";
+}
+
+/** The toast line for a healthy check: a test connection says nothing was asked of the vendor, never the connector's own words. */
+export function healthLine(health: { status?: string; message?: string | null }): string | undefined {
+  return health.status === "mock" ? "Test data: nothing was checked with the vendor." : (health.message ?? undefined);
 }
 
 /** The line under a connector: its account, what agents can do with it, when it was last checked (in the person's `prefs`). */
@@ -380,7 +385,7 @@ export function IntegrationsTab() {
   const disconnect = useMutation(trpc.integrations.disconnect.mutationOptions({ onSuccess: () => (void invalidate(["integrations"]), t.saved("Disconnected", "Credentials revoked.")), onError: (e) => t.failed(e) }));
   const health = useMutation(
     trpc.integrations.health.mutationOptions({
-      onSuccess: (r) => (void invalidate(["integrations"]), r.health.ok ? t.saved("Healthy", r.health.message ?? undefined) : t.failed(new Error(r.health.message ?? "health check failed"), "Unhealthy")),
+      onSuccess: (r) => (void invalidate(["integrations"]), r.health.ok ? t.saved("Healthy", healthLine(r.health)) : t.failed(new Error(r.health.message ?? "health check failed"), "Unhealthy")),
       onError: (e) => t.failed(e, "Health check failed"),
     }),
   );
@@ -522,7 +527,7 @@ export function SimulatePanel({ businessId, connectors }: { businessId: string; 
   );
   return (
     <SettingsSection title="Simulate" actions={<Chip tone="warn" icon={FlaskConical}>Development only</Chip>} data-testid="simulate-panel">
-      <Hint>Fires a mock platform event through the API and apps/ingest exactly as a real event from the vendor would: it is labeled “Simulated”, costs nothing and never leaves this environment. Owners and admins only.</Hint>
+      <Hint>Makes up an event as if the vendor had sent it. It is labeled “Simulated”, costs nothing and never leaves this computer. Owners and admins only.</Hint>
       <div className="flex items-center gap-3">
         <span className="t-label">Connector</span>
         <SimpleSelect aria-label="Connector" controlSize="sm" value={connector} onValueChange={setConnector} placeholder="Default per event" options={[{ value: "", label: "Default per event" }, ...connectors.map((c) => ({ value: c.key, label: c.label }))]} className="w-56" />

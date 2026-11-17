@@ -27,6 +27,5 @@ export const channelBroadcast = defineChannelTemplate({
   ],
   craftSkills: ["scriptwriting", "media_research", "kit_preparation", "lift_measurement"],
   spendCapMinor: 80_000,
-  kitMode: true,
   neverDoes: ["book linear media", "sign media contracts", "use unlicensed or impersonating voices", "launch without a vanity URL"],
 });

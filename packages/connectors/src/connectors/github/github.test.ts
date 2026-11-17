@@ -1,6 +1,7 @@
 import { createHash, generateKeyPairSync } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { jsonResponse, routedFetch, type FetchLike } from "../../http";
+import { stableHash } from "../../mock-utils";
 import { isUntrusted } from "../../quarantine";
 import { describeConnectorContract, envKeysPresent, makeToolContext, TEST_BUSINESS_ID } from "../../testing/contract-suite";
 import { GH_MERGED_PR, GH_REPOS, MOCK_OWNER } from "./fixtures/repos";
@@ -66,6 +67,30 @@ describe("github mock: merge flow and simulation", () => {
     const main = await mock.callTool("read_tree", { owner: MOCK_OWNER, repo: "ledgerly-app", ref: "main" }, ctx);
     expect(isUntrusted(main.data) && (main.data.content as { sha: string }).sha).toBe((merged.data as { sha: string }).sha);
     expect(mock.policyHints.merge_pr).toEqual({ irreversible: true, spendsMoney: false });
+  });
+  it("two heads that share a pull request number never share a merge sha (so never a pr.merged idempotency key)", async () => {
+    // The mock numbers a PR from a 900-wide hash of its head, so two of 901 heads must share a number.
+    const numberOf = (head: string) => 100 + (parseInt(stableHash(`pr:${MOCK_OWNER}/ledgerly-app:${head}:main`, 6), 16) % 900);
+    const seen = new Map<number, string>();
+    let pair: [string, string] | null = null;
+    for (let i = 0; i <= 900 && !pair; i++) {
+      const head = `agent/t${i}`;
+      const other = seen.get(numberOf(head));
+      if (other) pair = [other, head];
+      else seen.set(numberOf(head), head);
+    }
+    if (!pair) throw new Error("expected two heads with one number");
+    const merges = [];
+    for (const head of pair) {
+      const mock = createGithubMock();
+      const ctx = makeToolContext(mock);
+      await mock.callTool("create_branch", { owner: MOCK_OWNER, repo: "ledgerly-app", branch: head }, ctx);
+      const opened = await mock.callTool("open_pr", { owner: MOCK_OWNER, repo: "ledgerly-app", title: "Work", head, base: "main", draft: false }, ctx);
+      const prNumber = (opened.data as { number: number }).number;
+      merges.push({ prNumber, sha: ((await mock.callTool("merge_pr", { owner: MOCK_OWNER, repo: "ledgerly-app", prNumber }, ctx)).data as { sha: string }).sha });
+    }
+    expect(merges[0]!.prNumber).toBe(merges[1]!.prNumber);
+    expect(merges[0]!.sha).not.toBe(merges[1]!.sha);
   });
   it("commits to a working branch, reads it back at that ref, and creates an unknown repository on first write", async () => {
     const mock = createGithubMock();

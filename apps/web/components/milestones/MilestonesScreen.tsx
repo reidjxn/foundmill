@@ -20,6 +20,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Panel, SharePost, StatusPill, Term, Timeline, TrophyCabinet, useToast, useDateFormat, type TimelineEvent, type TrophyCard } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
+import { useToday } from "@foundmill/widgets/data";
 import { APP_NAME } from "@foundmill/config";
 import { MILESTONE_SHOW_WORDS, cardUrl } from "@foundmill/shared/project-story";
 import { SHARE_OPEN_WORDS, milestonePostDraft } from "@foundmill/shared/share-drafts";
@@ -51,7 +52,8 @@ export function MilestonesScreen() {
   const currency = useBusinessCurrency();
   // Revenue milestones are Finance's monthly figure, named as Finance names it: MRR only when revenue recurs.
   const recurring = revenueIsRecurring(data.business.archetype);
-  const today = new Date().toISOString().slice(0, 10);
+  // The project's own day (its time zone), not UTC's: at 11:30 PM in Los Angeles, UTC is already tomorrow (WP-10 T12).
+  const today = useToday();
   // Milestones come back whole whatever the range; a one-day range keeps the daily rows out of the payload.
   const ribbonQ = useQuery(trpc.journey.ribbon.queryOptions({ businessId, from: today, to: today }, { staleTime: 60_000 }));
   const milestones = ribbonQ.data?.milestones;

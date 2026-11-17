@@ -70,3 +70,17 @@ test("every check id in docs/DEPLOY.md is known", async () => {
   assert.ok(rows.length >= 10);
   for (const r of rows) if (!r.check.startsWith("manual")) assert.ok(r.check in CHECKS, r.check);
 });
+
+test("sites-headers is skipped without --sites, and checks the header set and the preview's noindex with it", async () => {
+  const row = { area: "Foundmill Sites", expected: "", state: "", check: "sites-headers" };
+  const skipped = await runChecks([row], { fetch: async () => assert.fail("fetched without --sites") });
+  assert.equal(skipped.results[0].status, "manual");
+  assert.equal(skipped.exitCode, 0);
+  const headers = (h) => ({ get: (k) => h[k.toLowerCase()] ?? null });
+  const site = async (url) => ({ status: 200, headers: headers(url.includes("p-") ? { "x-robots-tag": "noindex, nofollow" } : { "content-security-policy": "default-src 'none'; img-src 'self' data:" }), json: async () => ({}), text: async () => "" });
+  const good = await runChecks([row], { fetch: site, sites: "https://lunchbox.example-sites.app/", preview: "https://p-abc.example-sites.app/" });
+  assert.equal(good.results[0].status, "ok");
+  const bad = await runChecks([row], { fetch: async () => ({ status: 200, headers: headers({}) }), sites: "https://lunchbox.example-sites.app/" });
+  assert.equal(bad.results[0].status, "differs");
+  assert.equal(bad.exitCode, 1);
+});

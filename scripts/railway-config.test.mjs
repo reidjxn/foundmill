@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import { matches, redeploys, watchPaths } from "./railway-watch.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const SERVICES = ["api", "gateway", "orchestrator", "composer", "stream", "ingest"];
+const SERVICES = ["api", "gateway", "orchestrator", "composer", "stream", "ingest", "sites"];
 /** The workspace packages each service imports through `dependencies`, transitively (WP-01 T4). Pinned here so a new
  * dependency shows up as a diff in this test, and the Railway settings are updated with it. */
 const PACKAGES = {
@@ -22,6 +22,7 @@ const PACKAGES = {
   composer: ["agents", "config", "db", "entity-linker", "events", "journey", "models", "shared"],
   stream: ["agents", "config", "db", "events", "journey", "models", "shared"],
   ingest: ["agents", "config", "connectors", "db", "events", "journey", "models", "shared"],
+  sites: ["agents", "config", "db", "journey", "models", "shared"],
 };
 /** What every service's image is built from (Dockerfile COPY lines and the install), besides the packages. */
 const IMAGE_INPUTS = ["/patches/**", "/Dockerfile", "/package.json", "/pnpm-lock.yaml", "/pnpm-workspace.yaml", "/.npmrc"];
@@ -108,10 +109,10 @@ describe("which services a change redeploys", () => {
   it("a docs-only change redeploys nothing", () => assert.deepEqual(redeploys(["docs/PROGRESS.md"]), []));
   it("an apps/ingest change redeploys only ingest", () => assert.deepEqual(redeploys(["apps/ingest/src/index.ts"]), ["ingest"]));
   it("a packages/sandbox change redeploys only the orchestrator", () => assert.deepEqual(redeploys(["packages/sandbox/src/worktree.ts"]), ["orchestrator"]));
-  it("the lockfile redeploys all six", () => assert.deepEqual([...redeploys(["pnpm-lock.yaml"])].sort(), [...SERVICES].sort()));
+  it("the lockfile redeploys every service", () => assert.deepEqual([...redeploys(["pnpm-lock.yaml"])].sort(), [...SERVICES].sort()));
   it("the optional negations keep Markdown and tests under a package from redeploying", () => {
     assert.deepEqual(redeploys(["packages/shared/CLAUDE.md"], { withNegation: true }), []);
     assert.deepEqual(redeploys(["packages/db/src/__tests__/x.test.ts"], { withNegation: true }), []);
-    assert.equal(redeploys(["packages/shared/CLAUDE.md"]).length, 6);
+    assert.equal(redeploys(["packages/shared/CLAUDE.md"]).length, SERVICES.length);
   });
 });

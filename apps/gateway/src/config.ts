@@ -19,6 +19,8 @@ export interface GatewayConfig {
   sessionTokenSecret: string;
   /** API_SERVICE_TOKEN_SECRET: the api's own; null while it signs with the shared one (WP-11 T12). */
   apiServiceTokenSecret: string | null;
+  /** COMPOSER_SERVICE_TOKEN_SECRET: the composer's own, for the own-key model route only (WP-13 T11); null: the composer is refused there. */
+  composerServiceTokenSecret: string | null;
   /** API_SERVICE_TOKEN_LEGACY=1: the api may still sign with the shared secret during the switch. */
   apiServiceTokenLegacy: boolean;
   /** Default lifetime of a minted session token. */
@@ -54,6 +56,9 @@ export function gatewayConfig(env: Env = loadEnv(), nodeEnv: string | undefined 
   if (apiSecret && apiSecret.length < API_SERVICE_TOKEN_MIN_LENGTH) throw new Error(`API_SERVICE_TOKEN_SECRET must be at least ${API_SERVICE_TOKEN_MIN_LENGTH} characters`);
   // The same value as the shared secret would let every holder of it pass as the api, and refuse everyone else.
   if (apiSecret && apiSecret === secret) throw new Error("API_SERVICE_TOKEN_SECRET must differ from SESSION_TOKEN_SECRET");
+  const composerSecret = env.COMPOSER_SERVICE_TOKEN_SECRET?.trim() || null;
+  if (composerSecret && composerSecret.length < API_SERVICE_TOKEN_MIN_LENGTH) throw new Error(`COMPOSER_SERVICE_TOKEN_SECRET must be at least ${API_SERVICE_TOKEN_MIN_LENGTH} characters`);
+  if (composerSecret && (composerSecret === secret || composerSecret === apiSecret)) throw new Error("COMPOSER_SERVICE_TOKEN_SECRET must differ from SESSION_TOKEN_SECRET and API_SERVICE_TOKEN_SECRET");
   return {
     appEnv: env.APP_ENV,
     port: servicePort(env, "GATEWAY_PORT"),
@@ -63,6 +68,7 @@ export function gatewayConfig(env: Env = loadEnv(), nodeEnv: string | undefined 
     sessionTokenSecret: secret || PROCESS_SESSION_TOKEN_SECRET,
     apiServiceTokenSecret: apiSecret,
     apiServiceTokenLegacy: env.API_SERVICE_TOKEN_LEGACY?.trim() === "1",
+    composerServiceTokenSecret: composerSecret,
     sessionTokenTtlSeconds: DEFAULT_SESSION_TTL_SECONDS,
     sessionTokenMaxTtlSeconds: MAX_SESSION_TTL_SECONDS,
     redisUrl: env.REDIS_URL,

@@ -149,7 +149,7 @@ export function createDeps(options: CreateDepsOptions = {}): OrchestratorDeps {
       onUsage,
       logger: log,
     });
-  const models = createBusinessModelClient(platformModels, { db, vault, mode: modelMode, onUsage, logger: log });
+  const models = createBusinessModelClient(platformModels, { db, vault, mode: modelMode, onUsage, logger: log, freeCapCents: env.FREE_PLAN_MONTHLY_CAP_CENTS });
 
   const gateway =
     options.gateway ??

@@ -2,6 +2,7 @@ export * from "./cn";
 export * from "./format";
 export * from "./date-preferences";
 export * from "./rating";
+export * from "./rating-words";
 export * from "./colour";
 export * from "./seed";
 export * from "./reducedMotion";

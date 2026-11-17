@@ -31,3 +31,6 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 export const Phone390: Story = { name: "390 px", decorators: [Phone], args: {} };
+/** WP-08 T3: the same quiet line, inviting the founders to write to their followers. */
+export const FollowersUpdate: Story = { name: "Followers' update", args: { line: "3 people follow Candle Co. Write to them.", "data-testid": "followers-update-note" } };
+export const FollowersUpdate390: Story = { name: "Followers' update, 390 px", decorators: [Phone], args: { line: "An update to your followers is ready to check", "data-testid": "followers-update-note" } };

@@ -81,6 +81,7 @@ export function toContext(input: EvaluateInput): Record<string, CedarValueJson> 
   if (c.recipient !== undefined) ctx["recipient"] = c.recipient;
   if (c.recipientCountry !== undefined) ctx["recipientCountry"] = c.recipientCountry;
   if (c.localTimeAtRecipient !== undefined) ctx["localTimeAtRecipient"] = c.localTimeAtRecipient;
+  if (c.recipientBasis !== undefined) ctx["recipientBasis"] = c.recipientBasis;
   return ctx;
 }
 
