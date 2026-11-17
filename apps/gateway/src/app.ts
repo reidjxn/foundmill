@@ -48,6 +48,7 @@ import { NOTIFY_EMAIL_ROUTE, NotifyEmailRequest, sendNotifyEmail } from "./notif
 import { AddressEmailRequest, isAddressEmailKind, sendAddressEmail } from "./notify-address-email";
 import { ACCOUNT_EMAIL_SERVICE, AccountEmailRequest, isAccountEmailKind, sendAccountEmail } from "./notify-account-email";
 import { FounderNoticeRequest, isAccountSafetyKind, sendFounderNotice } from "./notify-founder-notice";
+import { CardEmailRequest, isCardEmailRequest, sendCardEmail } from "./notify-card-email";
 import { handleMcpRequest } from "./mcp";
 import { ARCHIVE_ROUTE, ArchiveRequest, routeOnlyCall, serveArchive } from "./archive";
 import { checkRepository, REPOSITORY_CHECK_ROUTE, RepositoryCheckRequest } from "./code-repository";
@@ -303,6 +304,13 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
       const notice = FounderNoticeRequest.safeParse(body);
       if (!notice.success) throw new GatewayError("validation", "Send a user id, the kind, a business id and the audit entry's id", 400);
       return c.json(await sendFounderNotice(deps, notice.data, c.var.service.svc));
+    }
+    // A kept card of a person with no project yet (WP-04 T12): the orchestrator's only.
+    if (isCardEmailRequest(body)) {
+      if (c.var.service.svc !== "orchestrator") throw new GatewayError("forbidden_service", "Only the orchestrator asks for an email about a kept card", 403);
+      const card = CardEmailRequest.safeParse(body);
+      if (!card.success) throw new GatewayError("validation", "Send a user id, getting_started, no business, the card's id and the stage", 400);
+      return c.json(await sendCardEmail(deps, card.data, c.var.service.svc));
     }
     const parsed = NotifyEmailRequest.safeParse(body);
     if (!parsed.success) throw new GatewayError("validation", "Send a user id, a kind of email, a business id and the ids that kind needs", 400);

@@ -57,6 +57,7 @@ import { workspacesRepo } from "./workspaces";
 import { conversationsRepo } from "./conversations";
 import { emailPrefsRepo, preferencesRepo } from "./preferences";
 import { devicesRepo } from "./devices";
+import { dayOneNotesRepo } from "./day-one-notes";
 import { accountEventsRepo } from "./account-events";
 import { portabilityRepo } from "./portability";
 import { tableViewsRepo } from "./table-views";
@@ -146,6 +147,7 @@ export const repos = {
   notifications: notificationsRepo,
   emailPrefs: emailPrefsRepo,
   notifyFacts: notifyFactsRepo,
+  dayOneNotes: dayOneNotesRepo,
   accountEvents: accountEventsRepo,
   attributions: attributionsRepo,
   teamPosts: teamPostsRepo,
