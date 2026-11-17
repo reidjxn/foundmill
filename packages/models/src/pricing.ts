@@ -9,7 +9,7 @@
  * drift; callers writing `usage_ledger.cost_minor` should store `costMinorInt` per row and, when aggregating many rows,
  * sum `costMicroMinor` and round once.
  */
-import { MODELS, type ModelId } from "./routing";
+import { FALLBACK_SERVED_MODELS, MODELS, type ModelId } from "./routing";
 import type { TokenUsage } from "./types";
 
 export const PRICING_CURRENCY = "USD" as const;
@@ -107,6 +107,23 @@ export interface MeterOptions {
   batch?: boolean;
   /** `fast` meters at FAST_MODE_PRICING (falls back to the standard price for a model without fast mode). */
   speed?: "standard" | "fast";
+  /** The card to meter at instead of the model's own: a fallback model served the call (`priceForServed`). */
+  price?: ModelPrice;
+}
+
+/**
+ * List prices of the models a server-side fallback may be served by (WP-09 T5), USD per million tokens, Estimate. Cache
+ * figures follow the usual ratios (a 5-minute write at 1.25x input, a read at 0.1x input).
+ */
+export const FALLBACK_PRICING: Record<string, ModelPrice> = {
+  [FALLBACK_SERVED_MODELS.opus5]: { displayName: "Claude Opus 5", inputPerMTok: 5, outputPerMTok: 25, cacheWritePerMTok: 6.25, cacheReadPerMTok: 0.5 },
+  [FALLBACK_SERVED_MODELS.opus48]: { displayName: "Claude Opus 4.8", inputPerMTok: 5, outputPerMTok: 25, cacheWritePerMTok: 6.25, cacheReadPerMTok: 0.5 },
+  [FALLBACK_SERVED_MODELS.sonnet5]: { displayName: "Claude Sonnet 5", inputPerMTok: 2, outputPerMTok: 10, cacheWritePerMTok: 2.5, cacheReadPerMTok: 0.2 },
+};
+
+/** The card of a model that served a call: a routed model or a fallback target; undefined for any other id. */
+export function priceForServed(modelId: string): ModelPrice | undefined {
+  return (MODEL_PRICING as Record<string, ModelPrice>)[modelId] ?? FALLBACK_PRICING[modelId];
 }
 
 /** USD per million tokens → integer micro-cents per token. ($4/MTok = 400 cents/MTok = 400 micro-cents per token.) */
@@ -121,7 +138,7 @@ export function priceFor(modelId: ModelId): ModelPrice {
 /** Cost of a completion in minor units (labelled estimate). */
 export function meter(usage: TokenUsage, modelId: ModelId, opts: MeterOptions = {}): MeterResult {
   const fastPrice = opts.speed === "fast" ? FAST_MODE_PRICING[modelId] : undefined;
-  const base = fastPrice ?? priceFor(modelId);
+  const base = opts.price ?? fastPrice ?? priceFor(modelId);
   const nonNegative = (n: number) => (Number.isFinite(n) && n > 0 ? Math.floor(n) : 0);
   const promptTokens = nonNegative(usage.inputTokens) + nonNegative(usage.cacheReadInputTokens) + nonNegative(usage.cacheCreationInputTokens);
   const price = base.longPrompt && promptTokens > base.longPrompt.overTokens ? { ...base, ...base.longPrompt } : base;

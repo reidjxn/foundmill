@@ -163,6 +163,29 @@ describe("training run (BUILD §11.10)", () => {
     expect(wage?.trainingMinor).toBeLessThanOrEqual(wage?.costMinor ?? 0);
   });
 
+  it("a candidate's refusal scores that test 0 and calls no grader (WP-09 T5)", async () => {
+    const graderCalls: string[] = [];
+    const real = t.deps.models;
+    const refusing = {
+      ...real,
+      complete: (async (req: { route: string }) => {
+        if (req.route === "skillGrader") graderCalls.push(req.route);
+        const r = await (real.complete as unknown as (q: unknown) => Promise<Record<string, unknown>>).call(real, req);
+        return req.route === "skillGrader" ? r : { ...r, stopReason: "refusal", text: "" };
+      }) as unknown as typeof real.complete,
+    };
+    const acts = createTrainingActivities({ ...t.deps, models: refusing });
+    const agent = await repos.agents.get(t.db, t.businessId, t.workerId);
+    const live = await repos.agents.getVersion(t.db, t.businessId, agent.currentVersionId!);
+    const draft = await repos.agents.createVersion(t.db, t.businessId, agent.id, { instructions: live.instructions as never, tools: live.tools, modelKey: "opus", state: "draft", createdByKind: "user" });
+    const run = await repos.training.create(t.db, t.businessId, { agentId: agent.id, fromVersionId: live.id, toVersionId: draft.id });
+    const loaded = await acts.loadTrainingRun({ businessId: t.businessId, trainingRunId: run.id });
+    const outcome = await acts.runSkillTests({ businessId: t.businessId, trainingRunId: run.id, agentId: agent.id, draftVersionId: draft.id, skillKey: loaded.skillKeys[0]!, modelKey: "opus" });
+    expect(outcome.testsRun).toBeGreaterThan(0);
+    expect(outcome.meanScore).toBe(0);
+    expect(graderCalls).toEqual([]);
+  });
+
   it("refuses to train against the live version and caps scores when a deterministic check failed", async () => {
     const acts = createTrainingActivities(t.deps);
     const agent = await repos.agents.get(t.db, t.businessId, t.workerId);

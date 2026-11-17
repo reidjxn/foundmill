@@ -47,9 +47,9 @@ import { clearPlatformBillingRefusal, notePlatformBillingRefusal } from "./billi
 import { IMAGE_TOKEN_ESTIMATE, assertImagesAllowed } from "./images";
 import { parseJsonLoose } from "./json";
 import { MockModelClient, type MockModelClientOptions } from "./mock";
-import { type MeterResult, ZERO_USAGE, addUsage, estimateTokens, meter, meterWebSearch, sumMeters } from "./pricing";
+import { type MeterResult, type ModelPrice, ZERO_USAGE, addUsage, estimateTokens, meter, meterWebSearch, priceForServed, sumMeters } from "./pricing";
 import { RateLimiter, backoffWithJitter, parseRateLimitHeaders } from "./rate-limit";
-import { FAST_MODE_BETA, MODELS, MODEL_CAPABILITIES, type RouteResolution, resolveModel } from "./routing";
+import { FAST_MODE_BETA, MODELS, MODEL_CAPABILITIES, SERVER_FALLBACK_BETA, SERVER_FALLBACK_KEYS, type RouteResolution, resolveModel } from "./routing";
 import { type StreamCallArgs, type StreamCallResult, StreamInterruptedError, runStructuredStream } from "./structured-stream";
 import type {
   ChatMessage,
@@ -207,6 +207,8 @@ interface CallPlan {
   effort?: Effort;
   /** Fast mode requested for this call (route asks, model has it, client allows it). */
   fast: boolean;
+  /** Opus and Sonnet carry the server-side refusal fallback (WP-09 T5); Haiku has none. */
+  fallback: boolean;
   base: Omit<Anthropic.MessageCreateParamsNonStreaming, "messages">;
 }
 
@@ -269,20 +271,22 @@ export class LiveModelClient implements ModelClient {
       if (speed === "fast") speedUsed = "fast";
       const usage = toUsage(message.usage);
       totalUsage = addUsage(totalUsage, usage);
-      const cost = meter(usage, resolution.modelId, { speed });
+      const served = servedBy((message as { model?: string }).model, resolution.modelId);
+      const cost = meter(usage, resolution.modelId, { speed, ...(served.price ? { price: served.price } : {}) });
       meters.push(cost);
       const durationMs = Date.now() - started;
-      await this.emit({ route: req.route, model: resolution.modelId, modelKey: resolution.modelKey, mode: "live", usage, cost, scope: req.scope, attribution: req.attribution, durationMs, occurredAt: new Date().toISOString(), requestId, attempt: call, ...(speed === "fast" ? { speed } : {}) });
+      await this.emit({ route: req.route, model: resolution.modelId, modelKey: resolution.modelKey, mode: "live", usage, cost, scope: req.scope, attribution: req.attribution, durationMs, occurredAt: new Date().toISOString(), requestId, attempt: call, ...(speed === "fast" ? { speed } : {}), ...served.event });
 
       const text = message.content.filter((b): b is Anthropic.TextBlock => b.type === "text").map((b) => b.text).join("");
       const stopReason = (message.stop_reason ?? "end_turn") as StopReason;
-      const common = { text, usage: totalUsage, model: resolution.modelId, modelKey: resolution.modelKey, route: req.route, stopReason, cost: sumMeters(meters, resolution.modelId), mode: "live" as const, requestId, durationMs: Date.now() - started, repaired, warning: resolution.warning, ...(plan.effort ? { effort: plan.effort } : {}), ...(speedUsed ? { speed: speedUsed } : {}) };
+      const common = { text, usage: totalUsage, model: resolution.modelId, modelKey: resolution.modelKey, route: req.route, stopReason, cost: sumMeters(meters, resolution.modelId), mode: "live" as const, requestId, durationMs: Date.now() - started, repaired, warning: resolution.warning, ...(plan.effort ? { effort: plan.effort } : {}), ...(speedUsed ? { speed: speedUsed } : {}), ...(served.event.servedModel ? { servedModel: served.event.servedModel } : {}) };
 
-      if (!req.schema) return { ...common };
-
-      if (stopReason === "refusal") {
+      // A refusal (the whole fallback chain declined, or a model without one) is never returned as an answer, unless
+      // the caller asked for it (WP-09 T5).
+      if (stopReason === "refusal" && !(req as { allowRefusal?: boolean }).allowRefusal) {
         throw new ModelOutputError(`Model refused the request for route "${req.route}"`, { stopDetails: (message as { stop_details?: unknown }).stop_details, requestId }, "refusal");
       }
+      if (!req.schema) return { ...common };
       const parsed = parseJsonLoose(text);
       const validated = parsed.ok ? req.schema.safeParse(parsed.value) : undefined;
       if (validated?.success) return { ...common, json: validated.data };
@@ -403,7 +407,7 @@ export class LiveModelClient implements ModelClient {
       else this.opts.logger?.debug({ route: req.route, model: resolution.modelId }, "temperature dropped: this model rejects sampling parameters");
     }
     const fast = resolution.speed === "fast" && this.opts.fastMode === true;
-    return { resolution, maxTokens, reserve, effort, fast, base };
+    return { resolution, maxTokens, reserve, effort, fast, fallback: SERVER_FALLBACK_KEYS.includes(resolution.modelKey), base };
   }
 
   /** Limiter bucket: fast mode draws on its own rate-limit pool. */
@@ -424,8 +428,9 @@ export class LiveModelClient implements ModelClient {
       if (req.signal?.aborted) throw new ModelAbortedError();
       const sentAt = Date.now();
       try {
-        const { data, response, request_id } = fast
-          ? await this.anthropic.beta.messages.create({ ...params, speed: "fast", betas: [FAST_MODE_BETA] } as unknown as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming, { signal: req.signal }).withResponse()
+        const beta = betaParams(params, fast, plan.fallback);
+        const { data, response, request_id } = beta
+          ? await this.anthropic.beta.messages.create(beta, { signal: req.signal }).withResponse()
           : await this.anthropic.messages.create(params, { signal: req.signal }).withResponse();
         this.rateLimiter.observe(this.bucket(fast), response.headers);
         this.rateLimiter.clearPenalty(scope);
@@ -454,11 +459,8 @@ export class LiveModelClient implements ModelClient {
       await this.rateLimiter.acquire(this.bucket(fast), { requests: 1, inputTokens: estimatedInput, outputTokens: plan.reserve }, scope);
       if (req.signal?.aborted) throw new ModelAbortedError();
       const sentAt = Date.now();
-      const stream = (
-        fast
-          ? this.anthropic.beta.messages.stream({ ...params, speed: "fast", betas: [FAST_MODE_BETA] } as unknown as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming, { signal: req.signal })
-          : this.anthropic.messages.stream(params, { signal: req.signal })
-      ) as unknown as StreamHandle;
+      const beta = betaParams(params, fast, plan.fallback);
+      const stream = (beta ? this.anthropic.beta.messages.stream(beta, { signal: req.signal }) : this.anthropic.messages.stream(params, { signal: req.signal })) as unknown as StreamHandle;
       try {
         const { response, request_id } = await stream.withResponse();
         this.rateLimiter.observe(this.bucket(fast), response.headers);
@@ -482,9 +484,10 @@ export class LiveModelClient implements ModelClient {
     const params: Anthropic.MessageCreateParamsNonStreaming = { ...plan.base, messages: args.messages.map(toParam) };
     const { stream, requestId, fast } = await this.openStream(params, req, scope, args.call, plan);
     const { resolution } = plan;
-    const emitUsage = async (usage: TokenUsage, speed: Speed | undefined) => {
-      const cost = meter(usage, resolution.modelId, { speed });
-      await this.emit({ route: req.route, model: resolution.modelId, modelKey: resolution.modelKey, mode: "live", usage, cost, scope: req.scope, attribution: req.attribution, durationMs: Date.now() - started, occurredAt: new Date().toISOString(), requestId, attempt: args.call, streamed: true, ...(speed === "fast" ? { speed } : {}) });
+    const emitUsage = async (usage: TokenUsage, speed: Speed | undefined, servedModel?: string) => {
+      const served = servedBy(servedModel, resolution.modelId);
+      const cost = meter(usage, resolution.modelId, { speed, ...(served.price ? { price: served.price } : {}) });
+      await this.emit({ route: req.route, model: resolution.modelId, modelKey: resolution.modelKey, mode: "live", usage, cost, scope: req.scope, attribution: req.attribution, durationMs: Date.now() - started, occurredAt: new Date().toISOString(), requestId, attempt: args.call, streamed: true, ...(speed === "fast" ? { speed } : {}), ...served.event });
       return cost;
     };
     let text = "";
@@ -503,7 +506,7 @@ export class LiveModelClient implements ModelClient {
       const message = await stream.finalMessage();
       const usage = toUsage(message.usage);
       const speed = speedOf(message.usage, fast);
-      const cost = await emitUsage(usage, speed);
+      const cost = await emitUsage(usage, speed, (message as { model?: string }).model);
       const finalText = message.content.filter((b) => b.type === "text").map((b) => b.text ?? "").join("");
       return { text: finalText || text, stopReason: (message.stop_reason ?? "end_turn") as StopReason, usage, cost, requestId, stopDetails: message.stop_details, ...(speed === "fast" ? { speed } : {}) };
     } catch (error) {
@@ -834,3 +837,25 @@ function repairPrompt(issues: string[]): string {
 }
 
 export type { z };
+
+/**
+ * The beta request body, when the call needs one: fast mode (`speed`), the server-side refusal fallback on Opus and
+ * Sonnet (`fallbacks: "default"`, WP-09 T5), or both. Null for a plain call (Haiku without fast mode).
+ */
+function betaParams(params: Anthropic.MessageCreateParamsNonStreaming, fast: boolean, fallback: boolean): Anthropic.Beta.Messages.MessageCreateParamsNonStreaming | null {
+  if (!fast && !fallback) return null;
+  const betas = [...(fast ? [FAST_MODE_BETA] : []), ...(fallback ? [SERVER_FALLBACK_BETA] : [])];
+  return { ...params, ...(fast ? { speed: "fast" } : {}), ...(fallback ? { fallbacks: "default" } : {}), betas } as unknown as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming;
+}
+
+/**
+ * Who served a call (WP-09 T5): the response's top-level `model` names it. Another model than the one asked for means
+ * a server-side fallback answered; its usage is metered at its own card, or at the asked model's card when there is no
+ * price for it here (flagged `unpriced`, an Estimate either way).
+ */
+function servedBy(model: string | undefined, asked: string): { price?: ModelPrice; event: { servedModel?: string; unpriced?: boolean } } {
+  if (!model || model === asked) return { event: {} };
+  const price = priceForServed(model);
+  return price ? { price, event: { servedModel: model } } : { event: { servedModel: model, unpriced: true } };
+}
+
