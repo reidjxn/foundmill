@@ -121,7 +121,7 @@ Order: T1, T2, T3 first (the path), then T6, T5, T4, T7, T8; T9 to T16 in any or
 **Tests and evals:** as above, plus `apps/web/e2e/first-days.spec.ts` (Today after commit shows no running cycle and no finance or legal task). No eval: the planner prompt is unchanged.
 **Done when:** a no-budget project commits with one task, no agent session before the page note, and less than $1.00 spent in its first hour (Estimate; WP-02's cost report confirms).
 
-### T4: The starting team, as shown   [S] [ships after T2]
+### [x] T4: The starting team, as shown   [S] [ships after T2]
 
 **Why:** s2 §5.3 ("25 agents and up to 17 notes on day one"), s1 §3.7 and §3.8, a3b §2.2, FR-16 row 2.
 

@@ -36,6 +36,8 @@ async function expectNameAndGo(page: Page): Promise<void> {
   await expect(form.locator("input:not([type=hidden]), textarea, select")).toHaveCount(1);
   await expect(page.getByTestId("what-happens-next")).toContainText("Your team is hired");
   await expect(page.getByTestId("commit-credits-line").or(page.getByTestId("commit-credits-notice"))).toBeVisible();
+  // The starting team in one line (WP-04 T4).
+  await expect(page.getByTestId("starting-team-line")).toHaveText(/^Your starting team: Chief of Staff, Product Lead and Researcher\. \d+ more join as the work needs them\.$/, { timeout: LONG });
   await expect(form.getByRole("button", { name: "Start my project" })).toHaveCount(1);
   await expect(page.getByTestId("commit-more")).toHaveAttribute("aria-expanded", "false");
   for (const id of ["name-checks-panel", "logo-panel", "how-it-runs", "squad-preview"]) await expect(page.getByTestId(id)).toHaveCount(0);
@@ -100,6 +102,10 @@ test.describe("commit", () => {
     const squad = page.getByTestId("squad-preview");
     await expect(page.getByTestId("squad-preview-counts")).toHaveText(/^\d+ agents? · \d+ departments? · \d+ channels? on/, { timeout: LONG });
     await expect(squad.getByRole("list", { name: "Team" }).getByText(/Source watcher|Secrets scanner|Utility/)).toHaveCount(0);
+    // Three are shown; everyone else behind See everyone (WP-04 T4).
+    await expect(squad.getByRole("list", { name: "Team" }).getByRole("listitem")).toHaveCount(3);
+    await squad.getByRole("button", { name: "See everyone" }).click();
+    await expect.poll(() => squad.getByRole("list", { name: "Team" }).getByRole("listitem").count()).toBeGreaterThan(3);
     await expect(page.getByRole("radiogroup", { name: "Personal or live" })).toBeVisible();
     await expect(page.getByTestId("archetype-panel")).toBeVisible();
     await expect(page.getByLabel(/Spend cap per action/)).toBeVisible();

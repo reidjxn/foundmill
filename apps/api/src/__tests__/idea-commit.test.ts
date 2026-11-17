@@ -89,6 +89,9 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     // The founder meets the Chief of Staff and what is always theirs in the first note (UX plan §7.19, E5).
     expect(result.firstItem.bodyMd.startsWith("I'm your Chief of Staff. I run the team beside you and tell you what matters and why. Some things are always yours: money, signatures, contracts, deleting things.")).toBe(true);
     expect(result.firstItem.bodyMd).toContain("Nothing is spent on distribution until you start it");
+    // No head count (WP-04 T4): the founder is shown a starting team, not every agent hired behind it.
+    expect(result.firstItem.bodyMd).toContain("The team is hired.");
+    expect(result.firstItem.bodyMd).not.toMatch(/\d+ agents in \d+ departments/);
     // The page comes first, then the plan (WP-02 T6).
     expect(result.firstItem.bodyMd).toMatch(/is drafting your public page first, from .+: check it and put it live\. Your plan follows as one note to approve\. Building starts when you approve it\./);
     expect(inbox.continueState).toEqual({ kind: "idle" });

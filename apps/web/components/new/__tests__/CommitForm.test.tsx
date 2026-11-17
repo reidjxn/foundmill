@@ -5,7 +5,7 @@ import { BuilderViewProvider, CONCEPT_ATTRIBUTE_KEYS, GuidanceProvider, TooltipP
 import { TRPCClientError } from "@trpc/client";
 import { FIRST_DAY_PROMISE, domainCandidates } from "@foundmill/shared";
 import { termsWithGlossary } from "@foundmill/shared/terms";
-import { COMMIT_WORDS, CommitForm, HOW_IT_RUNS_REASSURANCE, WHAT_HAPPENS_NEXT, archetypeParam, commitSteps, departmentColour, importHref, includedCreditsLine, spendCapSummary, teamCountsLine, upgradeHrefOf, type CommitDomainApi, type CommitLogoApi } from "../commit/CommitScreen";
+import { COMMIT_WORDS, CommitForm, HOW_IT_RUNS_REASSURANCE, WHAT_HAPPENS_NEXT, archetypeParam, commitSteps, departmentColour, importHref, includedCreditsLine, spendCapSummary, startingTeamLine, teamCountsLine, upgradeHrefOf, type CommitDomainApi, type CommitLogoApi } from "../commit/CommitScreen";
 import type { DomainCheck } from "../commit/naming";
 import { IMPORT_STEPS, STUDIO_STEPS } from "../StudioFrame";
 import { META_KIND, type IdeaLike } from "../ideate/concepts";
@@ -192,6 +192,52 @@ describe("CommitForm: name and go (WP-04 T2)", () => {
     cleanup();
     renderForm(vi.fn(), { preview }, { builder: true });
     expect(screen.getByTestId("squad-preview-wages").textContent).toMatch(/^Up to \$400\.00 a month in wage caps/);
+  });
+});
+
+/** A b2b-shaped preview: the three starters, four more agents and one background helper. */
+const TEAM_PREVIEW = {
+  departments: [{ slug: "product", name: "Product", icon: "box", colourToken: "dept-1", moduleKeys: ["product"], budgetMinor: 0, budgetLabel: "Estimate" }],
+  agents: [
+    { templateKey: "chief_of_staff", name: "Chief of Staff", role: "Chief of Staff", layer: "assistant", modelKey: "opus", wageCapMinor: 40_000, wageCurrency: "USD", wageLabel: "Estimate", departmentSlug: "product" },
+    { templateKey: "product_lead", name: "Product Lead", role: "Leads Product", layer: "lead", modelKey: "opus", wageCapMinor: 30_000, wageCurrency: "USD", wageLabel: "Estimate", departmentSlug: "product" },
+    { templateKey: "researcher", name: "Researcher", role: "Finds sources", layer: "worker", modelKey: "sonnet", wageCapMinor: 10_000, wageCurrency: "USD", wageLabel: "Estimate", departmentSlug: "product" },
+    { templateKey: "product_researcher", name: "Product researcher", role: "Studies users", layer: "worker", modelKey: "sonnet", wageCapMinor: 10_000, wageCurrency: "USD", wageLabel: "Estimate", departmentSlug: "product" },
+    { templateKey: "engineering_lead", name: "Engineering Lead", role: "Leads Development", layer: "lead", modelKey: "opus", wageCapMinor: 30_000, wageCurrency: "USD", wageLabel: "Estimate", departmentSlug: "product" },
+    { templateKey: "planner", name: "Planner", role: "Plans the build", layer: "worker", modelKey: "opus", wageCapMinor: 10_000, wageCurrency: "USD", wageLabel: "Estimate", departmentSlug: "product" },
+    { templateKey: "finance_lead", name: "Finance Lead", role: "Leads Finance", layer: "lead", modelKey: "sonnet", wageCapMinor: 10_000, wageCurrency: "USD", wageLabel: "Estimate", departmentSlug: "product" },
+    { templateKey: "entity_linker", name: "Entity linker", role: "Links mentions", layer: "utility", background: true, modelKey: "haiku", wageCapMinor: 2_000, wageCurrency: "USD", wageLabel: "Estimate", departmentSlug: "product" },
+  ],
+  defaultChannels: [],
+  specOutline: [],
+} as unknown as NonNullable<React.ComponentProps<typeof CommitForm>["preview"]>;
+
+describe("CommitForm: the starting team, as shown (WP-04 T4)", () => {
+  it("names the three starters and counts the rest, background helpers left out", () => {
+    expect(startingTeamLine(TEAM_PREVIEW)).toBe("Your starting team: Chief of Staff, Product Lead and Researcher. 4 more join as the work needs them.");
+    expect(startingTeamLine({ agents: TEAM_PREVIEW.agents.slice(0, 3) })).toBe("Your starting team: Chief of Staff, Product Lead and Researcher.");
+  });
+
+  it("says the starting team in one line on the default view, with no model or wage", () => {
+    renderForm(vi.fn(), { preview: TEAM_PREVIEW }, { collapsed: true });
+    expect(screen.getByTestId("starting-team-line").textContent).toBe(startingTeamLine(TEAM_PREVIEW));
+    expect(screen.getByTestId("commit-form").textContent).not.toMatch(/Opus|Sonnet|Haiku|wage/i);
+    expect(screen.queryByTestId("squad-preview")).toBeNull();
+  });
+
+  it("lists the three starters inside More options, everyone behind See everyone, model chips only in Builder view", () => {
+    renderForm(vi.fn(), { preview: TEAM_PREVIEW });
+    const list = () => within(screen.getByTestId("squad-preview")).getByRole("list", { name: "Team" });
+    expect(within(list()).getAllByRole("listitem").map((li) => li.querySelector(".text-body-strong")?.textContent)).toEqual(["Chief of Staff", "Product Lead", "Researcher"]);
+    expect(screen.getByTestId("squad-preview").textContent).not.toMatch(/Opus|Sonnet/);
+    const all = screen.getByRole("button", { name: "See everyone" });
+    expect(all.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(all);
+    expect(within(list()).getAllByRole("listitem")).toHaveLength(7);
+    expect(screen.getByTestId("squad-preview").textContent).not.toMatch(/Entity linker/);
+    cleanup();
+    renderForm(vi.fn(), { preview: TEAM_PREVIEW }, { builder: true });
+    expect(screen.getByTestId("squad-preview").textContent).toMatch(/Opus/);
   });
 });
 

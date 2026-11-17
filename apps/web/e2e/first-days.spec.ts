@@ -168,6 +168,25 @@ test.describe("first days", () => {
     await page.getByTestId("commit-link").first().click();
     await expect(page).toHaveURL(/\/new\/commit\/[0-9a-f-]+/);
     const { bid } = await takeChargeToHome(page, `Changes Asked ${Date.now().toString(36)}`);
+    // The starting team, as shown (WP-04 T4): everyone is hired, but in the first week Team › Agents lists the starting
+    // team and whoever has work, at most five rows (specialists opened) before "Show all".
+    await page.goto(`/b/${bid}/d/team/squad`);
+    const agentsTable = page.getByRole("treegrid", { name: "Agents" });
+    await expect(agentsTable).toBeVisible({ timeout: LONG });
+    const firstWeek = page.getByTestId("squad-first-week");
+    await expect(firstWeek).toContainText("Showing who is working this week", { timeout: LONG });
+    for (const more of await agentsTable.getByRole("button", { name: /^Show \d+ specialists? under / }).all()) await more.click();
+    const agentRows = agentsTable.getByRole("row").filter({ hasNot: page.getByRole("columnheader") });
+    const shown = await agentRows.count();
+    expect(shown).toBeGreaterThanOrEqual(1);
+    expect(shown).toBeLessThanOrEqual(5);
+    const showAll = firstWeek.getByTestId("squad-show-all");
+    await expect(showAll).toHaveText(/^Show all \d+$/);
+    const all = Number((await showAll.textContent())!.replace(/\D/g, ""));
+    expect(all).toBeGreaterThan(5);
+    await showAll.click();
+    await expect(firstWeek).toHaveCount(0);
+    await expect(agentsTable.getByRole("row").filter({ hasNot: page.getByRole("columnheader") }).first()).toBeVisible();
     // The Specification tab's sign-off banner waits for the drafting itself (Home's ready panel shows only when the visit
     // saw the drafting, which a fast mock draft can finish before Home's first read).
     await page.goto(`/b/${bid}/d/product/specification`);

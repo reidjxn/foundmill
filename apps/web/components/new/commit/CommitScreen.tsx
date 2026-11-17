@@ -18,10 +18,10 @@ import { ArrowLeft, ArrowRight, Check, ChevronDown, ChevronUp, Globe, Lock, Rock
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { CREDITS_CURRENCY, includedCreditsMinor } from "@foundmill/config";
-import { ARCHETYPES, ARCHETYPE_LABELS, FIRST_DAY_PROMISE, type Archetype, type BusinessMode, type DeptColourToken, type GameMode } from "@foundmill/shared";
+import { ARCHETYPES, ARCHETYPE_LABELS, FIRST_DAY_PROMISE, startingTeam, type Archetype, type BusinessMode, type DeptColourToken, type GameMode } from "@foundmill/shared";
 import { DEFAULT_AGENT_STYLE, type AgentStyle } from "@foundmill/shared/personas";
 import { routes } from "@foundmill/widgets/shared/routes";
-import { AgentStylePicker, Avatar, BuilderOnly, Button, Checkbox, Chip, ConceptCard, EmptyState, Field, Icon, Input, Label, MoneyInput, Panel, ProvenanceChip, RadioGroup, RadioGroupItem, ReassuranceLine, SkeletonRows, StatusPill, Switch, Term, cn, fieldDescribedBy, formatMoney, useDateFormat, useFormatters, useToast, type Kit } from "@foundmill/dugout";
+import { AgentStylePicker, BuilderOnly, Button, Checkbox, Chip, ConceptCard, EmptyState, Field, Icon, Input, Label, MoneyInput, Panel, ProvenanceChip, RadioGroup, RadioGroupItem, ReassuranceLine, SkeletonRows, StartingTeamList, StatusPill, Switch, Term, cn, fieldDescribedBy, formatMoney, useDateFormat, useBuilderView, useFormatters, useToast, type Kit } from "@foundmill/dugout";
 import { ANTHROPOMORPHIC_EXPLAINER } from "@/lib/anthropomorphic";
 import { formatDate, formatMoney as formatCredits, plainWords, plural } from "@/lib/format";
 import { agentStyleOf, useGuidancePreferences } from "@/components/providers/guidance-context";
@@ -345,6 +345,20 @@ export function visibleAgents<A extends PreviewAgent>(agents: readonly A[]): A[]
   return agents.filter((a) => !(a.background ?? a.layer === "utility"));
 }
 
+/** "A", "A and B", "A, B and C". */
+const andList = (names: readonly string[]) => (names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`);
+
+/**
+ * The starting team in one line (WP-04 T4; founder decision 2: everyone is hired, three are shown): "Your starting
+ * team: Chief of Staff, Product lead and Researcher. 24 more join as the work needs them." The count is of the agents
+ * a founder would see later; background helpers never join a list, so they are not in it.
+ */
+export function startingTeamLine(preview: { agents: readonly (PreviewAgent & { name: string })[] }): string {
+  const { starting, later } = startingTeam(visibleAgents(preview.agents));
+  const more = later.length ? ` ${later.length} more join as the work needs them.` : "";
+  return `Your starting team: ${andList(starting.map((a) => a.name))}.${more}`;
+}
+
 /**
  * "6 agents · 6 departments · 4 channels on · plus 2 background helpers". The channels are the starters that can really
  * run for a new project (the API's preview); with none, the line says nothing about channels instead of "0 channels on".
@@ -387,6 +401,7 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
   const concept = useMemo(() => toConcept(idea), [idea]);
   // "More options" (WP-04 T2): the name checks, the logo, How it runs and the team, closed for everyone until pressed.
   const [moreOpen, setMoreOpen] = useState(false);
+  const builder = useBuilderView();
   // The idea's seed only picks the starting brand colours now; the logo is uploaded or generated.
   const ideaSeed = String(readMeta(idea.current?.research).crest_seed ?? idea.id);
   const [form, setForm] = useState<CommitFormValues>(() => {
@@ -575,6 +590,12 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
                   </li>
                 ))}
               </ol>
+              {/* The starting team in one line (WP-04 T4): names only; who else joins, and their models, wait in More options. */}
+              {preview && form.archetype ? (
+                <p className="mt-3 text-body text-pretty" data-testid="starting-team-line">
+                  {startingTeamLine(preview)}
+                </p>
+              ) : null}
               {/* The first money a founder reads about: included credits, no card (A10). Not when this month's pool is spent: that notice says so below. */}
               {creditsNotice ? null : (
                 <p className="mt-3 text-small text-secondary" data-testid="commit-credits-line">
@@ -902,18 +923,12 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
                       {departmentRenameNote(preview.departments, form.archetype)}
                     </p>
                   ) : null}
-                  <ul className="flex flex-col divide-y divide-line-faint" aria-label="Team">
-                    {visibleAgents(preview.agents).map((a) => (
-                      <li key={a.templateKey} className="flex items-center gap-2 py-1.5 first:pt-0 last:pb-0" data-department={a.departmentSlug ?? undefined}>
-                        <Avatar size={24} name={a.name} agent={{ seed: a.templateKey, dept: departmentColour(preview, a.departmentSlug) }} />
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-body-strong">{a.name}</div>
-                          <div className="truncate text-small text-secondary">{a.role}</div>
-                        </div>
-                        <Chip>{plainWords(a.modelKey)}</Chip>
-                      </li>
-                    ))}
-                  </ul>
+                  {/* Three are shown, everyone else behind See everyone; models only in Builder view (WP-04 T4). */}
+                  {(() => {
+                    const row = (a: (typeof preview.agents)[number]) => ({ key: a.templateKey, name: a.name, role: a.role, dept: departmentColour(preview, a.departmentSlug), model: plainWords(a.modelKey), departmentSlug: a.departmentSlug });
+                    const { starting, later } = startingTeam(visibleAgents(preview.agents));
+                    return <StartingTeamList starting={starting.map(row)} later={later.map(row)} showModels={builder} />;
+                  })()}
                   <p className="text-small text-secondary" data-testid="squad-preview-counts">
                     {teamCountsLine(preview)}
                   </p>

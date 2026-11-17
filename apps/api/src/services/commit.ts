@@ -155,14 +155,15 @@ export function importBoardDecision(name: string, link: ImportLink): ReturnType<
  * founder's (the house rules' founder line, UX plan §7.19), the team is hired, the Product lead is drafting the
  * foundations, the plan note follows, and nothing is spent on distribution until the founder starts it.
  */
-export function welcomeNote(input: { agents: number; departments: number; productLeadName: string | null; door: "ideation" | "import" }): { subject: string; bodyMd: string } {
+export function welcomeNote(input: { productLeadName: string | null; door: "ideation" | "import" }): { subject: string; bodyMd: string } {
   const from = input.door === "import" ? "the Import report" : "your idea and your founder profile";
   const who = input.productLeadName ?? "The Product lead";
   return {
     subject: "Your team is drafting your page and your plan",
     bodyMd: [
       prompts.HOUSE_RULES_FOUNDER_LINE,
-      `The team is hired: ${input.agents} agents in ${input.departments} departments.`,
+      // No head count (WP-04 T4): a new project is shown its starting team, not the 27 agents hired behind it.
+      "The team is hired.",
       `${who} is drafting your public page first, from ${from}: check it and put it live. Your plan follows as one note to approve. Building starts when you approve it.`,
       "Nothing is spent on distribution until you start it from Customers › Board.",
     ].join("\n\n"),
@@ -362,7 +363,7 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
     // Start distribution and Door B's import decisions for the build start (services/signoff.ts).
     const productDept = seed.departments.find((d) => d.moduleKeys.includes("product"));
     const productLeadId = productDept ? leadByDepartment.get(departmentIdBySlug.get(productDept.slug)!) : undefined;
-    const welcome = welcomeNote({ agents: agentIds.length, departments: seed.departments.length, productLeadName: hired.find((h) => h.agent.id === productLeadId)?.agent.name ?? null, door: importLink ? "import" : "ideation" });
+    const welcome = welcomeNote({ productLeadName: hired.find((h) => h.agent.id === productLeadId)?.agent.name ?? null, door: importLink ? "import" : "ideation" });
     const firstItem = await repos.inbox.createItem(tx, businessId, {
       type: "update",
       from_agent_id: chief.agent.id,
