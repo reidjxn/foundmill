@@ -1,6 +1,7 @@
 /**
  * The response headers of every site response (WP-07 T4). A site is static and runs no script: the policy below is
- * what enforces that, whatever a release contains. No response ever sets a cookie.
+ * what enforces that, whatever a release contains. The one exception is the platform's own sign-up page (T6), which
+ * may load Cloudflare Turnstile's script (apps/sites `app.ts`). No response ever sets a cookie.
  */
 
 export type SiteKind = "live" | "preview";
@@ -35,7 +36,8 @@ export function siteHeaders(options: SiteHeaderOptions): Record<string, string> 
   const headers: Record<string, string> = {
     "Content-Security-Policy": siteCsp(options),
     "X-Content-Type-Options": "nosniff",
-    "Referrer-Policy": "strict-origin-when-cross-origin",
+    // A preview's host carries its token: never send it on to a site the preview links to.
+    "Referrer-Policy": options.kind === "preview" ? "no-referrer" : "strict-origin-when-cross-origin",
     "Cross-Origin-Opener-Policy": "same-origin",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
   };

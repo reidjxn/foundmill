@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ARCHETYPES, BACKGROUND_HELPER_AGENT_TYPES, CHANNEL_KEYS, MODULE_KEYS, MODULE_TABS } from "@foundmill/shared";
-import { ARCHETYPE_SEEDS, ARCHETYPE_SEED_LIST, CHANNEL_SCORING_TASK, DEPARTMENT_DEFAULTS, UTILITY_TEMPLATE_KEYS, departmentTabs, firstCycleTasksFor, getArchetypeSeed, templateKeysForArchetype } from "../archetypes";
+import { ARCHETYPE_SEEDS, ARCHETYPE_SEED_LIST, CHANNEL_SCORING_TASK, DEPARTMENT_DEFAULTS, STARTING_TEAM_TEMPLATE_KEYS, UTILITY_TEMPLATE_KEYS, departmentTabs, firstCycleTasksFor, getArchetypeSeed, startingTeam, templateKeysForArchetype } from "../archetypes";
 import { ArchetypeSeed } from "../types";
 import { getTemplate, hasTemplate } from "../registry";
 
@@ -265,6 +265,24 @@ describe("firstCycleTasksFor (WP-04 T3; founder, 2026-11-16 D1)", () => {
       const kept = firstCycleTasksFor(seed, { hasBudget: false });
       expect(kept, seed.archetype).toEqual(seed.firstCycleTasks.filter((t) => t.kind !== "finance" && t.kind !== "legal"));
       expect(kept.some((t) => t.title === "Answer the specification's open questions"), seed.archetype).toBe(true);
+    }
+  });
+});
+
+describe("startingTeam (WP-04 T4; founder decision 2: everyone is hired, three are shown)", () => {
+  it("splits the b2b_saas team into the three starters, in the constant's order, and the 24 who join later", () => {
+    const agents = templateKeysForArchetype("b2b_saas").map((templateKey) => ({ templateKey }));
+    const { starting, later } = startingTeam(agents);
+    expect(starting.map((a) => a.templateKey)).toEqual(["chief_of_staff", "product_lead", "researcher"]);
+    expect(starting).toHaveLength(3);
+    expect(later).toHaveLength(24);
+    expect(later.some((a) => STARTING_TEAM_TEMPLATE_KEYS.includes(a.templateKey))).toBe(false);
+  });
+
+  it("every starting key is hired by every archetype seed", () => {
+    for (const seed of ARCHETYPE_SEED_LIST) {
+      const keys = templateKeysForArchetype(seed.archetype);
+      for (const key of STARTING_TEAM_TEMPLATE_KEYS) expect(keys, `${seed.archetype} hires ${key}`).toContain(key);
     }
   });
 });

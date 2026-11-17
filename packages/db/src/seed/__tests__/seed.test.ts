@@ -273,12 +273,12 @@ describe("seedDemo on PGlite", () => {
       expect(integrations.every((i) => i.status === "mock" || i.status === "degraded")).toBe(true);
       const dashboard = await repos.dashboards.active(db, businessId, result.owner.userId);
       expect(dashboard?.preset).toBe("founder");
-      // Ribbon, status strip, team pulse, inbox and the first-week checklist (docs/UX_AUDIT_AND_PLAN.md §6.2), plus a
-      // department card for each visible department.
+      // Ribbon, status strip, team pulse and inbox, plus a department card for each visible department. No first-week
+      // checklist: "Your first week" is on Today only (WP-04 T7).
       const departments = await repos.departments.list(db, businessId);
       expect(dashboard?.layout.widgets.filter((w) => (w as { key: string }).key === "department_card")).toHaveLength(departments.length);
-      expect(dashboard?.layout.widgets.filter((w) => (w as { key: string }).key === "first_week_checklist")).toHaveLength(1);
-      expect(dashboard?.layout.widgets.length).toBe(departments.length + 5);
+      expect(dashboard?.layout.widgets.filter((w) => (w as { key: string }).key === "first_week_checklist")).toHaveLength(0);
+      expect(dashboard?.layout.widgets.length).toBe(departments.length + 4);
       expect(await count(s.usageLedger, businessId)).toBeGreaterThan(0);
     }
     const nwLegal = (await repos.legal.primaryEntity(db, NORTHWIND_BUSINESS_ID))!;

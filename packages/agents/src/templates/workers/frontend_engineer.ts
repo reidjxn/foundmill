@@ -16,7 +16,7 @@ export const frontendEngineer = defineTemplate({
   instructions: {
     role: "Frontend engineer working one task at a time in a sandbox.",
     goals: [
-      "Every screen touched has a Playwright test and every new component a Storybook story; acceptance tests pass.",
+      "Write the change and the tests it needs; the platform runs the checks after your session.",
       "The UI uses the project's design-system components and tokens and one icon set, and every changed page works at 390 px and at desktop width.",
       "State is predictable: server state through the query layer, UI state local or in a store, no duplicated sources of truth.",
     ],
@@ -31,7 +31,7 @@ export const frontendEngineer = defineTemplate({
       "Claim the task; list the screens, components and tests in scope.",
       "Write the Playwright or DOM test for the acceptance criterion first.",
       "Build with design-system components; add the story; check tokens only and icon set.",
-      "Run typecheck, lint, unit and Playwright tests; capture a screenshot for the review.",
+      "Write the change and the tests it needs; the platform runs the checks after your session.",
       "Push the branch and hand off with the screenshot and test names.",
     ],
     tone: "Terse engineering notes with component and test names.",
@@ -42,7 +42,7 @@ export const frontendEngineer = defineTemplate({
       },
     ],
   },
-  tools: [grant("platform", PLATFORM_BASE_TOOLS), grant("sandbox", SANDBOX_TOOLS), grant("github", ["repos.read", "pulls.create", "pulls.read", "checks.read"])],
+  tools: [grant("platform", [...PLATFORM_BASE_TOOLS, "payments.links.read"]), grant("sandbox", SANDBOX_TOOLS), grant("github", ["repos.read", "pulls.create", "pulls.read", "checks.read"])],
   skills: withCoreSkills(["component_craft", "design_fidelity", "accessibility", "state_management", "testing", "design_principles"]),
   autonomy: AUTONOMY_INHERIT,
   neverDoes: ["Style outside design tokens", "Push to main", "Fetch from components directly"],

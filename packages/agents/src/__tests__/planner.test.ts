@@ -37,6 +37,11 @@ describe("the Planner's inputs from the records", () => {
 
   it("code has a destination only when a repository is chosen and pushing is on", () => {
     expect(plannerDestination(null)).toBe("none");
+    // WP-07 T9: no repository, Sites on → the project's site; a repository with pushing off stays "none".
+    expect(plannerDestination(null, { sites: true })).toBe("site");
+    expect(plannerDestination({ writeEnabled: false }, { sites: true })).toBe("none");
+    expect(plannerDestination({ writeEnabled: true }, { sites: true })).toBe("github");
+    expect(PLANNER_SYSTEM_PROMPT).toContain('When destination is "site"');
     expect(plannerDestination({ writeEnabled: false })).toBe("none");
     expect(plannerDestination({ writeEnabled: true })).toBe("github");
   });

@@ -13,6 +13,7 @@ const RELEASES: Record<string, Record<string, SiteFile>> = {
     "index.html": file("<!doctype html><html><body><h1>Lunchbox</h1></body></html>"),
     "about/index.html": file("<html><body>About</body></html>"),
     "styles.css": file("h1{color:red}"),
+    "logo.svg": file('<svg xmlns="http://www.w3.org/2000/svg"></svg>'),
     "app.js": file("alert(1)"),
     ".env": file("SECRET=1"),
     "404.html": file("<html><body>Lost</body></html>"),
@@ -30,6 +31,7 @@ const SITES: Record<string, ResolvedSite> = {
 
 function makeApp(overrides: Partial<SitesDeps> = {}) {
   const reports: { label: string; reason: string; detail: string }[] = [];
+  const submits: Parameters<SitesDeps["follow"]["submit"]>[0][] = [];
   const deps: SitesDeps = {
     env: { APP_ENV: "production", APP_URL: "https://foundmill.com", SITES_DOMAIN: DOMAIN },
     resolve: async (label) => SITES[label] ?? null,
@@ -39,12 +41,21 @@ function makeApp(overrides: Partial<SitesDeps> = {}) {
       return "recorded";
     },
     ping: async () => true,
+    payLink: async (label, key) => (key === "starter" && (label === "lunchbox" || label === `p-${TOKEN}`) ? "https://buy.stripe.com/test_starter" : key === "tampered" ? "https://evil.example/x" : null),
+    follow: {
+      consent: async (slug) => (SITES[slug]?.kind === "live" ? { consentText: "I agree to get email from Lunchbox about the project. I can stop at any time." } : null),
+      submit: async (input) => {
+        submits.push(input);
+        return { ok: true };
+      },
+    },
+    turnstileSiteKey: null,
     log: { info: () => {}, warn: () => {} },
     ...overrides,
   };
   const app = createSitesApp(deps);
   const req = (host: string, path = "/", init: RequestInit = {}) => app.request(`http://${host}${path}`, { ...init, headers: { host, ...(init.headers as Record<string, string> | undefined) } });
-  return { app, req, reports };
+  return { app, req, reports, submits };
 }
 
 const EXPECTED_LIVE = {
@@ -98,7 +109,15 @@ describe("apps/sites", () => {
     expect(res.headers.get("x-robots-tag")).toBe("noindex, nofollow");
     expect(res.headers.get("cache-control")).toBe("no-store");
     expect(res.headers.get("content-security-policy")).toContain("frame-ancestors https://foundmill.com");
+    // The preview's host carries its token: it is never sent on to a site the preview links to.
+    expect(res.headers.get("referrer-policy")).toBe("no-referrer");
     expect(await res.text()).toContain("Preview");
+  });
+
+  it("serves an SVG as an image, never as a page (a page carries the footer)", async () => {
+    const { req } = makeApp();
+    expect((await req(`lunchbox.${DOMAIN}`, "/logo.svg", { headers: { "sec-fetch-dest": "image" } })).status).toBe(200);
+    expect((await req(`lunchbox.${DOMAIN}`, "/logo.svg", { headers: { "sec-fetch-dest": "document" } })).status).toBe(404);
   });
 
   it("maps folders to index.html and unknown paths to the release's 404.html", async () => {
@@ -221,5 +240,98 @@ describe("helpers", () => {
   it("frames nothing live, and a preview only from the product", () => {
     expect(siteCsp({ kind: "live", appOrigin: "https://foundmill.com" })).toContain("frame-ancestors 'none'");
     expect(siteCsp({ kind: "preview", appOrigin: null })).toContain("frame-ancestors 'none'");
+  });
+});
+
+describe("the sign-up form", () => {
+  const form = (body: Record<string, string>) => ({ method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(body).toString() });
+
+  it("asks for consent on the platform's own page: the address escaped, the box unticked, the hidden field", async () => {
+    const { req, submits } = makeApp();
+    const res = await req(`lunchbox.${DOMAIN}`, "/_fm/follow", form({ email: "ME@example.com", name: "<b>x</b>", card: "4242424242424242" }));
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("me@example.com");
+    expect(html).toContain('type="checkbox" name="consent" value="yes" required>');
+    expect(html).not.toMatch(/checked/);
+    expect(html).toContain('name="website"');
+    expect(html).toContain("I agree to get email from Lunchbox");
+    expect(html).not.toContain("4242");
+    expect(submits).toEqual([]);
+  });
+
+  it("escapes an address that is not one, and refuses it", async () => {
+    const res = await makeApp().req(`lunchbox.${DOMAIN}`, "/_fm/follow", form({ email: '"><script>x</script>@example.com' }));
+    expect(res.status).toBe(400);
+    expect(await res.text()).not.toContain("<script>x");
+  });
+
+  it("calls the api's follow path once the box is ticked, with nothing else the visitor typed", async () => {
+    const { req, submits } = makeApp();
+    const res = await req(`lunchbox.${DOMAIN}`, "/_fm/follow/confirm", form({ email: "me@example.com", consent: "yes", website: "", "cf-turnstile-response": "tok", extra: "ignored" }));
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("Check your inbox");
+    expect(submits).toEqual([{ slug: "lunchbox", email: "me@example.com", consent: true, website: "", turnstile: "tok" }]);
+  });
+
+  it("refuses without the box, and shows the api's refusal in plain words", async () => {
+    const { req, submits } = makeApp({ follow: { consent: async () => ({ consentText: "x" }), submit: async () => ({ refused: "We could not check this browser." }) } });
+    expect((await req(`lunchbox.${DOMAIN}`, "/_fm/follow/confirm", form({ email: "me@example.com" }))).status).toBe(400);
+    const refused = await req(`lunchbox.${DOMAIN}`, "/_fm/follow/confirm", form({ email: "me@example.com", consent: "yes" }));
+    expect(await refused.text()).toContain("We could not check this browser.");
+    expect(submits).toEqual([]);
+  });
+
+  it("never posts onward from a preview, refuses over 4 KB, and answers GET with 405", async () => {
+    const { req, submits } = makeApp();
+    expect(await (await req(`p-${TOKEN}.${DOMAIN}`, "/_fm/follow", form({ email: "me@example.com" }))).text()).toContain("Sign-ups open when the site is published.");
+    expect(await (await req(`p-${TOKEN}.${DOMAIN}`, "/_fm/follow/confirm", form({ email: "me@example.com", consent: "yes" }))).text()).toContain("Sign-ups open");
+    expect((await req(`lunchbox.${DOMAIN}`, "/_fm/follow", form({ email: "me@example.com", pad: "x".repeat(5000) }))).status).toBe(413);
+    expect((await req(`lunchbox.${DOMAIN}`, "/_fm/follow")).status).toBe(405);
+    expect(submits).toEqual([]);
+  });
+
+  it("lets the bot check's script run on the sign-up page only, when a site key is set", async () => {
+    const { req } = makeApp({ turnstileSiteKey: "0x4AAA" });
+    const res = await req(`lunchbox.${DOMAIN}`, "/_fm/follow", form({ email: "me@example.com" }));
+    expect(res.headers.get("content-security-policy")).toContain("script-src https://challenges.cloudflare.com");
+    expect(await res.text()).toContain('data-sitekey="0x4AAA"');
+    expect((await req(`lunchbox.${DOMAIN}`, "/")).headers.get("content-security-policy")).not.toContain("script-src");
+  });
+});
+
+
+describe("pay buttons", () => {
+  it("redirects a live site's button to the stored link with no referrer, and caches nothing", async () => {
+    const { req } = makeApp();
+    const res = await req(`lunchbox.${DOMAIN}`, "/_fm/pay/starter");
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("https://buy.stripe.com/test_starter");
+    expect(res.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(res.headers.get("content-security-policy")).toBe(EXPECTED_LIVE["content-security-policy"]);
+    expect(res.headers.get("set-cookie")).toBeNull();
+  });
+
+  it("redirects on a preview too, so the founder can try the button", async () => {
+    const { req } = makeApp();
+    const res = await req(`p-${TOKEN}.${DOMAIN}`, "/_fm/pay/starter");
+    expect(res.status).toBe(302);
+    expect(res.headers.get("x-robots-tag")).toBe("noindex, nofollow");
+  });
+
+  it("answers 404 for an unknown key, a malformed key, another site's key, or a stored URL that is not a Stripe link", async () => {
+    const { req } = makeApp();
+    for (const path of ["/_fm/pay/nothing", "/_fm/pay/Bad%20Key", "/_fm/pay/..%2Fx", "/_fm/pay/tampered", "/_fm/pay/"]) {
+      expect((await req(`lunchbox.${DOMAIN}`, path)).status, path).toBe(404);
+    }
+    expect((await req(`paidco.${DOMAIN}`, "/_fm/pay/starter")).status).toBe(404);
+  });
+
+  it("a taken-down site answers 410, an unknown host 404, and POST is refused", async () => {
+    const { req } = makeApp();
+    expect((await req(`gone.${DOMAIN}`, "/_fm/pay/starter")).status).toBe(410);
+    expect((await req(`nobody.${DOMAIN}`, "/_fm/pay/starter")).status).toBe(404);
+    expect((await req(`lunchbox.${DOMAIN}`, "/_fm/pay/starter", { method: "POST" })).status).toBe(404);
   });
 });

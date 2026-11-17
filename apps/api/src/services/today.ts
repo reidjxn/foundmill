@@ -22,10 +22,14 @@
  *   is shared or set aside.
  * - **Your first week**: Day 1 asks to publish the page (done the day `project_pages.published_at` is set) and to sign
  *   off the specification and the roadmap.
+ * - **Your one thing today** (WP-04 T9): `founderTask`, from packages/shared founder-task.ts over facts read here (the
+ *   page, a page share that was opened, the plan rounds, a real follow or reply). Never for a sample business or a
+ *   reader without Product read; no further round trip, table, event or model call.
  */
 import { APPROVAL_OPTIONS, approvalSection, buildDestinationOf, repos, type DbTx, type InboxItem, type Task } from "@foundmill/db";
 import { CREDITS_CURRENCY, FLAGS } from "@foundmill/config";
-import { GOAL_OPTION_IDS, PAGE_READY_NOTE, POSTAL_ADDRESS_NOTE, WRITE_ROLES, addDaysToDay, dailyStreak, dayKeyIn, firstWeekTimeline, firstWeekVisible, hasSectionAccess, isPageReadyDecision, isPostalAddressDecision, vacationDayKeys, weekPlanWords, type FirstWeekWords, type Streak, type WeekFacts, type WeekPlanWords } from "@foundmill/shared";
+import { GOAL_OPTION_IDS, daysBetweenDays, founderTaskOf, isRealOutcome, type FounderTask, type FounderTaskId, PAGE_READY_NOTE, POSTAL_ADDRESS_NOTE, WRITE_ROLES, addDaysToDay, dailyStreak, dayKeyIn, firstWeekTimeline, firstWeekVisible, hasSectionAccess, isPageReadyDecision, isPostalAddressDecision, vacationDayKeys, weekPlanWords, type FirstWeekWords, type Streak, type WeekFacts, type WeekPlanWords } from "@foundmill/shared";
+import { pagePostDraft } from "@foundmill/shared/share-drafts";
 import { channelRowsFor } from "./channel-availability";
 import type { BusinessContext } from "../trpc";
 import { autopilotStatus } from "./autopilot";
@@ -64,6 +68,16 @@ export interface TodaySpend {
 export interface TodayView {
   /** The business's day ("2026-11-07"). */
   today: string;
+  /**
+   * Which day of the project this is in its own calendar: 1 on the day it was created (WP-04 T7). Today shows the
+   * streak and the health figures from day 2.
+   */
+  projectDay: number;
+  /**
+   * The project's first day (WP-04 D5: no streak and no health figures yet): day 1, and neither a sample business (its
+   * seed creates it "today" though it reads two years in) nor one already selling.
+   */
+  firstDay: boolean;
   /** Null without Inbox read. */
   needsYou: { items: NeedsYouItem[]; total: number } | null;
   /** Null without Development read. */
@@ -86,6 +100,11 @@ export interface TodayView {
    * in Needs you.
    */
   postsReady: { count: number; assetId: string } | null;
+  /**
+   * The founder's one thing today (WP-04 T9; packages/shared founder-task.ts): publish the page, share it, approve the
+   * plan, ask five people. Null once all are done, for a sample business and for a reader without Product read.
+   */
+  founderTask: FounderTask | null;
 }
 
 interface DecisionOption {
@@ -255,13 +274,56 @@ export async function firstWeekFor(tx: DbTx, ctx: BusinessContext, now: Date = n
   });
 }
 
+/** Up to this many of the newest events of a kind are read for the founder task (shares, follows and replies are few). */
+const FOUNDER_TASK_EVENTS = 100;
+
+/**
+ * The founder's one thing today (WP-04 T9) from rows that exist: the page, a share of it that was opened, the plan's
+ * rounds and a real follow or reply, in the reader's transaction. The overnight shift is the business row's Autopilot
+ * (on, daily, not paused), read without the workflow's status. A share that was opened moves the task on and nothing
+ * more: it is a press, never an outcome; a follow or a reply counts only when it is real (`isRealOutcome`).
+ */
+export async function founderTaskFor(tx: DbTx, ctx: BusinessContext, now: Date = new Date()): Promise<FounderTask | null> {
+  if (ctx.business.isDemo || !hasSectionAccess(ctx.membership, "product", "read")) return null;
+  const zone = ctx.business.timeZone;
+  const today = dayKeyIn(now, zone);
+  const [page, shares, signoffs, signals] = await Promise.all([
+    repos.pages.get(tx, ctx.businessId),
+    repos.events.list(tx, ctx.businessId, { type: "share.opened", limit: FOUNDER_TASK_EVENTS }),
+    repos.productSignoffs.latest(tx, ctx.businessId),
+    repos.events.list(tx, ctx.businessId, { type: ["page.followed", "lead.replied"], limit: FOUNDER_TASK_EVENTS }),
+  ]);
+  const live = page?.published ? { pitch: page.published.pitch, slug: page.slug } : null;
+  const pageShares = shares.items.filter((e) => (e.payload as { kind?: unknown }).kind === "page");
+  const rounds = [signoffs.spec, signoffs.roadmap].filter((r): r is NonNullable<typeof r> => r !== null);
+  const planNoteOpen = rounds.some((r) => r.status === "pending" && r.inboxItemId !== null);
+  const isToday = (at: Date | null | undefined) => Boolean(at && dayKeyIn(at, zone) === today);
+  const doneToday: FounderTaskId[] = [
+    ...(live && isToday(page?.publishedAt) ? (["publish_page"] as const) : []),
+    ...(live && pageShares.some((e) => isToday(e.occurredAt)) ? (["share_page"] as const) : []),
+    ...(!planNoteOpen && rounds.some((r) => r.status === "approved" && isToday(r.decidedAt)) ? (["approve_plan"] as const) : []),
+  ];
+  const b = ctx.business;
+  return founderTaskOf({
+    pagePublished: live !== null,
+    pageShared: pageShares.length > 0,
+    planNoteOpen,
+    outsideSignal: signals.items.some((e) => isRealOutcome(e)),
+    projectName: b.name,
+    pitch: live?.pitch ?? null,
+    url: live ? (pagePostDraft({ origin: ctx.env.APP_URL, slug: live.slug, projectName: b.name, pitch: live.pitch }).link ?? null) : null,
+    overnight: b.autopilotEnabled && b.autopilotCadence === "daily" && b.autopilotPausedReason === null,
+    doneToday,
+  });
+}
+
 /** Everything `today.get` returns, as this reader may see it. */
 export async function todayView(ctx: BusinessContext, now: Date = new Date()): Promise<TodayView> {
   const m = ctx.membership;
   const week = hasSectionAccess(m, "development", "read");
   const autopilotNextOn = week ? await autopilotNextDay(ctx) : null;
   return ctx.rls(async (tx) => {
-    const [needsYou, words, spend, chief, firstWeek, pageReady, postsReady] = await Promise.all([
+    const [needsYou, words, spend, chief, firstWeek, pageReady, postsReady, founderTask] = await Promise.all([
       hasSectionAccess(m, "inbox", "read") ? needsYouFor(tx, ctx) : Promise.resolve(null),
       week ? weekFactsFor(tx, ctx, { now, autopilotNextOn }).then(weekPlanWords) : Promise.resolve(null),
       hasSectionAccess(m, "finance", "read") ? spendFor(tx, ctx, now) : Promise.resolve(null),
@@ -276,8 +338,12 @@ export async function todayView(ctx: BusinessContext, now: Date = new Date()): P
       !ctx.business.isDemo && hasSectionAccess(m, "distribution", "read")
         ? repos.teamPosts.waiting(tx, ctx.businessId).then((rows) => (rows[0] ? { count: rows.length, assetId: rows[0].id } : null))
         : Promise.resolve(null),
+      founderTaskFor(tx, ctx, now),
     ]);
-    return { today: dayKeyIn(now, ctx.business.timeZone), needsYou, week: words, spend, chiefOfStaff: chief ? { id: chief.id, name: chief.name } : null, firstWeek, pageReady, postsReady };
+    const today = dayKeyIn(now, ctx.business.timeZone);
+    const projectDay = daysBetweenDays(dayKeyIn(ctx.business.createdAt, ctx.business.timeZone), today) + 1;
+    const firstDay = projectDay <= 1 && !ctx.business.isDemo && !ctx.business.distributionStartedAt;
+    return { today, projectDay, firstDay, needsYou, week: words, spend, chiefOfStaff: chief ? { id: chief.id, name: chief.name } : null, firstWeek, pageReady, postsReady, founderTask };
   });
 }
 
@@ -341,6 +407,8 @@ async function sinceVisit(ctx: BusinessContext, presence: { previousSeenAt: stri
  */
 export interface TodayVisit {
   sinceLastVisit: SinceLastVisit | null;
+  /** The reader has been here in an earlier session (a previous presence): Today's tour waits for this (WP-04 T7). */
+  returning: boolean;
   streak: Streak;
 }
 
@@ -357,7 +425,7 @@ export async function visitFor(ctx: BusinessContext, now: Date = new Date()): Pr
     visitDays: await repos.presence.visitDays(tx, ctx.businessId, ctx.userId, { from: addDaysToDay(today, -400), to: today }),
   }));
   const [sinceLastVisit, holidays] = await Promise.all([sinceVisit(ctx, own.presence, now), repos.holidays.list(ctx.db, ctx.businessId, 50)]);
-  return { sinceLastVisit, streak: dailyStreak({ today, visitDays: own.visitDays, vacationDays: vacationDayKeys(holidays, now, (d) => dayKeyIn(d, zone)) }) };
+  return { sinceLastVisit, returning: Boolean(own.presence?.previousSeenAt), streak: dailyStreak({ today, visitDays: own.visitDays, vacationDays: vacationDayKeys(holidays, now, (d) => dayKeyIn(d, zone)) }) };
 }
 
 export async function streakFor(ctx: BusinessContext, now: Date = new Date()): Promise<Streak> {

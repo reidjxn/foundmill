@@ -213,10 +213,7 @@ export const LANDING_WORDS = {
       { id: "together", question: "Can I build it with someone?", answer: "Yes. Invite as many cofounders and collaborators as you like, free on every plan." },
     ],
     limits: { id: "limits", question: "What can it not do yet?" },
-    limitsBase: "Take a payment or check facts on the live web.",
-    /** [switch: platformMail off] */
-    limitsMail: "Send email for your project.",
-    limitsEnd: "Building an app needs your own GitHub account. Your team says so when a step needs one of these.",
+    limitsEnd: "Building an app needs your own GitHub account. Your team says so when a step needs it.",
     adults: { id: "adults", question: `Who can use ${APP_NAME}?`, answer: "Anyone 18 or older." },
   },
   start: {

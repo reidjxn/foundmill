@@ -300,6 +300,11 @@ export function createDbPlatformHost({ db, log, now = () => new Date(), reposito
       const result = await repos.entities.search(db, caller.businessId, { q: query, limit });
       return { items: result.hits.map((h) => ({ id: h.entity.id, kind: h.entity.kind, name: h.entity.displayName })) };
     },
+    async listPayLinks(caller) {
+      // Never a simulated link (a mock connector's): it is not on the site. Never the URL either: the site's button is /_fm/pay/<key>.
+      const links = await repos.payLinks.list(db, caller.businessId);
+      return { items: links.filter((l) => !l.simulated).map((l) => ({ key: l.key, label: l.label, priceMinor: l.priceMinor, currency: l.currency })) };
+    },
     async listApprovals(caller, { limit }) {
       const pending = await repos.approvals.pending(db, caller.businessId, limit);
       return { items: pending.map((a) => ({ id: a.id, agentId: a.agentId, connectorKey: a.connectorKey, tool: a.tool, reasons: a.reasons, requestedAt: a.requestedAt.toISOString() })) };

@@ -61,8 +61,8 @@ describe("StudioFrame (first-run trail)", () => {
     expect(IMPORT_STEPS.map((s) => s.id)).toEqual(["profile", "new", "import", "commit"]);
     expect(STUDIO_STEPS.map((s) => s.id)).toEqual(["profile", "new", "ideate", "compare", "commit"]);
     // The words say what each step is for (A9); the ids stay.
-    expect(STUDIO_STEPS.map((s) => s.label)).toEqual(["Your profile", "Start", "Ideas", "Compare (optional)", "Launch"]);
-    expect(IMPORT_STEPS.map((s) => s.label)).toEqual(["Your profile", "Start", "Import", "Launch"]);
+    expect(STUDIO_STEPS.map((s) => s.label)).toEqual(["Your profile", "New project", "Ideas", "Compare (optional)", "Start"]);
+    expect(IMPORT_STEPS.map((s) => s.label)).toEqual(["Your profile", "New project", "Import", "Start"]);
     expect(screen.getByTestId("studio-frame").querySelector('[data-step-item="import"]')?.getAttribute("data-state")).toBe("active");
   });
 
@@ -77,6 +77,23 @@ describe("StudioFrame (first-run trail)", () => {
       );
       expect(screen.getByTestId("needs-larger-window")).toBeTruthy();
       expect(screen.queryByText("body")).toBeNull();
+    } finally {
+      Object.defineProperty(window, "innerWidth", { value: before, configurable: true, writable: true });
+    }
+  });
+
+  it("with smallScreen, renders below 1280 px without the step trail, which would overflow the top bar (WP-04 T2)", () => {
+    const before = window.innerWidth;
+    try {
+      Object.defineProperty(window, "innerWidth", { value: 390, configurable: true, writable: true });
+      render(
+        <StudioFrame step="commit" smallScreen title="Start Ledgerly">
+          <p>body</p>
+        </StudioFrame>,
+      );
+      expect(screen.queryByTestId("needs-larger-window")).toBeNull();
+      expect(screen.getByText("body")).toBeTruthy();
+      expect(screen.getByTestId("studio-frame").querySelector("[data-step-item]")).toBeNull();
     } finally {
       Object.defineProperty(window, "innerWidth", { value: before, configurable: true, writable: true });
     }

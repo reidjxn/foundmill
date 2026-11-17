@@ -63,7 +63,8 @@ async function commitFreshBusiness(page: Page, name: string): Promise<{ bid: str
   return { bid };
 }
 
-const WELCOME_NOTE = "Your team is drafting your page and your plan";
+/** The Chief of Staff's welcome note, "{Project} has started" (WP-04 T7), never "Distribution has started". */
+const WELCOME_NOTE = "(?<!Distribution) has started";
 /** The Chief of Staff's note of the day in a project's first week (WP-04 T8, `DIGEST_SUBJECT`): it replaces the welcome note once an agent's update is folded into it. */
 const DIGEST_NOTE = "What your team did today";
 /** Whichever of the two is there: both are updates with no decision. */
@@ -242,8 +243,8 @@ test.describe("golden path", () => {
     await page.getByTestId("commit-link").first().click();
     await expect(page.getByTestId("commit-form")).toBeVisible();
     await expect(page.getByTestId("commit-form")).toHaveAttribute("data-business-mode", "assisted");
-    // How it runs is one line of chips until Change opens the five controls (commit.spec.ts, UX plan §7.6).
-    await page.getByTestId("how-it-runs-change").click();
+    // How it runs and its five controls sit under More options (WP-04 T2; commit.spec.ts).
+    await page.getByTestId("commit-more").click();
     await expect(page.getByTestId("business-mode-panel")).toBeVisible();
     await expect(page.locator('[data-option="assisted"]')).toHaveAttribute("data-selected", "true");
     const name = `Playwright Business ${Date.now().toString(36)}`;

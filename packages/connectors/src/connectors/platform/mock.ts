@@ -29,6 +29,7 @@ export function platformHandlers(host: PlatformHost) {
     send_message: async (args: Parameters<PlatformHost["sendMessage"]>[1], ctx: ToolContext) => host.sendMessage(caller(ctx), args),
     list_messages: async (args: Parameters<PlatformHost["listMessages"]>[1], ctx: ToolContext) => host.listMessages(caller(ctx), args),
     read_business: async (_args: unknown, ctx: ToolContext) => host.readBusiness(caller(ctx)),
+    list_pay_links: async (_args: unknown, ctx: ToolContext) => host.listPayLinks(caller(ctx)),
     search_entities: async (args: Parameters<PlatformHost["searchEntities"]>[1], ctx: ToolContext) => host.searchEntities(caller(ctx), args),
     list_approvals: async (args: Parameters<PlatformHost["listApprovals"]>[1], ctx: ToolContext) => host.listApprovals(caller(ctx), args),
     list_sessions: async (args: Parameters<PlatformHost["listSessions"]>[1], ctx: ToolContext) => host.listSessions(caller(ctx), args),
@@ -153,6 +154,9 @@ export function createMemoryPlatformHost(): PlatformHost {
     async searchEntities(_caller, { query, limit }) {
       const all = [{ id: uuidFromSeed("mock-platform", "entity", "maja"), kind: "person", name: "Maja Lindgren" }, { id: uuidFromSeed("mock-platform", "entity", "hallbergs"), kind: "organisation", name: "Hallbergs Hud AB" }];
       return { items: all.filter((e) => e.name.toLowerCase().includes(query.toLowerCase())).slice(0, limit) };
+    },
+    async listPayLinks() {
+      return { items: [{ key: "starter-kit", label: "Starter kit", priceMinor: 1900, currency: "USD" }] };
     },
     async listApprovals() {
       return { items: [] };

@@ -132,6 +132,13 @@ const Env = z.object({
     .optional()
     .transform((v) => v?.trim().toLowerCase() || undefined)
     .refine((v) => v === undefined || /^(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(v), { message: "SITES_DOMAIN must be a domain name such as example-sites.app" }),
+  /** apps/sites: the api it calls for a site's sign-up form (WP-07 T6; `publicPage.siteConsent`, `publicPage.follow`). Unset: `http://localhost:4000` on development and test; elsewhere sign-ups are closed. */
+  SITES_API_URL: z.string().optional(),
+  /**
+   * apps/sites: Cloudflare Turnstile's site key for a site's sign-up form (a public value; the widget's hostnames must
+   * include SITES_DOMAIN). Empty uses the mock token, which the api accepts on development and test stacks only.
+   */
+  SITES_TURNSTILE_SITE_KEY: z.string().optional(),
   /** Messages one project may send from its Foundmill address per UTC day (gateway; the api shows it). An operator raises one project's cap in `project_mail.daily_cap`. */
   PLATFORM_MAIL_DAILY_CAP: z.coerce.number().int().min(1).max(10_000).default(50),
   /** Messages every project together may send from the platform domain per UTC day: protects the domain's reputation (gateway). */

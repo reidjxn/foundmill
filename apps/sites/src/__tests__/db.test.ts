@@ -31,13 +31,14 @@ beforeAll(async () => {
     live = await repos.sites.saveRelease(tx, A.businessId, { files, state: "preview" });
     held = await repos.sites.saveRelease(tx, A.businessId, { files, state: "held" });
     await repos.sites.publish(tx, A.businessId, { releaseId: live.id, userId: A.ownerId });
+    await repos.payLinks.add(tx, A.businessId, { key: "starter", label: "Starter", url: "https://buy.stripe.com/test_starter" });
   });
   const asReader = <T>(fn: (db: never) => Promise<T>) =>
     h.db.transaction(async (tx) => {
       await tx.execute(sql`set local role sites_reader`);
       return fn(tx as never);
     });
-  app = createSitesApp(sitesDeps({ env: { APP_ENV: "test", APP_URL: "http://localhost:3000", SITES_DOMAIN: DOMAIN }, run: asReader, log: { info: () => {}, warn: () => {} } }));
+  app = createSitesApp(sitesDeps({ env: { APP_ENV: "test", APP_URL: "http://localhost:3000", SITES_DOMAIN: DOMAIN, SITES_API_URL: "http://api.test", SITES_TURNSTILE_SITE_KEY: undefined }, run: asReader, log: { info: () => {}, warn: () => {} } }));
 }, 120_000);
 afterAll(() => h?.close());
 
@@ -55,6 +56,12 @@ describe("apps/sites as sites_reader", () => {
 
   it("never serves a held release", async () => {
     expect((await get(`p-${held.previewToken}.${DOMAIN}`)).status).toBe(404);
+  });
+
+  it("sends a pay button on to the stored link through the login (WP-07 T7)", async () => {
+    const res = await app.request("http://alpha-site.sites.localhost/_fm/pay/starter", { headers: { host: "alpha-site.sites.localhost" } });
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("https://buy.stripe.com/test_starter");
   });
 
   it("answers /health through the login", async () => {

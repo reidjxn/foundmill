@@ -8,6 +8,7 @@
  * same item, goal and department returns that plan (`reused: true`) instead of a second graph; the write holds a
  * per-business planning lock so a plan written on another instance meanwhile is seen, not written twice.
  */
+import { sitesEnabled } from "@foundmill/shared/sites";
 import { buildPlannerRequest, dropPlatformDuties, PLANNER_SYSTEM_PROMPT, plannerDestination, plannerSpecSections, plannerWorkerTypes } from "@foundmill/agents";
 import { repos, roadmapItemDepartmentId, type DbTx, type Task } from "@foundmill/db";
 import { TaskGraphOutput } from "@foundmill/models";
@@ -63,7 +64,7 @@ export async function planTaskGraph(ctx: BusinessContext, input: PlanInput, key:
     route: "planner",
     schema: TaskGraphOutput,
     system: PLANNER_SYSTEM_PROMPT,
-    messages: [{ role: "user", content: buildPlannerRequest({ goal, roadmapItem, sections: plannerSpecSections(blocks), destination: plannerDestination(repository), workerTypes: plannerWorkerTypes(agents) }) }],
+    messages: [{ role: "user", content: buildPlannerRequest({ goal, roadmapItem, sections: plannerSpecSections(blocks), destination: plannerDestination(repository, { sites: sitesEnabled(ctx.env) && !ctx.business.isDemo }), workerTypes: plannerWorkerTypes(agents) }) }],
     attribution: { businessId: ctx.businessId, kind: "planner" },
   });
   return ctx.rls(async (tx) => {
