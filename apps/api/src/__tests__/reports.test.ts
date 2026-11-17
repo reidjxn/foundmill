@@ -185,6 +185,23 @@ describe("reports", () => {
     ).toEqual({ canReport: false });
   });
 
+  it("operator access comes from OPERATOR_USER_IDS alone: no owner, seed owner, admin or address is an operator; an empty or malformed list is nobody", async () => {
+    const before = hz.deps.env.OPERATOR_USER_IDS;
+    try {
+      // The project owners of A and B (the harness's seeded founders) and the dev account are not operators by standing.
+      for (const list of [undefined, "", "  ", "not-an-id", "*", "operator@reports.test", hz.A.ownerId.slice(0, 8)]) {
+        hz.deps.env.OPERATOR_USER_IDS = list;
+        for (const userId of [hz.A.ownerId, hz.B.ownerId, hz.A.adminId, operator]) expect(await code(hz.caller({ userId }).operator.reports.list())).toBe("NOT_FOUND");
+      }
+      // Listed: only that account.
+      hz.deps.env.OPERATOR_USER_IDS = operator;
+      expect(await code(hz.caller({ userId: operator }).operator.reports.list())).toBe("OK");
+      expect(await code(hz.caller({ userId: hz.A.ownerId }).operator.reports.list())).toBe("NOT_FOUND");
+    } finally {
+      hz.deps.env.OPERATOR_USER_IDS = before;
+    }
+  });
+
   it("the queue is NOT_FOUND for a founder and for a visitor; an operator lists and resolves", async () => {
     expect(await code(hz.caller({ userId: ana }).operator.reports.list())).toBe("NOT_FOUND");
     expect(

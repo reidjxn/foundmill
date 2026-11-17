@@ -47,9 +47,12 @@ As WP-12 T4 specifies. It is read on each call, tolerates spaces and case, and i
 ### CI starts its own servers
 The e2e stack in CI is started by `.github/workflows/ci.yml`, not by `playwright.config.ts`, so `OPERATOR_USER_IDS` is set in both (the dev founder): without it `reports.spec.ts` failed on shard 8, twice, at the operator's queue.
 
+### The operator, named by the founder (Nov 17, 2026)
+One account only: the founder's Foundmill account (UID `63d2dcc8-83a4-4ac7-bc72-b323a1f8b1e4`), set as `OPERATOR_USER_IDS` on the Railway api service by the holistic-plan session ("Only this account should have special operator privileges"). The response target is two days (`REPORT_RESPONSE_TARGET_HOURS` = 48).
+Only the api reads `OPERATOR_USER_IDS` (`operatorProcedure`); the web page asks the api. The list is the only path: no role, owner standing, seed owner, `SEED_OWNER_EMAILS` or address makes an operator, and an unset, empty or malformed list means nobody (api `reports.test.ts`, shared `reports.test.ts`).
+
 ## Not done
 - The operator email alert (above). Removing access is still by hand in Supabase (DEPLOY lists the two statements).
 - A second sign-in factor for operators (the review's hardening note): Supabase `aal2` in `operatorProcedure`, once the founder's account has one.
 - Screening of messages for money requests, and new-account limits on requests (F21's rest); `takeLive` limits out of process memory (WP-12 T5).
-- `OPERATOR_USER_IDS` is not set in production yet: the founder's account id goes there (WP-12 D3).
 - The two identity systems, Find people search, open roles, trials and join requests, feedback links, referral credit and pooled credits: next changes, in that order.
