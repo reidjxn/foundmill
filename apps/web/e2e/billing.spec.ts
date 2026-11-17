@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, openBusiness, openSettings, settingsScreen, settled, UUID } from "./helpers";
+import { commitThrowaway, LONG, NORTHWIND_BUSINESS_ID, openBusiness, openSettings, settingsScreen, settled, UUID } from "./helpers";
 
 /**
  * Settings › Billing: paying for credits (audit 2026-10-12 #22). Top up opens a checkout and grants nothing by itself;
@@ -66,6 +66,32 @@ test.describe("billing", () => {
     await expect(join).toHaveCount(0);
     await expect(page).not.toHaveURL(/checkout=/);
     await expect(screen.getByTestId("checkout-panel")).toHaveCount(0);
+  });
+
+  test("A team out of budget reads Resting with the date its budget resets, never paused or used up (WP-14 T1)", async ({ page }) => {
+    test.setTimeout(300_000);
+    // A plan's budget goes to one project a month, so of two projects taken charge of now the second surely starts
+    // the month with nothing included: its team rests from the start.
+    const stamp = Date.now().toString(36);
+    await commitThrowaway(page, `Rest one ${stamp}`);
+    const bid = await commitThrowaway(page, `Rest two ${stamp}`);
+    const screen = await openSettings(page, "billing", bid);
+    const resting = screen.getByTestId("resting");
+    await expect(resting).toBeVisible({ timeout: LONG });
+    const now = new Date();
+    const resets = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+    await expect(resting).toHaveText(`Resting until ${resets}`);
+    // The word is defined where the founder first meets it.
+    await expect(resting.locator('[data-term="resting"]')).toBeVisible();
+    await expect(screen).toContainText("Paused is a choice. Resting is a team out of budget until the date shown");
+    await expect(screen).toContainText(`when your budget resets`);
+    await expect(screen).toContainText("your own Anthropic key");
+    await expect(screen).not.toContainText(/Used up|team paused/);
+    // One note from the Chief of Staff, with a way on.
+    await page.goto(`/b/${bid}/inbox`);
+    await settled(page);
+    const note = page.getByText("The team is resting: this month's budget is used").first();
+    await expect(note).toBeVisible({ timeout: LONG });
   });
 
   test("Top up opens a mock checkout; completing it adds the credits once, labeled", async ({ page }) => {

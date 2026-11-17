@@ -187,7 +187,7 @@ describe("the pipeline's reader asks first and books the exact cost (buildGatewa
     const r = await read(d, "m-6");
     expect(r.result.data).toMatchObject({ untrusted: true, quarantined: true, content: null, unavailable: READER_UNAVAILABLE });
     expect(requests).toHaveLength(0);
-    expect(warnings.join("\n")).toMatch(/credits are used up/);
+    expect(warnings.join("\n")).toMatch(/The team is resting: this month's team budget is used/);
     expect(await readerRows(d)).toHaveLength(0);
   });
 

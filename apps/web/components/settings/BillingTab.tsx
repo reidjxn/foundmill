@@ -32,7 +32,7 @@ import { useEffect, useState } from "react";
 import { APP_NAME, CREDIT_PACK_UNLOCK_MIN_MINOR, CREDITS_CURRENCY, EARLY_ACCESS_STAGE, ENTRY_PLAN, includedCreditsMinor, INVITED_FOUNDERS_LINE, PARTNER_PLAN, PLAN_FEATURE_WORDS, planAdds, planName, planPriceLabel, tierIncludedCreditPlaces, TIER_ORDER, TIERS, TOP_UP_OPTIONS_MINOR, type EarlyAccessStage, type TierKey } from "@foundmill/config";
 import { Button, Checkbox, Chip, IconButton, KeyValueList, MiniTable, ProvenanceChip, SimpleSelect, StatusPill, Term, formatCompact, useBuilderView, useDateFormat, type DateFormatPrefs, type StatusTone } from "@foundmill/dugout";
 import { PLAN_TIERS } from "@foundmill/shared/constants";
-import { formatMoney, formatMonthYear, formatNumber, plainWords, plural } from "@/lib/format";
+import { formatDate, formatMoney, formatMonthYear, formatNumber, plainWords, plural } from "@/lib/format";
 import { errorMessage, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
@@ -308,7 +308,12 @@ export function BillingTab() {
                     <span className="inline-flex flex-wrap items-center gap-2" data-testid="credits-balance">
                       {money(p.credits.balanceMinor)} left of {money(p.credits.grantedMinor)} <ProvenanceChip kind="estimate" />
                       {p.credits.mockMinor > 0 ? <Chip tone="info">{money(p.credits.mockMinor)} from mock top-ups</Chip> : null}
-                      {p.credits.exhausted ? <Chip tone="bad">{p.modelBilling === "byok" ? "Used up: conversations and Refresh paused" : "Used up: team paused"}</Chip> : null}
+                      {p.resting ? (
+                        <Chip tone="warn" data-testid="resting">
+                          <Term id="resting">Resting</Term> until {formatDate(p.resting.until, datePrefs)}
+                          {p.modelBilling === "byok" ? ": conversations and Refresh" : null}
+                        </Chip>
+                      ) : null}
                     </span>
                   ),
                   numeric: true,
@@ -387,9 +392,16 @@ export function BillingTab() {
               </div>
             </div>
             {p.stage === "invite_only" ? <Hint>{INVITED_FOUNDERS_LINE} Every plan has everything listed here until sign-up opens.</Hint> : null}
+            {p.resting ? (
+              <Hint>
+                {p.modelBilling === "byok"
+                  ? `This month's budget for work on ${APP_NAME}'s key is used, so conversations, Refresh and planning rest until ${formatDate(p.resting.until, datePrefs)}, when your budget resets. Your agents keep working on your own key.`
+                  : `Paused is a choice. Resting is a team out of budget until the date shown: nothing was stopped part-way, and the team picks up on ${formatDate(p.resting.until, datePrefs)}, when your budget resets${p.topUp.available ? ", after a top-up" : ""} or on your own Anthropic key in Settings › Keys. Your Inbox has the note with what was finished and what comes next.`}
+              </Hint>
+            ) : null}
             {closedTiers.length ? <Hint>{tierChange(closedTiers[0]!)?.reason}</Hint> : null}
             {p.modelBilling === "byok" ? (
-              <Hint>Your agents run on your own Anthropic key. Conversations, Refresh and planning run on {APP_NAME}&apos;s key and use these credits; when they run out, those wait for a top-up or next month&apos;s credits.</Hint>
+              <Hint>Your agents run on your own Anthropic key. Conversations, Refresh and planning run on {APP_NAME}&apos;s key and use these credits; when they run out, those rest until next month&apos;s credits or a top-up.</Hint>
             ) : null}
             {p.credits.includedMinor === 0 && includedCreditsMinor(p.tier) > 0 ? <Hint>This month&apos;s included credits already went to another project you took charge of: a plan&apos;s credits go to one project a month.</Hint> : null}
             {p.credits.mockMinor > 0 ? <Hint>Credits from mock top-ups pay for simulated model calls only, never for live ones.</Hint> : null}
@@ -410,9 +422,9 @@ export function BillingTab() {
         {p?.topUp.available === false ? (
           <Hint>{p.topUp.reason}</Hint>
         ) : p?.topUp.mode === "mock" ? (
-          <Hint>Credits are in US dollars and pay for model calls on {APP_NAME}&apos;s key. Your plan includes {p ? money(p.includedCreditsMinor) : "some"} a month, used first; credits you buy last 12 months. When they run out the team pauses until you top up or add your own Anthropic key in Settings › Keys. This server simulates payments: Top up opens a mock checkout here, no money moves, and the credits are labeled as a mock top-up.</Hint>
+          <Hint>Credits are in US dollars and pay for model calls on {APP_NAME}&apos;s key. Your plan includes {p ? money(p.includedCreditsMinor) : "some"} a month, used first; credits you buy last 12 months. When they run out the team finishes the task it is on and rests until your budget resets, you top up or you add your own Anthropic key in Settings › Keys. This server simulates payments: Top up opens a mock checkout here, no money moves, and the credits are labeled as a mock top-up.</Hint>
         ) : (
-          <Hint>Credits are in US dollars, the currency model prices are listed in, and pay for model calls on {APP_NAME}&apos;s key. Your plan includes {p ? money(p.includedCreditsMinor) : "some"} a month, used first; credits you buy last 12 months. When they run out the team pauses until you top up or add your own Anthropic key in Settings › Keys. You pay on Stripe&apos;s secure page; the credits arrive once Stripe confirms the payment.</Hint>
+          <Hint>Credits are in US dollars, the currency model prices are listed in, and pay for model calls on {APP_NAME}&apos;s key. Your plan includes {p ? money(p.includedCreditsMinor) : "some"} a month, used first; credits you buy last 12 months. When they run out the team finishes the task it is on and rests until your budget resets, you top up or you add your own Anthropic key in Settings › Keys. You pay on Stripe&apos;s secure page; the credits arrive once Stripe confirms the payment.</Hint>
         )}
       </SettingsSection>
 
