@@ -7,7 +7,8 @@ supersedes:
   - "The mobile tRPC batch link carries up to 10 procedures (docs/mobile backend skill)"
 ---
 ## What changed
-- Retention procedures in the backend skill, live since #84: email switches in `founder.preferences.notifications().email`, `founder.email.get|update|recent`, `founder.presence.ping|get`, `today.sinceLastVisit`, `today.streak` with its real shape and the web's streak words, `email.action.get|answer`, `email.pause`, and the `/a/<token>` and `/email/pause?t=` links. Prompts 13 and 15 and BACKEND_CHANGES follow.
+- Retention procedures in the backend skill, live since #84: email switches in `founder.preferences.notifications().email`, `founder.email.get|update|recent`, `founder.presence.ping|get`, `today.sinceLastVisit`, `today.streak` with its real shape and the web's streak words, `email.action.get|answer`, `email.pause`, and the `/a/<token>` and `/email/pause?t=` links.
+- Prompts 13 and 15 and BACKEND_CHANGES follow the retention names.
 - The backend skill also documents the start flow's shapes, the Money opener as the server's area sentence, the `finance.overview` monthly rows and the average-revenue rule. Hired agents are `team.agents.list` rows.
 - `RUN_UNTIL_DONE` in packages/shared reads "New rounds of work start on their own until nothing is left to do, or until you pause." The api `cycle.test.ts`, web `business-shell.test.ts` and `e2e/home.spec.ts` follow. Found from the Newly preview.
 - Google sign-in (#82) is web only; the phone keeps the email code, and the api refuses Apple today (BACKEND_CHANGES item 12).
