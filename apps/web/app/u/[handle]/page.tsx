@@ -12,6 +12,7 @@ import { APP_NAME } from "@foundmill/config";
 import { PersonPage } from "@foundmill/dugout";
 import { personDescription, personTitle } from "@foundmill/shared/person-profile";
 import { ProfileReportControl } from "@/components/safety/ProfileReportControl";
+import { getServerAuth } from "@/lib/auth/server";
 import { publicPerson } from "@/lib/public-person.server";
 
 // Read on every request: a profile taken down is gone at once, and changes show as soon as they are saved.
@@ -39,6 +40,9 @@ export default async function PublicPersonRoute({ params }: Props) {
   const { handle } = await params;
   const person = await publicPerson(handle);
   if (!person) notFound();
+  // Report needs an account: decided on the server from the request's own session, so a signed-out visitor is never
+  // shown it (the browser's API client falls back to the development account on test stacks, the server does not).
+  const signedIn = (await getServerAuth()) !== null;
   return (
     <>
       <PersonPage
@@ -51,7 +55,7 @@ export default async function PublicPersonRoute({ params }: Props) {
         place={person.place}
         projects={person.projects.map((p) => ({ slug: p.slug, name: p.name, pitch: p.pitch, href: p.path }))}
       />
-      <ProfileReportControl handle={handle} name={person.displayName} />
+      {signedIn ? <ProfileReportControl handle={handle} name={person.displayName} /> : null}
     </>
   );
 }

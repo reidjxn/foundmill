@@ -51,6 +51,9 @@ The e2e stack in CI is started by `.github/workflows/ci.yml`, not by `playwright
 One account only: the founder's Foundmill account (UID `63d2dcc8-83a4-4ac7-bc72-b323a1f8b1e4`), set as `OPERATOR_USER_IDS` on the Railway api service by the holistic-plan session ("Only this account should have special operator privileges"). The response target is two days (`REPORT_RESPONSE_TARGET_HOURS` = 48).
 Only the api reads `OPERATOR_USER_IDS` (`operatorProcedure`); the web page asks the api. The list is the only path: no role, owner standing, seed owner, `SEED_OWNER_EMAILS` or address makes an operator, and an unset, empty or malformed list means nobody (api `reports.test.ts`, shared `reports.test.ts`).
 
+### Report on /u/<handle> is decided by the server's session
+CI showed a signed-out visitor the Report control: in development and test the browser's api client falls back to the development account when there is no session, so `report.canReportProfile` answered as the dev founder. The page now renders the control only when the request itself carries a session (`getServerAuth`), so a signed-out visitor never gets a control that needs an account; the spec waits for the network to settle before it counts.
+
 ## Not done
 - The operator email alert (above). Removing access is still by hand in Supabase (DEPLOY lists the two statements).
 - A second sign-in factor for operators (the review's hardening note): Supabase `aal2` in `operatorProcedure`, once the founder's account has one.

@@ -48,7 +48,10 @@ test.describe("reports", () => {
     const outPage = await out.newPage();
     await outPage.goto(`/u/${handle}`);
     await expect(outPage.locator("[data-person-page]")).toBeVisible({ timeout: LONG });
+    // Settled first: a control drawn after a late answer would otherwise slip past the count.
+    await outPage.waitForLoadState("networkidle");
     await expect(outPage.getByTestId("profile-report-open")).toHaveCount(0);
+    await expect(outPage.getByTestId("profile-report")).toHaveCount(0);
     await out.close();
 
     // The page's own person: no Report control on their own page.
