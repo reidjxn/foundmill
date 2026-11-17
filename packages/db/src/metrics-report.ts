@@ -37,6 +37,12 @@ function printFacts(m: MetricFacts): void {
   print(`Agent work: sessions ${a.sessions_ended} (${pairs(a.sessions)}), blocked share ${pct(a.blocked_share)}`);
   print(`  task.blocked ${a.events.task_blocked}, task.completed ${a.events.task_completed}; approval.requested ${a.events.approval_requested_total} (${pairs(a.events.approval_requested)}); approval.resolved ${a.events.approval_resolved_total} (${pairs(a.events.approval_resolved)})`);
   print(`  approvals open ${a.approvals_open} (over 9 days ${a.approvals_open_over_9d}); stopped for a missing tool ${a.tool_missing_stopped}; notes in a project's first 24 hours: max ${a.notes_day_one.max}, median ${a.notes_day_one.median ?? "n/a"}`);
+  const f = m.first_run;
+  if (f) {
+    print(`First run, 14 days: new projects ${f.new_projects}; median minutes from commit to the first plan ${f.minutes_to_first_plan.median ?? "n/a"} (${f.minutes_to_first_plan.reached} reached), to the first real outcome ${f.minutes_to_first_outcome.median ?? "n/a"} (${f.minutes_to_first_outcome.reached} reached)`);
+    print(`  first press of Continue, ${f.first_press.founders} founders: succeeded ${f.first_press.succeeded}, failed ${f.first_press.failed}, stopped ${f.first_press.stopped}, pending ${f.first_press.pending}; success share ${pct(f.first_press.share)}`);
+  }
+  for (const note of m.operator_notes ?? []) print(`NOTE FOR THE OPERATOR: ${note}`);
   print(`Honesty: fabricated left ${pairs(m.honesty.fabricated_left)}; simulated outcomes left out of the north star ${m.honesty.simulated_outcomes_excluded}`);
 }
 

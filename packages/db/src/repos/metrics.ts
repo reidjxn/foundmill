@@ -94,6 +94,58 @@ select (select percentile_cont(0.5) within group (order by extract(epoch from c.
           from committed c join (${FIRST_PAGES}) f on f.business_id = c.id where f.at >= c.committed_at) as commit_to_page_min`,
   },
   {
+    // WP-14 T12, the two measures that need nothing else: a new project is a real, outside project committed in the
+    // 14 days; the first plan is its first spec or roadmap sign-off round (the plan note), the first outcome is its first
+    // real outcome after commit (REAL_OUTCOME_PREDICATE: a simulated result never counts). Medians are over the projects
+    // that reached the step by the window end; the rest are `new_projects - reached`.
+    name: "first_run_times",
+    text: `with fresh as (
+  select b.id, b.committed_at from businesses b
+   where not b.is_demo and b.id <> ${HOUSE} and b.committed_at >= :as_of_end - interval '14 days' and b.committed_at < :as_of_end
+), plan as (
+  select f.id, extract(epoch from min(s.requested_at) - f.committed_at) / 60 as minutes
+    from fresh f join product_signoffs s on s.business_id = f.id and s.kind in ('spec', 'roadmap')
+   where s.requested_at >= f.committed_at and s.requested_at < :as_of_end group by f.id, f.committed_at
+), outcome as (
+  select f.id, extract(epoch from min(e.occurred_at) - f.committed_at) / 60 as minutes
+    from fresh f join events e on e.business_id = f.id
+   where e.occurred_at >= f.committed_at and e.occurred_at < :as_of_end and ${REAL_OUTCOME_PREDICATE} group by f.id, f.committed_at
+)
+select (select count(*) from fresh)::int as new_projects,
+       (select count(*) from plan)::int as with_plan,
+       (select percentile_cont(0.5) within group (order by minutes) from plan) as plan_median_min,
+       (select count(*) from outcome)::int as with_outcome,
+       (select percentile_cont(0.5) within group (order by minutes) from outcome) as outcome_median_min`,
+  },
+  {
+    // WP-14 T12: each founder's first press of Continue (the first `cycle.started` with trigger `continue` across their
+    // real projects, the house and the demo left out), for founders whose first press fell in the 14 days. It succeeded
+    // when that cycle ended `completed`, `time_box` or `waiting`, failed when it ended `failed`, was stopped when the
+    // founder or a stop flag ended it, and is pending until the cycle ends. A press the product refused before a cycle
+    // began (a hard stop) writes no event, so it is not counted here.
+    name: "first_press",
+    text: `with first as (
+  select distinct on (b.created_by) b.created_by, e.business_id, e.payload->>'cycleId' as cycle_id, e.occurred_at
+    from events e join businesses b on b.id = e.business_id
+   where not b.is_demo and b.id <> ${HOUSE} and b.created_by is not null
+     and e.type = 'cycle.started' and e.payload->>'trigger' = 'continue' and e.occurred_at < :as_of_end
+   order by b.created_by, e.occurred_at
+), recent as (
+  select * from first where occurred_at >= :as_of_end - interval '14 days'
+), ended as (
+  select r.created_by, (select c.payload->>'outcome' from events c
+          where c.business_id = r.business_id and c.type = 'cycle.completed' and c.payload->>'cycleId' = r.cycle_id and c.occurred_at < :as_of_end
+          order by c.occurred_at desc limit 1) as outcome
+    from recent r
+)
+select count(*)::int as founders,
+       count(*) filter (where outcome in ('completed', 'time_box', 'waiting'))::int as succeeded,
+       count(*) filter (where outcome = 'failed')::int as failed,
+       count(*) filter (where outcome = 'stopped')::int as stopped,
+       count(*) filter (where outcome is null)::int as pending
+  from ended`,
+  },
+  {
     name: "projects",
     text: `select count(*)::int as total,
        count(*) filter (where b.is_demo)::int as demo,
@@ -259,6 +311,30 @@ export interface MetricFacts {
     fabricated_left: { mock_leads: number; estimate_rows: number; mock_integrations: number; live_campaigns: number; stale_launch_approvals: number };
     simulated_outcomes_excluded: number;
   };
+  /**
+   * WP-14 T12, the 14 days before the window end. Real records only (a simulated result never counts). Not built yet,
+   * because they wait for WP-14 T1 and T9: the projects that reach Resting, and the shares of each Customer Update.
+   */
+  first_run: {
+    new_projects: number;
+    minutes_to_first_plan: { reached: number; median: number | null };
+    minutes_to_first_outcome: { reached: number; median: number | null };
+    /** Founders whose first press of Continue fell in the window; `share` is succeeded over succeeded plus failed. */
+    first_press: { founders: number; succeeded: number; failed: number; stopped: number; pending: number; share: number | null };
+  };
+  /** Lines for the operator, from the numbers above; empty on a quiet night. */
+  operator_notes: string[];
+}
+
+/** The median time to the first plan above which the operator is told to change WP-14 T10's "within minutes" line. */
+export const FIRST_PLAN_MEDIAN_LIMIT_MIN = 10;
+
+export function firstRunOperatorNotes(first: MetricFacts["first_run"]): string[] {
+  const median = first.minutes_to_first_plan.median;
+  if (median === null || median <= FIRST_PLAN_MEDIAN_LIMIT_MIN) return [];
+  return [
+    `The median time from commit to the first plan is ${median} minutes over ${first.minutes_to_first_plan.reached} new projects, past ${FIRST_PLAN_MEDIAN_LIMIT_MIN}. Change WP-14 T10's "within minutes" line ("Within minutes you'll have a product plan to sign off") to what is true.`,
+  ];
 }
 
 /** The start of the UTC day after `asOf`'s UTC day: every window ends there. */
@@ -342,6 +418,22 @@ export const metricsRepo = {
     const notes = await one("agent_notes_day_one");
     const fabricated = await one("honesty_fabricated_left");
     const simulated = await one("honesty_simulated");
+    const times = await one("first_run_times");
+    const press = await one("first_press");
+    const settled = num(press.succeeded) + num(press.failed);
+    const first_run: MetricFacts["first_run"] = {
+      new_projects: num(times.new_projects),
+      minutes_to_first_plan: { reached: num(times.with_plan), median: numOrNull(times.plan_median_min) },
+      minutes_to_first_outcome: { reached: num(times.with_outcome), median: numOrNull(times.outcome_median_min) },
+      first_press: {
+        founders: num(press.founders),
+        succeeded: num(press.succeeded),
+        failed: num(press.failed),
+        stopped: num(press.stopped),
+        pending: num(press.pending),
+        share: settled ? Math.round((100 * num(press.succeeded)) / settled) / 100 : null,
+      },
+    };
 
     return {
       day: dayKey(new Date(end.getTime() - DAY_MS)),
@@ -376,6 +468,8 @@ export const metricsRepo = {
         fabricated_left: { mock_leads: num(fabricated.mock_leads), estimate_rows: num(fabricated.estimate_rows), mock_integrations: num(fabricated.mock_integrations), live_campaigns: num(fabricated.live_campaigns), stale_launch_approvals: num(fabricated.stale_launch_approvals) },
         simulated_outcomes_excluded: num(simulated.simulated_outcomes_excluded),
       },
+      first_run,
+      operator_notes: firstRunOperatorNotes(first_run),
     };
   },
 

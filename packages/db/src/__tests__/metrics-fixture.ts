@@ -11,6 +11,8 @@ import * as s from "../schema";
 import type { TestHarness } from "../testing/pglite";
 
 export const AS_OF = new Date("2026-11-14T18:00:00Z");
+const CYCLE_ALPHA = "00000000-0000-4000-8000-0000000000a1";
+const CYCLE_BRAVO = "00000000-0000-4000-8000-0000000000b1";
 const t = (iso: string) => new Date(iso);
 const page = { pitch: "Candles that smell like a walk in the woods", about: "Small batches.", forWhom: "People in small apartments", stage: "building", showFounders: false, followForm: true } as const;
 
@@ -103,7 +105,13 @@ export async function buildMetricsFixture(h: TestHarness, opts: { withDemo: bool
   await repos.pages.publish(h.db, alpha, { content: page, slug: "alpha-page", userId: alice, at: t("2026-11-05T10:00:00Z") });
   await event(h, alpha, "page.published", "2026-11-05T10:00:00Z", { kind: "user", id: alice }, { pageId: alpha, slug: "alpha-page" });
   await event(h, alpha, "page.published", "2026-11-12T10:00:00Z", { kind: "user", id: alice }, { pageId: alpha, slug: "alpha-page" });
-  await event(h, alpha, "cycle.started", "2026-11-05T10:30:00Z", { kind: "user", id: alice });
+  await event(h, alpha, "cycle.started", "2026-11-05T10:30:00Z", { kind: "user", id: alice }, { cycleId: CYCLE_ALPHA, trigger: "continue" });
+  await event(h, alpha, "cycle.completed", "2026-11-05T11:30:00Z", { kind: "system", id: "orchestrator" }, { cycleId: CYCLE_ALPHA, outcome: "completed" });
+  // The plan note arrived six minutes after commit (WP-14 T12); the roadmap round on the same note is not a second plan.
+  await h.db.insert(s.productSignoffs).values([
+    { businessId: alpha, kind: "spec", round: 1, requestedAt: t("2026-11-05T08:06:00Z") },
+    { businessId: alpha, kind: "roadmap", round: 1, requestedAt: t("2026-11-05T08:07:00Z") },
+  ]);
   await event(h, alpha, "cycle.started", "2026-11-08T10:30:00Z", { kind: "system", id: "autopilot" });
   await h.db.execute(sql`insert into inbox_items (business_id, type, subject, created_at) values
     (${alpha}, 'update', 'Welcome', '2026-11-05T09:00:00Z'), (${alpha}, 'update', 'First round', '2026-11-05T20:00:00Z'), (${alpha}, 'update', 'Later', '2026-11-07T09:00:00Z')`);
@@ -115,7 +123,10 @@ export async function buildMetricsFixture(h: TestHarness, opts: { withDemo: bool
   await repos.pages.saveDraft(h.db, bravo, { draft: page, slug: "bravo-page", userId: bob });
   await event(h, bravo, "mail.sent", "2026-11-12T10:00:00Z", { kind: "agent", id: bravo }, { simulated: true, channelKey: "email_automation" });
   await event(h, bravo, "payment.received", "2026-11-12T11:00:00Z", { kind: "system", id: "simulate" }, { amount: { amountMinor: 4900, currency: "USD" }, firstPayment: true });
-  await event(h, bravo, "cycle.started", "2026-11-11T10:30:00Z", { kind: "user", id: bob });
+  await event(h, bravo, "cycle.started", "2026-11-11T10:30:00Z", { kind: "user", id: bob }, { cycleId: CYCLE_BRAVO, trigger: "continue" });
+  await event(h, bravo, "cycle.completed", "2026-11-11T10:35:00Z", { kind: "system", id: "orchestrator" }, { cycleId: CYCLE_BRAVO, outcome: "failed" });
+  // Forty minutes to the plan (Bravo's median with Alpha's six is 23), and no real outcome: its results are simulated.
+  await h.db.insert(s.productSignoffs).values({ businessId: bravo, kind: "spec", round: 1, requestedAt: t("2026-11-11T10:40:00Z") });
   await event(h, bravo, "cycle.started", "2026-11-11T12:30:00Z", { kind: "system", id: "autopilot" });
   await h.db.execute(sql`insert into founder_visit_days (user_id, business_id, day, first_at, last_at) values (${bob}, ${bravo}, '2026-11-12', '2026-11-12T08:00:00Z', '2026-11-12T09:00:00Z')`);
 
@@ -131,7 +142,8 @@ export async function buildMetricsFixture(h: TestHarness, opts: { withDemo: bool
     await event(h, demo, "page.published", "2026-11-06T02:00:00Z", { kind: "user", id: demoOwner }, { pageId: demo });
     await event(h, demo, "payment.received", "2026-11-07T02:00:00Z", { kind: "webhook", id: "stripe" }, { amount: { amountMinor: 9900, currency: "USD" } });
     await event(h, demo, "mail.sent", "2026-11-07T03:00:00Z", { kind: "agent", id: demo }, { simulated: true });
-    await event(h, demo, "cycle.started", "2026-11-06T03:00:00Z", { kind: "user", id: demoOwner });
+    await event(h, demo, "cycle.started", "2026-11-06T03:00:00Z", { kind: "user", id: demoOwner }, { cycleId: "00000000-0000-4000-8000-0000000000d1", trigger: "continue" });
+    await h.db.insert(s.productSignoffs).values({ businessId: demo, kind: "spec", round: 1, requestedAt: t("2026-11-06T00:01:00Z") });
     await h.db.execute(sql`insert into inbox_items (business_id, type, subject, created_at) values (${demo}, 'update', 'Sample', '2026-11-06T04:00:00Z')`);
     await h.db.execute(sql`insert into founder_visit_days (user_id, business_id, day, first_at, last_at) values (${alice}, ${demo}, '2026-11-09', '2026-11-09T08:00:00Z', '2026-11-09T09:00:00Z')`);
     await h.db.execute(sql`insert into invitations (business_id, token_hash, role, email, expires_at, created_at) values (${demo}, ${"d".repeat(64)}, 'cofounder', 'invitee@test.local', '2026-11-20T00:00:00Z', '2026-11-06T00:00:00Z')`);

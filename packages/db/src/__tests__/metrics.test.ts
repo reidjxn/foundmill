@@ -7,7 +7,7 @@
 import { isRealOutcome } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { boundMetricSql, METRIC_QUERIES, metricsRepo, metricWindowEnd, REAL_OUTCOME_PREDICATE, type MetricFacts } from "../repos/metrics";
+import { boundMetricSql, FIRST_PLAN_MEDIAN_LIMIT_MIN, firstRunOperatorNotes, METRIC_QUERIES, metricsRepo, metricWindowEnd, REAL_OUTCOME_PREDICATE, type MetricFacts } from "../repos/metrics";
 import { repos } from "../repos";
 import { createTestDb, type TestHarness } from "../testing/pglite";
 import { AS_OF, buildMetricsFixture } from "./metrics-fixture";
@@ -82,6 +82,27 @@ describe("repos.metrics.snapshot", () => {
 
   it("honesty: T4's five counts, and the simulated outcomes the north star left out", () => {
     expect(m.honesty).toEqual({ fabricated_left: { mock_leads: 0, estimate_rows: 0, mock_integrations: 0, live_campaigns: 0, stale_launch_approvals: 1 }, simulated_outcomes_excluded: 2 });
+  });
+
+  it("first run (WP-14 T12): minutes to the first plan and outcome, and the first press of Continue", () => {
+    // Alpha: plan at 6 minutes (its roadmap round a minute later is not another plan), page at 120. Bravo: plan at 40,
+    // and no real outcome (simulated). The house and the demo are not new projects.
+    expect(m.first_run).toEqual({
+      new_projects: 2,
+      minutes_to_first_plan: { reached: 2, median: 23 },
+      minutes_to_first_outcome: { reached: 1, median: 120 },
+      // Alice's first press completed, Bob's failed; the demo's press and the house are left out.
+      first_press: { founders: 2, succeeded: 1, failed: 1, stopped: 0, pending: 0, share: 0.5 },
+    });
+  });
+
+  it("the operator is told to change T10's line when the median to the first plan passes ten minutes", () => {
+    expect(m.operator_notes).toHaveLength(1);
+    expect(m.operator_notes[0]).toContain("23 minutes");
+    expect(m.operator_notes[0]).toContain("within minutes");
+    const quiet = { ...m.first_run, minutes_to_first_plan: { reached: 3, median: FIRST_PLAN_MEDIAN_LIMIT_MIN } };
+    expect(firstRunOperatorNotes(quiet)).toEqual([]);
+    expect(firstRunOperatorNotes({ ...m.first_run, minutes_to_first_plan: { reached: 0, median: null } })).toEqual([]);
   });
 
   it("isRealOutcome and the SQL agree on every fixture event", async () => {

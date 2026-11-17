@@ -220,7 +220,7 @@ export * from "./social";
 export * from "./adults";
 export * from "./tasks";
 export * from "./training";
-export { boundMetricSql, FUNNEL_METRICS, METRIC_QUERIES, metricsRepo, metricWindowEnd, REAL_OUTCOME_PREDICATE, type FunnelMetric, type MetricFacts, type MetricQuery, type NorthStarWeek } from "./metrics";
+export { boundMetricSql, FIRST_PLAN_MEDIAN_LIMIT_MIN, firstRunOperatorNotes, FUNNEL_METRICS, METRIC_QUERIES, metricsRepo, metricWindowEnd, REAL_OUTCOME_PREDICATE, type FunnelMetric, type MetricFacts, type MetricQuery, type NorthStarWeek } from "./metrics";
 export * from "./usage";
 export * from "./workspaces";
 export * from "./logos";

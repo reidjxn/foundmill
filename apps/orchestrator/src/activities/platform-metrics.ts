@@ -14,6 +14,7 @@ export function createPlatformMetricsActivities(deps: OrchestratorDeps) {
       const yesterday = new Date(deps.clock.now().getTime() - DAY_MS);
       const facts = await repos.metrics.snapshot(deps.db, yesterday);
       await repos.metrics.record(deps.db, facts.day, facts);
+      for (const note of facts.operator_notes) deps.log.warn({ platformReport: "metrics", day: facts.day, operatorNote: true }, note);
       deps.log.info({ platformReport: "metrics", day: facts.day }, "nightly platform numbers recorded");
       return { day: facts.day };
     },
