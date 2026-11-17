@@ -13,7 +13,7 @@
  * 1000000) / 1e8. Every query leaves out demo projects (`businesses.is_demo = false`). Read with the service role,
  * inside one `set transaction read only` transaction, so Postgres refuses a write even on that role.
  */
-import { includedCreditsMinor } from "@foundmill/config";
+import { CREDIT_MARKUP, includedCreditsMinor } from "@foundmill/config";
 import { sql } from "drizzle-orm";
 import { rowsOf, type Executor } from "./_shared";
 
@@ -59,6 +59,7 @@ export const COST_QUERIES: CostQuery[] = [
     text: `select u.details->>'route' as route, u.details->>'model' as model, u.billed_to,
        count(*) as calls, sum(u.quantity) as tokens,
        round(sum(${USD}) / 1e8, 4) as usd,
+       round(sum(${USD}) filter (where u.billed_to = 'credits') * ${1 + CREDIT_MARKUP} / 1e8, 4) as usd_charged,
        round(avg(${USD}) / 1e6, 3) as cents_per_call
 from usage_ledger u join businesses b on b.id = u.business_id
 where u.kind = 'tokens' and u.currency = 'USD' and b.is_demo = false and u.details ? 'route' and {range:u.occurred_at}
@@ -203,7 +204,8 @@ export interface CostReport {
   readOnly: boolean;
   /** Real projects seen by each source in the range (the CLI marks figures from fewer than 5 as a small sample). */
   projects: { ledger: number; sessions: number; trainingRuns: number };
-  byRoute: { route: string; model: string | null; billedTo: string; calls: number; tokens: number; usd: number; centsPerCall: number }[];
+  /** `usd` is the true cost; `usdCharged` what the platform-key calls charged against credits (cost plus `CREDIT_MARKUP`). */
+  byRoute: { route: string; model: string | null; billedTo: string; calls: number; tokens: number; usd: number; usdCharged: number; centsPerCall: number }[];
   sessionsByModelAndOutcome: {
     modelKey: string;
     route: string | null;
@@ -298,7 +300,7 @@ export const costReportRepo = {
       to: range.to?.toISOString() ?? null,
       readOnly,
       projects: { ledger: num(counts.ledger), sessions: num(counts.sessions), trainingRuns: num(counts.training_runs) },
-      byRoute: get("byRoute").map((r) => ({ route: str(r.route), model: strOrNull(r.model), billedTo: str(r.billed_to), calls: num(r.calls), tokens: num(r.tokens), usd: num(r.usd), centsPerCall: num(r.cents_per_call) })),
+      byRoute: get("byRoute").map((r) => ({ route: str(r.route), model: strOrNull(r.model), billedTo: str(r.billed_to), calls: num(r.calls), tokens: num(r.tokens), usd: num(r.usd), usdCharged: num(r.usd_charged), centsPerCall: num(r.cents_per_call) })),
       sessionsByModelAndOutcome: get("sessionsByModelAndOutcome").map((r) => ({
         modelKey: str(r.model_key),
         route: strOrNull(r.route),

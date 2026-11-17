@@ -42,6 +42,28 @@ export const TOP_UP_OPTIONS_MINOR = [500, 1000, 2500, 5000] as const;
  */
 export const ENTRY_PLAN = { name: "Entry", priceMonthlyMinor: 500, includedCreditsMinor: 500 } as const;
 
+/**
+ * The markup on what the platform's keys cost (founder, Nov 17, 2026): every call on Foundmill's keys is charged against
+ * credits at cost plus 30%, on every plan and pack, from day one (the invited testers and the included monthly budgets
+ * too). A founder's own key is never marked up: the vendor bills them. The usage ledger keeps the true cost, and the
+ * free plan's $600 cap and the cost report measure true cost; only the credit charge is marked up.
+ */
+export const CREDIT_MARKUP = 0.3;
+
+/**
+ * How much true cost `creditsMinor` of credits pays for (the inverse of `chargedMinor`, rounded down). Use it wherever
+ * credits left become a spend limit measured at cost (a session's budget, the day's ceiling), so a session cannot spend
+ * past what its credits cover.
+ */
+export function costCoveredMinor(creditsMinor: number): number {
+  return Math.floor(creditsMinor / (1 + CREDIT_MARKUP));
+}
+
+/** What a call that cost `trueCost` (any unit: cents or millionths of a cent) charges against credits, rounded. */
+export function chargedMinor(trueCost: number): number {
+  return Math.round(trueCost * (1 + CREDIT_MARKUP));
+}
+
 /** Credit-pack prices from the day sign-up opens, in US cents (founder, Nov 17, 2026): $20 to $500. */
 export const CREDIT_PACKS_MINOR = [2000, 5000, 10000, 25000, 50000] as const;
 
