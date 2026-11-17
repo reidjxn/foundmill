@@ -203,6 +203,10 @@ export interface ModelClient {
 
 export interface WebSearchRequest {
   query: string;
+  /** Set by the gates, never by a caller: the account is not on a paid plan, so the search runs on Haiku 5.5 (WP-13). */
+  freePlan?: boolean;
+  /** Set by the credits gate: the business's credits are low (the search's route keeps its model either way). */
+  lowCredits?: boolean;
   /** Most results returned (the search may find more; the rest are dropped). */
   limit: number;
   /** Rate-limit scope, as on `CompleteRequest` (usually the session id). */

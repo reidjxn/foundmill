@@ -40,7 +40,7 @@ export function startDestination(input: StartInput): string {
 /**
  * Where to keep a waiting card (`/new/card/keep`), or null when there is none: with the sign-in link's claim token when
  * the card came by the link, and `then=studio` when the person chose "Shape it in the Ideation Studio", from the address
- * (`studio`) or, for the waitlist's card, as the waitlist kept it (`card.then`, 0126): a person let in from the waitlist
+ * (`studio`) or, for the waitlist's card, as the waitlist kept it (`card.then`, 0127): a person let in from the waitlist
  * who chose the Studio is taken there on their first sign-in after, on any browser.
  */
 export function keepCardPathFor(card: { source: "browser" | "link" | "waitlist"; then: "studio" | null } | null, input: { claim: string | null; studio: boolean }): string | null {

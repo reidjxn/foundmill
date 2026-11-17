@@ -39,7 +39,7 @@ describe("keepCardPathFor: the waiting card's keep step", () => {
     expect(keepCardPathFor({ source: "browser", then: null }, { claim: "abc", studio: false })).toBe("/new/card/keep");
   });
 
-  it("goes on to the Studio when the address chose it, or when the waitlist kept that choice with its card (0126)", () => {
+  it("goes on to the Studio when the address chose it, or when the waitlist kept that choice with its card (0127)", () => {
     expect(keepCardPathFor({ source: "link", then: null }, { claim: "abc", studio: true })).toBe("/new/card/keep?claim=abc&then=studio");
     // Let in from the waitlist, signing in on any browser with no link: the choice the waitlist kept.
     expect(keepCardPathFor({ source: "waitlist", then: "studio" }, { claim: null, studio: false })).toBe("/new/card/keep?then=studio");

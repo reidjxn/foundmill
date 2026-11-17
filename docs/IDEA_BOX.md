@@ -71,7 +71,7 @@ reads it too). Only the token's SHA-256 (lowercase hex) is stored.
   the Studio with that card highlighted, in view and focused; with no profile yet, the three questions first, which go
   on to it). On a phone that page says the Studio opens on a computer and offers to email its link.
 - A visitor who chose the Studio and met the waitlist: the waitlist page's join sends `then: "studio"`, kept with the
-  card (`waitlist_entries.card_then`, 0126), and `ideaBox.preview` returns it, so the first sign-in after admission, on
+  card (`waitlist_entries.card_then`, 0127), and `ideaBox.preview` returns it, so the first sign-in after admission, on
   any browser, goes the same way. A later join that holds another card replaces the choice with that card's.
 - `claimIdeaDraft(tx, userId, tokenHash)`: in one transaction, the draft is unclaimed and live (not past `expires_at`
   unless `held_until` is later): create the idea in the person's deck (`repos.ideas.create`, `ideaFromCard` with the

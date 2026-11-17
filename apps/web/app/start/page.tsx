@@ -30,7 +30,7 @@ export default async function StartPage({ searchParams }: { searchParams: Promis
   try {
     profile = await server.api.founder.profile.get.query();
   } catch (err) {
-    // Not let in yet: the waitlist keeps the card, and the Studio choice with it (0126), for the first sign-in after.
+    // Not let in yet: the waitlist keeps the card, and the Studio choice with it (0127), for the first sign-in after.
     return <ApiErrorPage error={err} email={server.auth.email} keepThen={studio ? KEEP_THEN_STUDIO : null} />;
   }
   // The landing page's card first (docs/IDEA_BOX.md): this browser's (the `fm_idea` cookie), the one the sign-in link

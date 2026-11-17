@@ -285,4 +285,25 @@ export const followersRepo = {
       .where(and(pageConsent(businessId), isNull(contactConsents.confirmedAt), isNull(entities.lawfulBasis), inArray(sql`lower(trim(${entities.identifiers} ->> 'email'))`, list)));
     return [...new Set(rows.map((r) => r.email))];
   },
+  /**
+   * What the project holds on the live contacts with this address (trimmed, lowercased), for the gateway's send-time
+   * basis (WP-08 T10, apps/gateway `recipientBasis`): each one's lawful basis and source, and whether any of them has a
+   * confirmed page consent not withdrawn.
+   */
+  async basisFacts(db: Executor, businessId: string, email: string): Promise<{ contacts: { id: string; lawfulBasis: string | null; source: string | null }[]; consented: boolean }> {
+    const address = email.trim().toLowerCase();
+    if (!address) return { contacts: [], consented: false };
+    const contacts = await db
+      .select({ id: entities.id, lawfulBasis: entities.lawfulBasis, source: entities.source })
+      .from(entities)
+      .where(and(eq(entities.businessId, businessId), liveContact, sql`lower(trim(${entities.identifiers} ->> 'email')) = ${address}`))
+      .limit(20);
+    if (!contacts.length) return { contacts, consented: false };
+    const consent = await db
+      .select({ id: contactConsents.id })
+      .from(contactConsents)
+      .where(and(pageConsent(businessId), isNotNull(contactConsents.confirmedAt), isNull(contactConsents.withdrawnAt), inArray(contactConsents.entityId, contacts.map((c) => c.id))))
+      .limit(1);
+    return { contacts, consented: consent.length > 0 };
+  },
 };

@@ -14,7 +14,7 @@ import { viaToHandOver } from "@/lib/via";
 
 export type WaitlistJoinState = { status: "idle" } | { status: "joined"; cardKept: boolean; shareUrl?: string | null } | { status: "error" };
 
-/** `then`: "studio" when the visitor chose "Shape it in the Ideation Studio"; the api keeps it with the card (0126). */
+/** `then`: "studio" when the visitor chose "Shape it in the Ideation Studio"; the api keeps it with the card (0127). */
 export async function joinWaitlist(_previous: WaitlistJoinState, then: "studio" | null = null): Promise<WaitlistJoinState> {
   const server = await serverApi();
   if (!server) return { status: "error" };

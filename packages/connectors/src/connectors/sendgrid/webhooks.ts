@@ -229,6 +229,14 @@ const htmlReplyText = (html: string): string =>
     .replace(/<(br|\/p|\/div|\/li|hr)\b[^>]*>/gi, "\n")
     .replace(/<[^>]+>/g, " ");
 
+/**
+ * The reply's own words as plain text (quoted original, `>` lines and the sender's own footer left out): what is kept for
+ * the founders to read (WP-08 T2) and what the classifier reads. Untrusted: shown as plain text only.
+ */
+export function inboundReplyText(mail: Pick<InboundMail, "text" | "html">, ownMarkers: readonly string[] = []): string {
+  return replyOwnText(mail.text || htmlReplyText(mail.html), ownMarkers);
+}
+
 export interface InboundMailOptions {
   /** Lines holding any of these (case-insensitive) are not the reply's words: the sender's own footer and unsubscribe link. */
   ownMarkers?: readonly string[];
@@ -241,7 +249,7 @@ export interface InboundMailOptions {
 export function normaliseInboundMail(mail: InboundMail, businessId: string, now: () => Date = () => new Date(), options: InboundMailOptions = {}): PlatformEvent[] {
   const from = addressOf(mail.from);
   const text = mail.text || mail.html.replace(/<[^>]+>/g, " ");
-  const own = replyOwnText(mail.text || htmlReplyText(mail.html), options.ownMarkers);
+  const own = inboundReplyText(mail, options.ownMarkers);
   const sentiment = UNSUB_RE.test(own) ? "unsubscribe" : OOO_RE.test(`${mail.subject}\n${own}`) ? "out_of_office" : "neutral";
   const words = text.split(/\s+/).filter(Boolean).length;
   const entityId = emailEntityId(from);
@@ -257,7 +265,9 @@ export function normaliseInboundMail(mail: InboundMail, businessId: string, now:
         entityId,
         channelKey: "email_automation",
         campaignId: null,
-        interactionId: uuidFromSeed("interaction", SENDGRID_KEY, "inbound", key),
+        // The project is in the seed: one message to two projects' addresses is two rows, and a sender who reuses a
+        // Message-ID cannot take another project's row (interaction ids are unique across projects; WP-08 T2 review).
+        interactionId: uuidFromSeed("interaction", SENDGRID_KEY, "inbound", businessId, key),
         sentiment,
         summary: `Email reply from ${from} (${words} words, ${mail.attachments} attachment${mail.attachments === 1 ? "" : "s"}${mail.dkim?.includes("pass") ? ", DKIM pass" : ""}); body quarantined for the reader.`,
         requestsMeeting: sentiment === "neutral" && MEETING_RE.test(own),

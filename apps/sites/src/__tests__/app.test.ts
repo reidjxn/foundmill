@@ -13,6 +13,7 @@ const RELEASES: Record<string, Record<string, SiteFile>> = {
     "index.html": file("<!doctype html><html><body><h1>Lunchbox</h1></body></html>"),
     "about/index.html": file("<html><body>About</body></html>"),
     "styles.css": file("h1{color:red}"),
+    "logo.svg": file('<svg xmlns="http://www.w3.org/2000/svg"></svg>'),
     "app.js": file("alert(1)"),
     ".env": file("SECRET=1"),
     "404.html": file("<html><body>Lost</body></html>"),
@@ -98,7 +99,15 @@ describe("apps/sites", () => {
     expect(res.headers.get("x-robots-tag")).toBe("noindex, nofollow");
     expect(res.headers.get("cache-control")).toBe("no-store");
     expect(res.headers.get("content-security-policy")).toContain("frame-ancestors https://foundmill.com");
+    // The preview's host carries its token: it is never sent on to a site the preview links to.
+    expect(res.headers.get("referrer-policy")).toBe("no-referrer");
     expect(await res.text()).toContain("Preview");
+  });
+
+  it("serves an SVG as an image, never as a page (a page carries the footer)", async () => {
+    const { req } = makeApp();
+    expect((await req(`lunchbox.${DOMAIN}`, "/logo.svg", { headers: { "sec-fetch-dest": "image" } })).status).toBe(200);
+    expect((await req(`lunchbox.${DOMAIN}`, "/logo.svg", { headers: { "sec-fetch-dest": "document" } })).status).toBe(404);
   });
 
   it("maps folders to index.html and unknown paths to the release's 404.html", async () => {

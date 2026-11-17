@@ -16,7 +16,7 @@ admission ("Yes fix it now").
   profile: `/onboarding?next=/new/ideate/<ideaId>`, which `onboardingNext` now takes beside commit and card.
 - `keepCard` with the Studio choice goes to `/new/ideate/<ideaId>`, or to the three questions first for an account
   with no profile.
-- Migration 0126: `waitlist_entries.card_then` (null or `studio`, a check). `waitlist.join` takes `then: "studio"` and
+- Migration 0127: `waitlist_entries.card_then` (null or `studio`, a check). `waitlist.join` takes `then: "studio"` and
   stores it with the card it holds; a join with no card keeps it; a join holding another card replaces it. `ideaBox.
   preview` returns `then` for the waitlist's card (null for a browser's or a link's, whose choice is in the address).
 - The not-invited and on-waitlist pages pass the choice from `/start`'s address to the join (`ApiErrorPage` →
@@ -35,7 +35,8 @@ Both server-side ways to remember the choice need a migration: a new account-eve
 list (`fm_account_event_types`, 0108), and the funnel's account events are facts read only by the nightly numbers, not
 routing state. A browser cookie needs none but does not survive a change of device, which admission often is. One
 nullable column with a check is the smallest honest change. First numbered 0124; #240 (Sites) took 0124 and merged
-first, so this is 0126, above main (0124) and every open branch (0125), with a newer journal `when`. Auto-merge was off
+first, then 0125 merged and an open branch took 0126, so this is 0127, above main (0125) and every open branch
+(0126), with a newer journal `when`. Auto-merge was off
 until then.
 ### "Selected" is the just-landed highlight, not Compare's selection
 The Studio's selection is Compare's pick, whose bar reads "pick 1 more": the wrong frame for shaping one idea. The card

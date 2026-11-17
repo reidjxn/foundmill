@@ -161,7 +161,9 @@ export function createMemoryPlatformHost(): PlatformHost {
       return { items: [] };
     },
     async checkContact(_caller, { email }) {
-      return { email, contactable: !MOCK_SUPPRESSED.has(email.toLowerCase()) };
+      // The mock knows nobody it was not told about as cold: a suppressed address has no basis; any other agreed.
+      const suppressed = MOCK_SUPPRESSED.has(email.toLowerCase());
+      return { email, contactable: !suppressed, basis: suppressed ? "none" : "consent" };
     },
     async readProduct() {
       return { spec: [{ id: uuidFromSeed("mock-platform", "spec", 1), section: "vision", text: "Gentle skincare for sensitive skin." }], roadmap: [], sources: [] };

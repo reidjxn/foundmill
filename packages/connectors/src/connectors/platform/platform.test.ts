@@ -17,7 +17,7 @@ describeConnectorContract("platform (mock)", {
   calls: [
     { tool: "list_tasks", args: { scope: "team" }, check: (r) => expect((r.data as { items: unknown[] }).items).toHaveLength(3) },
     { tool: "read_business", args: {}, check: (r) => expect(r.data).toMatchObject({ name: "Northwind Skincare", vacation: null }) },
-    { tool: "check_contact", args: { email: "unsubscribed@example.com" }, check: (r) => expect(r.data).toEqual({ email: "unsubscribed@example.com", contactable: false }) },
+    { tool: "check_contact", args: { email: "unsubscribed@example.com" }, check: (r) => expect(r.data).toEqual({ email: "unsubscribed@example.com", contactable: false, basis: "none" }) },
     { tool: "get_task", args: { taskId: uuidFromSeed("nowhere", "task") }, expectOk: false, check: (r) => expect(r.error).toMatchObject({ code: "not_found", status: 404 }) },
   ],
 });

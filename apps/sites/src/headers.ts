@@ -35,7 +35,8 @@ export function siteHeaders(options: SiteHeaderOptions): Record<string, string> 
   const headers: Record<string, string> = {
     "Content-Security-Policy": siteCsp(options),
     "X-Content-Type-Options": "nosniff",
-    "Referrer-Policy": "strict-origin-when-cross-origin",
+    // A preview's host carries its token: never send it on to a site the preview links to.
+    "Referrer-Policy": options.kind === "preview" ? "no-referrer" : "strict-origin-when-cross-origin",
     "Cross-Origin-Opener-Policy": "same-origin",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
   };

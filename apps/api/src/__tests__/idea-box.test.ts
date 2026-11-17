@@ -318,7 +318,7 @@ describe("ideaBox.claim and the waitlist", () => {
     const outsider = hz.caller({ userId: hz.B.ownerId, email: "outsider@test.local", emailConfirmed: true });
     await expect(outsider.ideaBox.claim({ token: first.token })).rejects.toThrow();
     const shareUrl = expect.stringMatching(/^http:\/\/localhost:3000\/\?via=w\.[a-z2-7]{10}$/);
-    // They chose "Shape it in the Ideation Studio" (0126): the choice is kept with the card.
+    // They chose "Shape it in the Ideation Studio" (0127): the choice is kept with the card.
     expect(await outsider.waitlist.join({ token: first.token, then: "studio" })).toEqual({ joined: true, cardKept: true, shareUrl });
     expect(await outsider.waitlist.status()).toEqual({ joined: true, cardKept: true, shareUrl });
     // Admitted later, on any browser (no cookie, no link): the waitlist's card is the one to keep.
@@ -334,7 +334,7 @@ describe("ideaBox.claim and the waitlist", () => {
     await expect(hz.caller({ userId: hz.B.ownerId, email: "outsider@test.local", emailConfirmed: false }).waitlist.join({})).rejects.toThrow(/Confirm/);
   });
 
-  it("the Studio choice goes with the waitlist's card: none without it, kept by a join with no card, cleared by a new card (0126)", async () => {
+  it("the Studio choice goes with the waitlist's card: none without it, kept by a join with no card, cleared by a new card (0127)", async () => {
     const { hz, app } = await setup({ SIGNUP_ALLOWLIST: "someone-else@test.local" });
     const first = await draft(app, idea);
     const person = hz.caller({ userId: hz.B.ownerId, email: "chooser@test.local", emailConfirmed: true });

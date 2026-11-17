@@ -341,7 +341,7 @@ async function findKeepable(db: IdeaBoxDeps["db"], userId: string, input: IdeaBo
 /**
  * What /new/card/keep shows before anything is claimed (security review 2026-11-13, P2-1 and P3-3): the card, the
  * visitor's words, and where it was found. Claiming is a separate press of "Keep this card". `then`: where the card goes
- * once kept, as the person chose before they met the waitlist (0126; the waitlist's card only, a browser's or a link's
+ * once kept, as the person chose before they met the waitlist (0127; the waitlist's card only, a browser's or a link's
  * carries its choice in the address).
  */
 export async function previewIdeaBoxDraft(db: IdeaBoxDeps["db"], userId: string, input: IdeaBoxKeepInput, now = new Date()): Promise<{ card: IdeaBoxCard; prompt: string; interest: string | null; sample: boolean; source: IdeaBoxSource; then: "studio" | null } | null> {
