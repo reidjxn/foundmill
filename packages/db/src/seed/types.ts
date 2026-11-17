@@ -22,6 +22,11 @@ export interface SeedDemoOptions {
    * with DEV_AUTH_USER_ID = the demo owner. Extra owners (SEED_OWNER_EMAILS) are not affected.
    */
   ownerProfile?: boolean;
+  /**
+   * Also build one real project owned by the demo founder (seed/e2e-project.ts): the browser suites' stand-in for a
+   * project that is not a sample. `SEED_E2E_PROJECT=1`, read for a local PGlite directory only. Default off.
+   */
+  e2eProject?: boolean;
   log?: (message: string) => void;
 }
 

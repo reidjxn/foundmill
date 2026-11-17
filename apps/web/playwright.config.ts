@@ -64,6 +64,8 @@ export const STACK_ENV: Record<string, string> = {
   SEED_TARGET: "pglite",
   SEED_PGLITE_DIR: E2E_PGLITE_DIR,
   SEED_VOLUME_SCALE: process.env.SEED_VOLUME_SCALE ?? "0.1",
+  // One real project beside the two samples (packages/db/src/seed/e2e-project.ts): update-card.spec.ts shares from it.
+  SEED_E2E_PROJECT: "1",
 };
 
 /** What the browser bundle needs: the api URL, the test env (dev bypass visible), no collab server. */

@@ -17,6 +17,7 @@ import { parseOwnerEmails, stubAuthProvisioner, type AuthProvisioner } from "./a
 import { detachDemoPosts } from "./community";
 import { DEFAULT_SEED_DAYS, DEMO_BUSINESS_IDS, DEMO_BUSINESS_SLUGS, DEMO_OWNER_DISPLAY_NAME, DEMO_OWNER_EMAIL, DEMO_OWNER_USER_ID, DEMO_SEED, DEMO_SEED_AUDIT_ACTION } from "./constants";
 import { createSeedCtx, type SeedOwner } from "./context";
+import { seedE2eProject } from "./e2e-project";
 import { seedLedgerly } from "./ledgerly";
 import { seedNorthwind } from "./northwind";
 import { ensurePlatformSkillDefinitions } from "./platform";
@@ -25,6 +26,7 @@ import type { SeedDemoOptions, SeedDemoResult } from "./types";
 
 export * from "./constants";
 export * from "./types";
+export { E2E_PROJECT_BUSINESS_ID, E2E_PROJECT_CUSTOMER, E2E_PROJECT_NAME, E2E_PROJECT_SLUG } from "./e2e-project";
 export { parseOwnerEmails, stubAuthProvisioner, supabaseAuthProvisioner, type AuthProvisioner } from "./auth";
 export { FOUNDER_PRESET_LAYOUT } from "./content";
 export { anchorOf, demoAnchor, DEMO_ROLL_AUDIT_ACTION, lockDemoBusiness, putNorthwindFirst, recordSampleRows, rollDays, rollDemoForward, ROLL_EXCLUDED_TABLES, type DemoAnchor, type DemoRollResult, type RollDemoForwardOptions } from "./roll-forward";
@@ -161,6 +163,7 @@ export async function seedDemo(db: Db, opts: SeedDemoOptions = {}): Promise<Seed
   const ledgerly = await seedLedgerly(ctx);
   log(`ledgerly done: ${JSON.stringify(ledgerly.counts)}`);
   await putNorthwindFirst(db);
+  if (opts.e2eProject) await seedE2eProject(ctx);
 
   if (opts.refreshDaily ?? true) {
     await repos.journeys.refreshDaily(db);

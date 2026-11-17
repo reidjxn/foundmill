@@ -132,6 +132,10 @@ export const EVENT_WALLS = {
   // A milestone shown on the project's page or taken off it (0089): its id, key and public addresses.
   "milestone.shown": { sections: ["product"] },
   "milestone.hidden": { sections: ["product"] },
+  // A Customer Update shared as a public card, or no longer shared (0136): ids and public addresses only. A card is
+  // about a payment, so it is filed with Settings: a collaborator (who has none) hears nothing of it.
+  "customer_update.shared": { sections: ["settings"] },
+  "customer_update.unshared": { sections: ["settings"] },
   // A share control was pressed (tap-to-post): a product signal for metrics, never pushed for a screen. Filed with the
   // metrics-only events so a stray one reaches no one but Settings' readers.
   "share.opened": { sections: ["settings"] },

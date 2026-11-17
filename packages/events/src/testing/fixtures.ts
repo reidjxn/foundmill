@@ -581,6 +581,8 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
   "founder.session_started": { via: "email", notificationId: fixtureId("notification"), minutesAway: 720, sessions: 3 },
   "milestone.shown": { milestoneId: fixtureId("milestone"), key: "page_live", slug: "northwind-skincare", url: `https://foundmill.example/m/${fixtureId("milestone")}` },
   "milestone.hidden": { milestoneId: fixtureId("milestone"), key: "page_live", slug: "northwind-skincare", url: `https://foundmill.example/m/${fixtureId("milestone")}` },
+  "customer_update.shared": { cardId: fixtureId("update-card"), journeyId: fixtureId("journey"), slug: "northwind-skincare", url: `https://foundmill.example/m/update/${fixtureId("update-card")}`, hasNote: false },
+  "customer_update.unshared": { cardId: fixtureId("update-card"), journeyId: fixtureId("journey"), slug: "northwind-skincare", url: `https://foundmill.example/m/update/${fixtureId("update-card")}`, hasNote: false },
   "share.opened": { network: "x", kind: "milestone", refId: fixtureId("milestone"), target: "tap" },
   "post.drafted": { assetId: fixtureId("asset-post"), trigger: "page_published", subject: "page_live", agentId: FIXTURE_AGENT_ID },
   "positioning.approved": { version: 2, sectionsChanged: ["forWhom", "oneLine"] },

@@ -11,6 +11,8 @@ import { loadRedactionSource, redactValue } from "../services/inbox-redaction";
 import { attributionSummary, buildJourneyRecord } from "../services/journey";
 import { journeyWalls, wallConversion, wallJourneyDetail, wallRibbon } from "../services/journey-walls";
 import { hideMilestone, showMilestone } from "../services/milestones";
+import { shareUpdate, unshareUpdate, updateCardState } from "../services/update-cards";
+import { UPDATE_CARD_NOTE_MAX } from "@foundmill/shared/update-cards";
 import { z } from "zod";
 import { Id, businessProcedure, router, sectionAdmin, sectionRead } from "../trpc";
 
@@ -164,6 +166,13 @@ export const journeyRouter = router({
   showMilestone: showOnPage.input(z.object({ milestoneId: Id })).mutation(({ ctx, input }) => showMilestone(ctx, input)),
   /** Takes a shown milestone off the page; its card answers not found. */
   hideMilestone: showOnPage.input(z.object({ milestoneId: Id })).mutation(({ ctx, input }) => hideMilestone(ctx, input)),
+
+  /** Whether one Customer Update can be shared as a card, what the card would show, and the card while it is shared (WP-14 T9). */
+  updateCard: read.input(z.object({ journeyId: Id })).query(({ ctx, input }) => updateCardState(ctx, input)),
+  /** Shares one Customer Update as a public card (`/m/update/<id>`): the founder's own press, each time. */
+  shareUpdate: showOnPage.input(z.object({ journeyId: Id, note: z.string().max(UPDATE_CARD_NOTE_MAX * 4).nullish() })).mutation(({ ctx, input }) => shareUpdate(ctx, input)),
+  /** Stops sharing: the card is deleted and its address answers not found. */
+  unshareUpdate: showOnPage.input(z.object({ journeyId: Id })).mutation(({ ctx, input }) => unshareUpdate(ctx, input)),
 
   roundup: read.input(z.object({ day: DayKey })).query(({ ctx, input }) =>
     ctx.rls(async (tx) => {

@@ -27,6 +27,11 @@ export const publicProjectStory = cache(async (slug: string): Promise<PublicProj
 /** The card of one shown milestone, or null when it is not shown (or its project's page is not public). Rejects as the API does. */
 export const publicMilestoneCard = cache(async (id: string): Promise<PublicMilestoneCard | null> => publicApi().publicPage.cardById.query({ id }));
 
+export type PublicUpdateCard = NonNullable<RouterOutputs["publicPage"]["updateCardById"]>;
+
+/** One Customer Update a founder shared as a card (app/m/update/[id]), or null when it is not shared (or its project's page is not public). Rejects as the API does. */
+export const publicUpdateCard = cache(async (id: string): Promise<PublicUpdateCard | null> => publicApi().publicPage.updateCardById.query({ id }));
+
 /**
  * The IndexNow key file of a public page (app/p/[slug]/[keyFile]): the key when it is the one the project's founders
  * connected IndexNow with for this page, else null. Not cached: each request names its own key.

@@ -21,6 +21,7 @@ import { RefreshFailedNotice, loadFailed, refreshFailed } from "@/components/she
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
 import { customerFactsFor, entityKindsFor, replayOrigin, stageAgentMeta, stageJourneyFromRecord, toStageTouches } from "./mapping";
 import { readReplaySpeed, writeReplaySpeed } from "./speed";
+import { ShareUpdateCard } from "./ShareUpdateCard";
 
 export interface JourneyScreenProps {
   journeyId: string;
@@ -134,6 +135,8 @@ export function JourneyScreen({ journeyId }: JourneyScreenProps) {
           </span>
         ) : null}
         <span className="flex-1" />
+        {/* Share this Customer Update as a public card: the founder's own press, each time (WP-14 T9). */}
+        <ShareUpdateCard journeyId={row.id} />
         {entityId ? (
           <Button size="sm" variant="default" icon={UserRound} onClick={() => router.push(routes.crm(businessId, entityId))} data-testid="journey-crm-link">
             Open CRM profile

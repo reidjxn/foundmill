@@ -281,6 +281,23 @@ describe("event catalogue", () => {
     }
   });
 
+  it("customer_update.shared and customer_update.unshared: a founder's own press, ids and addresses only (0136)", () => {
+    for (const type of ["customer_update.shared", "customer_update.unshared"] as const) {
+      const decl = EVENTS[type];
+      expect(decl.narratable, type).toBe(false);
+      expect([...decl.consumers].sort(), type).toEqual(["metrics", "stream"]);
+      expect(isPersonAddressedEvent(type)).toBe(false);
+      const fixture = EVENT_FIXTURES[type];
+      expect(parsePayload(type, fixture)).toEqual(fixture);
+      // Nothing of the customer, the amount or the founder's words fits in the payload.
+      expect(Object.keys(parsePayload(type, { ...fixture, customerName: "Acme Corp", amountMinor: 4900, note: "Thanks, Sam" })).sort()).toEqual(["cardId", "hasNote", "journeyId", "slug", "url"]);
+      const bad = (patch: Record<string, unknown>) => () => parsePayload(type, { ...fixture, ...patch });
+      expect(bad({ cardId: "not-an-id" })).toThrow(ValidationError);
+      expect(bad({ slug: "ab" })).toThrow(ValidationError);
+      expect(bad({ url: "/m/update/relative" })).toThrow(ValidationError);
+    }
+  });
+
   it("share.opened: a share control was pressed; the control and an id, never the words, for metrics only (tap-to-post)", () => {
     const decl = EVENTS["share.opened"];
     expect(decl.narratable).toBe(false);
