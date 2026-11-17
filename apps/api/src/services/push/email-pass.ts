@@ -37,7 +37,8 @@ export const NOTIFY_EMAIL_BATCH = 2_000;
 /** (`busy`: the projects' own mail is near its daily ceiling, and keeps the room.) */
 const STOP_REASONS = new Set(["off", "unconfigured", "store", "ceiling", "busy", "simulated"]);
 
-export type NotifyEmailDeps = Pick<ApiDeps, "db" | "gateway" | "log">;
+/** `env` is read for `PAGE_CATCH_UP_EMAIL` only; a caller that leaves it out gets the default (on). */
+export type NotifyEmailDeps = Pick<ApiDeps, "db" | "gateway" | "log"> & { env?: Pick<Env, "PAGE_CATCH_UP_EMAIL"> };
 
 export interface NotifyPassResult {
   /** People with at least one waiting note. */
@@ -56,7 +57,7 @@ export const notifyEmailEnabled = (env: Pick<Env, "NOTIFY_EMAIL" | "PLATFORM_MAI
 /** One pass: decide who is emailed about what, and ask the gateway, one email at a time. */
 export async function runNotifyEmailPass(deps: NotifyEmailDeps, now: Date = new Date()): Promise<NotifyPassResult> {
   const result: NotifyPassResult = { people: 0, sent: 0, notSent: {}, failed: 0, stopped: false };
-  const waiting = await repos.notifyEmail.waitingAnswers(deps.db, { olderThan: new Date(now.getTime() - NOTIFY_HOLDING_WAIT_MS), since: new Date(now.getTime() - NOTIFY_LOOKBACK_MS), limit: NOTIFY_EMAIL_BATCH });
+  const waiting = await repos.notifyEmail.waitingAnswers(deps.db, { olderThan: new Date(now.getTime() - NOTIFY_HOLDING_WAIT_MS), since: new Date(now.getTime() - NOTIFY_LOOKBACK_MS), limit: NOTIFY_EMAIL_BATCH, includeCatchUp: deps.env?.PAGE_CATCH_UP_EMAIL !== "off" });
   const byPerson = new Map<string, WaitingAnswer[]>();
   for (const w of waiting) {
     if (!hasSectionAccess(w.membership, "inbox", "read")) continue;
