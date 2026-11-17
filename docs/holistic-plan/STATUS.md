@@ -232,7 +232,7 @@ All by the coordinating session on the founder's word (reported by that session,
 | WP-14 | T10 | The tour and landing copy | not started | the landing session (Desktop), told on Nov 17 |
 | WP-14 | T11 | Commit's defaults and its credits line | not started | replaces WP-04 D4 and WP-09 D7 as defaults |
 | WP-14 | T12 | Four measures | not started | amends WP-02 T10; two of the four need T1 and T9 |
-| WP-14 | T13 | The plan document | not started | docs only |
+| WP-14 | T13 | The plan document | pull request open | docs only; the experiments' stop rules are proposals for the founder |
 | WP-14 | T14 | Plans, prices, companies and what each plan includes | not started | amends WP-09 T14 and T16 and WP-13 T7's server check |
 | WP-14 | T15 | The waitlist in batches, and invitations to give | not started | amends WP-03 T2, T6, T10 and WP-12; coordinate with the network session |
 
