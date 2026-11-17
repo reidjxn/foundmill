@@ -7,7 +7,10 @@
  * - `free_plan`: the call runs on Haiku 5.5, every route included (`ResolveOptions.freePlan`). A free account's agent
  *   sessions run on GLM-5.3 Flash through Z.ai instead (apps/orchestrator, WP-13 T4); they never use this client.
  * - `own_key`: refused before it leaves. A business on its own Anthropic key is served by a client built on that key.
- *   Free web search is refused the same way until it has its own route (WP-13 T5).
+ *
+ * Web search is a platform tool, not the agent's session model: on the free plan it runs on Haiku 5.5 with Anthropic's
+ * server search, booked at its tokens and per-search fee like a paid plan's (founder, Nov 16, 2026: live web search on
+ * every plan at launch).
  *
  * The refusal happens before the request leaves, so nothing is spent and nothing is booked; callers keep naming a route
  * and never a model.
@@ -23,14 +26,12 @@ export type ModelFunding = "paid_plan" | "free_plan" | "own_key";
 export type FundingOf = (attribution: UsageAttribution | undefined) => Promise<ModelFunding>;
 
 const OWN_KEY_ROUTE = "This call is for a business on its own Anthropic key and must run on that key.";
-const SEARCH_UNAVAILABLE = "Web search is not available on the free plan yet.";
 
 export function enforceModelFunding(client: ModelClient, fundingOf: FundingOf): ModelClient {
   return gateModelClient(client, async ({ route, attribution }) => {
     const funding = await fundingOf(attribution);
     if (funding === "paid_plan") return;
     if (funding === "own_key") throw new ModelNotFundedError(OWN_KEY_ROUTE, "own_key_route");
-    if (route === "webSearch") throw new ModelNotFundedError(SEARCH_UNAVAILABLE, "search_unavailable");
     return { freePlan: true };
   });
 }

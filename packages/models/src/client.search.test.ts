@@ -10,7 +10,7 @@ import { ModelUnavailableError } from "./errors";
 import { gateModelClient } from "./gate";
 import { MockModelClient } from "./mock";
 import { WEB_SEARCH_FEE_MICRO_MINOR, meter } from "./pricing";
-import { resolveModel } from "./routing";
+import { MODELS, resolveModel } from "./routing";
 import type { UsageEvent } from "./types";
 
 interface Captured {
@@ -117,5 +117,18 @@ describe("MockModelClient.searchWeb", () => {
     expect(a.results).toHaveLength(2);
     expect(a.mode).toBe("mock");
     expect(events[0]).toMatchObject({ route: "webSearch", mode: "mock", attribution: { businessId: "b-1" } });
+  });
+});
+
+describe("LiveModelClient.searchWeb on the free plan (WP-13)", () => {
+  it("runs on Haiku 5.5, calls the search directly, and books the tokens at Haiku's price plus the per-search fee", async () => {
+    const { fetch, calls } = fakeFetch(() => searchMessage(RESULTS));
+    const events: UsageEvent[] = [];
+    const client = new LiveModelClient({ apiKey: "sk-ant-test", fetch, sleep: noSleep, onUsage: (e) => void events.push(e) });
+    const out = await client.searchWeb({ query: "compostable cups", limit: 5, freePlan: true });
+    expect(calls[0]!.body).toMatchObject({ model: MODELS.haiku, tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 1, allowed_callers: ["direct"] }] });
+    expect(out.results.map((r) => r.url)).toEqual(["https://a.example/", "https://b.example/"]);
+    const tokens = meter({ inputTokens: 3_000, outputTokens: 120, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 }, MODELS.haiku).costMicroMinor;
+    expect(events.map((e) => [e.model, e.cost.costMicroMinor])).toEqual([[MODELS.haiku, tokens + WEB_SEARCH_FEE_MICRO_MINOR]]);
   });
 });

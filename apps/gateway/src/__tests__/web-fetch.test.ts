@@ -9,7 +9,7 @@ import { loadEnv } from "@foundmill/shared";
 import { createTestDb, type TestHarness } from "@foundmill/db/testing/pglite";
 import { includedCreditsMinor } from "@foundmill/config";
 import { periodOf, repos, type Db } from "@foundmill/db";
-import { meter, resolveModel, WEB_SEARCH_FEE_MICRO_MINOR } from "@foundmill/models";
+import { meter, MODELS, resolveModel, WEB_SEARCH_FEE_MICRO_MINOR } from "@foundmill/models";
 import { buildGateway, createGatewayClient, listenGateway, type GatewayClient, type RunningGateway } from "../index";
 import { silentLog, TEST_SECRET } from "./harness";
 
@@ -154,14 +154,29 @@ describe("web.search_web live (LIVE_CONNECTORS=web, MODEL_MODE=live)", () => {
     expect((await repos.usage.list(ldb, r.businessId, { sessionId: r.sessionId, kind: "tokens" })).items).toHaveLength(0);
   });
 
-  it("a free business's search is refused before any request until the free plan has its own search (WP-13)", async () => {
+  it("a free business's search runs on Haiku 5.5, called directly, booked at its tokens and the per-search fee on credits (WP-13)", async () => {
     requests.length = 0;
     const r = await researcher("Free Search Co", "free");
     const out = await liveClient.call(r.token, { connector: "web", tool: "search_web", args: { query: "compostable cups wholesale" } });
     expect(out.outcome).toBe("allow");
     if (out.outcome !== "allow") return;
-    expect(out.result).toMatchObject({ ok: false, error: { code: "tool_failed", message: "Web search is not available on the free plan yet." } });
-    expect(requests).toHaveLength(0);
-    expect((await repos.usage.list(ldb, r.businessId, { sessionId: r.sessionId, kind: "tokens" })).items).toHaveLength(0);
+    expect(out.result.ok, JSON.stringify(out.result.error)).toBe(true);
+    expect(requests).toEqual([{ apiKey: "sk-ant-platform-test", body: expect.objectContaining({ model: MODELS.haiku, tools: [expect.objectContaining({ type: "web_search_20260209", allowed_callers: ["direct"] })] }) }]);
+    const tokens = (await repos.usage.list(ldb, r.businessId, { sessionId: r.sessionId, kind: "tokens" })).items;
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0]).toMatchObject({ billedTo: "credits", modelKey: "haiku", details: { route: "webSearch" } });
+    const tokenCost = meter({ inputTokens: 2_500, outputTokens: 80, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 }, MODELS.haiku).costMicroMinor;
+    expect(Number(tokens[0]!.costMicroMinor)).toBe(tokenCost + WEB_SEARCH_FEE_MICRO_MINOR);
+  });
+
+  it("a free business on its own Anthropic key searches on the platform's Haiku 5.5 too: search is a platform tool, charged to credits", async () => {
+    requests.length = 0;
+    const r = await researcher("Own Key Search Co", "free");
+    await repos.businesses.update(ldb, r.businessId, { modelBilling: "byok" });
+    const out = await liveClient.call(r.token, { connector: "web", tool: "search_web", args: { query: "compostable cups wholesale" } });
+    expect(out.outcome).toBe("allow");
+    if (out.outcome !== "allow") return;
+    expect(out.result.ok, JSON.stringify(out.result.error)).toBe(true);
+    expect(requests[0]).toMatchObject({ apiKey: "sk-ant-platform-test", body: { model: MODELS.haiku } });
   });
 });
