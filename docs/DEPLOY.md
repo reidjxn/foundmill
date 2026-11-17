@@ -269,6 +269,34 @@ Tests to run before sign-up opens: api `live-gate`, `live`, `live-social`, `live
   5. **Verify:** `pnpm --filter @foundmill/api account verify <userId>`, with `REDIS_URL` set. It exits 0 when only cleared references remain (set-null columns, and message threads the person took part in), and it removes the person's event stream `ae:<userId>`.
   6. **Orphan check** (for WP-00's script): `select b.id, b.name from businesses b where not b.is_demo and not exists (select 1 from memberships m where m.business_id = b.id and m.source <> 'example' and (m.expires_at is null or m.expires_at > now()));` returns no row.
 
+- **Backups and restore (WP-11 T3, the founder's step F2).** The Privacy Policy promises "Deleted data leaves our backups as they expire, within 30 days" (`apps/web/content/legal/privacy.ts`). So backups, and any manual dump, are kept 30 days at most.
+  - **What is backed up today** (founder, Nov 17, 2026; Supabase → Database → Backups and Settings → Billing): Pro plan; daily backups, 8 kept; point-in-time recovery off; "Restore to new project" available. Latest backup: ⬜ (date from the Backups page on the drill's day).
+  - **What is not backed up, and why that is fine:**
+    - Redis streams: rebuilt from the outbox, and every event is also in Postgres.
+    - Temporal's own Postgres on Railway: §3; its workflows restart from the database's state.
+    - Railway volumes hold nothing else of ours.
+  - **Retention today:** every table keeps its rows until a person closes their account (above) or a project is deleted. Two kinds grow and are accepted for now: delivered outbox rows, and `journey_daily_mv`.
+  - **The restore drill, once now and after any change to the backup plan** (founder in the Supabase dashboard, about 20 minutes, Estimate; the drill project costs while it exists):
+    1. Supabase → the production project → Database → Backups: note the date of the newest backup, then choose **Restore to a new project** on it. Name the new project `foundmill-restore-drill-<date>`, same region. Wait until it says it is ready.
+    2. In the **new** project's SQL editor (never production's), run:
+       - `select count(*) from drizzle.__drizzle_migrations;` It should equal the same query on production at the backup's time; today main's journal holds 113 entries.
+       - `select count(*) from businesses;` It should be about production's count on that day.
+       - `select id, audit_log_verify(id) from businesses order by created_at desc limit 3;` The second column should be empty (null), which means each audit chain is intact; a number is the first broken entry.
+    3. Delete the drill project the same day: its Settings → General → Delete project. It holds a full copy of real data and must not outlive the 30 days.
+    4. Record the date and the three results in §6 ("Restore drill"). A failed step is a finding: keep the drill project until it is understood, but never past 30 days.
+- **Spend limits (WP-00 S13).** These are the last line behind Foundmill's own ceilings, so each platform key has a monthly limit at its vendor. The founder sets each one and records the amount in §6 ("Spend limits"):
+  - Anthropic (`ANTHROPIC_API_KEY`): console.anthropic.com → Settings → Limits.
+  - Z.ai (GLM): its console's billing or usage-limit page.
+  - E2B (`E2B_API_KEY`): e2b.dev dashboard → Billing → usage limit.
+  - OpenAI (`OPENAI_API_KEY`, images and the `openai` connector): platform.openai.com → Settings → Limits.
+  - ElevenLabs: subscription and usage limits.
+  - Google Gemini: the Cloud project's budget alert.
+  - Each other platform key a live connector uses (Perplexity, SerpApi, Firecrawl, Apollo, Buffer): its plan's cap.
+  - Railway: a usage limit on the workspace.
+  - Vercel: a spend management amount on the Pro team.
+  - Redis: `maxmemory` with an alert (§3 "Redis memory").
+  - Stripe takes nothing from Foundmill's balance by itself and needs no limit.
+
 ## 5. First sign-in and live agents
 
 1. Open foundmill.com and sign in with a magic link. A new founder lands on the onboarding profile, then `/new` (Ideation Studio or Import), then Commit, which creates the business, its departments and its agent team. The exception is an address in the api's `SEED_OWNER_EMAILS` while `SEED_ON_BOOT=1`: the first boot on an empty database builds the demo businesses (Northwind Skincare, Ledgerly) with that address as owner, so signing in with it lands on Northwind's Home, and the founder can still start their own business from `/new`.
@@ -349,6 +377,8 @@ WP-00's steps "record in docs/DEPLOY.md" mean: change the row here.
 | Nightly numbers | A `platform_metric_days` row for yesterday | Table not built yet (WP-02 T10) | `manual: Desktop` |
 | Waitlist | Admits and emails after WP-00 S1 and S2: `WAITLIST_ADMIT_PER_DAY` set on the orchestrator, or entries admitted by hand, and `WAITLIST_EMAILS=1` on the api so the page promises the email (§4) | Not deployed (WP-03 T2); `WAITLIST_ADMIT_PER_DAY` unset (0), `WAITLIST_EMAILS` unset (the page says it cannot email yet) | `manual: Desktop` |
 | Hosting plan, spend limits, DMARC | WP-00 S13 to S15 | Vercel Pro; spend limits not recorded; DMARC `p=quarantine` on `_dmarc` and `_dmarc.mail` since Nov 17, 2026 (verified in DNS) | `manual: founder` |
+| Restore drill | One restore of the newest backup into a new project, three checks, project deleted the same day (§4 "Backups and restore") | Not run yet (scheduled with the founder, Nov 18, 2026) | `manual: founder` |
+| Spend limits | A monthly limit on each platform key's vendor account (§4 "Spend limits") | Not recorded yet (scheduled with the founder, Nov 18, 2026) | `manual: founder` |
 | Foundmill Sites | With `--sites https://<canary>.foundmill.app/`: 200, `content-security-policy` with `default-src 'none'`, no `set-cookie`; with `--preview`, `x-robots-tag: noindex` | Off: `SITES_DOMAIN` unset (WP-07). The `sites` service and `*.foundmill.app` (wildcard certificate valid) exist since Nov 16 to 17, 2026; 0124 applied 22:30 UTC Nov 16 | `sites-headers` |
 <!-- production-record:end -->
 
