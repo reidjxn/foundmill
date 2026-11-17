@@ -7,6 +7,7 @@
  *   POST /v1/session-tokens        service JWT → session JWT for one agent session
  *   POST /v1/integrations/connect  service JWT (api) → connect a business's integration: App installations verified, a vendor's secret sealed here (integrations.ts)
  *   POST /v1/integrations/health   service JWT (api) → that integration's health check (integrations.ts)
+ *   POST /v1/models/anthropic/:businessId/v1/messages  service JWT (api, composer) → the call on the business's own Anthropic key (model-proxy.ts)
  *   POST /v1/keys/validate         service JWT (api) → a founder's own Anthropic key checked with Anthropic, never logged or echoed (keys.ts)
  *   POST /v1/registry/lookup       service JWT (api) → an allow-listed company-registry lookup for Legal › Import (registry-lookup.ts)
  *   POST /v1/billing/checkout-sessions  service JWT (api) → a Stripe Checkout session on the platform account (billing.ts)
@@ -36,6 +37,7 @@ import { apiServiceTokenMode, bearerToken, mintSessionToken, sessionKey, verifyS
 import { GatewayError, safeError, type GatewayDeps } from "./pipeline";
 import { connectIntegration, integrationHealth } from "./integrations";
 import { KEYS_VALIDATE_ROUTE, ValidateKeyRequest, validateFounderKey } from "./keys";
+import { MAX_OWN_KEY_MODELS_BODY_BYTES, OWN_KEY_MODELS_ROUTE, proxyOwnKeyMessage } from "./model-proxy";
 import { lookupRegistry, REGISTRY_LOOKUP_ROUTE, RegistryLookupRequest } from "./registry-lookup";
 import { CreateCheckoutRequest, createPlatformCheckout } from "./billing";
 import { CheckDomainsRequest, checkDomains } from "./domains";
@@ -126,6 +128,7 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   app.use(SEND_UPDATE_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
   app.use(NOTIFY_EMAIL_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
   app.use(KEYS_VALIDATE_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
+  app.use(OWN_KEY_MODELS_ROUTE, limit(MAX_OWN_KEY_MODELS_BODY_BYTES));
   app.use(REGISTRY_LOOKUP_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
   app.use(REPOSITORY_CHECK_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
 
@@ -189,6 +192,11 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     return c.json(await validateFounderKey(deps, parsed.data, c.var.service.svc, deps.validateModelKey));
   });
   app.post(REGISTRY_LOOKUP_ROUTE, async (c) => c.json(await lookupRegistry(deps, RegistryLookupRequest.parse(await c.req.json()), c.var.service.svc)));
+  // A founder's own Anthropic key for the api's and the composer's model calls (model-proxy.ts, WP-13 T11).
+  app.use(OWN_KEY_MODELS_ROUTE, requireService);
+  app.post(OWN_KEY_MODELS_ROUTE, async (c) =>
+    proxyOwnKeyMessage(deps, { businessId: c.req.param("businessId"), body: await c.req.text(), search: new URL(c.req.url).search, anthropicVersion: c.req.header("anthropic-version"), anthropicBeta: c.req.header("anthropic-beta"), service: c.var.service.svc }, deps.anthropicFetch),
+  );
 
   // Domain availability for the Commit screen: the api asks for a signed-in founder; the gateway reaches the registries.
   app.use("/v1/domains/*", requireService);
