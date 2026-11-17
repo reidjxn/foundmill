@@ -242,6 +242,7 @@ export const businessesRepo = {
       agentsStoppedReason: null,
       timeZone: null,
       isDemo: v.isDemo,
+      paymentPowers: [],
       autopilotEnabled: false,
       autopilotCadence: "every_4h",
       autopilotDailyHour: 9,
@@ -346,6 +347,15 @@ export const businessesRepo = {
   async setSpendCap(db: Executor, businessId: string, spendCapMinor: number | null): Promise<Business> {
     const cap = parseInput(MinorAmount.nonnegative().nullable(), spendCapMinor, "spend cap");
     return one(await db.update(businesses).set({ spendCapMinor: cap }).where(and(eq(businesses.id, businessId), notArchived)).returning(), "business", businessId);
+  },
+
+  /**
+   * 0135 — the payment powers the founder gives agents in automated mode and on vacation. Only `inbound` (invoices and
+   * payment pages without asking) exists; anything else is refused here and by the column's check.
+   */
+  async setPaymentPowers(db: Executor, businessId: string, powers: readonly string[]): Promise<Business> {
+    const parsed = parseInput(z.array(z.enum(["inbound"])).max(1), [...new Set(powers)], "payment powers");
+    return one(await db.update(businesses).set({ paymentPowers: parsed }).where(and(eq(businesses.id, businessId), notArchived)).returning(), "business", businessId);
   },
 
   /** The monthly model budget in US cents (Settings; 0059): what the team's metered work may cost in a month. Null removes it. */

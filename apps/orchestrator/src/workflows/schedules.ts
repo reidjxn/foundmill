@@ -196,3 +196,11 @@ export async function businessDeletionSweep(input: { at?: string } = {}): Promis
   }
   return { due: due.length, purged, skipped };
 }
+
+/**
+ * Nightly (WP-12 T1): a drafted, unpublished public page and the Product lead's note for each real project that began
+ * before public pages and has none. A batch of at most `limit` a night, oldest first.
+ */
+export async function pageCatchUp(input: { businessIds?: string[]; limit?: number; at?: string } = {}): Promise<ScheduleResult> {
+  return acts.draftMissingProjectPages(input);
+}

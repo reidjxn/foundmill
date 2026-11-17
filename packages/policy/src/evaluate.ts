@@ -41,6 +41,7 @@ export function toEntities(input: EvaluateInput): Entities {
       businessMode: effectiveBusinessMode(input),
       spendCapMinor: principal.spendCapMinor ?? NO_SPEND_CAP_MINOR,
       approvalThresholdMinor: principal.approvalThresholdMinor,
+      inboundPaymentPower: business.paymentPowers.includes("inbound"),
     },
     parents: [{ type: "Business", id: cedarIds.business(business.id) }],
   };
@@ -57,6 +58,7 @@ export function toEntities(input: EvaluateInput): Entities {
       finance: tool.finance,
       contract: tool.contract,
       securitySettings: tool.securitySettings,
+      paymentRecord: tool.paymentRecord,
     },
     parents: [],
   };

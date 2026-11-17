@@ -210,6 +210,15 @@ const Env = z.object({
     .string()
     .optional()
     .transform((v): "on" | "off" => (/^(off|0|false|no)$/i.test((v ?? "").trim()) ? "off" : "on")),
+  /**
+   * apps/api: may the notify pass email about the "page is ready" note the page catch-up writes for projects that began
+   * before public pages (WP-12 T1)? On unless "off" (or "0"/"false"/"no") (founder decision D6, Nov 16, 2026: yes); "off"
+   * keeps the note in the Inbox and on Today without an email.
+   */
+  PAGE_CATCH_UP_EMAIL: z
+    .string()
+    .optional()
+    .transform((v): "on" | "off" => (/^(off|0|false|no)$/i.test((v ?? "").trim()) ? "off" : "on")),
   /** Shopify public app (OAuth): its API key and secret key. */
   SHOPIFY_CLIENT_ID: z.string().optional(),
   SHOPIFY_CLIENT_SECRET: z.string().optional(),

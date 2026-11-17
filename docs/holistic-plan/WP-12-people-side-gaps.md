@@ -50,7 +50,7 @@ Solo guard: this task is the guard. Every later task adds its own case to these 
 Done when: both suites run in CI and pass.
 
 ### T1: Draft a public page for every project committed before the feature            [S] [ships alone; merges after D6]
-- [ ] merged
+- [x] merged
 
 Why: A9-P0-3; e0 (`project_pages` 0 rows, 13 real projects). Chosen over "a prompt on Today" because Today already shows its quiet page line for these projects (see Corrections 1) and 11 of 13 founders have not opened Today since day one: the missing piece is the draft and its note, not a prompt.
 Files: modify `packages/db/src/repos/pages.ts`, `apps/orchestrator/src/activities/foundations.ts`, `apps/orchestrator/src/workflows/schedules.ts`, `apps/orchestrator/src/workflows/index.ts`, `apps/orchestrator/src/schedules.ts`, `docs/ARCHITECTURE.md` §10 (the schedule list). Create `apps/orchestrator/src/__tests__/page-catch-up.test.ts`.
@@ -163,7 +163,7 @@ Solo guard: with the layer open, a one-person Personal project's sidebar, Today 
 Done when: Done-when 5.
 
 ### T7: Bring the mobile session's branch onto main and keep the pack true            [M] [ships alone; needs D5]
-- [ ] merged
+- [x] merged
 
 Why: A9-P1-7; THESIS_REVIEW 5.5 and 5.6. `docs/mobile/skills/foundmill-backend/SKILL.md` on main names none of `invitation.*`, `founder.adult.*`, `adult_unconfirmed`, `on_waitlist`, `publicPage.storyBySlug`, `publicPerson.byHandle`, `share.opened`; the branch adds `today.sinceLastVisit` and `founder.presence.ping` and a wording fix main lacks.
 Files: merge of `origin/claude/zealous-rubin-8q52gr` (9 files: `docs/mobile/{BACKEND_CHANGES,PROMPTS}.md`, `docs/mobile/skills/foundmill-backend/SKILL.md`, `packages/shared/src/autopilot.ts`, `apps/api/src/__tests__/cycle.test.ts`, `apps/web/components/shell/__tests__/business-shell.test.ts`, `apps/web/e2e/home.spec.ts`, `docs/DECISIONS.md`, `docs/PROGRESS.md`). Create `apps/api/src/__tests__/mobile-contract.test.ts`. Modify `.claude/skills/ship-change/SKILL.md`.
