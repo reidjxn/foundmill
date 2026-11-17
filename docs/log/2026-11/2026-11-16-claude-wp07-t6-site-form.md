@@ -12,6 +12,7 @@ supersedes: []
   site's own host on staging and production. Everything else in `followPage` is unchanged: the same limits, the same
   answer, the same confirmation email, `page.followed` only on confirmation (ingest).
 - `publicPage.siteConsent({ slug })`: the consent sentence a site's sign-up page shows, the one the record keeps.
+  It is an account read in apps/web `lib/widget-data.tsx` (its input names no business), next to `publicPage.cardById`.
 - apps/sites: `POST /_fm/follow` shows the platform's own page (the address escaped, `followConsentText` with an
   unticked box, the hidden field, the bot check); `POST /_fm/follow/confirm` calls the api server to server
   (`src/api-client.ts`, the tRPC wire format) and shows "Check your inbox" or the refusal in plain words. 4 KB bodies,
