@@ -93,7 +93,8 @@ describe("RunwayScreen", () => {
     expect(save.disabled).toBe(true); // stored and untouched
     fireEvent.change(within(form).getByLabelText("Monthly costs"), { target: { value: "95000" } });
     expect(save.disabled).toBe(false);
-    expect(within(form).getByText(/Base runway with these drivers: 2(\.\d)? mo/)).toBeTruthy(); // 150k ÷ (95k − 20k) ≈ 2 months
+    // The figure is its own element now (the estimate style, WP-14 T7), so the line is read as a whole.
+    expect((form.querySelector("[data-driver-runway]") as HTMLElement).textContent).toMatch(/^Base runway with these drivers: 2(\.\d)? mo/); // 150k ÷ (95k − 20k) ≈ 2 months
     expect(screen.getByText(/Continue is blocked until the warning is acknowledged/)).toBeTruthy();
     const reset = within(form).getByRole("button", { name: "Reset" }) as HTMLButtonElement;
     expect(reset.disabled).toBe(false);

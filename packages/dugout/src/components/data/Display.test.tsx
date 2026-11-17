@@ -289,10 +289,11 @@ describe("MetricTile and StatusStrip", () => {
     // The provenance button is its own control: opening it does not open the tile.
     fireEvent.click(screen.getByRole("button", { name: /Where this number comes from: Bank balances/ }));
     expect(opened).toEqual(["cash", "runway"]);
-    // Two tile buttons, the provenance button, and the Estimate chip (a focusable word with its definition, guidance D3).
+    // Two tile buttons, the provenance button, and the estimated figure (focusable, with its definition, guidance D3).
     expect(screen.getAllByRole("button")).toHaveLength(4);
-    fireEvent.click(screen.getByRole("button", { name: "Estimate" }));
-    expect(opened).toEqual(["cash", "runway"]);
+    // The figure is most of the tile: a click on it opens the tile, as a click beside it does.
+    fireEvent.click(screen.getByRole("button", { name: /Estimate$/ }));
+    expect(opened).toEqual(["cash", "runway", "runway"]);
   });
   it("a clickable tile's name carries its change, and its info button is a 24 px target", () => {
     render(<StatusStrip tiles={[{ label: "Customers this week", value: 55, delta: { value: 19, label: "vs last week" }, provenance: { source: "Payments" }, onClick: () => {} }]} />);

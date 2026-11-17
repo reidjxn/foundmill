@@ -194,7 +194,7 @@ export function TrainingResults({ results, coachExplanation, candidateVersion, l
               <div>
                 <dt className="t-data">Session cost</dt>
                 <dd className="inline-flex items-center gap-1 tabular-nums">
-                  {formatMoney(cost)} <ProvenanceChip kind="estimate" />
+                  <ProvenanceChip kind="estimate">{formatMoney(cost)}</ProvenanceChip>
                 </dd>
               </div>
             ) : null}

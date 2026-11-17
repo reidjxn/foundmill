@@ -302,8 +302,7 @@ export function LiveRun({
                     ·
                   </span>
                   <span className="inline-flex items-center gap-1.5">
-                    {`about ${formatRunClock(meter.remainingMs)} left`}
-                    <ProvenanceChip kind="estimate" />
+                    <ProvenanceChip kind="estimate">{`about ${formatRunClock(meter.remainingMs)} left`}</ProvenanceChip>
                   </span>
                 </>
               ) : null}
@@ -313,8 +312,7 @@ export function LiveRun({
                     ·
                   </span>
                   <span className="inline-flex items-center gap-1.5">
-                    {costText}
-                    <ProvenanceChip kind="estimate" />
+                    <ProvenanceChip kind="estimate">{costText}</ProvenanceChip>
                   </span>
                 </>
               ) : null}

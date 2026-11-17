@@ -226,7 +226,7 @@ All by the coordinating session on the founder's word (reported by that session,
 | WP-14 | T4 | Outcomes first on Today | not started |  |
 | WP-14 | T5 | Show the work | not started |  |
 | WP-14 | T6 | Named agents on by default for first-time founders | not started |  |
-| WP-14 | T7 | One style for estimates, one legend | not started | amends WP-10 T9 and T12; changes docs/DESIGN.md §10; owner: the session "WP-14 estimates style and measures" (founder, Nov 17) |
+| WP-14 | T7 | One style for estimates, one legend | pull request open | amends WP-10 T9 and T12; DESIGN §8 and §10 changed; owner: the session "WP-14 estimates style and measures" (founder, Nov 17); the legend on the tour, Commit and the first-profile screens is listed in the pull request for the sessions that hold them |
 | WP-14 | T8 | The chapter report | not started |  |
 | WP-14 | T9 | Share a Customer Update as a card | not started | #244 |
 | WP-14 | T10 | The tour and landing copy | not started | the landing session (Desktop), told on Nov 17 |

@@ -336,7 +336,7 @@ export function TrainingTab({ businessId, profile, refetch }: TabProps) {
                         <span className="text-body-strong text-primary">{p.skillName}</span>
                         <Chip tone="neutral">{p.section}</Chip>
                         <span className="ml-auto inline-flex items-center gap-1 text-small tabular-nums text-status-good">
-                          {p.expectedGain > 0 ? `+${p.expectedGain}` : "±0"} <ProvenanceChip kind="estimate" />
+                          <ProvenanceChip kind="estimate">{p.expectedGain > 0 ? `+${p.expectedGain}` : "±0"}</ProvenanceChip>
                         </span>
                       </div>
                       <p className="text-body text-primary">{p.text}</p>
@@ -364,9 +364,9 @@ export function TrainingTab({ businessId, profile, refetch }: TabProps) {
                     <KeyValueList
                       items={[
                         { label: "Tests", value: estimateQ.data ? `${estimateQ.data.tests} across ${estimateQ.data.skills} skills` : "…", numeric: true },
-                        { label: "Cost", value: estimateQ.data ? <span className="inline-flex items-center gap-1">{formatMoney({ amountMinor: estimateQ.data.costMinor, currency: estimateQ.data.currency })} <ProvenanceChip kind="estimate" /></span> : "…", numeric: true },
+                        { label: "Cost", value: estimateQ.data ? <span className="inline-flex items-center gap-1"><ProvenanceChip kind="estimate">{formatMoney({ amountMinor: estimateQ.data.costMinor, currency: estimateQ.data.currency })}</ProvenanceChip></span> : "…", numeric: true },
                         { label: "Duration", value: estimateQ.data ? `about ${estimateQ.data.durationMinutes} min` : "…", numeric: true },
-                        { label: "Cost per month, change", value: compareQ.data ? <span className="inline-flex items-center gap-1">{formatMoney(modelOptions(compareQ.data, CREDITS_CURRENCY).find((o) => o.key === previewModel)?.wageDelta ?? { amountMinor: 0, currency: CREDITS_CURRENCY })}/mo <ProvenanceChip kind="estimate" /></span> : "…", numeric: true },
+                        { label: "Cost per month, change", value: compareQ.data ? <span className="inline-flex items-center gap-1"><ProvenanceChip kind="estimate">{formatMoney(modelOptions(compareQ.data, CREDITS_CURRENCY).find((o) => o.key === previewModel)?.wageDelta ?? { amountMinor: 0, currency: CREDITS_CURRENCY })}/mo</ProvenanceChip></span> : "…", numeric: true },
                         { label: "Skill changes", value: "From the preview run" },
                       ]}
                     />
@@ -434,7 +434,7 @@ export function TrainingTab({ businessId, profile, refetch }: TabProps) {
             <KeyValueList
               items={[
                 { label: "Tests", value: estimateQ.data ? `${estimateQ.data.tests} across ${estimateQ.data.skills} skills (half stay hidden)` : "…" },
-                { label: "Cost", value: estimateQ.data ? <span className="inline-flex items-center gap-1">{formatMoney({ amountMinor: estimateQ.data.costMinor, currency: estimateQ.data.currency })} <ProvenanceChip kind="estimate" /></span> : "…", numeric: true },
+                { label: "Cost", value: estimateQ.data ? <span className="inline-flex items-center gap-1"><ProvenanceChip kind="estimate">{formatMoney({ amountMinor: estimateQ.data.costMinor, currency: estimateQ.data.currency })}</ProvenanceChip></span> : "…", numeric: true },
                 { label: "Duration", value: estimateQ.data ? `about ${formatDuration(estimateQ.data.durationMinutes * 60_000)}` : "…", numeric: true },
                 { label: "Model", value: MODEL_LABELS[draftModel] },
               ]}

@@ -274,9 +274,12 @@ describe("AgentTile", () => {
   it("keeps the Estimate label on the cost at every width (SOAK-07)", () => {
     render(<AgentTile session={session} now={NOW} compact terminalRenderer="plain" />);
     const footer = screen.getByTestId("tile-footer");
-    // The chip for roomy footers and the plain word for the smallest: one of the two is always shown by the container query.
-    expect(footer.querySelectorAll("[data-provenance=estimate]")).toHaveLength(2);
-    expect([...footer.querySelectorAll("[data-provenance=estimate]")].map((e) => e.className).join(" ")).toMatch(/@xs\/foot:hidden/);
+    // The cost itself is the estimate at every width (one style, WP-14 T7): no chip that a narrow footer could hide.
+    const cost = footer.querySelectorAll("[data-provenance=estimate]");
+    expect(cost).toHaveLength(1);
+    expect(cost[0]!.className).toContain("est-fig");
+    expect(cost[0]!.className).not.toMatch(/hidden/);
+    expect(cost[0]!.textContent).toMatch(/\d.* Estimate$/);
   });
 
   it("focus click ignores controls and calls onFocus from the body", async () => {

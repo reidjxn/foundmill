@@ -114,6 +114,7 @@ Done when: a new first-time profile sees named agents, an experienced one does n
 Brief: A8. Supersedes DESIGN §10's "in a dashed chip next to them", by the founder's word in the brief.
 Steps: estimates render in one distinct numeric style, and each screen that shows any carries a single legend line: "Numbers in this style are your team's estimates. Everything else is measured." The word Estimate or Forecast stays on hover and for screen readers, and stays spelled out wherever a figure stands alone (email, exports, Inbox prose). Update DESIGN §10 and the provenance tests. WP-10 T9's new Estimate chips follow this instead.
 Done when: the provenance tests pass on the new rule and the accessibility check reads the word for every estimate.
+Built (Nov 17, 2026, `claude/modest-mccarthy-4w9z5r`): `ProvenanceChip` takes the figure as its children and draws it in the estimate style; `EstimateLegend` is the line, and the console's shell shows it under any screen that holds an estimate. Screens outside the shell that still need the line or the figure form are listed in the log entry.
 
 ### T8: The chapter report            [M] [ships alone]
 Brief: A13. Why: `apps/composer/src/chapter.ts` writes chapter titles only.

@@ -95,7 +95,9 @@ export function ChannelProfileCard({ channel, onOpenChannel, onToggle, onPause, 
               <Term id="acquisition_cost">Cost per customer</Term>
             </dt>
             <dd className="inline-flex items-center gap-1.5 tabular-nums">
-              {formatMoney(channel.cpaRange.low)} – {formatMoney(channel.cpaRange.high)} <ProvenanceChip kind="estimate" />
+              <ProvenanceChip kind="estimate">
+                {formatMoney(channel.cpaRange.low)} – {formatMoney(channel.cpaRange.high)}
+              </ProvenanceChip>
             </dd>
           </div>
         ) : null}

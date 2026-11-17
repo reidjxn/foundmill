@@ -73,8 +73,7 @@ export function ModelPicker({ options, value, onChange, disabled, className }: M
                 {checked || o.skillDelta === null ? "—" : formatDelta(o.skillDelta)}
               </dd>
               <dt className="t-data">Cost per month</dt>
-              <dd className={cn(o.wageDelta.amountMinor < 0 ? "text-status-good" : o.wageDelta.amountMinor > 0 ? "text-status-warn" : "text-secondary")}>{checked ? "—" : `${formatMoneyDelta(o.wageDelta)}/mo`}</dd>
-              <dd className="col-span-2 justify-self-end pt-1">{checked ? null : <ProvenanceChip kind="estimate" />}</dd>
+              <dd className={cn(o.wageDelta.amountMinor < 0 ? "text-status-good" : o.wageDelta.amountMinor > 0 ? "text-status-warn" : "text-secondary")}>{checked ? "—" : <ProvenanceChip kind="estimate">{`${formatMoneyDelta(o.wageDelta)}/mo`}</ProvenanceChip>}</dd>
             </dl>
             {locked ? <Icon icon={Lock} size="inline" className="sr-only" label="Locked" /> : null}
           </label>

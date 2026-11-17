@@ -148,7 +148,7 @@ export function EstimatedMoney({ amountMinor, currency, spendMinor }: { amountMi
   if (amountMinor === 0 && !spendMinor) return <span className="text-secondary">No spend</span>;
   return (
     <span className="inline-flex items-center gap-1.5 tabular-nums">
-      {formatMoney({ amountMinor, currency })} <ProvenanceChip kind="estimate" />
+      <ProvenanceChip kind="estimate">{formatMoney({ amountMinor, currency })}</ProvenanceChip>
     </span>
   );
 }
