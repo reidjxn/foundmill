@@ -69,10 +69,10 @@ The founder confirmed (Nov 17, 2026). SendGrid's authenticated domain is `mail.f
 Department slugs are labels and may differ by project (never hard-code a department), so there is no stable link to
 the Public page tab. Today leads with the page while it waits (T6, T7) and works from 390 px.
 
-### No founder task from T9
-T11's plan types name T9's `FounderTask`, which the plan-execution session owns and has not built. The day-1 brief's
-one thing is a two-way template here (publish the page, else send it to five people). T9 should replace it with
-`founderTaskOf` when it lands.
+### The day-1 one thing is T9's founder task
+The day-1 brief and the first week name T9's `founderTaskOf` (merged as #277's neighbor on Nov 17, 2026) from what the
+email knows: the page live or not, and an outside signal. It does not know whether the page was shared or the plan
+note waits, so it answers publish, else send the page to three people.
 
 ### The weekly first edition's empty line
 s2's "Nothing reached the outside world this week" became "Nothing has reached anyone outside yet. That is common in

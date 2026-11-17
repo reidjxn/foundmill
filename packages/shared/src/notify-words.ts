@@ -12,6 +12,7 @@
  */
 import { countOf, usDate } from "./copy";
 import { firstNameOf } from "./founder-context";
+import { founderTaskOf } from "./founder-task";
 import { outcomesSince, type CardStage, type CheckinStage, type GettingStartedStage, type LifecycleFacts } from "./lifecycle-email";
 import { notificationLinkParams } from "./founder-notifications";
 import { formatMoney } from "./money";
@@ -225,12 +226,15 @@ export function askMessage(project: string, pitch: string | null, url: string | 
   return `“I'm starting ${project}.${pitch ? ` ${pitch}` : ""} Would you use this?${url ? ` ${url}` : ""}”`;
 }
 
-/** The one thing to do today, for a project's first brief and first week (no model call). */
-function oneThing(project: string, l: LifecycleFacts | undefined, url: string | null): { long: string; short: string } {
-  if (l?.page?.live) {
-    return { long: `Send your page to five people who might want ${project} and ask whether they would use it. A message you can paste: ${askMessage(project, l.page.pitch ? safeText(l.page.pitch, 140) : null, url)}`, short: "send your page to five people and ask whether they would use it" };
-  }
-  return { long: "Check your page and publish it. It is the first thing of yours that people outside can see, and nothing is public until you press Publish.", short: "check your page and publish it" };
+/**
+ * The one thing to do today, for a project's first brief and first week: T9's `founderTaskOf` from what the email
+ * knows (the page live or not, an outside signal). No model call.
+ */
+function oneThing(project: string, l: LifecycleFacts | undefined, url: string | null): { long: string; paste: string | null; short: string } | null {
+  const live = l?.page?.live === true;
+  const task = founderTaskOf({ pagePublished: live, pageShared: false, planNoteOpen: false, outsideSignal: (l?.outcomesAt.length ?? 0) > 0, projectName: project, pitch: live && l?.page?.pitch ? safeText(l.page.pitch, 140) : null, url: live ? url : null, overnight: false });
+  if (!task) return null;
+  return { long: `${task.title}. ${task.why}${task.action.text ? " A message you can paste:" : ""}`, paste: task.action.text ?? null, short: `${task.title.charAt(0).toLowerCase()}${task.title.slice(1)}` };
 }
 
 
@@ -379,7 +383,7 @@ function compose(plan: RetentionEmailPlan, ctx: RetentionEmailContext): { subjec
         subject,
         blocks: [
           { kind: "p", text: `${greeting} ${weekly ? `Here is ${name}'s week, ${brief.sinceWords}.` : `Here is ${name} ${brief.sinceWords}, on one page.`}` },
-          ...(first === "day_1" && thing ? [{ kind: "h" as const, text: "Today's one thing" }, { kind: "p" as const, text: thing.long }] : []),
+          ...(first === "day_1" && thing ? [{ kind: "h" as const, text: "Today's one thing" }, { kind: "p" as const, text: thing.long }, ...(thing.paste ? [{ kind: "p" as const, text: thing.paste }] : [])] : []),
           ...briefBlocks(ctx, plan, brief),
           ...streakBlocks(ctx, name),
           { kind: "button", text: "Open Today", href: todayLink(ctx) },
