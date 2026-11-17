@@ -170,7 +170,7 @@ export const followersRepo = {
     }
     const rows = await db
       .insert(contactConsents)
-      .values({ businessId, entityId, purpose: FOLLOW_CONSENT_PURPOSE, source: FOLLOW_SOURCE, sourceRef: input.sourceRef ?? input.slug, pageId: input.pageId, consentText: input.consentText, agreedAt: input.at ?? new Date(), postLinkId: input.postLinkId ?? null })
+      .values({ businessId, entityId, purpose: FOLLOW_CONSENT_PURPOSE, source: FOLLOW_SOURCE, sourceRef: input.sourceRef ?? input.slug, pageId: input.pageId, consentText: input.consentText, agreedAt: input.at ?? new Date(), postLinkId: input.postLinkId ?? null, emailHash: hash })
       .onConflictDoNothing({ target: [contactConsents.businessId, contactConsents.entityId, contactConsents.purpose, contactConsents.source] })
       .returning({ id: contactConsents.id });
     const consent = rows[0];
@@ -235,7 +235,8 @@ export const followersRepo = {
     if (!row || row.emailHash !== input.emailHash || row.withdrawnAt) return { status: "invalid" };
     if (row.confirmedAt) return { status: "already" };
     if (!row.tokenHash || row.tokenHash !== input.tokenHash || row.archivedAt || row.mergedIntoId || row.deletionRequestedAt) return { status: "invalid" };
-    await db.update(contactConsents).set({ confirmedAt: at, confirmationTokenHash: null, updatedAt: at }).where(eq(contactConsents.id, row.id));
+    // The address that confirmed is kept (0134): a later edit of the contact's address never carries the consent with it.
+    await db.update(contactConsents).set({ confirmedAt: at, confirmationTokenHash: null, emailHash: input.emailHash, updatedAt: at }).where(eq(contactConsents.id, row.id));
     let lawfulBasisSet = false;
     if (!row.lawfulBasis) {
       await db.update(entities).set({ lawfulBasis: "consent" }).where(and(eq(entities.businessId, input.businessId), eq(entities.id, row.entityId), isNull(entities.lawfulBasis)));

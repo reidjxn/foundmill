@@ -69,6 +69,7 @@ import { postTextWithLink, type PostDraft } from "@foundmill/shared/post-draft";
 import type { ShareOpened } from "@foundmill/shared/share-targets";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
 import type { ModuleScreenProps } from "../registry";
+import { FollowerUpdatePanel } from "./FollowerUpdatePanel";
 import { PageQuizPanel } from "./PageQuizPanel";
 import { Screen, errorMessage } from "./shared";
 
@@ -515,6 +516,9 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
           </p>
         ) : null}
       </Panel>
+
+      {/* Write to the people who follow the project (WP-08 T3): a sample business has no real followers. */}
+      {data && !data.isSample && data.saved ? <FollowerUpdatePanel projectName={data.preview.name} /> : null}
 
       {/* The optional "Which one is for you?" quiz on the page (0105): off until the founder turns it on. */}
       {data && !data.isSample && data.saved ? <PageQuizPanel /> : null}

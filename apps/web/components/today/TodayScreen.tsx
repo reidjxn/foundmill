@@ -33,6 +33,7 @@ import { emptyWhy } from "@foundmill/shared/empty-why";
 import type { FounderTask } from "@foundmill/shared/founder-task";
 import { PAGE_READY_NOTE } from "@foundmill/shared/project-page";
 import { POSTAL_ADDRESS_NOTE } from "@foundmill/shared/platform-mail";
+import { PROJECT_UPDATE_WORDS } from "@foundmill/shared/project-updates";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { Fragment, useCallback, useMemo, useState, type ReactNode } from "react";
@@ -298,7 +299,19 @@ export function TodayScreen() {
       />
     ),
     "founder-task": founderTask ? <FounderTaskPanel span={12} task={founderTask} onAction={(t) => void onFounderTask(t)} pending={taskPending} status={taskStatus} /> : null,
-    "public-page": pageReady ? <PublicPageNote span={12} href={moduleTabHref(businessId, departments, "product", "public-page")} /> : null,
+    "public-page": (
+      <>
+        {pageReady ? <PublicPageNote span={12} href={moduleTabHref(businessId, departments, "product", "public-page")} /> : null}
+        {todayQ.data?.followersUpdate ? (
+          <PublicPageNote
+            span={12}
+            href={moduleTabHref(businessId, departments, "product", "public-page")}
+            line={todayQ.data.followersUpdate.kind === "draft" ? PROJECT_UPDATE_WORDS.todayDraft : PROJECT_UPDATE_WORDS.todayInvite(todayQ.data.followersUpdate.followers, business?.business.name ?? "your project")}
+            data-testid="followers-update-note"
+          />
+        ) : null}
+      </>
+    ),
     "post-ready": todayQ.data?.postsReady ? <PostReadyNote span={12} waiting={todayQ.data.postsReady.count} href={`${moduleTabHref(businessId, departments, "distribution", "creative")}?asset=${todayQ.data.postsReady.assetId}`} /> : null,
     week: (
       <WeekPlan

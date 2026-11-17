@@ -123,6 +123,8 @@ export const EVENT_WALLS = {
   "push.sent": { sections: ["settings"] },
   // A message sent from the project's Foundmill address (0078): ids and a recipient hash, never the address or the body.
   "mail.sent": { sections: ["distribution"] },
+  "update.drafted": { sections: ["distribution"] },
+  "update.sent": { sections: ["distribution"] },
   // Foundmill emailed one of the business's people about a waiting note: ids only, like push.sent.
   "notify.email_sent": { sections: ["settings"] },
   // The return loop: one founder's own sessions and the emails sent to them. Metrics only; Settings readers alone.

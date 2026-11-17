@@ -353,6 +353,14 @@ export const platformTools = [
     output: z.object({ draftVersion: z.number() }),
     hints: {},
   }),
+  defineTool({
+    name: "draft_follower_update",
+    description:
+      "Draft an update to the people who follow the project (WP-08 T3): a subject and plain text, using only facts from the positioning notes and the project's page, with one ask. It is saved as a draft for the founders, who check it and press Send themselves; this tool never sends anything and never sees an address. followers is how many people would get it.",
+    input: z.object({ subject: Text(200), body: Text(10000) }),
+    output: z.object({ updateId: z.string(), followers: z.number() }),
+    hints: {},
+  }),
 ] as const;
 
 type ToolIo<N extends (typeof platformTools)[number]["name"]> = Extract<(typeof platformTools)[number], { name: N }>;
@@ -404,6 +412,7 @@ export interface PlatformHost {
   removeSkill(caller: PlatformCaller, args: PlatformArgs<"remove_skill">): Promise<PlatformResult<"remove_skill">>;
   readPositioning(caller: PlatformCaller): Promise<PlatformResult<"read_positioning">>;
   proposePositioningChange(caller: PlatformCaller, args: PlatformArgs<"propose_positioning_change">): Promise<PlatformResult<"propose_positioning_change">>;
+  draftFollowerUpdate(caller: PlatformCaller, args: PlatformArgs<"draft_follower_update">): Promise<PlatformResult<"draft_follower_update">>;
 }
 
 /** A platform tool refused for a reason the agent can act on: `not_found`, `not_yours` (someone else's task) or `invalid_state`. */

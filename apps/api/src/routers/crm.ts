@@ -164,7 +164,7 @@ export const crmRouter = router({
    */
   replies: router({
     list: read.input(z.object({ entityId: Id.optional(), limit: z.number().int().min(1).max(50).default(20) })).query(({ ctx, input }) => listReplies(ctx, input)),
-    answer: write.input(z.object({ interactionId: Id, text: z.string().trim().min(1).max(REPLY_ANSWER_MAX) })).use(modelLimited("replyAnswer")).mutation(({ ctx, input }) => answerReply(ctx, input)),
+    answer: write.input(z.object({ interactionId: Id, text: z.string().trim().min(1).max(REPLY_ANSWER_MAX), requestId: Id })).use(modelLimited("replyAnswer")).mutation(({ ctx, input }) => answerReply(ctx, input)),
   }),
 
   roles: router({

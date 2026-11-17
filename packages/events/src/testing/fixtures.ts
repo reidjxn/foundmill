@@ -584,6 +584,8 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
   "share.opened": { network: "x", kind: "milestone", refId: fixtureId("milestone"), target: "tap" },
   "post.drafted": { assetId: fixtureId("asset-post"), trigger: "page_published", subject: "page_live", agentId: FIXTURE_AGENT_ID },
   "positioning.approved": { version: 2, sectionsChanged: ["forWhom", "oneLine"] },
+  "update.drafted": { updateId: fixtureId("update"), agentId: fixtureId("agent") },
+  "update.sent": { updateId: fixtureId("update"), sent: 12, skipped: 1, remaining: 0 },
   "quiz.approved": { quizId: fixtureId("page-quiz"), version: 2, typeCount: 3, questionCount: 3 },
   "quiz.published": { quizId: fixtureId("page-quiz"), version: 2, typeCount: 3, questionCount: 3, slug: "northwind-skincare" },
   "quiz.unpublished": { quizId: fixtureId("page-quiz"), version: 2, typeCount: 3, questionCount: 3, slug: "northwind-skincare" },

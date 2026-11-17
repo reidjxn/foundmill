@@ -269,6 +269,10 @@ export const NON_TENANT_TABLES = [
   // 0130: a platform table (no business_id: the hold outlives the project that gave the address up), service role
   // only; covered by rls/site-address-holds.test.ts.
   "site_address_holds",
+  // 0134: follower updates (members write a draft's subject and body only; status is the services') and their delivery
+  // record (service role only, no policy); covered by rls/project-updates.test.ts.
+  "project_updates",
+  "project_update_deliveries",
   // 0083: one person's rows in one business (presence, visit days, founder emails); covered by rls/founder-return.test.ts.
   "founder_presence",
   "founder_visit_days",

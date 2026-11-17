@@ -18,11 +18,16 @@ export function ReplyThread({ businessId, entityId }: { businessId: string; enti
   const { toast } = useToast();
   const { formatDateTime } = useFormatters();
   const [draft, setDraft] = useState("");
+  // One id per answer written: pressing Send again (after a timeout) never sends it twice (the gateway checks it).
+  const [requestId, setRequestId] = useState(() => crypto.randomUUID());
   const listQ = useQuery(trpc.crm.replies.list.queryOptions({ businessId, entityId, limit: 50 }, { staleTime: 10_000 }));
   const answer = useMutation(
     trpc.crm.replies.answer.mutationOptions({
       onSuccess: (r) => {
-        if (r.sent && !r.simulated) setDraft("");
+        if (r.sent && !r.simulated) {
+          setDraft("");
+          setRequestId(crypto.randomUUID());
+        }
         toast({ title: r.sent && !r.simulated ? REPLY_WORDS.sent : "Not sent", description: r.sent && !r.simulated ? undefined : r.message, tone: r.sent && !r.simulated ? "good" : "warn" });
         void listQ.refetch();
       },
@@ -54,7 +59,7 @@ export function ReplyThread({ businessId, entityId }: { businessId: string; enti
           className="mt-3 flex flex-col gap-2"
           onSubmit={(e) => {
             e.preventDefault();
-            if (draft.trim()) answer.mutate({ businessId, interactionId: latest.id, text: draft.trim() });
+            if (draft.trim()) answer.mutate({ businessId, interactionId: latest.id, text: draft.trim(), requestId });
           }}
         >
           <Textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={3} maxLength={REPLY_ANSWER_MAX} aria-label={REPLY_WORDS.answerLabel} placeholder={REPLY_WORDS.answerLabel} data-testid="reply-answer" />

@@ -778,6 +778,13 @@
       "when": 1796245180000,
       "tag": "0132_lifecycle_email",
       "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
+      "when": 1796245240000,
+      "tag": "0134_project_updates",
+      "breakpoints": true
     }
   ]
 }

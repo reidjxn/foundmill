@@ -99,7 +99,7 @@ Migrations: each task takes the next free number when its branch is cut (0108, j
 
 **Done when:** a test reply sent to a test project's address on production appears on the contact within a minute, and the founder's answer is delivered and classed transactional (no postal address needed).
 
-### [ ] T3: Write to your followers   [L] [ships alone; after T2] [needs WP-00 S1, S2, S3]
+### [x] T3: Write to your followers   [L] [ships alone; after T2] [needs WP-00 S1, S2, S3] (built Nov 16 and 17, sending through T10's consent rule; on in production once S1 to S3 are recorded)
 **Why:** GTM-01 (P0), AR-04 "an email sent", GTM-27 (no notice of a new follower), GTM-18 is left out (see "Cut").
 
 **Files**

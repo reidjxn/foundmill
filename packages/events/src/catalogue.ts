@@ -1925,6 +1925,8 @@ const mailSent = declareEvent(
     sessionId: Id.nullable().default(null),
     /** True when the mock ran (SendGrid not live on the gateway): nothing left Foundmill. */
     simulated: z.boolean(),
+    /** The founders' update to their followers this message belongs to (WP-08 T3); null for any other message. */
+    updateId: Id.nullable().default(null),
   }),
   {
     // North star (CLAUDE.md, founder 2026-11-11): a `mail.sent` with `simulated: false` is a real outcome of its week; a
@@ -1934,6 +1936,22 @@ const mailSent = declareEvent(
     narratable: false,
   },
 );
+
+// ---------------------------------------------------------------------------------------------------
+// The founders' update to their followers (WP-08 T3)
+// ---------------------------------------------------------------------------------------------------
+
+const updateDrafted = declareEvent("update.drafted", z.object({ updateId: Id, agentId: Id.nullable() }), {
+  doc: "A draft of an update to the project's followers was written: by an agent through `draft_follower_update` (`agentId`), or saved by a founder (`agentId` null). Nothing was sent. Carries ids only, never the words. Not a real outcome. Never narrated.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+const updateSent = declareEvent("update.sent", z.object({ updateId: Id, sent: z.number().int().min(0), skipped: z.number().int().min(0), remaining: z.number().int().min(0) }), {
+  doc: "A founder pressed Send (or Send the rest) on an update to the project's followers: how many messages went out in total, how many followers were skipped and how many are left for a later press. Counts only. The real outcome is each `mail.sent` with `simulated: false`; this one is never counted on its own. Never narrated.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
 
 // ---------------------------------------------------------------------------------------------------
 // Email from Foundmill to a person (packages 1.5 and 5.1)
@@ -2378,6 +2396,8 @@ export const EVENTS = {
   "guidance.turned_off": guidanceTurnedOff,
   "push.sent": pushSent,
   "mail.sent": mailSent,
+  "update.drafted": updateDrafted,
+  "update.sent": updateSent,
   "notify.email_sent": notifyEmailSent,
   "founder.session_started": founderSessionStarted,
   "profile.published": profilePublished,
