@@ -54,7 +54,7 @@ export const COPYRIGHT_AGENT: CopyrightAgent = {
 
 /** The date both documents were last changed (US dates, CLAUDE.md). Change it with the text. */
 export const TERMS_UPDATED = "Nov 16, 2026";
-export const PRIVACY_UPDATED = "Nov 16, 2026";
+export const PRIVACY_UPDATED = "Nov 17, 2026";
 
 /** The two documents, for the bar and the footer of each and for the links on the landing and sign-in pages. */
 export const LEGAL_ROUTES = { terms: "/terms", privacy: "/privacy" } as const;

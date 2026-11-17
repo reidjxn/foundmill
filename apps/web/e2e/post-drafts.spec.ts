@@ -291,7 +291,7 @@ test.describe("posts the team drafts to share by tap", () => {
       expect((await context.cookies()).find((c) => c.name === "fm_post")).toMatchObject({ value: code, httpOnly: true, sameSite: "Lax" });
       const form = stranger.locator("form[data-project-follow]");
       await expect(form).toBeVisible({ timeout: LONG });
-      await form.getByLabel("Your email").fill(`code-follower-${Date.now().toString(36)}@example.com`);
+      await form.getByLabel("Your email", { exact: true }).fill(`code-follower-${Date.now().toString(36)}@example.com`);
       await form.getByRole("checkbox").check();
       await form.getByRole("button", { name: "Follow" }).click();
       await expect(stranger.locator("[data-project-follow='done']").getByRole("status")).toHaveText(/^Check your email to confirm\./, { timeout: LONG });

@@ -22,7 +22,7 @@
  */
 import { useId, type FocusEventHandler, type FormEventHandler, type Ref } from "react";
 import { Check } from "lucide-react";
-import { FOLLOW_EMAIL_MAX, followWords, TURNSTILE_PRIVACY_URL } from "@foundmill/shared/project-page";
+import { FOLLOW_EMAIL_MAX, FOLLOW_PRIVACY_HREF, followWords, TURNSTILE_PRIVACY_URL } from "@foundmill/shared/project-page";
 import { cn } from "../../lib/cn";
 import { Button } from "../foundation/Button";
 import { Icon } from "../foundation/Icon";
@@ -123,6 +123,18 @@ export function ProjectFollowForm({ name, slug, action, state = { status: "idle"
         </span>
         <span className="t-body min-w-0 break-words text-prose">{words.consent}</span>
       </label>
+      {/* What happens to the address, before it is left: the Privacy Policy's section on following a project. */}
+      <p className="t-small min-w-0 break-words text-secondary" data-follow-privacy="">
+        <a
+          href={FOLLOW_PRIVACY_HREF}
+          target="_blank"
+          rel="noopener"
+          aria-label={words.privacyLinkLabel}
+          className="inline-flex min-h-tap items-center rounded-sm underline decoration-line-strong underline-offset-4 transition-colors duration-hover hover:decoration-current focus-ring"
+        >
+          {words.privacyLink}
+        </a>
+      </p>
       {/* Out of sight and out of the tab order: a person never fills it in. */}
       <div aria-hidden="true" className="sr-only">
         <label htmlFor={`${id}-trap`}>{words.trap}</label>
