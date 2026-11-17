@@ -25,16 +25,18 @@ export interface SpecialistTemplateInit {
 }
 
 /**
- * Platform capabilities every specialist holds beyond the base set. Documents, RFQ and quote tracking, samples, the
- * costing model and new CRM records have no agent tool yet (templates/PLANNED_GRANTS.md): add each back with its tool.
+ * Platform capabilities every specialist holds beyond the base set. Documents, RFQ and quote tracking, samples and the
+ * costing model have no agent tool yet (templates/PLANNED_GRANTS.md): add each back with its tool.
  */
 export const SPECIALIST_PLATFORM_TOOLS = [
   "crm.entities.search",
+  "crm.entities.create",
+  "crm.interactions.append",
   "spec.read",
 ];
 
 export function defineSpecialistTemplate(init: SpecialistTemplateInit): AgentTemplate {
-  const description = `${init.summary} Inputs: ${init.inputs}. Outputs: ${init.outputs}. Tools: documents in Google Drive, CRM search, email drafts, web research through the quarantined reader. Never does: ${init.neverDoes.join("; ")}.`;
+  const description = `${init.summary} Inputs: ${init.inputs}. Outputs: ${init.outputs}. Tools: documents in Google Drive, CRM search and new CRM records, email drafts, web research through the quarantined reader. Never does: ${init.neverDoes.join("; ")}.`;
   return defineTemplate({
     key: init.key,
     name: init.name,

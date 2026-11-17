@@ -7,7 +7,7 @@
 import { isRealOutcome } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { boundMetricSql, METRIC_QUERIES, metricsRepo, metricWindowEnd, REAL_OUTCOME_PREDICATE, type MetricFacts } from "../repos/metrics";
+import { boundMetricSql, firstPlanNote, METRIC_QUERIES, metricsRepo, metricWindowEnd, PENDING_SOURCES, REAL_OUTCOME_PREDICATE, type MetricFacts } from "../repos/metrics";
 import { repos } from "../repos";
 import { createTestDb, type TestHarness } from "../testing/pglite";
 import { AS_OF, buildMetricsFixture } from "./metrics-fixture";
@@ -86,6 +86,48 @@ describe("repos.metrics.snapshot", () => {
 
   it("honesty: T4's five counts, and the simulated outcomes the north star left out", () => {
     expect(m.honesty).toEqual({ fabricated_left: { mock_leads: 0, estimate_rows: 0, mock_integrations: 0, live_campaigns: 0, stale_launch_approvals: 1 }, simulated_outcomes_excluded: 2 });
+  });
+
+  it("the first session (WP-14 T12): minutes from commit to the first plan and the first approval, and first presses of Continue", () => {
+    // Alpha and Bravo were committed in the 14 days (the house long before; the demo counts for nothing). Plans after
+    // 6 and 24 minutes; Alpha's founder approved after 30; Alice's first press worked and Bob's was refused.
+    expect(m.first_session).toEqual({
+      projects: 2,
+      to_first_plan: { projects: 2, median_min: 15, p90_min: 22.2 },
+      to_first_approval: { projects: 1, median_min: 30, p90_min: 30 },
+      first_continue: { founders: 2, succeeded: 1, share: 0.5 },
+      note: expect.stringContaining("15 minutes"),
+    });
+    expect(firstPlanNote(10)).toBeNull();
+    expect(firstPlanNote(null)).toBeNull();
+    expect(firstPlanNote(10.1)).toContain("Within minutes");
+  });
+
+  it("Resting and Customer Update shares read zero until their sources exist, then light up (WP-14 T1 and T9)", async () => {
+    // Alpha is the one outside project committed more than 7 days before the window's end.
+    expect(m.resting).toEqual({ projects: 1, rested: 0, share: 0, next: { top_up: 0, change_plan: 0, wait: 0, leave: 0 } });
+    expect(m.customer_updates).toEqual({ updates: 0, shares: 0, updates_shared: 0, shares_per_update: null });
+    const { rows } = (await h.db.execute(sql`select id, slug, created_by from businesses where slug in ('alpha', 'bravo') order by slug`)) as unknown as { rows: { id: string; created_by: string }[] };
+    const [alpha, bravo] = rows as [{ id: string; created_by: string }, { id: string; created_by: string }];
+    const ev = (businessId: string, type: string, at: string, actor: { kind: string; id: string }, payload: Record<string, unknown> = {}) =>
+      h.db.execute(sql`insert into events (business_id, type, occurred_at, actor, payload) values (${businessId}, ${type}, ${at}::timestamptz, ${JSON.stringify(actor)}::jsonb, ${JSON.stringify(payload)}::jsonb)`);
+    const system = { kind: "system", id: "orchestrator" };
+    // Alpha rests on Nov 6 and the founder adds credits the next day.
+    await ev(alpha.id, PENDING_SOURCES.resting, "2026-11-06T12:00:00Z", system);
+    await ev(alpha.id, PENDING_SOURCES.toppedUp, "2026-11-07T09:00:00Z", { kind: "user", id: alpha.created_by });
+    // One real Customer Update shared twice; a simulated one and its share count for nothing.
+    await ev(alpha.id, "customer.converted", "2026-11-10T09:00:00Z", { kind: "webhook", id: "stripe" }, { conversionId: "c-1" });
+    await ev(alpha.id, PENDING_SOURCES.customerUpdateShared, "2026-11-10T10:00:00Z", { kind: "user", id: alpha.created_by }, { conversionId: "c-1" });
+    await ev(alpha.id, PENDING_SOURCES.customerUpdateShared, "2026-11-11T10:00:00Z", { kind: "user", id: alpha.created_by }, { conversionId: "c-1" });
+    await ev(bravo.id, "customer.converted", "2026-11-12T12:00:00Z", { kind: "system", id: "simulate" }, { conversionId: "c-2" });
+    const lit = await repos.metrics.snapshot(h.db, AS_OF);
+    expect(lit.resting).toEqual({ projects: 1, rested: 1, share: 1, next: { top_up: 1, change_plan: 0, wait: 0, leave: 0 } });
+    expect(lit.customer_updates).toEqual({ updates: 1, shares: 2, updates_shared: 1, shares_per_update: 2 });
+    // Without the credits and with no visit in the week after, the founder left; with a visit, they are waiting for the reset.
+    await h.db.execute(sql`delete from events where type = ${PENDING_SOURCES.toppedUp}`);
+    expect((await repos.metrics.snapshot(h.db, AS_OF)).resting.next).toEqual({ top_up: 0, change_plan: 0, wait: 0, leave: 1 });
+    await h.db.execute(sql`insert into founder_visit_days (user_id, business_id, day, first_at, last_at) values (${alpha.created_by}, ${alpha.id}, '2026-11-08', '2026-11-08T08:00:00Z', '2026-11-08T09:00:00Z')`);
+    expect((await repos.metrics.snapshot(h.db, AS_OF)).resting.next).toEqual({ top_up: 0, change_plan: 0, wait: 1, leave: 0 });
   });
 
   it("isRealOutcome and the SQL agree on every fixture event", async () => {

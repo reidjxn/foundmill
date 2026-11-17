@@ -1,5 +1,6 @@
 /** The nightly numbers' activity (WP-02 T10): yesterday's UTC day, recorded once, logged by day, re-run in place. */
 import { repos } from "@foundmill/db";
+import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createPlatformMetricsActivities } from "../activities/platform-metrics";
 import { setupOrchestratorHarness, type OrchestratorTestHarness } from "./harness";
@@ -23,5 +24,17 @@ describe("recordPlatformMetrics", () => {
     const days = await repos.metrics.history(t.db, 14);
     expect(days.map((d) => d.day)).toEqual(["2026-11-14"]);
     expect(days[0]!.facts).toMatchObject({ day: "2026-11-14", asOfEnd: "2026-11-15T00:00:00.000Z" });
+  });
+
+  it("tells the operator when the median time from commit to the first plan passes ten minutes (WP-14 T12)", async () => {
+    const error = vi.spyOn(t.deps.log, "error");
+    const acts = createPlatformMetricsActivities(t.deps);
+    await acts.recordPlatformMetrics({});
+    expect(error).not.toHaveBeenCalledWith(expect.objectContaining({ alert: "first_plan_slow" }), expect.any(String));
+    // A project committed on the day, whose plan was asked for 25 minutes later.
+    await t.db.execute(sql`update businesses set committed_at = '2026-11-14T10:00:00Z', is_demo = false where id = ${t.businessId}`);
+    await t.db.execute(sql`insert into product_signoffs (business_id, kind, round, status, requested_at) values (${t.businessId}, 'spec', 1, 'pending', '2026-11-14T10:25:00Z')`);
+    await acts.recordPlatformMetrics({});
+    expect(error).toHaveBeenCalledWith({ alert: "first_plan_slow", day: "2026-11-14", medianMinutes: 25 }, expect.stringContaining("25 minutes"));
   });
 });

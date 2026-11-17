@@ -469,8 +469,8 @@ const dtcPhysical = ArchetypeSeed.parse({
     OPEN_QUESTIONS_TASK,
     SPECIALIST_TASK(
       "Supplier long list and RFQ pack",
-      "Build a qualified long list of contract manufacturers and send an identical RFQ pack so quotes are comparable; every quote is read through the quarantined reader.",
-      ["At least 20 suppliers recorded as CRM entities", "RFQ pack complete and identical for every supplier", "No purchase order or deposit; the founder decides"],
+      "Build a qualified long list of contract manufacturers and draft an identical RFQ pack, in the report, for the founder to send so quotes are comparable; every quote is read through the quarantined reader.",
+      ["At least 10 suppliers recorded in Customers, each with the page it was found on", "RFQ pack drafted in the report, identical for every supplier; nothing is sent", "No purchase order or deposit is made; the founder decides"],
       "sourcing_manufacturing",
     ),
     SPECIALIST_TASK(
