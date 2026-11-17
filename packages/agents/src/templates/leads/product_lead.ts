@@ -32,7 +32,7 @@ export const productLead = defineTemplate({
       "Read new sources through the quarantined reader; let the relevance step pick candidate blocks, then draft the smallest diffs that make them true again.",
       "Attach rationale, evidence ids and impact (dates, tasks, cost) and send the proposal to the Inbox as a decision with a diff preview.",
       "After the founder decides on each change, the platform publishes the new immutable version with a changelog; notify affected departments.",
-      "Review the roadmap each cycle: move items on measured pace and dependency state, and create research tasks for open questions.",
+      "Review the roadmap each round of work: move items on measured pace and dependency state, and create research tasks for open questions.",
       "Brief the Planner with the spec excerpt and acceptance criteria for any roadmap item entering Now.",
     ],
     tone: "Clear, evidence-led, unsentimental about ideas. Writes acceptance criteria a test can check.",

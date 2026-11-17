@@ -128,7 +128,7 @@ export function RegulatoryScreen({ businessId: _businessId }: ModuleScreenProps)
         </ul>
       </Panel>
 
-      <Panel title="While a gate is open" span={8} empty={blocked.length === 0 ? { icon: ShieldCheck, children: "No regulated-sector gate is open. The team works under the standard limits only: no agent ever moves money, signs, deletes for good or changes security settings on its own." } : undefined} footer={<span>Every open gate goes into the team's brief each cycle: the team is told not to do these and to bring them to you as decisions instead. Your choices here are saved for the business.</span>}>
+      <Panel title="While a gate is open" span={8} empty={blocked.length === 0 ? { icon: ShieldCheck, children: "No regulated-sector gate is open. The team works under the standard limits only: no agent ever moves money, signs, deletes for good or changes security settings on its own." } : undefined} footer={<span>Every open gate goes into the team's brief each round of work: the team is told not to do these and to bring them to you as decisions instead. Your choices here are saved for the business.</span>}>
         <ul aria-label="Blocked activities" className="flex flex-col gap-1">
           {blocked.map((b, i) => (
             <li key={`${b.gate}-${i}`} className="flex flex-wrap items-center gap-x-2 gap-y-1">

@@ -27,10 +27,10 @@ describe("ContinueButton", () => {
   });
 
   it("names and defines the round of work in the idle tooltip while guidance is on, as a sentence (a tooltip holds no Term)", async () => {
-    const short = "One round of work: the team works for a while, then reports back in the Inbox.";
-    expect(cycleDefinitionSentence(short)).toBe("A round of work is one round of work: the team works for a while, then reports back in the Inbox.");
+    const short = "A stretch where the team works for a while, then reports back in the Inbox.";
+    expect(cycleDefinitionSentence(short)).toBe("A round of work is a stretch where the team works for a while, then reports back in the Inbox.");
     expect(cycleDefinitionSentence("  ")).toBe("");
-    expect(continueTooltip({ kind: "idle" }, null, null, short)).toBe("Let the team work, one round of work after another, until nothing is left to do. A round of work is one round of work: the team works for a while, then reports back in the Inbox.");
+    expect(continueTooltip({ kind: "idle" }, null, null, short)).toBe("Let the team work, one round of work after another, until nothing is left to do. A round of work is a stretch where the team works for a while, then reports back in the Inbox.");
     // Only idle changes; no definition, no change.
     expect(continueTooltip({ kind: "blocked", count: 1 }, null, null, short)).toBe("1 thing needs you before the team can work (credits used up or a key to replace). Press to open the first.");
     expect(continueTooltip({ kind: "idle" }, null, null, null)).toBe("Let the team work until nothing is left to do. Their notes land in the Inbox.");
@@ -39,7 +39,7 @@ describe("ContinueButton", () => {
     // Outside a provider guidance reads as on: the definition comes from the source map.
     const { unmount } = render(<ContinueButton state={{ kind: "idle" }} />);
     await user.hover(screen.getByRole("button", { name: /Continue/ }));
-    expect((await screen.findAllByText(/A cycle is one round of work/)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/A round of work is a stretch where the team works/)).length).toBeGreaterThan(0);
     unmount();
     // The business's own words win, and guidance off says the plain sentence.
     const terms = { cycle: { id: "cycle", word: "Sprint", short: "One sprint of work." } };
@@ -49,7 +49,7 @@ describe("ContinueButton", () => {
       </GuidanceProvider>,
     );
     await user.hover(screen.getByRole("button", { name: /Continue/ }));
-    expect((await screen.findAllByText(/A cycle is one sprint of work\./)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/A round of work is one sprint of work\./)).length).toBeGreaterThan(0);
     on.unmount();
     render(
       <GuidanceProvider value={{ guidance: "off", terms }}>
@@ -58,7 +58,7 @@ describe("ContinueButton", () => {
     );
     await user.hover(screen.getByRole("button", { name: /Continue/ }));
     expect((await screen.findAllByText("Let the team work until nothing is left to do. Their notes land in the Inbox.")).length).toBeGreaterThan(0);
-    expect(screen.queryByText(/A cycle is/)).toBeNull();
+    expect(screen.queryByText(/A round of work is/)).toBeNull();
   });
 
   it("a caveat says what a press can and cannot do right now, under the tooltip and on the button (first-time founder report, Nov 8, 2026)", async () => {

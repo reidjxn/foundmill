@@ -67,7 +67,7 @@ describe("ResearchPlanPanel", () => {
     expect(within(cards).getByText("Interview plan")).toBeTruthy();
     expect(within(cards).getByText("Draft")).toBeTruthy();
     expect(within(cards).getByText("Ready")).toBeTruthy();
-    expect(within(panel).getByText(/3 research tasks for the next cycles/)).toBeTruthy();
+    expect(within(panel).getByText(/3 research tasks for the next rounds of work/)).toBeTruthy();
     // Ready plans ask the api for nothing.
     expect(fake.mutations).toHaveLength(0);
   });

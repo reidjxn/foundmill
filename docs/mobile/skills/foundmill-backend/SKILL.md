@@ -161,7 +161,7 @@ Q = query (GET), M = mutation (POST). Every call below also takes `businessId` u
 - `business.setBusinessMode` M (admin) {businessMode}, `business.setSpendCap` M (admin) {spendCapMinor}.
 - `business.autopilot.get` Q, `business.autopilot.set` M (admin).
 - `cycle.status` Q → the open round (`cycleNumber`, `paused`, `run`, `workflowId`, `mode`, …) plus `lastCost: { amountMinor, currency: "USD" } | null`, the last finished round's AI cost ("Last round cost $0.52 · Estimate"); `cycle.history` Q {limit}.
-- **Words**: a founder reads "round of work", never "round of work N"; the engine's words (`headline`, round of work numbers, tokens, test counts) belong to the web's Builder view, which the phone never shows.
+- **Words**: a founder reads "round of work" without its number; the engine's words (`headline`, round of work numbers, tokens, test counts) belong to the web's Builder view, which the phone never shows.
 - `cycle.continueState` Q → exactly one of `{ kind: "idle" }`, `{ kind: "blocked", count }` (N notes hold Continue: the pill reads "Respond · N" and opens the Inbox's Needs you), `{ kind: "processing", run?: boolean }` (a round of work or a run is working: dark slab, orbiting arc, "Pause"), `{ kind: "matchday", journeyId: string | null, itemId: string }` (a customer was won: gold "Watch the update", opens the Customer Update when `journeyId` is set, else the note), `{ kind: "holiday", until: string | null, untilLabel: string | null }` (vacation: neutral "Come back", opens the vacation sheet; admins end it with `business.endHoliday`). In the example business the slot reads "Start your own" and opens Start.
 
 ### Today

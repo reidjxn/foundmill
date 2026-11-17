@@ -191,7 +191,7 @@ function InboxColumn({ business, state, decisionRef, onDecide, onOpenWin }: { bu
           <div className="flex shrink-0 items-center gap-2 rounded-panel border border-subtle/70 bg-panel-alt/60 px-2 py-2.5">
             <Avatar size={24} name={business.chief.name} agent={{ seed: business.chief.seed, dept: business.chief.dept }} status="healthy" />
             <span className="min-w-0 flex-1">
-              <span className="t-body-strong block truncate">Cycle {state.cycle} in progress</span>
+              <span className="t-body-strong block truncate">Round of work {state.cycle} in progress</span>
               <span className="block h-1.5 w-full overflow-hidden rounded-full bg-panel">
                 <span className="block h-full w-1/2 animate-sweep rounded-full bg-kit-primary" />
               </span>

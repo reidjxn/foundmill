@@ -614,8 +614,8 @@ export const TERMS = {
   // ---- The loop, the journey and provenance --------------------------------------------------------------------
   cycle: {
     id: "cycle",
-    word: "Cycle",
-    short: "One round of work: the team works for a while, then reports back in the Inbox.",
+    word: "Round of work",
+    short: "A stretch where the team works for a while, then reports back in the Inbox.",
     long: "Press Continue to run one. Each agent gets a task and a time limit; what they finished, what they need from you and what went wrong come back as notes.",
     learn: "home",
   },
