@@ -220,20 +220,20 @@ All by the coordinating session on the founder's word (reported by that session,
 | WP-13 | T9 | The privacy policy names Z.ai | merged (#260) | the DPA and SCCs are the founder's (Z3) |
 | WP-13 | T11 | The api and composer use a founder's own Anthropic key | pull request open | the composer needs `COMPOSER_SERVICE_TOKEN_SECRET` (composer and gateway) and `GATEWAY_URL` on Railway |
 | WP-13 | T10 | Switch it on | not started | T4 to T9, T11; setup Z2 |
-| WP-14 | T1 | Resting, and the last task always finishes | not started | amends WP-09 T13: the session that takes T13 takes this; the own key stays offered; owner: the WP-09 session, as the next pull request after #251 (assigned Nov 17) |
+| WP-14 | T1 | Resting, and the last task always finishes | not started | amends WP-09 T13: the session that takes T13 takes this; the own key stays offered; owner: the session "WP-14 money: plans, Resting, team budget", after #251 (founder, Nov 17) |
 | WP-14 | T2 | Quick fit before the ideas, sharpen after; time and where you live before take charge | not started | changes WP-04 T1's first profile |
-| WP-14 | T3 | Team budget, outcomes first, on Billing | not started | WP-09 T1 and T2 (#251); owner: the WP-09 session, after T14 (assigned Nov 17) |
+| WP-14 | T3 | Team budget, outcomes first, on Billing | not started | WP-09 T1 and T2 (#251); owner: the session "WP-14 money: plans, Resting, team budget", after T14 (founder, Nov 17) |
 | WP-14 | T4 | Outcomes first on Today | not started |  |
 | WP-14 | T5 | Show the work | not started |  |
 | WP-14 | T6 | Named agents on by default for first-time founders | not started |  |
-| WP-14 | T7 | One style for estimates, one legend | not started | amends WP-10 T9 and T12; changes docs/DESIGN.md §10; owner: the WP-10 session (assigned Nov 17) |
+| WP-14 | T7 | One style for estimates, one legend | not started | amends WP-10 T9 and T12; changes docs/DESIGN.md §10; owner: the session "WP-14 estimates style and measures" (founder, Nov 17) |
 | WP-14 | T8 | The chapter report | not started |  |
 | WP-14 | T9 | Share a Customer Update as a card | not started | #244 |
 | WP-14 | T10 | The tour and landing copy | not started | the landing session (Desktop), told on Nov 17 |
 | WP-14 | T11 | Commit's defaults and its credits line | not started | replaces WP-04 D4 and WP-09 D7 as defaults |
-| WP-14 | T12 | Four measures | not started | amends WP-02 T10; two of the four need T1 and T9; owner: a new session, "WP-14 T12: four measures"; the two measures that need T1 and T9 follow them (assigned Nov 17) |
+| WP-14 | T12 | Four measures | not started | amends WP-02 T10; two of the four need T1 and T9; owner: the session "WP-14 estimates style and measures"; the two measures that need T1 and T9 follow them (founder, Nov 17) |
 | WP-14 | T13 | The plan document | not started | docs only |
-| WP-14 | T14 | Plans, prices, companies and what each plan includes | not started | amends WP-09 T14 and T16 and WP-13 T7's server check; owner: the WP-09 session, after #251 (assigned Nov 17) |
+| WP-14 | T14 | Plans, prices, companies and what each plan includes | not started | amends WP-09 T14 and T16 and WP-13 T7's server check; owner: the session "WP-14 money: plans, Resting, team budget", after #251 (founder, Nov 17) |
 | WP-14 | T15 | The waitlist in batches, and invitations to give | not started | amends WP-03 T2, T6, T10 and WP-12; coordinate with the network session; owner: the landing idea-card session, with the network session told (assigned Nov 17), except step 4 (three named invitations, no reward, docs/NETWORK.md), which the invitations session (session_01CJRTqPdPGy7AVuYv4eZNtd) takes at the founder's request of Nov 17: it wrote the invitation admission rules (#120) |
 
 ## Unknown, for the founder or the session that owns each
