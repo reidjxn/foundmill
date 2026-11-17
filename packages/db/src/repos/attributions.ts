@@ -19,7 +19,7 @@
  * link and a code whose project has no public page resolve to nothing, and no post code is ever recorded here.
  */
 import { ATTRIBUTION_VIA_KINDS, formatVia, parseVia, type AttributionViaKind, type ViaRef } from "@foundmill/shared/via";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, count, eq, gt, inArray } from "drizzle-orm";
 import { OWNER_ROLES } from "@foundmill/shared";
 import { z } from "zod";
 import { attributions, founderProfiles, memberships, postLinks, projectPages, publicPersonProfiles, publicProjectPages, type Attribution } from "../schema";
@@ -47,6 +47,18 @@ export const attributionsRepo = {
   async forUser(db: Executor, userId: string): Promise<Attribution | null> {
     const id = parseInput(Id, userId, "user id");
     return maybeOne(await db.select().from(attributions).where(eq(attributions.userId, id)).limit(1));
+  },
+
+  /**
+   * How many accounts a project's page brought to `referrerUserId` since `since` (WP-12 T3, the private "someone arrived"
+   * line). A count only: the reader learns neither who nor how. Service connection.
+   */
+  async countArrivedSince(db: Executor, q: { referrerUserId: string; businessId: string; since: Date }): Promise<number> {
+    const rows = await db
+      .select({ n: count() })
+      .from(attributions)
+      .where(and(eq(attributions.referrerUserId, parseInput(Id, q.referrerUserId, "user id")), eq(attributions.sourceBusinessId, parseInput(Id, q.businessId, "business id")), gt(attributions.createdAt, q.since)));
+    return Number(rows[0]?.n ?? 0);
   },
 
   /** What a reference names right now, by the public views only (see the file comment); null when it names nothing public. */

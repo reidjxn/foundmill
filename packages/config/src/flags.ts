@@ -8,6 +8,9 @@ export const FLAGS = {
   // Agent work funded by the founder's own AI plan at a provider (founder, 2026-11-13): only through a provider's official
   // program, and none is integrated yet (`OWN_PLAN_PROVIDERS`). Off: no business runs on its own plan.
   ownPlanFunding: false,
+  // The private "someone arrived through your page" line in "Since you were last here" (founder, Nov 16, 2026: yes): a count for
+  // the credited founder and the project, never a name or a link (docs/NETWORK.md §14 answer 4). Off: the line never shows.
+  referralLine: true,
 } as const;
 export type FlagKey = keyof typeof FLAGS;
 

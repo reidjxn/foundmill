@@ -71,7 +71,7 @@ Per service:
 
 | Service | Extra variables |
 | --- | --- |
-| api (and social) | `LIVE_MODE=1` opens the LIVE surfaces (network, communities, leaderboards, Go live); leave it unset while the social layer is unfinished: LIVE is closed (`FLAGS.liveMode`), `live.*` answers 403 and Settings does not offer Go live |
+| api | `LIVE_MODE=1` opens the LIVE surfaces (network, communities, Go live); leave it unset while the social layer is unfinished: LIVE is closed (`FLAGS.liveMode`), `live.*` answers 403 and Settings does not offer Go live |
 | api | `SIGNUP_ALLOWLIST` (§4 "Who can sign in"; required while sign-up is open and models are live), `LIVE_CONNECTORS=stripe_billing` when credit top-ups take real payments (§5.5), `COMPOSER_URL=http://composer.railway.internal:4002`, `GATEWAY_URL=http://gateway.railway.internal:4001`, `INGEST_URL=http://ingest.railway.internal:<ingest's PORT>` (the Simulate panel posts through it in development; unset, it stays `http://localhost:4005` and every simulated event fails with `ingest_unreachable`. At boot in staging and production the api logs an error for each of `INGEST_URL`, `GATEWAY_URL` and `COMPOSER_URL` still on localhost), `TEMPORAL_ADDRESS=temporal.railway.internal:7233`, `TEMPORAL_TASK_QUEUE=foundmill`, `SEED_ON_BOOT=1` and `SEED_OWNER_EMAILS=<the address you sign in with>` (comma-separated for several). On a database with neither demo business the api builds Northwind Skincare and Ledgerly in the background after it starts (owners through the Supabase admin API, so `SUPABASE_SERVICE_ROLE_KEY` must be set); once both exist and both builds finished it only adds missing owner memberships, so an address added later becomes an owner on the next boot. The demo businesses are found by their fixed ids, never by slug, and a build counts as finished only once it wrote its last entry (`seed.demo` on its audit log). It never deletes: a demo that is half there (one business, or a build that stopped half-way) is logged as `partial` with a warning and left for `pnpm db:seed`. A rebuild (`pnpm db:seed`) replaces only the demo businesses: the public seed communities, their members and real founders' posts stay, and it refuses to build over a real business that took a demo slug. `SEED_VOLUME_SCALE` (default 1, two years of history) shrinks the data. An owner without a founder profile gets the demo profile, so the first sign-in lands on Northwind's Home; edit it from the profile screen |
 | api: delete these (SEC-14, Nov 11, 2026) | The api no longer reads any connector's platform key: it builds its connector registry without them and asks the gateway for every call that could reach a vendor. Delete from the **api** service on Railway whichever of these it still has (each stays on the gateway, and on ingest where §5.6 says so): `COMPANIES_HOUSE_API_KEY`, `OPENCORPORATES_API_TOKEN`, `BOLAGSVERKET_CLIENT_ID`, `BOLAGSVERKET_CLIENT_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `NOTION_CLIENT_ID`, `NOTION_CLIENT_SECRET`, `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_CONNECT_CLIENT_ID`, `STRIPE_WEBHOOK_SECRET`, `SENDGRID_API_KEY`, `SENDGRID_WEBHOOK_PUBLIC_KEY`, `SENDGRID_INBOUND_TOKEN`, `TINK_CLIENT_ID`, `TINK_CLIENT_SECRET`, `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ENV`, `CLOUDFLARE_API_TOKEN`, `DROPBOX_SIGN_API_KEY`, `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_WEBHOOK_SECRET`, `VOYAGE_API_KEY`, `E2B_API_KEY`, `OPENAI_API_KEY`, `ONESIGNAL_APP_ID`, `ONESIGNAL_API_KEY`, `ELEVENLABS_API_KEY`, `ELEVENLABS_SPEECH_ACCENT_IDS`. The api keeps `ANTHROPIC_API_KEY` (its own model calls on the platform key: conversations, plan compiles, recommenders), `DEV_MASTER_KEY` or `KMS_KEY_ID` (it seals a founder's own Anthropic key in Settings › Keys), `SESSION_TOKEN_SECRET` (its service token to the gateway) and the Supabase keys. The variables stay in `packages/shared/src/env.ts` and `.env.example`: the gateway reads them all, and ingest and the orchestrator some of them |
 | gateway | `STRIPE_SECRET_KEY` and `LIVE_CONNECTORS=stripe_billing` when credit top-ups take real payments (§5.5); `LIVE_CONNECTORS=domains` (comma-separated with the others, on the api too) for real domain availability on the Commit screen (no key; §6); the platform keys of each connector that goes live (§5.6); none otherwise. Rate-limit windows live in Redis: the gateway connects at boot and `/health` reports `rateLimitStore: "redis"`, or `"memory"` (logged) while Redis does not answer, retried every 30 s |
@@ -169,6 +169,34 @@ Check: `curl -sI https://<slug>.foundmill.app/` answers with `content-security-p
   - **Stream and composer** never use it. `grep -rn "SESSION_TOKEN_SECRET\|DEV_MASTER_KEY\|createVault" apps/stream/src apps/composer/src` finds nothing outside tests (Nov 16), so both variables can be deleted from both services.
   - The api reads only `SESSION_TOKEN_SECRET`, `ANTHROPIC_API_KEY`, `SUPABASE_JWT_SECRET`, `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` among its keys, secrets and tokens, and builds its connector registry with no platform secrets (`createDefaultRegistry({ secrets: {} })`), so every connector's platform key (`STRIPE_SECRET_KEY`, `SENDGRID_API_KEY` and the others of §5.6) can be deleted from the api. That is WP-00 S16's list.
   - **The trap:** `createVault` (`packages/shared/src/crypto/index.ts`) refuses `DEV_MASTER_KEY` when `APP_ENV=production`. Switching `APP_ENV` before `KMS_KEY_ID` exists turns the vault off and refuses every founder who uses their own key.
+
+### The app prompt and the universal-link files: setup (WP-12 T8)
+
+Set at launch, together with `NEXT_PUBLIC_STORE_LINKS` (WP-00 S17); until then nothing changes on any page.
+
+| Variable (on the **web** service) | Who sets it | What it does |
+| --- | --- | --- |
+| `NEXT_PUBLIC_STORE_LINKS` | Desktop session, from the founder's store links | A project page, a person page, a card and an invitation show "Get the app" under their content on a window narrower than 1280 px. A build-time value: redeploy after changing it. |
+| `APP_LINKS_IOS_APP_ID` | Desktop session; the founder gives `<Team ID>.com.foundmill.app` | Serves `/.well-known/apple-app-site-association` with the paths `/b/*`, `/p/*`, `/u/*`, `/m/*`, `/i/*`, `/a/*` (never sign-in). 404 while unset. |
+| `APP_LINKS_ANDROID_PACKAGE`, `APP_LINKS_ANDROID_SHA256` | Desktop session; the founder gives the package and the signing certificate's SHA-256 fingerprint(s), comma-separated | Serve `/.well-known/assetlinks.json`. 404 while either is unset or malformed. |
+
+**Check it:** `curl -i https://<web>/.well-known/assetlinks.json` answers 200 with `application/json` and the package once set (404 before), signed out and without a redirect; the same for the iOS file.
+
+### The people layer is open; what must be true before sign-up opens (WP-12 T6; founder, Nov 17, 2026)
+
+`LIVE_MODE=1` is set on the api in production, and the founder said to leave it there ("Yes, leave it at 1"): the people layer is open for the accounts already let in by invitation. This replaces the Nov 16 plan to keep it closed.
+
+What the switch does: every `live.*` procedure answers; committing as Live and "Go live" are allowed; `founder.profile.get` answers `features.liveMode: true`, so `/home` links to `/network` and Commit offers "Personal or live". With it unset, the layer is closed and a one-person project must read the same: `solo-guard.test.ts` asserts both states (profile flag, `live.summary` refused with "LIVE is not open yet", Today identical).
+
+Five conditions now gate opening **sign-up** (WP-00 S5), together with the conditions already recorded there:
+
+1. Reports are on main (`report.create`, blocking, the operator queue) and `OPERATOR_USER_IDS` is set to the founder's own Foundmill account id on the api; a new report emails the operator. The response target is two days.
+2. One identity: people search and the network's person page read the page a person publishes at `/u/<handle>`.
+3. `/home`'s find card says only what can be done.
+4. At least 25 people have a public profile: `select count(*) from public_person_profiles;`.
+5. The `security-reviewer` agent has read `live.*` as open to every account.
+
+Tests to run before sign-up opens: api `live-gate`, `live`, `live-social`, `live-limits`, `reports`, `adult-signup`, `solo-guard`; e2e `live`, `person-home`, `solo-guard`, `reports`.
 
 ## 4. Supabase
 

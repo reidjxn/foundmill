@@ -101,6 +101,9 @@ test.describe("18 or older at sign-up", () => {
       const accept = page.waitForRequest((r) => r.method() === "POST" && r.url().includes("invitation.accept"), { timeout: LONG });
       await page.getByTestId("invitation-accept").click();
       expect((await accept).postData() ?? "").toContain('"confirmAdult":true');
+      // A new account names itself on the card before it goes into the project (WP-12 T2).
+      await page.getByTestId("invitation-name").fill("Adult Check", { timeout: LONG });
+      await page.getByTestId("invitation-continue").click();
       await page.waitForURL((u) => !u.pathname.startsWith("/i/"), { timeout: LONG });
     } finally {
       await context.close();

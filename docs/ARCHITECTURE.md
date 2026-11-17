@@ -14,7 +14,6 @@ apps/ingest        Webhook receivers (Stripe, SendGrid, GitHub, Shopify, ...) โ
 apps/sites         Foundmill Sites (WP-07): serves each project's static site at `<slug>.<SITES_DOMAIN>` and release previews at `p-<token>.<SITES_DOMAIN>`, plus its own `/_fm/report`. Static only, no cookies, a strict header set, and a database login (`sites_reader`) that can execute the three site functions and read no table. Off while `SITES_DOMAIN` is unset.
 apps/stream        WebSocket fan-out of Redis streams (ev:{businessId}, as:{sessionId}, u:{userId}, ae:{userId}) to browser tabs.
 apps/collab        Hocuspocus (Yjs) server for spec blocks.
-apps/social        LIVE network, communities (Phase 4; skeleton only now).
 packages/config    APP_NAME, feature flags, pricing tiers, limits. No dependencies.
 packages/shared    Vocabulary types/enums (src/constants.ts, src/types.ts), errors, Result, money, ids, env parsing; server-only subpaths /logger and /crypto (envelope encryption).
 packages/dugout    Design system: tokens.css, fonts.css, dugout.css, every component, Storybook.
@@ -59,7 +58,7 @@ Money is `{ amountMinor: number; currency: string }` (minor units, `bigint` in t
 - Env is parsed once per process with Zod in `packages/shared/src/env.ts` (`loadEnv()`); never read `process.env` directly elsewhere. The web bundle only sees `NEXT_PUBLIC_*`.
 - `NOTIFY_EMAIL`: `on | off` (default on; apps/api). The notify pass (ยง13) emails a person about a note that waits for their answer, at boot and every five minutes, only where `PLATFORM_MAIL_DOMAIN` is set; `off` stops it. `PLATFORM_NOTIFY_LOCAL_PART` (gateway, default `hello`, must be one of `MAIL_RESERVED_LOCAL_PARTS` so no project can hold it) is the local part that email comes from. `PLATFORM_SAFETY_DAILY_CEILING` (gateway, default 5,000) is the founder notices' own enforced daily ceiling (`pn:safety:day`), apart from `PLATFORM_NOTIFY_DAILY_CEILING`.
 - `DEMO_ROLL_FORWARD`: `on | off` (default on; apps/api). The demo businesses' own sample rows (the ids the seed recorded in `demo_sample_rows`) move forward with the calendar at boot and every hour (`rollDemoForward`, DECISIONS 2026-11-10); `off` leaves them where the seed put them.
-- Ports (dev): web 3000, api 4000, gateway 4001, composer 4002, stream 4003, collab 4004, ingest 4005, social 4006. Services read `PORT` first (Railway sets it) and fall back to their named port.
+- Ports (dev): web 3000, api 4000, gateway 4001, composer 4002, stream 4003, collab 4004, ingest 4005. Services read `PORT` first (Railway sets it) and fall back to their named port.
 
 ## 4. Database (`packages/db`)
 
