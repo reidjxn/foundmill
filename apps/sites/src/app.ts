@@ -6,6 +6,7 @@
  */
 import { APP_NAME, tierShowsBuiltOnMark, type TierKey } from "@foundmill/config";
 import { FOLLOW_ERRORS, followEmailProblem } from "@foundmill/shared/project-page";
+import { PAY_LINK_KEY, payLinkUrlProblem } from "@foundmill/shared/pay-links";
 import { siteFileType } from "@foundmill/shared/sites";
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -50,6 +51,8 @@ export interface SitesDeps {
   resolve(label: string): Promise<ResolvedSite | null>;
   readFile(releaseId: string, path: string): Promise<SiteFile | null>;
   report(label: string, reason: string, detail: string): Promise<ReportOutcome>;
+  /** The payment URL behind `/_fm/pay/<key>` on this host (`site_pay_link`; WP-07 T7), or null. */
+  payLink(label: string, key: string): Promise<string | null>;
   /** The api calls of a site's sign-up form (WP-07 T6). */
   follow: SitesFollowApi;
   /** Turnstile's public site key for the sign-up page; null uses the mock token on development and test stacks. */
@@ -222,7 +225,23 @@ export function createSitesApp(deps: SitesDeps): Hono {
     return "ok" in answer ? followPage(c, "live", FOLLOW_CHECK_INBOX_PAGE) : followPage(c, "live", followRefusedPage(answer.refused), 400);
   });
 
-  // Other platform paths are added by later tasks (the sign-up form, pay buttons); none is served from a release.
+  // A pay button (WP-07 T7): `<a href="/_fm/pay/<key>">` sends the visitor on to the founder's own payment link. The
+  // URL lives in the database, never in the release, so a release cannot change where a payment goes. A preview
+  // redirects too, so the founder can try the button before publishing.
+  app.get("/_fm/pay/:key", async (c) => {
+    const found = await siteOf(c);
+    if (found instanceof Response) return found;
+    const key = c.req.param("key");
+    const url = PAY_LINK_KEY.test(key) ? await deps.payLink(found.label, key) : null;
+    if (!url || payLinkUrlProblem(url)) return plain(c, 404, NOT_FOUND_PAGE, found.site.kind);
+    const res = c.redirect(url, 302);
+    for (const [k, v] of Object.entries(siteHeaders({ kind: found.site.kind, production, appOrigin }))) res.headers.set(k, v);
+    res.headers.set("Referrer-Policy", "no-referrer");
+    res.headers.set("Cache-Control", "no-store");
+    return res;
+  });
+
+  // No other platform path is served, and none is ever served from a release.
   app.all("/_fm/*", (c) => plain(c, 404, NOT_FOUND_PAGE));
 
   // Site files: GET (and HEAD, which Hono answers from GET without the body).

@@ -40,6 +40,7 @@ export { ChangesScreen, PublicPageScreen, ResearchScreen, SiteScreen, RoadmapScr
 export { PUBLIC_PAGE_EXPLAINER, PUBLIC_PAGE_WORDS, publishConsequence, type PageViewResponse } from "./PublicPageScreen";
 export { ROADMAP_SUB_VIEWS } from "./RoadmapScreen";
 export { SITE_EXPLAINER, SITE_WORDS, type SiteViewResponse } from "./SiteScreen";
+export { PAY_LINK_WORDS, PayLinksPanel, type PayLinkViewResponse } from "./PayLinksPanel";
 export type { SpecEditorProps, SpecEditorStatus } from "../env";
 export { specDocumentName } from "./spec/contract";
 export * from "./types";

@@ -41,6 +41,7 @@ function makeApp(overrides: Partial<SitesDeps> = {}) {
       return "recorded";
     },
     ping: async () => true,
+    payLink: async (label, key) => (key === "starter" && (label === "lunchbox" || label === `p-${TOKEN}`) ? "https://buy.stripe.com/test_starter" : key === "tampered" ? "https://evil.example/x" : null),
     follow: {
       consent: async (slug) => (SITES[slug]?.kind === "live" ? { consentText: "I agree to get email from Lunchbox about the project. I can stop at any time." } : null),
       submit: async (input) => {
@@ -299,3 +300,38 @@ describe("the sign-up form", () => {
   });
 });
 
+
+describe("pay buttons", () => {
+  it("redirects a live site's button to the stored link with no referrer, and caches nothing", async () => {
+    const { req } = makeApp();
+    const res = await req(`lunchbox.${DOMAIN}`, "/_fm/pay/starter");
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("https://buy.stripe.com/test_starter");
+    expect(res.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(res.headers.get("content-security-policy")).toBe(EXPECTED_LIVE["content-security-policy"]);
+    expect(res.headers.get("set-cookie")).toBeNull();
+  });
+
+  it("redirects on a preview too, so the founder can try the button", async () => {
+    const { req } = makeApp();
+    const res = await req(`p-${TOKEN}.${DOMAIN}`, "/_fm/pay/starter");
+    expect(res.status).toBe(302);
+    expect(res.headers.get("x-robots-tag")).toBe("noindex, nofollow");
+  });
+
+  it("answers 404 for an unknown key, a malformed key, another site's key, or a stored URL that is not a Stripe link", async () => {
+    const { req } = makeApp();
+    for (const path of ["/_fm/pay/nothing", "/_fm/pay/Bad%20Key", "/_fm/pay/..%2Fx", "/_fm/pay/tampered", "/_fm/pay/"]) {
+      expect((await req(`lunchbox.${DOMAIN}`, path)).status, path).toBe(404);
+    }
+    expect((await req(`paidco.${DOMAIN}`, "/_fm/pay/starter")).status).toBe(404);
+  });
+
+  it("a taken-down site answers 410, an unknown host 404, and POST is refused", async () => {
+    const { req } = makeApp();
+    expect((await req(`gone.${DOMAIN}`, "/_fm/pay/starter")).status).toBe(410);
+    expect((await req(`nobody.${DOMAIN}`, "/_fm/pay/starter")).status).toBe(404);
+    expect((await req(`lunchbox.${DOMAIN}`, "/_fm/pay/starter", { method: "POST" })).status).toBe(404);
+  });
+});
