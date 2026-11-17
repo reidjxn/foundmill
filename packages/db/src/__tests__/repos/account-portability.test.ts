@@ -52,6 +52,21 @@ describe("account portability", () => {
     for (const [key, c] of Object.entries(ACCOUNT_COLUMNS)) for (const col of c.omit ?? []) for (const row of blocker.tables[key] ?? []) expect(row, `${key} ${col}`).not.toHaveProperty(col);
   });
 
+  it("a report: the reporter exports their own without the operator's handling; the person reported never sees it (0136)", async () => {
+    await h.db.execute(sql`insert into reports (reporter_user_id, target_kind, target_user_id, reason, note, resolved_at, resolved_by, resolution)
+      values (${A.memberId}, 'person', ${A.viewerId}, 'spam', 'sent me the same pitch five times', now(), ${A.ownerId}, 'warned')`);
+    const reporter = await accountPortabilityRepo.export(h.db as never, A.memberId);
+    const filed = reporter.tables["reports.reporter_user_id"] ?? [];
+    expect(filed).toHaveLength(1);
+    expect(filed[0]).toMatchObject({ reason: "spam", note: "sent me the same pitch five times" });
+    for (const col of ["resolved_by", "resolution", "resolved_at"]) expect(filed[0]).not.toHaveProperty(col);
+    const reported = await accountPortabilityRepo.export(h.db as never, A.viewerId);
+    expect(reported.tables["reports.target_user_id"]).toBeUndefined();
+    expect(JSON.stringify(reported)).not.toContain("five times");
+    const operator = await accountPortabilityRepo.export(h.db as never, A.ownerId);
+    expect(operator.tables["reports.resolved_by"]).toBeUndefined();
+  });
+
   it("closing: a sole owner's project is named first; after the auth user is gone only classified columns keep the id", async () => {
     const plan = await accountPortabilityRepo.closingPlan(h.db as never, A.ownerId);
     expect(plan.soleOwnerOf.map((b) => b.businessId)).toEqual([A.businessId]);
