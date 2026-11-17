@@ -142,7 +142,7 @@ describe("the away report is written once (audit O-35)", () => {
     const loaded = await holidayActs.loadHoliday({ businessId: t.businessId, holidayId: h.id });
     const end = await holidayActs.endHoliday({ businessId: t.businessId, holiday: loaded, reason: "cycle_cap", wakeEventType: null, cyclesRun: 400 });
     const report = await repos.inbox.get(t.db, t.businessId, end.reportInboxItemId!);
-    expect(report.bodyMd).toMatch(/400 cycles/);
+    expect(report.bodyMd).toMatch(/400 rounds of work/);
     expect(report.bodyMd).toMatch(/limit/i);
   });
 });

@@ -128,7 +128,7 @@ export function CycleDeck({ onOpenJourney }: { onOpenJourney?: () => void }) {
           <span aria-hidden className="mx-1 h-5 w-px bg-kit-on-primary/25" />
           <span className="t-display-md">Home</span>
           <span className="truncate text-small text-kit-on-primary tabular-nums">
-            Cycle {state.phase === "idle" ? state.cycle + 1 : state.cycle} · {currentChapter(todayKey)}
+            Round of work {state.phase === "idle" ? state.cycle + 1 : state.cycle} · {currentChapter(todayKey)}
           </span>
           <span className="flex-1" />
           <RunwayChip date={today} runwayMonths={deck.runwayMonths} estimate />

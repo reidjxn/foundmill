@@ -95,7 +95,7 @@ describe("TourPage (signed-out /)", () => {
     expect(panel.textContent).toContain("Vision, specification and roadmap");
     expect(within(panel).getByText("Drafting")).toBeTruthy();
     expect(within(panel).getByText("Drafting your vision, specification and roadmap…")).toBeTruthy();
-    expect(within(panel).getByText(/^Iris, Product lead, writes it from your idea and your profile\. Orla, Chief of Staff, plans the first cycle from the roadmap\.$/)).toBeTruthy();
+    expect(within(panel).getByText(/^Iris, Product lead, writes it from your idea and your profile\. Orla, Chief of Staff, plans the first round of work from the roadmap\.$/)).toBeTruthy();
     // Then the one plan note in the Inbox (WP-04 T5), tagged Respond, then Continue.
     const inbox = within(how).getByRole("list", { name: "Inbox" });
     // Each row: the Product lead's portrait (its name is text too), the subject, the Needs you tag.
@@ -332,7 +332,7 @@ describe("TourPage (signed-out /)", () => {
     expect(deck.getAttribute("data-example")).toBe("glitchwick");
     expect(deck.getAttribute("data-phase")).toBe("idle");
     expect(within(deck).getByText("Glitchwick")).toBeTruthy();
-    expect(within(deck).getByText(/Cycle 197 · Chapter 9/)).toBeTruthy();
+    expect(within(deck).getByText(/Round of work 197 · Chapter 9/)).toBeTruthy();
     expect(screen.getByText(/^Glitchwick is an example business\./)).toBeTruthy();
     // The ticker, the team, the Journey, the Customer Update, the milestones, the board and the Inbox note follow.
     expect(screen.getByRole("region", { name: "What the Glitchwick team did this week" })).toBeTruthy();
