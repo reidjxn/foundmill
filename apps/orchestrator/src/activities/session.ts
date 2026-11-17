@@ -264,11 +264,15 @@ export const FREE_PLAN_SWITCH_NOTE = "On the free plan this session stays on its
 /**
  * The model a free business's session runs on (WP-13; founder, Nov 16, 2026): the agent's own choice when it is one of
  * the free plan's two (Haiku 5.5 or GLM-5.3 Flash), else `FREE_SESSION_MODEL`. GLM needs Foundmill's Z.ai key; without it
- * the session runs on Haiku 5.5.
+ * the session runs on the agent's own model.
  */
-export function freeSessionModel(route: RouteKey, agentModel: RoutedModelKey, env: { FREE_SESSION_MODEL: "haiku" | "glm"; ZAI_API_KEY?: string }) {
+export function freeSessionModel(route: RouteKey, agentModel: RoutedModelKey, env: { FREE_SESSION_MODEL: "routed" | "haiku" | "glm"; ZAI_API_KEY?: string }) {
   const chosen = agentModel === "glm" || agentModel === "haiku" ? agentModel : env.FREE_SESSION_MODEL;
-  return chosen === "glm" && env.ZAI_API_KEY ? resolveModel(route, "glm") : resolveModel(route, undefined, { freePlan: true });
+  if (chosen === "glm" && env.ZAI_API_KEY) return resolveModel(route, "glm");
+  if (chosen === "haiku") return resolveModel(route, "haiku");
+  // `routed` (the default since WP-13 T8, Nov 17, 2026): the agent's own model, as a paid plan runs it. Haiku 5.5 leaked
+  // half of the planted instructions in the injection suites, so a free session no longer drops to it by default.
+  return resolveModel(route, agentModel);
 }
 
 const MODEL_KEY_OF_ID = new Map<string, RoutedModelKey>((Object.entries(MODELS) as [RoutedModelKey, string][]).map(([key, id]) => [id, key]));

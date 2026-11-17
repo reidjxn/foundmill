@@ -22,8 +22,8 @@ export const MODELS = {
   opus: "claude-opus-5-5",
   sonnet: "claude-sonnet-5-5",
   /**
-   * Haiku 5.5 (WP-09 T4, taken into WP-13): also every call an account not on a paid plan makes outside agent sessions,
-   * on Foundmill's key (founder, Nov 16, 2026; `resolveModel(..., { freePlan: true })`).
+   * Haiku 5.5 (WP-09 T4, taken into WP-13): also the calls of an account not on a paid plan on the routes in
+   * `FREE_PLAN_HAIKU_ROUTES`, on Foundmill's key (founder, Nov 16, 2026; `resolveModel(..., { freePlan: true })`).
    */
   haiku: "claude-haiku-5-5",
   /**
@@ -278,9 +278,8 @@ export interface ResolveOptions {
   /** The business's credits are low: routine routes move to their `lowCredits` model; kept routes are unchanged. */
   lowCredits?: boolean;
   /**
-   * The account is not on a paid plan (WP-13): every route, a locked one included, runs on Haiku 5.5, the free plan's
-   * model on Foundmill's key. A lock names the route's best model, which a paid plan or the founder's own key reaches;
-   * no warning and no credit saver apply.
+   * The account is not on a paid plan (WP-13): a route in `FREE_PLAN_HAIKU_ROUTES` runs on Haiku 5.5 on Foundmill's
+   * key, a lock included; every other route keeps its own model. No warning and no credit saver apply.
    */
   freePlan?: boolean;
 }
@@ -300,6 +299,14 @@ export function lowCreditsModel(route: RouteKey): ModelKey | null {
 }
 
 /**
+ * The routes an account not on a paid plan runs on Haiku 5.5 (WP-13). Only routes that read no untrusted content, or
+ * only titles and addresses, and that hold no tools. Every other route keeps its own model for a free account: Haiku
+ * 5.5 leaked half of the planted instructions in the injection suites (T8, Nov 17, 2026), so the readers, the agents,
+ * the conversations, the composer's notes and the planners stay where they pass.
+ */
+export const FREE_PLAN_HAIKU_ROUTES: ReadonlySet<RouteKey> = new Set<RouteKey>(["ideation", "ideationSlate", "logoDesigner", "founderTitle", "goalProposal", "projectPage", "foundations", "foundationsSkeleton", "journeyCommentary", "moderation", "webSearch"]);
+
+/**
  * Resolve the model for a route, honouring locks and downgrade warnings (BUILD §10.1, §11.10 "Model selection"). With
  * `lowCredits`, a routine route runs on its lower-cost model, or on the agent's chosen model when that is cheaper still;
  * a kept or locked route is unchanged.
@@ -309,7 +316,7 @@ export function resolveModel(route: RouteKey, override?: ModelKey, options: Reso
   const locked = def.locked === true;
   let modelKey: ModelKey = def.model;
   let warning: string | undefined;
-  if (options.freePlan) {
+  if (options.freePlan && FREE_PLAN_HAIKU_ROUTES.has(route)) {
     modelKey = "haiku";
   } else if (override === "glm") {
     // A free account's agent session (WP-13 T4): GLM on every route, a locked one included, as `freePlan` does.
