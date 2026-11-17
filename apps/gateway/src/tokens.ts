@@ -53,7 +53,11 @@ export interface SessionToken extends SessionClaims {
   iat: number;
 }
 
-export const ServiceClaims = z.object({ svc: z.string().min(1).max(60) });
+export const ServiceClaims = z.object({
+  svc: z.string().min(1).max(60),
+  /** The one business a token may act for, when its route needs one (the own-key model route, WP-13 T11). */
+  businessId: z.string().max(60).optional(),
+});
 export type ServiceClaims = z.infer<typeof ServiceClaims>;
 
 export interface ServiceToken extends ServiceClaims {
@@ -78,9 +82,9 @@ export function toolAllowed(allowedTools: readonly string[], connector: string, 
   return allowedTools.some((ref) => ref === "*" || ref === wildcard || ref === exact);
 }
 
-export async function signServiceToken(secret: string, svc: string, ttlSeconds = DEFAULT_SERVICE_TOKEN_TTL_SECONDS): Promise<string> {
+export async function signServiceToken(secret: string, svc: string, ttlSeconds = DEFAULT_SERVICE_TOKEN_TTL_SECONDS, businessId?: string): Promise<string> {
   const { svc: name } = ServiceClaims.parse({ svc });
-  return new SignJWT({ svc: name })
+  return new SignJWT({ svc: name, ...(businessId ? { businessId } : {}) })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setIssuer(TOKEN_ISSUER)
     .setAudience(SERVICE_AUDIENCE)

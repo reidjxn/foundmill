@@ -32,3 +32,4 @@ export {
   type LiveModelClientOptions,
 } from "./client";
 export * from "./mock";
+export { OWN_KEY_GATEWAY_PATH, OWN_KEY_MISSING, OWN_KEY_REFUSED, ownKeyViaGateway, routeOwnKeyCalls, type OwnKeyViaGatewayOptions, type RouteOwnKeyOptions } from "./own-key-route";

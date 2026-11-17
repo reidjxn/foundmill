@@ -105,6 +105,8 @@ export interface GatewayDeps {
    * `validateApiKey` in live mode. Tests pass one over a fake Anthropic.
    */
   validateModelKey?: (apiKey: string) => Promise<KeyValidation>;
+  /** Anthropic's Messages API for the own-key model route (model-proxy.ts, WP-13 T11); default `fetch`. Tests pass a fake. */
+  anthropicFetch?: typeof globalThis.fetch;
   /** A project's Foundmill sending address (platform-mail.ts); absent or with no domain, `platform_mail` refuses every send. */
   platformMail?: PlatformMailConfig;
   /** Replaces WP-08 T10's recipient basis check in the follower update (follower-update.ts); for tests. */

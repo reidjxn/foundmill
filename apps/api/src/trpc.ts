@@ -10,7 +10,7 @@ import { ZodError, z } from "zod";
 import { liveModeOpen } from "@foundmill/config";
 import { repos, SLUG_TAKEN, uniqueViolation, withRls, type Business, type DbTx, type Executor, type Membership } from "@foundmill/db";
 import type { EventPayloadInput } from "@foundmill/events";
-import { isModelBillingError, ModelNotFundedError } from "@foundmill/models";
+import { isModelBillingError, ModelNotFundedError, ModelRequestError } from "@foundmill/models";
 import { admitOrWait, assertConfirmedSignIn } from "./services/access";
 import { modelBillingAppError } from "./services/model-errors";
 import { writeEventRow } from "./services/events";
@@ -160,6 +160,10 @@ export function toTRPCError(err: unknown): TRPCError {
   // own key cannot serve yet is a precondition, not a fault.
   if (cause instanceof ModelNotFundedError) {
     return new TRPCError({ code: cause.reason === "free_cap" ? "TOO_MANY_REQUESTS" : "PRECONDITION_FAILED", message: cause.message, cause });
+  }
+  // A project on its own Anthropic key whose key is missing or refused (WP-13 T11): the founder fixes it in Settings › Keys.
+  if (cause instanceof ModelRequestError && (cause.apiErrorType === "own_key_refused" || cause.apiErrorType === "own_key_missing")) {
+    return new TRPCError({ code: "PRECONDITION_FAILED", message: cause.message, cause });
   }
   if (cause instanceof ZodError) {
     return new TRPCError({ code: "BAD_REQUEST", message: issueSummary(cause.issues), cause });
