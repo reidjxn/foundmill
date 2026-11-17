@@ -34,12 +34,12 @@
 - [x] T8 Note budget and the day's digest (M)
 - [x] T9 The founder's own task and tomorrow's reason (M)
 - [x] T10 Chief of Staff as mentor, with founder context (M)
-- [ ] T11 Lifecycle email for a started project (M, needs setup)
-- [ ] T12 Email for a person with a card and no project (M, needs setup)
+- [x] T11 Lifecycle email for a started project (M, needs setup)
+- [x] T12 Email for a person with a card and no project (M, needs setup)
 - [x] T13 Single-key shortcuts off by default (S)
 - [x] T14 The one-click answer page on a phone (S)
 - [ ] T15 A phone start without a card (S)
-- [ ] T16 Win-back for the 11 stalled projects (S, needs the founder)
+- [x] T16 Win-back for the 11 stalled projects (S, needs the founder): closed by the founder (Nov 17, 2026): no win-back letters; step 2's note clearing built as a script
 
 Order: T1, T2, T3 first (the path), then T6, T5, T4, T7, T8; T9 to T16 in any order after T7.
 
@@ -268,7 +268,7 @@ repos.founders.contextFor(db: Executor, businessId: string, userId: string): Pro
 **Tests and evals:** above; existing `evals/src/composer.ts` and `conversation/` suites must still pass.
 **Done when:** the eval passes live, and a welcome note, a decision note and a conversation reply for a first-timer all use their name and recommend a free first move.
 
-### T11: Lifecycle email for a started project   [M] [needs setup: WP-00 S2, S3]
+### [x] T11: Lifecycle email for a started project   [M] [needs setup: WP-00 S2, S3]
 
 **Why:** s2 §6.1 to §6.3, A9-P0-4 items 2, 3 and 5. Build with the mock passing; sends nothing live until S2 and S3 are recorded.
 
@@ -298,7 +298,7 @@ Bodies are s2 §6.3's, edited to the emails skill (reason first, one action, no 
 **Tests and evals:** above; gateway `notify-email.test.ts` for the two kinds and the limit; `platform-mail.spec.ts` unchanged. Metrics to read once live: `notify.email_sent` by kind, and `founder.session_started` with `via: "email"` per email sent.
 **Done when:** in mock mode a new project's day 0, 1, 3 and 7 emails are planned and recorded, never more than three in a day.
 
-### T12: Email for a person with a card and no project   [M] [needs setup: WP-00 S2, S3]
+### [x] T12: Email for a person with a card and no project   [M] [needs setup: WP-00 S2, S3]
 
 **Why:** FR-17, A9-P0-4 item 4, s2 §6.2 row 1.
 
@@ -336,7 +336,7 @@ Bodies are s2 §6.3's, edited to the emails skill (reason first, one action, no 
 **Steps:** 1. Test first: on a narrow viewport `/home`'s "Start something" links to `/new/write`, on a wide one to `/new`; submitting calls `idea.write` once and navigates to Commit. 2. The page: "What do you want to build?" / "One sentence is enough." / fields "A working name" and "Your idea, in your words" / button "Shape it". 3. Hide `/home`'s "Opening soon" card while `features.liveMode` is false. verify: `person-home.spec.ts` at 390 reaches Commit.
 **Not built:** a signed-in "no idea at all" path on a phone (the interest picker lives in the signed-out idea box). Build it when WP-02's funnel shows admitted accounts with no idea after 24 hours.
 
-### T16: Win-back for the 11 stalled projects   [S] [needs the founder; after T6, T8 and WP-12's catch-up drafts]
+### [x] T16: Win-back for the 11 stalled projects   [S] [needs the founder; after T6, T8 and WP-12's catch-up drafts]
 
 **Why:** s2 §6.5, A9-P0-4 item 6. No product code.
 **Steps:** 1. A Desktop session lists, through the Supabase connector, each of the 10 owners' first name, project, creation date, count of day-one notes and whether a page draft exists (counts only; no addresses in the pull request). 2. On the founder's go-ahead, set aside notes older than 14 days with no answer on those 11 projects, except credit warnings (an api script that archives through `repos.inbox`, dry run first, the list shown before it runs). 3. The founder sends s2 §6.5's letter from their own mailbox, one by one, with replies read; a second note at day 7 and "Keep {project} or archive it?" at day 21, then stop. 4. Record replies and returns in docs/PROGRESS.md.

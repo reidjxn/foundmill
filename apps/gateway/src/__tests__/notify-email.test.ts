@@ -16,7 +16,7 @@
  *     project on staging or production.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { createPlatformNotifyMock, readNotifyOffToken } from "@foundmill/connectors";
+import { createPlatformNotifyMock, readNotifyOffToken, suppressionHashOfEmail } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
 import * as s from "@foundmill/db";
 import { APP_NAME, APP_POSTAL_ADDRESS } from "@foundmill/config";
@@ -66,6 +66,13 @@ describe("email from Foundmill to a person (gateway)", () => {
   }
   const about = (p: { userId: string; itemId: string }) => ({ userId: p.userId, kind: "decision_waiting", businessId: g.businessId, data: { inboxItemId: p.itemId } });
   const sentTo = (email: string) => mock.sentFor(g.businessId).filter((m) => m.to === email);
+
+  it("sends nothing of any kind to an address suppressed platform-wide (WP-04, founder Nov 17, 2026)", async () => {
+    const p = await person();
+    await repos.channels.suppressEverywhere(g.db, { emailHash: suppressionHashOfEmail(p.email), reason: "bounce", source: "test" });
+    expect((await ask(about(p))).body).toMatchObject({ sent: false, reason: "hard_suppressed" });
+    expect(sentTo(p.email)).toHaveLength(0);
+  });
 
   it("sends one email from Foundmill's own address, to the account's address, with the link into the app and the way out", async () => {
     const p = await person();

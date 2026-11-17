@@ -60,6 +60,7 @@ export * from "./founder-return";
 export * from "./founder-notifications";
 export * from "./streak";
 export * from "./notify-words";
+export * from "./lifecycle-email";
 export * from "./morning-brief";
 export * from "./loop-stops";
 export * from "./idea-box";

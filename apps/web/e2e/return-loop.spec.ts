@@ -20,7 +20,10 @@ test.describe("the return loop", () => {
     const screen = await openSettings(page, "preferences");
     const panel = screen.getByTestId("email-notifications-panel");
     await expect(panel).toBeVisible({ timeout: LONG });
-    for (const kind of ["decision-waiting", "win", "milestone", "run-finished", "credits", "daily-brief", "weekly-review"]) await expect(panel.getByTestId(`email-${kind}-switch`)).toBeVisible();
+    for (const kind of ["decision-waiting", "win", "milestone", "run-finished", "credits", "daily-brief", "weekly-review", "getting-started", "checkin"]) await expect(panel.getByTestId(`email-${kind}-switch`)).toBeVisible();
+    // The lifecycle emails' switches (WP-04 T11), each with its label.
+    await expect(panel.getByText("Help while you set up", { exact: true })).toBeVisible();
+    await expect(panel.getByText("When your project has been quiet", { exact: true })).toBeVisible();
     const brief = panel.getByTestId("email-daily-brief-switch");
     await expect(brief).toHaveAttribute("aria-checked", "true", { timeout: LONG });
     await brief.click();
@@ -74,6 +77,15 @@ test.describe("the return loop", () => {
     await expect(page.getByTestId("idea-input")).toBeVisible();
     await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
     await context.close();
+  });
+
+  test("on a phone, the link every lifecycle email opens (Today, with via=email) shows Today and no larger-window ask (WP-04 T11)", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openBusiness(page, "today");
+    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/today?via=email&n=00000000-0000-4000-8000-000000000001`);
+    await expect(page.getByTestId("today-screen")).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
   });
 
   test("on a phone, the one-click answer is a 44 px button, and a failed answer says so with Try again (WP-04 T14)", async ({ browser }) => {

@@ -627,18 +627,27 @@ export const DEFAULT_NOTIFICATION_PREFS: Readonly<NotificationPrefs> = Object.fr
  * docs/THESIS_REVIEW.md packages 1.5 and 5.1; the retention plan's kinds joined it, founder 2026-11-12: one sender, one
  * preference): a note that needs their answer, a customer won, a milestone, a run they started and left finishing,
  * used-up credits, and the morning brief and the Monday weekly review. Every kind is on until the person turns it off
- * (Settings › Preferences, or the link in the email).
+ * (Settings › Preferences, or the link in the email). WP-04 T11 and T12 add the lifecycle kinds (`LIFECYCLE_EMAIL_KINDS`).
  */
-export const EMAIL_NOTIFICATION_KINDS = ["decision_waiting", "win", "milestone", "run_finished", "credits", "daily_brief", "weekly_review", "invitation_accepted"] as const;
+export const EMAIL_NOTIFICATION_KINDS = ["decision_waiting", "win", "milestone", "run_finished", "credits", "daily_brief", "weekly_review", "invitation_accepted", "getting_started", "checkin"] as const;
 export type EmailNotificationKind = (typeof EMAIL_NOTIFICATION_KINDS)[number];
 export type EmailNotificationPrefs = Record<EmailNotificationKind, boolean>;
-export const DEFAULT_EMAIL_NOTIFICATION_PREFS: Readonly<EmailNotificationPrefs> = Object.freeze({ decision_waiting: true, win: true, milestone: true, run_finished: true, credits: true, daily_brief: true, weekly_review: true, invitation_accepted: true });
+export const DEFAULT_EMAIL_NOTIFICATION_PREFS: Readonly<EmailNotificationPrefs> = Object.freeze({ decision_waiting: true, win: true, milestone: true, run_finished: true, credits: true, daily_brief: true, weekly_review: true, invitation_accepted: true, getting_started: true, checkin: true });
 /**
  * The kinds the daily limits count; the morning brief and the weekly review are on their own schedule (founder,
  * 2026-11-12), and the note that someone a person invited joined is the answer to something they did, so it never uses up
  * the three a day their own project's news has.
  */
-export const LIMITED_EMAIL_KINDS: readonly EmailNotificationKind[] = ["decision_waiting", "win", "milestone", "run_finished", "credits"];
+export const LIMITED_EMAIL_KINDS: readonly EmailNotificationKind[] = ["decision_waiting", "win", "milestone", "run_finished", "credits", "getting_started", "checkin"];
+/**
+ * The lifecycle kinds (WP-04 T11, T12, T16): `getting_started` in a project's first week (its page is ready to check,
+ * then five people and one question) and, with no project yet, for a saved card; `checkin` after 14, 30 and 60 days
+ * away, and the held win-back letters for projects that went quiet before these emails existed. Both count toward the
+ * three a day, and each may only be one of the first two of a person's day, so a decision that holds up work always has
+ * room (`LIFECYCLE_PER_PERSON_PER_DAY`).
+ */
+export const LIFECYCLE_EMAIL_KINDS = ["getting_started", "checkin"] as const satisfies readonly EmailNotificationKind[];
+export const LIFECYCLE_PER_PERSON_PER_DAY = 2;
 /**
  * What Foundmill may email to an address rather than to an account (`POST /v1/notify/email`, the same sender): an
  * invitation to a project, sent to the address the inviter typed. Nobody holds a preference for it: it is one message

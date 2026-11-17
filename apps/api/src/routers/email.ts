@@ -55,8 +55,10 @@ function businessContextFor(ctx: Context, userId: string, email: string | null, 
 async function resolve(ctx: Context, token: string, now: Date): Promise<Resolved> {
   const none: Resolved = { state: "unavailable", notification: null, businessName: null, subject: null, option: null, bctx: null };
   if (!isActionTokenShape(token)) return none;
-  const n = await repos.notifications.findByActionTokenHash(ctx.db, hashActionToken(token));
-  if (!n || !n.actionItemId || !n.actionOptionId) return none;
+  const found = await repos.notifications.findByActionTokenHash(ctx.db, hashActionToken(token));
+  // A row with no business (a card email, 0132) never carries an answer.
+  if (!found || !found.businessId || !found.actionItemId || !found.actionOptionId) return none;
+  const n = { ...found, businessId: found.businessId };
   // A dead link says only that it is dead: nothing about the business or the note (security review P3).
   if (n.actionUsedAt) return { ...none, state: "used", notification: n };
   if (!n.actionExpiresAt || n.actionExpiresAt.getTime() < now.getTime()) return { ...none, state: "expired", notification: n };
@@ -66,7 +68,7 @@ async function resolve(ctx: Context, token: string, now: Date): Promise<Resolved
   if (!membership || !business || membership.source === "example" || !isAdminRole(membership.role) || !hasSectionAccess(membership, "inbox", "write")) return { ...none, notification: n };
   const email = await repos.founders.emailOf(ctx.db, n.userId);
   if (!(await isAdmittedNow(ctx, { userId: n.userId, email, emailConfirmed: email !== null }))) return { ...none, notification: n };
-  const item = await repos.notifyFacts.item(ctx.db, n.businessId, n.actionItemId);
+  const item = await repos.notifyFacts.item(ctx.db, n.businessId, n.actionItemId!);
   if (!item) return { ...none, notification: n };
   if (item.state === "answered" || item.state === "archived") return { ...none, state: "answered", notification: n };
   const isSignoff = (await repos.productSignoffs.forInboxItem(ctx.db, n.businessId, item.id)) !== null;
@@ -147,8 +149,8 @@ export const emailRouter = router({
         }
       }
       const r = await resolve(ctx, input.token, now);
-      if (r.state !== "ready" || !r.notification || !r.option || !r.bctx) return { ...view(r), requiresConfirmation: false };
-      const n = r.notification;
+      if (r.state !== "ready" || !r.notification || !r.option || !r.bctx || !r.notification.businessId) return { ...view(r), requiresConfirmation: false };
+      const n = { ...r.notification, businessId: r.notification.businessId };
       // Spend the token first: a second click, or a second tab, gets "used".
       if (!(await repos.notifications.useAction(ctx.db, n.businessId, n.id, now))) return { ...view({ ...r, state: "used" }), requiresConfirmation: false };
       const decided = await decideInboxItem(r.bctx!, { itemId: n.actionItemId!, chosenOption: r.option.id });

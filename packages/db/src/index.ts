@@ -5,7 +5,7 @@ export * from "./schema";
 export * from "./repos";
 export { BYOK_CONNECTOR_KEY, BYOK_CREDENTIAL_KIND, LEGACY_BYOK_CREDENTIAL_KIND, StoredApiKeySchema, loadByokApiKey, type ByokApiKey } from "./byok";
 export { agentWorkFunding, assertPlatformCredits, bookUsage, chargesCredits, fundingOfRow, type BookUsageInput, type CreditsCheckOptions, type OwnPlanOptions, type UsageFunding, checkPlatformCredits, creditsState, creditsUsedUp, CREDITS_EXHAUSTED_SUBJECT, CREDITS_LOW_AUDIT_ACTION, CREDITS_LOW_SUBJECT, includedCreditsFor, modelBudgetState, PLATFORM_CREDITS_EXHAUSTED_SUBJECT, platformCredits, type BookUsageResult, type CreditsOutcome, type ModelBudgetState, type PlatformCredits, type PlatformCreditsCheck } from "./billing";
-export { loadNotifyFacts } from "./notify-facts";
+export { loadLifecycleFacts, loadNotifyFacts } from "./notify-facts";
 export { loadBriefFacts, type BriefAgent, type BriefFacts } from "./brief-facts";
 export { autopilotChangedPayload, CAPPED_TRIGGERS, loadAutopilotFacts, openRunOf, runRoundsOf, summarizeCycleEvents, STALE_CYCLE_MS, type AutopilotChange, type CycleEventLike, type CycleSummary, type OpenRun } from "./autopilot";
 export { bothSignedOff, buildDestinationOf, loadProductStage, productStageOf, type ProductStageFacts } from "./product-stage";

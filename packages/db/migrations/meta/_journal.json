@@ -771,6 +771,13 @@
       "when": 1796240300000,
       "tag": "0131_pay_links",
       "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1796245180000,
+      "tag": "0132_lifecycle_email",
+      "breakpoints": true
     }
   ]
 }
