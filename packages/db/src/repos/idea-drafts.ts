@@ -250,7 +250,7 @@ export const waitlistRepo = {
    */
   async join(
     db: Executor,
-    input: { userId: string; email: string; ideaDraftId: string | null; referrerCode?: string | null; now?: Date },
+    input: { userId: string; email: string; ideaDraftId: string | null; referrerCode?: string | null; cardThen?: "studio" | null; now?: Date },
   ): Promise<WaitlistEntryRow> {
     const now = input.now ?? new Date();
     const email = input.email.trim().toLowerCase().slice(0, 320);
@@ -268,7 +268,7 @@ export const waitlistRepo = {
     const referredByEntryId = referrer && referrer.userId !== input.userId && !sameMailbox(referrer.email) ? referrer.id : null;
     const [row] = await db
       .insert(waitlistEntries)
-      .values({ userId: input.userId, email, ideaDraftId: input.ideaDraftId, code: newPostCode(), referredByEntryId, createdAt: now, updatedAt: now })
+      .values({ userId: input.userId, email, ideaDraftId: input.ideaDraftId, cardThen: input.ideaDraftId ? (input.cardThen ?? null) : null, code: newPostCode(), referredByEntryId, createdAt: now, updatedAt: now })
       // One row per address: a row added before the person had an account takes their account when they join. Who
       // brought them is left as the entry was made.
       .onConflictDoUpdate({
@@ -276,6 +276,8 @@ export const waitlistRepo = {
         set: {
           userId: input.userId,
           ideaDraftId: sql`coalesce(excluded.idea_draft_id, ${waitlistEntries.ideaDraftId})`,
+          // The choice goes with the card: a join that holds a card sets it (or clears it); one without a card keeps it.
+          cardThen: sql`case when excluded.idea_draft_id is not null then excluded.card_then else ${waitlistEntries.cardThen} end`,
           code: sql`coalesce(${waitlistEntries.code}, excluded.code)`,
           updatedAt: now,
         },

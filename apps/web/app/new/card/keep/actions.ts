@@ -19,7 +19,7 @@ async function clearIdeaCookie(): Promise<void> {
 
 /**
  * Keeps the card, then its own page (and on to Commit), or with `studio` (the idea box's "Shape it in the Ideation
- * Studio") the Studio, where the kept card leads the deck. The page binds `studio` from its own `?then=`.
+ * Studio") the Studio opened on that card (`/new/ideate/<ideaId>`). The page binds `studio` from its own `?then=`.
  */
 export async function keepCard(studio: boolean, form: FormData): Promise<void> {
   const server = await serverApi();
@@ -30,10 +30,11 @@ export async function keepCard(studio: boolean, form: FormData): Promise<void> {
   await clearIdeaCookie();
   if (!res) redirect("/start");
   if (!studio) redirect(`/new/card/${res.ideaId}`);
-  // The Studio. Without a profile, the three questions first and on to the Studio from there (`onboardingNext` takes
-  // `/new/ideate`): decided here, not by the Studio page, which on a phone shows only the larger-window notice.
+  // The Studio, opened on the card. Without a profile, the three questions first and on from there: here, not on the
+  // Studio page, because on a phone that page shows only the larger-window notice and its own redirect never runs.
+  const here = `/new/ideate/${res.ideaId}`;
   const profile = await server.api.founder.profile.get.query().catch(() => null);
-  redirect(profile && !(profile.complete && profile.adultConfirmed) ? `/onboarding?next=${encodeURIComponent("/new/ideate")}` : "/new/ideate");
+  redirect(profile && !(profile.complete && profile.adultConfirmed) ? `/onboarding?next=${encodeURIComponent(here)}` : here);
 }
 
 export async function notMine(): Promise<void> {

@@ -24,9 +24,11 @@ export interface OnWaitlistPageProps {
   onwardHref?: string;
   /** The waitlist really emails here (the API's `waitlistEmails`): the saved line may promise it. */
   emails?: boolean;
+  /** Where the kept card goes once the person is let in (`ApiErrorPage`). */
+  keepThen?: "studio" | null;
 }
 
-export function OnWaitlistPage({ email = null, onwardHref = ON_WAITLIST_ONWARD_HREF, emails = false }: OnWaitlistPageProps) {
+export function OnWaitlistPage({ email = null, onwardHref = ON_WAITLIST_ONWARD_HREF, emails = false, keepThen = null }: OnWaitlistPageProps) {
   return (
     <BrandFrame smallScreen footer={<span>{APP_NAME} lets new people in every day.</span>}>
       <WorksOnSmallScreens />
@@ -43,7 +45,7 @@ export function OnWaitlistPage({ email = null, onwardHref = ON_WAITLIST_ONWARD_H
           }
         />
         {/* The person refused by the day's ceiling is stored too, once, on arrival (WP-03 T1). */}
-        <WaitlistJoin email={email} emails={emails} />
+        <WaitlistJoin email={email} emails={emails} keepThen={keepThen} />
       </div>
     </BrandFrame>
   );
