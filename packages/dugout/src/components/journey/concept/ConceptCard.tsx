@@ -1,4 +1,5 @@
 "use client";
+import { fitLine, type FitBasis } from "@foundmill/config";
 import { Bookmark, BookmarkCheck, Columns2, Ellipsis, Fan, GitMerge, MessageCircleQuestionMark, Pencil, Trash } from "lucide-react";
 import { cn } from "../../../lib/cn";
 import { ratingClass } from "../../../lib/rating";
@@ -23,6 +24,11 @@ export interface ConceptCardProps {
   /** Selected for Compare. */
   selected?: boolean;
   onToggleSelect?: (conceptId: string) => void;
+  /**
+   * What Founder fit rests on (WP-14 T2). "quick": the first profile's quick answers, and the card says so under the
+   * bar ("Fit: 15 (quick profile)") until the long profile is saved. Absent or "full": the bar alone.
+   */
+  fitBasis?: FitBasis;
   /** Hide the action row (Compare columns). */
   hideActions?: boolean;
   className?: string;
@@ -51,7 +57,7 @@ export function conceptOverall(concept: Concept): number {
  * (`CONCEPT_ATTRIBUTE_HINTS`). Actions never clip: Shortlist, the "More like this" generate pill and Ask are visible
  * (icon buttons with tooltips in a narrow card), Merge and Discard sit in a "More" menu.
  */
-export function ConceptCard({ concept, onAction, shortlisted, selected, onToggleSelect, hideActions, className }: ConceptCardProps) {
+export function ConceptCard({ concept, onAction, shortlisted, selected, onToggleSelect, fitBasis, hideActions, className }: ConceptCardProps) {
   const overall = conceptOverall(concept);
   const act = (a: ConceptAction) => onAction?.(a, concept.id);
   const shortlistLabel = shortlisted ? "Shortlisted" : ACTION_META.shortlist.label;
@@ -129,6 +135,11 @@ export function ConceptCard({ concept, onAction, shortlisted, selected, onToggle
           {concept.attributes.map((a) => (
             <li key={a.key}>
               <AttributeBar label={CONCEPT_ATTRIBUTE_LABELS[a.key]} hint={CONCEPT_ATTRIBUTE_HINTS[a.key]} value={a.value} evidence={a.evidence} />
+              {a.key === "founder_fit" && fitBasis === "quick" ? (
+                <p className="mt-0.5 text-small text-tertiary" data-concept-fit-basis="quick">
+                  {fitLine(a.value, "quick")}
+                </p>
+              ) : null}
             </li>
           ))}
         </ol>

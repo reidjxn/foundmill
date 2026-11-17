@@ -180,12 +180,18 @@ export function toast(page: Page, title: string | RegExp): Locator {
 }
 
 /**
- * Answers the three questions a new account meets on /onboarding (WP-04 T1): the name, the "I am 18 or older" box when
- * it is asked, Continue. The caller waits for where it goes (`next`, else /new).
+ * Answers the first profile a new account meets on /onboarding (WP-04 T1; WP-14 T2): the name, how much time and
+ * where they live (both needed before a project starts; `about: false` leaves them unanswered, for the spec that
+ * checks Commit asks), the "I am 18 or older" box when it is asked, Continue. The caller waits for where it goes
+ * (`next`, else /new). The place is the United States so the profile keeps US dollars, as before these were asked.
  */
-export async function answerFirstProfile(page: Page, name: string): Promise<void> {
+export async function answerFirstProfile(page: Page, name: string, opts: { about?: boolean } = {}): Promise<void> {
   await expect(page.getByTestId("first-profile")).toBeVisible({ timeout: LONG });
   await page.getByLabel(/What should your team call you/).fill(name);
+  if (opts.about !== false) {
+    await page.getByTestId("first-profile").getByRole("radio", { name: /^Full time/ }).check();
+    await page.getByLabel(/Where do you live/).fill("United States");
+  }
   await confirmAdultOnForm(page);
   await page.getByTestId("first-profile-submit").click();
 }

@@ -73,6 +73,7 @@ Collides with: WP-13 T4 (a free session waits while the cap is held) and T6 (the
 Done when: a founder at zero sees the last task finished, a small amount left, the word Resting with a date, and one note with a way on.
 
 ### T2: Quick fit before the ideas, sharpen after            [M] [ships alone]
+Built on Nov 17, 2026 (`claude/vibrant-dirac-xkj04i`; log `2026-11-17-claude-vibrant-dirac-xkj04i`). What differs from the steps is in the log's Decisions.
 Brief: A5. Why: fit is "–" on ideas drafted before the profile, and re-rating after the profile was left out of WP-04 T1.
 Files: `apps/web/components/onboarding/FirstProfile.tsx`, `profile-form.ts`, `OnboardingScreen.tsx` (the long form, now editing only), the Ideation agent's fit input, config for the two ratings.
 Steps:

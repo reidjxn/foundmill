@@ -27,7 +27,7 @@ async function newcomer() {
   const userId = await hz.h.createUser(email);
   return { userId, me: hz.caller({ userId, email }) };
 }
-const answer = { displayName: "Newcomer", experience: "first_time", skills: { marketing: 8 }, targetMarkets: ["US"], riskAppetite: "medium" };
+const answer = { displayName: "Newcomer", timeCommitment: "full_time", residence: "United States", experience: "first_time", skills: { marketing: 8 }, targetMarkets: ["US"], riskAppetite: "medium" };
 const refusal = (p: Promise<unknown>) =>
   p.then(
     () => ({ code: "OK" }),
@@ -115,7 +115,7 @@ describe("nobody who confirmed is asked twice", () => {
 describe("a person from before is asked once", () => {
   it("has a profile and no confirmation: is told so, confirms once, and is not asked again", async () => {
     const p = await newcomer();
-    await repos.founders.upsert(hz.db, p.userId, { displayName: "From Before" });
+    await repos.founders.upsert(hz.db, p.userId, { displayName: "From Before", timeCommitment: "full_time", residence: "United States" });
     expect(await p.me.founder.profile.get()).toMatchObject({ complete: true, adultConfirmed: false });
     const [idea] = (await p.me.idea.generate({ prompt: "repair cafe bookings" })).ideas;
     expect(await refusal(p.me.idea.commit({ ideaId: idea!.id, name: "Repair Cafe", archetype: "b2b_saas" }))).toMatchObject({ code: "FORBIDDEN", appCode: ADULT_UNCONFIRMED_CODE });
