@@ -71,8 +71,8 @@ test.describe("import", () => {
     await expect(page.getByTestId("scouting-report")).toBeVisible({ timeout: LONG });
   });
 
-  test("a window under 1280 px asks for a larger one instead of an overflowing top bar (audit PAS-5)", async ({ page }) => {
-    await page.setViewportSize({ width: 1279, height: 800 });
+  test("a window under 640 px asks for a larger one instead of an overflowing top bar (audit PAS-5; decision 3 scrolls from 640 px)", async ({ page }) => {
+    await page.setViewportSize({ width: 600, height: 800 });
     await expect(page.getByTestId("needs-larger-window")).toBeVisible();
     await page.setViewportSize({ width: 1440, height: 900 });
     await expect(page.getByTestId("import-sources")).toBeVisible();

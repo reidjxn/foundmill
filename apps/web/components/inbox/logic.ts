@@ -347,7 +347,8 @@ export interface MetricSources {
   trailingRevenueMinor?: number | null;
   /** Conversions in the ribbon window (last 30 days). */
   conversions?: readonly { kind: string; occurredAt: Date | string }[] | null;
-  tasks?: readonly { status: string }[] | null;
+  /** How many of the business's tasks are running now (`dev.tasks.count`). */
+  tasksRunning?: number | null;
   channelsEnabled?: number | null;
   /** The business glossary (Settings › Glossary): tile captions read in the business's words, like the note's text. */
   glossary?: Record<string, string> | null;
@@ -532,7 +533,7 @@ function statusStripFigures(strip: readonly unknown[], sources: MetricSources): 
         case "activations_week":
           return { label: "Activations this week", value: countKind(sources.conversions, "activation", 7, now), format: "integer", provenance: provenance(m, "Activations, last 7 days") };
         case "tasks_running":
-          return { label: "Tasks running", value: sources.tasks ? sources.tasks.filter((t) => t.status === "running").length : null, format: "integer", provenance: provenance(m, "Team tasks") };
+          return { label: "Tasks running", value: sources.tasksRunning ?? null, format: "integer", provenance: provenance(m, "Team tasks") };
         case "channels_enabled":
           return { label: "Channels on", value: sources.channelsEnabled ?? null, format: "integer", provenance: provenance(m, "Enabled channels") };
         default: {
