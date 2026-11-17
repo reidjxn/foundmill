@@ -11,6 +11,7 @@ import { IDEA_BOX_DEADLINE_MS, IDEA_BOX_ERRORS, IDEA_BOX_INTERESTS, type IdeaBox
 import { IdeaBox, IDEA_BOX_WORDS, keepHref } from "../IdeaBox";
 import { streamIdeaDraft } from "../client";
 import { PLACEHOLDER_IDEA_MAX, PLACEHOLDER_IDEAS, TYPING } from "../typing";
+import { VARIANT_WORDS } from "../../words";
 
 const CLAIM = "c".repeat(43);
 const KEYS = ["market_pull", "market_size", "competition", "speed_to_first_customer", "capital_intensity", "agent_executability", "founder_fit", "defensibility", "regulatory_load", "distribution_clarity"];
@@ -62,7 +63,9 @@ describe("IdeaBox", () => {
 
   it("every example fits the field at its narrowest: no longer than the limit, plain words, never about jobs", () => {
     expect(PLACEHOLDER_IDEAS.length).toBeGreaterThanOrEqual(6);
-    for (const idea of PLACEHOLDER_IDEAS) {
+    // Every landing variant's own list too: none may end in an ellipsis (founder, 2026-11-17).
+    const all = [...PLACEHOLDER_IDEAS, ...Object.values(VARIANT_WORDS).flatMap((v) => v.ideas ?? [])];
+    for (const idea of all) {
       expect(idea.length, idea).toBeLessThanOrEqual(PLACEHOLDER_IDEA_MAX);
       expect(idea, idea).not.toMatch(/\b(jobs?|career|employ|hire|hiring|boss|side hustle)\b/i);
       expect(idea, idea).not.toMatch(/[!—]/);

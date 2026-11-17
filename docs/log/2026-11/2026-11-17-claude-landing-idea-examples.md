@@ -52,11 +52,13 @@ width; the unit test keeps the count. The ellipsis is a safety net, not the desi
 A point edit of the list, in its own register (first person, plain fragments). Each names a thing a person could
 picture and start this month with little money: food, a service that comes to you, something drawn, teaching online,
 selling to nearby businesses, hands-on resale, a game, an event. No hype words, nothing about jobs.
-### Variants keep their own lists
-The other landing variants (`words.ts`: "What are you into?", "What do you run?", "What do you want to build?") keep
-their examples; some are longer than 34 characters and now end in an ellipsis inside the field at narrow widths instead
-of running out of it. Rewriting them was not asked.
+### The variants' examples, shortened in their own voice
+The coordinating session, for the founder ("should never come out of the text box"): the other landing variants'
+examples come under the same 34 characters, so none ends in an ellipsis. "What are you into?": "I grow more tomatoes
+than I eat". "What do you run?": "A bakery with a waiting list", "An online shop for hand-dyed yarn", "A tutor with
+twelve students". "What do you want to build?": "A rent-splitting app for roommates", "A booking app for solo barbers",
+"An extension that sums up threads", "Receipt photos into a spreadsheet". The rest already fit and are unchanged. The
+unit test and the Playwright width check cover every variant's list.
 
 ## Not done
-- The variant pages' examples are not shortened (see Decisions).
-
+- Nothing known.

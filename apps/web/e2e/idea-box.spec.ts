@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { expect, test, type Browser, type Page } from "@playwright/test";
 import { LONG, answerFirstProfile } from "./helpers";
 import { PLACEHOLDER_IDEAS } from "../components/landing/idea-box/typing";
+import { VARIANT_EXAMPLES } from "../components/landing/variant-examples";
 
 /**
  * The landing page's idea box (founder, 2026-11-13; docs/IDEA_BOX.md) against the local stack (mock models, the mock
@@ -321,7 +322,7 @@ for (const [width, height] of [
         if (names.join(",") !== "Northwind,Tutorlane,Sole Revival,Glitchwick") problems.push(`the examples read ${names.join(", ")}`);
         if (window.innerWidth >= 768 && new Set(pills.map((p) => Math.round(p.getBoundingClientRect().top))).size !== 1) problems.push("the examples wrap onto two lines");
         return problems;
-      }, [...PLACEHOLDER_IDEAS]);
+      }, [...PLACEHOLDER_IDEAS, ...VARIANT_EXAMPLES]);
       expect(report, report.join("\n")).toEqual([]);
     } finally {
       await close();
