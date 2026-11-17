@@ -103,7 +103,7 @@ describe("business.continue without an orchestrator (BUILD §9.4 in-process roun
     const owner = hz.caller({ userId: hz.A.ownerId });
     const paused = await owner.business.pauseCycle({ businessId: hz.A.businessId });
     expect(paused.paused).toBe(false);
-    expect(paused.reason).toMatch(/no cycle/);
+    expect(paused.reason).toMatch(/no round of work/);
     await expect(hz.caller({ userId: hz.A.viewerId }).business.continue({ businessId: hz.A.businessId })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(hz.caller({ userId: hz.B.ownerId }).cycle.status({ businessId: hz.A.businessId })).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
@@ -128,7 +128,7 @@ describe("business.continue / pauseCycle with Temporal reachable", () => {
     expect(result.continueState).toEqual({ kind: "processing", run: true });
     // The sentence names the cycle and what it has to build, and says the run keeps going.
     expect(result.summary).toMatchObject({ kind: expect.stringMatching(/^(started|nothing_ready)$/), orchestrator: true });
-    expect(result.summary.headline).toMatch(/^Cycle 1 started: (\d+ tasks? ready to build|nothing is ready to build yet)$/);
+    expect(result.summary.headline).toMatch(/^Round of work 1 started: (\d+ tasks? ready to build|nothing is ready to build yet)$/);
     expect(result.summary.detail).toContain("New rounds of work start on their own");
     // Once connected, business.get reports the orchestrator reachable.
     expect((await owner.business.get({ businessId })).orchestrator).toEqual({ reachable: true });

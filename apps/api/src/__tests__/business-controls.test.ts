@@ -51,7 +51,7 @@ describe("Stop all agents cannot be undone by a member; resume is an owner's or 
     expect((await repos.agents.get(hz.db, A(), hz.A.agent2Id)).status).toBe("paused");
 
     await expect(member().distribution.channels.enable({ businessId: A(), channelKey: "seo" })).rejects.toMatchObject({ code: "CONFLICT" });
-    await expect(owner().business.continue({ businessId: A() })).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/next cycle/) });
+    await expect(owner().business.continue({ businessId: A() })).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/next round of work/) });
     // Resuming a cycle would set the tasks the stop paused back to running.
     await expect(member().business.resumeCycle({ businessId: A() })).rejects.toMatchObject({ code: "CONFLICT" });
     expect((await repos.tasks.get(hz.db, A(), task.id)).status).not.toBe("running");
