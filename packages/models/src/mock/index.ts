@@ -44,7 +44,7 @@ import {
 import { TeamCallTurnsOutput, TeamCallWrapUpOutput } from "../team-call-schema";
 import { JsonElementScanner } from "../stream-json";
 import { type StreamCallArgs, type StreamCallResult, runStructuredStream } from "../structured-stream";
-import type { BilledTo, CompleteRequest, CompleteResult, CompleteResultWithJson, ModelClient, ModelLogger, StreamStructuredRequest, StreamStructuredResult, TokenUsage, UsageEvent, UsageSink, WebSearchRequest, WebSearchResult } from "../types";
+import type { BatchItem, BatchItemResult, BilledTo, CompleteRequest, CompleteResult, CompleteResultWithJson, ModelClient, ModelLogger, StreamStructuredRequest, StreamStructuredResult, TokenUsage, UsageEvent, UsageSink, WebSearchRequest, WebSearchResult } from "../types";
 import { generateChannelCreative, isChannelCreativeRequest } from "./channelCreative";
 import { generateChiefOfStaff } from "./chiefOfStaff";
 import { generateCategoriser, generateClassifier } from "./classifier";
@@ -173,6 +173,34 @@ export class MockModelClient implements ModelClient {
   constructor(opts: MockModelClientOptions = {}) {
     this.opts = opts;
     this.sleep = opts.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+  }
+
+  /** Mock batches (WP-09 T8): answered at submit, ended at once, collected as many times as asked. */
+  private readonly batches = new Map<string, Map<string, BatchItemResult>>();
+
+  async submitBatch(items: readonly BatchItem[]): Promise<{ batchId: string; count: number }> {
+    const batchId = `msgbatch_mock_${stableHash(JSON.stringify(items.map((i) => [i.customId, i.request.route, i.request.messages]))).slice(0, 16)}_${this.batches.size + 1}`;
+    const results = new Map<string, BatchItemResult>();
+    for (const item of items) {
+      try {
+        const result = await this.complete(item.request as CompleteRequest<unknown> & { schema?: undefined });
+        results.set(item.customId, { customId: item.customId, ok: true, result });
+      } catch (err) {
+        results.set(item.customId, { customId: item.customId, ok: false, kind: err instanceof ModelOutputError && err.code === "refusal" ? "refusal" : "invalid_output", message: err instanceof Error ? err.message : String(err) });
+      }
+    }
+    this.batches.set(batchId, results);
+    return { batchId, count: items.length };
+  }
+
+  async batchEnded(batchId: string): Promise<boolean> {
+    return this.batches.has(batchId);
+  }
+
+  async collectBatch<T>(batchId: string, items: readonly BatchItem<T>[]): Promise<BatchItemResult<T>[]> {
+    const results = this.batches.get(batchId);
+    if (!results) throw new Error(`No such batch: ${batchId}`);
+    return items.map((i) => (results.get(i.customId) as BatchItemResult<T> | undefined) ?? { customId: i.customId, ok: false as const, kind: "expired" as const, message: "No result came back for this request" });
   }
 
   complete<T>(req: CompleteRequest<T> & { schema: z.ZodType<T> }): Promise<CompleteResultWithJson<T>>;

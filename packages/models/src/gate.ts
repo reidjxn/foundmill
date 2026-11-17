@@ -13,7 +13,7 @@
 import type { z } from "zod";
 import type { RouteKey } from "./routing";
 import { streamStructured } from "./structured-stream";
-import type { CompleteRequest, CompleteResult, CompleteResultWithJson, ModelClient, ModelMode, StreamStructuredRequest, StreamStructuredResult, UsageAttribution, WebSearchRequest, WebSearchResult } from "./types";
+import type { BatchItem, BatchItemResult, CompleteRequest, CompleteResult, CompleteResultWithJson, ModelClient, ModelMode, StreamStructuredRequest, StreamStructuredResult, UsageAttribution, WebSearchRequest, WebSearchResult } from "./types";
 
 /** What a check may say about a call it lets run. */
 export interface ModelCallVerdict {
@@ -43,6 +43,7 @@ class GatedModelClient implements ModelClient {
     this.mode = inner.mode;
     // A client that cannot search stays one that cannot search: callers check `client.searchWeb` before offering it.
     if (!inner.searchWeb) Object.defineProperty(this, "searchWeb", { value: undefined });
+    if (!inner.submitBatch) for (const m of ["submitBatch", "batchEnded", "collectBatch"]) Object.defineProperty(this, m, { value: undefined });
   }
 
   complete<T>(req: CompleteRequest<T> & { schema: z.ZodType<T> }): Promise<CompleteResultWithJson<T>>;
@@ -50,6 +51,21 @@ class GatedModelClient implements ModelClient {
   async complete(req: CompleteRequest<unknown>): Promise<CompleteResult<unknown>> {
     const verdict = await this.gate({ route: req.route, attribution: req.attribution });
     return this.inner.complete(shaped(req, verdict) as CompleteRequest<unknown> & { schema?: undefined });
+  }
+
+  /** A batch asks the gate once per item before anything is sent (WP-09 T8); each item is shaped by its verdict. */
+  async submitBatch(items: readonly BatchItem[]): Promise<{ batchId: string; count: number }> {
+    const shapedItems: BatchItem[] = [];
+    for (const item of items) shapedItems.push({ customId: item.customId, request: shaped(item.request, await this.gate({ route: item.request.route, attribution: item.request.attribution })) });
+    return this.inner.submitBatch!(shapedItems);
+  }
+
+  batchEnded(batchId: string, businessId?: string): Promise<boolean> {
+    return this.inner.batchEnded!(batchId, businessId);
+  }
+
+  collectBatch<T>(batchId: string, items: readonly BatchItem<T>[]): Promise<BatchItemResult<T>[]> {
+    return this.inner.collectBatch!(batchId, items);
   }
 
   async streamStructured<T, E>(req: StreamStructuredRequest<T, E>): Promise<StreamStructuredResult<T, E>> {

@@ -89,7 +89,9 @@ export function usageSink(db: Db, log: Logger, topUps = false): (event: UsageEve
         billedTo: event.billedTo,
         occurredAt: event.occurredAt,
         // A call stopped in flight keeps `aborted`: its tokens are an Estimate as well as its price.
-        details: { route: event.route, model: event.model, mode: event.mode, kind: a.kind ?? null, taskId: a.taskId ?? null, label: event.cost.label, attempt: event.attempt, tokens, ...(event.aborted ? { aborted: true } : {}) },
+        details: { route: event.route, model: event.model, mode: event.mode, kind: a.kind ?? null, taskId: a.taskId ?? null, label: event.cost.label, attempt: event.attempt, tokens, ...(event.aborted ? { aborted: true } : {}), ...(event.batch ? { batch: event.batch } : {}), ...(event.servedModel ? { servedModel: event.servedModel } : {}) },
+        // A batch result is booked once, however often its batch is collected (WP-09 T8).
+        ...(event.batch ? { idempotencyKey: `batch:${event.batch.id}:${event.batch.customId}` } : {}),
       }, { topUps });
     } catch (err) {
       log.warn({ err: (err as Error).message, route: event.route }, "usage ledger write failed");

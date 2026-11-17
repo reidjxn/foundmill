@@ -52,6 +52,8 @@ import { RateLimiter, backoffWithJitter, parseRateLimitHeaders } from "./rate-li
 import { FAST_MODE_BETA, MODELS, MODEL_CAPABILITIES, SERVER_FALLBACK_BETA, SERVER_FALLBACK_KEYS, type RouteResolution, resolveModel } from "./routing";
 import { type StreamCallArgs, type StreamCallResult, StreamInterruptedError, runStructuredStream } from "./structured-stream";
 import type {
+  BatchItem,
+  BatchItemResult,
   ChatMessage,
   CompleteRequest,
   CompleteResult,
@@ -643,6 +645,65 @@ export class LiveModelClient implements ModelClient {
   /** A call on the platform key went through: whatever refused to bill before has been fixed. */
   private billed(): void {
     if ((this.opts.billedTo ?? "credits") === "credits") clearPlatformBillingRefusal();
+  }
+
+  /** Batch results already metered by this client (`batch:${id}:${customId}`): collecting again books nothing more. */
+  private readonly batchMetered = new Set<string>();
+
+  /** Submit a batch (batch.ts `submitBatch`): `complete()`'s request body per item, minus stream, speed and fallbacks. */
+  async submitBatch(items: readonly BatchItem[]): Promise<{ batchId: string; count: number }> {
+    const requests = items.map((item) => {
+      assertImagesAllowed(item.request.route, item.request.messages);
+      const plan = this.plan(item.request);
+      return { custom_id: item.customId, params: { ...plan.base, messages: item.request.messages.map(toParam) } };
+    });
+    const batch = await this.anthropic.messages.batches.create({ requests });
+    this.billed();
+    return { batchId: batch.id, count: requests.length };
+  }
+
+  async batchEnded(batchId: string): Promise<boolean> {
+    return (await this.anthropic.messages.batches.retrieve(batchId)).processing_status === "ended";
+  }
+
+  /** One result per item, matched by custom id; each answer metered at half price once (see batch.ts). */
+  async collectBatch<T>(batchId: string, items: readonly BatchItem<T>[]): Promise<BatchItemResult<T>[]> {
+    const byId = new Map(items.map((i) => [i.customId, i]));
+    const out = new Map<string, BatchItemResult<T>>();
+    for await (const row of await this.anthropic.messages.batches.results(batchId)) {
+      const item = byId.get(row.custom_id);
+      if (!item) continue;
+      const r = row.result;
+      if (r.type !== "succeeded") {
+        out.set(item.customId, { customId: item.customId, ok: false, kind: r.type, message: r.type === "errored" ? (r.error?.error?.message ?? "The request failed") : `The request was ${r.type}` });
+        continue;
+      }
+      out.set(item.customId, await this.batchResult(batchId, item, r.message));
+    }
+    return items.map((i) => out.get(i.customId) ?? { customId: i.customId, ok: false as const, kind: "expired" as const, message: "No result came back for this request" });
+  }
+
+  private async batchResult<T>(batchId: string, item: BatchItem<T>, message: Anthropic.Message): Promise<BatchItemResult<T>> {
+    const req = item.request;
+    const { resolution } = this.plan(req);
+    const usage = toUsage(message.usage);
+    // The gate may have moved the item to a lower-cost model at submit (credit saver): the answer's own model says which.
+    const served = priceForServed(message.model);
+    const cost = meter(usage, resolution.modelId, { batch: true, ...(served && message.model !== resolution.modelId ? { price: served } : {}) });
+    const key = `batch:${batchId}:${item.customId}`;
+    if (!this.batchMetered.has(key)) {
+      this.batchMetered.add(key);
+      await this.emit({ route: req.route, model: resolution.modelId, modelKey: resolution.modelKey, mode: "live", usage, cost, scope: req.scope, attribution: req.attribution, durationMs: 0, occurredAt: new Date().toISOString(), attempt: 0, batch: { id: batchId, customId: item.customId } });
+    }
+    const text = message.content.filter((b): b is Anthropic.TextBlock => b.type === "text").map((b) => b.text).join("");
+    const stopReason = (message.stop_reason ?? "end_turn") as StopReason;
+    if (stopReason === "refusal") return { customId: item.customId, ok: false, kind: "refusal", message: `Model refused the request for route "${req.route}"` };
+    const result = { text, usage, model: resolution.modelId, modelKey: resolution.modelKey, route: req.route, stopReason, cost, mode: "live" as const, durationMs: 0, repaired: false, warning: resolution.warning } as CompleteResult<T>;
+    if (!req.schema) return { customId: item.customId, ok: true, result };
+    const parsed = parseJsonLoose(text);
+    const validated = parsed.ok ? req.schema.safeParse(parsed.value) : undefined;
+    if (!validated?.success) return { customId: item.customId, ok: false, kind: "invalid_output", message: stopReason === "max_tokens" ? "The answer was cut off before it was complete" : "The answer did not fit the expected shape" };
+    return { customId: item.customId, ok: true, result: { ...result, json: validated.data } as CompleteResult<T> };
   }
 
   private async emit(partial: Omit<UsageEvent, "billedTo">): Promise<void> {
