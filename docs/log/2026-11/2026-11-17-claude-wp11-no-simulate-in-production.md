@@ -1,6 +1,6 @@
 ---
 date: 2026-11-17
-branch: claude/wp11-simulate-dev-only
+branch: claude/wp11-no-simulate-in-production
 title: The Simulate panel exists in development only, never on staging or production
 areas: [config, web, api, ingest, docs]
 supersedes: []
@@ -18,6 +18,15 @@ test stack.
 Production runs `APP_ENV=staging` with `INTEGRATIONS_MODE=mock`, so allowing staging put the panel in front of real
 founders. An owner or admin could write simulated conversions, customers and journey rows into a real project.
 
+The same page lost its developer wording: the panel's hint named "the API" and "apps/ingest", the simulation
+descriptions said "mock SendGrid parse", and a test connection's health check showed the connector's own words
+("stripe mock healthy"). A healthy test connection now says "Test data: nothing was checked with the vendor."
+`simulate-gate.test.tsx` renders the whole tab on staging and production (no panel) and development (panel, no
+developer words).
+
+DEPLOY §6 gains a Nov 17 table: F5 done, DMARC `p=quarantine`, Supabase backups, SendGrid S2, `web` in
+`LIVE_CONNECTORS`, `LIVE_MODE`, `OPERATOR_USER_IDS`, Turnstile and Foundmill Sites.
+
 ## Decisions
 - Test stays excluded, because `shell.spec.ts` expects no panel under `APP_ENV=test`. A unit test covers development.
   Only the ingest test harness forces the routes on, under `APP_ENV=test`.
@@ -26,5 +35,7 @@ founders. An owner or admin could write simulated conversions, customers and jou
 - DEPLOY no longer says staging fabricates events through Simulate. Its `INGEST_URL` check now reads the api boot log.
 
 ## Not done
-Rows already written on production by Simulate are not cleaned up here, since this change touches nothing in
-production.
+- The connector list's "Not available yet" labels are unchanged.
+- A connection's stored error (`lastError`) and its permission names in the tooltip are shown as the vendor gave them.
+- Rows already written on production by Simulate are not cleaned up here, since this change touches nothing in
+  production.
