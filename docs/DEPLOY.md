@@ -182,19 +182,21 @@ Set at launch, together with `NEXT_PUBLIC_STORE_LINKS` (WP-00 S17); until then n
 
 **Check it:** `curl -i https://<web>/.well-known/assetlinks.json` answers 200 with `application/json` and the package once set (404 before), signed out and without a redirect; the same for the iOS file.
 
-### Opening the people layer (`LIVE_MODE=1`): conditions and checks (WP-12 T6; founder, Nov 16, 2026: keep it closed until all five hold)
+### The people layer is open; what must be true before sign-up opens (WP-12 T6; founder, Nov 17, 2026)
 
-What the switch changes: every `live.*` procedure answers; committing as Live and "Go live" are allowed; `founder.profile.get` answers `features.liveMode: true`, so `/home` links to `/network` and Commit offers "Personal or live". What it does not fix: search finds only people with a published page, and an empty room disappoints.
+`LIVE_MODE=1` is set on the api in production, and the founder said to leave it there ("Yes, leave it at 1"): the people layer is open for the accounts already let in by invitation. This replaces the Nov 16 plan to keep it closed.
 
-Open it when **all** of these hold, and say so in the log entry that flips it. The founder (or the Desktop session on their word) flips it on the **api** service.
+What the switch does: every `live.*` procedure answers; committing as Live and "Go live" are allowed; `founder.profile.get` answers `features.liveMode: true`, so `/home` links to `/network` and Commit offers "Personal or live". With it unset, the layer is closed and a one-person project must read the same: `solo-guard.test.ts` asserts both states (profile flag, `live.summary` refused with "LIVE is not open yet", Today identical).
 
-1. Reports are on main (`report.create`, the operator queue) and `OPERATOR_USER_IDS` is set to the founder's own Foundmill account id on the api; a new report emails the operator (build that kind on the one sender first). The response target is two days.
+Five conditions now gate opening **sign-up** (WP-00 S5), together with the conditions already recorded there:
+
+1. Reports are on main (`report.create`, blocking, the operator queue) and `OPERATOR_USER_IDS` is set to the founder's own Foundmill account id on the api; a new report emails the operator. The response target is two days.
 2. One identity: people search and the network's person page read the page a person publishes at `/u/<handle>`.
 3. `/home`'s find card says only what can be done.
 4. At least 25 people have a public profile: `select count(*) from public_person_profiles;`.
 5. The `security-reviewer` agent has read `live.*` as open to every account.
 
-Tests to run before the switch: api `live-gate`, `live`, `live-social`, `live-limits`, `reports`, `adult-signup`, `solo-guard` (it asserts that with the layer closed `founder.profile.get` says `features.liveMode: false`, `live.summary` is refused with "LIVE is not open yet", and a one-person project's Today reads the same open or closed); e2e `live`, `person-home`, `solo-guard`, `reports`.
+Tests to run before sign-up opens: api `live-gate`, `live`, `live-social`, `live-limits`, `reports`, `adult-signup`, `solo-guard`; e2e `live`, `person-home`, `solo-guard`, `reports`.
 
 ## 4. Supabase
 
