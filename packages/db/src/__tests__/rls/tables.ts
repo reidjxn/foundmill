@@ -12,6 +12,7 @@
  */
 import { CHANNEL_KEYS } from "@foundmill/shared";
 import type { AnyPgColumn, PgTable } from "drizzle-orm/pg-core";
+import { newPostCode } from "../../repos/post-attributions";
 import * as s from "../../schema";
 import type { BusinessFixture } from "./fixtures";
 
@@ -80,6 +81,8 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   spec("task_edges", s.taskEdges, "member", (f) => ({ fromTask: f.taskId, toTask: take(f.taskIds, "task_edges") })),
   spec("agent_sessions", s.agentSessions, "service", (f) => ({ agentId: f.agentId, versionId: f.agentVersionId, taskId: f.taskId })),
   spec("agent_metrics", s.agentMetrics, "service", (f) => ({ agentId: f.agent2Id, day: day(), tasksDone: 1 })),
+  // 0110 task reports (written by the gateway's platform tools with the service role)
+  spec("task_reports", s.taskReports, "service", (f) => ({ taskId: f.taskId, agentId: f.agentId, title: uniq("Findings"), bodyMd: "Three suppliers compared.", sources: [{ url: "https://example.test/a", title: "A" }] })),
   // 0015 verified App installations (written by the gateway)
   spec("app_installations", s.appInstallations, "service", () => ({ connectorKey: uniq("connector"), installationId: String(counter()), verifiedBy: "founder-login", verifiedAt: new Date("2026-10-09T00:00:00Z") })),
   // 0017 the business logo (written by the api with the service role after its checks; one row per business)
@@ -127,6 +130,13 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   spec("merge_log", s.mergeLog, "member", (f) => ({ keptId: f.entityId, mergedId: crypto.randomUUID() })),
   // 0079 what a contact agreed to (a follower of the public page): written by the api's service connection only
   spec("contact_consents", s.contactConsents, "service", (f) => ({ entityId: f.entityId, purpose: "email", source: "page", sourceRef: uniq("page"), consentText: "I agree to get email from Alpha about this project. I can unsubscribe at any time." })),
+  // 0106 what a shared team post led to: written by the services only (members read; the triggers keep each row to its business)
+  spec("post_links", s.postLinks, "service", (f) => ({ assetId: take(f.postAssetIds, "post_links"), network: null, code: newPostCode() })),
+  spec("post_attributions", s.postAttributions, "service", (f) => {
+    const link = f.postLinks.pop();
+    if (!link) throw new Error("post_attributions sample: fixture pool exhausted");
+    return { linkId: link.id, assetId: link.assetId, network: link.network, outcomeKind: "follow", outcomeEventId: crypto.randomUUID(), originId: crypto.randomUUID(), outcomeAt: new Date() };
+  }),
   // 0009 finance
   spec("accounts", s.accounts, "admin", () => ({ provider: "mock_bank", externalId: uniq("acct"), name: "Ops" })),
   spec("transactions", s.transactions, "member", (f) => ({ accountId: f.accountId, externalId: uniq("tx"), bookedAt: new Date(), amountMinor: -1200 })),
@@ -136,6 +146,8 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   spec("cap_table_entries", s.capTableEntries, "admin", (f) => ({ holderEntityId: f.entityId, securityId: f.securityId, quantity: "1000" })),
   spec("usage_ledger", s.usageLedger, "service", (f) => ({ agentId: f.agentId, sessionId: f.sessionId, kind: "tokens", quantity: 500, costMinor: 3 })),
   spec("credit_balances", s.creditBalances, "service", () => ({ period: uniq("2026-02"), balanceMinor: 10000 })),
+  // 0098 bought credits as lots, 12 months each (written by the api and the ingest webhook with the service role)
+  spec("credit_lots", s.creditLots, "service", () => ({ amountMinor: 2500, remainingMinor: 2500, purchasedAt: new Date("2026-11-13T00:00:00Z"), expiresAt: new Date("2027-11-13T00:00:00Z") })),
   // 0033 credit top-ups through Stripe Checkout (written by the api and the ingest webhook with the service role)
   spec("billing_checkouts", s.billingCheckouts, "service", () => ({ mode: "mock", amountMinor: 5000, currency: "USD" })),
   // 0053 saved session recordings (the orchestrator writes them with the service role when a session finishes)
@@ -167,7 +179,33 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   spec("team_calls", s.teamCalls, "member", (f) => ({ kind: "one_to_one", agentIds: [f.agentId], startedBy: f.memberId, topic: uniq("topic") })),
   spec("team_call_turns", s.teamCallTurns, "append", (f) => ({ callId: f.teamCallId, seq: 1000 + counter(), speaker: "founder", userId: f.memberId, via: "typed", text: uniq("What is on our list?") }), { text: "tampered" }),
   spec("team_call_actions", s.teamCallActions, "append", (f) => ({ callId: f.teamCallId, position: 1000 + counter(), actionType: "create_task", title: uniq("Draft the launch email"), status: "not_filed", reason: "Example" }), { title: "tampered" }),
+  // 0131: the founder's own payment links; owner and admin write (WP-07 T7).
+  spec("pay_links", s.payLinks, "admin", () => ({ key: uniq("pay").toLowerCase(), label: "Starter", url: `https://buy.stripe.com/${uniq("test")}`, source: "pasted" }), { archivedAt: new Date("2026-11-16T00:00:00Z") }),
 ];
+
+/**
+ * 0094: the tables a collaborator does not read at all (their select policy is `is_member_not_collaborator`): the ones
+ * only owners and admins write, and the Money tables services write, outside what a collaborator's screens use. The
+ * generic suite checks a collaborator reads none of their rows and everyone else reads them as before. 0110 adds
+ * `task_reports`: what an agent found, which the event walls hide from a collaborator in `task.completed.summary`.
+ */
+export const COLLABORATOR_CLOSED_TABLES: readonly string[] = ["accounts", "securities", "cap_table_entries", "usage_ledger", "credit_balances", "billing_checkouts", "credit_lots", "legal_entities", "incorporations", "integrations", "webhooks", "policies", "app_installations", "task_reports"];
+/**
+ * Admin- or service-written tables a collaborator still reads, each for a screen of theirs (0094's header gives the
+ * reasons). Named so a change to the list is a decision.
+ */
+export const COLLABORATOR_STILL_READS_ADMIN_TABLES: readonly string[] = ["departments", "department_members", "holiday_periods", "business_logos", "business_foundations", "product_research", "session_recordings", "contact_consents", "demo_sample_rows"];
+/**
+ * 0095: the Money and Legal tables members write. A collaborator neither reads nor writes them (select
+ * `is_member_not_collaborator`, write `has_role(owner/admin/member) and is_member_not_collaborator`), while an owner, a
+ * cofounder, an admin and a member write them as before and a viewer reads them.
+ */
+export const COLLABORATOR_CLOSED_MONEY_LEGAL: readonly string[] = ["transactions", "ledger_snapshots", "forecasts", "filings", "contracts", "compliance_events", "regulatory_gates"];
+/**
+ * 0107: tables a collaborator reads only through a view that leaves the money out: no row of the table itself
+ * (`conversions`, read through `member_conversions` with `amount_minor` null; rls/collaborator-finance.test.ts).
+ */
+export const COLLABORATOR_READS_THROUGH_VIEW: readonly string[] = ["conversions"];
 
 /** Keeps the catalogue honest: every spec must name the table its Drizzle object points at. */
 export const expectedTableNames = () => TENANT_TABLES.map((t) => t.name);
@@ -178,10 +216,23 @@ export const NON_TENANT_TABLES = [
   "businesses",
   "founder_profiles",
   "account_preferences",
+  // 0100: "I am 18 or older", once per account (user-owned, no business_id); covered by rls/adult-confirmations.test.ts.
+  "adult_confirmations",
   // 0074: a person's phones (user-owned, no business_id); covered by rls/founder-devices.test.ts.
   "founder_devices",
   // 0080: handles a person left, kept for them for 90 days (user-owned, service role only); rls/person-profiles.test.ts.
   "person_handle_releases",
+  // 0085: a person's own events and their delivery queue (user-owned, no business_id; written by services only, the
+  // queue service role only); covered by rls/account-events.test.ts.
+  "account_events",
+  "account_outbox",
+  // 0109: the nightly numbers, one row per day of counts across projects (no business_id, no ids; service role only);
+  // covered by rls/platform-metric-days.test.ts.
+  "platform_metric_days",
+  // 0086 the idea box (docs/IDEA_BOX.md): a signed-out visitor's card and the waitlist; the api's alone (no client
+  // role, RLS on, no policy); covered by rls/idea-drafts.test.ts.
+  "idea_drafts",
+  "waitlist_entries",
   "ideas",
   "idea_versions",
   "idea_comparisons",
@@ -209,9 +260,45 @@ export const NON_TENANT_TABLES = [
   "project_mail",
   // 0078: a platform table (no business_id: the project it belonged to is gone), service role only; covered by rls/project-mail.test.ts.
   "retired_mail_local_parts",
+  // 0101: business-scoped, one row per business, founders only; covered by rls/project-postal-address.test.ts.
+  "project_postal_addresses",
+  // 0124: business-scoped, one site per business (the generated suite inserts a second), and releases that need that
+  // site; services write both, owners and admins publish; covered by rls/sites.test.ts.
+  "sites",
+  "site_releases",
+  // 0130: a platform table (no business_id: the hold outlives the project that gave the address up), service role
+  // only; covered by rls/site-address-holds.test.ts.
+  "site_address_holds",
+  // 0134: follower updates (members write a draft's subject and body only; status is the services') and their delivery
+  // record (service role only, no policy); covered by rls/project-updates.test.ts.
+  "project_updates",
+  "project_update_deliveries",
   // 0083: one person's rows in one business (presence, visit days, founder emails); covered by rls/founder-return.test.ts.
   "founder_presence",
   "founder_visit_days",
   "founder_notifications",
+  // 0088: who or what brought a new person (user-owned, service role only); rls/attributions.test.ts.
+  "attributions",
+  // 0105: the page quiz, one row per business (the generated suite inserts a second; clients never insert), and its
+  // anonymous counts, written by services only; covered by rls/page-quizzes.test.ts.
+  "page_quizzes",
+  "page_quiz_counts",
+  // 0091: admissions (user-owned, service role only) and invitations (business-scoped, but its token hash and address
+  // are not readable by a client, so the generic suite cannot select them); both in rls/invitations.test.ts.
+  "account_admissions",
+  "invitations",
+  // 0103: showcase requests (the house's, written by the service only) and consents (one founder's own row, read only
+  // by that founder); both in rls/showcase.test.ts.
+  "showcase_requests",
+  "showcase_consents",
+  // 0097: a founder's standing ended (business-scoped, but read by the person once they are out, written by a trigger and
+  // the service role only, its token hash not readable by a client); covered by rls/founder-departures.test.ts.
+  "founder_departures",
+  // 0097: one email's one-click cancel of a deletion request (business-scoped, service role only: a client role reads
+  // nothing of it); covered by rls/founder-departures.test.ts.
+  "founder_cancel_links",
+  // 0102: a post draft's media, one row per draft and kind, written by services only (the generated suite cannot make a
+  // draft per insert); covered by rls/post-media.test.ts.
+  "post_media",
 ] as const;
 

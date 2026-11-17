@@ -121,8 +121,18 @@ export interface LiveConnectorOptions {
   isSuppressed?: (businessId: string, address: string) => Promise<boolean>;
   /** The platform's own data behind the `platform` connector (task board, messages, reads); the gateway provides it. */
   platform?: PlatformHost;
+  /**
+   * The origin of this deployment's public project pages (`APP_URL`), for `indexnow` connected for a Foundmill-hosted page
+   * (founder, 2026-11-12): the gateway provides it, and names the page's own slug as `hostedSlug` in the connect input.
+   */
+  hostedPagesOrigin?: string;
   /** The quarantined reader behind `quarantine.read_untrusted` (BUILD §9.8 step 2); the gateway provides it. */
   quarantinedReader?: QuarantinedReader;
+  /**
+   * The web search behind live `web.search_web` (WP-09 T3): the gateway's platform model client, which asks the
+   * business's credits first and books the search's tokens and fee to the caller. Absent: live search is not available.
+   */
+  searchWeb?: (input: { businessId: string; agentId?: string; sessionId?: string; query: string; limit: number }) => Promise<{ url: string; title: string; pageAge: string | null }[]>;
 }
 
 /**

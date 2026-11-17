@@ -37,7 +37,8 @@ const status = (over: Partial<ContinueResult["status"]> = {}): ContinueResult["s
 
 type Summary = ContinueResult["summary"];
 const summary = (over: Partial<Summary> = {}): Summary => ({ kind: "started", headline: "Cycle 2 started: 6 tasks ready to build", plainHeadline: "The next round of work started: 6 tasks ready to build", detail: `The team is at work. What they finish and what they need from you come back as notes in the Inbox. ${RUN_UNTIL_DONE}`, readyTasks: 6, stage: "building", orchestrator: true, ...over });
-const result = (over: Partial<ContinueResult>): ContinueResult => ({ action: "started", mode: "temporal", workflow: null, item: null, status: status(), continueState: { kind: "processing" }, run: null, summary: summary(), ...over });
+// A cast: the answer is a union (the note of an in-process step comes back as the person may read it), and a Partial of a union spreads into neither member.
+const result = (over: Partial<ContinueResult>): ContinueResult => ({ action: "started", mode: "temporal", workflow: null, item: null, status: status(), continueState: { kind: "processing" }, run: null, summary: summary(), ...over }) as ContinueResult;
 const RUN = { id: "22222222-2222-4222-8222-222222222222", startedAt: "2026-11-07T10:00:00.000Z", rounds: 0 };
 
 describe("one press of Continue (BUILD §9.4; first-time founder report, Nov 8, 2026: the api's one sentence is the toast)", () => {
@@ -52,7 +53,7 @@ describe("one press of Continue (BUILD §9.4; first-time founder report, Nov 8, 
 
   it("no orchestrator: a warning that says no agent worked, with the note that stood in to open", () => {
     const item = { id: "11111111-1111-4111-8111-111111111111", subject: "Three decisions for the Board" } as unknown as NonNullable<ContinueResult["item"]>;
-    const local = result({ mode: "local", item, summary: summary({ kind: "orchestrator_unreachable", headline: "The team cannot run right now: the orchestrator is not reachable", plainHeadline: "The team cannot run right now: the orchestrator is not reachable", detail: "No agent worked. One note was written from what the business already knows: “Three decisions for the Board”.", orchestrator: false }) });
+    const local = result({ mode: "local", item: item as never, summary: summary({ kind: "orchestrator_unreachable", headline: "The team cannot run right now: the orchestrator is not reachable", plainHeadline: "The team cannot run right now: the orchestrator is not reachable", detail: "No agent worked. One note was written from what the business already knows: “Three decisions for the Board”.", orchestrator: false }) });
     expect(describeContinue(local)).toEqual({ title: "The team cannot run right now: the orchestrator is not reachable", description: "No agent worked. One note was written from what the business already knows: “Three decisions for the Board”.", tone: "warn", itemId: item.id });
     // The e2e specs' toast regex matches every headline the api writes, Builder view on or off.
     for (const t of ["Cycle 2 started: 6 tasks ready to build", "The next round of work started: 6 tasks ready to build", "The next round of work started: nothing is ready to build yet", "The team cannot run right now: the orchestrator is not reachable", "Cycle 4 resumed", "The round of work resumed", "A round of work is already running"]) expect(t).toMatch(/(cycle \d+|round of work) started|cannot run right now|(cycle \d+|round of work) resumed|already running/i);
@@ -65,15 +66,15 @@ describe("one press of Continue (BUILD §9.4; first-time founder report, Nov 8, 
     expect(orchestratorDown({ orchestrator: { reachable: null } })).toBe(false);
     expect(orchestratorDown({ orchestrator: { reachable: true } })).toBe(false);
     expect(orchestratorDown(undefined)).toBe(false);
-    expect(ORCHESTRATOR_DOWN_CAVEAT).toMatch(/^The orchestrator is not reachable right now/);
+    expect(ORCHESTRATOR_DOWN_CAVEAT).toBe("The team cannot start right now. Pressing Continue will only write a short note.");
     expect(CONTINUE_PRESSED_NOTICE).toBe("Starting the next cycle…");
     expect(continuePressedNotice(false)).toBe("Starting the next round of work…");
     expect(continuePressedNotice(true)).toBe(CONTINUE_PRESSED_NOTICE);
   });
 
   it("the last cycle's cost rides under Continue's tooltip as an Estimate; none before the first cycle", () => {
-    expect(lastCycleCostLine({ amountMinor: 52, currency: "USD" })).toBe("Last cycle cost $0.52 · Estimate");
-    expect(lastCycleCostLine({ amountMinor: 0, currency: "USD" })).toBe("Last cycle cost $0.00 · Estimate");
+    expect(lastCycleCostLine({ amountMinor: 52, currency: "USD" })).toBe("The last round of work cost $0.52 · Estimate");
+    expect(lastCycleCostLine({ amountMinor: 0, currency: "USD" })).toBe("The last round of work cost $0.00 · Estimate");
     expect(lastCycleCostLine(null)).toBeNull();
   });
 
@@ -90,7 +91,7 @@ describe("Pause and the end of a run (Nov 7, 2026)", () => {
   it("Pause says what stopped and that Continue picks up again", () => {
     expect(describePause({ paused: true, pausedTasks: 2, runEnded: true })).toEqual({ title: "Paused", description: "2 running tasks paused. Press Continue to pick up where the team stopped.", tone: "warn" });
     expect(describePause({ paused: true, pausedTasks: 1, runEnded: false }).description).toBe("1 running task paused. Press Continue to pick up where the team stopped.");
-    expect(describePause({ paused: false, pausedTasks: 0, runEnded: true, reason: "no cycle is running; no new cycle starts on its own" })).toEqual({ title: "Paused", description: "No new cycle starts. Press Continue to pick up where the team stopped.", tone: "warn" });
+    expect(describePause({ paused: false, pausedTasks: 0, runEnded: true, reason: "no cycle is running; no new cycle starts on its own" })).toEqual({ title: "Paused", description: "No new round of work starts. Press Continue to pick up where the team stopped.", tone: "warn" });
     expect(describePause({ paused: false, pausedTasks: 0, runEnded: false, reason: "no cycle is running" })).toEqual({ title: "Nothing to pause", description: "no cycle is running", tone: "info" });
   });
 
@@ -132,7 +133,7 @@ describe("the first-Continue callout (UX plan §7.7)", () => {
   });
 
   it("is anchored to the top bar's Continue and says the loop in one sentence", () => {
-    expect(FIRST_CONTINUE_CALLOUT).toEqual({ tourId: "first-continue", targetId: "continue", title: "This is how you move forward", body: "Press it when you have answered what needs you." });
+    expect(FIRST_CONTINUE_CALLOUT).toEqual({ tourId: "first-continue", targetId: "continue", title: "This is how you move forward", body: "One press and your team works until nothing is left to do. Anything that needs you shows in Needs you." });
   });
 });
 
@@ -157,8 +158,8 @@ describe("the Example frame (UX plan §12 item 5)", () => {
     expect(EXAMPLE_CHIP_TOOLTIP).toBe("Its figures are made up for the example: nothing here is real money or real customers. Nothing you do here is saved.");
   });
 
-  it("the Sample business marker: only for a visitor exploring the example; never for the demo's own members or on a founder's own business", () => {
-    expect(sampleMarker({ isDemo: true }, example)).toEqual({ label: "Sample business", tooltip: EXAMPLE_CHIP_TOOLTIP });
+  it("the Sample project marker: only for a visitor exploring the example; never for the demo's own members or on a founder's own business", () => {
+    expect(sampleMarker({ isDemo: true }, example)).toEqual({ label: "Sample project", tooltip: EXAMPLE_CHIP_TOOLTIP });
     // The demo's own owner (the seeded founder) and an invited viewer don't see it (founder, Nov 12, 2026).
     expect(sampleMarker({ isDemo: true }, owner)).toBeNull();
     expect(sampleMarker({ isDemo: true }, viewer)).toBeNull();

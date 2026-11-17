@@ -11,6 +11,8 @@ export * from "./components/guidance";
 export * from "./components/firstrun";
 export * from "./components/today";
 export * from "./components/public";
+export * from "./components/landing";
+export * from "./components/share";
 export * from "./lib";
 export * from "./version";
 export * from "./brand";

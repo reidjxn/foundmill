@@ -40,7 +40,7 @@ const CASES: Case[] = [
   { key: "channel_form_guide", expectData: /Paid advertising/, expectEmpty: /No channels are on the board/ },
   { key: "roadmap_timeline", expectData: /Usage-based billing/, expectEmpty: /Roadmap items appear once/ },
   { key: "agent_of_the_week", expectData: /Ember/, expectEmpty: /first agent of the week/ },
-  { key: "trophy_cabinet", expectData: /2 of 8 reached/, expectEmpty: /Customer names show only/ },
+  { key: "trophy_cabinet", expectData: /2 of 10 reached/, expectEmpty: /Customer names show only/ },
   { key: "community_feed", expectData: /annual-plan discounts/, expectEmpty: /Join a community/, live: true },
   { key: "custom_metric", expectData: /€1,250/, expectEmpty: /Pick a metric from the catalog/, settings: { mode: "query", queryId: "revenue_30d", label: "Revenue, last 30 days", format: "money" }, emptySettings: {} },
   // Nothing done yet is the checklist's "empty": seven rows, none ticked.
@@ -405,7 +405,7 @@ describe("first-week checklist widget", () => {
     expect(container.querySelector("[data-first-week-item]")?.getAttribute("data-first-week-item")).toBe("publish_page");
     expect(screen.getByRole("link", { name: "Go: Publish your page" }).getAttribute("href")).toMatch(new RegExp(`^/b/${BID}/d/[a-z-]+/public-page$`));
     expect(screen.queryByText(/Connect a bank/)).toBeNull();
-    expect(screen.getByRole("button", { name: "Go: Run a cycle" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Go: Let the team work" })).toBeTruthy();
     // The query is scoped by the host (businessId merged in): the widget asks with no input of its own.
     expect(container.querySelector("[data-widget='first_week_checklist']")).toBeTruthy();
   });

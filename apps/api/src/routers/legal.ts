@@ -2,10 +2,11 @@
  * legal.recommend / incorporate.start/status / import.lookup/confirm / contracts.* / compliance.list (BUILD §11.11).
  * Information, not legal or tax advice; signing and submission are founder clicks (AC-11.11.4).
  */
+import { INPUT_LIMITS } from "@foundmill/config";
 import { isUntrusted, mockIntegrationRecord, readForQuarantine, type ToolContext } from "@foundmill/connectors";
 import { HOUSE_STYLE } from "@foundmill/agents";
 import { CANCELABLE_INCORPORATION_STATUSES, CreateContractInput, UpdateContractInput, repos } from "@foundmill/db";
-import { AppError, ConflictError, connectorMode, CurrencyCode, INCORPORATION_ROUTES, ValidationError } from "@foundmill/shared";
+import { AppError, boundedRecord, ConflictError, connectorMode, CurrencyCode, INCORPORATION_ROUTES, isAdminRole, ValidationError } from "@foundmill/shared";
 import type { GatewayRegistryKey } from "../services/gateway";
 import { SECTOR_GATES, SECTOR_KEYS } from "@foundmill/shared/sectors";
 import { z } from "zod";
@@ -262,12 +263,12 @@ export const legalRouter = router({
           jurisdiction: z.string().min(2).max(40),
           entityType: z.string().min(1).max(60),
           formedAt: z.string().date().nullable().default(null),
-          registeredAddress: z.record(z.string(), z.string()).default({}),
-          officers: z.array(z.object({ name: z.string().min(1), role: z.string().min(1), appointedOn: z.string().nullable().default(null) })).default([]),
+          registeredAddress: boundedRecord(INPUT_LIMITS.addressLines, z.record(z.string(), z.string())).default({}),
+          officers: z.array(z.object({ name: z.string().min(1), role: z.string().min(1), appointedOn: z.string().nullable().default(null) })).max(INPUT_LIMITS.registerOfficers).default([]),
           shareCapitalMinor: z.number().int().nonnegative().nullable().default(null),
           /** The register's own currency for the share capital; absent: the business's currency (0025). */
           currency: CurrencyCode.optional(),
-          deadlines: z.array(z.object({ kind: z.string().min(1), dueAt: z.string() })).default([]),
+          deadlines: z.array(z.object({ kind: z.string().min(1), dueAt: z.string() })).max(INPUT_LIMITS.registerDeadlines).default([]),
         }),
       )
       .mutation(({ ctx, input }) =>
@@ -331,7 +332,7 @@ export const legalRouter = router({
      */
     setStatus: write.input(z.object({ contractId: Id, status: z.enum(CONTRACT_STATUSES), provider: z.enum(["dropbox_sign", "manual", "other"]).default("manual") })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
-        if (input.status === "signed" && !["owner", "admin"].includes(ctx.role)) throw new ValidationError("Only the founder (owner/admin) can record a signature");
+        if (input.status === "signed" && !isAdminRole(ctx.role)) throw new ValidationError("Only a founder (an owner, a cofounder or an admin) can record a signature");
         const { contract, changed } = await repos.legal.transitionContract(tx, ctx.businessId, input.contractId, input.status);
         if (!changed) return contract;
         if (input.status === "signed" && contract.counterpartyEntityId) {
@@ -363,7 +364,7 @@ export const legalRouter = router({
      * "Policies" section, written as the founder (a pinned human edit). Later versions are per-hunk refreshes of that
      * block through `product.spec.editBlock`; publishing a policy that already has a block is a conflict.
      */
-    publish: write.input(z.object({ title: z.enum(POLICY_TITLES), content: z.record(z.string(), z.unknown()) })).mutation(({ ctx, input }) =>
+    publish: write.input(z.object({ title: z.enum(POLICY_TITLES), content: boundedRecord(INPUT_LIMITS.jsonObjectKeys, z.record(z.string(), z.unknown())) })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
         if (docTitle(input.content).toLowerCase() !== input.title.toLowerCase()) throw new ValidationError(`The policy must start with the heading "${input.title}"`);
         const existing = (await repos.product.listBlocks(tx, ctx.businessId)).find((b) => b.section === POLICIES_SECTION && docTitle(b.content as Record<string, unknown>).toLowerCase() === input.title.toLowerCase());

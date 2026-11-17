@@ -64,3 +64,10 @@ export function cycleTallyLine(t: { started: number; finished: number; blocked: 
  * the session runs under.
  */
 export const DEFAULT_TASK_RESERVE_MINOR = 2_000;
+
+/**
+ * The least a session is worth starting with (US cents, an Estimate until WP-09 T12 sets it from the cost report's
+ * median finished session). A capped cycle runs only as many sessions at a time as its cap pays for at this floor, and a
+ * session handed a cap under it ends blocked for budget before any model call.
+ */
+export const MIN_SESSION_CAP_MINOR = 10;

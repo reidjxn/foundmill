@@ -10,6 +10,7 @@ import {
   BUSINESS_MODES,
   PLAN_TIERS,
   MODEL_BILLING,
+  FUNDING_SOURCES,
   DATA_REGIONS,
   ARCHETYPES,
   MODULE_KEYS,
@@ -78,13 +79,28 @@ import { PAGE_ABOUT_MAX, PAGE_FOR_WHOM_MAX, PAGE_PITCH_MAX, PAGE_STAGES, normali
 import type * as P from "./project-page";
 import { PERSON_ABOUT_MAX, PERSON_HEADLINE_MAX, PERSON_LOOKING_FOR, PERSON_PLACE_MAX, PERSON_TAGS_MAX, PERSON_TAG_MAX, normalizePersonProfile, personHandleProblem } from "./person-profile";
 import type * as PP from "./person-profile";
+import { POST_IMAGE_ALT_MAX, POST_NETWORKS, POST_TEXT_MAX, POST_TITLE_MAX, POST_URL_MAX, isPostUrl } from "./post-draft";
+import type * as PD from "./post-draft";
+import { POST_MEDIA_KINDS, POST_MEDIA_MIMES, POST_MEDIA_STATES } from "./post-media";
+import type * as PM from "./post-media";
 
 // The zod-free half (tuples, unions, records): "@foundmill/shared/constants".
 export * from "./constants";
 // A project's public page, zod-free: "@foundmill/shared/project-page". Its Zod schemas are at the end of this file.
 export * from "./project-page";
+// A project's story and its milestone cards, zod-free: "@foundmill/shared/project-story".
+export * from "./project-story";
 // A person's public profile, zod-free: "@foundmill/shared/person-profile". Its Zod schemas follow the page's.
 export * from "./person-profile";
+// A post draft, tap-to-post share targets and the drafts a project already has, zod-free: "@foundmill/shared/post-draft",
+// "@foundmill/shared/share-targets", "@foundmill/shared/share-drafts". The draft's Zod schemas are at the end of this file.
+export * from "./post-draft";
+export * from "./share-targets";
+export * from "./share-drafts";
+// A post draft's optional media (a short video and a voiceover), zod-free: "@foundmill/shared/post-media".
+export * from "./post-media";
+// Posts the team writes for the founder to share by tap, zod-free: "@foundmill/shared/team-posts".
+export * from "./team-posts";
 
 export const GameMode = z.enum(GAME_MODES);
 export type GameMode = C.GameMode;
@@ -94,6 +110,8 @@ export const PlanTier = z.enum(PLAN_TIERS);
 export type PlanTier = C.PlanTier;
 export const ModelBilling = z.enum(MODEL_BILLING);
 export type ModelBilling = C.ModelBilling;
+export const FundingSource = z.enum(FUNDING_SOURCES);
+export type FundingSource = C.FundingSource;
 export const DataRegion = z.enum(DATA_REGIONS);
 export type DataRegion = C.DataRegion;
 export const Archetype = z.enum(ARCHETYPES);
@@ -192,6 +210,8 @@ export const FoundationsDoor = z.enum(FOUNDATIONS_DOORS);
 export type FoundationsDoor = C.FoundationsDoor;
 export const FoundationsRunner = z.enum(FOUNDATIONS_RUNNERS);
 export type FoundationsRunner = C.FoundationsRunner;
+/** Where the team's code can go (WP-02 T4/T5): nowhere yet, or the founder's GitHub repository with pushing on. WP-07 adds "site". */
+export type BuildDestination = "none" | "github";
 export const ProductStage = z.enum(PRODUCT_STAGES);
 export type ProductStage = C.ProductStage;
 export const SignoffKind = z.enum(SIGNOFF_KINDS);
@@ -322,3 +342,59 @@ export const PersonHandle = z
     const problem = personHandleProblem(v);
     if (problem) ctx.addIssue({ code: "custom", message: problem });
   });
+
+/**
+ * A post draft (./post-draft): the one shape a post has whether the founder shares it by tap or a publishing connector
+ * sends it. A link and a picture's address must be https with no credentials in them (`isPostUrl`): a connector hands
+ * them to a vendor that fetches them, so http, a `user:pass@` part, `javascript:`, `data:` and anything that is not a
+ * URL are refused at parse. The network list is `POST_NETWORKS`, which only ever grows at its end.
+ */
+export const PostNetwork = z.enum(POST_NETWORKS);
+export type PostNetwork = PD.PostNetwork;
+/** An https address with no user name or password in it, at most 2,048 characters. */
+export const PostUrl = z
+  .string()
+  .max(POST_URL_MAX)
+  .refine(isPostUrl, { message: "Use an https address with no user name or password in it" });
+export const PostDraftImage = z.object({ url: PostUrl, alt: z.string().max(POST_IMAGE_ALT_MAX) });
+export type PostDraftImage = PD.PostDraftImage;
+export const PostDraftVariant = z.object({
+  text: z.string().max(POST_TEXT_MAX),
+  title: z.string().min(1).max(POST_TITLE_MAX).optional(),
+  link: PostUrl.optional(),
+  image: PostDraftImage.optional(),
+});
+export type PostDraftVariant = PD.PostDraftVariant;
+/**
+ * A draft's media (./post-media). `url` is a same-origin path for the founder's browser (`/api/post-media/<token>`),
+ * never a vendor's address; a simulated item carries no file and no address.
+ */
+export const PostDraftMediaItem = z
+  .object({
+    kind: z.enum(POST_MEDIA_KINDS),
+    state: z.enum(POST_MEDIA_STATES),
+    mediaId: z.uuid(),
+    simulated: z.boolean(),
+    mime: z.enum(POST_MEDIA_MIMES).nullish(),
+    bytes: z.number().int().nonnegative().nullish(),
+    durationSeconds: z.number().nonnegative().max(600).nullish(),
+    url: z.string().regex(/^\/api\/post-media\/[A-Za-z0-9_.-]{20,600}$/).optional(),
+    fileName: z.string().max(80).optional(),
+  })
+  .refine((m) => !(m.simulated && (m.url !== undefined || m.state === "ready")), { message: "A simulated item has no file and is never ready" });
+export type PostDraftMediaItem = PM.PostDraftMediaItem;
+export const PostDraftMedia = z.object({
+  videoTools: z.enum(["connected", "not_connected"]),
+  voiceTools: z.enum(["connected", "not_connected"]),
+  video: PostDraftMediaItem.optional(),
+  voiceover: PostDraftMediaItem.optional(),
+});
+export type PostDraftMedia = PM.PostDraftMedia;
+export const PostDraft = z.object({
+  text: z.string().min(1).max(POST_TEXT_MAX),
+  link: PostUrl.optional(),
+  image: PostDraftImage.optional(),
+  variants: z.partialRecord(PostNetwork, PostDraftVariant).default({}),
+  media: PostDraftMedia.optional(),
+});
+export type PostDraft = PD.PostDraft;

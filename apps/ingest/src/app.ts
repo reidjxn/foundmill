@@ -5,14 +5,14 @@
  * `GET /simulate` + `POST /simulate/:eventName`.
  */
 import { APP_NAME, simulatePanelHonoured } from "@foundmill/config";
-import { PLATFORM_MAIL_CONFIRM_PATH, PLATFORM_MAIL_EVENTS_PATH, PLATFORM_MAIL_INBOUND_PATH, PLATFORM_MAIL_UNSUBSCRIBE_PATH, PLATFORM_NOTIFY_OFF_PATH } from "@foundmill/connectors";
+import { PLATFORM_MAIL_CONFIRM_PATH, PLATFORM_MAIL_EVENTS_PATH, PLATFORM_MAIL_INBOUND_PATH, PLATFORM_INVITATIONS_OFF_PATH, PLATFORM_MAIL_UNSUBSCRIBE_PATH, PLATFORM_NOTIFY_OFF_PATH } from "@foundmill/connectors";
 import { AppError, UnauthorizedError } from "@foundmill/shared";
 import { Hono, type MiddlewareHandler } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { repos } from "@foundmill/db";
-import { ackBody, handleWebhook, webhookMounts, type MountedWebhook } from "./webhooks";
-import { BILLING_WEBHOOK_PATH, handleBillingWebhook } from "./billing";
-import { handleFollowConfirm, handleNotifyOff, handlePlatformInbound, handlePlatformMailEvents, handlePlatformUnsubscribe, PLATFORM_MAIL_EVENTS_MAX_BYTES, PLATFORM_MAIL_INBOUND_MAX_BYTES } from "./platform-mail";
+import { ackBody, handleWebhook, WEBHOOK_MAX_BYTES, WEBHOOK_MAX_BYTES_BY_CONNECTOR, webhookMounts, type MountedWebhook } from "./webhooks";
+import { BILLING_WEBHOOK_MAX_BYTES, BILLING_WEBHOOK_PATH, handleBillingWebhook } from "./billing";
+import { handleFollowConfirm, handleInvitationsOff, handleNotifyOff, handlePlatformInbound, handlePlatformMailEvents, handlePlatformUnsubscribe, PLATFORM_MAIL_EVENTS_MAX_BYTES, PLATFORM_MAIL_INBOUND_MAX_BYTES, signingSecretFor } from "./platform-mail";
 import { runSimulation, SimulateBody, simulateRoutesMounted, simulationCatalogue } from "./simulate";
 import { bearerToken, verifySimulateToken, type SimulateTokenClaims } from "./simulate-token";
 import { INGEST_SERVICE, type IngestDeps } from "./types";
@@ -68,11 +68,31 @@ export function createIngestApp(deps: IngestDeps): CreatedIngestApp {
         webhooks: mounted.map((m) => ({ connector: m.connector, path: m.path, mode: m.mode })),
         // Mock verifiers use secrets committed to the repository: never mounted outside development and test.
         refusedMockWebhooks: refused,
+        // Whether the platform address's mail can arrive (booleans only, never a value): `inbound` needs its token,
+        // `events` (SendGrid's Event Webhook at /mail/events) the event key and the signing secret.
+        platformMail: { domain: !!deps.platformMail?.domain, inbound: !!deps.platformMail?.inboundToken, events: !!(deps.platformMail?.eventPublicKey && signingSecretFor(deps)) },
         time: deps.now().toISOString(),
       },
       db ? 200 : 503,
     );
   });
+
+  // Bodies are capped before they are read (WP-11 T15): registered above the routes, since hono runs middleware in the
+  // order it was added. The limit is chosen from the path segment after /webhooks/.
+  const tooLarge = (maxSize: number) => bodyLimit({ maxSize, onError: (c) => c.json({ ok: false, error: "payload_too_large", message: `Request body is larger than ${Math.round(maxSize / (1024 * 1024))} MB` }, 413) });
+  // The larger limit only for a webhook this deployment mounts at that segment, looked up as an own key (a segment
+  // such as `constructor` or `__proto__` must not reach Object.prototype and skip the cap).
+  const webhookLimits = new Map<number, ReturnType<typeof tooLarge>>();
+  const webhookLimit = (segment: string) => {
+    const connector = mounted.find((m) => m.segment === segment)?.connector;
+    const max = connector && Object.hasOwn(WEBHOOK_MAX_BYTES_BY_CONNECTOR, connector) ? WEBHOOK_MAX_BYTES_BY_CONNECTOR[connector]! : WEBHOOK_MAX_BYTES;
+    let limiter = webhookLimits.get(max);
+    if (!limiter) webhookLimits.set(max, (limiter = tooLarge(max)));
+    return limiter;
+  };
+  // hono's `/webhooks/:connector/*` also matches `/webhooks/<connector>`: one registration covers both routes.
+  app.use("/webhooks/:connector/*", (c, next) => webhookLimit(c.req.param("connector"))(c, next));
+  app.use(BILLING_WEBHOOK_PATH, tooLarge(BILLING_WEBHOOK_MAX_BYTES));
 
   const webhookRoute = async (segment: string, businessId: string | null, req: Request): Promise<Response> => {
     const outcome = await handleWebhook(deps, mounted, { segment, businessId, req });
@@ -88,7 +108,6 @@ export function createIngestApp(deps: IngestDeps): CreatedIngestApp {
   });
   // A project's Foundmill sending address (platform-mail.ts): one endpoint each, the project resolved from the content.
   // A larger body is a 413 before it is read, whatever its Content-Length says (a chunked one is counted as it arrives).
-  const tooLarge = (maxSize: number) => bodyLimit({ maxSize, onError: (c) => c.json({ ok: false, error: "payload_too_large", message: `Request body is larger than ${Math.round(maxSize / (1024 * 1024))} MB` }, 413) });
   app.use(PLATFORM_MAIL_INBOUND_PATH, tooLarge(PLATFORM_MAIL_INBOUND_MAX_BYTES));
   app.use(PLATFORM_MAIL_EVENTS_PATH, tooLarge(PLATFORM_MAIL_EVENTS_MAX_BYTES));
   app.post(PLATFORM_MAIL_INBOUND_PATH, async (c) => {
@@ -119,6 +138,13 @@ export function createIngestApp(deps: IngestDeps): CreatedIngestApp {
   };
   app.get(PLATFORM_NOTIFY_OFF_PATH, (c) => notifyOff(c.req.raw));
   app.post(PLATFORM_NOTIFY_OFF_PATH, (c) => notifyOff(c.req.raw));
+  // "Don't send me invitations" from an invitation email: stops every invitation (and every project's mail) to the address.
+  const invitationsOff = async (req: Request) => {
+    const outcome = await handleInvitationsOff(deps, req);
+    return new Response(outcome.html, { status: outcome.status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "referrer-policy": "no-referrer", "x-robots-tag": "noindex", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'" } });
+  };
+  app.get(PLATFORM_INVITATIONS_OFF_PATH, (c) => invitationsOff(c.req.raw));
+  app.post(PLATFORM_INVITATIONS_OFF_PATH, (c) => invitationsOff(c.req.raw));
 
   if (simulateRoutesMounted(deps)) {
     // SEC-2: the service token is verified before anything else happens (the body is not even read), so a request

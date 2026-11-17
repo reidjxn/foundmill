@@ -8,6 +8,9 @@
  *   - the draft is a member's to write; publishing, taking down, changing a live page's address and deleting are an
  *     owner's or an admin's, whichever client wrote;
  *   - the address and the published copy are checked by the database itself;
+ *   - when a page went live and when it was taken down are recorded by the database (0090): a signed-in client cannot
+ *     set, backdate, forward-date or move either date, on its own page or anyone's; the service connection keeps the
+ *     date it writes (seeds, backfills);
  *   - the public view: exactly its eight columns, and no row for a draft, a page taken down, an archived business, a
  *     sample business or a business not yet committed; readable by the service role only since 0081 (anon and
  *     signed-in clients are refused: the api serves it one address at a time, rate-limited).
@@ -28,6 +31,8 @@ let h: TestHarness;
 let A: BusinessFixture;
 let B: BusinessFixture;
 let outsiderId: string;
+/** When B's page went live: written on the service connection, the only one whose date is kept (0090). */
+const bPublishedAt = new Date("2026-10-05T09:00:00Z");
 
 const content = (over: Partial<ProjectPageContent> = {}): ProjectPageContent => ({ pitch: "Candles that smell like a walk in the woods", about: "Small batches.\n\nPoured by hand.", forWhom: "People in small apartments", stage: "building", showFounders: false, followForm: true, ...over });
 
@@ -43,6 +48,15 @@ async function expectNoEffect(p: Promise<unknown>) {
 
 const rows = async <T>(q: ReturnType<typeof sql>): Promise<T[]> => ((await h.db.execute(q)) as unknown as { rows: T[] }).rows;
 const commit = (businessId: string) => h.db.update(s.businesses).set({ committedAt: new Date("2026-10-01T00:00:00Z") }).where(eq(s.businesses.id, businessId));
+/** A date the database just recorded: its own clock (not a date a test sent), kept to the millisecond. */
+const expectRecordedNow = (d: Date | null | undefined) => {
+  expect(d).toBeInstanceOf(Date);
+  expect(Math.abs(d!.getTime() - Date.now())).toBeLessThan(60_000);
+};
+const datesOf = async (businessId: string) => {
+  const row = (await h.db.select().from(s.projectPages).where(eq(s.projectPages.businessId, businessId)))[0]!;
+  return { published_at: row.publishedAt, unpublished_at: row.unpublishedAt, live: row.published !== null };
+};
 const publicSlugs = async (runner = h.service()) => (await runner.execute<{ slug: string }>(sql`select slug from public_project_pages order by slug`)).map((r) => r.slug);
 
 beforeAll(async () => {
@@ -53,7 +67,7 @@ beforeAll(async () => {
   await commit(A.businessId);
   await commit(B.businessId);
   // B's page exists and is live before any test: every cross-tenant case has something to reach for.
-  await h.service().run((tx) => repos.pages.publish(tx, B.businessId, { content: content({ pitch: "Bravo's page" }), slug: "bravo-page", userId: B.ownerId }));
+  await h.service().run((tx) => repos.pages.publish(tx, B.businessId, { content: content({ pitch: "Bravo's page" }), slug: "bravo-page", userId: B.ownerId, at: bPublishedAt }));
 }, 120_000);
 afterAll(() => h?.close());
 
@@ -82,7 +96,10 @@ describe("project_pages: tenancy", () => {
       await expectNoEffect(h.asUser(userId).run((tx) => tx.update(s.projectPages).set({ draft: content({ pitch: "Taken over" }) }).where(eq(s.projectPages.businessId, B.businessId)).returning({ id: s.projectPages.id })));
       await expectNoEffect(h.asUser(userId).run((tx) => tx.delete(s.projectPages).where(eq(s.projectPages.businessId, B.businessId)).returning({ id: s.projectPages.id })));
       await expectNoEffect(h.asUser(userId).run((tx) => repos.pages.unpublish(tx, B.businessId, { userId })));
+      await expectNoEffect(h.asUser(userId).run((tx) => tx.update(s.projectPages).set({ publishedAt: new Date("2020-01-01T00:00:00Z") }).where(eq(s.projectPages.businessId, B.businessId)).returning({ id: s.projectPages.id })));
+      await expectNoEffect(h.asUser(userId).run((tx) => tx.update(s.projectPages).set({ unpublishedAt: new Date("2020-01-01T00:00:00Z") }).where(eq(s.projectPages.businessId, B.businessId)).returning({ id: s.projectPages.id })));
     }
+    expect(await datesOf(B.businessId)).toEqual({ published_at: bPublishedAt, unpublished_at: null, live: true });
     const c = await createBusinessFixture(h, "page-c");
     await expect(h.asUser(A.ownerId).run((tx) => tx.insert(s.projectPages).values({ businessId: c.businessId, slug: "charlie-page", draft: content() }))).rejects.toThrow(RLS_DENIED);
     await expect(h.asUser(outsiderId).run((tx) => repos.pages.saveDraft(tx, c.businessId, { draft: content(), slug: "charlie-page", userId: outsiderId }))).rejects.toThrow(RLS_DENIED);
@@ -116,10 +133,13 @@ describe("project_pages: publishing is an owner's or an admin's", () => {
   });
 
   it("an admin publishes; publishing changes keeps the date; an owner takes it down and puts it back", async () => {
-    const first = await h.asUser(A.adminId).run((tx) => repos.pages.publish(tx, A.businessId, { content: content(), slug: "unused", userId: A.adminId, at: new Date("2026-10-07T12:00:00Z") }));
+    // The dates a signed-in client sends (`at`) are never the ones stored: the database records its own (0090).
+    const first = await h.asUser(A.adminId).run((tx) => repos.pages.publish(tx, A.businessId, { content: content(), slug: "unused", userId: A.adminId, at: new Date("2020-01-01T00:00:00Z") }));
     expect(first).toMatchObject({ wasLive: false, page: { slug: "alpha-candles", publishedBy: A.adminId, unpublishedAt: null } });
     expect(first.page.published).toEqual(content());
-    expect(first.page.publishedAt?.toISOString()).toBe("2026-10-07T12:00:00.000Z");
+    expectRecordedNow(first.page.publishedAt);
+    // A known date for the rest of the test, as a backfill would write it on the service connection.
+    await h.service().execute(sql`update project_pages set published_at = '2026-10-07T12:00:00Z' where business_id = ${A.businessId}`);
 
     const changed = await h.asUser(A.ownerId).run((tx) => repos.pages.publish(tx, A.businessId, { content: content({ stage: "live" }), slug: "unused", userId: A.ownerId, at: new Date("2026-10-09T12:00:00Z") }));
     expect(changed).toMatchObject({ wasLive: true, page: { publishedBy: A.ownerId } });
@@ -130,6 +150,7 @@ describe("project_pages: publishing is an owner's or an admin's", () => {
     // While it is live a member still edits the draft, and nothing public moves.
     const edited = await h.asUser(A.memberId).run((tx) => repos.pages.saveDraft(tx, A.businessId, { draft: content({ pitch: "A new pitch, not out yet" }), slug: "x-unused", userId: A.memberId }));
     expect(edited.published?.pitch).toBe(content().pitch);
+    expect(edited.publishedAt?.toISOString()).toBe("2026-10-07T12:00:00.000Z");
     // But not its address, not taking it down, and not deleting the row.
     await expect(h.asUser(A.memberId).run((tx) => repos.pages.setSlug(tx, A.businessId, { slug: "member-moved-it", draft: content(), userId: A.memberId }))).rejects.toThrow(RLS_DENIED);
     await expect(h.asUser(A.memberId).run((tx) => repos.pages.unpublish(tx, A.businessId, { userId: A.memberId }))).rejects.toThrow(RLS_DENIED);
@@ -138,17 +159,21 @@ describe("project_pages: publishing is an owner's or an admin's", () => {
 
     const moved = await h.asUser(A.adminId).run((tx) => repos.pages.setSlug(tx, A.businessId, { slug: "alpha-live", draft: content(), userId: A.adminId }));
     expect(moved.page.slug).toBe("alpha-live");
+    expect(moved.page.publishedAt?.toISOString()).toBe("2026-10-07T12:00:00.000Z");
 
     const down = await h.asUser(A.ownerId).run((tx) => repos.pages.unpublish(tx, A.businessId, { userId: A.ownerId, at: new Date("2026-10-10T12:00:00Z") }));
     expect(down).toMatchObject({ published: null, slug: "alpha-live" });
-    expect(down?.unpublishedAt?.toISOString()).toBe("2026-10-10T12:00:00.000Z");
+    // Taken down now, by the database's clock; the day it went live is kept.
+    expectRecordedNow(down?.unpublishedAt);
+    expect(down?.publishedAt?.toISOString()).toBe("2026-10-07T12:00:00.000Z");
     expect(down?.draft.pitch).toBe("A new pitch, not out yet");
     // Taken down twice: nothing to do.
     expect(await h.asUser(A.ownerId).run((tx) => repos.pages.unpublish(tx, A.businessId, { userId: A.ownerId }))).toBeNull();
 
+    // Put back up: it went live again now, not on the date sent and not on the earlier one.
     const back = await h.asUser(A.ownerId).run((tx) => repos.pages.publish(tx, A.businessId, { content: content(), slug: "unused", userId: A.ownerId, at: new Date("2026-10-11T12:00:00Z") }));
     expect(back).toMatchObject({ wasLive: false, page: { unpublishedAt: null } });
-    expect(back.page.publishedAt?.toISOString()).toBe("2026-10-11T12:00:00.000Z");
+    expectRecordedNow(back.page.publishedAt);
   });
 
   it("an address is one project's: a second project gets the founder's sentence", async () => {
@@ -158,6 +183,150 @@ describe("project_pages: publishing is an owner's or an admin's", () => {
     expect(await repos.pages.slugTaken(h.db as never, f.businessId, "bravo-page")).toBe(true);
     expect(await repos.pages.slugTaken(h.db as never, B.businessId, "bravo-page")).toBe(false);
     expect(await repos.pages.slugTaken(h.db as never, f.businessId, "nobody-has-this")).toBe(false);
+  });
+});
+
+describe("project_pages: when a page went live is the database's to record (0090)", () => {
+  const PAST = new Date("2020-01-01T00:00:00Z");
+  const FUTURE = new Date("2031-01-01T00:00:00Z");
+  const make = async (slug: string) => {
+    const f = await createBusinessFixture(h, slug);
+    await commit(f.businessId);
+    return f;
+  };
+  const set = (userId: string, businessId: string, change: Partial<typeof s.projectPages.$inferInsert>) =>
+    h.asUser(userId).run((tx) => tx.update(s.projectPages).set(change).where(eq(s.projectPages.businessId, businessId)).returning({ id: s.projectPages.id }));
+
+  it("a first publish is dated by the database, through the repo or a direct write, whatever date the client sends", async () => {
+    for (const [slug, sent] of [["date-past", PAST], ["date-future", FUTURE]] as const) {
+      // The row is written already published (no draft before it): the insert path.
+      const f = await make(slug);
+      const { page } = await h.asUser(f.ownerId).run((tx) => repos.pages.publish(tx, f.businessId, { content: content(), slug, userId: f.ownerId, at: sent }));
+      expectRecordedNow(page.publishedAt);
+      expect(page.unpublishedAt).toBeNull();
+      // What the public reads is the same date.
+      expect((await repos.pages.public.bySlug(h.db as never, slug))?.publishedAt).toEqual(page.publishedAt);
+    }
+    // A direct insert as PostgREST would send it, by an admin.
+    const direct = await make("date-direct");
+    await h.asUser(direct.adminId).run((tx) => tx.insert(s.projectPages).values({ businessId: direct.businessId, slug: "date-direct", draft: content(), published: content(), publishedAt: PAST, publishedBy: direct.adminId }));
+    expectRecordedNow((await datesOf(direct.businessId)).published_at);
+    // A draft first, then published with a direct update: the update path.
+    const later = await make("date-later");
+    await h.asUser(later.memberId).run((tx) => repos.pages.saveDraft(tx, later.businessId, { draft: content(), slug: "date-later", userId: later.memberId }));
+    await set(later.ownerId, later.businessId, { published: content(), publishedAt: FUTURE, publishedBy: later.ownerId });
+    const stored = await datesOf(later.businessId);
+    expectRecordedNow(stored.published_at);
+    // Kept to the millisecond, so the date a client reads back is exactly the date stored.
+    expect(await rows(sql`select 1 from project_pages where business_id = ${later.businessId} and published_at = date_trunc('milliseconds', published_at)`)).toHaveLength(1);
+  });
+
+  it("an owner and an admin cannot move a live page's date, alone or with another change; a member is refused as before", async () => {
+    const f = await make("date-live");
+    const { page } = await h.asUser(f.ownerId).run((tx) => repos.pages.publish(tx, f.businessId, { content: content(), slug: "date-live", userId: f.ownerId }));
+    const wentLive = page.publishedAt!;
+    for (const userId of [f.ownerId, f.adminId]) {
+      for (const sent of [PAST, FUTURE]) {
+        await set(userId, f.businessId, { publishedAt: sent });
+        await set(userId, f.businessId, { publishedAt: sent, published: content({ stage: "live" }), draft: content({ stage: "live" }) });
+        await h.asUser(userId).execute(sql`update project_pages set published_at = ${sent.toISOString()}::timestamptz where business_id = ${f.businessId}`);
+        expect((await datesOf(f.businessId)).published_at).toEqual(wentLive);
+      }
+      // Clearing it or marking a live page "taken down" changes nothing either.
+      await set(userId, f.businessId, { publishedAt: null });
+      await set(userId, f.businessId, { unpublishedAt: PAST });
+      expect(await datesOf(f.businessId)).toEqual({ published_at: wentLive, unpublished_at: null, live: true });
+    }
+    expect((await repos.pages.public.bySlug(h.db as never, "date-live"))?.publishedAt).toEqual(wentLive);
+    for (const change of [{ publishedAt: PAST }, { unpublishedAt: PAST }]) await expect(set(f.memberId, f.businessId, change)).rejects.toThrow(RLS_DENIED);
+    await expectNoEffect(set(f.viewerId, f.businessId, { publishedAt: PAST }));
+    expect((await datesOf(f.businessId)).published_at).toEqual(wentLive);
+  });
+
+  it("a page that never went live cannot be given a date", async () => {
+    // Written with a date but no published copy: the insert keeps neither date.
+    const typed = await make("date-typed");
+    await h.asUser(typed.ownerId).run((tx) => tx.insert(s.projectPages).values({ businessId: typed.businessId, slug: "date-typed", draft: content(), publishedAt: PAST, unpublishedAt: PAST }));
+    expect(await datesOf(typed.businessId)).toEqual({ published_at: null, unpublished_at: null, live: false });
+    // A draft, then a date written onto it.
+    const draft = await make("date-draft");
+    await h.asUser(draft.memberId).run((tx) => repos.pages.saveDraft(tx, draft.businessId, { draft: content(), slug: "date-draft", userId: draft.memberId }));
+    for (const userId of [draft.ownerId, draft.adminId]) {
+      await set(userId, draft.businessId, { publishedAt: PAST });
+      await set(userId, draft.businessId, { unpublishedAt: PAST });
+      await set(userId, draft.businessId, { publishedAt: PAST, unpublishedAt: FUTURE });
+    }
+    expect(await datesOf(draft.businessId)).toEqual({ published_at: null, unpublished_at: null, live: false });
+    // A member's draft save still works and still writes no date.
+    await h.asUser(draft.memberId).run((tx) => repos.pages.saveDraft(tx, draft.businessId, { draft: content({ about: "Still a draft." }), slug: "date-draft", userId: draft.memberId }));
+    expect(await datesOf(draft.businessId)).toEqual({ published_at: null, unpublished_at: null, live: false });
+  });
+
+  it("a take-down is dated by the database, and neither date moves afterwards", async () => {
+    const f = await make("date-down");
+    const { page } = await h.asUser(f.ownerId).run((tx) => repos.pages.publish(tx, f.businessId, { content: content(), slug: "date-down", userId: f.ownerId }));
+    // Taken down with a direct write that also sends both dates.
+    await set(f.adminId, f.businessId, { published: null, publishedAt: PAST, unpublishedAt: PAST });
+    const down = await datesOf(f.businessId);
+    expect(down).toMatchObject({ published_at: page.publishedAt, live: false });
+    expectRecordedNow(down.unpublished_at);
+    for (const userId of [f.ownerId, f.adminId]) {
+      await set(userId, f.businessId, { unpublishedAt: FUTURE });
+      await set(userId, f.businessId, { unpublishedAt: null });
+      await set(userId, f.businessId, { publishedAt: PAST });
+      await set(userId, f.businessId, { publishedAt: null, unpublishedAt: null });
+    }
+    expect(await datesOf(f.businessId)).toEqual(down);
+    await expect(set(f.memberId, f.businessId, { unpublishedAt: PAST })).rejects.toThrow(RLS_DENIED);
+  });
+
+  it("the migration puts right the dates that cannot be real on rows written before it, and leaves the rest", async () => {
+    const all = readMigrations();
+    const before = await createTestDb({ migrations: all.filter((m) => m.tag !== "0090_page_dates_recorded") });
+    try {
+      const page = async (slug: string, set: Partial<typeof s.projectPages.$inferInsert>) => {
+        const f = await createBusinessFixture(before, slug);
+        // As an owner could write it under 0077's guard, which checked who wrote and not the dates.
+        await before.asUser(f.ownerId).run((tx) => tx.insert(s.projectPages).values({ businessId: f.businessId, slug, draft: content(), ...set }));
+        return f.businessId;
+      };
+      const read = async (businessId: string) => {
+        const row = (await before.db.select().from(s.projectPages).where(eq(s.projectPages.businessId, businessId)))[0]!;
+        return { publishedAt: row.publishedAt?.toISOString() ?? null, unpublishedAt: row.unpublishedAt?.toISOString() ?? null };
+      };
+      const neverLive = await page("old-never", { publishedAt: PAST });
+      const forward = await page("old-forward", { published: content(), publishedAt: FUTURE });
+      const forwardDown = await page("old-forward-down", { publishedAt: FUTURE, unpublishedAt: new Date("2026-11-01T00:00:00Z") });
+      const backdated = await page("old-backdated", { published: content(), publishedAt: PAST });
+      const takenDown = await page("old-down", { publishedAt: new Date("2026-10-07T12:00:00Z"), unpublishedAt: new Date("2026-10-10T12:00:00Z") });
+      const draft = await page("old-draft", {});
+      expect(await read(neverLive)).toEqual({ publishedAt: PAST.toISOString(), unpublishedAt: null });
+      expect(await read(forward)).toEqual({ publishedAt: FUTURE.toISOString(), unpublishedAt: null });
+
+      await before.pg.exec(all.find((m) => m.tag === "0090_page_dates_recorded")!.sql);
+
+      // Never live: no date, so the catch-up has nothing to record "Page live" from.
+      expect(await read(neverLive)).toEqual({ publishedAt: null, unpublishedAt: null });
+      // A date in the future becomes the moment of the migration, or the day the page was taken down when that is earlier.
+      expectRecordedNow(new Date((await read(forward)).publishedAt!));
+      expect(await read(forwardDown)).toEqual({ publishedAt: "2026-11-01T00:00:00.000Z", unpublishedAt: "2026-11-01T00:00:00.000Z" });
+      // A date in the past cannot be told from a real one, and an honest row is untouched.
+      expect(await read(backdated)).toEqual({ publishedAt: PAST.toISOString(), unpublishedAt: null });
+      expect(await read(takenDown)).toEqual({ publishedAt: "2026-10-07T12:00:00.000Z", unpublishedAt: "2026-10-10T12:00:00.000Z" });
+      expect(await read(draft)).toEqual({ publishedAt: null, unpublishedAt: null });
+    } finally {
+      await before.close();
+    }
+  }, 120_000);
+
+  it("the service connection keeps the date it writes (seeds, backfills)", async () => {
+    const f = await make("date-service");
+    const first = await h.service().run((tx) => repos.pages.publish(tx, f.businessId, { content: content(), slug: "date-service", userId: null, at: new Date("2026-10-07T12:00:00Z") }));
+    expect(first.page.publishedAt?.toISOString()).toBe("2026-10-07T12:00:00.000Z");
+    const down = await h.service().run((tx) => repos.pages.unpublish(tx, f.businessId, { userId: null, at: new Date("2026-10-10T12:00:00Z") }));
+    expect(down?.unpublishedAt?.toISOString()).toBe("2026-10-10T12:00:00.000Z");
+    await h.service().execute(sql`update project_pages set published_at = '2026-09-01T00:00:00Z' where business_id = ${f.businessId}`);
+    expect((await datesOf(f.businessId)).published_at).toEqual(new Date("2026-09-01T00:00:00Z"));
   });
 });
 
@@ -284,6 +453,13 @@ describe("public_project_pages: what anyone may read", () => {
     await h.db.update(s.businesses).set({ isDemo: true }).where(eq(s.businesses.id, demo.businessId));
     expect(await visible("pub-demo")).toBe(false);
     expect(await repos.pages.public.logoBySlug(h.db as never, "pub-demo")).toBeNull();
+    // The plan behind a page is read through the view too: nothing for a page the view does not list.
+    expect(await repos.pages.public.planTierBySlug(h.db as never, "pub-demo")).toBeNull();
+    expect(await repos.pages.public.planTierBySlug(h.db as never, "no-such-page")).toBeNull();
+    expect(await repos.pages.public.planTierBySlug(h.db as never, "pub-archived")).toBe("free");
+    await h.db.update(s.businesses).set({ planTier: "pro" }).where(eq(s.businesses.id, archived.businessId));
+    expect(await repos.pages.public.planTierBySlug(h.db as never, "pub-archived")).toBe("pro");
+    await h.db.update(s.businesses).set({ planTier: "free" }).where(eq(s.businesses.id, archived.businessId));
 
     // Not committed yet.
     const early = await createBusinessFixture(h, "pub-early");

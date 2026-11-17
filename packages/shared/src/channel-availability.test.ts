@@ -1,5 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { channelAvailabilitySentence, channelMayRun, channelNotAvailableMessage, mockResultsAllowed, noChannelSentence } from "./channel-availability";
+import {
+  assertMockResultsAllowed,
+  CHANNEL_AVAILABILITY_REASONS,
+  CHANNEL_BY_TAP_SENTENCE,
+  CHANNELS_SHARED_BY_TAP,
+  channelAvailabilitySentence,
+  channelByTapRefusal,
+  channelEngineMayRun,
+  channelMayRun,
+  channelNotAvailableMessage,
+  channelNotNowSentence,
+  channelSharedByTap,
+  channelTeamRuns,
+  mockResultsAllowed,
+  noChannelSentence,
+  type ChannelAvailability,
+} from "./channel-availability";
+import { CHANNEL_KEYS } from "./constants";
+import { postsByTap } from "./share-targets";
 
 describe("mockResultsAllowed", () => {
   it("a sample business anywhere, and any business in development or test; never a person's own project on staging or production", () => {
@@ -50,5 +68,79 @@ describe("channelMayRun", () => {
     expect(channelMayRun({ available: false }, true)).toBe(true);
     // No answer (an older response): nothing is hidden.
     expect(channelMayRun(undefined, false)).toBe(true);
+  });
+});
+
+describe("tap-to-post (founder, 2026-11-12): a channel the founder posts with one press", () => {
+  const byTap: ChannelAvailability = { available: true, reason: "by_tap", byTap: true };
+
+  it("depends on a constant list of channels and on a network that still opens ready to post", () => {
+    expect(CHANNELS_SHARED_BY_TAP).toEqual(["social"]);
+    expect(postsByTap()).toBe(true);
+    expect(CHANNEL_KEYS.filter(channelSharedByTap)).toEqual(["social"]);
+    expect(CHANNEL_AVAILABILITY_REASONS).toEqual(["acts", "no_publisher", "not_connected", "simulated_allowed", "by_tap"]);
+  });
+
+  it("says honestly what it means, on the Board and where simulated results are allowed, and nothing once a connector posts", () => {
+    expect(CHANNEL_BY_TAP_SENTENCE).toBe("You post each one with one press: the text and link are filled in for you.");
+    expect(channelAvailabilitySentence(byTap)).toBe(CHANNEL_BY_TAP_SENTENCE);
+    expect(channelAvailabilitySentence({ available: true, reason: "simulated_allowed", byTap: true })).toBe(CHANNEL_BY_TAP_SENTENCE);
+    expect(channelAvailabilitySentence({ available: true, reason: "acts" })).toBeNull();
+    // Never "posted", never "the team posts".
+    expect(`${CHANNEL_BY_TAP_SENTENCE} ${channelByTapRefusal("social")}`).not.toMatch(/\bposted\b|\bpublished\b|team posts|we post/i);
+  });
+
+  it("is on the board and is never a channel the team runs: no engine, nothing to launch", () => {
+    expect(channelMayRun(byTap, false)).toBe(true);
+    expect(channelTeamRuns(byTap)).toBe(false);
+    expect(channelEngineMayRun(byTap, false)).toBe(false);
+    // WP-08 T9: offline tracking no longer starts an engine for a real project.
+    expect(channelEngineMayRun(byTap, true)).toBe(false);
+    // Every other available reason is the team's to run, as before.
+    for (const reason of ["acts", "simulated_allowed"] as const) expect(channelTeamRuns({ available: true, reason }), reason).toBe(true);
+    // The weekly engine's launch step sends nothing for any channel yet (WP-02 T2): a channel whose agents can act does
+    // so through tasks and sessions, so it gets no engine. Sample projects, development and tests keep theirs.
+    expect(channelEngineMayRun({ available: true, reason: "acts" }, false)).toBe(false);
+    expect(channelEngineMayRun({ available: true, reason: "acts" }, true)).toBe(false);
+    expect(channelEngineMayRun({ available: true, reason: "simulated_allowed" }, false)).toBe(true);
+    const simulatedTap: ChannelAvailability = { available: true, reason: "simulated_allowed", byTap: true };
+    expect(channelTeamRuns(simulatedTap)).toBe(true);
+    for (const reason of ["no_publisher", "not_connected"] as const) {
+      expect(channelTeamRuns({ available: false, reason }), reason).toBe(false);
+      expect(channelEngineMayRun({ available: false, reason }, false), reason).toBe(false);
+      expect(channelEngineMayRun({ available: false, reason }, true), reason).toBe(false);
+    }
+    // No answer (an older response): nothing is stopped.
+    expect(channelTeamRuns(undefined)).toBe(true);
+    expect(channelEngineMayRun(null, false)).toBe(true);
+  });
+
+  it("refuses a launch in the founder's words, and names what is ready when the team can run nothing", () => {
+    expect(channelByTapRefusal("social")).toBe("Social media is yours to post, one press at a time: the team cannot publish there, so nothing is launched. Open a drafted post and press Share.");
+    expect(noChannelSentence({ byTap: ["Social media"] })).toBe(
+      "No channel can run on its own yet. Email opens first, as soon as sending is switched on for your project. Nothing is wrong, and nothing is waiting on you. Social media is ready now: you post each one with one press.",
+    );
+    expect(noChannelSentence({ opensFirst: { label: "Email automation", connectorName: "SendGrid", connectable: true }, byTap: ["Social media"] })).toBe(
+      "No channel can run on its own yet. Email automation opens first: connect SendGrid in Settings › Integrations and the team can run it. Nothing is wrong. Social media is ready now: you post each one with one press.",
+    );
+    expect(noChannelSentence({ byTap: [] })).toBe(noChannelSentence());
+  });
+});
+
+describe("assertMockResultsAllowed (WP-02 T4)", () => {
+  it("throws mock_result_refused on a person's project on staging or production, and passes where simulated results are allowed", () => {
+    expect(() => assertMockResultsAllowed("production", false, "generated leads")).toThrow(expect.objectContaining({ code: "mock_result_refused" }));
+    expect(() => assertMockResultsAllowed("staging", false, "estimated channel numbers")).toThrow(/simulated results are not written/);
+    expect(() => assertMockResultsAllowed("production", true, "x")).not.toThrow();
+    expect(() => assertMockResultsAllowed("test", false, "x")).not.toThrow();
+  });
+});
+
+describe("channelNotNowSentence (WP-08 T9)", () => {
+  it("gives the week-one reason, unless connecting a tool is the founder's own step now", () => {
+    expect(channelNotNowSentence("paid_ads", { reason: "not_connected", connectable: false, sentence: "Not available yet: x" })).toBe("Paid ads start when there is a budget and a page that sells.");
+    expect(channelNotNowSentence("paid_ads", { reason: "not_connected", connectable: true, sentence: "Connect it" })).toBe("Connect it");
+    expect(channelNotNowSentence("seo", { reason: "no_publisher", sentence: "Not available yet: the team cannot publish here yet." })).toBe("Not available yet: the team cannot publish here yet.");
+    expect(channelNotNowSentence("print", { reason: "no_publisher", sentence: null })).toBe("Offline channels come later.");
   });
 });

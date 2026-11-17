@@ -1,5 +1,6 @@
 /** 0002 — founder profiles, businesses, ideas (+ the businessId() helper every business-scoped table uses); 0022 — account preferences; 0025 — the business currency. */
-import { AGENT_STOP_REASONS, AGENT_STYLES, ARCHETYPES, AUTOPILOT_CADENCES, AUTOPILOT_PAUSE_REASONS, BUSINESS_MODES, DATA_REGIONS, DATE_FORMAT_PREFERENCES, DEVICE_PLATFORMS, GAME_MODES, GUIDANCE_MODES, MODEL_BILLING, PERSON_LOOKING_FOR, PLAN_TIERS, PUSH_PROVIDERS, TEXT_SIZES, TIME_FORMAT_PREFERENCES, VISIBILITY, type EmailNotificationPrefs, type NotificationPrefs } from "@foundmill/shared";
+import { AGENT_STOP_REASONS, AGENT_STYLES, ARCHETYPES, AUTOPILOT_CADENCES, AUTOPILOT_PAUSE_REASONS, BUSINESS_MODES, DATA_REGIONS, DATE_FORMAT_PREFERENCES, DEVICE_PLATFORMS, FUNDING_SOURCES, GAME_MODES, GUIDANCE_MODES, MODEL_BILLING, PERSON_LOOKING_FOR, PLAN_TIERS, PUSH_PROVIDERS, TEXT_SIZES, TIME_FORMAT_PREFERENCES, VISIBILITY, type EmailNotificationPrefs, type NotificationPrefs } from "@foundmill/shared";
+import { ATTRIBUTION_VIA_KINDS } from "@foundmill/shared/via";
 import { sql } from "drizzle-orm";
 import { boolean, char, index, integer, jsonb, numeric, pgTable, pgView, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
@@ -132,6 +133,8 @@ export const accountPreferences = pgTable("account_preferences", {
   /** 0075 — keep money amounts out of lock-screen notifications. */
   hideAmountsOnLockScreen: boolean("hide_amounts_on_lock_screen").notNull().default(false),
   builderView: boolean("builder_view").notNull().default(false),
+  /** 0114 — the single-key shortcuts (R, G chords, J, K, 1–4, E); off by default, on for accounts that had guidance off (WP-04 T13). */
+  keyboardShortcuts: boolean("keyboard_shortcuts").notNull().default(false),
   /** 0082 — share this person's one-to-one calls with the project (default false: private to them). */
   shareOneToOneCalls: boolean("share_one_to_one_calls").notNull().default(false),
   /**
@@ -147,6 +150,20 @@ export const accountPreferences = pgTable("account_preferences", {
 });
 export type AccountPreferences = typeof accountPreferences.$inferSelect;
 export type NewAccountPreferences = typeof accountPreferences.$inferInsert;
+
+/**
+ * 0100 — the person's own statement that they are 18 or older, confirmed once at sign-up for the whole product (founder,
+ * 2026-11-11). One row per account, ever; the source of truth (`network_attestations`, 0027, is kept in step with it by
+ * triggers). A person reads and inserts only their own row; `confirmed_at` is the database's time (a trigger), never the
+ * client's, and no client may update or delete it.
+ */
+export const adultConfirmations = pgTable("adult_confirmations", {
+  id: id(),
+  userId: uuid("user_id").notNull().unique().references(() => authUsers.id, { onDelete: "cascade" }),
+  confirmedAt: tstz("confirmed_at").notNull().defaultNow(),
+  ...timestamps(),
+});
+export type AdultConfirmation = typeof adultConfirmations.$inferSelect;
 
 /**
  * 0073 — the phones a signed-in person registered for push from the mobile companion app (docs/mobile): one row per
@@ -188,6 +205,14 @@ export const businesses = pgTable(
     committedAt: tstz("committed_at"),
     planTier: text("plan_tier", { enum: PLAN_TIERS }).notNull().default("free"),
     modelBilling: text("model_billing", { enum: MODEL_BILLING }).notNull().default("credits"),
+    /**
+     * 0104 — who funds the agent work: `foundmill_credits` and `own_api_key` follow `modelBilling` (a trigger keeps them in
+     * step on every write); `own_plan` is the founder's own AI plan at `fundingPlanProvider`, set only by service code and
+     * only billed to that plan while `FLAGS.ownPlanFunding` is on and the provider is integrated (none is: packages/config).
+     */
+    fundingSource: text("funding_source", { enum: FUNDING_SOURCES }).notNull().default("foundmill_credits"),
+    /** The provider whose plan funds the work; set exactly when `fundingSource` is `own_plan` (0104's check). */
+    fundingPlanProvider: text("funding_plan_provider"),
     /**
      * The founder's "Spend cap per action" (Commit, Settings › What the team can do; 0024), in minor units of the business currency.
      * Above it every spend asks first, whatever the mode: the gateway lowers each agent's approval threshold to it.
@@ -253,6 +278,11 @@ export const businesses = pgTable(
      * reads "Waiting for the product". Businesses committed before sign-offs existed carry their commit time.
      */
     distributionStartedAt: tstz("distribution_started_at"),
+    /**
+     * 0103 — "Foundmill may ask to feature this project" (showcase videos). Null until the founders choose; null reads as
+     * packages/config `SHOWCASE_MAY_ASK_DEFAULT` (`showcaseMayAsk`). Written by the api only.
+     */
+    showcaseMayAsk: boolean("showcase_may_ask"),
     ...timestampsWithArchive(),
   },
   (t) => [
@@ -262,6 +292,31 @@ export const businesses = pgTable(
 );
 export type Business = typeof businesses.$inferSelect;
 export type NewBusiness = typeof businesses.$inferInsert;
+
+/**
+ * 0088 — who or what brought a new person (docs/NETWORK.md §5, §11): the first `?via=` reference a visitor arrived
+ * with, recorded once when their founder profile is first created (apps/api services/attribution.ts). One row per
+ * account, ever. Account-scoped, no `business_id`: `sourceBusinessId` is the project whose page brought them (null for a
+ * person's profile) and `referrerUserId` the person credited. Service role only: no client role reads or writes it,
+ * not even the person's own row. Each row has its account events, written with it, one per person: `signup.attributed`
+ * for the new person and `referral.arrived` for the person credited, both carrying `sourceKind` and `sourceRef` only.
+ */
+export const attributions = pgTable(
+  "attributions",
+  {
+    id: id(),
+    userId: uuid("user_id").notNull().unique("attributions_user_id_key").references(() => authUsers.id, { onDelete: "cascade" }),
+    sourceKind: text("source_kind", { enum: ATTRIBUTION_VIA_KINDS }).notNull(),
+    /** The slug or handle as it arrived. */
+    sourceRef: text("source_ref").notNull(),
+    sourceBusinessId: uuid("source_business_id").references(() => businesses.id, { onDelete: "set null" }),
+    referrerUserId: uuid("referrer_user_id").references(() => authUsers.id, { onDelete: "set null" }),
+    ...timestamps(),
+  },
+  (t) => [index("attributions_source_business_id_idx").on(t.sourceBusinessId), index("attributions_referrer_user_id_idx").on(t.referrerUserId)],
+);
+export type Attribution = typeof attributions.$inferSelect;
+export type NewAttribution = typeof attributions.$inferInsert;
 
 // Local (not ./_refs) to avoid an import cycle with this file; ideas carry a nullable business_id until commit.
 const businessIdNullable = () => uuid("business_id").references(() => businesses.id, { onDelete: "cascade" });

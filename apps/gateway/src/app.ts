@@ -7,6 +7,7 @@
  *   POST /v1/session-tokens        service JWT → session JWT for one agent session
  *   POST /v1/integrations/connect  service JWT (api) → connect a business's integration: App installations verified, a vendor's secret sealed here (integrations.ts)
  *   POST /v1/integrations/health   service JWT (api) → that integration's health check (integrations.ts)
+ *   POST /v1/models/anthropic/:businessId/v1/messages  service JWT (api, composer) → the call on the business's own Anthropic key (model-proxy.ts)
  *   POST /v1/keys/validate         service JWT (api) → a founder's own Anthropic key checked with Anthropic, never logged or echoed (keys.ts)
  *   POST /v1/registry/lookup       service JWT (api) → an allow-listed company-registry lookup for Legal › Import (registry-lookup.ts)
  *   POST /v1/billing/checkout-sessions  service JWT (api) → a Stripe Checkout session on the platform account (billing.ts)
@@ -15,8 +16,11 @@
  *   POST /v1/speech/synthesize     service JWT (api) → one agent turn spoken in a speech accent, for Team call (speech.ts)
  *   POST /v1/speech/transcribe     service JWT (api) → one recording of the founder transcribed, for Team call (speech.ts)
  *   POST /v1/push/send             service JWT (api) → one push notification to registered phones of the mobile app (push.ts)
+ *   POST /v1/turnstile/verify              service JWT (api) → the idea box's bot check (turnstile.ts)
  *   POST /v1/platform-mail/confirm-follow  service JWT (api) → the one email asking a page signup to confirm (follow-confirm.ts)
- *   POST /v1/notify/email          service JWT (api, orchestrator) → one email from Foundmill to one of its users about their own project (notify-email.ts)
+ *   POST /v1/platform-mail/answer-reply    service JWT (api) → a founder's answer to a reply the project received (reply-answer.ts)
+ *   POST /v1/platform-mail/send-update     service JWT (api) → the founders' update to their followers, one press (follower-update.ts)
+ *   POST /v1/notify/email          service JWT (api, orchestrator) → one email from Foundmill to one of its users about their own project (notify-email.ts; an invitation: notify-address-email.ts; a founder notice: notify-founder-notice.ts; the waitlist's place is open: notify-account-email.ts)
  *   POST /v1/call                  session JWT → the pipeline (allow / ask / deny / rate_limited)
  *   POST /v1/github/archive        session JWT → the Code-tab repository's tarball for a code session's checkout (archive.ts)
  *   POST /v1/github/repository     service JWT (api) → a repository's id and visibility, before it is chosen on the Code tab (code-repository.ts)
@@ -29,10 +33,11 @@ import { APP_NAME } from "@foundmill/config";
 import { AppError, UnauthorizedError } from "@foundmill/shared";
 import { repos } from "@foundmill/db";
 import { cedarVersion, getPolicyEngine } from "@foundmill/policy";
-import { bearerToken, mintSessionToken, sessionKey, verifyServiceToken, verifySessionToken, type ServiceToken, type SessionToken } from "./tokens";
+import { apiServiceTokenMode, bearerToken, mintSessionToken, sessionKey, verifyServiceToken, verifyServiceTokenFor, verifySessionToken, type ServiceToken, type SessionToken } from "./tokens";
 import { GatewayError, safeError, type GatewayDeps } from "./pipeline";
 import { connectIntegration, integrationHealth } from "./integrations";
 import { KEYS_VALIDATE_ROUTE, ValidateKeyRequest, validateFounderKey } from "./keys";
+import { MAX_OWN_KEY_MODELS_BODY_BYTES, OWN_KEY_MODELS_ROUTE, proxyOwnKeyMessage } from "./model-proxy";
 import { lookupRegistry, REGISTRY_LOOKUP_ROUTE, RegistryLookupRequest } from "./registry-lookup";
 import { CreateCheckoutRequest, createPlatformCheckout } from "./billing";
 import { CheckDomainsRequest, checkDomains } from "./domains";
@@ -40,7 +45,14 @@ import { generatePortrait, PortraitRequest } from "./portraits";
 import { sendPush, SendPushRequest } from "./push";
 import { MAX_TRANSCRIBE_BODY_BYTES, SPEECH_STREAM_ROUTE, SPEECH_SYNTHESIZE_ROUTE, SPEECH_TRANSCRIBE_ROUTE, streamSpeech, SynthesizeSpeechRequest, synthesizeSpeech, TranscribeSpeechRequest, transcribeSpeech } from "./speech";
 import { CONFIRM_FOLLOW_ROUTE, ConfirmFollowRequest, sendFollowConfirmation } from "./follow-confirm";
+import { ANSWER_REPLY_ROUTE, AnswerReplyRequest, answerReply } from "./reply-answer";
+import { SEND_UPDATE_ROUTE, SendUpdateRequest, sendFollowerUpdate } from "./follower-update";
+import { TURNSTILE_ROUTE, TurnstileVerifyRequest, verifyTurnstile } from "./turnstile";
 import { NOTIFY_EMAIL_ROUTE, NotifyEmailRequest, sendNotifyEmail } from "./notify-email";
+import { AddressEmailRequest, isAddressEmailKind, sendAddressEmail } from "./notify-address-email";
+import { ACCOUNT_EMAIL_SERVICE, AccountEmailRequest, isAccountEmailKind, sendAccountEmail } from "./notify-account-email";
+import { FounderNoticeRequest, isAccountSafetyKind, sendFounderNotice } from "./notify-founder-notice";
+import { CardEmailRequest, isCardEmailRequest, sendCardEmail } from "./notify-card-email";
 import { handleMcpRequest } from "./mcp";
 import { ARCHIVE_ROUTE, ArchiveRequest, routeOnlyCall, serveArchive } from "./archive";
 import { checkRepository, REPOSITORY_CHECK_ROUTE, RepositoryCheckRequest } from "./code-repository";
@@ -52,6 +64,11 @@ import { DEFAULT_SESSION_TTL_SECONDS, MAX_SESSION_TTL_SECONDS } from "./config";
 
 export interface GatewayAppOptions {
   sessionTokenSecret: string;
+  /** API_SERVICE_TOKEN_SECRET and API_SERVICE_TOKEN_LEGACY (WP-11 T12); absent in tests that do not need them. */
+  apiServiceTokenSecret?: string | null;
+  apiServiceTokenLegacy?: boolean;
+  /** COMPOSER_SERVICE_TOKEN_SECRET (WP-13 T11): the only key a composer token on the own-key model route may be signed with. */
+  composerServiceTokenSecret?: string | null;
   sessionTokenTtlSeconds?: number;
   sessionTokenMaxTtlSeconds?: number;
   /** For `/health`: the rate-limit store in use (a function reads it per request; memory while a Redis store falls back). */
@@ -74,6 +91,7 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   const app = new Hono<{ Variables: Variables }>();
   const now = deps.now ?? (() => new Date());
   const secret = options.sessionTokenSecret;
+  const serviceSecrets = { shared: secret, api: options.apiServiceTokenSecret ?? null, legacy: options.apiServiceTokenLegacy ?? false };
   const defaultTtl = options.sessionTokenTtlSeconds ?? DEFAULT_SESSION_TTL_SECONDS;
   const maxTtl = options.sessionTokenMaxTtlSeconds ?? MAX_SESSION_TTL_SECONDS;
 
@@ -108,8 +126,11 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   // A recording of up to 8 MiB travels as base64 in JSON.
   app.use(SPEECH_TRANSCRIBE_ROUTE, limit(MAX_TRANSCRIBE_BODY_BYTES));
   app.use(CONFIRM_FOLLOW_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
+  app.use(ANSWER_REPLY_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
+  app.use(SEND_UPDATE_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
   app.use(NOTIFY_EMAIL_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
   app.use(KEYS_VALIDATE_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
+  app.use(OWN_KEY_MODELS_ROUTE, limit(MAX_OWN_KEY_MODELS_BODY_BYTES));
   app.use(REGISTRY_LOOKUP_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
   app.use(REPOSITORY_CHECK_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
 
@@ -122,6 +143,8 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
       app: APP_NAME,
       db,
       mode: deps.mode,
+      liveConnectors: [...(deps.liveConnectors ?? [])],
+      apiServiceToken: apiServiceTokenMode(serviceSecrets),
       connectors: deps.registry.keys().length,
       policy: { cedar: cedarVersion(), policies: Object.keys(engine.policySet.byId).length },
       vault: deps.vault?.kind ?? "none",
@@ -138,7 +161,7 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   const requireService = async (c: { req: { header(name: string): string | undefined }; set(key: "service", value: ServiceToken): void }, next: () => Promise<void>) => {
     const token = bearerToken(c.req.header("authorization"));
     if (!token) throw new UnauthorizedError("A service Bearer token is required");
-    c.set("service", await verifyServiceToken(secret, token));
+    c.set("service", await verifyServiceTokenFor(serviceSecrets, token));
     await next();
   };
   app.use("/v1/session-tokens", requireService);
@@ -171,6 +194,24 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     return c.json(await validateFounderKey(deps, parsed.data, c.var.service.svc, deps.validateModelKey));
   });
   app.post(REGISTRY_LOOKUP_ROUTE, async (c) => c.json(await lookupRegistry(deps, RegistryLookupRequest.parse(await c.req.json()), c.var.service.svc)));
+  // A founder's own Anthropic key for the api's and the composer's model calls (model-proxy.ts, WP-13 T11). The shared
+  // secret is held by every service, so a composer token here must be signed with the composer's own secret, an api token
+  // passes the api's rule, and either must name the business in the path.
+  app.use(OWN_KEY_MODELS_ROUTE, async (c, next) => {
+    const token = bearerToken(c.req.header("authorization"));
+    if (!token) throw new UnauthorizedError("A service Bearer token is required");
+    const composerSecret = options.composerServiceTokenSecret ?? null;
+    const composer = composerSecret ? await verifyServiceToken(composerSecret, token).catch(() => null) : null;
+    if (composer && composer.svc !== "composer") throw new UnauthorizedError("A token signed with the composer's secret must be the composer's");
+    const service = composer ?? (await verifyServiceTokenFor(serviceSecrets, token));
+    if (service.svc !== "api" && !composer) throw new GatewayError("forbidden_service", "Only the api, and the composer with its own secret, call models on a founder's key", 403);
+    if (service.businessId !== c.req.param("businessId")) throw new GatewayError("forbidden_business", "This token is for another business", 403);
+    c.set("service", service);
+    await next();
+  });
+  app.post(OWN_KEY_MODELS_ROUTE, async (c) =>
+    proxyOwnKeyMessage(deps, { businessId: c.req.param("businessId"), body: await c.req.text(), search: new URL(c.req.url).search, anthropicVersion: c.req.header("anthropic-version"), anthropicBeta: c.req.header("anthropic-beta"), service: c.var.service.svc, signal: c.req.raw.signal }, deps.anthropicFetch),
+  );
 
   // Domain availability for the Commit screen: the api asks for a signed-in founder; the gateway reaches the registries.
   app.use("/v1/domains/*", requireService);
@@ -220,6 +261,18 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   });
   app.post("/v1/push/send", async (c) => c.json(await sendPush(deps, SendPushRequest.parse(await c.req.json()), c.var.service.svc)));
 
+  // The idea box's bot check (docs/IDEA_BOX.md): only the api asks, before it drafts a card for a signed-out visitor.
+  app.use(TURNSTILE_ROUTE, requireService);
+  app.use(TURNSTILE_ROUTE, async (c, next) => {
+    if (c.var.service.svc !== "api") throw new GatewayError("forbidden_service", "Only the api checks a Turnstile token", 403);
+    await next();
+  });
+  app.post(TURNSTILE_ROUTE, async (c) => {
+    const parsed = TurnstileVerifyRequest.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) throw new GatewayError("validation", "Send a Turnstile token", 400);
+    return c.json(await verifyTurnstile(deps, parsed.data));
+  });
+
   // A follow confirmation (package 1.6): only the api asks, right after a signup on a public page (follow-confirm.ts).
   app.use(CONFIRM_FOLLOW_ROUTE, requireService);
   app.use(CONFIRM_FOLLOW_ROUTE, async (c, next) => {
@@ -233,6 +286,31 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     return c.json(await sendFollowConfirmation(deps, parsed.data, c.var.service.svc));
   });
 
+  // A founder's answer to a reply the project received (WP-08 T2): only the api asks, from Customers (reply-answer.ts).
+  app.use(ANSWER_REPLY_ROUTE, requireService);
+  app.use(ANSWER_REPLY_ROUTE, async (c, next) => {
+    if (c.var.service.svc !== "api") throw new GatewayError("forbidden_service", "Only the api asks to answer a reply", 403);
+    await next();
+  });
+  app.post(ANSWER_REPLY_ROUTE, async (c) => {
+    // Never the Zod issues: they would put the founder's words back in the answer and the log.
+    const parsed = AnswerReplyRequest.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) throw new GatewayError("validation", "Send a business id, the reply's id, the member's id and the answer (1 to 5,000 characters)", 400);
+    return c.json(await answerReply(deps, parsed.data, c.var.service.svc));
+  });
+
+  // The founders' update to their followers (WP-08 T3): only the api asks, after a founder pressed Send (follower-update.ts).
+  app.use(SEND_UPDATE_ROUTE, requireService);
+  app.use(SEND_UPDATE_ROUTE, async (c, next) => {
+    if (c.var.service.svc !== "api") throw new GatewayError("forbidden_service", "Only the api asks to send an update to followers", 403);
+    await next();
+  });
+  app.post(SEND_UPDATE_ROUTE, async (c) => {
+    const parsed = SendUpdateRequest.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) throw new GatewayError("validation", "Send a business id, the update's id and the member's id", 400);
+    return c.json(await sendFollowerUpdate(deps, parsed.data, c.var.service.svc));
+  });
+
   // Foundmill's own email to one of its users (packages 1.5 and 5.1), the one sender of every kind: the api's notify
   // pass asks for a waiting decision, the orchestrator's notify sweep for the rest (notify-email.ts).
   app.use(NOTIFY_EMAIL_ROUTE, requireService);
@@ -241,7 +319,38 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     await next();
   });
   app.post(NOTIFY_EMAIL_ROUTE, async (c) => {
-    const parsed = NotifyEmailRequest.safeParse(await c.req.json().catch(() => null));
+    const body: unknown = await c.req.json().catch(() => null);
+    // The same sender to an address rather than an account (an invitation): the api's only.
+    if (isAddressEmailKind((body as { kind?: unknown } | null)?.kind)) {
+      if (c.var.service.svc !== "api") throw new GatewayError("forbidden_service", "Only the api asks for an email to an address", 403);
+      const parsed = AddressEmailRequest.safeParse(body);
+      if (!parsed.success) throw new GatewayError("validation", "Send a kind of email and the ids (and the token) that kind needs", 400);
+      return c.json(await sendAddressEmail(deps, parsed.data, c.var.service.svc));
+    }
+    // An email to an account about the account itself: the waitlist's place is open (the orchestrator's only), or the
+    // link a person asked for from a small screen (the api's only).
+    const accountKind = (body as { kind?: unknown } | null)?.kind;
+    if (isAccountEmailKind(accountKind)) {
+      if (c.var.service.svc !== ACCOUNT_EMAIL_SERVICE[accountKind]) throw new GatewayError("forbidden_service", `Only the ${ACCOUNT_EMAIL_SERVICE[accountKind]} asks for this email about an account`, 403);
+      const parsed = AccountEmailRequest.safeParse(body);
+      if (!parsed.success) throw new GatewayError("validation", "Send a kind of email, a user id and the ids that kind needs", 400);
+      return c.json(await sendAccountEmail(deps, parsed.data, c.var.service.svc));
+    }
+    // An account-safety notice (a founder's role lowered, a founder removed, deletion asked for or canceled): the api's only.
+    if (isAccountSafetyKind((body as { kind?: unknown } | null)?.kind)) {
+      if (c.var.service.svc !== "api") throw new GatewayError("forbidden_service", "Only the api asks for a founder notice", 403);
+      const notice = FounderNoticeRequest.safeParse(body);
+      if (!notice.success) throw new GatewayError("validation", "Send a user id, the kind, a business id and the audit entry's id", 400);
+      return c.json(await sendFounderNotice(deps, notice.data, c.var.service.svc));
+    }
+    // A kept card of a person with no project yet (WP-04 T12): the orchestrator's only.
+    if (isCardEmailRequest(body)) {
+      if (c.var.service.svc !== "orchestrator") throw new GatewayError("forbidden_service", "Only the orchestrator asks for an email about a kept card", 403);
+      const card = CardEmailRequest.safeParse(body);
+      if (!card.success) throw new GatewayError("validation", "Send a user id, getting_started, no business, the card's id and the stage", 400);
+      return c.json(await sendCardEmail(deps, card.data, c.var.service.svc));
+    }
+    const parsed = NotifyEmailRequest.safeParse(body);
     if (!parsed.success) throw new GatewayError("validation", "Send a user id, a kind of email, a business id and the ids that kind needs", 400);
     return c.json(await sendNotifyEmail(deps, parsed.data, c.var.service.svc));
   });
@@ -257,6 +366,9 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     const input = MintSessionTokenRequest.parse(await c.req.json());
     const ttl = Math.min(maxTtl, input.ttlSeconds ?? defaultTtl);
     const { ttlSeconds: _ttl, untrusted, ...claims } = input;
+    // Who may mint what (A7-15, SEC-17), before the business is read.
+    const refusal = mintRefusal(c.var.service.svc, { sessionId: claims.sessionId, allowedTools: claims.allowedTools, kitMode: claims.kitMode ?? false });
+    if (refusal) throw new GatewayError(refusal.code, refusal.message, 403);
     // The business and the agent must exist: a token can only be minted for a real session of a real club.
     const business = await repos.businesses.get(deps.db, claims.businessId, { includeArchived: true }).catch(() => {
       throw new GatewayError("business_not_found", `business ${claims.businessId} is not available to this gateway`, 404);
@@ -343,4 +455,26 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   });
 
   return app;
+}
+
+/**
+ * Who may mint a session token, and for what (WP-11 T11; A7-15, SEC-17). Only the orchestrator (agent sessions and the
+ * platform's own steps) and the api (one tool call outside a session, `services/gateway.ts` `toolCall`) mint. Nobody gets
+ * the bare `*`. The api gets exactly one tool, no wildcard, no session and no offline tracking. The mint does not
+ * intersect with the agent's grants and does not refuse an ended session: the orchestrator's workspace push, merge and
+ * checkout mint for tools the agent does not hold, some after the session ended (WP-11 "Corrections to the audits" 4).
+ * A third caller is added here with its reason.
+ */
+export const MINTING_SERVICES: ReadonlySet<string> = new Set(["orchestrator", "api"]);
+
+export function mintRefusal(svc: string, claims: { sessionId: string | null; allowedTools: string[]; kitMode: boolean }): { code: "forbidden_service" | "mint_scope_refused"; message: string } | null {
+  if (!MINTING_SERVICES.has(svc)) return { code: "forbidden_service", message: `Service ${svc} does not mint session tokens` };
+  if (claims.allowedTools.includes("*")) return { code: "mint_scope_refused", message: "A session token never allows every tool" };
+  if (svc === "api") {
+    if (claims.sessionId !== null) return { code: "mint_scope_refused", message: "The api mints only outside an agent session" };
+    if (claims.allowedTools.length !== 1) return { code: "mint_scope_refused", message: "The api mints for exactly one tool" };
+    if (claims.allowedTools[0]!.includes("*")) return { code: "mint_scope_refused", message: "The api mints for one named tool, never a wildcard" };
+    if (claims.kitMode) return { code: "mint_scope_refused", message: "The api never mints in offline tracking" };
+  }
+  return null;
 }

@@ -10,7 +10,8 @@
  * Issued never exceeds authorized: every issuance and every edit of one locks its security row first, so two
  * concurrent issuances of the same class are counted one after the other.
  */
-import { ConflictError, SECURITY_KINDS, ValidationError, VestingSchedule } from "@foundmill/shared";
+import { INPUT_LIMITS } from "@foundmill/config";
+import { boundedRecord, ConflictError, SECURITY_KINDS, ValidationError, VestingSchedule } from "@foundmill/shared";
 import { and, asc, eq, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 import { capTableEntries, entities, securities, type CapTableEntry, type Security } from "../schema";
@@ -24,7 +25,7 @@ export function isConvertibleKind(kind: string): boolean {
 export const CreateSecurityInput = z.object({
   class: z.string().trim().min(1).max(80),
   kind: z.enum(SECURITY_KINDS),
-  terms: JsonObject.default({}),
+  terms: boundedRecord(INPUT_LIMITS.jsonObjectKeys, JsonObject).default({}),
   authorisedQuantity: z.number().int().nonnegative().nullable().optional(),
   currency: Currency.optional(),
 });

@@ -324,7 +324,7 @@ export function activityItems(get: Pick<EntityGet, "interactions" | "mentions" |
   }
   for (const c of get.conversions) {
     const won = isCustomerWin(c);
-    items.push({ id: `c-${c.id}`, at: toIso(c.occurredAt) ?? new Date(0).toISOString(), kind: "conversion", title: c.kind === "payment" ? (won ? "Payment" : "Repeat payment") : c.kind === "activation" ? "Activated" : "Signed up", description: c.kind === "payment" ? formatMoney({ amountMinor: Number(c.amountMinor), currency: c.currency }) : undefined, href: won && c.journeyId ? links.journey(c.journeyId) : undefined });
+    items.push({ id: `c-${c.id}`, at: toIso(c.occurredAt) ?? new Date(0).toISOString(), kind: "conversion", title: c.kind === "payment" ? (won ? "Payment" : "Repeat payment") : c.kind === "activation" ? "Activated" : "Signed up", description: c.kind === "payment" && c.amountMinor !== null ? formatMoney({ amountMinor: Number(c.amountMinor), currency: c.currency }) : undefined, href: won && c.journeyId ? links.journey(c.journeyId) : undefined });
   }
   return items.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
 }
@@ -366,6 +366,12 @@ export interface CommercialSummary {
   activatedAt: string | null;
 }
 
+/** What the Commercial tab says where an amount would be, for a reader walled off Finance (`crm.entity.get` `moneyHidden`). */
+export const AMOUNTS_HIDDEN = "Hidden: your access does not include Finance";
+
+/** Whether this reader gets the payments without their amounts (no Finance read: a collaborator, or a member walled off it). */
+export const moneyHidden = (get: Pick<EntityGet, "moneyHidden" | "conversions">): boolean => get.moneyHidden === true || get.conversions.some((c) => c.kind === "payment" && c.amountMinor === null);
+
 /**
  * `businessCurrency` labels a history without payments. Payments in several currencies are never added together: the
  * total (and the monthly average) counts those in the business's currency when there are any, else the first payment's.
@@ -405,7 +411,7 @@ export function exportEntityJson(get: EntityGet, exportedAt: Date = new Date()):
       entity: { id: entity.id, kind: entity.kind, displayName: entity.displayName, aliases: entity.aliases, identifiers: entity.identifiers, lawfulBasis: entity.lawfulBasis, source: entity.source, visibility: entity.visibility, createdAt: entity.createdAt, updatedAt: entity.updatedAt },
       roles: roles.map((r) => ({ role: r.role, stage: r.stage, owner: r.ownerRef, startedAt: r.startedAt, endedAt: r.endedAt })),
       relationships: relationships.map((r) => ({ type: r.type, strength: r.strength, with: r.other })),
-      interactions: interactions.map((i) => ({ kind: i.kind, occurredAt: i.occurredAt, direction: i.direction, summary: i.summary, bodyRef: i.contentRef })),
+      interactions: interactions.map((i) => ({ kind: i.kind, occurredAt: i.occurredAt, direction: i.direction, summary: i.summary, bodyRef: i.contentRef, ...(i.bodyUntrusted ? { body: i.bodyUntrusted } : {}) })),
       mentions: mentions.map((m) => ({ in: m.containerKind, id: m.containerId, at: m.createdAt })),
       conversions: conversions.map((c) => ({ kind: c.kind, amountMinor: c.amountMinor, currency: c.currency, occurredAt: c.occurredAt })),
       merges: mergeHistory.map((m) => ({ keptId: m.keptId, mergedId: m.mergedId, at: m.createdAt, revertedAt: m.revertedAt })),

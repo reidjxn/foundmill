@@ -46,6 +46,11 @@ export interface IdeationStudioProps {
   profileLine?: string | null;
   /** The founder's constraint chips, echoed next to "surprise me". */
   constraints?: string[];
+  /**
+   * The card to open on (`/new/ideate/<ideaId>`: the landing page's kept card, founder 2026-11-16): once the deck has
+   * it, it wears the just-landed highlight, is scrolled into view and takes focus, ready to shape with its own actions.
+   */
+  focusIdeaId?: string | null;
 }
 
 /**
@@ -125,7 +130,7 @@ const ARCHETYPE_OPTIONS = [{ value: "any", label: "Any (optional)" }, ...ARCHETY
 
 type DialogKind = "ask" | "fork" | "merge" | "history" | "write" | "edit" | null;
 
-export function IdeationStudio({ viewer, profileLine, constraints = [] }: IdeationStudioProps) {
+export function IdeationStudio({ viewer, profileLine, constraints = [], focusIdeaId = null }: IdeationStudioProps) {
   const datePrefs = useDateFormat();
   const trpc = useTRPC();
   const router = useRouter();
@@ -167,6 +172,17 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
   }, [hydrated]);
 
   const active = useMemo(() => deck.find((i) => i.id === activeId) ?? null, [deck, activeId]);
+  // The card the page opened on: scrolled to and focused once, the first time the deck holds it.
+  const focused = useRef(false);
+  useEffect(() => {
+    if (!focusIdeaId || focused.current || !deck.some((i) => i.id === focusIdeaId)) return;
+    focused.current = true;
+    requestAnimationFrame(() => {
+      const el = document.getElementById(`concept-${focusIdeaId}`);
+      el?.scrollIntoView({ block: "center" });
+      el?.querySelector<HTMLElement>("button, a[href]")?.focus({ preventScroll: true });
+    });
+  }, [deck, focusIdeaId]);
   const invalidateIdeas = () => queryClient.invalidateQueries({ queryKey: trpcPathPrefix("idea") as unknown[] });
 
   const client = useTRPCClient();
@@ -356,9 +372,8 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
 
   useKeyboardMap({
     enabled: dialog === null,
+    // Esc clears the pick. Space is no page shortcut (WP-04 T13): Compare takes it only with focus, as any button does.
     onEscape: () => setSelection([]),
-    // Space compares only when there is something to compare; otherwise it stays the page's (or the focused control's).
-    onContinue: canCompare ? goCompare : undefined,
   });
 
   // Stable handlers, so a streamed card (or a ticking timer) re-renders only what changed, not every card in the deck.
@@ -576,7 +591,7 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
                     <span data-testid="compare-kbd-tip">
                       <InfoTip always label="Keyboard shortcuts for comparing">
                         <span className="flex items-center gap-1.5">
-                          <Kbd>Space</Kbd> compares the picked cards · <Kbd>Esc</Kbd> clears the pick
+                          <Kbd>Esc</Kbd> clears the pick
                         </span>
                       </InfoTip>
                     </span>
@@ -589,7 +604,7 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
                 entry.kind === "placeholder" ? (
                   <DraftingCard key={`slot-${entry.slot.index}`} slot={entry.slot} />
                 ) : (
-                  <DeckCard key={entry.idea.id} idea={entry.idea} fresh={entry.fresh} dimmed={busy && !entry.fresh} selected={selection.includes(entry.idea.id)} shortlisted={studio.shortlist.includes(entry.idea.id)} onToggleSelect={toggleSelect} onAction={stableOnAction} onOpenHistory={stableOpenHistory} />
+                  <DeckCard key={entry.idea.id} idea={entry.idea} fresh={entry.fresh || entry.idea.id === focusIdeaId} dimmed={busy && !entry.fresh} selected={selection.includes(entry.idea.id)} shortlisted={studio.shortlist.includes(entry.idea.id)} onToggleSelect={toggleSelect} onAction={stableOnAction} onOpenHistory={stableOpenHistory} />
                 ),
               )}
             </div>

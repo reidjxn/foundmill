@@ -1,4 +1,5 @@
 /** department.list/create/update/merge/split/reorder/archive/restore/resetDefaults + screen.* + dashboard.* (BUILD §11.2, §11.13). */
+import { INPUT_LIMITS } from "@foundmill/config";
 import { DEPARTMENT_DEFAULTS, getArchetypeSeed } from "@foundmill/agents";
 import { CreateDepartmentInput, repos, ScreenLayout, UpdateDepartmentInput, type DashboardLayout, type Department, type Executor } from "@foundmill/db";
 import { MODULE_KEYS, ValidationError, WRITE_ROLES, agentTier, leadAgentIds, type ModuleKey } from "@foundmill/shared";
@@ -177,7 +178,7 @@ export const departmentRouter = router({
     }),
   ),
 
-  reorder: adminProcedure.input(z.object({ orderedIds: z.array(Id).min(1) })).mutation(({ ctx, input }) =>
+  reorder: adminProcedure.input(z.object({ orderedIds: z.array(Id).max(INPUT_LIMITS.departmentIds).min(1) })).mutation(({ ctx, input }) =>
     ctx.rls(async (tx) => {
       const departments = await repos.departments.reorder(tx, ctx.businessId, input.orderedIds);
       await audit(tx, ctx, { action: "department.reorder", target: { kind: "business", id: ctx.businessId }, details: { orderedIds: input.orderedIds } });

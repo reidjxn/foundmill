@@ -19,6 +19,7 @@ import { ALL_TEMPLATES, CHANNEL_TEMPLATES } from "../templates";
 import { CHANNEL_PLATFORM_TOOLS, NO_TOOL_HANDOVER } from "../templates/channels/_channel";
 import { CHANNEL_COMMON_RULES } from "../templates/_shared";
 import { SPECIALIST_PLATFORM_TOOLS } from "../templates/specialists/_specialist";
+import { UNBUILT_VENDOR } from "./tool-patterns";
 
 /** The per-template sections of PLANNED_GRANTS.md (a `##` heading with the template key as code), each with its `connector.capability` rows. */
 function plannedGrants(): Map<string, string[]> {
@@ -41,19 +42,20 @@ function plannedGrants(): Map<string, string[]> {
 describe("the connector keys a template may name", () => {
   it("are the connectors that are built: none of a later phase, none the platform keeps to itself", () => {
     expect([...THIRD_PARTY_CONNECTOR_KEYS].sort()).toEqual(
-      ["anthropic", "bolagsverket", "cloudflare_dns", "companies_house", "domains", "dropbox_sign", "e2b", "ecb_rates", "github", "gmail", "google_calendar", "google_drive", "notion", "opencorporates", "plaid", "sendgrid", "shopify", "stripe", "tink", "voyage"],
+      ["anthropic", "apollo", "bolagsverket", "buffer", "cloudflare_dns", "companies_house", "domains", "dropbox_sign", "e2b", "ecb_rates", "elevenlabs_voice", "firecrawl", "gemini", "github", "gmail", "google_calendar", "google_drive", "indexnow", "notion", "openai", "opencorporates", "perplexity", "plaid", "posthog", "resend", "runway", "sendgrid", "serpapi", "shopify", "stripe", "tink", "vercel", "voyage"],
     );
-    for (const gone of ["instagram", "google_ads", "ga4", "figma", "vercel", "lob", "browserbase", "openai_images", "onesignal"]) expect(CONNECTOR_KEYS as readonly string[]).not.toContain(gone);
+    for (const gone of ["instagram", "google_ads", "ga4", "figma", "lob", "browserbase", "openai_images", "onesignal"]) expect(CONNECTOR_KEYS as readonly string[]).not.toContain(gone);
   });
 });
 
 describe("PLANNED_GRANTS.md (what was removed, kept as data)", () => {
   const planned = plannedGrants();
 
-  it("lists the 428 capabilities removed on Nov 11, 2026, under templates that exist", () => {
+  // 428 were removed on Nov 11, 2026. A row goes when its tool is built: the GEO Engine's three panels, then Apollo, Vercel and PostHog (Nov 12, 2026).
+  it("lists the capabilities removed on Nov 11, 2026 that are still waiting for a tool, under templates that exist", () => {
     const keys = new Set(ALL_TEMPLATES.map((t) => t.key));
     for (const key of planned.keys()) expect(keys.has(key), key).toBe(true);
-    expect([...planned.values()].reduce((n, rows) => n + rows.length, 0)).toBe(428);
+    expect([...planned.values()].reduce((n, rows) => n + rows.length, 0)).toBe(416);
     expect(planned.get("channel_social")).toContain("instagram.media.publish");
     expect(planned.get("product_lead")).toContain("platform.spec.publish");
   });
@@ -99,7 +101,8 @@ describe("what every agent is told", () => {
       if (kit) offline.push(t.channelKey!);
       if (CHANNEL_META[t.channelKey!].kitModeByDefault) expect(kit, t.key).toBe(true);
     }
-    expect(offline.sort()).toEqual(["broadcast", "outdoor", "print"]);
+    // WP-08 T9: no channel starts in offline tracking (print and broadcast were the only engines a real project could start).
+    expect(offline.sort()).toEqual([]);
     expect(CHANNEL_TEMPLATES.social.description).toContain(NO_TOOL_HANDOVER);
   });
 });
@@ -114,7 +117,7 @@ describe("template text names no tool the agent does not hold", () => {
   });
 
   it("no instruction sends an agent to a vendor whose connector is not built", () => {
-    const vendors = /\b(Browserbase|Search Console|DataForSEO|Lighthouse|Spotify Ad Studio)\b/;
+    const vendors = UNBUILT_VENDOR;
     for (const t of ALL_TEMPLATES) {
       const i = t.instructions;
       // An example's input is what the agent is handed (a founder's words, a report); its output is what it does.
@@ -138,7 +141,9 @@ describe("template text names no tool the agent does not hold", () => {
       expect(launch, key).toMatch(/founder/);
     }
     const social = CHANNEL_TEMPLATES.social;
-    expect(social.tools.map((g) => g.connectorKey)).toEqual(["platform", "quarantine"]);
+    // Social alone has a publishing tool, on the founder's own Buffer: the founder task is what it falls back to when Buffer is not connected.
+    expect(social.tools.map((g) => g.connectorKey)).toEqual(["platform", "quarantine", "runway", "elevenlabs_voice", "buffer"]);
+    expect(social.tools.find((g) => g.connectorKey === "buffer")!.tools).toEqual(["channels.read", "posts.queue", "posts.read"]);
     expect(social.instructions.playbook.join("\n")).not.toMatch(/schedule within rate limits/);
     expect(CHANNEL_TEMPLATES.paid_ads.instructions.examples[0]!.output).toMatch(/Nothing was changed on the ad platform by me\./);
     expect(CHANNEL_TEMPLATES.broadcast.instructions.examples[0]!.output).toMatch(/not launched by me/);

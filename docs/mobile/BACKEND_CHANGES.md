@@ -69,7 +69,16 @@ Where a field is missing, add it to the existing procedure rather than a mobile-
 
 - **Done for the web (PR #82, Nov 12, 2026).** The api now counts a session as a confirmed address when it is (a) an email code or link sign-in, as before, or (b) Google OAuth: `amr` includes `oauth`, `app_metadata.providers` is `google` (optionally with `email`) and nothing else, and `user_metadata.email_verified` is true. Password-only sessions are refused (UNAUTHORIZED); other OAuth providers, **Apple included**, and anonymous sessions are refused. While Supabase's "Confirm email" is off no session counts as confirmed (it fails closed). The account is keyed by the token's `sub`; the fresh-sign-in moment counts sign-in methods only, never a token refresh.
 - **The phone keeps the email code** (founder decision, Nov 12). Google on the phone would work against this rule with native `signInWithIdToken({ provider: "google" })` once the Supabase Google provider lists the iOS and Android client ids, but the founder holds it until Sign in with Apple is decided: App Store Review Guideline 4.8 is likely to require Apple next to Google on iOS, and the api refuses Apple today. Tell the Google sign-in session before the app adds either.
-- **18 or older** (THESIS_REVIEW package 2.2) and **the waitlist** are not built yet; prompt 13B also waits for their procedures and refusal codes.
+- **Apple on iOS (a decision for the founder)**: App Store Review Guideline 4.8 asks an app that offers a third-party sign-in (Google) to also offer an equivalent option that limits data to name and email and lets the person keep the email private; Sign in with Apple is the usual answer. Without it, an iOS build that offers Google is likely to be rejected. The email code alone may not count, since it is not the "equivalent" private option the guideline describes. If Apple is offered: the Supabase Apple provider, the api accepting `apple` the same way, and an Apple Services id.
+- **18 or older, built (#127, merged Nov 14, 2026; migration 0100).** The procedures and the refusal:
+  - `founder.adult.get`: query, signed in (admitted or not). Input: none. Returns `{ confirmed: boolean, confirmedAt: string | null }` (ISO time).
+  - `founder.adult.confirm`: mutation, signed in (admitted or not). Input `{ confirm: true }`. Returns `{ confirmed: true, confirmedAt: string }`. Idempotent: the first confirmation stands, and a second call answers with the first time.
+  - `founder.profile.update`: new optional input `confirmAdult: true`. It's required to *create* a profile for an account that hasn't confirmed; a later save doesn't need it.
+  - `founder.profile.get`: now also returns `adultConfirmed: boolean`.
+  - `invitation.accept`: input `{ token, confirmAdult?: true }`. It's required when the account hasn't confirmed.
+  - Refusal: tRPC `FORBIDDEN` with `appCode: "adult_unconfirmed"` from `founder.profile.update` (create), `invitation.accept`, `idea.commit`, `business.setGameMode` (to live) and the network writes. Show the "I am 18 or older" box, then retry.
+- **The waitlist** (package 2.2): the refusal the app gets while waiting (place, referral link) in the API's own words, replacing `not_invited`.
+- Done when: the backend skill's sign-in section names the methods, the confirmation procedure and the refusal codes.
 
 ## 13. Collisions to watch between sessions
 

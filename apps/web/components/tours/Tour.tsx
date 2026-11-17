@@ -6,7 +6,8 @@
  * `LazyTour` (./LazyTour.tsx), which loads this module, the definitions included, only for someone who will see the
  * tour: `TourById` is its entry point.
  */
-import { Coachmark, type CoachmarkOutcome } from "@foundmill/dugout";
+import { useCallback } from "react";
+import { Coachmark, useGuidance, type CoachmarkOutcome } from "@foundmill/dugout";
 import { TOURS, type TourDefinition, type TourId } from "./definitions";
 import { useTourDone } from "./signal";
 import { useCoachmarkStamps } from "./stamps";
@@ -18,9 +19,19 @@ export interface TourProps {
 }
 
 export function Tour({ tour, onDone }: TourProps) {
-  useCoachmarkStamps(tour.stamps);
-  const done = useTourDone(tour, onDone);
-  return <Coachmark tourId={tour.id} steps={tour.steps} onDone={done} />;
+  const stamped = useCoachmarkStamps(tour.stamps);
+  const { markTourDone } = useGuidance();
+  // A tour that stands in for others (Today for Home, WP-04 T7) marks them done when it ends, whichever way it ends.
+  const alsoDone = tour.alsoDone;
+  const then = useCallback(
+    (outcome: CoachmarkOutcome) => {
+      for (const id of alsoDone ?? []) markTourDone(id);
+      onDone?.(outcome);
+    },
+    [alsoDone, markTourDone, onDone],
+  );
+  const done = useTourDone(tour, then);
+  return stamped ? <Coachmark tourId={tour.id} steps={tour.steps} onDone={done} /> : null;
 }
 
 /** A defined tour by its id (LazyTour's entry point, so the definitions load with the tour). */

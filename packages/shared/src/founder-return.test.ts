@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_EMAIL_NOTIFICATION_PREFS, EMAIL_NOTIFICATION_KINDS, LIMITED_EMAIL_KINDS } from "./constants";
+import { ACCOUNT_SAFETY_EMAIL_KINDS, DEFAULT_EMAIL_NOTIFICATION_PREFS, EMAIL_NOTIFICATION_KINDS, LIMITED_EMAIL_KINDS } from "./constants";
 import { FOUNDER_NOTIFICATION_KINDS, notificationLinkParams, oneClickOption } from "./founder-notifications";
 import { EMAIL_NOTIFICATION_HINTS, EMAIL_NOTIFICATION_LABELS, NOTIFY_HOLDING_WAIT_MS, NOTIFY_PER_PERSON_PER_DAY, NOTIFY_WAIT_MS } from "./notify-email";
 import { addDaysToKey, founderActivation, founderHabit, isPresent, PRESENCE, startsNewSession } from "./founder-return";
@@ -23,7 +23,12 @@ describe("sessions and presence", () => {
 describe("founderActivation", () => {
   const done = { committedAt: at(0), specificationSignedOffAt: at(1), roadmapSignedOffAt: at(2), firstFounderContinueAt: at(3) };
   it("is activated when all three steps land within 24 hours of commit, at the last of them", () => {
-    expect(founderActivation(done)).toEqual({ activated: true, activatedAt: at(3), missing: [] });
+    expect(founderActivation(done)).toEqual({ activated: true, activatedAt: at(3), missing: [], pagePublishedWithin24h: false, minutesToPage: null });
+  });
+  it("reports the first published page beside activation, without changing it", () => {
+    expect(founderActivation({ ...done, firstPagePublishedAt: at(5.5) })).toMatchObject({ activated: true, pagePublishedWithin24h: true, minutesToPage: 330 });
+    expect(founderActivation({ ...done, firstFounderContinueAt: null, firstPagePublishedAt: at(30) })).toMatchObject({ activated: false, pagePublishedWithin24h: false, minutesToPage: 1800 });
+    expect(founderActivation({ ...done, committedAt: null, firstPagePublishedAt: at(1) })).toMatchObject({ pagePublishedWithin24h: false, minutesToPage: null });
   });
   it("names what is missing, in the order a founder meets it", () => {
     expect(founderActivation({ ...done, roadmapSignedOffAt: null, firstFounderContinueAt: null }).missing).toEqual(["roadmap", "continue"]);
@@ -49,8 +54,9 @@ describe("founderHabit", () => {
 });
 
 describe("founder notifications on the platform's one sender (founder, 2026-11-12)", () => {
-  it("are the platform's kinds, every one on until turned off", () => {
-    expect(FOUNDER_NOTIFICATION_KINDS).toBe(EMAIL_NOTIFICATION_KINDS);
+  it("are the platform's kinds and the account-safety notice, every switch on until turned off", () => {
+    expect([...FOUNDER_NOTIFICATION_KINDS]).toEqual([...EMAIL_NOTIFICATION_KINDS, ...ACCOUNT_SAFETY_EMAIL_KINDS]);
+    expect(Object.keys(DEFAULT_EMAIL_NOTIFICATION_PREFS)).not.toContain("founder_notice");
     expect(Object.values(DEFAULT_EMAIL_NOTIFICATION_PREFS).every(Boolean)).toBe(true);
     expect(Object.keys(DEFAULT_EMAIL_NOTIFICATION_PREFS).sort()).toEqual([...EMAIL_NOTIFICATION_KINDS].sort());
   });
@@ -60,6 +66,8 @@ describe("founder notifications on the platform's one sender (founder, 2026-11-1
     expect(NOTIFY_PER_PERSON_PER_DAY).toBe(3);
     expect(LIMITED_EMAIL_KINDS).not.toContain("daily_brief");
     expect(LIMITED_EMAIL_KINDS).not.toContain("weekly_review");
+    // The note that someone a person invited joined answers what they did: it never uses up their three a day.
+    expect(LIMITED_EMAIL_KINDS).not.toContain("invitation_accepted");
   });
   it("label every kind in US English", () => {
     for (const k of EMAIL_NOTIFICATION_KINDS) {

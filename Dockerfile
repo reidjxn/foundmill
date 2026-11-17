@@ -1,5 +1,5 @@
 # One image for every Node service (docs/DECISIONS.md "Node services run with tsx in staging").
-# Railway passes the service variable APP as a build arg: api | gateway | orchestrator | composer | stream | ingest | collab | social.
+# Railway passes the service variable APP as a build arg: api | gateway | orchestrator | composer | stream | ingest | sites | collab.
 # Pinned (#439): pnpm 12 needs corepack >= 0.34.7, which Node bundles from 22.23.3 (corepack 0.36.0); an older base
 # layer installs a pnpm shim that cannot start ("Cannot find module …/bin/pnpm.cjs").
 FROM node:22.23.3-bookworm-slim AS base

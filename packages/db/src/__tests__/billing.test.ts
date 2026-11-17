@@ -7,11 +7,11 @@
  * credits where calls are live; `loadByokApiKey` reads the row apps/api seals (and the pre-2026-10-10 shape) and nothing
  * for a revoked key.
  */
-import { includedCreditsMinor } from "@foundmill/config";
+import { creditsAreLow, includedCreditsMinor, LOW_CREDITS_FLOOR_MINOR, LOW_CREDITS_SHARE, lowCreditsThresholdMinor } from "@foundmill/config";
 import { CreditsExhaustedError } from "@foundmill/shared";
 import { buildAad, createVault, encryptJson, generateMasterKey } from "@foundmill/shared/crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { assertPlatformCredits, bookUsage, chargesCredits, checkPlatformCredits, creditsState, CREDITS_EXHAUSTED_SUBJECT, includedCreditsFor, PLATFORM_CREDITS_EXHAUSTED_SUBJECT, platformCredits } from "../billing";
+import { agentWorkFunding, assertPlatformCredits, bookUsage, chargesCredits, fundingOfRow, checkPlatformCredits, creditsState, CREDITS_EXHAUSTED_SUBJECT, CREDITS_LOW_AUDIT_ACTION, CREDITS_LOW_SUBJECT, includedCreditsFor, PLATFORM_CREDITS_EXHAUSTED_SUBJECT, platformCredits } from "../billing";
 import { BYOK_CREDENTIAL_KIND, LEGACY_BYOK_CREDENTIAL_KIND, loadByokApiKey } from "../byok";
 import { resumeBusinessAgents, stopBusinessAgents } from "../controls";
 import { settleCreditCheckout } from "../payments";
@@ -90,6 +90,8 @@ describe("bookUsage", () => {
 
     const partial = await bookUsage(r.db, A(), tokens(FREE_INCLUDED - 100, "credits"));
     expect(partial.credits).toMatchObject({ enforced: true, exhausted: null, pausedAgents: 0, noteId: null, balance: { balanceMinor: 50 } });
+    // 50 cents is under the low line: the credit saver's one note, which pauses nothing.
+    expect(partial.credits!.lowNoteId).not.toBeNull();
     expect((await repos.agents.get(r.db, A(), r.A.agentId)).status).toBe("healthy");
 
     const last = await bookUsage(r.db, A(), tokens(60, "credits"));
@@ -111,7 +113,10 @@ describe("bookUsage", () => {
     // Overrun is recorded (the ledger is the truth) without a second pause or note.
     const over = await bookUsage(r.db, A(), tokens(7, "credits"));
     expect(over.credits).toMatchObject({ enforced: true, exhausted: "already", pausedAgents: 0, noteId: null, balance: { balanceMinor: 0, spentMinor: FREE_INCLUDED + 17 } });
-    expect((await repos.inbox.list(r.db, A(), { limit: 200 })).items.length).toBe(notesBefore + 1);
+    // Two notes in all: the low-credits note on the way down and the one pause note at zero.
+    const notes = (await repos.inbox.list(r.db, A(), { limit: 200 })).items;
+    expect(notes.length).toBe(notesBefore + 2);
+    expect(notes.filter((n) => n.subject === CREDITS_EXHAUSTED_SUBJECT)).toHaveLength(1);
     expect((await repos.audit.list(r.db, A(), { action: "billing.credits_exhausted" })).items).toHaveLength(1);
     // Business B's balance is its own.
     expect((await repos.usage.creditBalance(r.db, r.B.businessId, PERIOD))?.spentMinor).toBe(125);
@@ -239,14 +244,210 @@ describe("the platform-key gate (SEC2 S2, S10)", () => {
     expect(await checkPlatformCredits(r.db, gate.id, { live: true, now })).toMatchObject({ ok: true, balanceMinor: 3200, spendableMinor: 700 });
   });
 
-  it("sessionTokens sums the USD token cost a session has booked so far", async () => {
+  it("sessionTokens sums the USD token cost a session has booked so far, its own rows only", async () => {
     const A = r.A.businessId;
     const session = await repos.agents.createSession(r.db, A, { agentId: r.A.agentId });
-    await bookUsage(r.db, A, { agentId: r.A.agentId, sessionId: session.id, kind: "tokens", quantity: 100, unit: "tokens", costMinor: 12, billedTo: "byok" });
-    await bookUsage(r.db, A, { agentId: r.A.agentId, sessionId: session.id, kind: "tokens", quantity: 50, unit: "tokens", costMinor: 3, billedTo: "byok" });
+    const sdk = { source: "claude-agent-sdk", label: "Estimate" };
+    await bookUsage(r.db, A, { agentId: r.A.agentId, sessionId: session.id, kind: "tokens", quantity: 100, unit: "tokens", costMinor: 12, billedTo: "byok", details: sdk });
+    await bookUsage(r.db, A, { agentId: r.A.agentId, sessionId: session.id, kind: "tokens", quantity: 50, unit: "tokens", costMinor: 3, billedTo: "byok", details: sdk });
     await bookUsage(r.db, A, { agentId: r.A.agentId, sessionId: session.id, kind: "sandbox", quantity: 5, unit: "minutes", costMinor: 0, billedTo: "byok" });
+    // The gateway's reader booked under the session id is not the session's own spend (WP-09 T3).
+    await bookUsage(r.db, A, { agentId: r.A.agentId, sessionId: session.id, kind: "tokens", quantity: 6_000, unit: "tokens", costMinor: 1, billedTo: "byok", details: { service: "gateway", route: "quarantinedReader" } });
     expect(await repos.usage.sessionTokens(r.db, A, session.id)).toEqual({ costMinor: 15, quantity: 150 });
     expect(await repos.usage.sessionTokens(r.db, r.B.businessId, session.id)).toEqual({ costMinor: 0, quantity: 0 });
+  });
+});
+
+describe("low credits (the credit saver)", () => {
+  const LINE = lowCreditsThresholdMinor(FREE_INCLUDED);
+  const charge = (businessId: string, costMinor: number, at: Date) => bookUsage(r.db, businessId, { kind: "tokens", modelKey: "sonnet", quantity: 100, unit: "tokens", costMinor, billedTo: "credits", occurredAt: at });
+
+  it("the line is the larger of 20% of the month's included credits and a $1 floor", () => {
+    expect(LOW_CREDITS_SHARE).toBe(0.2);
+    expect(LOW_CREDITS_FLOOR_MINOR).toBe(100);
+    expect(lowCreditsThresholdMinor(500)).toBe(100);
+    expect(lowCreditsThresholdMinor(5_000)).toBe(1_000);
+    expect(lowCreditsThresholdMinor(0)).toBe(100);
+    expect(creditsAreLow(99, 500)).toBe(true);
+    expect(creditsAreLow(100, 500)).toBe(false);
+    // Zero is the pause, not the saver.
+    expect(creditsAreLow(0, 500)).toBe(false);
+  });
+
+  it("the gate says low below the line and not above it; never when the call is refused", async () => {
+    const founder = await r.h.createUser("bill-low-gate@test.local");
+    const business = await repos.businesses.create(r.db, { name: "Low Gate", createdBy: founder });
+    await repos.memberships.add(r.db, business.id, { userId: founder, role: "owner" });
+    const now = new Date(Date.UTC(2027, 7, 10, 12));
+    expect(await checkPlatformCredits(r.db, business.id, { live: false, now })).toMatchObject({ ok: true, low: false, balanceMinor: FREE_INCLUDED });
+    await charge(business.id, FREE_INCLUDED - LINE, now);
+    expect(await checkPlatformCredits(r.db, business.id, { live: false, now })).toMatchObject({ ok: true, low: false, balanceMinor: LINE });
+    await charge(business.id, 1, now);
+    expect(await checkPlatformCredits(r.db, business.id, { live: false, now })).toMatchObject({ ok: true, low: true, balanceMinor: LINE - 1 });
+    // A top-up above the line lifts the saver by itself.
+    await repos.usage.grantCredits(r.db, business.id, "2027-08", 500);
+    expect((await checkPlatformCredits(r.db, business.id, { live: false, now })).low).toBe(false);
+    // At zero the call is refused (the pause), and `low` is false.
+    await charge(business.id, 10_000, now);
+    expect(await checkPlatformCredits(r.db, business.id, { live: false, now })).toMatchObject({ ok: false, reason: "exhausted", low: false });
+  });
+
+  it("posts one plain note a month the first time the balance falls below the line, says what changed and how to avoid it, and pauses nothing", async () => {
+    const founder = await r.h.createUser("bill-low-note@test.local");
+    const business = await repos.businesses.create(r.db, { name: "Low Note", createdBy: founder, planTier: "pro" });
+    await repos.memberships.add(r.db, business.id, { userId: founder, role: "owner" });
+    const chief = await repos.agents.create(r.db, business.id, { name: "Chief", agentType: "chief_of_staff", layer: "assistant", modelKey: "opus" });
+    const sept = (d: number) => new Date(Date.UTC(2027, 8, d, 12));
+    const lowNotes = async () => (await repos.inbox.list(r.db, business.id, { limit: 200 })).items.filter((n) => n.subject === CREDITS_LOW_SUBJECT);
+
+    // Above the line: nothing.
+    expect((await charge(business.id, 300, sept(2))).credits?.lowNoteId).toBeNull();
+    expect(await lowNotes()).toHaveLength(0);
+    // The first charge below it: one note from the Chief of Staff.
+    const first = await charge(business.id, 150, sept(3));
+    expect(first.credits).toMatchObject({ exhausted: null, pausedAgents: 0, noteId: null, balance: { balanceMinor: 50 } });
+    const notes = await lowNotes();
+    expect(notes).toHaveLength(1);
+    expect(notes[0]!.id).toBe(first.credits!.lowNoteId);
+    expect(notes[0]).toMatchObject({ type: "warning", fromAgentId: chief.id, blocksContinue: false });
+    expect(notes[0]!.bodyMd).toMatch(/down to \$0\.50 \(an Estimate in US dollars\)/);
+    expect(notes[0]!.bodyMd).toMatch(/routine work now runs on a lighter, lower-cost model/);
+    expect(notes[0]!.bodyMd).toMatch(/Replies to you, plans, the Chief of Staff, anything that goes outside the business, and money and legal work keep their usual model/);
+    expect(notes[0]!.bodyMd).toMatch(/top up in Settings → Billing, or add your own Anthropic key in Settings → Keys/);
+    expect(notes[0]!.bodyMd).toMatch(/Oct 1, 2027/);
+    expect(await repos.businesses.agentsStopped(r.db, business.id)).toBe(false);
+    // Later charges below the line, and a top-up and a second fall, tell nothing new this month.
+    expect((await charge(business.id, 10, sept(4))).credits?.lowNoteId).toBeNull();
+    await repos.usage.grantCredits(r.db, business.id, "2027-09", 500);
+    expect((await charge(business.id, 500, sept(5))).credits?.lowNoteId).toBeNull();
+    expect(await lowNotes()).toHaveLength(1);
+    expect((await repos.audit.list(r.db, business.id, { action: CREDITS_LOW_AUDIT_ACTION })).items).toHaveLength(1);
+    // Next month tells again.
+    const october = await charge(business.id, FREE_INCLUDED - 20, new Date(Date.UTC(2027, 9, 2, 12)));
+    expect(october.credits?.lowNoteId).not.toBeNull();
+    expect(await lowNotes()).toHaveLength(2);
+  });
+
+  it("on the free plan the way to avoid it is the founder's own key; on its own key the agents are not affected", async () => {
+    const founder = await r.h.createUser("bill-low-free@test.local");
+    const free = await repos.businesses.create(r.db, { name: "Low Free", createdBy: founder });
+    await repos.memberships.add(r.db, free.id, { userId: founder, role: "owner" });
+    await repos.agents.create(r.db, free.id, { name: "Chief", agentType: "chief_of_staff", layer: "assistant", modelKey: "opus" });
+    const id = (await charge(free.id, FREE_INCLUDED - 40, new Date(Date.UTC(2027, 10, 3, 12)))).credits!.lowNoteId!;
+    const body = (await repos.inbox.get(r.db, free.id, id)).bodyMd;
+    expect(body).toMatch(/add your own Anthropic key in Settings → Keys \(Anthropic bills your key, not us\)/);
+    expect(body).not.toMatch(/top up/i);
+
+    const founder2 = await r.h.createUser("bill-low-byok@test.local");
+    const own = await repos.businesses.create(r.db, { name: "Low Own Key", createdBy: founder2, modelBilling: "byok" });
+    await repos.memberships.add(r.db, own.id, { userId: founder2, role: "owner" });
+    await repos.agents.create(r.db, own.id, { name: "Chief", agentType: "chief_of_staff", layer: "assistant", modelKey: "opus" });
+    const ownId = (await charge(own.id, FREE_INCLUDED - 40, new Date(Date.UTC(2027, 10, 3, 12)))).credits!.lowNoteId!;
+    expect((await repos.inbox.get(r.db, own.id, ownId)).bodyMd).toMatch(/Your agents run on your own Anthropic key, so they are not affected/);
+  });
+
+  it("the pause at zero is unchanged, and its note gives every way back", async () => {
+    const founder = await r.h.createUser("bill-low-zero@test.local");
+    const business = await repos.businesses.create(r.db, { name: "Low Zero", createdBy: founder, planTier: "pro" });
+    await repos.memberships.add(r.db, business.id, { userId: founder, role: "owner" });
+    await repos.agents.create(r.db, business.id, { name: "Chief", agentType: "chief_of_staff", layer: "assistant", modelKey: "opus" });
+    const done = await charge(business.id, includedCreditsMinor("pro") + 5, new Date(Date.UTC(2027, 11, 3, 12)));
+    expect(done.credits).toMatchObject({ exhausted: "now", balance: { balanceMinor: 0 } });
+    expect(await repos.businesses.agentsStopped(r.db, business.id)).toBe(true);
+    const note = await repos.inbox.get(r.db, business.id, done.credits!.noteId!);
+    expect(note).toMatchObject({ subject: CREDITS_EXHAUSTED_SUBJECT, blocksContinue: true });
+    expect(note.bodyMd).toMatch(/Top up in Settings → Billing, or bring your own Anthropic key in Settings → Keys/);
+    expect(note.bodyMd).toMatch(/Or wait for next month's credits on Jan 1, 2028, then press Resume agents/);
+    await expect(assertPlatformCredits(r.db, business.id, { live: false, now: new Date(Date.UTC(2027, 11, 20)) })).rejects.toMatchObject({ code: "credits_exhausted" });
+  });
+});
+
+describe("who funds the work (0104)", () => {
+  const ON = { enabled: true, providers: ["openai"] } as const;
+  const sept = new Date(Date.UTC(2028, 8, 4, 12));
+  const row = (billedTo: "byok" | "credits") => ({ kind: "tokens" as const, modelKey: "sonnet" as const, quantity: 100, unit: "tokens", costMinor: 30, billedTo, occurredAt: sept, details: { label: "Estimate" } });
+
+  it("every model row records which source paid: the month's credits, or the founder's own Anthropic key", async () => {
+    const A = r.A.businessId;
+    const credits = await bookUsage(r.db, A, row("credits"));
+    expect(credits.entry.details).toMatchObject({ label: "Estimate", funding: { source: "foundmill_credits" } });
+    expect(credits.credits).not.toBeNull();
+    const own = await bookUsage(r.db, A, row("byok"));
+    expect(own.entry.details).toMatchObject({ funding: { source: "own_api_key", provider: "anthropic" } });
+    expect(fundingOfRow(own.entry)).toBe("own_api_key");
+    // A tool row is the vendor's bill to the founder's own account: no model funding is recorded on it.
+    const tool = await bookUsage(r.db, A, { kind: "tool", quantity: 1, unit: "calls", costMinor: 0, currency: "USD", billedTo: "credits", occurredAt: sept });
+    expect((tool.entry.details as { funding?: unknown }).funding).toBeUndefined();
+  });
+
+  it("a claim that the founder's own plan paid is checked against the business: with the flag off it is charged like any other row (finding 4)", async () => {
+    const A = r.A.businessId;
+    const before = Number((await repos.usage.creditBalance(r.db, A, "2028-09"))?.balanceMinor);
+    // Business A is not on its own plan, and the flag is off: the claim is not believed.
+    const claimed = await bookUsage(r.db, A, { ...row("credits"), funding: { source: "own_plan", provider: "openai" } });
+    expect(claimed.entry.details).toMatchObject({ funding: { source: "foundmill_credits" } });
+    expect(claimed.credits).not.toBeNull();
+    expect(Number((await repos.usage.creditBalance(r.db, A, "2028-09"))?.balanceMinor)).toBe(before - 30);
+    // A row that says own_plan in its details (written by anything) is still charged while the flag is off.
+    const forged = { billedTo: "credits" as const, kind: "tokens" as const, currency: "USD", details: { funding: { source: "own_plan", provider: "openai" } } };
+    expect(chargesCredits(forged)).toBe(true);
+    expect(chargesCredits(forged, { enabled: true, providers: ["openai"] })).toBe(false);
+    expect(chargesCredits({ ...forged, details: { funding: { source: "own_plan", provider: "other" } } }, { enabled: true, providers: ["openai"] })).toBe(true);
+  });
+
+  it("a business really on its plan, with the flag on, records the plan and is not charged; a different provider is", async () => {
+    const founder = await r.h.createUser("bill-own-plan-row@test.local");
+    const business = await repos.businesses.create(r.db, { name: "Own Plan Row", createdBy: founder });
+    await repos.memberships.add(r.db, business.id, { userId: founder, role: "owner" });
+    await repos.businesses.setOwnPlan(r.db, business.id, "openai", ON);
+    const plan = await bookUsage(r.db, business.id, { ...row("credits"), funding: { source: "own_plan", provider: "openai" } }, { ownPlan: ON });
+    expect(plan.entry.details).toMatchObject({ funding: { source: "own_plan", provider: "openai" } });
+    expect(plan.credits).toBeNull();
+    const other = await bookUsage(r.db, business.id, { ...row("credits"), funding: { source: "own_plan", provider: "gemini" } }, { ownPlan: ON });
+    expect(other.entry.details).toMatchObject({ funding: { source: "foundmill_credits" } });
+    expect(other.credits).not.toBeNull();
+    // The same claim with the flag off is charged.
+    expect((await bookUsage(r.db, business.id, { ...row("credits"), funding: { source: "own_plan", provider: "openai" } })).credits).not.toBeNull();
+  });
+
+  it("with the flag off a business on its own plan is still gated by credits; with it on for an integrated provider the gate skips them", async () => {
+    const founder = await r.h.createUser("bill-own-plan@test.local");
+    const business = await repos.businesses.create(r.db, { name: "Own Plan", createdBy: founder });
+    await repos.memberships.add(r.db, business.id, { userId: founder, role: "owner" });
+    expect(agentWorkFunding(business)).toEqual({ source: "foundmill_credits" });
+    // Today nothing can put a business on its own plan.
+    await expect(repos.businesses.setOwnPlan(r.db, business.id, "openai")).rejects.toThrow(/cannot run on the founder's own plan/);
+    const onPlan = await repos.businesses.setOwnPlan(r.db, business.id, "openai", ON);
+    expect(onPlan).toMatchObject({ fundingSource: "own_plan", fundingPlanProvider: "openai" });
+    // The flag is off in the product: its work is still funded by credits, and an empty month refuses the call.
+    expect(agentWorkFunding(onPlan)).toEqual({ source: "foundmill_credits" });
+    await bookUsage(r.db, business.id, { ...row("credits"), costMinor: 10_000 });
+    expect(await checkPlatformCredits(r.db, business.id, { live: false, now: sept })).toMatchObject({ ok: false, reason: "exhausted", fundedBy: "foundmill_credits" });
+    // With the flag on and the provider integrated, a call routed to the plan skips Foundmill's credits.
+    expect(agentWorkFunding(onPlan, ON)).toEqual({ source: "own_plan", provider: "openai" });
+    expect(await checkPlatformCredits(r.db, business.id, { live: false, now: sept, ownPlan: ON, routedTo: "openai" })).toMatchObject({ ok: true, reason: null, low: false, fundedBy: "own_plan" });
+    // A call on the platform key keeps the zero check even then (finding 3): the plan pays nothing on Foundmill's key.
+    expect(await checkPlatformCredits(r.db, business.id, { live: false, now: sept, ownPlan: ON })).toMatchObject({ ok: false, reason: "exhausted", fundedBy: "foundmill_credits" });
+    await expect(assertPlatformCredits(r.db, business.id, { live: false, now: sept, ownPlan: ON })).rejects.toMatchObject({ code: "credits_exhausted" });
+    // A call routed to another provider is not the plan's.
+    expect((await checkPlatformCredits(r.db, business.id, { live: false, now: sept, ownPlan: ON, routedTo: "anthropic" })).ok).toBe(false);
+    // A provider that is not integrated does not count, flag or no flag.
+    expect(agentWorkFunding(onPlan, { enabled: true, providers: [] })).toEqual({ source: "foundmill_credits" });
+  });
+
+  it("a business on its plan stopped for credits, with a balance left, still has its platform-key calls refused (finding 3)", async () => {
+    const founder = await r.h.createUser("bill-own-plan-stop@test.local");
+    const business = await repos.businesses.create(r.db, { name: "Own Plan Stop", createdBy: founder });
+    await repos.memberships.add(r.db, business.id, { userId: founder, role: "owner" });
+    await repos.businesses.setOwnPlan(r.db, business.id, "openai", ON);
+    const now = new Date();
+    await stopBusinessAgents(r.db, business.id, { reason: "credits_exhausted" });
+    try {
+      expect(await checkPlatformCredits(r.db, business.id, { live: false, now, ownPlan: ON })).toMatchObject({ ok: false, reason: "exhausted" });
+      expect((await checkPlatformCredits(r.db, business.id, { live: false, now, ownPlan: ON, routedTo: "openai" })).ok).toBe(true);
+    } finally {
+      await resumeBusinessAgents(r.db, business.id);
+    }
   });
 });
 

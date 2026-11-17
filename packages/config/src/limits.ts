@@ -7,6 +7,17 @@ export const LIMITS = {
   hardMaxConcurrentAgents: 64,
   inboxRefreshDebounceMs: 3000,
   inboxBufferSize: 3,
+  /**
+   * The first week's note budget (WP-04 T8, `noteVerdict` in @foundmill/shared): for this many days after commit an
+   * agent's plain update is folded into the Chief of Staff's "What your team did today". Lower it (to 3, say) if
+   * founders miss updates; 0 turns the fold off.
+   */
+  firstWeekDays: 7,
+  /**
+   * The most open notes a project left alone should hold on a day of its first week (WP-04 Done-when 3). Nothing counts
+   * against it when a note is written: the fold above holds it, and the note-budget tests check it.
+   */
+  firstWeekNotesPerDay: 3,
   /** Longest one composer note may take (Opus call, re-ask, entity sweep) before it is abandoned with nothing written. */
   composerDeadlineMs: 150_000,
   /** How long the api and the orchestrator wait for the composer: above the deadline, so they never give up on a note still being written. */
@@ -75,6 +86,55 @@ export const LIMITS = {
   planSectionMaxBytes: 64 * 1024,
   /** Longest line of an imported plan file (characters); longer lines are refused before the parser reads them. */
   planLineMaxChars: 10_000,
+} as const;
+
+/**
+ * Most items one api input may carry in a list (`z.array(...).max(n)`) or keys in a map (`boundedRecord(n, ...)` from
+ * `@foundmill/shared`), GHSA-mrhx-c7xc-m3w5: zod builds an issue per failing element of an unbounded array or record,
+ * so a 2 MB body could make the api hold hundreds of MB. Each is well above what the product or a founder sends; a
+ * list of enum values is bounded by the enum's own length beside its schema instead.
+ */
+export const INPUT_LIMITS = {
+  /** Ids of a business's departments (reorder, an agent's departments): departments are unpaged; 500 is the repos' page size. */
+  departmentIds: 500,
+  /** People and agents who approve for one department. */
+  departmentApprovers: 500,
+  /** Tool grants of one agent version: one per connector (37 today). */
+  agentToolGrants: 100,
+  /** Tools granted on one connector (16 at most today). */
+  agentToolsPerGrant: 100,
+  /** Lines in one list of an agent's instructions (goals, rules, playbook, examples): templates carry a few dozen at most. */
+  agentInstructionLines: 500,
+  /** Topics an agent may negotiate on. */
+  negotiationTopics: 100,
+  /** Other names of one CRM record; a merge adds the merged record's names. */
+  entityAliases: 1000,
+  /** Identifiers of one CRM record (email, domain, LinkedIn, company number, Stripe customer, and the rest). */
+  entityIdentifiers: 100,
+  /** Terms in a business's glossary. */
+  glossaryTerms: 500,
+  /** Rated skills, target markets and constraints on a founder's profile. */
+  founderProfileList: 200,
+  /** Officers in a company register import (Companies House pages 100 at most) or deadlines it names. */
+  registerOfficers: 500,
+  registerDeadlines: 200,
+  /** Lines of a registered address. */
+  addressLines: 50,
+  /** Obligations of one contract. */
+  contractObligations: 500,
+  /** Widgets on one screen or dashboard, and settings of one widget. */
+  screenWidgets: 200,
+  widgetSettings: 100,
+  /** Spec blocks or tasks linked to one roadmap item, and sources backing one spec block. */
+  linkedIds: 1000,
+  /** Months of one forecast series (the runway horizon is 60 months at most). */
+  forecastSeries: 1000,
+  /**
+   * Top-level keys of a free-form JSON object an api input takes (a spec block's content, a quiz definition, campaign
+   * config, security terms, forecast drivers, simulation params, a connector's connect fields). Its depth and size stay
+   * bounded by the request body and by the service that reads it.
+   */
+  jsonObjectKeys: 100,
 } as const;
 
 /**

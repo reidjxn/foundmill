@@ -9,6 +9,7 @@
     "src",
     "*.ts",
     "*.config.*",
-    ".storybook"
+    ".storybook",
+    "a11y"
   ]
 }

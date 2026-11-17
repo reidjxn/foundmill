@@ -18,6 +18,10 @@
  * `OnboardingForm` is pure (props in, `onSubmit(patch)` out) so it is tested without tRPC; `OnboardingScreen` wires
  * the mutation, the toasts (including "Guidance is off for experienced founders" when the save turned it off) and the
  * redirect.
+ *
+ * WP-04 T1: this long form is for editing a profile on a computer. A new account answers three questions instead
+ * (`FirstProfile`, which carries the `via` reference and the "18 or older" box on the save that creates the profile),
+ * and so does an account editing on a screen under 1280 px.
  */
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -41,6 +45,7 @@ import {
 } from "react";
 import { APP_NAME } from "@foundmill/config";
 import {
+  AdultCheck,
   Button,
   Chip,
   EXAMPLE_TAG,
@@ -61,9 +66,11 @@ import {
   SkillSlider,
   StatusPill,
   cn,
+  isViewportTooSmall,
   ratingClass,
   useGuided,
   useToast,
+  useViewportWidth,
 } from "@foundmill/dugout";
 import { errorMessage, trpcPathPrefix, validationIssues } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
@@ -105,13 +112,35 @@ import {
   type ProfileSectionId,
 } from "./profile-form";
 import { AccountId } from "@/components/settings/AccountId";
+import { AdultStep } from "./AdultStep";
+import { FirstProfile } from "./FirstProfile";
 
 export interface OnboardingScreenProps {
   profile: ProfileLike | null;
   email: string | null;
-  /** The signed-in person's account ID, shown so a co-founder can add them to a business. */
+  /** The signed-in person's account ID, for support (people join a project by invitation, not by it). */
   accountId?: string | null;
+  /**
+   * Who or what brought a new founder: the reference in the httpOnly `fm_via` cookie, read by the page on the server
+   * (lib/via.ts). Sent with the save that creates the profile, never with an edit. Null when there is none.
+   */
+  via?: string | null;
+  /**
+   * Whether the account's "I am 18 or older" is on record (`founder.profile.get` `adultConfirmed`; 0100). A new account
+   * without it ticks the box on the form, and the save that creates the profile carries it; a person with a profile and
+   * no record (here before sign-up asked) sees the one step instead of the form (`AdultStep`). Required: the page reads
+   * it from the api, and a screen that does not know never assumes it. A save the api refuses with `adult_unconfirmed`
+   * asks for it too, whatever this said.
+   */
+  adultConfirmed: boolean;
+  /** Where the three questions go on to (`onboardingNext`: a kept card's Commit); /new when null. */
+  next?: string | null;
 }
+
+/** Under the box on the form that creates an account: asked once, never again. */
+export const ADULT_FORM_HINT = "You confirm this once.";
+/** When Continue is pressed with the box empty. */
+export const ADULT_FORM_NEEDED = "Confirm that you are 18 or older to continue.";
 
 /**
  * Said once, after the save that created the profile with an Exited or Operator experience (UX plan §6.3, decided
@@ -131,33 +160,34 @@ export const SKILLS_HINT = "Be honest: the team hires to cover what you don't ha
 /** Under Continue while the example founder is in: the example is never saved as the founder's own profile. */
 export const EXAMPLE_PROFILE_LINE = "Replace the example with your own answers to continue.";
 
-export function OnboardingScreen({ profile, email, accountId = null }: OnboardingScreenProps) {
+export function OnboardingScreen({ profile, email, accountId = null, via = null, adultConfirmed, next = null }: OnboardingScreenProps) {
   const router = useRouter();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const editing = profile !== null;
+  // The long form is for a computer; on a phone an account with a profile edits the three questions (WP-04 T1).
+  const small = isViewportTooSmall(useViewportWidth());
 
+  // The long form only edits a profile that exists: no reference and no "18 or older" box (FirstProfile creates it).
   const save = useMutation(
     trpc.founder.profile.update.mutationOptions({
       onSuccess: async (data) => {
         // The founder's own queries, the guidance switch among them (`founder.preferences.guidance`), read again.
         await queryClient.invalidateQueries({ queryKey: trpcPathPrefix("founder") as unknown[] });
-        toast({
-          title: editing ? "Profile updated" : "Welcome aboard",
-          description: editing
-            ? "Your constraints shape every concept the studio drafts."
-            : "Next: ideate a concept or import what already exists.",
-          tone: "good",
-        });
+        toast({ title: "Profile updated", description: "Your constraints shape every concept the studio drafts.", tone: "good" });
         if (data.guidanceTurnedOff) toast({ ...GUIDANCE_OFF_TOAST, tone: "info" });
         router.push("/new");
         router.refresh();
       },
-      onError: (err) =>
-        toast({ title: "Profile not saved", description: saveErrorMessage(err), tone: "bad" }),
+      onError: (err) => toast({ title: "Profile not saved", description: saveErrorMessage(err), tone: "bad" }),
     }),
   );
+
+  // A new account answers three questions (WP-04 T1); that save carries the reference and the box.
+  if (profile === null) return <FirstProfile email={email} via={via} next={next} adultConfirmed={adultConfirmed} />;
+  // A person from before (a profile, no "18 or older" on record) is asked once, in one step, instead of the form.
+  if (!adultConfirmed) return <AdultStep />;
+  if (small) return <FirstProfile email={email} next={next} adultConfirmed profile={{ displayName: profile.displayName }} />;
 
   return (
     <OnboardingForm
@@ -182,7 +212,9 @@ export interface OnboardingFormProps {
   accountId?: string | null;
   saving?: boolean;
   error?: string | null;
-  onSubmit: (patch: ProfilePatch) => void;
+  /** A new account with no "I am 18 or older" on record: the box is on the form, and the save carries `confirmAdult`. */
+  askAdult?: boolean;
+  onSubmit: (patch: ProfilePatch & { confirmAdult?: true }) => void;
 }
 
 export function OnboardingForm({
@@ -191,11 +223,13 @@ export function OnboardingForm({
   accountId = null,
   saving = false,
   error,
+  askAdult = false,
   onSubmit,
 }: OnboardingFormProps) {
   const editing = profile !== null;
   const [form, setForm] = useState<ProfileForm>(() => formFromProfile(profile, email));
   const [touched, setTouched] = useState(false);
+  const [adult, setAdult] = useState(false);
   const errors = useMemo(() => validateProfileForm(form), [form]);
   const status = useMemo(() => sectionStatus(form), [form]);
   const summary = useMemo(() => profileSummary(form), [form]);
@@ -234,7 +268,11 @@ export function OnboardingForm({
           ?.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
-    onSubmit(profilePatch(form));
+    if (askAdult && !adult) {
+      document.getElementById("profile-adult")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+    onSubmit(askAdult ? { ...profilePatch(form), confirmAdult: true } : profilePatch(form));
   }
 
   const show = (key: keyof ProfileForm) => (touched ? errors[key] : undefined);
@@ -340,7 +378,7 @@ export function OnboardingForm({
               Your profile is private. Agents read it as context; it is never shown on the network,
               even when a business goes live.
             </p>
-            {/* The account ID matters to a co-founder joining someone else's business, not to a first screen: behind a disclosure (A17). */}
+            {/* The account ID is for support, not for a first screen: behind a disclosure (A17). People join a project by invitation. */}
             {accountId ? (
               <details className="group/account px-1" data-testid="profile-account-id">
                 <summary className="flex w-fit cursor-pointer list-none items-center gap-1 rounded-sm text-small text-secondary transition-colors duration-hover ease-out hover:text-primary focus-visible:shadow-ring [&::-webkit-details-marker]:hidden">
@@ -349,7 +387,7 @@ export function OnboardingForm({
                     size="inline"
                     className="transition-transform duration-overlay ease-out group-open/account:rotate-90"
                   />
-                  For a co-founder joining you
+                  Your account ID
                 </summary>
                 <div className="mt-2">
                   <p className="t-data mb-1.5">Your account ID</p>
@@ -699,6 +737,19 @@ export function OnboardingForm({
               </p>
             )}
           </Panel>
+
+          {askAdult ? (
+            <div id="profile-adult">
+              <AdultCheck
+                id="profile-adult-check"
+                checked={adult}
+                onCheckedChange={setAdult}
+                hint={ADULT_FORM_HINT}
+                error={touched && !adult ? ADULT_FORM_NEEDED : undefined}
+                data-testid="profile-adult"
+              />
+            </div>
+          ) : null}
 
           <div className="flex items-center justify-between gap-4 border-t border-subtle pt-4">
             <div className="text-small text-secondary">

@@ -53,7 +53,7 @@ export interface NeedsYouListProps {
 
 export const NEEDS_YOU_WORDS = {
   title: "Needs you",
-  seeAll: "See all in the Inbox",
+  seeAll: "See all",
   empty: "Nothing needs you right now. The team keeps working.",
   open: "Open",
 } as const;
@@ -72,7 +72,7 @@ function OpenLink({ href, subject }: { href: string; subject: string }) {
     <>
       {renderLink({
         href,
-        className: cn(buttonVariants({ variant: "ghost", size: "sm" }), "text-secondary hover:text-primary"),
+        className: cn(buttonVariants({ variant: "ghost", size: "sm" }), "min-h-tap @page-wide:min-h-0 text-secondary hover:text-primary"),
         "aria-label": `Open: ${subject.replace(/\[\[ent:[^|\]]+\|([^\]]+)\]\]/g, "$1")}`,
         children: (
           <>
@@ -88,7 +88,7 @@ function OpenLink({ href, subject }: { href: string; subject: string }) {
 export function NeedsYouList({ items, total, seeAllHref, onQuickAnswer, pendingId, emptyText = NEEDS_YOU_WORDS.empty, loading, error, onRetry, span, className }: NeedsYouListProps) {
   const renderLink = useShellLink();
   const rows = items.slice(0, NEEDS_YOU_MAX);
-  const seeAll = renderLink({ href: seeAllHref, className: cn(buttonVariants({ variant: "ghost", size: "sm" }), "text-secondary hover:text-primary"), children: NEEDS_YOU_WORDS.seeAll });
+  const seeAll = renderLink({ href: seeAllHref, className: cn(buttonVariants({ variant: "ghost", size: "sm" }), "min-h-tap @page-wide:min-h-0 text-secondary hover:text-primary"), children: NEEDS_YOU_WORDS.seeAll });
   return (
     <Panel
       title={NEEDS_YOU_WORDS.title}
@@ -106,7 +106,7 @@ export function NeedsYouList({ items, total, seeAllHref, onQuickAnswer, pendingI
     >
       <ul className="m-0 flex list-none flex-col p-0" aria-label={NEEDS_YOU_WORDS.title}>
         {rows.map((row, i) => (
-          <li key={row.id} className={cn("flex min-h-control-xl items-center gap-3 px-panel-pad py-2", i > 0 && "border-t border-line")} data-needs-you-row={row.id} data-quick={row.quickOption ? row.quickOption.id : undefined}>
+          <li key={row.id} className={cn("flex min-h-control-xl flex-col items-stretch gap-2 px-panel-pad py-2 @page-wide:flex-row @page-wide:items-center @page-wide:gap-3", i > 0 && "border-t border-line")} data-needs-you-row={row.id} data-quick={row.quickOption ? row.quickOption.id : undefined}>
             <div className="flex min-w-0 flex-1 flex-col gap-0.5">
               <EntityText as="p" className="t-body-strong text-pretty text-primary">
                 {row.subject}
@@ -114,12 +114,12 @@ export function NeedsYouList({ items, total, seeAllHref, onQuickAnswer, pendingI
               <p className="flex flex-wrap items-center gap-x-2 gap-y-1 t-small text-tertiary">
                 {row.kindLabel ? <span>{row.kindLabel}</span> : null}
                 {row.from ? <span>From {row.from}</span> : null}
-                {row.holdsContinue ? <StatusPill tone="bad">Holds Continue</StatusPill> : null}
+                {row.holdsContinue ? <StatusPill tone="bad">The team is waiting on this</StatusPill> : null}
               </p>
             </div>
-            <div className="flex shrink-0 items-center gap-1">
+            <div className="flex shrink-0 flex-wrap items-center gap-1">
               {row.quickOption && onQuickAnswer ? (
-                <Button size="sm" variant="primary" icon={Check} loading={pendingId === row.id} onClick={() => onQuickAnswer(row)} data-testid="needs-you-quick">
+                <Button size="sm" variant="primary" icon={Check} className="min-h-tap @page-wide:min-h-0" loading={pendingId === row.id} onClick={() => onQuickAnswer(row)} data-testid="needs-you-quick">
                   {row.quickOption.label}
                 </Button>
               ) : null}

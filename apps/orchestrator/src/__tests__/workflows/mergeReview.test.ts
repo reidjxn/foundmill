@@ -6,7 +6,7 @@
  * make starts the review as its own child, once per task, and does not wait for it.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { Activities, MergeAssessment, MergeInput, MergeOutcome, SessionLaunch, SessionResult } from "../../activities";
+import type { Activities, MergeAssessment, MergeInput, MergeOutcome, MergeSecondRead, SessionLaunch, SessionResult } from "../../activities";
 import { agentSession, decisionSignal, mergeReview } from "../../workflows";
 import { ASSESS_TRIES, MERGE_RETRIES } from "../../workflows/mergeReview";
 import { createTemporalRig, wfId, type TemporalRig } from "./temporal";
@@ -39,6 +39,10 @@ interface Script {
   /** Answers to `updateBranch`, in order; the last repeats. */
   update?: Awaited<ReturnType<Activities["updateBranch"]>>[];
   approvalId?: string;
+  /** The second read of the diff fails (the merge is asked for all the same). */
+  reviewFails?: boolean;
+  /** What the second read answers (default: a fresh review with one comment). */
+  review?: MergeSecondRead;
 }
 
 function mockActivities(script: Script) {
@@ -49,7 +53,20 @@ function mockActivities(script: Script) {
   let checked = 0;
   let completed = 0;
   let updates = 0;
+  /** The second reads, apart from `calls` (the merge's own steps); `askedAfter` is how many had run when the merge was asked for. */
+  const reviews: number[] = [];
+  let askedAfter: number | null = null;
+  /** The reviewed commit each merge call named (askMerge first, then every completeMerge). */
+  const shas: (string | null | undefined)[] = [];
+  /** The detail each hand-back carried. */
+  const details: (string | null)[] = [];
   const acts: Partial<Activities> = {
+    async secondReadMerge(given) {
+      reviews.push(given.prNumber);
+      if (script.reviewFails) throw new Error("the model is down");
+      if (script.review) return script.review;
+      return { status: "reviewed", cached: false, verdict: "comment", findings: 1, reviewerAgentId: "33333333-3333-4333-8333-333333333333", headSha: "a".repeat(40) };
+    },
     async updateBranch() {
       calls.push("updateBranch");
       return next(script.update, updates++, { updated: true, reason: null, checksStarted: true });
@@ -64,6 +81,8 @@ function mockActivities(script: Script) {
     },
     async askMerge(given) {
       calls.push("askMerge");
+      askedAfter ??= reviews.length;
+      shas.push(given.reviewedSha);
       return { status: "awaiting_approval", approvalId, prNumber: given.prNumber, prUrl: given.prUrl };
     },
     async loadApproval() {
@@ -80,10 +99,12 @@ function mockActivities(script: Script) {
     },
     async completeMerge(given) {
       calls.push(`completeMerge:${given.prNumber}:${given.approvalId}:${given.decidedBy}`);
+      shas.push(given.reviewedSha);
       return next(script.complete, completed++, { status: "merged", prNumber: given.prNumber, prUrl: given.prUrl, mergeCommitSha: "f".repeat(40) });
     },
     async handBack(given) {
       calls.push(`handBack:${given.why}:${given.approvalId}`);
+      details.push(given.detail);
       return { status: "handed_back", why: given.why, reason: given.why, prNumber: given.prNumber, prUrl: given.prUrl };
     },
     async holdMerge(given) {
@@ -95,7 +116,7 @@ function mockActivities(script: Script) {
       return { status: "not_merged", prNumber: given.prNumber, prUrl: given.prUrl, reason: given.outcome };
     },
   };
-  return { acts, calls, approvalId };
+  return { acts, calls, approvalId, reviews, shas, details, askedAfter: () => askedAfter };
 }
 
 /**
@@ -130,6 +151,49 @@ describe("mergeReview workflow", () => {
     expect(skipped.calls).toEqual(["prepareMerge"]);
     const held = mockActivities({ prepared: { status: "held", reason: "the pull request could not be opened: no", prNumber: null, prUrl: null } });
     expect(await rig.run(held.acts, (client, taskQueue) => client.workflow.execute(mergeReview, { workflowId: wfId("merge"), taskQueue, args: [input] }))).toMatchObject({ status: "held" });
+  });
+
+  it("a different agent reads the diff before the merge is asked for; a failed read never stops the founder being asked", async () => {
+    const m = mockActivities({});
+    expect(await reviewDecided(m, "approved")).toMatchObject({ status: "merged" });
+    expect(m.reviews).toEqual([7]);
+    expect(m.askedAfter()).toBe(1);
+    // The commit the review read is the one the merge asks for, and the approved merge names the same one (M4).
+    expect(m.shas).toEqual(["a".repeat(40), "a".repeat(40)]);
+    const failing = mockActivities({ reviewFails: true });
+    expect(await reviewDecided(failing, "approved")).toMatchObject({ status: "merged" });
+    // Tried once (no retries), then the merge is asked for as before.
+    expect(failing.reviews).toEqual([7]);
+    expect(failing.calls).toContain("askMerge");
+    expect(failing.shas[0]).toBeNull();
+    // A branch handed back before anyone is asked gets no second read.
+    const conflicts = mockActivities({ assess: [{ mergeable: "conflicts", checks: "pending", detail: null }] });
+    await rig.run(conflicts.acts, (client, taskQueue) => client.workflow.execute(mergeReview, { workflowId: wfId("merge"), taskQueue, args: [input] }));
+    expect(conflicts.reviews).toEqual([]);
+  });
+
+  it("a fresh review that asks for changes sends the change back to its author once; after that the founder is asked (WP-05 T17)", async () => {
+    const changes = { status: "reviewed", cached: false, verdict: "request_changes", findings: 2, reviewerAgentId: "33333333-3333-4333-8333-333333333333", headSha: "b".repeat(40), handedBackBefore: false, handBackDetail: "the reviewer's findings, in a block" } as const;
+    const first = mockActivities({ review: changes });
+    const result = await rig.run(first.acts, (client, taskQueue) => client.workflow.execute(mergeReview, { workflowId: wfId("merge"), taskQueue, args: [input] }));
+    expect(result).toMatchObject({ status: "handed_back", why: "review", prNumber: 7 });
+    // Nobody is asked: the author sees the findings first.
+    expect(first.calls).toEqual(["prepareMerge", "assessMerge", "handBack:review:null"]);
+    expect(first.details).toEqual(["the reviewer's findings, in a block"]);
+
+    // The second round (the author reworked it and the new head was reviewed): the review never blocks again.
+    const second = mockActivities({ review: { ...changes, headSha: "c".repeat(40), handedBackBefore: true } });
+    expect(await reviewDecided(second, "approved")).toMatchObject({ status: "merged" });
+    expect(second.calls.some((c) => c.startsWith("handBack"))).toBe(false);
+    expect(second.shas[0]).toBe("c".repeat(40));
+
+    // A review read again from the record (the cycle's sweep), or one with comments only, never sends work back.
+    for (const review of [{ ...changes, cached: true }, { ...changes, verdict: "comment" }] as const) {
+      const m = mockActivities({ review });
+      await reviewDecided(m, "approved");
+      expect(m.calls).toContain("askMerge");
+      expect(m.calls.some((c) => c.startsWith("handBack"))).toBe(false);
+    }
   });
 
   it("a conflicting branch goes back to its agent before anyone is asked; GitHub is given time to compute the state", async () => {

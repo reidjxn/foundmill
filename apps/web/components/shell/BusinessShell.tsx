@@ -8,7 +8,7 @@
  *   agents → business.resumeAgents (owners and admins); processing strip from `cycle.status` kept current by the stream;
  * - universal search (CommandPalette, remote) over local screens/commands + crm.search;
  * - date + runway chip from finance.overview, business-mode chip → Settings › What the team can do;
- * - NeedsLargerWindow below 1280 (AppShell measures the window itself); G-then-letter chords (AppShell);
+ * - NeedsLargerWindow below 1280 (AppShell measures the window itself), except Today and Needs you, which get the shell's phone layout (`phone`); G-then-letter chords (AppShell);
  * - providers for everything below: business context, WidgetDataProvider, ModuleEnv, EntityLink, keyboard registry,
  *   screen chrome, and the definitions in this business's own words (`GuidanceTermsProvider` over the layout's
  *   GuidanceHost: the glossary comes from `business.get`, which the shell already holds).
@@ -56,6 +56,8 @@ import { SpecUserProvider, specUserName } from "@/components/spec/spec-user";
 import { AgentDeskHost, prefetchAgentDesk, type AgentDeskApi } from "@/components/conversation/DeskHost";
 import { useNetworkBadge } from "@/components/live/signals";
 import { termsFor } from "@/components/providers/GuidanceHost";
+import { useKeyboardShortcutsOn } from "@/components/providers/guidance-context";
+import { isTodayPath, worksOnSmallScreens } from "@/components/providers/DesktopOnly";
 import { agentOfAskItem, agentOfCallItem, askPaletteItems, askQuestion, callPaletteItems, generatePaletteItems, paletteAgents } from "@/components/conversation/palette";
 import { BusinessProvider, makeBusinessContext, type BusinessGet, type DepartmentList } from "./business-context";
 import { switcherBusinesses } from "./business-switcher";
@@ -217,7 +219,7 @@ export const continuePressedNotice = (builder: boolean): string => (builder ? CO
 /** How long the answer to a press stays as the strip's sentence when no cycle event replaces it sooner. */
 export const CONTINUE_NOTICE_MS = 15_000;
 /** Under Continue's tooltip while the orchestrator cannot be reached: what a press does and does not do. */
-export const ORCHESTRATOR_DOWN_CAVEAT = "The orchestrator is not reachable right now: a press writes one note; no agent works.";
+export const ORCHESTRATOR_DOWN_CAVEAT = "The team cannot start right now. Pressing Continue will only write a short note.";
 
 /**
  * The toast one press of Continue earns (BUILD §9.4): the api's own sentence about what happened (`summary`, first-time
@@ -241,7 +243,7 @@ export function describeContinue(result: ContinueResult, builder = false): { tit
  */
 export function lastCycleCostLine(cost: { amountMinor: number; currency: string } | null): string | null {
   if (!cost) return null;
-  return `Last cycle cost ${formatCredits(cost)} · Estimate`;
+  return `The last round of work cost ${formatCredits(cost)} · Estimate`;
 }
 
 /**
@@ -257,8 +259,8 @@ type PauseResult = RouterOutputs["business"]["pauseCycle"];
 /** The toast a press of Pause earns: the round paused, the run ended (so no new cycle starts), or nothing to pause. */
 export function describePause(result: Pick<PauseResult, "paused" | "pausedTasks" | "reason"> & { runEnded?: boolean }): { title: string; description: string; tone: "info" | "warn" } {
   if (result.paused) return { title: "Paused", description: `${result.pausedTasks} running task${result.pausedTasks === 1 ? "" : "s"} paused. Press Continue to pick up where the team stopped.`, tone: "warn" };
-  if (result.runEnded) return { title: "Paused", description: "No new cycle starts. Press Continue to pick up where the team stopped.", tone: "warn" };
-  return { title: "Nothing to pause", description: result.reason ?? "No cycle is running.", tone: "info" };
+  if (result.runEnded) return { title: "Paused", description: "No new round of work starts. Press Continue to pick up where the team stopped.", tone: "warn" };
+  return { title: "Nothing to pause", description: result.reason ?? "The team is not working right now.", tone: "info" };
 }
 
 /**
@@ -284,7 +286,7 @@ export function wantsFirstContinueCallout(cycle: { completedCount: number }, can
   return canChange && cycle.completedCount <= 1;
 }
 
-export const FIRST_CONTINUE_CALLOUT = { tourId: "first-continue", targetId: "continue", title: "This is how you move forward", body: "Press it when you have answered what needs you." } as const;
+export const FIRST_CONTINUE_CALLOUT = { tourId: "first-continue", targetId: "continue", title: "This is how you move forward", body: "One press and your team works until nothing is left to do. Anything that needs you shows in Needs you." } as const;
 
 /**
  * The Example frame (docs/UX_AUDIT_AND_PLAN.md §12 item 5): what the shell changes for an example viewer (a read-only
@@ -360,6 +362,8 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   const { toast } = useToast();
   const chrome = useShellChromeValue();
   const shortcuts = useRegisteredShortcuts();
+  // Single keys only once the person turned them on in Settings › Preferences (WP-04 T13): a stray key does nothing.
+  const singleKeys = useKeyboardShortcutsOn();
 
   // --- data ---------------------------------------------------------------------------------------------------
   // The layout starts inbox, finance and cycle on the server and hands them over under these same keys
@@ -570,7 +574,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
     trpc.business.resumeAgents.mutationOptions({
       onSuccess: (result) => {
         void invalidate(["business", "dev", "department", "team", "cycle"]);
-        toast({ title: "Agents resumed", description: `${result.resumedAgents} agent${result.resumedAgents === 1 ? " is" : "s are"} back. The next cycle picks up the paused tasks.`, tone: "good" });
+        toast({ title: "Agents resumed", description: `${result.resumedAgents} agent${result.resumedAgents === 1 ? " is" : "s are"} back. The next round of work picks up the paused tasks.`, tone: "good" });
       },
     }),
   );
@@ -834,6 +838,10 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
           <EntityLinkProvider value={entityLinks}>
             <ShellLinkProvider render={renderNextShellLink}>
               <AppShell
+                // Today and Needs you work from 390 px (package 2.1): the shell's phone layout; other routes keep the 1280 px floor.
+                phone={worksOnSmallScreens(pathname)}
+                // "Explain this page" in the phone title row on Today only (WP-04 T7).
+                phoneExplain={isTodayPath(pathname)}
                 mode={business.gameMode}
                 businessMode={business.businessMode}
                 // The mode chip says the setting in words with the business's own currency ("Asks before spending over £50").
@@ -914,6 +922,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                 onRunwayClick={financeDept ? onRunwayClick : undefined}
                 onModeClick={() => router.push(routes.settings(businessId, "mode"))}
                 keyboard={{
+                  singleKeys,
                   onRefreshInbox: shortcuts.onRefreshInbox ?? (access.canChange ? () => refreshInbox.mutate({ businessId }) : undefined),
                   onNextInboxItem: shortcuts.onNextInboxItem,
                   onPrevInboxItem: shortcuts.onPrevInboxItem,

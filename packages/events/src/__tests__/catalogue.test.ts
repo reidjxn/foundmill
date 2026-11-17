@@ -13,7 +13,7 @@ import {
   serializeEvent,
   toWire,
 } from "../catalogue";
-import { EVENT_FIXTURES, FIXTURE_BUSINESS_ID, fixtureEvent, fixtureId } from "../testing/fixtures";
+import { EVENT_FIXTURES, FIXTURE_AGENT_ID, FIXTURE_BUSINESS_ID, fixtureEvent, fixtureId } from "../testing/fixtures";
 import { z } from "zod";
 
 describe("event catalogue", () => {
@@ -261,6 +261,150 @@ describe("event catalogue", () => {
 
     expect(() => parseEvent({ ...base, occurredAt: "yesterday" })).toThrow(ValidationError);
     expect(() => parseEvent(null)).toThrow(ValidationError);
+  });
+
+  it("milestone.shown and milestone.hidden: a founder's own press, pushed to open tabs, never narrated (0089)", () => {
+    for (const type of ["milestone.shown", "milestone.hidden"] as const) {
+      const decl = EVENTS[type];
+      expect(decl.narratable, type).toBe(false);
+      expect([...decl.consumers].sort(), type).toEqual(["metrics", "stream"]);
+      expect(isPersonAddressedEvent(type)).toBe(false);
+      const fixture = EVENT_FIXTURES[type];
+      expect(parsePayload(type, fixture)).toEqual(fixture);
+      // Ids and public addresses only: nothing of a customer or a follower fits in the payload.
+      expect(Object.keys(parsePayload(type, { ...fixture, customerName: "Acme Corp", email: "a@b.example" })).sort()).toEqual(["key", "milestoneId", "slug", "url"]);
+      const bad = (patch: Record<string, unknown>) => () => parsePayload(type, { ...fixture, ...patch });
+      expect(bad({ milestoneId: "not-an-id" })).toThrow(ValidationError);
+      expect(bad({ key: "" })).toThrow(ValidationError);
+      expect(bad({ slug: "ab" })).toThrow(ValidationError);
+      expect(bad({ url: "/m/relative" })).toThrow(ValidationError);
+    }
+  });
+
+  it("share.opened: a share control was pressed; the control and an id, never the words, for metrics only (tap-to-post)", () => {
+    const decl = EVENTS["share.opened"];
+    expect(decl.narratable).toBe(false);
+    expect([...decl.consumers]).toEqual(["metrics"]);
+    expect(isPersonAddressedEvent("share.opened")).toBe(false);
+    // Appended after every type that was there before it: the list of types is only ever added to at its end
+    // (not pinned to the last place, which the next type to be added takes).
+    expect(EVENT_TYPES.indexOf("share.opened")).toBeGreaterThan(EVENT_TYPES.indexOf("milestone.hidden"));
+    const fixture = EVENT_FIXTURES["share.opened"];
+    expect(parsePayload("share.opened", fixture)).toEqual(fixture);
+    // Nothing of the post fits in the payload: the text, the link and anything else typed are dropped.
+    expect(Object.keys(parsePayload("share.opened", { ...fixture, text: "Maple Bakes reached a milestone", link: "https://foundmill.example/m/1", title: "x" })).sort()).toEqual(["kind", "network", "refId", "target"]);
+    // Every control: a network's window, a copy, a message, the device's own sheet; a drafted post has no id.
+    for (const payload of [
+      { network: "bluesky", kind: "page", refId: fixtureId("page"), target: "tap" },
+      { network: "linkedin", kind: "page", refId: fixtureId("page"), target: "link_only" },
+      { network: "instagram", kind: "milestone", refId: fixtureId("milestone"), target: "copy" },
+      { network: null, kind: "draft", refId: null, target: "copy" },
+      { network: "whatsapp", kind: "milestone", refId: fixtureId("milestone"), target: "message" },
+      { network: null, kind: "draft", refId: null, target: "device" },
+      // A post the team wrote to be shared names itself (its asset's id), so it can stop waiting.
+      { network: "threads", kind: "draft", refId: fixtureId("asset-post"), target: "tap" },
+    ] as const)
+      expect(parsePayload("share.opened", payload)).toEqual(payload);
+    const bad = (patch: Record<string, unknown>) => () => parsePayload("share.opened", { ...fixture, ...patch });
+    expect(bad({ network: "myspace" })).toThrow(ValidationError);
+    expect(bad({ kind: "campaign" })).toThrow(ValidationError);
+    expect(bad({ target: "posted" })).toThrow(ValidationError);
+    expect(bad({ refId: "not-an-id" })).toThrow(ValidationError);
+    expect(bad({ network: undefined })).toThrow(ValidationError);
+  });
+
+  it("share.opened is not a real outcome: the north star never counts a press it cannot see the end of", () => {
+    // The events the catalogue marks as real outside results say so in their own words. Pinned: adding one is a decision.
+    const counts = (doc: string) => /the north star counts it/i.test(doc);
+    const real = EVENT_TYPES.filter((t) => counts(EVENTS[t].doc));
+    expect(real).toEqual(["page.published", "page.followed", "site.published"]);
+    expect(real).not.toContain("share.opened");
+    const doc = EVENTS["share.opened"].doc;
+    expect(doc).toMatch(/not an outside result and the north star does not count it/);
+    expect(doc).toMatch(/nothing calls this posted or published/);
+    // Neither does any other event claim a share as its outcome.
+    for (const t of real) expect(EVENTS[t].doc, t).not.toMatch(/share/i);
+  });
+
+  it("post.drafted: the team wrote a post for the founder to share; ids and the kind of trigger, never the words", () => {
+    const decl = EVENTS["post.drafted"];
+    expect(decl.scope).toBe("business");
+    expect(decl.narratable).toBe(false);
+    expect([...decl.consumers]).toEqual(["stream", "metrics"]);
+    expect(isPersonAddressedEvent("post.drafted")).toBe(false);
+    // Appended last: the list of types is only ever added to at its end.
+    // Added after the types that were there before it; not pinned to the last place, which the next type added takes.
+    expect(EVENT_TYPES.indexOf("post.drafted")).toBeGreaterThan(EVENT_TYPES.indexOf("share.opened"));
+    const fixture = EVENT_FIXTURES["post.drafted"];
+    expect(parsePayload("post.drafted", fixture)).toEqual(fixture);
+    // Nothing of the post fits in the payload: its words, its link and anything about a person are dropped.
+    expect(Object.keys(parsePayload("post.drafted", { ...fixture, text: "Maple Bakes has a page now.", body: "x", link: "https://foundmill.example/p/maple", followerEmail: "a@b.example" })).sort()).toEqual(["agentId", "assetId", "subject", "trigger"]);
+    for (const payload of [
+      { assetId: fixtureId("asset-post"), trigger: "milestone_shown", subject: "first_follower", agentId: null },
+      { assetId: fixtureId("asset-post"), trigger: "first_follower", subject: "first_follower", agentId: FIXTURE_AGENT_ID },
+    ] as const)
+      expect(parsePayload("post.drafted", payload)).toEqual(payload);
+    const bad = (patch: Record<string, unknown>) => () => parsePayload("post.drafted", { ...fixture, ...patch });
+    expect(bad({ trigger: "campaign_launched" })).toThrow(ValidationError);
+    expect(bad({ subject: "customer_1" })).toThrow(ValidationError);
+    expect(bad({ subject: "mrr_1k" })).toThrow(ValidationError);
+    expect(bad({ assetId: "not-an-id" })).toThrow(ValidationError);
+    expect(bad({ agentId: undefined })).toThrow(ValidationError);
+    // A draft is words waiting in the console: not an outside action or result, and it says so.
+    expect(decl.doc).toMatch(/Nothing was launched, scheduled, published or measured/);
+    expect(decl.doc).toMatch(/not an outside action or result/);
+    expect(decl.doc).not.toMatch(/the north star counts it/i);
+  });
+
+  it("quiz.approved, quiz.published, quiz.unpublished: a founder's own press on the page quiz; ids and its shape, never the words or a count", () => {
+    for (const type of ["quiz.approved", "quiz.published", "quiz.unpublished"] as const) {
+      const decl = EVENTS[type];
+      expect(decl.scope).toBe("business");
+      expect(decl.narratable).toBe(false);
+      expect([...decl.consumers]).toEqual(["stream", "metrics"]);
+      expect(EVENT_TYPES.indexOf(type)).toBeGreaterThan(EVENT_TYPES.indexOf("post.drafted"));
+      const fixture = EVENT_FIXTURES[type];
+      expect(parsePayload(type, fixture)).toEqual(fixture);
+      // A type's name, a question or a count of visitors never travels in the event.
+      const extra = parsePayload(type, { ...fixture, types: [{ name: "Cafe owners" }], counts: { t1: 12 }, question: "Who is it for?" });
+      expect(Object.keys(extra).sort()).toEqual(Object.keys(fixture).sort());
+      const bad = (patch: Record<string, unknown>) => () => parsePayload(type, { ...fixture, ...patch });
+      expect(bad({ quizId: "not-an-id" })).toThrow(ValidationError);
+      expect(bad({ version: 0 })).toThrow(ValidationError);
+      expect(bad({ typeCount: 1 })).toThrow(ValidationError);
+      expect(bad({ typeCount: 5 })).toThrow(ValidationError);
+      expect(bad({ questionCount: 9 })).toThrow(ValidationError);
+      // Turning a quiz on is not an outside result: nobody outside did anything yet.
+      expect(decl.doc).not.toMatch(/the north star counts it/i);
+    }
+    expect(() => parsePayload("quiz.published", { ...EVENT_FIXTURES["quiz.published"], slug: undefined })).toThrow(ValidationError);
+  });
+
+  it("visit.attributed and post.outcome_attributed: ids, the network and the kind only; never narrated, never counted", () => {
+    for (const type of ["visit.attributed", "post.outcome_attributed"] as const) {
+      const decl = EVENTS[type];
+      expect(decl.scope, type).toBe("business");
+      expect(decl.narratable, type).toBe(false);
+      expect(isPersonAddressedEvent(type), type).toBe(false);
+      expect(decl.doc, type).not.toMatch(/the north star counts it/i);
+      expect(EVENT_TYPES.indexOf(type), type).toBeGreaterThan(EVENT_TYPES.indexOf("post.drafted"));
+    }
+    expect([...EVENTS["visit.attributed"].consumers]).toEqual(["metrics"]);
+    const visit = EVENT_FIXTURES["visit.attributed"];
+    expect(parsePayload("visit.attributed", visit)).toEqual(visit);
+    // Nothing about the visitor fits: an address, a device, a person or the code are dropped.
+    expect(Object.keys(parsePayload("visit.attributed", { ...visit, ip: "203.0.113.9", userAgent: "x", code: "k3m7qa2xpw", entityId: fixtureId("entity") })).sort()).toEqual(["assetId", "linkId", "network"]);
+    expect(parsePayload("visit.attributed", { ...visit, network: null })).toEqual({ ...visit, network: null });
+    const outcome = EVENT_FIXTURES["post.outcome_attributed"];
+    expect(parsePayload("post.outcome_attributed", outcome)).toEqual(outcome);
+    for (const outcomeKind of ["follow", "reply", "payment"] as const) expect(parsePayload("post.outcome_attributed", { ...outcome, outcomeKind }).outcomeKind).toBe(outcomeKind);
+    // Never the person, an address or an amount.
+    expect(Object.keys(parsePayload("post.outcome_attributed", { ...outcome, entityId: fixtureId("entity"), amount: { amountMinor: 100, currency: "USD" }, email: "a@b.example" })).sort()).toEqual(["assetId", "linkId", "network", "outcomeEventId", "outcomeKind"]);
+    const bad = (type: "visit.attributed" | "post.outcome_attributed", base: Record<string, unknown>, patch: Record<string, unknown>) => () => parsePayload(type, { ...base, ...patch });
+    expect(bad("visit.attributed", visit, { network: "myspace" })).toThrow(ValidationError);
+    expect(bad("visit.attributed", visit, { linkId: "k3m7qa2xpw" })).toThrow(ValidationError);
+    expect(bad("post.outcome_attributed", outcome, { outcomeKind: "visit" })).toThrow(ValidationError);
+    expect(bad("post.outcome_attributed", outcome, { outcomeEventId: undefined })).toThrow(ValidationError);
   });
 
   it("entityIds default to [] and narrated to false on the envelope", () => {

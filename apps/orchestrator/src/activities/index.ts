@@ -18,11 +18,17 @@ import { createMergeActivities } from "./merge";
 import { createMiscActivities } from "./misc";
 import { createNotifyActivities } from "./notify";
 import { createPlanActivities } from "./plan";
+import { createPostDraftActivities } from "./post-draft";
+import { createPostMediaActivities } from "./post-media";
 import { createRoadmapPlanActivities } from "./roadmap-plan";
 import { createScheduleActivities } from "./schedules";
+import { createMockResultsCleanupActivities } from "./mock-results-cleanup";
+import { createPlatformMetricsActivities } from "./platform-metrics";
+import { createSecondReadActivities } from "./second-read";
 import { createSessionActivities } from "./session";
 import { createSourceWatcherActivities } from "./source-watcher";
 import { createTrainingActivities } from "./training";
+import { createWaitlistActivities } from "./waitlist";
 
 export function createActivities(deps: OrchestratorDeps) {
   return {
@@ -35,6 +41,7 @@ export function createActivities(deps: OrchestratorDeps) {
     ...createRoadmapPlanActivities(deps),
     ...createSessionActivities(deps),
     ...createMergeActivities(deps),
+    ...createSecondReadActivities(deps),
     ...createPlanActivities(deps),
     ...createApprovalActivities(deps),
     ...createTrainingActivities(deps),
@@ -46,13 +53,21 @@ export function createActivities(deps: OrchestratorDeps) {
     ...createMiscActivities(deps),
     ...createFoundationsActivities(deps),
     ...createScheduleActivities(deps),
+    ...createMockResultsCleanupActivities(deps),
+    ...createPlatformMetricsActivities(deps),
+    ...createWaitlistActivities(deps),
     ...createAutopilotActivities(deps),
     ...createSourceWatcherActivities(deps),
     ...createNotifyActivities(deps),
+    ...createPostDraftActivities(deps),
+    ...createPostMediaActivities(deps),
   };
 }
 
 export type Activities = ReturnType<typeof createActivities>;
 export * from "./types";
 export type { AutopilotEvaluation } from "./autopilot";
+export type { DocumentSecondRead, DocumentSecondReadInput, MergeSecondRead } from "./second-read";
 export type { SourceWatchInput, SourceWatchReason, SourceWatchResult, SourceWatchSweepInput, SourceWatchWorkflowInput, SourceWatchWorkflowResult } from "./source-watcher";
+export type { PostDraftInput, PostDraftResult } from "./post-draft";
+export type { PostMediaInput, PostMediaStep, PostMediaStepInput, PostVideoCheck } from "./post-media";

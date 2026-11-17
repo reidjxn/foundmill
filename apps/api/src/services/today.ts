@@ -17,16 +17,24 @@
  *   Product read, and the Product lead's "Your project's page is ready" note is not open (package 1.3: the note while it
  *   is open, in Needs you with its one tap "Check it and publish"; the line otherwise). Today shows one quiet line to
  *   the Public page tab.
+ * - **A post to share**: `postsReady` while a post the team wrote for the founder to share by tap waits (never for a
+ *   sample business), for a reader with Distribution read: one quiet line to Customers › Creative. It goes when the post
+ *   is shared or set aside.
  * - **Your first week**: Day 1 asks to publish the page (done the day `project_pages.published_at` is set) and to sign
  *   off the specification and the roadmap.
+ * - **Your one thing today** (WP-04 T9): `founderTask`, from packages/shared founder-task.ts over facts read here (the
+ *   page, a page share that was opened, the plan rounds, a real follow or reply). Never for a sample business or a
+ *   reader without Product read; no further round trip, table, event or model call.
  */
-import { APPROVAL_OPTIONS, approvalSection, repos, type DbTx, type InboxItem, type Task } from "@foundmill/db";
-import { CREDITS_CURRENCY } from "@foundmill/config";
-import { GOAL_OPTION_IDS, PAGE_READY_NOTE, WRITE_ROLES, addDaysToDay, dailyStreak, dayKeyIn, firstWeekTimeline, firstWeekVisible, hasSectionAccess, isPageReadyDecision, vacationDayKeys, weekPlanWords, type FirstWeekWords, type Streak, type WeekFacts, type WeekPlanWords } from "@foundmill/shared";
+import { APPROVAL_OPTIONS, approvalSection, buildDestinationOf, repos, type DbTx, type InboxItem, type Task } from "@foundmill/db";
+import { CREDITS_CURRENCY, FLAGS } from "@foundmill/config";
+import { GOAL_OPTION_IDS, daysBetweenDays, founderTaskOf, isRealOutcome, type FounderTask, type FounderTaskId, PAGE_READY_NOTE, POSTAL_ADDRESS_NOTE, WRITE_ROLES, addDaysToDay, dailyStreak, dayKeyIn, firstWeekTimeline, firstWeekVisible, hasSectionAccess, isPageReadyDecision, isPostalAddressDecision, vacationDayKeys, weekPlanWords, type FirstWeekWords, type Streak, type WeekFacts, type WeekPlanWords } from "@foundmill/shared";
+import { pagePostDraft } from "@foundmill/shared/share-drafts";
 import { channelRowsFor } from "./channel-availability";
 import type { BusinessContext } from "../trpc";
 import { autopilotStatus } from "./autopilot";
 import { cycleStatus, type CycleStatus } from "./cycle";
+import { isProjectFounder } from "./postal-address";
 import { idsOfItem, inboxWalls, loadRedactionSource, redactInboxItem } from "./inbox-redaction";
 
 /** How many notes Today shows (the rest wait in the Inbox behind "See all in the Inbox"). */
@@ -60,6 +68,16 @@ export interface TodaySpend {
 export interface TodayView {
   /** The business's day ("2026-11-07"). */
   today: string;
+  /**
+   * Which day of the project this is in its own calendar: 1 on the day it was created (WP-04 T7). Today shows the
+   * streak and the health figures from day 2.
+   */
+  projectDay: number;
+  /**
+   * The project's first day (WP-04 D5: no streak and no health figures yet): day 1, and neither a sample business (its
+   * seed creates it "today" though it reads two years in) nor one already selling.
+   */
+  firstDay: boolean;
   /** Null without Inbox read. */
   needsYou: { items: NeedsYouItem[]; total: number } | null;
   /** Null without Development read. */
@@ -75,6 +93,24 @@ export interface TodayView {
    * quiet line pointing at the Public page tab. Always false for a sample business.
    */
   pageReady: boolean;
+  /**
+   * Posts the team wrote that wait to be shared by tap (docs/NETWORK.md F3, F7): how many, and the newest one's id, for
+   * a reader of Distribution. Today shows one quiet line to the Creative tab; it goes when the post is shared or set
+   * aside. Null when none waits; always null for a sample business. An offer, never a chore: not a note, not a count
+   * in Needs you.
+   */
+  postsReady: { count: number; assetId: string } | null;
+  /**
+   * The founder's one thing today (WP-04 T9; packages/shared founder-task.ts): publish the page, share it, approve the
+   * plan, ask five people. Null once all are done, for a sample business and for a reader without Product read.
+   */
+  founderTask: FounderTask | null;
+  /**
+   * The followers' update line (WP-08 T3), for a reader of Distribution: a draft waits to be checked (`draft`), or the
+   * project has followers and has never written to them (`invite`, with how many). Null otherwise; always null for a
+   * sample business. An offer, one quiet line to Product › Public page, never a count in Needs you.
+   */
+  followersUpdate: { kind: "draft"; updateId: string } | { kind: "invite"; followers: number } | null;
 }
 
 interface DecisionOption {
@@ -108,12 +144,14 @@ async function quickAnswerFor(tx: DbTx, ctx: BusinessContext, item: InboxItem, a
   if (goal) return { kind: "goal", quickOption: quick(GOAL_OPTION_IDS.approve, goal.status === "proposed") };
   // The page note (package 1.3): one tap answers it and the web opens Product › Public page; nothing is published.
   if (isPageReadyDecision(item.decision)) return { kind: "decision", quickOption: quick(PAGE_READY_NOTE.options.check, hasSectionAccess(ctx.membership, "product", "read")) };
+  // The founders' postal address note: one tap answers it and the web opens Settings › Integrations (founders only).
+  if (isPostalAddressDecision(item.decision)) return { kind: "decision", quickOption: quick(POSTAL_ADDRESS_NOTE.options.add, isProjectFounder(ctx)) };
   return { kind: item.type === "warning" ? "warning" : "decision", quickOption: null };
 }
 
 /** The first notes of Needs you as this reader sees them, and how many wait in all. */
 export async function needsYouFor(tx: DbTx, ctx: BusinessContext): Promise<{ items: NeedsYouItem[]; total: number }> {
-  const [page, counts] = await Promise.all([repos.inbox.list(tx, ctx.businessId, { tab: "respond", limit: TODAY_NEEDS_YOU_MAX }, ctx.userId), repos.inbox.countByTab(tx, ctx.businessId)]);
+  const [page, counts] = await Promise.all([repos.inbox.list(tx, ctx.businessId, { tab: "respond", limit: TODAY_NEEDS_YOU_MAX }, ctx.userId), repos.inbox.countByTab(tx, ctx.businessId, ctx.userId)]);
   const rows = page.items.slice(0, TODAY_NEEDS_YOU_MAX);
   if (rows.length === 0) return { items: [], total: counts.respond };
   const walls = inboxWalls(ctx.membership);
@@ -216,12 +254,13 @@ export async function firstWeekFor(tx: DbTx, ctx: BusinessContext, now: Date = n
   const dayOf = (at: Date | null | undefined): string | null => (at ? dayKeyIn(at, zone) : null);
   const base = { today: dayKeyIn(now, zone), createdOn: dayKeyIn(ctx.business.createdAt, zone), distributionStartedOn: dayOf(ctx.business.distributionStartedAt) };
   if (!firstWeekVisible(base)) return null;
-  const [signoffs, rounds, goals, channels, page] = await Promise.all([
+  const [signoffs, rounds, goals, channels, page, repository] = await Promise.all([
     repos.productSignoffs.latest(tx, ctx.businessId),
     repos.events.list(tx, ctx.businessId, { type: "cycle.completed", limit: 50 }),
     repos.goals.recent(tx, ctx.businessId, 10),
     channelRowsFor(tx, ctx),
     repos.pages.get(tx, ctx.businessId),
+    repos.integrations.codeRepository(tx, ctx.businessId),
   ]);
   const firstRound = rounds.items.reduce<Date | null>((a, e) => (a === null || e.occurredAt < a ? e.occurredAt : a), null);
   const approvedAt = goals.reduce<Date | null>((a, g) => (g.approvedAt && (a === null || g.approvedAt < a) ? g.approvedAt : a), null);
@@ -234,18 +273,73 @@ export async function firstWeekFor(tx: DbTx, ctx: BusinessContext, now: Date = n
     firstRoundOn: dayOf(firstRound),
     goalApprovedOn: dayOf(approvedAt),
     stopped: ctx.business.agentsStoppedAt !== null,
-    // Week 1 does not promise an approach no channel can make yet (founder, 2026-11-11).
-    noChannelCanRun: channels.available.length === 0,
+    // Week 1 does not promise an approach no channel can make yet (founder, 2026-11-11). The promise is the team's, so a
+    // channel the founder posts by tap does not make it true.
+    noChannelCanRun: channels.teamRuns.length === 0,
+    destination: buildDestinationOf(repository),
+  });
+}
+
+/** Up to this many of the newest events of a kind are read for the founder task (shares, follows and replies are few). */
+const FOUNDER_TASK_EVENTS = 100;
+
+/**
+ * The founder's one thing today (WP-04 T9) from rows that exist: the page, a share of it that was opened, the plan's
+ * rounds and a real follow or reply, in the reader's transaction. The overnight shift is the business row's Autopilot
+ * (on, daily, not paused), read without the workflow's status. A share that was opened moves the task on and nothing
+ * more: it is a press, never an outcome; a follow or a reply counts only when it is real (`isRealOutcome`).
+ */
+export async function founderTaskFor(tx: DbTx, ctx: BusinessContext, now: Date = new Date()): Promise<FounderTask | null> {
+  if (ctx.business.isDemo || !hasSectionAccess(ctx.membership, "product", "read")) return null;
+  const zone = ctx.business.timeZone;
+  const today = dayKeyIn(now, zone);
+  const [page, shares, signoffs, signals] = await Promise.all([
+    repos.pages.get(tx, ctx.businessId),
+    repos.events.list(tx, ctx.businessId, { type: "share.opened", limit: FOUNDER_TASK_EVENTS }),
+    repos.productSignoffs.latest(tx, ctx.businessId),
+    repos.events.list(tx, ctx.businessId, { type: ["page.followed", "lead.replied"], limit: FOUNDER_TASK_EVENTS }),
+  ]);
+  const live = page?.published ? { pitch: page.published.pitch, slug: page.slug } : null;
+  const pageShares = shares.items.filter((e) => (e.payload as { kind?: unknown }).kind === "page");
+  const rounds = [signoffs.spec, signoffs.roadmap].filter((r): r is NonNullable<typeof r> => r !== null);
+  const planNoteOpen = rounds.some((r) => r.status === "pending" && r.inboxItemId !== null);
+  const isToday = (at: Date | null | undefined) => Boolean(at && dayKeyIn(at, zone) === today);
+  const doneToday: FounderTaskId[] = [
+    ...(live && isToday(page?.publishedAt) ? (["publish_page"] as const) : []),
+    ...(live && pageShares.some((e) => isToday(e.occurredAt)) ? (["share_page"] as const) : []),
+    ...(!planNoteOpen && rounds.some((r) => r.status === "approved" && isToday(r.decidedAt)) ? (["approve_plan"] as const) : []),
+  ];
+  const b = ctx.business;
+  return founderTaskOf({
+    pagePublished: live !== null,
+    pageShared: pageShares.length > 0,
+    planNoteOpen,
+    outsideSignal: signals.items.some((e) => isRealOutcome(e)),
+    projectName: b.name,
+    pitch: live?.pitch ?? null,
+    url: live ? (pagePostDraft({ origin: ctx.env.APP_URL, slug: live.slug, projectName: b.name, pitch: live.pitch }).link ?? null) : null,
+    overnight: b.autopilotEnabled && b.autopilotCadence === "daily" && b.autopilotPausedReason === null,
+    doneToday,
   });
 }
 
 /** Everything `today.get` returns, as this reader may see it. */
+/** Today's followers' update line: a waiting draft first; else the invitation while the project never wrote to them. */
+async function followersUpdateFor(tx: DbTx, businessId: string): Promise<TodayView["followersUpdate"]> {
+  const updates = await repos.updates.list(tx, businessId, 20);
+  const draft = updates.find((u) => u.status === "draft");
+  if (draft) return { kind: "draft", updateId: draft.id };
+  if (updates.some((u) => u.status === "sending" || u.status === "sent")) return null;
+  const followers = await repos.followers.count(tx, businessId);
+  return followers > 0 ? { kind: "invite", followers } : null;
+}
+
 export async function todayView(ctx: BusinessContext, now: Date = new Date()): Promise<TodayView> {
   const m = ctx.membership;
   const week = hasSectionAccess(m, "development", "read");
   const autopilotNextOn = week ? await autopilotNextDay(ctx) : null;
   return ctx.rls(async (tx) => {
-    const [needsYou, words, spend, chief, firstWeek, pageReady] = await Promise.all([
+    const [needsYou, words, spend, chief, firstWeek, pageReady, postsReady, founderTask, followersUpdate] = await Promise.all([
       hasSectionAccess(m, "inbox", "read") ? needsYouFor(tx, ctx) : Promise.resolve(null),
       week ? weekFactsFor(tx, ctx, { now, autopilotNextOn }).then(weekPlanWords) : Promise.resolve(null),
       hasSectionAccess(m, "finance", "read") ? spendFor(tx, ctx, now) : Promise.resolve(null),
@@ -256,8 +350,17 @@ export async function todayView(ctx: BusinessContext, now: Date = new Date()): P
       !ctx.business.isDemo && hasSectionAccess(m, "product", "read")
         ? Promise.all([repos.pages.isUnpublished(tx, ctx.businessId), repos.pages.openReadyNote(tx, ctx.businessId)]).then(([unpublished, note]) => unpublished && note === null)
         : Promise.resolve(false),
+      // The quiet "a post is ready to share" line: the team's drafts that wait, for a reader of Distribution.
+      !ctx.business.isDemo && hasSectionAccess(m, "distribution", "read")
+        ? repos.teamPosts.waiting(tx, ctx.businessId).then((rows) => (rows[0] ? { count: rows.length, assetId: rows[0].id } : null))
+        : Promise.resolve(null),
+      founderTaskFor(tx, ctx, now),
+      !ctx.business.isDemo && hasSectionAccess(m, "distribution", "read") ? followersUpdateFor(tx, ctx.businessId) : Promise.resolve(null),
     ]);
-    return { today: dayKeyIn(now, ctx.business.timeZone), needsYou, week: words, spend, chiefOfStaff: chief ? { id: chief.id, name: chief.name } : null, firstWeek, pageReady };
+    const today = dayKeyIn(now, ctx.business.timeZone);
+    const projectDay = daysBetweenDays(dayKeyIn(ctx.business.createdAt, ctx.business.timeZone), today) + 1;
+    const firstDay = projectDay <= 1 && !ctx.business.isDemo && !ctx.business.distributionStartedAt;
+    return { today, projectDay, firstDay, needsYou, week: words, spend, chiefOfStaff: chief ? { id: chief.id, name: chief.name } : null, firstWeek, pageReady, postsReady, founderTask, followersUpdate };
   });
 }
 
@@ -274,21 +377,29 @@ export interface SinceLastVisit {
   wins: number;
   newDecisions: number;
   milestones: string[];
+  /** Accounts that arrived through this project's page, credited to the reader, since the previous visit (0 when `FLAGS.referralLine` is off). */
+  arrived: number;
   /** Model cost of the rounds, an Estimate (null when the reader cannot read Finance). */
   spend: { amountMinor: number; currency: string } | null;
 }
 
 export async function sinceLastVisitFor(ctx: BusinessContext, now: Date = new Date()): Promise<SinceLastVisit | null> {
-  const presence = await ctx.rls((tx) => repos.presence.get(tx, ctx.businessId, ctx.userId));
+  return sinceVisit(ctx, await ctx.rls((tx) => repos.presence.get(tx, ctx.businessId, ctx.userId)), now);
+}
+
+/** "Since you were last here" from the reader's presence row, already read. */
+async function sinceVisit(ctx: BusinessContext, presence: { previousSeenAt: string | null } | null, now: Date, options: { referralLine?: boolean } = {}): Promise<SinceLastVisit | null> {
   if (!presence?.previousSeenAt) return null;
   const since = new Date(presence.previousSeenAt);
   if (since.getTime() >= now.getTime()) return null;
   const can = (s: Parameters<typeof hasSectionAccess>[1]) => hasSectionAccess(ctx.membership, s, "read");
   const itemTypes = [...(can("crm") ? ["customer_won"] : []), ...(can("inbox") ? ["decision"] : [])];
-  const [events, items, milestones] = await Promise.all([
+  const [events, items, milestones, arrived] = await Promise.all([
     can("development") || can("finance") ? repos.notifyFacts.eventsSince(ctx.db, ctx.businessId, ["cycle.completed"], since) : Promise.resolve([]),
     itemTypes.length ? repos.notifyFacts.itemsSince(ctx.db, ctx.businessId, itemTypes, since) : Promise.resolve([]),
     can("inbox") ? repos.notifyFacts.milestonesSince(ctx.db, ctx.businessId, since) : Promise.resolve([]),
+    // Only the person credited for the page reads this, and only a count (D1, Nov 16, 2026).
+    (options.referralLine ?? FLAGS.referralLine) ? repos.attributions.countArrivedSince(ctx.db, { referrerUserId: ctx.userId, businessId: ctx.businessId, since }) : Promise.resolve(0),
   ]);
   const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
   const cost = events.reduce((n, e) => n + num((e.payload.cost as { amountMinor?: unknown } | undefined)?.amountMinor), 0);
@@ -300,9 +411,10 @@ export async function sinceLastVisitFor(ctx: BusinessContext, now: Date = new Da
     wins: items.filter((i) => i.type === "customer_won").length,
     newDecisions: items.filter((i) => i.type === "decision" && (i.state === "unread" || i.state === "read")).length,
     milestones: milestones.map((m) => m.label).slice(0, 3),
+    arrived,
     spend: can("finance") && cost > 0 ? { amountMinor: cost, currency } : null,
   };
-  const nothing = view.rounds === 0 && view.tasksDone === 0 && view.wins === 0 && view.newDecisions === 0 && view.milestones.length === 0;
+  const nothing = view.rounds === 0 && view.tasksDone === 0 && view.wins === 0 && view.newDecisions === 0 && view.milestones.length === 0 && view.arrived === 0;
   return nothing ? null : view;
 }
 
@@ -310,6 +422,29 @@ export async function sinceLastVisitFor(ctx: BusinessContext, now: Date = new Da
  * The founder's daily streak in this business (retention plan, 2026-11-11; packages/shared streak.ts): days in a row they
  * opened it, vacation days frozen. Their own visit days only (RLS), in the business's calendar. Any member.
  */
+export interface TodayVisit {
+  sinceLastVisit: SinceLastVisit | null;
+  /** The reader has been here in an earlier session (a previous presence): Today's tour waits for this (WP-04 T7). */
+  returning: boolean;
+  streak: Streak;
+}
+
+/**
+ * `today.visit`: "Since you were last here" and the daily streak in one read (2026-11-12). Both are the reader's own
+ * rows, so they are read in one RLS transaction, where `today.sinceLastVisit` and `today.streak` together open two: the
+ * web's Today asks for this one, so its first batch holds one connection less (the api's pool wedge, DECISIONS).
+ */
+export async function visitFor(ctx: BusinessContext, now: Date = new Date()): Promise<TodayVisit> {
+  const zone = ctx.business.timeZone;
+  const today = dayKeyIn(now, zone);
+  const own = await ctx.rls(async (tx) => ({
+    presence: await repos.presence.get(tx, ctx.businessId, ctx.userId),
+    visitDays: await repos.presence.visitDays(tx, ctx.businessId, ctx.userId, { from: addDaysToDay(today, -400), to: today }),
+  }));
+  const [sinceLastVisit, holidays] = await Promise.all([sinceVisit(ctx, own.presence, now), repos.holidays.list(ctx.db, ctx.businessId, 50)]);
+  return { sinceLastVisit, returning: Boolean(own.presence?.previousSeenAt), streak: dailyStreak({ today, visitDays: own.visitDays, vacationDays: vacationDayKeys(holidays, now, (d) => dayKeyIn(d, zone)) }) };
+}
+
 export async function streakFor(ctx: BusinessContext, now: Date = new Date()): Promise<Streak> {
   const zone = ctx.business.timeZone;
   const today = dayKeyIn(now, zone);

@@ -134,6 +134,11 @@ export interface MalformedMarkup {
   /** The raw text that looked like markup but did not parse (`[[ent:` without a well-formed id/display/closing). */
   raw: string;
   index: number;
+  /**
+   * Where the opening's span ends in the text it was found in (after its `]]`, or at the next opening, or at the end):
+   * `raw` is cut at 120 characters for prompts, `end` is not.
+   */
+  end: number;
 }
 
 export interface DisplayMismatch {

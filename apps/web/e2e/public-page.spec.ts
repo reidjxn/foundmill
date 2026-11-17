@@ -1,7 +1,8 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { LONG, commitThrowaway, dismissCoachmarks, settled } from "./helpers";
+import { LONG, commitThrowaway, dismissCoachmarks, expectTapTarget, settled } from "./helpers";
+import { expectNoAxeViolations } from "./axe";
 
 /**
  * A project's public page (docs/THESIS_REVIEW.md package 1.1): Product › Public page in the console (fields with
@@ -10,7 +11,8 @@ import { LONG, commitThrowaway, dismissCoachmarks, settled } from "./helpers";
  * note is answered and nothing is live, and `/p/<slug>` signed out at 390 px and 1280 px (indexable, its own title and share
  * card, no horizontal scroll, 44 px tap targets), gone once it is taken down. Package 1.6 (double opt-in): a stranger
  * signs up at 390 px signed out (the box is required, one line asking them to check their email, the same answer for the
- * same address again), and the founder sees no follower counted yet and one contact in Customers, "Follower (fo***@…)",
+ * same address again; the bot check passes on the stack's mock Turnstile token, as on the idea box, and a post without
+ * JavaScript, which cannot run it, is refused in plain words and records nothing), and the founder sees no follower counted yet and one contact in Customers, "Follower (fo***@…)",
  * with "Public page" and "Not confirmed yet". This stack runs no gateway and no ingest (one PGlite database is one
  * process), so no confirmation email goes out and the signup stays pending, which is the honest state; the email, the
  * signed link and the confirm page are covered by apps/gateway `follow-confirm.test.ts` and apps/ingest
@@ -49,17 +51,37 @@ async function expectPublicPage(page: Page, pagePath: string, width: number, sho
   const follow = page.locator("form[data-project-follow]");
   await expect(follow).toHaveCount(1);
   await expect(follow.getByRole("heading", { level: 2 })).toHaveText(/^Follow Doorstep Bikes/);
-  for (const target of [follow.getByRole("button", { name: "Follow" }), follow.getByLabel("Your email"), follow.locator("label").filter({ has: page.getByRole("checkbox") })]) {
-    expect((await target.boundingBox())!.height, "follow form tap target").toBeGreaterThanOrEqual(44);
+  for (const target of [follow.getByRole("button", { name: "Follow" }), follow.getByLabel("Your email", { exact: true }), follow.locator("label").filter({ has: page.getByRole("checkbox") })]) {
+    await expectTapTarget(target, "follow form tap target");
   }
   await expect(page.locator("textarea")).toHaveCount(0);
   // No horizontal scroll, at 390 px included.
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow, `horizontal overflow at ${width} px`).toBeLessThanOrEqual(0);
   // Every link is a 44 px target; no text under the design system's 11 px floor.
-  const made = page.getByRole("link", { name: "Made with Foundmill" });
-  await expect(made).toHaveAttribute("href", "/");
-  expect((await made.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  // The mark, as a signed-out visitor meets it (docs/NETWORK.md F2): the page's one link, small, naming this page as where they came from.
+  await expect(article.locator("[data-project-mark]")).toHaveAttribute("data-project-mark", "visitor");
+  const made = page.getByRole("link", { name: "Built on Foundmill" });
+  await expect(made).toHaveAttribute("href", `/?via=p.${pagePath.replace("/p/", "")}`);
+  await expectTapTarget(made, "Built on Foundmill is a 44 px target");
+  expect(await made.evaluate((e) => parseFloat(getComputedStyle(e).fontSize))).toBeLessThanOrEqual(13);
+  // The only other link: the bot check's disclosure under the Follow button, on every plan, in a new tab.
+  const disclosure = follow.locator("[data-follow-bot-check]");
+  await expect(disclosure).toHaveText("Protected by Cloudflare Turnstile (privacy)");
+  const privacy = disclosure.getByRole("link", { name: "Cloudflare Turnstile privacy policy (opens in a new tab)" });
+  await expect(privacy).toHaveAttribute("href", "https://www.cloudflare.com/turnstile-privacy-policy/");
+  await expect(privacy).toHaveAttribute("target", "_blank");
+  await expect(privacy).toHaveAttribute("rel", "noopener noreferrer");
+  await expectTapTarget(privacy, "the Turnstile privacy link is a 44 px target");
+  // What happens to the address, under the consent box, before the button: the Privacy Policy's section on following.
+  const howUsed = follow.locator("[data-follow-privacy]").getByRole("link", { name: "How your email is used, in the Privacy Policy (opens in a new tab)" });
+  await expect(howUsed).toHaveText("How your email is used");
+  await expect(howUsed).toHaveAttribute("href", "/privacy#following");
+  await expect(howUsed).toHaveAttribute("target", "_blank");
+  await expectTapTarget(howUsed, "the How your email is used link is a 44 px target");
+  await expect(article.getByRole("link")).toHaveCount(3);
+  // The page and its form pass axe (WCAG 2.2 AA, the stories' rules; e2e/accessibility.spec.ts has the rest).
+  await expectNoAxeViolations(page, `${pagePath} at ${width} px, signed out`);
   const smallest = await article.evaluate((root) => Math.min(...[...root.querySelectorAll<HTMLElement>("p, h1, h2, span, a")].filter((e) => e.textContent?.trim()).map((e) => parseFloat(getComputedStyle(e).fontSize))));
   expect(smallest).toBeGreaterThanOrEqual(11);
   if (process.env.E2E_UX_AUDIT) {
@@ -71,7 +93,8 @@ async function expectPublicPage(page: Page, pagePath: string, width: number, sho
 
 test.describe("public page", () => {
   test("write it, preview it at phone width, publish it after a confirmation, open it signed out at 390 and 1280 px, take it down", async ({ page, browser }) => {
-    test.setTimeout(240_000);
+    // Four widths of a published page, each now with an axe run (WP-10 T7).
+    test.setTimeout(360_000);
     const bid = await commitThrowaway(page, `Doorstep Bikes ${Date.now().toString(36)}`);
 
     // Today (packages 1.2 and 1.3): the team drafted the page first, and the Product lead's note asks for it in Needs you;
@@ -111,6 +134,9 @@ test.describe("public page", () => {
     const preview = page.getByTestId("public-page-preview");
     await expect(preview.getByRole("heading", { level: 1 })).toHaveText(PITCH);
     expect(Math.round((await preview.locator("[data-project-page]").boundingBox())!.width)).toBeLessThanOrEqual(390);
+    // The preview shows the mark as a visitor will see it, and says once that a paid plan removes it.
+    await expect(preview.locator("[data-project-mark]")).toHaveAttribute("data-project-mark", "visitor");
+    await expect(preview.getByTestId("page-mark-note")).toHaveText("The small line at the foot is removed on a paid plan.");
 
     // Publish asks first and says what becomes public.
     await editor.getByRole("button", { name: "Publish", exact: true }).click();
@@ -126,6 +152,15 @@ test.describe("public page", () => {
     expect(pagePath).toMatch(/^\/p\/[a-z0-9-]{3,40}$/);
     await expect(editor.getByRole("link", { name: "Open" })).toHaveAttribute("href", url);
 
+    // The IndexNow key file route under a live page: a name that is not a key, and a key nobody connected, are the same quiet 404 as plain text.
+    for (const name of ["not-a-key.txt", "aaaaaaaa.txt"]) {
+      const res = await page.request.get(`${pagePath}/${name}`);
+      expect(res.status(), name).toBe(404);
+      expect(res.headers()["content-type"], name).toContain("text/plain");
+      expect(res.headers()["cache-control"], name).toBe("no-store");
+      expect(await res.text(), name).not.toContain("aaaaaaaa");
+    }
+
     // Signed out, on a phone and on a desktop.
     const phone = await visitor(browser, 390, 844);
     try {
@@ -136,9 +171,9 @@ test.describe("public page", () => {
       await expect(phone.page.locator('meta[property="og:title"]')).toHaveAttribute("content", /Bike repairs at your door/);
       await expect(phone.page.locator('meta[property="og:image"]')).toHaveAttribute("content", /\/p\/[a-z0-9-]+\/opengraph-image/);
       await expect(phone.page.locator('link[rel="canonical"]')).toHaveAttribute("href", /\/p\/[a-z0-9-]+$/);
-      // Made with Foundmill goes to the landing page.
-      await phone.page.getByRole("link", { name: "Made with Foundmill" }).click();
-      await phone.page.waitForURL(/\/$/, { timeout: LONG });
+      // The mark goes to the landing page, carrying where the visitor came from.
+      await phone.page.getByRole("link", { name: "Built on Foundmill" }).click();
+      await phone.page.waitForURL(/\/\?via=p\.[a-z0-9-]+$/, { timeout: LONG });
     } finally {
       await phone.close();
     }
@@ -157,22 +192,31 @@ test.describe("public page", () => {
       const form = fan.page.locator("form[data-project-follow]");
       await expect(form).toBeVisible({ timeout: LONG });
       await expect(form).toContainText(/Leave your email and Doorstep Bikes [a-z0-9]+ will let you know when there is news\./);
-      await form.getByLabel("Your email").fill(follower);
+      // The bot check's box sits in the form and takes no room while it has nothing to show (the local stack passes the
+      // mock Turnstile token, as for the idea box; e2e/idea-box.spec.ts).
+      const widgetBox = form.locator("[data-follow-widget]");
+      await expect(widgetBox).toHaveCount(1);
+      await expect(widgetBox).toBeHidden();
+      await form.getByLabel("Your email", { exact: true }).fill(follower);
       // The box is required: without it nothing is sent and the form says why in plain words.
       await form.getByRole("button", { name: "Follow" }).click();
       await expect(form.getByRole("alert")).toHaveText("Tick the box to agree to get email about this project.", { timeout: LONG });
-      await expect(form.getByLabel("Your email")).toHaveValue(follower);
+      await expect(form.getByLabel("Your email", { exact: true })).toHaveValue(follower);
       await form.getByRole("checkbox", { name: /^I agree to get email from Doorstep Bikes [a-z0-9]+ about this project\. I can unsubscribe at any time\.$/ }).check();
       await form.getByRole("button", { name: "Follow" }).click();
       const done = fan.page.locator("[data-project-follow='done']");
       await expect(done.getByRole("status")).toHaveText(/^Check your email to confirm\. Doorstep Bikes [a-z0-9]+ will only write to you after you do\.$/, { timeout: LONG });
+      // The one moment the mark is a sentence: after a visitor follows, small, under the answer.
+      const builtOn = done.locator("[data-follow-built-on]");
+      await expect(builtOn).toHaveText(/^Doorstep Bikes [a-z0-9]+ is built on Foundmill\.\s*Start your own$/);
+      await expect(builtOn.getByRole("link", { name: "Start your own" })).toHaveAttribute("href", `/?via=p.${pagePath.replace("/p/", "")}`);
       // Nothing else is revealed, and no follower's address is on the page.
       await expect(fan.page.locator("input[type=email]")).toHaveCount(0);
       await expect(fan.page.locator("body")).not.toContainText(follower);
       // The same address again: the same answer, nothing more.
       await fan.page.goto(pagePath);
       const again = fan.page.locator("form[data-project-follow]");
-      await again.getByLabel("Your email").fill(follower.toUpperCase());
+      await again.getByLabel("Your email", { exact: true }).fill(follower.toUpperCase());
       await again.getByRole("checkbox").check();
       await again.getByRole("button", { name: "Follow" }).click();
       await expect(fan.page.locator("[data-project-follow='done']").getByRole("status")).toHaveText(/^Check your email to confirm\. Doorstep Bikes [a-z0-9]+ will only write to you after you do\.$/, { timeout: LONG });
@@ -181,16 +225,21 @@ test.describe("public page", () => {
     } finally {
       await fan.close();
     }
-    // Without JavaScript the form still posts and answers (a Server Action, a native checkbox).
+    // Without JavaScript the form still posts and answers (a Server Action, a native checkbox), but the bot check
+    // (Turnstile) cannot run without it: the plain sentence, the address kept, and nothing recorded (the founder's
+    // Customers below hold only the one follower).
     const plain = await browser.newContext({ storageState: { cookies: [], origins: [] }, viewport: { width: 390, height: 844 }, javaScriptEnabled: false });
     try {
       const p = await plain.newPage();
       await p.goto(pagePath);
       const form = p.locator("form[data-project-follow]");
-      await form.getByLabel("Your email").fill(follower.replace("follower-", "plain-"));
+      await form.getByLabel("Your email", { exact: true }).fill(follower.replace("follower-", "plain-"));
       await form.getByRole("checkbox").check();
       await form.getByRole("button", { name: "Follow" }).click();
-      await expect(p.locator("[data-project-follow='done']").getByRole("status")).toHaveText(/^Check your email to confirm\. Doorstep Bikes [a-z0-9]+ will only write to you after you do\.$/, { timeout: LONG });
+      const refused = p.locator("form[data-project-follow]");
+      await expect(refused.getByRole("alert")).toHaveText("We could not check this browser, so you are not following yet. Reload the page and try again.", { timeout: LONG });
+      await expect(refused.getByLabel("Your email", { exact: true })).toHaveValue(follower.replace("follower-", "plain-"));
+      await expect(p.locator("[data-project-follow='done']")).toHaveCount(0);
     } finally {
       await plain.close();
     }
@@ -202,6 +251,15 @@ test.describe("public page", () => {
     await settled(page);
     await expect(editor).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("page-followers")).toHaveCount(0);
+    // Signed in, the founder's own view of the public page carries the mark as plain words: no link, dimmer.
+    await page.goto(pagePath);
+    const own = page.locator("[data-project-mark]");
+    await expect(own).toHaveAttribute("data-project-mark", "member", { timeout: LONG });
+    await expect(own).toHaveText("Built on Foundmill");
+    // No link but the two every viewer of the Follow form gets: how the email is used, and the bot check's disclosure.
+    await expect(page.locator("[data-project-page]").getByRole("link")).toHaveCount(2);
+    await expect(page.locator("[data-project-page] [data-follow-privacy]").getByRole("link")).toHaveCount(1);
+    await expect(page.locator("[data-project-page] [data-follow-bot-check]").getByRole("link")).toHaveCount(1);
     await page.goto(`/b/${bid}/crm`);
     const grid = page.getByRole("grid", { name: "CRM records" });
     await expect(grid).toBeVisible({ timeout: LONG });

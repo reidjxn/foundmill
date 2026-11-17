@@ -1,4 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "regions": ["fra1"]
+  "regions": ["fra1"],
+  "git": { "deploymentEnabled": { "agent/**": false } },
+  "ignoreCommand": "bash ../../scripts/vercel-ignore.sh"
 }

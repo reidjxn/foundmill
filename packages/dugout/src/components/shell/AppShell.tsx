@@ -7,15 +7,21 @@ import { FitText } from "../foundation/FitText";
 import { useToastPlacement } from "../foundation/Toast";
 import { TooltipProvider } from "../foundation/Tooltip";
 import { ExplainPageButton } from "../guidance/ExplainPageButton";
+import { useBuilderView } from "../guidance/BuilderView";
 import { useGuided } from "../guidance/GuidanceProvider";
 import { PageExplainProvider } from "../guidance/PageExplain";
 import { Breadcrumbs } from "./Breadcrumbs";
 import { CommandPalette, KEYBOARD_SHORTCUTS_HELP_ITEM, type CommandPaletteProps, type PaletteItem } from "./CommandPalette";
-import { continueButtonAction, type ContinueHandlers } from "./ContinueButton";
+import { type ContinueHandlers } from "./ContinueButton";
 import { KeyboardHelp } from "./KeyboardHelp";
 import type { ConnectionChipProps } from "./ConnectionChip";
 import { KitBar, kitStyle, type KitBarBusinessMenu, type KitBarNav } from "./KitBar";
 import { NeedsLargerWindow } from "./NeedsLargerWindow";
+import { NarrowWindowNote } from "./NarrowWindowNote";
+
+/** sessionStorage: the narrow-window note was dismissed in this tab. */
+const NARROW_NOTE_KEY = "fm.narrow-window-note";
+import { PhoneBar, PhoneMenu } from "./PhoneBar";
 import { ProcessingStrip, processingStatusText } from "./ProcessingStrip";
 import { RightRail } from "./RightRail";
 import type { RunwayWords } from "./RunwayChip";
@@ -24,7 +30,7 @@ import type { StopAllAgentsProps } from "./StopAllAgents";
 import { TabBar, type TabBarProps } from "./TabBar";
 import { AREA_LETTERS, SHELL_FIXED_LETTERS, shellDepartmentLetters, useKeyboardMap, type DepartmentForKeys, type GoToTarget, type KeyboardMapContext } from "./keyboard";
 import type { BreadcrumbItem, ContinueState, Kit, ProcessingSegment, SidebarBrand, SidebarItem } from "./types";
-import { isViewportTooSmall, MIN_VIEWPORT_WIDTH, useViewportWidth } from "./useViewportWidth";
+import { isViewportTooNarrowToScroll, isViewportTooSmall, MIN_VIEWPORT_WIDTH, useViewportWidth } from "./useViewportWidth";
 
 export interface AppShellSidebar {
   items: SidebarItem[];
@@ -74,10 +80,10 @@ export const PROCESSING_LINE_MIN_PX = 11;
  * once it names three or more ("4 departments are working on cycle 12"), so the line never reaches an ellipsis at
  * 1280 px. The strip's tooltip and accessible name keep every department's name. Exported for tests.
  */
-export function processingLineText(segments: readonly ProcessingSegment[], active: boolean, cycleNumber?: number | null): string {
+export function processingLineText(segments: readonly ProcessingSegment[], active: boolean, cycleNumber?: number | null, builder = false): string {
   const working = active ? segments.filter((s) => s.active).length : 0;
-  if (working < 3) return processingStatusText(segments, active, cycleNumber);
-  const on = typeof cycleNumber === "number" && cycleNumber > 0 ? ` on cycle ${cycleNumber}` : "";
+  if (working < 3) return processingStatusText(segments, active, cycleNumber, builder);
+  const on = builder && typeof cycleNumber === "number" && cycleNumber > 0 ? ` on cycle ${cycleNumber}` : "";
   return `${working} departments are working${on}`;
 }
 
@@ -178,12 +184,24 @@ export interface AppShellProps extends Omit<HTMLAttributes<HTMLDivElement>, "tit
   businessMenu?: KitBarBusinessMenu;
   /** The live connection is down: the kit bar says so (ConnectionChip). */
   connection?: ConnectionChipProps | null;
-  /** BUILD §5.5 callbacks. Space, G chords, / and ⌘K, ? and Esc are wired by the shell itself. */
+  /** BUILD §5.5 callbacks. G chords, / and ⌘K, ? and Esc are wired by the shell itself; `singleKeys` turns the single keys on (default off, WP-04 T13). */
   keyboard?: AppShellKeyboard;
   /** Measured width; defaults to the window's. Below 1280 px only NeedsLargerWindow renders. */
   viewportWidth?: number;
   /** Minimum width (default 1280). */
   minViewportWidth?: number;
+  /**
+   * This screen works on a phone (CLAUDE.md "Small screens"). Under the minimum width the shell draws its phone layout
+   * instead of NeedsLargerWindow: a compact top bar with a menu button, no sidebar and no right rail, the page's tabs
+   * scrolling sideways, the content at full width with the 16 px gutter and the shell as an `@container` (so a page can
+   * use `@page-wide:`). At or over the minimum width, and without this prop, nothing changes.
+   */
+  phone?: boolean;
+  /**
+   * With the phone layout: draw the page's "Explain this page" button in the phone title row (WP-04 T7, Today only).
+   * The desktop tab row always draws it; on a phone only the screens that ask for it do, to keep the row short.
+   */
+  phoneExplain?: boolean;
   children?: ReactNode;
 }
 
@@ -297,6 +315,8 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
     keyboard,
     viewportWidth,
     minViewportWidth = MIN_VIEWPORT_WIDTH,
+    phone = false,
+    phoneExplain = false,
     className,
     style,
     children,
@@ -307,6 +327,22 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
   const measured = useViewportWidth();
   const width = viewportWidth ?? measured;
   const tooSmall = isViewportTooSmall(width, minViewportWidth);
+  const phoneLayout = phone && tooSmall;
+  const scrollShell = tooSmall && !phone && !isViewportTooNarrowToScroll(width);
+  const [narrowNoteOpen, setNarrowNoteOpen] = useState(() => {
+    try {
+      return typeof window === "undefined" || window.sessionStorage.getItem(NARROW_NOTE_KEY) !== "hidden";
+    } catch {
+      return true;
+    }
+  });
+  const dismissNarrowNote = useCallback(() => {
+    setNarrowNoteOpen(false);
+    try {
+      window.sessionStorage.setItem(NARROW_NOTE_KEY, "hidden");
+    } catch {}
+  }, []);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const items = useMemo(() => withSidebarKeys(sidebar.items), [sidebar.items]);
   const departments = useMemo(() => departmentsForKeys(items), [items]);
@@ -325,11 +361,11 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
   const guided = useGuided();
 
   const { state, cycleNumber, pulseKey, disabled: continueDisabled, pending: continuePending, caveat: continueCaveat, hint: continueHint, ...continueHandlers } = continueButton;
-  const continueAction = continueButtonAction(state, continueHandlers);
   const notice = processing.notice?.trim() || null;
-  const processingText = notice ?? processingStatusText(processing.segments, processing.active, processing.cycleNumber);
+  const builder = useBuilderView();
+  const processingText = notice ?? processingStatusText(processing.segments, processing.active, processing.cycleNumber, builder);
   // The line in the tab bar: the strip's sentence while guidance is on; the answer to a press for everyone, while it stands.
-  const lineText = notice ?? (guided ? processingLineText(processing.segments, processing.active, processing.cycleNumber) : null);
+  const lineText = notice ?? (guided ? processingLineText(processing.segments, processing.active, processing.cycleNumber, builder) : null);
   // The Help group always offers the keyboard shortcuts; the app adds its defined terms (apps/web/lib/search.ts).
   const helpItems = useMemo(() => {
     const given = search?.helpItems ?? [];
@@ -359,9 +395,11 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
 
   const { chordPending, cancelChord } = useKeyboardMap({
     enabled: keyboard?.enabled ?? true,
+    // Off unless the account turned single keys on (WP-04 T13); Space is never a page shortcut (Continue takes it only
+    // with focus, as any button does).
+    singleKeys: keyboard?.singleKeys === true,
     areas,
     departments,
-    onContinue: continueAction && !continueDisabled && !continuePending ? continueAction : undefined,
     onRefreshInbox: keyboard?.onRefreshInbox,
     onGoTo: goTo,
     onSearch: openSearch,
@@ -381,14 +419,101 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
   // Toasts stack bottom left beside the sidebar, at its real width (collapsed or not), while the shell is mounted.
   useToastPlacement({ position: "bottom-left", sidebar: sidebar.collapsed ? "collapsed" : "expanded" });
 
-  if (tooSmall) return <NeedsLargerWindow width={width} minWidth={minViewportWidth} />;
+  // Below 640 px the console asks for a larger window; from 640 px it renders and scrolls sideways (decision 3).
+  if (tooSmall && !phone && isViewportTooNarrowToScroll(width)) return <NeedsLargerWindow width={width} minWidth={minViewportWidth} />;
 
   const homeItem = items.find((it) => it.fixed === "home");
   const rootStyle: CSSProperties = { ...kitStyle(kit), ...style };
   // A first-time callout (Coachmark, next wave) never starts while a cycle runs or an overlay is open.
   const coachmarkPause = state.kind === "processing" || searchOpen || helpOpen || stopAll.open === true;
 
-  return (
+  if (phoneLayout) {
+    const tabsLeading = tabs ? { ...tabs, trailing: undefined } : null;
+    return (
+      <TooltipProvider delayDuration={400} skipDelayDuration={300}>
+        <PageExplainProvider>
+          <div
+            ref={ref}
+            data-testid="app-shell"
+            data-phone=""
+            data-game-mode={mode}
+            data-chord-pending={chordPending || undefined}
+            data-coachmark-pause={coachmarkPause || undefined}
+            className={cn("@container flex h-dvh w-full min-w-0 flex-col overflow-hidden canvas-lit text-primary type-outer", className)}
+            style={rootStyle}
+            {...rest}
+          >
+            {/* The page's header (banner): the skip link, the bar, the title and the tabs, so every one of them is inside a
+                landmark (axe "region" at 390 px, WP-10 T7). The skip link stays the first thing Tab reaches. */}
+            <header className="flex shrink-0 flex-col" data-testid="shell-header">
+            <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded-panel focus:bg-panel-alt focus:px-2 focus:py-1">
+              Skip to content
+            </a>
+            <PhoneBar
+              kit={kit}
+              logoSrc={logoSrc}
+              logo={logo}
+              businessName={businessName}
+              continueButton={{ state, cycleNumber, pulseKey, disabled: continueDisabled, pending: continuePending, caveat: continueCaveat, hint: continueHint, ...continueHandlers }}
+              continueSlot={continueSlot}
+              stopAll={stopAll}
+              menuOpen={menuOpen}
+              onMenuOpenChange={setMenuOpen}
+            />
+            <ProcessingStrip segments={processing.segments} active={processing.active} cycleNumber={processing.cycleNumber} label={processingText} data-notice={notice ? "" : undefined} />
+            <div className="rule-under flex min-h-tap shrink-0 items-center gap-2 px-gutter" data-testid="phone-title-row">
+              <h1 className="t-display-md min-w-0 flex-1 truncate" data-testid="phone-screen-title">
+                {screenTitle}
+              </h1>
+              {pageActions || phoneExplain ? (
+                <div className="flex shrink-0 items-center [&_a]:min-h-tap [&_button]:min-h-tap">
+                  {pageActions}
+                  {phoneExplain ? <ExplainPageButton /> : null}
+                </div>
+              ) : null}
+            </div>
+            {tabsLeading ? (
+              <div className="flex shrink-0 items-stretch" data-testid="phone-tabs">
+                <div className="min-w-0 flex-1 overflow-x-auto" data-testid="phone-tabs-scroll">
+                  <TabBar {...tabsLeading} className={cn("min-h-tap min-w-max [&_.shell-tab]:min-h-tap", tabsLeading.className)} />
+                </div>
+                {tabs?.trailing ? <div className="rule-under flex shrink-0 items-center gap-2 pr-gutter [&_a]:min-h-tap [&_button]:min-h-tap">{tabs.trailing}</div> : null}
+              </div>
+            ) : null}
+            </header>
+            <main id="main" tabIndex={-1} className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto outline-none" data-testid="shell-content">
+              {children}
+            </main>
+            <PhoneMenu
+              open={menuOpen}
+              onOpenChange={setMenuOpen}
+              items={items}
+              activeId={sidebar.activeId}
+              businessName={businessName}
+              onSelect={(item) => {
+                cancelChord();
+                onNavigate?.(item);
+              }}
+              onSearch={search || onSearch ? openSearch : undefined}
+            />
+            {search ? (
+              <CommandPalette
+                {...search}
+                business={search.business ?? { name: businessName, href: homeItem?.href, logo: logoSrc !== undefined || !logo ? <BusinessLogo src={logoSrc} name={businessName} primary={kit.primary} size={20} /> : undefined }}
+                helpItems={helpItems}
+                onSelect={onPaletteSelect}
+                open={searchOpen}
+                onOpenChange={setSearchOpen}
+              />
+            ) : null}
+            <KeyboardHelp open={helpOpen} onOpenChange={setHelpOpen} departments={departments} areas={areas} singleKeys={keyboard?.singleKeys === true} />
+          </div>
+        </PageExplainProvider>
+      </TooltipProvider>
+    );
+  }
+
+  const shellTree = (
     <TooltipProvider delayDuration={400} skipDelayDuration={300}>
       <PageExplainProvider>
       <div
@@ -397,7 +522,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
         data-game-mode={mode}
         data-chord-pending={chordPending || undefined}
         data-coachmark-pause={coachmarkPause || undefined}
-        className={cn("flex h-screen w-full min-w-(--min-viewport) overflow-hidden canvas-lit text-primary", className)}
+        className={cn("@container flex h-screen w-full overflow-hidden canvas-lit text-primary", !phone && "min-w-(--min-viewport)", className)}
         style={rootStyle}
         {...rest}
       >
@@ -418,6 +543,8 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
           }}
         />
         <div className="flex min-w-0 flex-1 flex-col">
+          {/* The page's header (banner): the bar, the tab row and the breadcrumbs, so every one of them is inside a landmark. */}
+          <header className="flex shrink-0 flex-col" data-testid="shell-header">
           <KitBar
             kit={kit}
             logoSrc={logoSrc}
@@ -479,6 +606,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
               {pageActions}
             </div>
           ) : null}
+          </header>
           <div className="flex min-h-0 flex-1">
             <main id="main" tabIndex={-1} className="min-w-0 flex-1 overflow-auto outline-none" data-testid="shell-content">
               {children}
@@ -500,9 +628,18 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
             onOpenChange={setSearchOpen}
           />
         ) : null}
-        <KeyboardHelp open={helpOpen} onOpenChange={setHelpOpen} departments={departments} areas={areas} />
+        <KeyboardHelp open={helpOpen} onOpenChange={setHelpOpen} departments={departments} areas={areas} singleKeys={keyboard?.singleKeys === true} />
       </div>
       </PageExplainProvider>
     </TooltipProvider>
   );
+  // Between 640 and 1279 px (founder decision 3): the console at its 1280 px layout, the window scrolling sideways.
+  if (scrollShell)
+    return (
+      <div className="h-screen w-full overflow-x-auto overflow-y-hidden" data-testid="scroll-shell">
+        {shellTree}
+        {narrowNoteOpen ? <NarrowWindowNote onDismiss={dismissNarrowNote} /> : null}
+      </div>
+    );
+  return shellTree;
 });

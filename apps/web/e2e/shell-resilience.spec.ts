@@ -118,7 +118,7 @@ test.describe("shell resilience", () => {
     await switcher.getByRole("option", { name: /^Today$/ }).click();
     await expect(page).toHaveURL(new RegExp(`/b/${NORTHWIND_BUSINESS_ID}/today$`));
     switcher = await openSwitcher(page);
-    await switcher.getByRole("option", { name: /Create a new business/ }).click();
+    await switcher.getByRole("option", { name: /Start a new project/ }).click();
     await expect(page).toHaveURL(/\/new$/, { timeout: LONG });
   });
 
@@ -127,7 +127,7 @@ test.describe("shell resilience", () => {
     await page.keyboard.press("Control+k");
     const input = page.getByRole("combobox").or(page.getByPlaceholder(/search/i)).first();
     await input.fill("new business");
-    await expect(page.getByRole("option", { name: /Create a new business/ }).first()).toBeVisible();
+    await expect(page.getByRole("option", { name: /Start a new project/ }).first()).toBeVisible();
     await page.keyboard.press("Escape");
     await page.keyboard.press("Control+k");
     await expect(input).toHaveValue("");
@@ -136,7 +136,7 @@ test.describe("shell resilience", () => {
     await input.fill("Ledgerly");
     // The seeded Ledgerly alone: the foundations spec takes charge of throwaways named "Ledgerly <suffix>", whose rows
     // read "Switch to Ledgerly <suffix>".
-    const ledgerly = page.getByRole("option", { name: /^Switch to Ledgerly\s*Switch business$/ });
+    const ledgerly = page.getByRole("option", { name: /^Switch to Ledgerly\s*Switch project$/ });
     await expect(ledgerly).toBeVisible({ timeout: LONG });
     await ledgerly.click();
     await expect(page).toHaveURL(new RegExp(`/b/${LEDGERLY_BUSINESS_ID}/today$`), { timeout: LONG });
@@ -243,11 +243,13 @@ test.describe("keyboard focus is visible (A11Y-02, A11Y-20)", () => {
   });
 });
 
-test.describe("a phone gets the larger-window page, not a slice of the desktop one (PAS-4)", () => {
+test.describe("a phone gets a page at its real width, not a slice of the desktop one (PAS-4)", () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
-  test("the sign-in page shows NeedsLargerWindow", async ({ page }) => {
+  test("the sign-in page, which works from 390 px, renders at the phone's real width (e2e/login.spec.ts checks it fits)", async ({ page }) => {
     await page.goto("/login");
-    await expect(page.getByTestId("needs-larger-window")).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("brand-panel")).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
     await expect(page.locator('meta[name="viewport"]')).toHaveAttribute("content", /width=device-width/);
+    expect(await page.evaluate(() => window.innerWidth)).toBe(390);
   });
 });

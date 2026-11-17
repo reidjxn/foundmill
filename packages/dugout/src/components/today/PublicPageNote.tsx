@@ -18,19 +18,22 @@ export interface PublicPageNoteProps {
   href: string;
   span?: GridSpan;
   className?: string;
+  /** Another quiet line to the same tab (WP-08 T3: the followers' update); default `PUBLIC_PAGE_NOTE_WORDS.line`. */
+  line?: string;
+  "data-testid"?: string;
 }
 
-export function PublicPageNote({ href, span = 12, className }: PublicPageNoteProps) {
+export function PublicPageNote({ href, span = 12, className, line = PUBLIC_PAGE_NOTE_WORDS.line, "data-testid": testId = "public-page-note" }: PublicPageNoteProps) {
   const renderLink = useShellLink();
   return (
-    <div className={cn("min-w-0", spanClass(span), className)} data-testid="public-page-note">
+    <div className={cn("min-w-0", spanClass(span), className)} data-testid={testId}>
       {renderLink({
         href,
-        className: "group flex min-h-control-lg items-center gap-2.5 rounded-md border border-line bg-surface-1 px-panel-pad text-secondary transition-colors duration-hover hover:border-line-strong hover:text-primary focus-ring",
+        className: "group flex min-h-tap items-center gap-2.5 py-2 @page-wide:min-h-control-lg @page-wide:py-0 rounded-md border border-line bg-surface-1 px-panel-pad text-secondary transition-colors duration-hover hover:border-line-strong hover:text-primary focus-ring",
         children: (
           <>
             <Icon icon={Globe} className="shrink-0 text-tertiary group-hover:text-secondary" />
-            <span className="t-body min-w-0 flex-1">{PUBLIC_PAGE_NOTE_WORDS.line}</span>
+            <span className="t-body min-w-0 flex-1">{line}</span>
             <span className="t-action inline-flex shrink-0 items-center gap-1">
               {PUBLIC_PAGE_NOTE_WORDS.open}
               <Icon icon={ArrowRight} size="inline" />

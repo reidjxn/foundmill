@@ -1,11 +1,13 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AppShell, KIT_VARIABLES, PROCESSING_LINE_MIN_PX, processingLineText, sidebarItemForTarget, withSidebarKeys, type AppShellProps } from "./AppShell";
 import { GuidanceProvider } from "../guidance/GuidanceProvider";
+import { Explainer } from "../guidance/Explainer";
 import { SAMPLE_LOGOS } from "../foundation/logo-samples";
 import { kitBarGradient, kitStyle } from "./KitBar";
 import { kitRamp } from "../../lib/colour";
+import { NEEDS_LARGER_WINDOW_WORDS } from "./NeedsLargerWindow";
 import { FIXTURE_TODAY, NORTHWIND_KIT, NORTHWIND_SEGMENTS, NORTHWIND_SIDEBAR, PALETTE_ITEMS } from "./fixtures";
 
 beforeAll(() => {
@@ -32,17 +34,118 @@ function shellProps(over: Partial<AppShellProps> = {}): AppShellProps {
 }
 
 describe("AppShell", () => {
-  it("renders NeedsLargerWindow only, below 1280 px", () => {
-    render(<AppShell {...shellProps({ viewportWidth: 1279 })} />);
+  it("renders NeedsLargerWindow only, below 640 px", () => {
+    render(<AppShell {...shellProps({ viewportWidth: 639 })} />);
     expect(screen.getByTestId("needs-larger-window")).toBeTruthy();
-    expect(screen.getByText("This needs a larger window")).toBeTruthy();
-    expect(screen.getByText("1279 px")).toBeTruthy();
+    // The note's own words (WP-03 T3: no pixel line by default; NeedsLargerWindow.test.tsx).
+    expect(screen.getByText(NEEDS_LARGER_WINDOW_WORDS.title)).toBeTruthy();
     // No mark of any kind (the FM monogram is reserved for the favicon): the only image is the Lucide monitor glyph.
     const svgs = [...screen.getByTestId("needs-larger-window").querySelectorAll("svg")];
     expect(svgs.every((svg) => svg.classList.contains("lucide"))).toBe(true);
     expect(svgs.length).toBe(1);
     expect(screen.queryByTestId("app-shell")).toBeNull();
     expect(screen.queryByText("Content")).toBeNull();
+  });
+
+  it("between 640 and 1279 px renders the console at its 1280 px floor in a sideways-scrolling shell, with a note dismissed once (decision 3)", () => {
+    window.sessionStorage.clear();
+    const { unmount } = render(<AppShell {...shellProps({ viewportWidth: 1152 })} />);
+    expect(screen.queryByTestId("needs-larger-window")).toBeNull();
+    expect(screen.getByTestId("scroll-shell").className).toContain("overflow-x-auto");
+    expect(screen.getByTestId("app-shell").className).toContain("min-w-(--min-viewport)");
+    fireEvent.click(screen.getByRole("button", { name: "Hide this note" }));
+    expect(screen.queryByTestId("narrow-window-note")).toBeNull();
+    unmount();
+    render(<AppShell {...shellProps({ viewportWidth: 1152 })} />);
+    expect(screen.queryByTestId("narrow-window-note")).toBeNull();
+  });
+
+  describe("phone mode (package 2.1)", () => {
+    it("with `phone` under 1280 px draws the phone layout: no larger-window ask, no sidebar, no floor, one @container", () => {
+      render(<AppShell {...shellProps({ viewportWidth: 390, phone: true, tabs: { tabs: [{ id: "today", label: "Today", href: "#t" }, { id: "details", label: "Details", href: "#d" }], activeId: "today" } })} />);
+      expect(screen.queryByTestId("needs-larger-window")).toBeNull();
+      const root = screen.getByTestId("app-shell");
+      expect(root.hasAttribute("data-phone")).toBe(true);
+      expect(root.className, "outer type on a phone (WP-10 T5)").toContain("type-outer");
+      expect(root.className).toContain("@container");
+      expect(root.className).not.toContain("min-w-(--min-viewport)");
+      expect(screen.getByTestId("phone-bar")).toBeTruthy();
+      expect(screen.queryByTestId("kit-bar")).toBeNull();
+      expect(screen.queryByRole("navigation", { name: "Primary" })).toBeNull();
+      expect(screen.getByText("Content")).toBeTruthy();
+      expect(screen.getByRole("heading", { name: "Home" })).toBeTruthy();
+      expect(screen.getByRole("tab", { name: "Today" })).toBeTruthy();
+      // Continue and Stop all agents stay reachable, each a finger's size.
+      expect(screen.getByRole("button", { name: /Continue/ }).className).toContain("min-h-tap");
+      expect(screen.getByTestId("stop-all-trigger").className).toContain("min-h-tap");
+    });
+
+    it("draws Explain this page in the phone title row only with `phoneExplain` (WP-04 T7, Today)", () => {
+      const page = <Explainer screenId="today" purpose="Today is the front door." action="Answer Needs you." watchFor="Continue runs the team." />;
+      const { unmount } = render(
+        <GuidanceProvider value={{ guidance: "on", loaded: true }}>
+          <AppShell {...shellProps({ viewportWidth: 390, phone: true, phoneExplain: true, children: page })} />
+        </GuidanceProvider>,
+      );
+      const row = screen.getByTestId("phone-title-row");
+      expect(within(row).getByRole("button", { name: /Explain this page/ })).toBeTruthy();
+      unmount();
+      render(
+        <GuidanceProvider value={{ guidance: "on", loaded: true }}>
+          <AppShell {...shellProps({ viewportWidth: 390, phone: true, children: page })} />
+        </GuidanceProvider>,
+      );
+      expect(within(screen.getByTestId("phone-title-row")).queryByRole("button", { name: /Explain this page/ })).toBeNull();
+    });
+
+    it("leaves out the right rail on a phone", () => {
+      render(<AppShell {...shellProps({ viewportWidth: 390, phone: true, rightRail: { open: true, onOpenChange: vi.fn(), title: "Rail", children: <p>Rail body</p> } })} />);
+      expect(screen.queryByText("Rail body")).toBeNull();
+    });
+
+    it("the menu button opens the sidebar's items in a panel; choosing one navigates and closes it", async () => {
+      const onNavigate = vi.fn();
+      render(<AppShell {...shellProps({ viewportWidth: 390, phone: true, onNavigate })} />);
+      expect(screen.queryByTestId("phone-menu")).toBeNull();
+      await userEvent.click(screen.getByRole("button", { name: "Menu" }));
+      const menu = screen.getByTestId("phone-menu");
+      const names = [...menu.querySelectorAll("[data-sidebar-item]")].map((el) => el.getAttribute("data-sidebar-item"));
+      expect(names).toEqual(NORTHWIND_SIDEBAR.filter((it) => !it.disabled).map((it) => it.id));
+      for (const row of menu.querySelectorAll("[data-sidebar-item]")) expect(row.className).toContain("min-h-tap");
+      const first = NORTHWIND_SIDEBAR.find((it) => !it.disabled)!;
+      await userEvent.click(menu.querySelector(`[data-sidebar-item="${first.id}"]`)!);
+      expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({ id: first.id }));
+      expect(screen.queryByTestId("phone-menu")).toBeNull();
+    });
+
+    it("Esc closes the menu", async () => {
+      render(<AppShell {...shellProps({ viewportWidth: 390, phone: true })} />);
+      await userEvent.click(screen.getByRole("button", { name: "Menu" }));
+      expect(screen.getByTestId("phone-menu")).toBeTruthy();
+      await userEvent.keyboard("{Escape}");
+      expect(screen.queryByTestId("phone-menu")).toBeNull();
+    });
+
+    it("at 1280 px and over `phone` changes nothing: the sidebar, the kit bar and no menu button", () => {
+      render(<AppShell {...shellProps({ viewportWidth: 1280, phone: true })} />);
+      const root = screen.getByTestId("app-shell");
+      expect(root.hasAttribute("data-phone")).toBe(false);
+      expect(screen.getByRole("navigation", { name: "Primary" })).toBeTruthy();
+      expect(screen.getByTestId("kit-bar")).toBeTruthy();
+      expect(screen.queryByTestId("phone-bar")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Menu" })).toBeNull();
+    });
+
+    it("without `phone` the 1280 px floor stays: NeedsLargerWindow below it, the floor class and an @container root above it", () => {
+      const { unmount } = render(<AppShell {...shellProps({ viewportWidth: 390 })} />);
+      expect(screen.getByTestId("needs-larger-window")).toBeTruthy();
+      expect(screen.queryByTestId("phone-bar")).toBeNull();
+      unmount();
+      render(<AppShell {...shellProps({ viewportWidth: 1440 })} />);
+      const root = screen.getByTestId("app-shell");
+      expect(root.className).toContain("min-w-(--min-viewport)");
+      expect(root.className).toContain("@container");
+    });
   });
 
   it("passes the business's spend line and currency to the top bar's chip, which says the setting in words", () => {
@@ -145,19 +248,19 @@ describe("AppShell", () => {
     expect(mark.querySelector("path")).toBeNull();
   });
 
-  it("the logo and name are Switch business: the founder's other businesses, Create a new business and Today (audit IAE-08; Today since Nov 7, 2026)", async () => {
+  it("the logo and name are Switch project: the founder's other businesses, Start a new project and Today (audit IAE-08; Today since Nov 7, 2026)", async () => {
     const user = userEvent.setup();
     const onNavigate = vi.fn();
     const onOpenBusiness = vi.fn();
     const onNewBusiness = vi.fn();
     const businessMenu = { businesses: [{ id: "nw", name: "Northwind Skincare", current: true }, { id: "lg", name: "Ledgerly" }], onOpenBusiness, onNewBusiness };
     render(<AppShell {...shellProps({ onNavigate, businessMenu })} />);
-    const trigger = screen.getByRole("button", { name: "Switch business: Northwind Skincare" });
+    const trigger = screen.getByRole("button", { name: "Switch project: Northwind Skincare" });
     await user.click(trigger);
     await user.click(await screen.findByRole("option", { name: /Ledgerly/ }));
     expect(onOpenBusiness).toHaveBeenCalledWith("lg");
     await user.click(trigger);
-    await user.click(await screen.findByRole("option", { name: /Create a new business/ }));
+    await user.click(await screen.findByRole("option", { name: /Start a new project/ }));
     expect(onNewBusiness).toHaveBeenCalledTimes(1);
     await user.click(trigger);
     await user.click(await screen.findByRole("option", { name: /^Today$/ }));
@@ -186,11 +289,11 @@ describe("AppShell", () => {
   it("says in words what the strip shows: the tooltip and status sentence, and a line in the tab bar while guidance is on (B2)", () => {
     const tabs = { tabs: [{ id: "a", label: "Overview" }, { id: "b", label: "Cash" }, { id: "c", label: "Runway" }], activeId: "b" };
     const { unmount } = render(<AppShell {...shellProps({ tabs, processing: { segments: NORTHWIND_SEGMENTS, active: true, cycleNumber: 3 } })} />);
-    const sentence = "Product, Formulation Lab, Distribution and Operations are working on cycle 3";
+    const sentence = "Product, Formulation Lab, Distribution and Operations are working";
     expect(screen.getByRole("status", { name: sentence })).toBeTruthy();
     // Four departments: the tab bar says the count, so the line never reaches an ellipsis at 1280 px; the strip keeps the names.
     const line = screen.getByTestId("processing-line");
-    expect(line.textContent).toBe("4 departments are working on cycle 3");
+    expect(line.textContent).toBe("4 departments are working");
     expect(line.closest("[role=tablist]")).toBeNull();
     // A FitText box: it steps down to its floor before it truncates (DESIGN §2), not a plain `truncate`.
     expect(line.hasAttribute("data-fit-box")).toBe(true);
@@ -201,7 +304,7 @@ describe("AppShell", () => {
         <AppShell {...shellProps({ tabs, processing: { segments: NORTHWIND_SEGMENTS, active: false } })} />
       </GuidanceProvider>,
     );
-    expect(screen.getByRole("status", { name: "No cycle running" })).toBeTruthy();
+    expect(screen.getByRole("status", { name: "The team is idle" })).toBeTruthy();
     expect(screen.queryByTestId("processing-line")).toBeNull();
   });
 
@@ -212,8 +315,8 @@ describe("AppShell", () => {
         <AppShell {...shellProps({ tabs, processing: { segments: NORTHWIND_SEGMENTS, active: false, notice: "Cycle 2 started: 6 tasks ready to build" } })} />
       </GuidanceProvider>,
     );
-    // Never "No cycle running" over a press that was answered.
-    expect(screen.queryByRole("status", { name: "No cycle running" })).toBeNull();
+    // Never "The team is idle" over a press that was answered.
+    expect(screen.queryByRole("status", { name: "The team is idle" })).toBeNull();
     expect(screen.getByRole("status", { name: "Cycle 2 started: 6 tasks ready to build" }).hasAttribute("data-notice")).toBe(true);
     const line = screen.getByTestId("processing-line");
     expect(line.textContent).toBe("Cycle 2 started: 6 tasks ready to build");
@@ -228,12 +331,12 @@ describe("AppShell", () => {
 
   it("words the tab bar's processing line: the sentence for one or two departments, a count from three (review F45)", () => {
     const seg = (label: string, active: boolean) => ({ id: label, label, dept: "dept-1" as const, active });
-    expect(processingLineText([seg("Product", true), seg("Finance", true), seg("Legal", false)], true, 12)).toBe("Product and Finance are working on cycle 12");
+    expect(processingLineText([seg("Product", true), seg("Finance", true), seg("Legal", false)], true, 12)).toBe("Product and Finance are working");
     expect(processingLineText([seg("Product", true)], true, null)).toBe("Product is working");
     expect(processingLineText([seg("Product", true), seg("Development", true), seg("Distribution", true), seg("Finance", true)], true, 12)).toBe(
-      "4 departments are working on cycle 12",
+      "4 departments are working",
     );
-    expect(processingLineText([seg("Product", true), seg("Development", true), seg("Distribution", true)], false, 12)).toBe("No cycle running");
+    expect(processingLineText([seg("Product", true), seg("Development", true), seg("Distribution", true)], false, 12)).toBe("The team is idle");
     expect(PROCESSING_LINE_MIN_PX).toBe(11);
   });
 
@@ -256,7 +359,7 @@ describe("AppShell", () => {
     unmount();
     render(<AppShell {...shellProps({ continueButton: { state: { kind: "processing" }, cycleNumber: 4 } })} />);
     expect(screen.getByTestId("app-shell").getAttribute("data-coachmark-pause")).toBe("true");
-    expect(screen.getByRole("button", { name: "Pause the running cycle" }).getAttribute("data-coachmark")).toBe("continue");
+    expect(screen.getByRole("button", { name: "Pause the team" }).getAttribute("data-coachmark")).toBe("continue");
   });
 
   it("fills in sidebar chords and routes G chords to onNavigate", async () => {
@@ -271,7 +374,7 @@ describe("AppShell", () => {
     expect(sidebarItemForTarget(keyed, { kind: "inbox" })?.id).toBe("inbox");
     expect(sidebarItemForTarget(keyed, { kind: "area", area: "money" })?.id).toBe("area-money");
     expect(sidebarItemForTarget(keyed, { kind: "department", id: "d-studio" })?.id).toBe("d-studio");
-    render(<AppShell {...shellProps({ onNavigate })} />);
+    render(<AppShell {...shellProps({ onNavigate, keyboard: { singleKeys: true } })} />);
     expect(screen.getByRole("link", { name: "Money" }).getAttribute("aria-keyshortcuts")).toBe("G M");
     document.body.focus();
     await user.keyboard("gm");
@@ -291,7 +394,7 @@ describe("AppShell", () => {
     const sidebar = NORTHWIND_SIDEBAR.map((i) => (i.id === "d-studio" ? { ...i, shortcut: "Q" } : i));
     expect(withSidebarKeys(sidebar).find((i) => i.id === "d-studio")?.keys).toEqual(["G", "Q"]);
     expect(withSidebarKeys(NORTHWIND_SIDEBAR.map((i) => (i.id === "d-studio" ? { ...i, shortcut: "M" } : i))).find((i) => i.id === "d-studio")?.keys).toEqual(["G", "S"]);
-    render(<AppShell {...shellProps({ onNavigate, sidebar: { items: sidebar, collapsed: false, onCollapsedChange: () => {} } })} />);
+    render(<AppShell {...shellProps({ onNavigate, keyboard: { singleKeys: true }, sidebar: { items: sidebar, collapsed: false, onCollapsedChange: () => {} } })} />);
     expect(screen.getByRole("link", { name: "Studio, 1 item" }).getAttribute("aria-keyshortcuts")).toBe("G Q");
     document.body.focus();
     await user.keyboard("gq");
@@ -303,15 +406,24 @@ describe("AppShell", () => {
     expect(help.textContent).not.toContain("Contacts");
   });
 
-  it("Space continues, / opens the palette, ? opens help, Esc closes them in order", async () => {
+  it("Space on the page never continues; / opens the palette, ? opens help, Esc closes them in order (WP-04 T13)", async () => {
     const user = userEvent.setup();
     const onContinue = vi.fn();
     const onSelect = vi.fn();
     const onEscape = vi.fn();
-    render(<AppShell {...shellProps({ continueButton: { state: { kind: "idle" }, onContinue }, search: { items: PALETTE_ITEMS, onSelect }, keyboard: { onEscape } })} />);
+    const onNavigate = vi.fn();
+    render(<AppShell {...shellProps({ onNavigate, continueButton: { state: { kind: "idle" }, onContinue }, search: { items: PALETTE_ITEMS, onSelect }, keyboard: { onEscape } })} />);
     document.body.focus();
     await user.keyboard(" ");
+    expect(onContinue).not.toHaveBeenCalled();
+    // Single keys are off by default: a G chord goes nowhere.
+    await user.keyboard("gm");
+    expect(onNavigate).not.toHaveBeenCalled();
+    // Continue still takes Space when it has focus, as any button does.
+    screen.getByRole("button", { name: /^Continue/ }).focus();
+    await user.keyboard(" ");
     expect(onContinue).toHaveBeenCalledTimes(1);
+    document.body.focus();
     await user.keyboard("/");
     expect(await screen.findByTestId("command-palette")).toBeTruthy();
     await user.keyboard("{Escape}");

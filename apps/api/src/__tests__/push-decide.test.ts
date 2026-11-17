@@ -3,7 +3,7 @@
  * view (amounts, customer names, how agents are named). Pure, no database.
  */
 import { buildEvent, type PlatformEvent, type WriteEventInput } from "@foundmill/events";
-import type { EventType } from "@foundmill/shared";
+import type { BusinessEventType } from "@foundmill/shared";
 import { describe, expect, it } from "vitest";
 import { expectedBackWords, isPushEventType, PUSH_EVENT_TYPES, pushPlanFor, type PushView } from "../services/push/decide";
 
@@ -12,7 +12,7 @@ const A = "a1e5e5e5-0000-4000-8000-00000000aa02";
 const ID = "c1e5e5e5-0000-4000-8000-00000000aa03";
 const NOW = new Date("2026-11-08T12:00:00Z");
 
-const ev = <T extends EventType>(type: T, payload: WriteEventInput<T>["payload"]): PlatformEvent => buildEvent({ businessId: B, type, actor: { kind: "system", id: "test" }, payload, occurredAt: NOW }) as PlatformEvent;
+const ev = <T extends BusinessEventType>(type: T, payload: WriteEventInput<T>["payload"]): PlatformEvent => buildEvent({ businessId: B, type, actor: { kind: "system", id: "test" }, payload, occurredAt: NOW }) as PlatformEvent;
 
 const FULL: PushView = { amounts: true, names: true, anthropomorphic: false, agentStyle: "humans" };
 const WALLED: PushView = { amounts: false, names: false, anthropomorphic: false, agentStyle: "humans" };

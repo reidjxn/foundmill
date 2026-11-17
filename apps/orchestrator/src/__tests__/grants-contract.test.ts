@@ -88,4 +88,11 @@ describe("agent template grants resolve to real gateway tools", () => {
       for (const ref of ["platform:list_tasks", "platform:claim_task", "platform:complete_task", "platform:send_message", "platform:list_messages", "platform:request_human_action"]) expect(refs, `${t.key} lacks ${ref}`).toContain(ref);
     }
   });
+
+  it("every agent with the base platform grant can read the product notes, which the brief's About section points to (WP-05 T4)", () => {
+    const withBoard = ALL_TEMPLATES.filter((t) => t.tools.some((g) => g.connectorKey === "platform" && g.tools.includes("tasks.list")));
+    for (const t of withBoard) expect(toolRefs(t.tools), `${t.key} lacks platform:read_product`).toContain("platform:read_product");
+    const backend = ALL_TEMPLATES.find((t) => t.agentType === "backend_engineer")!;
+    expect(mcpToolNames(backend.tools)).toContain("mcp__platform__read_product");
+  });
 });

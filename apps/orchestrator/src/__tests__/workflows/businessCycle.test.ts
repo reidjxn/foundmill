@@ -7,6 +7,8 @@ import type { Activities, BusinessBrief, CyclePlan, CycleStart, MergeInput, Road
 import { ApplicationFailure } from "@temporalio/common";
 import { CYCLE_PLAN_FAILURE, PLAN_FAILED_MESSAGE } from "../../cycle-contract";
 import { businessCycle, fileScopesOverlap, pauseSignal, resumeSignal, stopSignal } from "../../workflows";
+import { Worker } from "@temporalio/worker";
+import { WORKFLOWS_PATH } from "../../index";
 import { createTemporalRig, type TemporalRig } from "./temporal";
 
 let rig: TemporalRig;
@@ -69,7 +71,7 @@ interface Calls {
   maxConcurrent: number;
   overlapSeen: boolean;
   narrated: string[][];
-  narrateInputs: { summary: string; fallbackSubject?: string }[];
+  narrateInputs: { summary: string; fallbackSubject?: string; parked?: unknown }[];
   completed: Record<string, unknown>[];
   failed: Record<string, unknown>[];
   startInputs: Record<string, unknown>[];
@@ -93,7 +95,7 @@ interface Calls {
 /** Each test's sessions get their own ids: children an earlier test abandoned may still run under theirs. */
 let rigRun = 0;
 
-function mockActivities(opts: { holdSessions?: boolean; holdOpen?: boolean; stoppedBrief?: boolean; refuseAfter?: number; planned?: number; planError?: () => Error; budgetMinor?: number; idle?: boolean; planFails?: boolean; openFailsOnce?: boolean; startFailsOnce?: boolean; untaskedNow?: boolean; roadmapResult?: RoadmapPlanResult; followUp?: CycleStart; merges?: MergeInput[] } = {}): { acts: Partial<Activities>; calls: Calls; release: () => void; releaseOpen: () => void } {
+function mockActivities(opts: { holdSessions?: boolean; holdOpen?: boolean; stoppedBrief?: boolean; refuseAfter?: number; planned?: number; planError?: () => Error; budgetMinor?: number; idle?: boolean; planFails?: boolean; openFailsOnce?: boolean; startFailsOnce?: boolean; untaskedNow?: boolean; roadmapResult?: RoadmapPlanResult; followUp?: CycleStart; merges?: MergeInput[]; parked?: CyclePlan["parked"] } = {}): { acts: Partial<Activities>; calls: Calls; release: () => void; releaseOpen: () => void } {
   const calls: Calls = { opened: [], sessionIds: [], openInputs: [], running: new Set(), maxConcurrent: 0, overlapSeen: false, narrated: [], narrateInputs: [], completed: [], started: 0, opening: false, plans: 0, startedPlans: [], planFailures: [], failed: [], startInputs: [], idleNotes: [], roadmapPlanned: [], roadmapPlans: 0, briefs: 0, followUps: [], merges: [] };
   const run = String((rigRun += 1)).padStart(4, "0");
   const scopes = new Map(tasks.map((t) => [t.id, t.fileScope]));
@@ -130,6 +132,7 @@ function mockActivities(opts: { holdSessions?: boolean; holdOpen?: boolean; stop
       if (opts.planFails) throw new Error("The planner is unavailable");
       if (opts.idle) return { ...plan(), starts: [], costMinor: 0, idle: true, summary: "Everything open is blocked." };
       if (b.agentsStopped) return { ...plan(), starts: [], costMinor: 0 };
+      if (opts.parked) return { ...plan(), parked: opts.parked };
       return opts.planned === undefined ? plan() : { ...plan(), starts: plan().starts.slice(0, opts.planned) };
     },
     async startCycle(input) {
@@ -176,9 +179,9 @@ function mockActivities(opts: { holdSessions?: boolean; holdOpen?: boolean; stop
     async finishSession() {
       return { taskStatus: "done", eventIds: [id(777)], healthChanged: false };
     },
-    async narrateCycle({ eventIds, summary, fallbackSubject }) {
+    async narrateCycle({ eventIds, summary, fallbackSubject, parked }) {
       calls.narrated.push(eventIds);
-      calls.narrateInputs.push({ summary, fallbackSubject });
+      calls.narrateInputs.push(parked === undefined ? { summary, fallbackSubject } : { summary, fallbackSubject, parked });
       return { inboxItemIds: [id(555)], viaComposer: false };
     },
     async completeCycle(input) {
@@ -231,6 +234,15 @@ describe("businessCycle workflow", () => {
     // The note everyone reads is in founder words: no cycle number, no "sessions dispatched" (Nov 8, 2026).
     expect(m.calls.narrateInputs[0]).toEqual({ summary: "Ship the API and the web\n\nThis round of work: 4 tasks started, 4 finished, 0 blocked.", fallbackSubject: "The team finished a round of work" });
     expect(m.calls.completed[0]).toMatchObject({ cycleId: result.cycleId, outcome: "completed", tasksDispatched: 4, tasksCompleted: 4, inboxItemIds: [id(555)], currency: "USD" });
+  });
+
+  it("hands the tasks the plan parked (no agent has a tool for them) to the round's note, once (WP-05 T18)", async () => {
+    const parked = [{ title: "Import agent skills as business skills", detail: "No tool is available to create or list business skills." }];
+    const m = mockActivities({ parked });
+    await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(businessCycle, { workflowId: `cycle:${B}:31`, taskQueue, args: [{ businessId: B, cycleNumber: 31, trigger: "continue" }] }));
+    expect(m.calls.narrateInputs).toHaveLength(1);
+    expect(m.calls.narrateInputs[0]).toMatchObject({ parked });
+    expect(m.calls.narrateInputs[0]!.summary).not.toContain("Import agent skills");
   });
 
   it("starts the merge review of each code task that waits in review with nothing moving it, once per task, outliving the cycle", async () => {
@@ -401,6 +413,50 @@ describe("businessCycle workflow", () => {
     // What the sessions were allowed to spend never adds up past the cap.
     expect(caps.reduce<number>((n, c) => n + (c ?? 0), 0)).toBeLessThanOrEqual(10);
     expect(result.tasksDispatched).toBeLessThan(tasks.length + 1);
+  });
+
+  it("a capped cycle under the floor runs one session with the whole cap (WP-05 T15)", async () => {
+    // The overnight round: 15 cents and three free slots. Split three ways each session would get 5, too little to
+    // finish anything; at the floor (10 cents a session) the cap pays for one, so one runs, with all 15.
+    const m = mockActivities({ budgetMinor: 100_000 });
+    const caps: (number | null | undefined)[] = [];
+    m.acts.runAgentSession = async (input) => {
+      caps.push(input.spendCapMinor);
+      m.calls.running.add(input.taskId);
+      m.calls.maxConcurrent = Math.max(m.calls.maxConcurrent, m.calls.running.size);
+      await new Promise((r) => setTimeout(r, 100));
+      m.calls.running.delete(input.taskId);
+      return { ...done(), costMinor: input.spendCapMinor ?? 5 };
+    };
+    const workflowId = `cycle:${B}:75`;
+    await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(businessCycle, { workflowId, taskQueue, args: [{ businessId: B, cycleNumber: 75, trigger: "autopilot", budgetCapMinor: 15 }] }));
+    expect(caps[0]).toBe(15);
+    expect(m.calls.maxConcurrent).toBe(1);
+    expect(caps.reduce<number>((n, c) => n + (c ?? 0), 0)).toBeLessThanOrEqual(15);
+    // The new history (with the floor's marker) replays too.
+    const history = await rig.client.workflow.getHandle(workflowId).fetchHistory();
+    await expect(Worker.runReplayHistory({ workflowsPath: WORKFLOWS_PATH, replayName: "cycle-cap-floor" }, history)).resolves.toBeUndefined();
+  });
+
+  it("a capped cycle runs as many sessions at a time as its cap pays for at the floor, never more than its slots", async () => {
+    const m = mockActivities({ budgetMinor: 100_000 });
+    const caps: number[] = [];
+    // Sessions are held until two have started, and a while after, so a third would have had the time to start too.
+    let release = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    m.acts.runAgentSession = async (input) => {
+      caps.push(input.spendCapMinor ?? -1);
+      m.calls.running.add(input.taskId);
+      m.calls.maxConcurrent = Math.max(m.calls.maxConcurrent, m.calls.running.size);
+      if (caps.length === 2) setTimeout(release, 500);
+      await held;
+      m.calls.running.delete(input.taskId);
+      return { ...done(), costMinor: input.spendCapMinor ?? 0 };
+    };
+    await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(businessCycle, { workflowId: `cycle:${B}:76`, taskQueue, args: [{ businessId: B, cycleNumber: 76, trigger: "autopilot", budgetCapMinor: 25 }] }));
+    // 25 cents pays for two sessions at the floor (three slots are free): the two share it, 12 and 13.
+    expect(m.calls.maxConcurrent).toBe(2);
+    expect(caps.slice(0, 2).sort((a, b) => a - b)).toEqual([12, 13]);
   });
 
   it("an uncapped cycle hands sessions no cap of its own", async () => {

@@ -34,7 +34,7 @@ import {
   type TeamCallTranscriptTurn,
   type TeamCallTurnMode,
 } from "@foundmill/agents";
-import { assertPlatformCredits, repos, type Agent, type Department, type DbTx, type PlanWithActions, type TeamCall, type TeamCallTurn } from "@foundmill/db";
+import { assertPlatformCredits, repos, resolveAgentPrompt, type Agent, type Department, type DbTx, type PlanWithActions, type TeamCall, type TeamCallTurn } from "@foundmill/db";
 import type { PlanAction } from "@foundmill/models";
 import {
   agentDisplayName,
@@ -389,6 +389,8 @@ async function runRound(ctx: BusinessContext, callId: string, mode: TeamCallTurn
     transcript: transcriptOf(turns),
     agentRoundsSinceFounder: call.agentRoundsSinceFounder,
     glossary: (ctx.business as { glossary?: Record<string, string> }).glossary ?? undefined,
+    // The Chief of Staff as it is now: its live instructions and skills (WP-06 T1).
+    chiefOfStaff: await resolveAgentPrompt(ctx.db, ctx.businessId, { templateKey: "chief_of_staff" }),
   };
   const request = buildTeamCallTurnRequest(input);
   const result = await ctx.models.complete({ ...request, attribution: { businessId: ctx.businessId, kind: TEAM_CALL_TURN_USAGE_KIND }, scope: `team_call:${callId}` });
@@ -569,6 +571,7 @@ async function wrapUp(ctx: BusinessContext, callId: string): Promise<TeamCallVie
       agents: roster.visible.map((a) => ({ id: a.id, name: displayNameFor(ctx)(a), role: a.role, departmentName: roster.departments.find((d) => d.id === a.departmentIds[0])?.name ?? null, channel: getTemplateByAgentType(a.agentType)?.channelKey ?? null })),
       departments: roster.departments.map((d) => ({ name: d.name, module: d.moduleKeys[0] ?? null })),
       roadmap: loaded.brief.roadmap.map((r) => ({ id: r.id, title: r.title, horizon: r.horizon })),
+      chiefOfStaff: await resolveAgentPrompt(ctx.db, ctx.businessId, { templateKey: "chief_of_staff" }),
     };
     const request = buildTeamCallWrapUpRequest(input);
     const result = await ctx.models.complete({ ...request, attribution: { businessId: ctx.businessId, kind: TEAM_CALL_WRAP_UP_USAGE_KIND }, scope: `team_call:${callId}` });

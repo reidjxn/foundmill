@@ -7,11 +7,13 @@
  * business's own words (Settings › Glossary, AC-11.13.6): `applyGlossary` runs on its subject, body and decision
  * options here, the one place every composed and templated note passes through.
  */
-import { ENTITY_MARKUP_RE, EXHIBIT_KINDS, INBOX_ITEM_TYPES, INBOX_STATES, OptionAction, ValidationError, applyGlossary, type InboxItemType, type InboxState } from "@foundmill/shared";
-import { and, asc, desc, eq, getTableColumns, inArray, isNotNull, isNull, notInArray, or, sql, type SQL } from "drizzle-orm";
+import { LIMITS } from "@foundmill/config";
+import { DIGEST_SUBJECT, ENTITY_MARKUP_RE, EXHIBIT_KINDS, INBOX_ITEM_TYPES, INBOX_STATES, OptionAction, ValidationError, applyGlossary, dayKeyIn, digestBody, noteVerdict, type InboxItemType, type InboxState } from "@foundmill/shared";
+import { and, asc, desc, eq, getTableColumns, gte, inArray, isNotNull, isNull, ne, notInArray, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { agents, businesses, composerBuffer, DECIDED_BY_KINDS, decisions, entities, events, inboxItemReads, inboxItems, memberships, plans, tasks, type ComposerBufferRow, type Decision, type InboxItem } from "../schema";
 import { Currency, Id, MinorAmount, one, PageInput, parseInput, timeKeyset, toPage, type Executor, type Page } from "./_shared";
+import { agentsRepo } from "./agents";
 
 // --- Composer output schema (BUILD §11.3) ------------------------------------------------------------------------------
 
@@ -44,6 +46,8 @@ export const ComposerDecision = z
      * same open decision twice (audit CML-02). Set by the composer service; absent on every other note.
      */
     key: z.string().min(1).max(200).optional(),
+    /** The page catch-up's note (WP-12 T1): never emailed about unless `PAGE_CATCH_UP_EMAIL` allows it. */
+    catch_up: z.literal(true).optional(),
   })
   .refine((d) => d.options.filter((o) => o.recommended).length === 1, { message: "exactly one option must be recommended", path: ["options"] })
   .refine((d) => new Set(d.options.map((o) => o.id)).size === d.options.length, { message: "option ids must be unique", path: ["options"] });
@@ -177,6 +181,15 @@ function stateFor(viewerId?: string | null): SQL<InboxState> {
   return sql<InboxState>`case when "inbox_items"."state" = 'unread' and exists (select 1 from "inbox_item_reads" "r" where "r"."inbox_item_id" = "inbox_items"."id" and "r"."user_id" = ${viewerId}::uuid) then 'read' else "inbox_items"."state" end`;
 }
 
+/**
+ * Whose notes a read may see (0103 `for_user_id`): with a viewer, the notes for everyone and the viewer's own; without
+ * one (the orchestrator, the composer, the push notifier on the privileged connection, which RLS does not narrow), the
+ * notes for everyone only. A founder's own showcase ask is never read for, or shown to, anyone else.
+ */
+export function inboxAudience(viewerId?: string | null) {
+  return viewerId ? or(isNull(inboxItems.forUserId), eq(inboxItems.forUserId, viewerId)) : isNull(inboxItems.forUserId);
+}
+
 function tabCondition(tab: InboxTab) {
   switch (tab) {
     case "all":
@@ -200,8 +213,8 @@ function tabCondition(tab: InboxTab) {
 
 export const InboxListFilter = PageInput.extend({
   tab: z.enum(INBOX_TABS).default("all"),
-  state: z.union([z.enum(INBOX_STATES), z.array(z.enum(INBOX_STATES))]).optional(),
-  type: z.union([z.enum(INBOX_ITEM_TYPES), z.array(z.enum(INBOX_ITEM_TYPES))]).optional(),
+  state: z.union([z.enum(INBOX_STATES), z.array(z.enum(INBOX_STATES)).max(INBOX_STATES.length)]).optional(),
+  type: z.union([z.enum(INBOX_ITEM_TYPES), z.array(z.enum(INBOX_ITEM_TYPES)).max(INBOX_ITEM_TYPES.length)]).optional(),
   fromAgentId: Id.optional(),
   blocking: z.boolean().optional(),
 });
@@ -243,6 +256,61 @@ async function assertOwnedIds(db: Executor, businessId: string, v: z.output<type
   }
 }
 
+/** What the digest needs once a note is folded: who writes it, and which notes count as today's. */
+interface Fold {
+  chiefId: string;
+  committedAt: Date;
+  timeZone: string | null;
+  now: Date;
+}
+
+/**
+ * The first week's note budget (WP-04 T8, `noteVerdict`): whether this note is folded into the day's digest. Only an
+ * agent's plain update or report can be, so every other note costs no extra query. No Chief of Staff: nobody writes the
+ * digest, and the note is delivered.
+ */
+async function foldOf(db: Executor, businessId: string, v: ParsedComposerItem, blocksContinue: boolean, state: InboxState): Promise<Fold | null> {
+  if (state === "archived" || !v.from_agent_id || (v.type !== "update" && v.type !== "report") || v.decision !== null || blocksContinue) return null;
+  const [business] = await db.select({ committedAt: businesses.committedAt, isDemo: businesses.isDemo, timeZone: businesses.timeZone }).from(businesses).where(eq(businesses.id, businessId)).limit(1);
+  if (!business?.committedAt || business.isDemo) return null;
+  const chief = await agentsRepo.chiefOfStaff(db, businessId);
+  if (!chief) return null;
+  const now = new Date();
+  const verdict = noteVerdict({ type: v.type, hasDecision: false, blocksContinue, fromChiefOfStaff: chief.id === v.from_agent_id, committedAt: business.committedAt, isDemo: business.isDemo, now }, LIMITS.firstWeekDays);
+  return verdict === "fold" ? { chiefId: chief.id, committedAt: business.committedAt, timeZone: business.timeZone, now } : null;
+}
+
+/**
+ * Writes the Chief of Staff's "What your team did today" afresh, listing the notes folded on the business's day so far
+ * (newest first). It is a Chief of Staff update, so it replaces the earlier digest and the welcome note
+ * (`supersedeUpdates`). In the first week every archived plain update or report from another agent was folded: none
+ * reaches the Inbox to be archived by hand or superseded.
+ */
+async function writeDigest(db: Executor, businessId: string, fold: Fold): Promise<void> {
+  const since = new Date(Math.max(fold.committedAt.getTime(), fold.now.getTime() - 26 * 60 * 60 * 1000));
+  const rows = await db
+    .select({ subject: inboxItems.subject, createdAt: inboxItems.createdAt, agentName: agents.name })
+    .from(inboxItems)
+    .innerJoin(agents, eq(agents.id, inboxItems.fromAgentId))
+    .where(
+      and(
+        eq(inboxItems.businessId, businessId),
+        eq(inboxItems.state, "archived"),
+        isNull(inboxItems.archivedAt),
+        inArray(inboxItems.type, ["update", "report"]),
+        isNull(inboxItems.decision),
+        ne(inboxItems.fromAgentId, fold.chiefId),
+        gte(inboxItems.createdAt, since),
+      ),
+    )
+    .orderBy(desc(inboxItems.createdAt), desc(inboxItems.id))
+    .limit(500);
+  const today = dayKeyIn(fold.now, fold.timeZone);
+  const lines = rows.filter((n) => dayKeyIn(n.createdAt, fold.timeZone) === today);
+  if (lines.length === 0) return;
+  await inboxRepo.createItem(db, businessId, { type: "update", from_agent_id: fold.chiefId, subject: DIGEST_SUBJECT, body_md: digestBody(lines), status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: null, blocks_continue: false, source_event_ids: [], entity_ids: [] });
+}
+
 export const inboxRepo = {
   /**
    * `viewerId` is who is looking: with it, `state` reads `read` for a note that person has opened (their receipt, 0048)
@@ -262,6 +330,7 @@ export const inboxRepo = {
         and(
           eq(inboxItems.businessId, businessId),
           isNull(inboxItems.archivedAt),
+          inboxAudience(viewerId),
           tabCondition(f.tab),
           states?.length ? inArray(state, states) : undefined,
           types?.length ? inArray(inboxItems.type, types) : undefined,
@@ -291,27 +360,31 @@ export const inboxRepo = {
     const rows = await db
       .select({ n: sql<number>`count(*)::int` })
       .from(inboxItems)
-      .where(and(eq(inboxItems.businessId, businessId), eq(inboxItems.blocksContinue, true), inArray(inboxItems.state, ["unread", "read"]), isNull(inboxItems.archivedAt)));
+      .where(and(eq(inboxItems.businessId, businessId), eq(inboxItems.blocksContinue, true), inArray(inboxItems.state, ["unread", "read"]), isNull(inboxItems.archivedAt), isNull(inboxItems.forUserId)));
     return Number(rows[0]?.n ?? 0);
   },
 
   /** Items per tab, in one statement (a `count(*) filter (where …)` per tab) rather than one query per tab. */
-  async countByTab(db: Executor, businessId: string): Promise<Record<InboxTab, number>> {
+  async countByTab(db: Executor, businessId: string, viewerId?: string | null): Promise<Record<InboxTab, number>> {
     const counts = Object.fromEntries(INBOX_TABS.map((tab) => [tab, sql<number>`count(*) filter (where ${tabCondition(tab) ?? sql`true`})::int`]));
-    const rows = await db.select(counts).from(inboxItems).where(and(eq(inboxItems.businessId, businessId), isNull(inboxItems.archivedAt)));
+    const rows = await db.select(counts).from(inboxItems).where(and(eq(inboxItems.businessId, businessId), isNull(inboxItems.archivedAt), inboxAudience(viewerId)));
     const row: Record<string, unknown> = rows[0] ?? {};
     return Object.fromEntries(INBOX_TABS.map((tab) => [tab, Number(row[tab] ?? 0)])) as Record<InboxTab, number>;
   },
 
   /**
    * Persists one Composer note. Validates the §11.3 shape and that every referenced id belongs to the business, then
-   * renames nouns with the business glossary (a person's own message is theirs and is stored as written).
+   * renames nouns with the business glossary (a person's own message is theirs and is stored as written). In a
+   * project's first week an agent's plain update is stored archived and listed in the Chief of Staff's digest
+   * (`foldOf`, WP-04 T8); callers pass nothing new and still write `inbox.item_created` for the note they wrote.
    */
   async createItem(db: Executor, businessId: string, item: ComposerItem, options: CreateItemOptions = {}): Promise<InboxItem> {
     const parsed = parseInput(ComposerItem, withPlainOptionLines(item), "composer item");
     const o = parseInput(CreateItemOptions, options, "inbox item options");
     await assertOwnedIds(db, businessId, parsed);
     const v = parsed.type === "human_message" ? parsed : inBusinessWords(parsed, await businessGlossary(db, businessId));
+    const blocksContinue = holdsContinue(v.type, v.blocks_continue);
+    const fold = await foldOf(db, businessId, v, blocksContinue, o.state);
     const created = one(
       await db
         .insert(inboxItems)
@@ -325,10 +398,10 @@ export const inboxRepo = {
           statusStrip: v.status_strip,
           exhibit: v.exhibit,
           decision: v.decision,
-          blocksContinue: holdsContinue(v.type, v.blocks_continue),
+          blocksContinue,
           sourceEventIds: v.source_event_ids,
           entityIds: v.entity_ids,
-          state: o.state,
+          state: fold ? "archived" : o.state,
           costMinor: o.costMinor,
           ...(o.currency ? { currency: o.currency } : {}),
         })
@@ -337,6 +410,8 @@ export const inboxRepo = {
     );
     // One current update per agent: the newer replaces the older open ones (Nov 7, 2026).
     if (created.type === "update" && created.fromAgentId && created.decision === null && created.state !== "archived") await inboxRepo.supersedeUpdates(db, businessId, { fromAgentId: created.fromAgentId, keepId: created.id });
+    // The first week: a folded note is listed in the Chief of Staff's digest instead (WP-04 T8).
+    if (fold) await writeDigest(db, businessId, fold);
     return created;
   },
 
@@ -353,12 +428,12 @@ export const inboxRepo = {
    */
   /**
    * True once a founder opened a note an agent wrote: the first-week checklist's "read a note from an agent"
-   * (docs/UX_AUDIT_AND_PLAN.md §6.2). Only a read receipt (0048) by an owner or admin of the business counts, never an
+   * (docs/UX_AUDIT_AND_PLAN.md §6.2). Only a read receipt (0048) by an owner, a cofounder or an admin of the business counts, never an
    * example viewer's. A note's state does not: a sign-off approved from the Product tab answers its note unopened, and
    * the Chief of Staff reads and answers notes on vacation (review F38). One id at most is loaded.
    */
   async anyAgentNoteOpened(db: Executor, businessId: string): Promise<boolean> {
-    const openedByFounder = sql`exists (select 1 from ${inboxItemReads} join ${memberships} on ${memberships.businessId} = ${inboxItemReads.businessId} and ${memberships.userId} = ${inboxItemReads.userId} where ${inboxItemReads.inboxItemId} = ${inboxItems.id} and ${memberships.role} in ('owner', 'admin') and ${memberships.source} <> 'example')`;
+    const openedByFounder = sql`exists (select 1 from ${inboxItemReads} join ${memberships} on ${memberships.businessId} = ${inboxItemReads.businessId} and ${memberships.userId} = ${inboxItemReads.userId} where ${inboxItemReads.inboxItemId} = ${inboxItems.id} and ${memberships.role} in ('owner', 'cofounder', 'admin') and ${memberships.source} <> 'example')`;
     const rows = await db
       .select({ id: inboxItems.id })
       .from(inboxItems)

@@ -98,7 +98,8 @@ describe("the credits gate on the api's model calls (S2)", () => {
       const owner = hz.caller({ userId: hz.A.ownerId });
       await owner.plan.preview({ businessId: A, text: "Pause the ads for a week" });
       const charged = await repos.usage.creditBalance(hz.db, A, period());
-      expect(Number(charged?.spentMinor)).toBeGreaterThan(0);
+      // A free business's call runs on Haiku 5.5 (WP-13) and costs a fraction of a cent: whole cents plus the carry.
+      expect(Number(charged?.spentMinor) * 1_000_000 + Number(charged?.carryMicroMinor ?? 0)).toBeGreaterThan(0);
       await useUpCredits(A);
       expect(await refusal(owner.plan.preview({ businessId: A, text: "Pause the ads for a week" }))).toMatchObject({ code: "PAYMENT_REQUIRED", message: expect.stringMatching(/Your agents keep working on your own Anthropic key\.$/) });
       // The plan shows those credits for a business on its own key as well.
@@ -233,11 +234,14 @@ describe("the allow-list trusts a confirmed address only (S11)", () => {
       const body = (await res.json()) as { error?: { json: { message: string; data: { appCode?: string; details?: { reason?: string } } } } };
       return { status: res.status, message: body.error?.json.message, appCode: body.error?.json.data.appCode, reason: body.error?.json.data.details?.reason };
     };
-    const unconfirmed = await call(await sign({ email: "owner@ceiling.test", amr: [{ method: "password", timestamp: now() }] }, hz.A.ownerId));
+    // An oauth sign-in that is not Google's proves nothing about the inbox. (A password session is refused before the
+    // list is read: the product never issues one, auth.ts `passwordOnlyFromPayload`.)
+    const unconfirmed = await call(await sign({ email: "owner@ceiling.test", amr: [{ method: "oauth", timestamp: now() }] }, hz.A.ownerId));
     expect(unconfirmed).toEqual({ status: 403, message: EMAIL_UNCONFIRMED_MESSAGE, appCode: "not_invited", reason: "email_unconfirmed" });
+    expect((await call(await sign({ email: "owner@ceiling.test", amr: [{ method: "password", timestamp: now() }] }, hz.A.ownerId))).status).toBe(401);
     const anonymous = await call(await sign({ email: "owner@ceiling.test", is_anonymous: true, amr: [{ method: "anonymous", timestamp: now() }], user_metadata: { email_verified: true } }, hz.A.ownerId));
     expect(anonymous).toMatchObject({ status: 403, appCode: "not_invited", reason: "email_unconfirmed" });
-    const forged = await call(await sign({ email: "owner@ceiling.test", amr: [{ method: "password", timestamp: now() }], user_metadata: { email_verified: true } }, hz.A.ownerId));
+    const forged = await call(await sign({ email: "owner@ceiling.test", amr: [{ method: "oauth", timestamp: now() }], user_metadata: { email_verified: true } }, hz.A.ownerId));
     expect(forged).toMatchObject({ status: 403, appCode: "not_invited", reason: "email_unconfirmed" });
     const stranger = await call(await sign({ email: "someone@else.test", amr: [{ method: "magiclink", timestamp: now() }] }, hz.A.ownerId));
     expect(stranger).toMatchObject({ status: 403, appCode: "not_invited", reason: "not_listed" });
@@ -245,7 +249,7 @@ describe("the allow-list trusts a confirmed address only (S11)", () => {
     expect((await call(await sign({ email: "owner@ceiling.test", amr: [{ method: "otp", timestamp: now() }] }, hz.A.ownerId))).status).toBe(200);
     // Without a list nothing about the address is checked.
     const open = createApp({ ...deps, env: { ...deps.env, SIGNUP_ALLOWLIST: undefined } });
-    const res = await open.request("/trpc/founder.preferences.get", { headers: { authorization: `Bearer ${await sign({ email: "owner@ceiling.test", amr: [{ method: "password", timestamp: now() }] }, hz.A.ownerId)}` } });
+    const res = await open.request("/trpc/founder.preferences.get", { headers: { authorization: `Bearer ${await sign({ email: "owner@ceiling.test", amr: [{ method: "oauth", timestamp: now() }] }, hz.A.ownerId)}` } });
     expect(res.status).toBe(200);
   });
 });

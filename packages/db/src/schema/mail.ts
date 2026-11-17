@@ -1,5 +1,6 @@
 /** 0078 — a project's Foundmill sending address: one row per business, its local part kept once chosen. */
-import { integer, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { index, integer, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { authUsers } from "drizzle-orm/supabase";
 import { id, timestamps } from "./_common";
 import { businessId } from "./_refs";
 
@@ -39,3 +40,20 @@ export const retiredMailLocalParts = pgTable(
   },
   (t) => [uniqueIndex("retired_mail_local_parts_local_part_key").on(t.localPart)],
 );
+
+/**
+ * 0101 — the founders' postal address for the project's marketing email (US CAN-SPAM), one line. Private: the founders
+ * (owner or admin) read and write it; collaborators do not; the gateway reads it on the service connection for the footer.
+ */
+export const projectPostalAddresses = pgTable(
+  "project_postal_addresses",
+  {
+    id: id(),
+    businessId: businessId(),
+    address: text("address").notNull(),
+    updatedBy: uuid("updated_by").references(() => authUsers.id, { onDelete: "set null" }),
+    ...timestamps(),
+  },
+  (t) => [uniqueIndex("project_postal_addresses_business_id_key").on(t.businessId), index("project_postal_addresses_updated_by_idx").on(t.updatedBy)],
+);
+export type ProjectPostalAddress = typeof projectPostalAddresses.$inferSelect;

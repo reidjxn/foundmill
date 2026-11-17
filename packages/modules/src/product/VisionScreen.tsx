@@ -7,6 +7,7 @@
  * sections as they land (marked Drafting) and fills in the rest when they are ready. Owners and admins can import a
  * plan they already wrote (a vision, a specification and a roadmap in one Markdown file) from the first panel.
  */
+import { isAdminRole } from "@foundmill/shared/constants";
 import { useMemo, useState } from "react";
 import { BookOpen, FileUp, Lock, Map as MapIcon } from "lucide-react";
 import { Button, Chip, EmptyState, Explainer, Panel, StatusPill, Term, formatNumber, formatRelative, useFormatters } from "@foundmill/dugout";
@@ -15,6 +16,7 @@ import { useCanWrite } from "../env";
 import type { ModuleScreenProps } from "../registry";
 import { FoundationsBanner, VisionPanels, useFoundations } from "./foundations";
 import { PlainDoc } from "./PlainDoc";
+import { PositioningPanel } from "./PositioningPanel";
 import { PlanImportDialog } from "./plan/PlanImportDialog";
 import { pmExcerpt, pmWordCount } from "./prosemirror";
 import { computeRoadmapStatus, taskSummary } from "./roadmap-status";
@@ -54,7 +56,7 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
   // Import a plan: owners and admins who may change the product (the api refuses everyone else).
   const canWrite = useCanWrite("product");
   const business = useWidgetQuery<{ role?: string }>("business.get", {});
-  const canImport = canWrite && (business.data?.role === "owner" || business.data?.role === "admin");
+  const canImport = canWrite && isAdminRole(business.data?.role);
   const [importing, setImporting] = useState(false);
   const importButton = canImport ? (
     <Button size="sm" icon={FileUp} onClick={() => setImporting(true)} data-testid="plan-import-open">
@@ -81,6 +83,7 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
     <Screen name="product/vision">
       <FoundationsBanner foundations={foundations} />
       {vision ? <VisionPanels vision={vision} intro={<Explainer {...PRODUCT_EXPLAINER} className="mb-4" />} actions={importButton} /> : null}
+      <PositioningPanel />
       <Panel
         title={vision ? <>From the <Term id="specification">specification</Term></> : "Vision"}
         actions={vision ? undefined : importButton}

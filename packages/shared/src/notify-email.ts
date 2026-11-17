@@ -11,6 +11,7 @@
  * gateway route, picked by the orchestrator's notifier; their words are in `notify-words.ts`.
  */
 import type { EmailNotificationKind } from "./constants";
+import { postalAddressLine } from "./platform-mail";
 
 /** A note has to wait this long, unopened by the person, before they are emailed about it. */
 export const NOTIFY_WAIT_MS = 24 * 60 * 60 * 1000;
@@ -26,9 +27,39 @@ export const NOTIFY_PROJECT_MAIL_HEADROOM = 0.75;
 export const NOTIFY_PER_PROJECT_PER_DAY = 1;
 /**
  * At most this many emails a person gets in a UTC day, across every kind and every project (founder, 2026-11-12); the
- * morning brief and the weekly review do not count toward it (`LIMITED_EMAIL_KINDS`).
+ * morning brief, the weekly review and the note that someone they invited joined do not count toward it
+ * (`LIMITED_EMAIL_KINDS`).
  */
 export const NOTIFY_PER_PERSON_PER_DAY = 3;
+/**
+ * The share of Foundmill's own daily ceiling (PLATFORM_NOTIFY_DAILY_CEILING) the emails to an address
+ * (`ADDRESS_EMAIL_KINDS`: invitations) may use, so invitations never take the room people's own emails need.
+ */
+export const ADDRESS_EMAIL_CEILING_SHARE = 0.1;
+/** At most this many invitations one person's invitations are emailed in a UTC day (the link can still be copied). */
+export const INVITATION_EMAILS_PER_INVITER_PER_DAY = 5;
+/** The page behind "Don't send me invitations" (served by ingest at `/mail/invitations/off`): a button on GET, the change on POST. */
+export const INVITATIONS_OFF_PAGE = {
+  title: "Stop invitations",
+  body: "Stop every invitation to this address? We won't email it again: no invitations, and no email from the projects built here.",
+  button: "Stop them",
+  done: "Done. We won't email this address again.",
+  invalid: "This link is not valid, so nothing changed.",
+} as const;
+/**
+ * The same page opened from the waitlist's email (`?for=joining`, `JOINING_OFF_VARIANT`): the same platform-wide stop,
+ * in words about joining rather than invitations alone.
+ */
+export const JOINING_OFF_VARIANT = "joining";
+export function joiningOffPage(appName: string): { title: string; body: string; button: string; done: string; invalid: string } {
+  return {
+    title: `Stop email about joining ${appName}`,
+    body: `Stop email to this address about joining ${appName}? That also stops invitations to it, and email from the projects built here.`,
+    button: "Stop it",
+    done: `Done. We won't email this address about joining ${appName}, and the projects built here won't email it.`,
+    invalid: INVITATIONS_OFF_PAGE.invalid,
+  };
+}
 
 const oneLine = (value: string, max: number): string => {
   const v = value.replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
@@ -65,6 +96,8 @@ export interface DecisionWaitingFacts {
   pauseLink?: string;
   /** A one-click answer (retention plan; founder 2026-11-11): the recommended, reversible, free option; absent: none. */
   answer?: { label: string; consequence: string; link: string } | null;
+  /** Foundmill's registered postal address (`APP_POSTAL_ADDRESS`), in every email it sends (US CAN-SPAM). */
+  postalAddress: string;
 }
 
 export interface NotifyEmailText {
@@ -138,14 +171,15 @@ export function decisionWaitingEmail(f: DecisionWaitingFacts): NotifyEmailText {
   const answer = f.answer ? { label: oneLine(withoutLinks(f.answer.label), 80), consequence: oneLine(withoutLinks(f.answer.consequence), 300), link: f.answer.link } : null;
   const answerText = answer ? `\n\nAnswer “${answer.label}”: ${answer.link}\nThis is the recommended answer and can be changed later${answer.consequence ? `: ${answer.consequence}` : "."}` : "";
   const pauseText = f.pauseLink ? `\nPause every email: ${f.pauseLink}` : "";
-  const text = `${hi}\n\n${lead}\n${quoted}\n\nOpen it: ${f.link}${answerText}\n\n${NOTIFY_NO_REPLY_LINE}\n\n--\n${footer}${pauseText}`;
+  const postal = postalAddressLine(`${f.appName}, ${f.postalAddress}`);
+  const text = `${hi}\n\n${lead}\n${quoted}\n\nOpen it: ${f.link}${answerText}\n\n${NOTIFY_NO_REPLY_LINE}\n\n--\n${footer}${pauseText}\n${postal}`;
   const html = [
     `<p>${escapeHtml(hi)}</p>`,
     `<p>${escapeHtml(lead)}<br>${escapeHtml(quoted)}</p>`,
     `<p><a href="${href(f.link)}">Open it</a></p>`,
     ...(answer ? [`<p><a href="${href(answer.link)}">Answer “${escapeHtml(answer.label)}”</a><br>${escapeHtml(`This is the recommended answer and can be changed later${answer.consequence ? `: ${answer.consequence}` : "."}`)}</p>`] : []),
     `<p>${escapeHtml(NOTIFY_NO_REPLY_LINE)}</p>`,
-    `<hr><p>You get this because you are part of ${escapeHtml(project)} on ${escapeHtml(f.appName)}. <a href="${href(f.offLink)}">Turn these emails off</a>${f.pauseLink ? ` · <a href="${href(f.pauseLink)}">Pause every email</a>` : ""}</p>`,
+    `<hr><p>You get this because you are part of ${escapeHtml(project)} on ${escapeHtml(f.appName)}. <a href="${href(f.offLink)}">Turn these emails off</a>${f.pauseLink ? ` · <a href="${href(f.pauseLink)}">Pause every email</a>` : ""}<br>${escapeHtml(postal)}</p>`,
   ].join("");
   return { subject: `${project} needs your answer`, text, html };
 }
@@ -159,7 +193,15 @@ export const EMAIL_NOTIFICATION_LABELS: Readonly<Record<EmailNotificationKind, s
   credits: "Credits ran out",
   daily_brief: "Morning brief",
   weekly_review: "Weekly review",
+  invitation_accepted: "Someone accepted my invitation",
+  getting_started: "Help while you set up",
+  checkin: "When your project has been quiet",
 });
+/**
+ * A record's kind as Settings › Preferences › Email lists the latest emails: the switches' labels, and the founder
+ * notice (security review P2-3), which has no switch.
+ */
+export const FOUNDER_NOTIFICATION_LABELS: Readonly<Record<EmailNotificationKind | "founder_notice", string>> = Object.freeze({ ...EMAIL_NOTIFICATION_LABELS, founder_notice: "Who runs a project, or its deletion" });
 /** One line under each switch. */
 export const EMAIL_NOTIFICATION_HINTS: Readonly<Record<EmailNotificationKind, string>> = Object.freeze({
   decision_waiting: "30 minutes after you leave when it holds up the team's work; otherwise after a day.",
@@ -169,6 +211,9 @@ export const EMAIL_NOTIFICATION_HINTS: Readonly<Record<EmailNotificationKind, st
   credits: "When the team stops because the credits are used up.",
   daily_brief: "What the team did since yesterday and the one thing that needs you, at your hour.",
   weekly_review: "Monday morning, instead of the brief: the week in numbers and what comes next.",
+  invitation_accepted: "When a person you invited joins your project.",
+  getting_started: "In your first week: when your page is ready to check, then one way to hear from people. At most one a day.",
+  checkin: "After two weeks away, a month and two months. Three at most, and none once you are back.",
 });
 export const EMAIL_NOTIFICATIONS_HINT = "To the address you sign in with, never while you are in the app: at most three a day in all and one a day for each project. The morning brief and the weekly review don't count.";
 export function emailNotificationSavedLine(kind: EmailNotificationKind, on: boolean): { title: string; description: string } {
@@ -210,5 +255,17 @@ export const NOTIFY_EMAIL_REFUSALS = {
   present: "This person is in the app right now and sees it there, so nothing was sent.",
   nothing_new: "Nothing happened and nothing waits, so the brief had no news and was not sent.",
   not_started: "This project has not started yet, so nothing was sent.",
+  not_pending: "What this email was about has changed, so nothing was sent.",
+  per_address: "This address already got today's emails, so nothing was sent.",
+  per_inviter: "This person's invitations were already emailed as many times as one day allows, so nothing was sent. The link can still be copied.",
+  address_ceiling: "Today's limit for invitation emails has been reached, so nothing was sent. The link can still be copied.",
+  suppressed: "This address asked not to get invitations, so nothing was sent.",
+  not_founder: "This person is not one of the founders this notice is for, so nothing was sent.",
+  own_action: "This person did it themselves, so nothing was sent.",
+  hard_suppressed: "Mail to this address bounced or was reported as spam, so nothing was sent.",
+  safety_ceiling: "Today's limit for founder notices has been reached, so nothing was sent.",
+  project_ceiling: "Today's limit for founder notices about this project has been reached, so nothing was sent.",
+  folded: "This person already had this window's founder notices about this project, and the email that says more changes happened, so nothing more was sent.",
+  reserved_hard_ceiling: "Today's hard limit for essential founder notices has been reached, so nothing was sent. A deletion this person may cancel still shows on their home.",
 } as const;
 export type NotifyEmailNotSent = keyof typeof NOTIFY_EMAIL_REFUSALS;

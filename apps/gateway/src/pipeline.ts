@@ -15,23 +15,29 @@
  *
  * `/v1/call` and `/mcp/:connector` both run this function; nothing reaches a vendor any other way.
  */
+import type { RecipientBasisCheck } from "./follower-update";
 import { createHash } from "node:crypto";
 import { LIMITS } from "@foundmill/config";
-import { AppError, mockResultsAllowed, NotFoundError } from "@foundmill/shared";
+import type { TurnstileConfig } from "./turnstile";
+import { AppError, isMailSendTool, mockResultsAllowed, NotFoundError, type RecipientBasis } from "@foundmill/shared";
+import { mailRecipientEmails, recipientBasis, weakestBasis } from "./recipient-basis";
 import type { Vault } from "@foundmill/shared/crypto";
 import type { KeyValidation } from "@foundmill/models";
-import { bookUsage, codeRepositoryOf, openApprovalItem, repos, type Db, type Agent, type AppInstallation, type Business, type Integration } from "@foundmill/db";
+import { bookUsage, codeRepositoryOf, openApprovalItem, repos, type Db, type Agent, type AppInstallation, type Approval, type Business, type Integration } from "@foundmill/db";
 import { agentAutonomy, businessApprovalThreshold, evaluate, getPolicyEngine, type AgentCtxInput, type EvaluateInputInput, type EvaluateResult, type PolicyEngine, type ToolCtxInput } from "@foundmill/policy";
 import {
   ALWAYS_LIVE_CONNECTORS,
+  connectionRefused,
   canonicalJson,
   isConfigError,
+  isServiceMediaTool,
   isServiceOnlyConnector,
   isUntrusted,
   mockIntegrationRecord,
   modeKeyOf,
   PLATFORM_MAIL_KEY,
   readForQuarantine,
+  readableContent,
   toAgentEnvelope,
   type Connector,
   type ConnectorMode,
@@ -54,7 +60,7 @@ import { checkRateLimit, type RateLimitStore } from "./rate-limit";
 import { candidatesFromArgs, candidatesFromContent, hashRecipient, type RecipientCandidate, type UntrustedRegister } from "./recipients";
 import { checkByokKey, SessionStateCache, stateDenial, type StateDenial } from "./state";
 import { sessionKey, toolAllowed, toolRef, type SessionToken } from "./tokens";
-import { preparePlatformMail, type PlatformMailConfig, type PreparedPlatformMail } from "./platform-mail";
+import { ownSenderUnsubscribeUrl, platformMailSwitchRefusal, preparePlatformMail, type PlatformMailConfig, type PreparedPlatformMail } from "./platform-mail";
 import { SIMULATED_NOTICE, type AllowResponse, type AskResponse, type CallRequestParsed, type CallResponse, type DenyResponse, type RateLimitedResponse } from "./types";
 
 export interface GatewayLogger extends ToolLogger {
@@ -99,8 +105,14 @@ export interface GatewayDeps {
    * `validateApiKey` in live mode. Tests pass one over a fake Anthropic.
    */
   validateModelKey?: (apiKey: string) => Promise<KeyValidation>;
+  /** Anthropic's Messages API for the own-key model route (model-proxy.ts, WP-13 T11); default `fetch`. Tests pass a fake. */
+  anthropicFetch?: typeof globalThis.fetch;
   /** A project's Foundmill sending address (platform-mail.ts); absent or with no domain, `platform_mail` refuses every send. */
   platformMail?: PlatformMailConfig;
+  /** Replaces WP-08 T10's recipient basis check in the follower update (follower-update.ts); for tests. */
+  recipientBasis?: RecipientBasisCheck;
+  /** The idea box's bot check (turnstile.ts); no secret: mock on a development stack, refused elsewhere. */
+  turnstile?: TurnstileConfig;
 }
 
 const defaultStateCaches = new WeakMap<GatewayDeps, SessionStateCache>();
@@ -223,6 +235,8 @@ export class SessionStateDenied extends Error {
 }
 
 export const SESSION_SCOPE_POLICY_ID = "session-scope";
+/** A tool its connector declares no policy hints for is refused: a missing entry must not read as "internal, never asks". */
+export const MISSING_POLICY_HINTS_POLICY_ID = "missing-policy-hints";
 export const HARD_GATE_POLICY_ID = "hard-gate";
 /** The Cedar policy that forbids a call the gateway recognised as a security-settings change (security-settings.ts). */
 export const SECURITY_SETTINGS_POLICY_ID = "hard-gate-security-settings";
@@ -256,6 +270,28 @@ const argsSummary = (args: unknown): Record<string, unknown> => ({
   argsHash: argsHash(args ?? {}),
   argKeys: args && typeof args === "object" && !Array.isArray(args) ? Object.keys(args as object).slice(0, 40) : [],
 });
+
+/** Platform tools that act once per ask: a second identical request is the same request (WP-05 T14). */
+const ONCE_PER_SESSION_TOOLS: ReadonlySet<string> = new Set(["platform:request_human_action", "platform:create_task"]);
+/** How far back a session's earlier identical call counts (a session never runs longer). */
+const REPLAY_WINDOW_MS = 8 * 60 * 60 * 1000;
+export const REPLAYED_NOTE = "This exact call already ran in this session and went through. It was not run again.";
+export const STILL_RUNNING_NOTE = "This exact call is still running in this session. It was not run a second time.";
+/** Outward calls running now in this process; a repeat that arrives meanwhile is not run (WP-05 T14). */
+const IN_FLIGHT = new Set<string>();
+
+/**
+ * The key of an outward call (it contacts someone, spends, cannot be undone, or asks the founder) that went through:
+ * `<agentId>:<connector>:<tool>:<hash of args and context>`, written on its audit row. Null for a read-only call or a
+ * token with no session.
+ */
+export function doneKeyOf(connector: Pick<Connector, "key" | "policyHints">, toolName: string, args: unknown, context: unknown, session: Pick<SessionToken, "agentId" | "sessionId">): string | null {
+  if (!session.sessionId) return null;
+  const hints = connector.policyHints[toolName] ?? {};
+  const outward = hints.contactsThirdParty === true || hints.spendsMoney === true || hints.irreversible === true || ONCE_PER_SESSION_TOOLS.has(`${connector.key}:${toolName}`);
+  // The context (recipient, amount, currency, plan action) is part of the call: a different one is a different call.
+  return outward ? `${session.agentId}:${connector.key}:${toolName}:${argsHash({ args: args ?? {}, context: context ?? {} })}` : null;
+}
 
 const argsObject = (args: unknown): Record<string, unknown> => (args && typeof args === "object" && !Array.isArray(args) ? (args as Record<string, unknown>) : { value: args ?? null });
 
@@ -307,6 +343,14 @@ export async function executeToolCall(deps: GatewayDeps, session: SessionToken, 
   }
   const tool = findTool(connector, req.tool);
   if (!tool) throw new GatewayError("unknown_tool", `${req.connector} has no tool "${req.tool}"`, 404, { connector: req.connector, tool: req.tool });
+  // 2b. A tool with no policy hints entry fails closed (A7-16). The contract suite demands an entry for every tool, so
+  // this guards a connector that skipped it, not one that passed.
+  if (!Object.hasOwn(connector.policyHints, tool.name)) {
+    const reasons = [`Tool ${ref} declares no policy hints`];
+    const audit = await appendAudit(deps, session, req, { outcome: "deny", reasons, policyIds: [MISSING_POLICY_HINTS_POLICY_ID] });
+    log.warn({ reasons }, "tool call without policy hints");
+    return { status: 403, body: { outcome: "deny", reasons, policyIds: [MISSING_POLICY_HINTS_POLICY_ID], costMinor: 0, auditId: audit.id } };
+  }
 
   // 3. Rate limit per connector per business.
   const limit = await checkRateLimit(deps.rateLimits, { businessId, connector: connector.key, limits: connector.rateLimits ?? {} }, now().getTime());
@@ -338,37 +382,83 @@ export async function executeToolCall(deps: GatewayDeps, session: SessionToken, 
     throw e;
   }
 
-  // 5. Cedar input.
-  const policyInput = await buildPolicyInput(deps, session, req, loaded, args);
-  const decision = evaluate(policyInput, deps.policyEngine ?? getPolicyEngine());
+  // 4b. Once per session (WP-05 T14, AR-12): the same outward call that already went through in this session is
+  //     answered from its audit row, so a retried run cannot send, post, spend or ask twice. Nothing is called. A
+  //     repeat that arrives while the first is still running is answered the same way, without running it.
+  const doneKey = doneKeyOf(connector, tool.name, req.args, req.context, session);
+  const replayed = async (note: string, first: { id: string; createdAt: Date; mode: unknown } | null): Promise<ToolCallResult> => {
+    const reasons = [first ? "The same call already ran in this session and went through" : "The same call is still running in this session"];
+    const audit = await appendAudit(deps, session, req, { outcome: "replayed", reasons, policyIds: [], ...(first ? { replayOf: first.id } : {}) });
+    log.info({ firstAuditId: first?.id ?? null }, "tool call already made in this session; answered without running it again");
+    // Simulated or not as the first run was (its audit row's mode), not as the deployment is now.
+    const simulated = (first ? first.mode : modeFor(deps, connector.key)) === "mock";
+    const data = { replayed: true, ...(first ? { firstRanAt: first.createdAt.toISOString() } : { stillRunning: true }), note };
+    const body: AllowResponse = { outcome: "allow", result: { ok: true, data, untrusted: false, costMinor: 0, ...(simulated ? { simulated: true as const, notice: SIMULATED_NOTICE } : {}) }, costMinor: 0, auditId: audit.id, reasons, policyIds: [] };
+    return { status: 200, body };
+  };
+  // 5 onward: Cedar, then deny, ask or allow.
+  const decideAndRun = async (): Promise<ToolCallResult> => {
+    // 5. Cedar input.
+    const policyInput = await buildPolicyInput(deps, session, req, loaded, args);
+    const decision = evaluate(policyInput, deps.policyEngine ?? getPolicyEngine());
 
-  if (decision.outcome === "deny") return deny(deps, session, req, loaded, decision, args, log);
-  if (decision.outcome === "ask") {
-    // The founder already approved this very call (0030): it runs once under that approval instead of asking again,
-    // whether the session still waiting retries it or the next session on the task makes it. The approval covers the
-    // amount it was asked for, in the same currency, and no more; a deny (spend cap, hard gate, suppression) never
-    // reaches this point.
-    const granted = await repos.approvals.useGranted(deps.db, businessId, { sessionId: session.sessionId, agentId: session.agentId, connectorKey: connector.key, tool: tool.name, args: argsObject(args), amountMinor: req.context.amountMinor ?? 0, currency: req.context.currency ?? loaded.agent.currency });
-    if (granted) {
-      log.info({ approvalId: granted.id }, "tool call runs under the founder's approval");
-      // A call the vendor refused outright, or the gateway stopped before the vendor saw it, did nothing: the approval
-      // goes back, so the retry (or the next cycle) runs under it instead of asking the founder the same question again.
-      const giveBack = async (why: string) => {
-        if (await repos.approvals.releaseUse(deps.db, businessId, granted.id, session.sessionId).catch(() => false)) log.info({ approvalId: granted.id, why }, "the call did not run; the founder's approval is kept for the next try");
-      };
-      try {
-        const out = await allow(deps, session, req, loaded, { ...decision, reasons: [...decision.reasons, `Approved by the founder (approval ${granted.id})`] }, args, log, now, granted.id);
-        if (out.body.outcome === "deny") await giveBack("refused before the vendor call");
-        else if (out.body.outcome === "allow" && !out.body.result.ok && vendorRefusedOutright(out.body.result.error)) await giveBack(out.body.result.error?.code ?? "refused");
-        return out;
-      } catch (e) {
-        if (e instanceof GatewayError && NOT_RUN_ERRORS.has(e.code)) await giveBack(e.code);
-        throw e;
+    if (decision.outcome === "deny") return deny(deps, session, req, loaded, decision, args, log);
+    if (decision.outcome === "ask") {
+      // The founder already approved this very call (0030): it runs once under that approval instead of asking again,
+      // whether the session still waiting retries it or the next session on the task makes it. The approval covers the
+      // amount it was asked for, in the same currency, and no more; a deny (spend cap, hard gate, suppression) never
+      // reaches this point.
+      const granted = await repos.approvals.useGranted(deps.db, businessId, { sessionId: session.sessionId, agentId: session.agentId, connectorKey: connector.key, tool: tool.name, args: argsObject(args), amountMinor: req.context.amountMinor ?? 0, currency: req.context.currency ?? loaded.agent.currency });
+      if (granted) {
+        log.info({ approvalId: granted.id }, "tool call runs under the founder's approval");
+        return runUnderApproval(deps, session, req, loaded, decision, args, log, now, granted);
       }
+      const refused = connectionRefusal(deps, loaded, modeFor(deps, connector.key));
+      if (refused) throw refused;
+      // The project's Foundmill address switched off here: refused as `allow` would refuse it, before anyone is asked.
+      const mailOff = connector.key === PLATFORM_MAIL_KEY ? platformMailSwitchRefusal({ config: deps.platformMail, ...(deps.appEnv !== undefined ? { appEnv: deps.appEnv } : {}) }, { business: loaded.business, mode: modeFor(deps, connector.key) }) : null;
+      if (mailOff) {
+        const reasons = [mailOff.reason];
+        const audit = await appendAudit(deps, session, req, { outcome: "deny", reasons, policyIds: [mailOff.policyId] });
+        log.info({ policyId: mailOff.policyId }, "tool call refused before asking: Foundmill sending address");
+        return { status: 403, body: { outcome: "deny", reasons, policyIds: [mailOff.policyId], costMinor: 0, auditId: audit.id } };
+      }
+      return ask(deps, session, req, loaded, decision, args, log, now);
     }
-    return ask(deps, session, req, loaded, decision, args, log, now);
+    return allow(deps, session, req, loaded, decision, args, log, now);
+  };
+  if (!doneKey) return decideAndRun();
+  const flightKey = `${businessId}:${session.sessionId}:${doneKey}`;
+  if (IN_FLIGHT.has(flightKey)) return replayed(STILL_RUNNING_NOTE, null);
+  IN_FLIGHT.add(flightKey);
+  try {
+    const first = await repos.audit.latestMatching(deps.db, businessId, AUDIT_ACTION_TOOL_CALL, { sessionId: session.sessionId!, doneKey }, new Date(now().getTime() - REPLAY_WINDOW_MS));
+    if (first) return await replayed(REPLAYED_NOTE, { id: first.id, createdAt: first.createdAt, mode: (first.details as Record<string, unknown> | null)?.mode });
+    return await decideAndRun();
+  } finally {
+    IN_FLIGHT.delete(flightKey);
   }
-  return allow(deps, session, req, loaded, decision, args, log, now);
+}
+
+/**
+ * Runs a gated call under the approval this session has just used (`useGranted`, or `useDecided` for one an agent
+ * decided). A call the vendor refused outright, or the gateway stopped before the vendor saw it, did nothing: the
+ * approval goes back, so the retry (or the next cycle) runs under it instead of asking the same question again.
+ */
+async function runUnderApproval(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, decision: EvaluateResult, args: unknown, log: GatewayLogger, now: () => Date, approval: Pick<Approval, "id" | "byKind">): Promise<ToolCallResult> {
+  const by = approval.byKind === "agent" ? "the agent Team › Responsibilities names" : "the founder";
+  const giveBack = async (why: string) => {
+    if (await repos.approvals.releaseUse(deps.db, session.businessId, approval.id, session.sessionId).catch(() => false)) log.info({ approvalId: approval.id, why }, "the call did not run; the approval is kept for the next try");
+  };
+  try {
+    const out = await allow(deps, session, req, loaded, { ...decision, reasons: [...decision.reasons, `Approved by ${by} (approval ${approval.id})`] }, args, log, now, approval.id);
+    if (out.body.outcome === "deny") await giveBack("refused before the vendor call");
+    else if (out.body.outcome === "allow" && !out.body.result.ok && vendorRefusedOutright(out.body.result.error)) await giveBack(out.body.result.error?.code ?? "refused");
+    return out;
+  } catch (e) {
+    if (e instanceof GatewayError && NOT_RUN_ERRORS.has(e.code)) await giveBack(e.code);
+    throw e;
+  }
 }
 
 async function loadContext(deps: GatewayDeps, session: SessionToken, connector: Connector, tool: McpToolDefinition, now: () => Date): Promise<Loaded> {
@@ -411,8 +501,31 @@ async function recordPlatformMailSent(deps: GatewayDeps, session: SessionToken, 
   }
 }
 
+/**
+ * The connection checks that need no credential and touch nothing (WP-02 T3): run before a call is allowed and before
+ * the founder is asked, so nobody approves a call that cannot run. Live: a connector that needs a sign-in and has no row
+ * here (a row without a usable credential is caught in `allow`, after the vault). Mock: a sample business, development
+ * and test get the mock's answer (marked simulated); a person's own business on staging or production, with no row or
+ * only a `mock` one, is told the truth before anything runs, so no agent plans around a send, a lookup or a post that
+ * cannot happen (docs/THESIS_REVIEW.md, package 0.3).
+ */
+export function connectionRefusal(deps: Pick<GatewayDeps, "appEnv">, loaded: Pick<Loaded, "connector" | "business" | "integrationRow">, mode: ConnectorMode): GatewayError | null {
+  const { connector, integrationRow } = loaded;
+  // One rule with the orchestrator, which tells an agent what is not connected before it starts (packages/connectors
+  // `connectionRefused`, WP-05 T12). An account-free connector in mock mode (web search, exchange rates, domains)
+  // answers with made-up results: a person's project on staging or production never receives them as if they were
+  // read (WP-05 T1, AR-01). With no APP_ENV (unit hosts) simulated results stay allowed.
+  const accountFree = connector.auth.kind === "none";
+  const refused = connectionRefused(connector.key, { accountFree, mode, mockResultsAllowed: deps.appEnv === undefined || mockResultsAllowed(deps.appEnv, loaded.business.isDemo), integrationStatus: integrationRow ? integrationRow.status : null });
+  if (!refused) return null;
+  const message = accountFree ? `${connector.displayName} is not switched on here yet, so nothing was read or done` : mode === "live" ? `${connector.displayName} is not connected for this business` : `${connector.displayName} is not connected for this business, so nothing was done`;
+  return new GatewayError("integration_not_connected", message, 409, { connector: connector.key });
+}
+
 /** Gateway errors raised before the vendor is called: the call did nothing. */
 const NOT_RUN_ERRORS = new Set(["vault_unavailable", "integration_not_connected", "connector_unconfigured"]);
+/** The refusal when an agent's approval was taken by another call twice in a row (`ask`): nothing ran, try again. */
+const DELEGATED_APPROVAL_TAKEN_POLICY_ID = "delegated-approval-taken";
 
 /**
  * The vendor answered and refused (a 4xx other than a timeout: GitHub's 405 "not mergeable" or 409 "base branch was
@@ -477,6 +590,7 @@ async function buildPolicyInput(deps: GatewayDeps, session: SessionToken, req: C
   let recipient = req.context.recipient;
   let suppressed = false;
   let recipientFirstSeenInUntrusted = false;
+  let recipientBasisFound: RecipientBasis | undefined;
   if (toolCtx.contactsThirdParty) {
     const candidates = candidatesFromArgs(args, req.context.recipient);
     recipient ??= candidates[0]?.value;
@@ -488,6 +602,13 @@ async function buildPolicyInput(deps: GatewayDeps, session: SessionToken, req: C
     // whose only basis it is counts as an address first seen in untrusted content, so the same policy refuses it.
     const emails = candidates.filter((c) => c.kind === "email").map((c) => c.value);
     if (!recipientFirstSeenInUntrusted && emails.length > 0) recipientFirstSeenInUntrusted = (await repos.followers.awaitingConfirmation(deps.db, session.businessId, emails)).length > 0;
+    // No email without a basis (WP-08 T10, 15-mail-basis.cedar): for the mail-sending tools, the weakest basis among the
+    // addresses the mail goes to. A campaign to one of the founder's own lists names nobody: the founder decides it.
+    if (isMailSendTool(connector.key, tool.name)) {
+      const at = (deps.now ?? (() => new Date()))();
+      const to = mailRecipientEmails(args);
+      recipientBasisFound = to.length ? weakestBasis(await Promise.all(to.map((e) => recipientBasis(deps.db, session.businessId, e, at)))) : "recorded";
+    }
   }
 
   return {
@@ -501,6 +622,7 @@ async function buildPolicyInput(deps: GatewayDeps, session: SessionToken, req: C
       ...(req.context.recipientCountry ? { recipientCountry: req.context.recipientCountry } : {}),
       ...(req.context.localTimeAtRecipient ? { localTimeAtRecipient: req.context.localTimeAtRecipient } : {}),
       suppressed,
+      ...(recipientBasisFound ? { recipientBasis: recipientBasisFound } : {}),
       holidayActive: loaded.holidayActive,
       // The session's flag, minted by the orchestrator: a kit-mode channel is never unlocked by an argument of the call.
       kitMode: session.kitMode,
@@ -520,7 +642,12 @@ async function anySuppressed(deps: GatewayDeps, businessId: string, candidates: 
 }
 
 interface AuditInput {
-  outcome: CallResponse["outcome"];
+  /** `replayed`: an outward call answered from its first run in this session (WP-05 T14). */
+  outcome: CallResponse["outcome"] | "replayed";
+  /** Written when an outward call went through, so a repeat in the same session is not run again. */
+  doneKey?: string;
+  /** On a `replayed` row: the audit row of the run it answers from. */
+  replayOf?: string;
   reasons: string[];
   policyIds: string[];
   costMinor?: number;
@@ -550,6 +677,8 @@ async function appendAudit(deps: GatewayDeps, session: SessionToken, req: CallRe
       ...(input.errorCode ? { errorCode: input.errorCode } : {}),
       ...(input.untrusted !== undefined ? { untrusted: input.untrusted } : {}),
       ...(input.firstParty ? { firstParty: true } : {}),
+      ...(input.doneKey ? { doneKey: input.doneKey } : {}),
+      ...(input.replayOf ? { replayOf: input.replayOf } : {}),
       amountMinor: req.context.amountMinor ?? 0,
       mode: modeFor(deps, req.connector),
       ...argsSummary(req.args),
@@ -685,15 +814,32 @@ function decisionTypeFor(loaded: Loaded, req: CallRequestParsed, decision: Evalu
   return null;
 }
 
-async function ask(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, decision: EvaluateResult, args: unknown, log: GatewayLogger, now: () => Date): Promise<ToolCallResult> {
+async function ask(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, decision: EvaluateResult, args: unknown, log: GatewayLogger, now: () => Date, retried = false): Promise<ToolCallResult> {
   // One gated call has one approval (audit O-26): asked again while its approval is open (a retry, or the next session
   // on the task), the call waits on that one instead of queueing a second request and a second Inbox item.
   const open = await repos.approvals.claimOpen(deps.db, session.businessId, { sessionId: session.sessionId, agentId: session.agentId, connectorKey: loaded.connector.key, tool: loaded.tool.name, args: argsObject(args), amountMinor: req.context.amountMinor ?? 0, currency: req.context.currency ?? loaded.agent.currency });
   const queued = open ? { id: open.id, approvedByAgent: false } : await queueApproval(deps, session, req, loaded, decision, args, false);
   const approvalId = queued.id;
   if (queued.approvedByAgent) {
-    log.info({ approvalId }, "approval decided by the agent Team › Responsibilities names; the call goes ahead");
-    return allow(deps, session, req, loaded, decision, args, log, now);
+    // The agent's decision covers this call only: it is used now, so no later identical call runs under it (after the
+    // founder takes the delegation back, say).
+    const used = await repos.approvals.useDecided(deps.db, session.businessId, approvalId, session.sessionId);
+    if (used) {
+      log.info({ approvalId }, "approval decided by the agent Team › Responsibilities names; the call goes ahead");
+      return runUnderApproval(deps, session, req, loaded, decision, args, log, now, used);
+    }
+    // Another call used it first: that approval has no Inbox item, so waiting on it would wait for nothing. Ask again
+    // (once), which opens a fresh approval under the routing as it is now.
+    if (!retried) {
+      log.info({ approvalId }, "the agent's approval was used by another call; asking again");
+      return ask(deps, session, req, loaded, decision, args, log, now, true);
+    }
+    // Taken again: refuse this once rather than answer "ask" for an approval with no Inbox item. Nothing ran.
+    const reasons = ["Another call used this approval at the same moment, so nothing was run. Try again."];
+    const policyIds = [DELEGATED_APPROVAL_TAKEN_POLICY_ID];
+    const audit = await appendAudit(deps, session, req, { outcome: "deny", reasons, policyIds, approvalId });
+    log.warn({ approvalId }, "the agent's approval was used by another call twice; refused, try again");
+    return { status: 403, body: { outcome: "deny", reasons, policyIds, costMinor: 0, auditId: audit.id } };
   }
   const audit = await appendAudit(deps, session, req, { outcome: "ask", reasons: decision.reasons, policyIds: decision.policyIds, approvalId });
   log.info({ approvalId, reasons: decision.reasons }, "tool call needs approval");
@@ -704,6 +850,8 @@ async function ask(deps: GatewayDeps, session: SessionToken, req: CallRequestPar
 async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, decision: EvaluateResult, args: unknown, log: GatewayLogger, now: () => Date, approvalId?: string): Promise<ToolCallResult> {
   const { connector, tool } = loaded;
   const mode = modeFor(deps, connector.key);
+  const refused = connectionRefusal(deps, loaded, mode);
+  if (refused) throw refused;
   // Credential: decrypted in memory for this call only; never logged, never part of any response.
   let credential: LoadedCredential | null = null;
   // An App connector (GitHub) authenticates with the platform's App keys for the business's installation: it needs an
@@ -719,13 +867,16 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
   if (mode === "live" && connector.auth.kind !== "none" && !credential && !appInstalled && !onPlatformKey) {
     throw new GatewayError("integration_not_connected", `${connector.displayName} is not connected for this business`, 409, { connector: connector.key });
   }
-  // A mock connector the business never connected: a sample business, development and test get the mock's answer
-  // (marked simulated below); a person's own business on staging or production is told the truth, before anything
-  // runs, so no agent plans around a send, a lookup or a post that cannot happen (docs/THESIS_REVIEW.md, package 0.3).
-  if (mode === "mock" && connector.auth.kind !== "none" && !loaded.integrationRow && deps.appEnv !== undefined && !mockResultsAllowed(deps.appEnv, loaded.business.isDemo)) {
-    throw new GatewayError("integration_not_connected", `${connector.displayName} is not connected for this business, so nothing was done`, 409, { connector: connector.key });
-  }
   const integration: IntegrationRecord = loaded.integrationRow ? toIntegrationRecord(loaded.integrationRow, credential) : mockIntegrationRecord(connector.key, session.businessId, mode === "mock" ? {} : { status: "connected" });
+  // IndexNow connected for the project's Foundmill-hosted page speaks for the page at the address it was connected
+  // with. Once the page is taken down or its address changes (the old address may be another project's by now), nothing
+  // is sent until the founder connects it again (security review, Nov 12, 2026).
+  if (mode === "live" && connector.key === "indexnow" && integration.config.hosted === true) {
+    const page = await repos.pages.get(deps.db, session.businessId);
+    if (!page || page.published === null || page.slug !== integration.config.slug) {
+      throw new GatewayError("integration_not_connected", "IndexNow was connected for a public page address that is no longer this project's live page, so nothing was sent. Connect IndexNow again in Settings › Integrations.", 409, { connector: connector.key });
+    }
+  }
 
   const vault = deps.vault;
   const loadedCredential = credential;
@@ -752,7 +903,7 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
   // A project's Foundmill sending address: its own guards, after Cedar and before the vendor (platform-mail.ts).
   let platformMail: PreparedPlatformMail | null = null;
   if (connector.key === PLATFORM_MAIL_KEY) {
-    const decision = await preparePlatformMail({ db: deps.db, rateLimits: deps.rateLimits, config: deps.platformMail, ...(deps.appEnv !== undefined ? { appEnv: deps.appEnv } : {}) }, { business: loaded.business, args: guarded.args, mode, now: now().getTime() });
+    const decision = await preparePlatformMail({ db: deps.db, rateLimits: deps.rateLimits, config: deps.platformMail, ...(deps.appEnv !== undefined ? { appEnv: deps.appEnv } : {}) }, { business: loaded.business, args: guarded.args, mode, now: now().getTime(), agentId: session.agentId, log });
     if (!decision.ok) {
       const reasons = [decision.reason];
       const audit = await appendAudit(deps, session, req, { outcome: "deny", reasons, policyIds: [decision.policyId] });
@@ -761,6 +912,14 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
     }
     platformMail = decision.prepared;
     ctx.platformMail = platformMail.envelope;
+  }
+
+  // A founder's own Resend: the unsubscribe link is Foundmill's signed one for this recipient, never the agent's, so an
+  // opt-out reaches this project's suppression list. Where no such link can be made, the connector sends nothing.
+  if (connector.key === "resend" && tool.name === "send_mail") {
+    const to = (guarded.args as { to?: { email?: unknown } } | null)?.to?.email;
+    const link = typeof to === "string" ? ownSenderUnsubscribeUrl(deps.platformMail, { businessId: session.businessId, email: to, mode, ...(deps.appEnv !== undefined ? { appEnv: deps.appEnv } : {}) }) : null;
+    if (link) ctx.unsubscribeUrl = link;
   }
 
   let result: ToolResult;
@@ -797,7 +956,9 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
     // Recipients first seen here still need the founder's approval, first-party or not. An archive is compressed bytes
     // with no text to scan; it reaches an agent only when it is the Code tab's (withheld below otherwise).
     if (!archive) {
-      const found = candidatesFromContent(content);
+      // The typed read's values too: an address there is written the way the agent will use it (an encoded quote, a
+      // normalized path), which the scan of the raw content can cut short (security review, Nov 12, 2026).
+      const found = [...candidatesFromContent(content), ...candidatesFromContent(toAgentEnvelope(result.data).facts ?? null)];
       const added = await deps.recipients.record(session.businessId, found);
       if (added > 0) log.debug({ added }, "recipients first seen in untrusted content recorded for this business");
     }
@@ -806,12 +967,24 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
       // Still the untrusted envelope with its notice (data, never instructions); only the digest step is skipped.
       data = { ...toAgentEnvelope(result.data), firstParty: true };
     } else if (archive) {
-      data = { ...toAgentEnvelope(result.data), content: null, quarantined: true, unavailable: ARCHIVE_WITHHELD };
+      const { facts: _withheld, ...withoutFacts } = toAgentEnvelope(result.data);
+      data = { ...withoutFacts, content: null, quarantined: true, unavailable: ARCHIVE_WITHHELD };
+    } else if (session.sessionId === null && isServiceMediaTool(connector.key, tool.name)) {
+      // A media file the platform stores (a post draft's voiceover), asked for by a platform token outside any session:
+      // code stores it and no agent reads it, so it is handed over as it came, inside the envelope with its notice.
+      // An agent session calling the same tool still gets the reader's digest below.
     } else if (deps.reader && grantsOutboundTools(deps.registry, session.allowedTools)) {
       // An agent that can contact people, spend or do something irreversible never reads third-party text raw: a model with no
       // tools reads it and the agent gets typed fields only (BUILD §9.8 step 2). If the reader fails, the agent gets nothing.
       try {
-        const digest = await deps.reader.digest({ content, businessId: session.businessId, agentId: session.agentId, sessionId: session.sessionId });
+        // The reader is shown the content's text, with any binary value (a voiceover's base64) as a note of its size: its
+        // window then holds the words around the bytes, and a 4 MB file is never serialized into its prompt.
+        const digest = await deps.reader.digest({ content: readableContent(content), businessId: session.businessId, agentId: session.agentId, sessionId: session.sessionId });
+        // The digest is third-party content too: an address the reader wrote out (one the raw scan missed or cut short)
+        // reaches the agent as an ordinary address, so it is remembered like the raw text's. If that fails, nothing is passed on.
+        const fromDigest = await deps.recipients.record(session.businessId, candidatesFromContent(digest));
+        if (fromDigest > 0) log.debug({ added: fromDigest }, "recipients first seen in the quarantined reader's digest recorded for this business");
+        // `toAgentEnvelope` carries the tool's typed read (`facts`, already held to the facts limits) beside the digest.
         data = { ...toAgentEnvelope(result.data), content: digest, quarantined: true };
       } catch (err) {
         log.warn({ err: (err as Error).message }, "quarantined reader failed; the content is withheld");
@@ -834,6 +1007,7 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
     errorCode: result.error?.code,
     untrusted,
     firstParty,
+    ...(result.ok ? (() => { const doneKey = doneKeyOf(connector, tool.name, req.args, req.context, session); return doneKey ? { doneKey } : {}; })() : {}),
   });
   if (result.ok) {
     try {

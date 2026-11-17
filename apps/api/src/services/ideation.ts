@@ -14,6 +14,7 @@
  *
  * Import's single card (`single`) is one card call on the same prefix.
  */
+import { recordFirstIdeas } from "./funnel-facts";
 import { buildFounderCardRequest, buildIdeationCardRequest, buildIdeationSlateRequest, buildSingleConceptRequest, IDEATION_AGENT_NAME, IDEATION_MAX_CONCEPTS, IDEATION_MIN_CONCEPTS, type IdeationBrief } from "@foundmill/agents";
 import { repos, type CreateIdeaInput, type IdeaWithVersion } from "@foundmill/db";
 import { isModelBillingError, ModelAbortedError, ModelOutputError, streamStructured, type ConceptCard, type IdeationSlateItem, type ModelClient, type ModelMode } from "@foundmill/models";
@@ -254,7 +255,7 @@ export async function draftIdeas(deps: DraftDeps, input: DraftInput, opts: Draft
 
   if (input.single) {
     emit({ type: "writing", index: 0, attempt: 1 });
-    const res = await models.complete({ ...buildSingleConceptRequest(brief), signal, scope, attribution: { kind: "ideation" } }).catch((err: unknown) => {
+    const res = await models.complete({ ...buildSingleConceptRequest(brief), signal, scope, attribution: { kind: "ideation", userId: deps.userId } }).catch((err: unknown) => {
       throw tooLong(err) ?? err;
     });
     costMicro += res.cost.costMicroMinor;
@@ -282,7 +283,7 @@ export async function draftIdeas(deps: DraftDeps, input: DraftInput, opts: Draft
         card = await limit(async () => {
           if (cardsAbort.signal.aborted) throw new ModelAbortedError();
           emit({ type: "writing", index, attempt });
-          const res = await models.complete({ ...buildIdeationCardRequest(brief, item), signal: cardsAbort.signal, scope, attribution: { kind: "ideation" } });
+          const res = await models.complete({ ...buildIdeationCardRequest(brief, item), signal: cardsAbort.signal, scope, attribution: { kind: "ideation", userId: deps.userId } });
           costMicro += res.cost.costMicroMinor;
           return res.json;
         });
@@ -324,7 +325,7 @@ export async function draftIdeas(deps: DraftDeps, input: DraftInput, opts: Draft
         ...slateRequest,
         signal,
         scope,
-        attribution: { kind: "ideation_slate" },
+        attribution: { kind: "ideation_slate", userId: deps.userId },
         onElement: ({ index, value }) => outline(index, value),
       });
       costMicro += result.cost.costMicroMinor;
@@ -347,6 +348,7 @@ export async function draftIdeas(deps: DraftDeps, input: DraftInput, opts: Draft
     if (rejected) throw rejected.reason;
 
     const ideas = [...saved.entries()].sort(([a], [b]) => a - b).map(([, idea]) => idea);
+    if (ideas.length >= IDEATION_MIN_CONCEPTS) await recordFirstIdeas(deps, deps.userId, "set", ideas.length);
     if (ideas.length < IDEATION_MIN_CONCEPTS) {
       throw new AppError("ideation_incomplete", `The Ideation agent finished ${ideas.length} of ${total} concepts, fewer than a set needs. The finished ones are in your deck; draft again for more.`, 502, { drafted: ideas.length, total, failed: failures.length });
     }
@@ -390,11 +392,12 @@ export async function writeIdea(deps: DraftDeps, input: WriteIdeaInput, opts: { 
   const title = input.title.trim().slice(0, 60);
   const brief: IdeationBrief = { prompt: words, archetypeHint: input.archetype, founder: await founderBrief(deps.db, deps.userId) };
   const id = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "my-idea";
-  const res = await models.complete({ ...buildFounderCardRequest(brief, { id, name: title, archetype: input.archetype, words }), signal: opts.signal, scope: `ideation:${deps.userId}`, attribution: { kind: "ideation" } }).catch((err: unknown) => {
+  const res = await models.complete({ ...buildFounderCardRequest(brief, { id, name: title, archetype: input.archetype, words }), signal: opts.signal, scope: `ideation:${deps.userId}`, attribution: { kind: "ideation", userId: deps.userId } }).catch((err: unknown) => {
     throw tooLong(err) ?? err;
   });
   const card: ConceptCard = { ...res.json, name: title, pitch: words, archetype: input.archetype ?? res.json.archetype };
   const idea = await repos.ideas.create(deps.db, deps.userId, ideaFromCard(card, { founder_words: words, ...cardProvenance(models, words) }, "edited"));
+  await recordFirstIdeas(deps, deps.userId, "written", 1);
   return { idea, costMinor: Math.round(res.cost.costMicroMinor / 1_000_000), costLabel: "Estimate", mode: models.mode };
 }
 

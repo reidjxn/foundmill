@@ -13,9 +13,44 @@
  * `finishSession` books only what the session has not booked yet (`repos.usage.sessionTokens`). A session on the
  * business's own key never comes here: its spend is the founder's, billed by Anthropic.
  */
+import { grantsActOutside } from "@foundmill/connectors";
 import { bookUsage, checkPlatformCredits, repos } from "@foundmill/db";
-import type { ModelKey } from "@foundmill/shared";
+import { resolveModel, type RouteKey, type RouteResolution } from "@foundmill/models";
+import type { ModelKey, ModuleKey } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
+
+/** The modules whose agents do money and legal work: low credits never move their sessions to a lower-cost model. */
+export const LOW_CREDITS_KEPT_MODULES: readonly ModuleKey[] = ["finance", "legal"];
+
+/**
+ * Whether an agent session keeps its usual model when credits are low (the credit saver). The route decides first
+ * (`ROUTES[route].lowCredits`, packages/models); on top of it a session keeps its model when its tools can reach someone
+ * outside the business or spend money (`grantsActOutside`: the tools the house rules' policy asks about), or when its
+ * agent does money or legal work (`LOW_CREDITS_KEPT_MODULES`).
+ */
+export function sessionKeepsModelOnLowCredits(session: { module: ModuleKey | null; toolRefs: readonly string[] }): boolean {
+  return (session.module !== null && LOW_CREDITS_KEPT_MODULES.includes(session.module)) || grantsActOutside(session.toolRefs);
+}
+
+const MODEL_RANK: Record<ModelKey, number> = { glm: 0, haiku: 0, sonnet: 1, opus: 2 };
+
+/**
+ * The model a run must use instead of its launch's, or null to keep the launch's. The keep rule is decided at
+ * `prepareSession`, but every run (a resume after an approval, a hand-off, a retry) re-reads the agent's current tools and
+ * mints its token from them. So each run checks again: when the tools it will hold now keep the session's model
+ * (`sessionKeepsModelOnLowCredits`) and the launch was moved below the route's usual model, the run goes back up to
+ * the usual model. A run is never moved down here (a launch on its usual model stays on it).
+ *
+ * Only a launch the credit saver moved down (`launch.lowCredits`) is moved back up: a launch below the agent's model for
+ * any other reason (the founder raised the agent's model mid-session) keeps it, as runs did before the saver. A launch
+ * prepared before `lowCredits` existed (the field absent) is compared as before.
+ */
+export function keptModelForRun(launch: { modelKey: ModelKey; lowCredits?: boolean }, run: { route: RouteKey; agentModel: ModelKey; module: ModuleKey | null; toolRefs: readonly string[] }): RouteResolution | null {
+  if (launch.lowCredits === false) return null;
+  if (!sessionKeepsModelOnLowCredits(run)) return null;
+  const usual = resolveModel(run.route, run.agentModel);
+  return MODEL_RANK[launch.modelKey] < MODEL_RANK[usual.modelKey] ? usual : null;
+}
 
 /** How often a running session books its spend and re-reads the balance between turns. */
 export const SESSION_CREDIT_CHECK_MS = 15_000;

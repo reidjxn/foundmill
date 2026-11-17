@@ -60,10 +60,10 @@ describe("PersonPage", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Sam" })).toBeTruthy();
   });
 
-  it("links home with the product's name and carries no form or contact button", () => {
+  it("carries no mark of the product, no footer, and no form or contact button", () => {
     render(<PersonPage {...props} lookingFor="looking_for_cofounder" />);
-    const link = screen.getByRole("link", { name: `Made with ${APP_NAME}` });
-    expect(link.getAttribute("href")).toBe("/");
+    expect(document.querySelector("footer")).toBeNull();
+    expect(document.body.textContent).not.toContain(APP_NAME);
     expect(document.querySelector("form, input, button, textarea")).toBeNull();
   });
 
@@ -83,5 +83,14 @@ describe("PersonPage", () => {
     expect(root.className).toContain("@container");
     expect(root.dataset.variant).toBe("preview");
     expect(renderToStaticMarkup(<PersonPage {...props} />)).toContain("data-person-page");
+  });
+});
+
+describe("PersonPage inside another page (titleLevel 3)", () => {
+  it("titles itself with an h3 and its labels with h4s, so the host page keeps one h1", () => {
+    render(<PersonPage {...props} titleLevel={3} />);
+    expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
+    expect(screen.getByRole("heading", { level: 3, name: "Maya Okafor" })).toBeTruthy();
+    expect(screen.getAllByRole("heading", { level: 4 }).length).toBeGreaterThan(0);
   });
 });

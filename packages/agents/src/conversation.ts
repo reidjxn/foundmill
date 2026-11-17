@@ -34,7 +34,7 @@ import {
   type HardGate,
   type QuickReply,
 } from "@foundmill/models";
-import type { AgentPresence, AgentStatus, ConversationAuthorKind, ConversationSubjectKind, QuickReplyKind } from "@foundmill/shared";
+import { founderContextJson, type AgentPresence, type AgentStatus, type ConversationAuthorKind, type ConversationSubjectKind, type FounderContext, type QuickReplyKind } from "@foundmill/shared";
 import { buildSystemPrompt, hasClubRulesPrefix, type AgentSkillPrompt } from "./club-rules";
 import { agentConversationPrompt } from "./prompts/agent-conversation";
 import { researcher as researcherTemplate } from "./templates/workers/researcher";
@@ -753,6 +753,8 @@ export interface ConversationRequestInput {
   thread: readonly ConversationThreadMessage[];
   manifest: readonly ConversationManifestEntry[];
   founderMessage: { text: string; quickReply: { id: string; kind: QuickReplyKind; option_id: string | null } | null };
+  /** Who the agent is talking with (WP-04 T10, `repos.founders.contextFor`): trusted JSON, `founder` in the inputs. */
+  founder?: FounderContext;
 }
 
 export interface ConversationRequest {
@@ -777,7 +779,7 @@ export function untrustedContent(s: ConversationSubjectInput): Record<string, st
 }
 
 /** What a reply is about, without the agent's instructions and the manifest: all a scripted reply reads. */
-export type ConversationTurnInput = Pick<ConversationRequestInput, "currentWork" | "subject" | "thread" | "founderMessage"> & {
+export type ConversationTurnInput = Pick<ConversationRequestInput, "currentWork" | "subject" | "thread" | "founderMessage" | "founder"> & {
   agent: Pick<ConversationRequestInput["agent"], "id" | "name" | "role" | "voice"> & { instructions?: Pick<AgentInstructions, "tone"> };
   manifest?: ConversationRequestInput["manifest"];
 };
@@ -805,6 +807,7 @@ export function conversationInputs(input: ConversationTurnInput): Record<string,
     thread: input.thread.slice(-CONVERSATION_THREAD_WINDOW).map((m) => ({ author: m.author, text: trimText(m.text, 600) })),
     manifest: (input.manifest ?? []).map((e) => ({ id: e.id, kind: e.kind, name: e.name, aliases: e.aliases ?? [] })),
     founder_message: { text: trimText(input.founderMessage.text, FOUNDER_MESSAGE_MAX), quick_reply: input.founderMessage.quickReply },
+    ...(input.founder ? { founder: founderContextJson(input.founder) } : {}),
   };
 }
 

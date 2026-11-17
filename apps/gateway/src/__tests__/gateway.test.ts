@@ -44,6 +44,8 @@ describe("health and catalogue", () => {
   it("GET /health reports the mode, the connectors and the policy set", async () => {
     const health = await g.client.health();
     expect(health).toMatchObject({ ok: true, db: true, service: "gateway", mode: "mock", connectors: 1, vault: "local", rateLimitStore: "memory" });
+    // The connectors switched live one by one (LIVE_CONNECTORS): names only, so nobody reads them off Railway by hand.
+    expect(health.liveConnectors).toEqual([]);
     expect(health.policy.policies).toBeGreaterThanOrEqual(15);
   });
 
@@ -311,7 +313,7 @@ describe("recipients", () => {
     // After a restart without Redis (or on a replica that does not share it) the seed is gone, and the token's
     // untrustedSeeded claim makes that session fail closed, while an unseeded session is unaffected.
     await g.recipients.clear(g.businessId, restored);
-    expect(asDeny(await g.client.call(seededToken, { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL, body: "hello" } })).policyIds).toEqual(["untrusted-recipient"]);
+    expect(asDeny(await g.client.call(seededToken, { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL, body: "hello again" } })).policyIds).toEqual(["untrusted-recipient"]);
     asAllow(await g.client.call(await g.token({ sessionId: fresh }), { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL } }));
     // Tools that contact nobody still work.
     asAllow(await g.client.call(seededToken, { connector: "test", tool: "note", args: { text: "x" } }));
@@ -400,7 +402,7 @@ describe("scope, unknown tools and rate limits", () => {
   });
 
   it("unknown connectors and tools are 404s", async () => {
-    const token = await g.token({ allowedTools: ["*"] });
+    const token = await g.token({ allowedTools: ["nope:*", "test:*"] });
     await expect(g.client.call(token, { connector: "nope", tool: "x" })).rejects.toMatchObject({ status: 404, code: "unknown_connector" });
     await expect(g.client.call(token, { connector: "test", tool: "nope" })).rejects.toMatchObject({ status: 404, code: "unknown_tool" });
   });
@@ -482,6 +484,31 @@ describe("a mock connector the business never connected", () => {
   });
 });
 
+describe("never ask the founder to approve a call that cannot run (WP-02 T3)", () => {
+  it("assisted mode, a person's project: an ask on a connector with no row, or a mock row, is refused before any approval or Inbox item; a sample project still gets the simulated ask", async () => {
+    const f = await setupGateway({ extraConnectorKeys: ["other"] });
+    try {
+      await repos.businesses.setBusinessMode(f.db, f.businessId, "augmented");
+      const token = await f.token({ allowedTools: ["test:*", "other:*"] });
+      const send = () => f.client.call(token, { connector: "other", tool: "send_message", args: { to: SAFE_EMAIL, body: "hi" } });
+      const approvals = async () => (await f.h.pg.query<{ n: number }>("select count(*)::int as n from approvals where business_id = $1", [f.businessId])).rows[0]!.n;
+      const inbox = async () => (await f.h.pg.query<{ n: number }>("select count(*)::int as n from inbox_items where business_id = $1", [f.businessId])).rows[0]!.n;
+      f.deps.appEnv = "production";
+      const before = { approvals: await approvals(), inbox: await inbox() };
+      await expect(send()).rejects.toMatchObject({ status: 409, code: "integration_not_connected" });
+      await repos.integrations.upsert(f.db, f.businessId, { connectorKey: "other", status: "mock", authKind: "api_key", accountLabel: "mock" });
+      await expect(send()).rejects.toMatchObject({ status: 409, code: "integration_not_connected" });
+      expect({ approvals: await approvals(), inbox: await inbox() }).toEqual(before);
+      expect(f.seen).toHaveLength(0);
+      // A sample project keeps asking about its simulated call.
+      await f.h.pg.query("update businesses set is_demo = true where id = $1", [f.businessId]);
+      asAsk(await send());
+    } finally {
+      await f.close();
+    }
+  });
+});
+
 describe("LIVE_CONNECTORS", () => {
   it("runs the named connectors live while every other connector stays mock", async () => {
     const mixed = await setupGateway({ mode: "mock", liveConnectors: ["test"], connector: { authKind: "app" }, extraConnectorKeys: ["other"] });
@@ -501,7 +528,9 @@ describe("LIVE_CONNECTORS", () => {
   });
 });
 
-describe("live mode: App connectors (GitHub)", () => {
+// Each test boots its own gateway (a fresh database and every migration), which takes 12 to 17 s on CI while the
+// Playwright jobs share the runner; 30 s left no room for the second test's extra work.
+describe("live mode: App connectors (GitHub)", { timeout: 90_000 }, () => {
   it("run only for the installation the gateway verified, without a stored secret, and stop once disconnected", async () => {
     const live = await setupGateway({ mode: "live", connector: { authKind: "app" } });
     try {

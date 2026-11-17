@@ -1,8 +1,11 @@
 /** crm.search/entity.list/get/update/merge/unmerge/create/requestDeletion/notes/roles (BUILD §11.12; AC-11.12.2 via RLS, AC-11.12.3 merge/unmerge). */
+import { INPUT_LIMITS } from "@foundmill/config";
 import { AddRoleInput, EntityListFilter, STRONG_IDENTIFIERS, SearchInput, UpdateEntityInput, repos } from "@foundmill/db";
-import { AppError } from "@foundmill/shared";
+import { AppError, boundedRecord, hasSectionAccess, REPLY_ANSWER_MAX } from "@foundmill/shared";
 import { z } from "zod";
 import { Id, audit, router, sectionRead, sectionWrite } from "../trpc";
+import { answerReply, listReplies } from "../services/replies";
+import { modelLimited } from "../services/model-limits";
 
 const read = sectionRead("crm");
 /** Deletion requests complete no earlier than this (matches Settings › Danger zone). */
@@ -85,13 +88,16 @@ export const crmRouter = router({
           repos.followers.consentStates(tx, ctx.businessId, [entity.id]),
         ]);
         // Each win carries its Customer Update id (null when it has none), so Re-watch and Activity link straight to it.
-        const conversions = (await repos.journeys.labelConversions(tx, ctx.businessId, journeys.items)).map(({ entityName: _name, ...c }) => c);
+        // A payment's amount is Finance's: a reader walled off Finance (a collaborator among them) gets it as null and
+        // `moneyHidden`, so the Commercial tab says the figures are hidden rather than show a total of nothing.
+        const moneyHidden = !hasSectionAccess(ctx.membership, "finance", "read");
+        const conversions = (await repos.journeys.labelConversions(tx, ctx.businessId, journeys.items)).map(({ entityName: _name, ...c }) => ({ ...c, amountMinor: moneyHidden ? null : c.amountMinor }));
         // A follower of the public page (0079, double opt-in): when they confirmed ("Agreed to email on Oct 7, 2026"), or
         // that they signed up and have not confirmed yet ("Not confirmed yet").
         const consent = consents.get(entity.id);
         const emailConsentAt = consent?.state === "confirmed" ? consent.confirmedAt : null;
         const emailConsentPending = consent?.state === "pending";
-        return { entity, profile, roles, relationships, interactions: interactions.items, mentions, conversions, mergeHistory, emailConsentAt, emailConsentPending, redirectedFrom: entity.id !== input.entityId ? input.entityId : null };
+        return { entity, profile, roles, relationships, interactions: interactions.items, mentions, conversions, moneyHidden, mergeHistory, emailConsentAt, emailConsentPending, redirectedFrom: entity.id !== input.entityId ? input.entityId : null };
       }),
     ),
     update: write.input(z.object({ entityId: Id, patch: UpdateEntityInput })).mutation(({ ctx, input }) =>
@@ -123,7 +129,7 @@ export const crmRouter = router({
      * already holds is a duplicate (BUILD §11.12 "strong identifiers first"): the call is refused with a CONFLICT
      * (`duplicate_entity`, `details.existing` names the record) unless the founder confirms with `allowDuplicate`.
      */
-    create: write.input(z.object({ kind: z.enum(["person", "organisation", "venue"]), displayName: z.string().min(1).max(200), identifiers: z.record(z.string(), z.string()).default({}), aliases: z.array(z.string()).default([]), lawfulBasis: z.string().max(80).nullable().default(null), allowDuplicate: z.boolean().default(false) })).mutation(({ ctx, input: { allowDuplicate, ...input } }) =>
+    create: write.input(z.object({ kind: z.enum(["person", "organisation", "venue"]), displayName: z.string().min(1).max(200), identifiers: boundedRecord(INPUT_LIMITS.entityIdentifiers, z.record(z.string(), z.string())).default({}), aliases: z.array(z.string()).max(INPUT_LIMITS.entityAliases).default([]), lawfulBasis: z.string().max(80).nullable().default(null), allowDuplicate: z.boolean().default(false) })).mutation(({ ctx, input: { allowDuplicate, ...input } }) =>
       ctx.rls(async (tx) => {
         if (!allowDuplicate) {
           for (const key of STRONG_IDENTIFIERS) {
@@ -149,6 +155,16 @@ export const crmRouter = router({
         return interaction;
       }),
     ),
+  }),
+
+  /**
+   * Email that reached the project's Foundmill address, kept as plain text (WP-08 T2; founder D3), and the founders'
+   * answers. The text is a stranger's: the screen shows it as plain text only. `answer` sends through the gateway as a
+   * reply (transactional) and is refused for someone who has not written in the last 30 days.
+   */
+  replies: router({
+    list: read.input(z.object({ entityId: Id.optional(), limit: z.number().int().min(1).max(50).default(20) })).query(({ ctx, input }) => listReplies(ctx, input)),
+    answer: write.input(z.object({ interactionId: Id, text: z.string().trim().min(1).max(REPLY_ANSWER_MAX), requestId: Id })).use(modelLimited("replyAnswer")).mutation(({ ctx, input }) => answerReply(ctx, input)),
   }),
 
   roles: router({

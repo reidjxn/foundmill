@@ -2,6 +2,7 @@
  * Plan executor on PGlite: hard gates never execute (AC-11.3.5), deny is recorded, ask opens an approval and waits,
  * allow runs the typed handler. Also the pure policy evaluation per action type and business mode.
  */
+import { getSkillDefinition, getTemplate } from "@foundmill/agents";
 import { repos, resumeBusinessAgents, stopBusinessAgents } from "@foundmill/db";
 import { compilePlanRuleBased, quarterBounds } from "@foundmill/models";
 import { MODEL_KEYS, PLAN_ACTION_TYPES } from "@foundmill/shared";
@@ -216,6 +217,33 @@ describe("executePlanAction on PGlite", () => {
       await repos.agents.release(t.db, t.businessId, agentId);
     } finally {
       await resumeBusinessAgents(t.db, t.businessId);
+    }
+  });
+
+  it("hire_agent into a department writes what team.agents.hire writes: membership, the lead as line manager, the template's skills, an agent-attributed audit row (WP-06 T5)", async () => {
+    const departmentId = t.fixture.departmentId;
+    const before = await repos.departments.get(t.db, t.businessId, departmentId);
+    await repos.departments.setLead(t.db, t.businessId, departmentId, t.workerId);
+    try {
+      const plan = await repos.plans.create(t.db, t.businessId, { origin: "free_text", actions: [{ type: "hire_agent", params: { template_key: "docs_writer", department_id: departmentId }, agentId: t.chiefId }] });
+      const result = await acts.executePlanAction({ businessId: t.businessId, planId: plan.id, actionId: plan.actions[0]!.id, workflowId: "plan:test" });
+      expect(result.status).toBe("done");
+      const agentId = (result.result as { agentId: string }).agentId;
+      const template = getTemplate("docs_writer");
+      const agent = await repos.agents.get(t.db, t.businessId, agentId);
+      expect(agent).toMatchObject({ departmentIds: [departmentId], lineManagerId: t.workerId, currency: "USD", wageCapMinor: template.wageCapMinor });
+      expect((await repos.departments.listMembers(t.db, t.businessId, departmentId)).some((m) => m.memberKind === "agent" && m.memberId === agentId)).toBe(true);
+      const skills = (await repos.skills.listForAgent(t.db, t.businessId, agentId)).map((s) => ({ skillKey: s.skillKey, group: s.group, tested: s.tested === null ? null : Number(s.tested), displayed: s.displayed, potential: s.potential })).sort((a, b) => a.skillKey.localeCompare(b.skillKey));
+      expect(skills).toEqual(
+        template.skills
+          .map((skillKey) => ({ skillKey, group: getSkillDefinition(skillKey)?.group ?? "craft", tested: template.baselineRating, displayed: template.baselineRating, potential: template.baselineRating }))
+          .sort((a, b) => a.skillKey.localeCompare(b.skillKey)),
+      );
+      const audit = (await repos.audit.list(t.db, t.businessId, { action: "team.agents.hire", limit: 50 })).items.find((e) => (e.target as { id?: string }).id === agentId);
+      expect(audit).toMatchObject({ actorKind: "agent", actorId: t.chiefId, target: { kind: "agent", id: agentId }, details: { templateKey: "docs_writer", departmentId, planActionId: plan.actions[0]!.id } });
+      await repos.agents.release(t.db, t.businessId, agentId);
+    } finally {
+      await repos.departments.setLead(t.db, t.businessId, departmentId, before.leadAgentId);
     }
   });
 

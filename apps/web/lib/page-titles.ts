@@ -15,6 +15,8 @@ export const SCREEN_TITLES = {
   today: "Today",
   home: "Details",
   inbox: "Inbox",
+  /** The Inbox's `respond` tab is the founder's Needs you (WP-02 T8). */
+  needsYou: "Needs you",
   crm: "Contacts",
   milestones: "Milestones",
   calls: "Team call",
@@ -87,7 +89,7 @@ function businessPathParts(pathname: string, businessId: string): string[] | nul
  * section, a department tab and an agent by the departments the shell holds, a CRM record by its name once the record
  * is loaded. Null for a path that is none of these (the title is then the business and the product).
  */
-export function businessScreenTitle(pathname: string, businessId: string, departments: readonly TitleDepartment[], entityName: string | null = null): string | null {
+export function businessScreenTitle(pathname: string, businessId: string, departments: readonly TitleDepartment[], entityName: string | null = null, inboxTab: string | null = null): string | null {
   const [section, a = "", b = ""] = businessPathParts(pathname, businessId) ?? [];
   switch (section) {
     case "today":
@@ -95,7 +97,7 @@ export function businessScreenTitle(pathname: string, businessId: string, depart
     case "home":
       return SCREEN_TITLES.home;
     case "inbox":
-      return SCREEN_TITLES.inbox;
+      return inboxTab === "respond" ? SCREEN_TITLES.needsYou : SCREEN_TITLES.inbox;
     case "crm":
       return a ? entityTitle(entityName, b) : SCREEN_TITLES.crm;
     case "milestones":

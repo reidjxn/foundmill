@@ -16,19 +16,29 @@ import type { StreamRedis } from "@foundmill/events";
 import type { ModelClient } from "@foundmill/models";
 import { createDefaultRegistry, type ConnectorRegistry } from "@foundmill/connectors";
 import { createAuthVerifier, type AuthVerifier } from "./auth";
+import { parseSignupAllowlist } from "./services/access";
+import { createConfirmEmailGuard, type ConfirmEmailGuard } from "./services/confirm-email";
+import { createDataApiProbe, type DataApiProbe } from "./services/data-api-probe";
 import { requestIdFrom } from "./request-id";
 import { createComposerClient, type ComposerClient } from "./services/composer";
 import { createDevUserBootstrap } from "./services/dev-users";
-import { createApiModelClient } from "./services/models";
+import { createApiModelClient, freePlanSlowCheck } from "./services/models";
 import { createRateLimitStore, type RateLimitStore, type RedisLimitClient } from "./services/rate-limit";
 import { createRedis } from "./services/redis";
 import type { RelaySupervisor } from "./services/relay";
 import { createSandboxRecordingResolver, type RecordingResolver } from "./services/replay";
-import { createApiGatewayClient, type ApiGatewayClient } from "./services/gateway";
+import { createApiGatewayClient, signApiServiceToken, type ApiGatewayClient } from "./services/gateway";
 import { createIngestClient, type IngestClient } from "./services/simulate";
 import { createTemporalService, type TemporalService } from "./services/temporal";
 import { createLog, type ApiLogger } from "./services/log";
+import { createTransactionGate, gateLimitsFor, type TransactionGate } from "./services/tx-gate";
 import type { BusinessAccess } from "./trpc";
+
+/** The api's pool size unless API_DB_POOL_MAX says otherwise. */
+export const API_DB_POOL_DEFAULT = 10;
+
+/** What /health reports of the migrations (WP-11 T2): `applied` and `expected` are null when nothing was checked. */
+export type SchemaState = { ready: boolean; applied: number | null; expected: number | null };
 
 export interface ApiDeps {
   env: Env;
@@ -48,6 +58,14 @@ export interface ApiDeps {
   /** Static connector metadata and mocks only; built without platform secrets (SEC-14). */
   connectors: ConnectorRegistry;
   auth: AuthVerifier;
+  /**
+   * Supabase's "Confirm email" setting, read at boot and every 10 minutes while SIGNUP_ALLOWLIST is set
+   * (services/confirm-email.ts; index.ts starts it). While Supabase auto-confirms addresses no session counts as a
+   * confirmed address. Absent (tests, no list, no SUPABASE_URL): tokens alone decide.
+   */
+  confirmEmail?: ConfirmEmailGuard | null;
+  /** Watches that Supabase's Data API stays off (services/data-api-probe.ts; index.ts starts it). Absent without SUPABASE_URL. */
+  dataApi?: DataApiProbe | null;
   log: ApiLogger;
   /** Mock sandbox recordings for session replays without Redis (null when the sandbox package is not linked). */
   recordings: RecordingResolver | null;
@@ -60,11 +78,24 @@ export interface ApiDeps {
     db(): Promise<boolean>;
     redis(): Promise<boolean>;
     temporal(): Promise<boolean>;
+    /** Whether every migration is applied (index.ts sets it after a failed migrateOnBoot); absent means ready. */
+    schema?(): Promise<SchemaState>;
   };
   /** The outbox relay's supervisor (index.ts); absent in tests and the in-process caller. /health reports its state. */
   relay?: RelaySupervisor | null;
   /** The pool watchdog (index.ts); absent in tests and the in-process caller. /health reports its state. */
   poolWatchdog?: PoolWatchdog | null;
+  /**
+   * The limit on how many transactions requests hold at once (services/tx-gate.ts), so one batch can never take the
+   * whole pool. Every HTTP request's `ctx.db` is this gate's view of `db`; `db` here stays ungated for background work.
+   * Absent for the in-process caller.
+   */
+  txGate?: TransactionGate | null;
+  /**
+   * Whether a request's model calls run on the free plan while the month's free-plan spend is past 80% of its cap
+   * (WP-13 T6): `modelLimited` then gives it a quarter of its usual allowances. Absent (tests, the in-process caller): never.
+   */
+  freePlanSlow?: ((scope: { userId: string; businessId?: string | null }) => Promise<boolean>) | null;
 }
 
 export interface Context extends ApiDeps {
@@ -74,7 +105,8 @@ export interface Context extends ApiDeps {
   authenticatedAt: Date | null;
   /**
    * The token shows the user controls `email` (auth.ts `emailConfirmedFromPayload`): what SIGNUP_ALLOWLIST requires
-   * before it trusts the address (SEC2 S11). False when the token did not say.
+   * before it trusts the address (SEC2 S11). False when the token did not say, and for every session while Supabase
+   * auto-confirms addresses (`confirmEmail`).
    */
   emailConfirmed: boolean;
   requestId: string;
@@ -85,6 +117,8 @@ export interface Context extends ApiDeps {
    * tests.
    */
   clientAddress?: string | null;
+  /** Which client sent the request (WP-02 T9): "app" when `x-foundmill-client` names the mobile app, else "web". */
+  clientKind?: "web" | "app";
   /**
    * The membership and business lookups `businessProcedure` made in this HTTP request (trpc.ts), keyed by user and
    * business, so a batch of procedures for one business checks membership once. A new, empty map for every request
@@ -92,6 +126,8 @@ export interface Context extends ApiDeps {
    * up on every call.
    */
   accessMemo?: Map<string, Promise<BusinessAccess>>;
+  /** The admission answer (services/access.ts `admitOrWait`) per person for this HTTP request: a batch asks once. */
+  admissionMemo?: Map<string, Promise<void>>;
 }
 
 /** A signed-in user for the in-process caller and tests. */
@@ -117,9 +153,10 @@ export function createApiDeps(options: CreateApiDepsOptions = {}): ApiDeps {
   const env = options.env ?? loadEnv();
   const log = options.log ?? createLog(env);
 
+  const poolMax = env.API_DB_POOL_MAX ?? API_DB_POOL_DEFAULT;
   let db: Db;
   if (options.db) db = options.db;
-  else if (env.DATABASE_URL) db = createDb(env.DATABASE_URL, { max: 10 }) as unknown as Db;
+  else if (env.DATABASE_URL) db = createDb(env.DATABASE_URL, { max: poolMax }) as unknown as Db;
   else {
     log.error({}, "DATABASE_URL is not set; the API will answer /health but every tRPC call will fail");
     db = createDb("postgres://invalid@127.0.0.1:1/invalid", { max: 1 }) as unknown as Db;
@@ -135,7 +172,10 @@ export function createApiDeps(options: CreateApiDepsOptions = {}): ApiDeps {
     });
   const temporal = createTemporalService({ address: env.TEMPORAL_ADDRESS, namespace: env.TEMPORAL_NAMESPACE, taskQueue: env.TEMPORAL_TASK_QUEUE, log });
   // Calls made for a business are booked to its usage ledger through the client (services/models.ts).
-  const models = createApiModelClient(env, log, { db });
+  // A founder's own key reaches the api's calls through the gateway (WP-13 T11), signed as the api's other gateway calls.
+  const gatewaySecret = env.API_SERVICE_TOKEN_SECRET?.trim() || env.SESSION_TOKEN_SECRET?.trim() || null;
+  const models = createApiModelClient(env, log, { db, ...(gatewaySecret && gatewaySecret.length >= 16 ? { ownKeyGateway: { url: env.GATEWAY_URL, serviceToken: (businessId: string) => signApiServiceToken(gatewaySecret, businessId) } } : {}) });
+  const freePlanSlow = freePlanSlowCheck(db, env.FREE_PLAN_MONTHLY_CAP_CENTS);
   const composer = createComposerClient({ url: env.COMPOSER_URL, db, models, log, timeoutMs: env.COMPOSER_TIMEOUT_MS, allowFallback: env.APP_ENV === "development" || env.APP_ENV === "test" });
 
   let vault: Vault | null = null;
@@ -151,7 +191,11 @@ export function createApiDeps(options: CreateApiDepsOptions = {}): ApiDeps {
   const connectors = createDefaultRegistry({ secrets: {} });
   const recordings = options.recordings === undefined ? createSandboxRecordingResolver() : options.recordings;
   const ingest = createIngestClient({ url: env.INGEST_URL, secret: env.SESSION_TOKEN_SECRET ?? null });
-  const gateway = createApiGatewayClient({ url: env.GATEWAY_URL, secret: env.SESSION_TOKEN_SECRET ?? null });
+  // The api signs its gateway calls with its own secret when it has one (WP-11 T12), else the shared one.
+  const apiServiceSecret = env.API_SERVICE_TOKEN_SECRET?.trim() || null;
+  if (apiServiceSecret && apiServiceSecret.length < 32) throw new Error("API_SERVICE_TOKEN_SECRET must be at least 32 characters");
+  if (apiServiceSecret && apiServiceSecret === env.SESSION_TOKEN_SECRET?.trim()) throw new Error("API_SERVICE_TOKEN_SECRET must differ from SESSION_TOKEN_SECRET");
+  const gateway = createApiGatewayClient({ url: env.GATEWAY_URL, secret: apiServiceSecret ?? env.SESSION_TOKEN_SECRET ?? null });
   const auth = createAuthVerifier({
     supabaseUrl: env.SUPABASE_URL ?? null,
     jwtSecret: env.SUPABASE_JWT_SECRET ?? null,
@@ -161,6 +205,10 @@ export function createApiDeps(options: CreateApiDepsOptions = {}): ApiDeps {
     onDevUser: createDevUserBootstrap({ db, env }),
     onDevUserError: (err, userId) => log.warn({ userId, err: (err as Error)?.message }, "dev account bootstrap failed"),
   });
+
+  // The allow-list's confirmed-address rule rests on Supabase's "Confirm email": watched only while there is a list.
+  const confirmEmail = env.SUPABASE_URL && parseSignupAllowlist(env.SIGNUP_ALLOWLIST) ? createConfirmEmailGuard({ supabaseUrl: env.SUPABASE_URL, anonKey: env.SUPABASE_ANON_KEY, log }) : null;
+  const dataApi = env.SUPABASE_URL ? createDataApiProbe({ supabaseUrl: env.SUPABASE_URL, anonKey: env.SUPABASE_ANON_KEY, log }) : null;
 
   const health = {
     db: async () => {
@@ -188,7 +236,20 @@ export function createApiDeps(options: CreateApiDepsOptions = {}): ApiDeps {
     temporal: () => temporal.reachable(),
   };
 
-  return { env, db, redis, limits, temporal, models, composer, vault, connectors, auth, log, recordings, ingest, gateway, health };
+  // Requests hold at most the pool less a reserve in transactions, and one request at most four (services/tx-gate.ts).
+  let lastGateWarning = 0;
+  const txGate = createTransactionGate({
+    ...gateLimitsFor(poolMax),
+    onTimeout: (which, waiting) => {
+      // At most one line a minute: a wait that ran out means permits are slow to come back, worth a look, never a flood.
+      const now = Date.now();
+      if (now - lastGateWarning < 60_000) return;
+      lastGateWarning = now;
+      log.warn({ which, waiting, gate: txGate.stats() }, "a transaction waited 15 s for a permit and started without one (the pool may be slow or a transaction is not finishing)");
+    },
+  });
+
+  return { env, db, redis, limits, temporal, models, composer, vault, connectors, auth, confirmEmail, dataApi, log, recordings, ingest, gateway, health, txGate, freePlanSlow };
 }
 
 /** Per-request context factory for `trpcServer({ createContext })`. */
@@ -196,8 +257,13 @@ export function createContextFactory(deps: ApiDeps) {
   return async (opts: FetchCreateContextFnOptions, c?: HonoContext): Promise<Context> => {
     const authorization = opts.req.headers.get("authorization");
     const user = await deps.auth.resolve(authorization);
+    // Fail closed while Supabase auto-confirms addresses: no token then shows its holder read the inbox.
+    const emailConfirmed = user?.emailConfirmed === true && (deps.confirmEmail?.confirmationTrusted() ?? true);
     const requestId = c?.get("requestId") ?? requestIdFrom(opts.req.headers.get("x-request-id"));
-    return { ...deps, userId: user?.userId ?? null, email: user?.email ?? null, authenticatedAt: user?.authenticatedAt ?? null, emailConfirmed: user?.emailConfirmed === true, requestId, clientAddress: clientAddressOf(opts.req.headers, c), accessMemo: new Map() };
+    // The request's own view of the database: its transactions wait for the gate's permits, and it starts none once the
+    // client has closed the request.
+    const db = deps.txGate ? deps.txGate.forRequest(deps.db, opts.req.signal) : deps.db;
+    return { ...deps, db, userId: user?.userId ?? null, email: user?.email ?? null, authenticatedAt: user?.authenticatedAt ?? null, emailConfirmed, requestId, clientAddress: clientAddressOf(opts.req.headers, c), clientKind: clientKindOf(opts.req.headers.get("x-foundmill-client")), accessMemo: new Map(), admissionMemo: new Map() };
   };
 }
 
@@ -207,6 +273,11 @@ export function createContextFactory(deps: ApiDeps) {
  * to its left and is ignored. Without the header (local stacks), the socket's peer. Calls that come through the web's
  * server (the public page's Follow form) all carry the web's egress address, so the limit keyed on it must be generous.
  */
+/** "app" for the mobile app's `x-foundmill-client: mobile/<version> <platform>`, else "web" (the web sends none). */
+export function clientKindOf(header: string | null | undefined): "web" | "app" {
+  return typeof header === "string" && /^mobile\//.test(header.trim()) ? "app" : "web";
+}
+
 export function clientAddressOf(headers: Headers, c?: HonoContext): string | null {
   const forwarded = headers.get("x-forwarded-for");
   const last = forwarded?.split(",").map((s) => s.trim()).filter(Boolean).at(-1);

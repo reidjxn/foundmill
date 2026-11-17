@@ -8,15 +8,23 @@
  * the 640 px measure, split into paragraphs on blank lines; "Who it is for" and "Built by …" appear only when there is
  * something to say. Every string is a text node: nothing here is ever read as markdown or HTML. The layout follows its
  * own width (a container query at `--container-page-wide`), not the window's, so the preview frame lays it out as a
- * phone does. The one link is "Made with Foundmill", to the site's home. The one form is the "Follow" form
- * (`ProjectFollowForm`, package 1.6), passed in as `follow` when the founders left it on; the page itself sends nothing.
+ * phone does. The one form is the "Follow" form (`ProjectFollowForm`, package 1.6), passed in as `follow` when the
+ * founders left it on; the page itself sends nothing. When the founders turned on their quiz (`ProjectQuiz`, 0105) it
+ * comes just before, as `quiz`.
+ *
+ * The foot carries the mark, "Built on Foundmill" (docs/NETWORK.md F2; founder, 2026-11-12): small, quiet, and made for
+ * the project's visitors more than for Foundmill's own members. `mark` says who is looking:
+ *   - "visitor": the one link on the page, in small secondary text, which comes up from dim as the foot scrolls into
+ *     view (`mark-arrive`) and goes to `markHref`;
+ *   - "member": the same words as plain metadata (`text-3`), no link, for someone signed in to Foundmill;
+ *   - "none": no foot at all, for a project on a paid plan.
  *
  * Server-safe (no hooks, no handlers): the public route renders it as a Server Component.
  */
 import { useId, type CSSProperties, type HTMLAttributes, type ReactNode } from "react";
 import { Sprout } from "lucide-react";
 import { APP_NAME } from "@foundmill/config";
-import { PAGE_STAGE_LABELS, builtByLine, pageParagraphs, type PageStage } from "@foundmill/shared/project-page";
+import { PAGE_STAGE_LABELS, builtByLine, builtOnWords, pageParagraphs, type PageStage } from "@foundmill/shared/project-page";
 import { cn } from "../../lib/cn";
 import { formatDate } from "../../lib/format";
 import { BusinessLogo } from "../foundation/BusinessLogo";
@@ -42,31 +50,48 @@ export interface ProjectPageProps extends Omit<HTMLAttributes<HTMLElement>, "chi
   logo?: string | null;
   /** The people it names ("Built by Maya and Sam"); nothing when empty. */
   founderNames?: readonly string[] | null;
-  /** Where "Made with Foundmill" goes. Default the site root. */
-  homeHref?: string;
+  /** Who the "Built on" mark is drawn for (see above). Default "visitor". */
+  mark?: ProjectPageMark;
+  /** Where a visitor's mark goes. Default the site root. */
+  markHref?: string;
+  /**
+   * The level of the page's title: 1 on its own route (default); 3 when the page is shown inside another page as an
+   * example (the landing page), so that page keeps one h1. Its section labels follow one level below.
+   */
+  titleLevel?: 1 | 3;
   /** "page" fills the window (the public route); "preview" sits inside a frame (the console). */
   variant?: "page" | "preview";
   /** The "Follow" form (`ProjectFollowForm`), after everything the founders wrote; nothing when the page has none. */
   follow?: ReactNode;
+  /** The optional "Which one is for you?" quiz (`ProjectQuiz`, 0105), just before the Follow form; nothing when it is off. */
+  quiz?: ReactNode;
 }
+
+/** Who the foot's mark is drawn for; "none" leaves the foot out (a paid plan). */
+export type ProjectPageMark = "visitor" | "member" | "none";
 
 /** The words the page prints around the founder's own. */
 export const PROJECT_PAGE_WORDS = {
   forWhom: "Who it is for",
   about: "About",
   published: (on: string) => `Published ${on}`,
-  madeWith: `Made with ${APP_NAME}`,
+  builtOn: builtOnWords(APP_NAME).mark,
 } as const;
 
-export function ProjectPage({ name, pitch, about, forWhom, stage, publishedAt, brandPrimary, brandSecondary, logo, founderNames, homeHref = "/", variant = "page", follow, className, style, ...rest }: ProjectPageProps) {
+export function ProjectPage({ name, pitch, about, forWhom, stage, publishedAt, brandPrimary, brandSecondary, logo, founderNames, mark = "visitor", markHref = "/", titleLevel = 1, variant = "page", follow, quiz, className, style, ...rest }: ProjectPageProps) {
+  const Title = titleLevel === 1 ? "h1" : "h3";
+  const Sub = titleLevel === 1 ? "h2" : "h4";
   const paragraphs = pageParagraphs(about);
   const who = (forWhom ?? "").trim();
   const builtBy = builtByLine(founderNames);
   const published = publishedAt ? formatDate(publishedAt, "date") : null;
   const whoId = useId();
   const rootStyle: CSSProperties = { ...kitStyle({ primary: brandPrimary, secondary: brandSecondary }), ...style };
+  // A full page is the document's one main landmark; a preview sits inside the console's own <main>, as an article.
+  const Root = variant === "page" ? "div" : "article";
+  const Body = variant === "page" ? "main" : "div";
   return (
-    <article
+    <Root
       data-project-page=""
       data-variant={variant}
       className={cn("@container relative flex flex-col bg-canvas text-primary", variant === "page" ? "min-h-dvh" : "min-h-full", className)}
@@ -75,7 +100,7 @@ export function ProjectPage({ name, pitch, about, forWhom, stage, publishedAt, b
     >
       {/* The brand line, as on the top bar's lower edge: the business's color, never a fill behind text. */}
       <div aria-hidden className="h-1 w-full shrink-0 bg-kit-primary" data-brand-line="" />
-      <div className="mx-auto flex w-full max-w-reading min-w-0 flex-1 flex-col gap-8 px-gutter py-10 @page-wide:gap-10 @page-wide:py-16">
+      <Body className="mx-auto flex w-full max-w-reading min-w-0 flex-1 flex-col gap-8 px-gutter py-10 @page-wide:gap-10 @page-wide:py-16">
         <header className="flex min-w-0 flex-col gap-5">
           <div className="flex min-w-0 items-center gap-3">
             <BusinessLogo src={logo} name={name} primary={brandPrimary} size={48} title="" />
@@ -83,9 +108,9 @@ export function ProjectPage({ name, pitch, about, forWhom, stage, publishedAt, b
               {name}
             </p>
           </div>
-          <h1 className="t-display-lg min-w-0 text-balance break-words text-primary @page-wide:t-display-xl" data-project-pitch="">
+          <Title className="t-display-lg min-w-0 text-balance break-words text-primary @page-wide:t-display-xl" data-project-pitch="">
             {pitch}
-          </h1>
+          </Title>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <Chip tone="kit" icon={Sprout} data-project-stage={stage}>
               {PAGE_STAGE_LABELS[stage]}
@@ -108,9 +133,9 @@ export function ProjectPage({ name, pitch, about, forWhom, stage, publishedAt, b
 
         {who ? (
           <section aria-labelledby={whoId} className="flex min-w-0 flex-col gap-2 border-l-2 border-kit-primary pl-4" data-project-for-whom="">
-            <h2 id={whoId} className="t-label text-kit-lift">
+            <Sub id={whoId} className="t-label text-kit-lift">
               {PROJECT_PAGE_WORDS.forWhom}
-            </h2>
+            </Sub>
             <p className="t-reading whitespace-pre-line break-words text-prose">{who}</p>
           </section>
         ) : null}
@@ -121,15 +146,28 @@ export function ProjectPage({ name, pitch, about, forWhom, stage, publishedAt, b
           </p>
         ) : null}
 
-        {follow ?? null}
-      </div>
-      <footer className="border-t border-line">
-        <div className="mx-auto flex w-full max-w-reading px-gutter">
-          <a href={homeHref} className="t-action inline-flex min-h-tap items-center rounded-sm text-secondary transition-colors duration-hover hover:text-primary focus-ring" data-project-made-with="">
-            {PROJECT_PAGE_WORDS.madeWith}
-          </a>
-        </div>
-      </footer>
-    </article>
+        {quiz ?? null}
+
+        {/* The quiz's Follow buttons lead here (`#follow`). */}
+        {follow ? (
+          <div id="follow" className="min-w-0 scroll-mt-6">
+            {follow}
+          </div>
+        ) : null}
+      </Body>
+      {mark === "none" ? null : (
+        <footer className="border-t border-line-faint" data-project-mark={mark}>
+          <div className="mx-auto flex w-full max-w-reading px-gutter">
+            {mark === "visitor" ? (
+              <a href={markHref} className="mark-arrive t-small inline-flex min-h-tap items-center rounded-sm text-secondary transition-colors duration-hover hover:text-primary focus-ring">
+                {PROJECT_PAGE_WORDS.builtOn}
+              </a>
+            ) : (
+              <p className="t-small flex min-h-tap items-center text-tertiary">{PROJECT_PAGE_WORDS.builtOn}</p>
+            )}
+          </div>
+        </footer>
+      )}
+    </Root>
   );
 }

@@ -9,17 +9,18 @@ import { format } from "date-fns";
 import { DateFormatProvider } from "@foundmill/dugout";
 
 const api = vi.hoisted(() => ({ handlers: {}, calls: [] }) as FakeApi);
-const ctx = vi.hoisted(() => ({ liveOpen: true, gameMode: "live" as "live" | "personal", role: "owner", sectionPermissions: {} as Record<string, string>, committed: true, push: vi.fn() }));
+const ctx = vi.hoisted(() => ({ liveOpen: true, gameMode: "live" as "live" | "personal", role: "owner", sectionPermissions: {} as Record<string, string>, committed: true, noBusiness: false, push: vi.fn() }));
 vi.mock("@/lib/trpc-react", async () => {
   const { fakeTrpc } = await import("./fake-trpc");
   return { useTRPC: () => fakeTrpc(api) };
 });
-vi.mock("@/components/shell/business-context", () => ({
-  useBusiness: () => ({
+vi.mock("@/components/shell/business-context", () => {
+  const value = () => ({
     businessId: "b1",
     data: { liveOpen: ctx.liveOpen, business: { name: "Ledgerly", gameMode: ctx.gameMode, committedAt: ctx.committed ? new Date() : null, archivedAt: null }, membership: { role: ctx.role, sectionPermissions: ctx.sectionPermissions } },
-  }),
-}));
+  });
+  return { useBusiness: value, useOptionalBusiness: () => (ctx.noBusiness ? null : value()) };
+});
 vi.mock("@/components/shell/chrome", () => ({ useShellChrome: () => undefined }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: ctx.push }) }));
 vi.mock("next/link", () => ({ default: ({ href, children, prefetch: _prefetch, ...rest }: { href: string; children: React.ReactNode; prefetch?: boolean }) => <a href={href} {...rest}>{children}</a> }));
@@ -48,6 +49,7 @@ beforeEach(() => {
   ctx.role = "owner";
   ctx.sectionPermissions = {};
   ctx.committed = true;
+  ctx.noBusiness = false;
   ctx.push.mockClear();
 });
 afterEach(cleanup);
@@ -332,6 +334,18 @@ describe("/communities/[id]", () => {
     await waitFor(() => expect(callsTo(api, "live.communities.join")).toEqual([{ communityId: ids.community }]));
     fireEvent.click(screen.getByTestId("community-decline"));
     await waitFor(() => expect(callsTo(api, "live.communities.decline")).toEqual([{ communityId: ids.community }]));
+  });
+
+  it("with no project a member row offers no connect control and no Personal notice, and posts as the person", async () => {
+    ctx.noBusiness = true;
+    memberView();
+    api.handlers["live.communities.post"] = () => ({ id: "p-new", held: false });
+    mount(<CommunityScreen communityId={ids.community} />);
+    const members = await within(await screen.findByTestId("community-members")).findAllByTestId("community-member");
+    expect(members.length).toBeGreaterThan(0);
+    expect(screen.queryByTestId("ask-to-connect")).toBeNull();
+    expect(screen.queryByTestId("personal-notice")).toBeNull();
+    expect(screen.queryByText(/Post as /)).toBeNull();
   });
 
   it("audit #66: a member row offers Ask to connect, sent from the current business with an optional note", async () => {

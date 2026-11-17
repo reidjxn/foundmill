@@ -181,10 +181,105 @@ Before email and Stripe go live for people's own projects (docs/THESIS_REVIEW.md
 | Follow form (Nov 11, 2026, package 1.6) | Fixed before merge | The review of the public page's Follow form found: consent claimed for addresses nobody proved they own (high), budgets drained by repeats and unknown slugs (high), unsubscribes that never withdrew consent (medium), long addresses, the address as a display name and unsalted rate-limit hashes (low and info). Now **double opt-in**: a signup writes a pending `contact_consents` row (`confirmed_at` null; an existing contact's name, lawful basis and roles untouched; a new one is "Follower (ma***@example.com)" with no lawful basis; an archived contact is never brought back) and the gateway sends one confirmation from the project's Foundmill address on a service path (`POST /v1/platform-mail/confirm-follow`, `svc: api` only, fixed words, only for the pending row and the nonce the api reserved, never to a suppressed address, counted against the project's day and the ceiling, nothing while platform mail is off). Its link (HMAC under `PLATFORM_MAIL_SIGNING_SECRET`, label `fm-follow-confirm`, business, consent, address hash, seven days, a nonce whose hash the row keeps) opens ingest's `/mail/confirm` (GET a button, POST confirms); only then the lawful basis `consent` (when none), `page.followed` and the count. At most one confirmation per address per project per 30 days (on the row) and three per address across every project per 24 hours. An agent's send to a contact whose only basis is an unconfirmed signup is refused as a recipient first seen in untrusted content. `publicPage.follow` takes, in order: the input, a per-caller limit (120 a minute on the address the api sees; the web's Server Action shares the web's egress bucket, so the per-visitor limit is a Vercel Firewall rule, DEPLOY §2), the per-address allowance and the 24-hour key before the page is read, a small ceiling for addresses that are not a page taking followers, and only then the page's caps and the site-wide ceiling; the email keys are an HMAC under `SESSION_TOKEN_SECRET` with their own label. Every platform-mail suppression (link, one-click, a reply asking to stop, bounce, drop, spam report) withdraws that project's consents for the address; the count leaves out unconfirmed, withdrawn, archived and merged. Addresses are at most 200 characters. Tests: apps/api `page-follow.test.ts`, apps/gateway `follow-confirm.test.ts`, apps/ingest `follow-confirm.test.ts`, packages/connectors `confirm.test.ts`, packages/shared `project-page.test.ts`, apps/web e2e `public-page.spec.ts`. **Left as it is:** the answer's timing still differs between a new and a repeat signup (low; the answer's words are the same); the per-visitor limit depends on the Vercel rule being configured. |
 | Person profiles (Nov 11, 2026, package 2.3) | Fixed before merge | The review of the public person profile (`/u/<handle>`, 0080) found: a display name changed in "Your profile" went live unscreened on a public profile and on a published project page that names its founders, and the publish screened a name read before its transaction (high); the views `public_person_profiles` and `public_project_pages` readable by anyone with the anon key, so every page and profile could be listed at once past the api's limits (medium); the public reads' ceilings drained by random handles and slugs, with no per-caller key (medium); handle probing at speed by a signed-in script (low); screen bypasses through zero-width and bidi characters, fullwidth forms, "name [at] example dot com" and bare digit runs (medium); a renamed handle claimable at once by someone else (medium); handles posing as the platform ("foundmill-support") (low). Now: `founder.profile.update` screens a new display name with `profileHoldReason` while the profile is public or a published page shows it (refused with `PERSON_HOLD_MESSAGES`), and the guard trigger refuses a client's direct change of such a name; publish and update screen the row locked in their transaction (`select … for update`); the two views are granted to `service_role` only (0080 in place; 0081 `public_page_grants` for the page view), and every reader is the api on the service connection; `publicPerson.byHandle` and `publicPage.bySlug` take a per-caller limit (300 a minute, an HMAC of the address the api sees, `clientAddressOf`) before the per-handle and global ceilings, and a lookup that finds nothing gives those back and draws from its own `unknown` ceiling; `founder.publicProfile.get/update/publish` are limited to 30 a minute per account; the shared screen matches after NFKC with `\p{Cf}` removed and catches written-out addresses, runs of 9+ digits and 7-digit local numbers with a dash (years, prices and counts tested to pass); display names refuse bidi controls; a released handle stays its owner's for 90 days (`person_handle_releases`, service role only, enforced by `handleTaken` and a trigger); `checkHandle` refuses `isReservedName` with hyphens as spaces and APP_NAME anywhere. **Still open:** the older view `public_profiles` (0012 grant, redefined in 0044) is still granted to anon and authenticated and lists live businesses' ids and their owners' and admins' user ids and display names; publishing a project page with founders shown does not screen the owners' existing display names (a name set while nothing showed it goes out with the page). |
 | SEC-16 SSRF | Fixed for what exists | `buildUrl` follows a whole URL only over https and only on the connector's own host; the Shopify health check validates the stored shop domain before fetching. The `web` connector's own defense (every redirect hop checked, the connection pinned to the checked address) was read and looks right. |
+| Google sign-in (Nov 12, 2026) | Fixed before Google is switched on | The review of "Continue with Google" (commit `471bde7`: a Google-proven session counts as a confirmed address for `SIGNUP_ALLOWLIST`) said ok to merge and asked for four things first. (1) Both the Google rule and the email rule rest on Supabase's "Confirm email": with it off Supabase auto-confirms every address and a user can set `user_metadata.email_verified` on their own account. Now, while `SIGNUP_ALLOWLIST` is set, the api reads `GET {SUPABASE_URL}/auth/v1/settings` with `SUPABASE_ANON_KEY` at boot and every 10 minutes (`services/confirm-email.ts`, never awaited at boot); `mailer_autoconfirm: true` logs one error and no session counts as confirmed until a later read says otherwise, so every listed account is refused (`email_unconfirmed`), existing members included, because the allow-list is checked on every signed-in request. An unreadable answer (no key, Supabase down, no boolean field) keeps the last value read, starting as unknown (tokens decide, as before), with a warning. The comment on `user_metadata.email_verified` now says it is user-writable and protects nothing on its own. (2) A token whose only sign-in method in `amr` is `password` is refused as unauthorized (`passwordOnlyFromPayload`); a password beside an email code, a link or Google follows the normal rules. Supabase has no switch that turns off password sign-up alone (DEPLOY §4 says so and what to keep on instead). (3) A fresh sign-in (the re-auth window for permanent deletion) counts only `otp`, `magiclink`, `oauth`, `email/signup`, `invite`, `recovery` and `email_change` (`SIGN_IN_METHODS`), never `token_refresh`, `password`, `anonymous` or an unknown method; a token with an `amr` claim but no sign-in entry has no sign-in moment. (4) DEPLOY §4: narrow production redirect URLs to the callback (`https://foundmill.com/auth/callback**` plus the mobile scheme; localhost and previews only in a development project; `supabase/config.toml` still declares the wide list), Google stays off on Vercel previews (the PKCE cookie is on the preview host, the callback on the apex), and "Confirm email" must stay on. Tests: apps/api `google-signin-hardening.test.ts` (stubbed settings fetch: on, off, unreadable, no key, the 10-minute refresh, the wiring, and over HTTP a listed member refused while it is on; password-only refused, password beside otp, magiclink or Google; the sign-in methods), `spend-ceiling.test.ts` updated (its "unconfirmed" tokens were password sessions). **Still open:** apps/stream and apps/collab admit a socket by the allow-listed email alone, without the confirmed-address rule, the "Confirm email" check or the password refusal (they verify tokens with their own `auth.ts`); a re-auth through Google proves only that the same browser still holds a Google session, since the sign-in sends no `prompt=login` (the web has no separate re-auth call: "Sign in again" is the ordinary /login, so no `prompt` was added). |
 
 New since Oct 7:
 
 - **N1 (high), fixed.** `findContractByDocRef` matched a substring, and the request id in a Dropbox Sign callback is not covered by its signature: a callback with a valid hash and a one-character id marked the business's newest matching contract signed. The lookup now matches the whole id (the reference equals it, or holds it as a whole path segment or query value), at least 12 characters of letters, digits, `_` and `-`.
-- **N2 (high for email), open.** No per-business SendGrid inbound token, event-webhook key or Stripe endpoint secret is ever stored by the api or the web, so inbound mail would verify against one platform token for every business. To design with the platform sending address (package 1.5): derive the token per business and store the founder's own keys at connect.
+- **N2 (high for email), open for SendGrid; the Stripe half fixed Nov 16, 2026 (WP-11 T20).** A founder's own Stripe endpoint secret is now stored at connect (gateway `WEBHOOK_SECRET_FIELDS`, kind `stripe_webhook_secret`) and ingest verifies that project's deliveries with it. No per-business SendGrid inbound token or event-webhook key is stored yet, so inbound mail would verify against one platform token for every business. To design with the platform sending address (package 1.5): derive the token per business and store the founder's own keys at connect.
 - **N3 (medium), open.** See SEC-10.
-- **N4 (low), open.** Any service that holds `SESSION_TOKEN_SECRET` can mint the `svc: api` token the push route trusts; `devices.register` moves a push token that another account holds. The second is also what lets two accounts share one phone, so it is left as it is and recorded.
+- **N4 (low), open until the founder's switch (F5).** The code is in (WP-11 T12, Nov 16, 2026): with `API_SERVICE_TOKEN_SECRET` on the api and the gateway and the legacy flag removed, a token signed with `SESSION_TOKEN_SECRET` that claims `svc: api` gets 401 (`verifyServiceTokenFor`), and the gateway's `/health` shows `apiServiceToken: "own"`. Until then: any service that holds `SESSION_TOKEN_SECRET` can mint the `svc: api` token the push route trusts; `devices.register` moves a push token that another account holds. The second is also what lets two accounts share one phone, so it is left as it is and recorded.
+
+## Audit fixes, Nov 13 – 14, 2026
+
+Folded in from the "SECURITY_REVIEW entry" of each pull request (#116, #129), as written. #131 and #132 carry no such entry; their rows below are taken from their descriptions, with severities given by the #131/#132 session.
+
+### The Nov 13 audit (#116)
+
+| Finding | Severity | Status | PR |
+|---|---|---|---|
+| Export ignores section walls | Medium | Fixed | #116 |
+| Admin lifts own walls via invite | Medium | Fixed (hardened by #120) | #113 |
+| Rollback, save or promote widens tool grants | Medium | Fixed | #116 |
+| fm_purge_business executable by client roles | Medium (critical if Data API on) | Fixed | #101 |
+| Delegated approval reused after withdrawal | Medium | Fixed | #116 |
+| SEC-9 gateway dev secret (and pause-link secret) | Low | Fixed | #116 |
+| Digest recipients not registered as untrusted | Medium | Fixed | #116 |
+| Inbox note remote images / links | Medium | Fixed | #116 |
+| Supabase redirect wildcard | Medium | Fixed in file; dashboard step pending | #116 |
+| Follow sign-ups spend the mail cap | Medium | Fixed: Turnstile on Follow, and confirmations on their own daily counts | #119 |
+
+### The untrusted-content scan (#129)
+
+**Denial of service through a quadratic regex in the untrusted-content scan (fixed 2026-11-14).**
+- A long run of local-part characters with no "@" took seconds to scan: 11 s for 94 KB.
+- The fix is a linear scan anchored on "@", checked for equivalence against the old pattern.
+- Binary content is kept out of the reader's prompt.
+
+### A collaborator's reads of the event log (#131)
+
+Severities from the #131/#132 session (Nov 14, 2026), on this document's scale.
+
+| Finding | Severity | Status | PR |
+|---|---|---|---|
+| `events` collaborator walls (0099): a signed-in collaborator (whom the founders must invite: it needs a role) could read event payloads from sections their role walls off, both from the stream and straight from `events`. A gap in a documented control (the collaborator walls), not a cross-tenant read. | P2 | Fixed in 0099: `events_select` admits a collaborator only to the types on `fm_collaborator_event_types()`, a collaborator's writes are held to the same list, and `outbox` follows its event | #131 |
+| 0099 cannot hide one field of an `events` row a collaborator reads directly | P3 | Open: defense in depth only, the api (`eventAsSeenBy`) and the stream cut those fields | — |
+
+### Next.js advisories (#133)
+
+| Finding | Severity | Status | PR |
+|---|---|---|---|
+| GHSA-2464-fhr4-w9xw: RCE in the Image Optimization API with SVGs (through `sharp`) | Critical | Not exploitable before the fix: `sharp` 0.35.5 was already resolved, and `images.unoptimized` makes `/_next/image` answer 404 before the optimizer runs. Fixed by Next.js 16.4.3 | #133 |
+| GHSA-673q-mjm6-r5xr: RCE in `use cache` functions | Critical | No `use cache` in the app. Fixed by Next.js 16.4.3 | #133 |
+| GHSA-p3m5-59mp-jv5r: DoS in the App Router through Server Actions | High | Affected, through the Follow form's Server Action. Fixed by Next.js 16.4.3 | #133 |
+| dompurify SAFE_FOR_TEMPLATES bypass (in the design system's code editor, through `monaco-editor`) | Critical | Fixed by the `dompurify` 3.4.17 override | #133 |
+
+The remaining non-critical advisories (dev tools, the test DOM, the agent and MCP SDKs' web servers) are listed in the CI-scanning PR for triage.
+
+### Collaborators and Finance figures (#132)
+
+| Finding | Severity | Status | PR |
+|---|---|---|---|
+| Collaborator Finance fields (0107): with the same prerequisite, a collaborator could read Finance figures through api procedures (cycle cost, revenue goals, approval amounts, Ribbon money, CRM payment amounts, Inbox note cost) and through `conversions` and `journey_daily` | P2 | Fixed: the api cuts the same fields as the stream (`EVENT_WALLS` in @foundmill/shared, `eventAsSeenBy`); migration 0107 gives a collaborator `conversions` only through `member_conversions` (amount null) and `journey_daily` without spend and revenue; `inbox_items` keeps the api's redaction as its wall | #132 |
+| Agents' AI cost (wages) on the Team screens, the profile, recruitment and the hire catalog: a platform-usage figure, not the business's revenue or a customer's money, shown in a section the collaborator may read | P3 | Open | — |
+| Free text that may quote money (Customer Update commentary, stored chapter titles, design-check results): a figure appears only when an agent or a person writes one; it cannot be walled per field, and the api masks known money patterns | P3 | Open | — |
+| The department metrics' own section walls: after 0107 their raw SQL on `conversions` returns nothing for a collaborator, so a revenue metric reads empty rather than leaking; what is left is a missing wall, a hardening issue, not an exposure | P3 | Open | — |
+
+### zod memory exhaustion through input validation (#139)
+
+| Finding | Severity | Status | PR |
+|---|---|---|---|
+| GHSA-mrhx-c7xc-m3w5 through `publicQuiz.answer` (signed out): a 2 MB body of junk keys made zod build an issue per key (about 83 MB per request), and the error sent back listed every key (6.9 MB) | P1 | Fixed: the input's keys are counted before zod reads them; every procedure's error is bounded (`boundedIssues` in `trpc.ts`); zod 4.6.7 | #139 |
+| The same shape on signed-in inputs: lists without `.max()` first and records without a count first, reachable by any signed-in person | P3 | Fixed: every list an api input can reach has a `.max()` first and every record a key count (`boundedRecord`, `INPUT_LIMITS`); `input-limits.test.ts` fails on a new unbounded input | #139 follow-up (`claude/tips-zod-limits`) |
+
+## Status of every open item, Nov 16, 2026 (WP-11 T19)
+
+One row per id that `docs/holistic-plan/audits/a8-data-api-security.md` §4 and `audits/a11-roadmap-status.md` §7.0 left open. "Fixed in T<n>" points at the WP-11 task and its pull request or branch, which the founder merges; "accepted" points at the dated decision in `docs/log/2026-11/2026-11-16-claude-wp11-decisions.md`. No row reads open without one of the two.
+
+| Id | State |
+| --- | --- |
+| SEC-8 | Accepted while the Data API is off; now watched (T14: `supabase/config.toml` declares it off, the api's `/health` reports `dataApi`) |
+| SEC-9 | Fixed in T13: no development bypass in a process with `NODE_ENV=production`, and the api and the stream log a warning at boot while it is on |
+| SEC-11 | Accepted (Dropbox Sign's scheme) until `dropbox_sign` enters any `LIVE_CONNECTORS` |
+| SEC-15 | Redaction fixed in T18 (two levels, OAuth tokens, sealed values); `approvals.args` holding raw arguments accepted (a founder reads what they approve) |
+| SEC-17 | Mint scope fixed in T11 (only the orchestrator and the api mint; the api one tool, no session); a deny-list accepted (trigger: tokens leave the orchestrator's process); full closure needs T12's switch |
+| SEC-18 | Closed: no `disable trigger` in the seeds (`grep -rn "disable trigger" packages/db/src/seed packages/db/src/seed.ts` finds nothing) |
+| SEC-19 | Accepted: the table stays, no screen claims it |
+| N2 | Stripe half fixed in T20 (a founder's own endpoint secret stored at connect); SendGrid half accepted until a founder's own SendGrid is offered, `sendgrid` out of ingest's list |
+| N3 | Accepted until Stripe Connect is wanted; WP-07's pay link runs on the founder's own key |
+| N4 | Fixed in T12 in code; closed once the founder runs F5 (gateway `/health` shows `apiServiceToken: "own"`) |
+| Nov 13 redirect wildcard | Fixed in file; the dashboard step is WP-00 S10's push (T14 lists what the diff must show) |
+| #131 P3 | Accepted: defense in depth; no collaborator exists yet |
+| #132 P3s | Accepted: same reason |
+| A8-09 | First step fixed in T12; the wider split accepted (trigger: a second service gains a route only it may call) |
+| A8-10 | Accepted: the vault on KMS and the api's seal moved into the gateway wait for ten stored keys or the first paid plan; who holds the key is in DEPLOY §3 |
+| A8-11 | Fixed in T14 |
+| A8-12 | Fixed in T13 for the api and the stream; apps/collab keeps its copy (not deployed; WP-12) |
+| A8-21 | Fixed in T18 (0122: `public_profiles` is the service's) |
+| A8-22 | Fixed in T15 (bounded webhook bodies) |
+| A8-23 | Fixed in T18 (`parsePublicEnv` falls back to production in a production build) |
+| A8-24 | Fixed in T13 (the dev bypass needs `NODE_ENV` not production) |
+| A8-25 | Accepted: outbox rows never pruned, fine at 3,500 events (trigger: one million rows) |
+| A8-26 | WP-01's (required security scans) |
+| A8-27 | CORS part fixed in T18; `/health` detail without sign-in, the `iss` claim and `GET /v1/connectors` without a token accepted |
+

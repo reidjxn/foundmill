@@ -34,7 +34,7 @@ export const UpdateTaskInput = patchSchema(CreateTaskInput.omit({ dependsOn: tru
 export type UpdateTaskInput = z.input<typeof UpdateTaskInput>;
 
 export const TaskListFilter = PageInput.extend({
-  status: z.union([z.enum(TASK_STATUSES), z.array(z.enum(TASK_STATUSES))]).optional(),
+  status: z.union([z.enum(TASK_STATUSES), z.array(z.enum(TASK_STATUSES)).max(TASK_STATUSES.length)]).optional(),
   assigneeAgentId: Id.optional(),
   kind: z.enum(TASK_KINDS).optional(),
   departmentId: Id.optional(),
@@ -73,7 +73,7 @@ export const PLANNABLE_STATUSES = PLANNABLE_TASK_STATUSES;
 
 /** What the Planner answered (`TaskGraphOutput.tasks`, packages/models) and where its tasks are filed. */
 export interface WritePlannedGraphInput {
-  tasks: readonly Pick<PlannedTask, "id" | "title" | "goal" | "kind" | "acceptance_criteria" | "file_scope_hints" | "depends_on" | "hard">[];
+  tasks: readonly Pick<PlannedTask, "id" | "title" | "goal" | "kind" | "acceptance_criteria" | "test_expectations" | "file_scope_hints" | "depends_on" | "hard">[];
   roadmapItemId: string | null;
   departmentId: string | null;
 }
@@ -247,7 +247,7 @@ export const tasksRepo = {
 
   /**
    * Write the Planner's answer as `planned` tasks and the edges between them (BUILD §11.6): one task per planned task
-   * (title cut to 200, priority 10 when `hard`), filed under the roadmap item and department given, then an edge for every
+   * (title cut to 200, priority 10 when `hard`, each test expectation kept after the criteria as "Test: ..."), filed under the roadmap item and department given, then an edge for every
    * `depends_on` that names another task of the same answer. The api's `planTaskGraph` and the cycle's roadmap planning
    * both write through here, so a task planned by either looks the same. Call inside a transaction holding `lockPlanning`.
    */
@@ -259,7 +259,8 @@ export const tasksRepo = {
         kind: t.kind,
         title: t.title.slice(0, 200),
         goalMd: t.goal,
-        acceptance: t.acceptance_criteria,
+        // The tests a task must add or pass travel with its criteria, so the agent that takes it reads them (WP-05 T5).
+        acceptance: [...t.acceptance_criteria, ...t.test_expectations.filter((x) => x.trim()).map((x) => `Test: ${x}`)],
         fileScope: t.file_scope_hints,
         roadmapItemId: input.roadmapItemId,
         departmentId: input.departmentId,

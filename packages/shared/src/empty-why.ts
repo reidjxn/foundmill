@@ -33,7 +33,7 @@ export type EmptyWhyId =
 
 /** What the caller knows; every field is optional, the words fall back to the sentence that holds either way. */
 export interface EmptyWhyFacts {
-  /** Today: the business is in its first days (the first-week timeline shows). */
+  /** Today: the business is in its first days (the first-week timeline shows) and its page is not live yet. */
   firstDays?: boolean;
   /** The business has started distribution (answered "Ready to start selling?"). */
   distributionStarted?: boolean;
@@ -54,7 +54,7 @@ export function emptyWhy(id: EmptyWhyId, facts: EmptyWhyFacts = {}): EmptyWhy {
   switch (id) {
     case "today_needs_you":
       return facts.firstDays
-        ? { text: `Nothing needs you yet. Your first notes, the specification and the roadmap to sign off, arrive once the team finishes drafting them, usually on day 1.` }
+        ? { text: "Nothing needs you yet. Your page is being drafted and will show here in about a minute." }
         : { text: "Nothing needs you right now. The team keeps working." };
     case "leads":
       return facts.distributionStarted

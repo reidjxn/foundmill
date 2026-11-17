@@ -137,7 +137,11 @@ export const presenceRepo = {
         .select({ at: min(events.occurredAt) })
         .from(events)
         .where(and(eq(events.businessId, b.id), eq(events.type, "cycle.run_started"), sql`${events.actor}->>'kind' = 'user'`));
-      const activation = founderActivation({ committedAt, specificationSignedOffAt: signedAt("spec"), roadmapSignedOffAt: signedAt("roadmap"), firstFounderContinueAt: firstRun?.at ?? null });
+      const [firstPage] = await db
+        .select({ at: min(events.occurredAt) })
+        .from(events)
+        .where(and(eq(events.businessId, b.id), eq(events.type, "page.published"), sql`${events.actor}->>'kind' = 'user'`));
+      const activation = founderActivation({ committedAt, specificationSignedOffAt: signedAt("spec"), roadmapSignedOffAt: signedAt("roadmap"), firstFounderContinueAt: firstRun?.at ?? null, firstPagePublishedAt: firstPage?.at ?? null });
       const committedDay = dayKeyIn(committedAt, b.timeZone);
       const days = await presenceRepo.visitDays(db, b.id, b.ownerUserId, { from: committedDay, to: addDaysToKey(committedDay, 7) });
       const returns = rowsOf<{ n: number | string }>(

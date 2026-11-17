@@ -27,6 +27,5 @@ export const channelPrint = defineChannelTemplate({
   ],
   craftSkills: ["media_research", "negotiation", "print_production", "kit_preparation"],
   spendCapMinor: 0,
-  kitMode: true,
   neverDoes: ["call a booking API", "sign insertion orders", "quote circulation without a source", "book without a tracking code"],
 });

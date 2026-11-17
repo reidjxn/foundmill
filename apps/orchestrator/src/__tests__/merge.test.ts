@@ -224,7 +224,10 @@ describe("assessMerge and handBack", () => {
     const blocked = (await repos.events.list(t.db, t.businessId, { type: "task.blocked", limit: 10 })).items.find((e) => (e.payload as { taskId: string }).taskId === dirty.id);
     expect(blocked).toMatchObject({ payload: { reason: "needs_update", assigneeAgentId: t.workerId, detail: handBackDetail("conflicts", dirtyInput.branch, "GitHub reports the pull request as dirty") } });
     expect((blocked!.payload as { detail: string }).detail).toMatch(/^This change clashes with newer work on the live product/);
-    expect((await auditOf(MERGE_AUDIT.handedBack))[0]).toMatchObject({ target: { id: dirty.id }, details: { why: "conflicts", approvalId: null } });
+    expect((await auditOf(MERGE_AUDIT.handedBack))[0]).toMatchObject({ target: { id: dirty.id }, details: { why: "conflicts", approvalId: null, sessionId: dirtyInput.sessionId } });
+    // The event's key is the session's, not the clock's: a retried hand-back writes no second blocked event.
+    await acts.handBack({ ...dirtyInput, prNumber: prepared[1]!.prNumber, prUrl: prepared[1]!.prUrl, approvalId: null, why: "conflicts", detail: "GitHub reports the pull request as dirty" });
+    expect((await repos.events.list(t.db, t.businessId, { type: "task.blocked", limit: 10 })).items.filter((e) => (e.payload as { taskId: string }).taskId === dirty.id)).toHaveLength(1);
     // The sweep leaves a handed-back task alone: it is blocked, not in review.
     expect((await acts.pendingMerges({ businessId: t.businessId })).map((m) => m.taskId)).not.toContain(dirty.id);
   });
@@ -239,9 +242,45 @@ describe("assessMerge and handBack", () => {
     }
     expect(handBackDetail("checks_failed", "agent/x", null)).toContain("fix what the quality checks found");
   });
+
+  it("a founder's hand-back puts the founder's words first, as the instruction (WP-05 T16)", () => {
+    const text = handBackDetail("founder", "agent/x", "Make the prices bigger on phones");
+    expect(text).toMatch(/^The founder's instruction: “Make the prices bigger on phones”\./);
+    expect(text).toContain("Bring your working copy (agent/x) up to date");
+  });
+
+  it("a review's hand-back is the instruction the second read wrote, and says so plainly when there is none (WP-05 T17)", () => {
+    const closed = `Fix it.\n\n<untrusted_content kind="code_review_findings">\n{}\n</untrusted_content>`;
+    expect(handBackDetail("review", "agent/x", closed)).toBe(closed);
+    const text = handBackDetail("review", "agent/x", null);
+    // Never sliced (security review of #185): too long, or not ending in a closed block, falls back to no findings.
+    for (const open of [`${closed.slice(0, -5)}`, `Fix it.\n\n<untrusted_content kind="code_review_findings">\n${"x".repeat(2000)}\n</untrusted_content>`, "The reviewer's notes."]) expect(handBackDetail("review", "agent/x", open)).toBe(text);
+    const first = text.split(". ")[0]!;
+    expect(first).toBe("Another agent read this change and asked for changes, so it went back to the agent who made it before the founder is asked");
+    expect(founderJargonHits(first).map((h) => h.term)).toEqual([]);
+    expect(text).toContain("(agent/x)");
+  });
 });
 
 describe("askMerge, awaitChecks and completeMerge", () => {
+  it("names the commit the second read reviewed in the merge's arguments, on the ask and on the approved merge (M4)", async () => {
+    expect(mergeArgs(REPO, 7, "Fix")).not.toHaveProperty("headSha");
+    expect(mergeArgs(REPO, 7, "Fix", "b".repeat(40))).toMatchObject({ prNumber: 7, headSha: "b".repeat(40) });
+    await connectRepo();
+    const { github, offline, ctx, acts } = githubGateway(undefined, asksForMerge);
+    const { task, input } = await reviewTask("Reviewed head");
+    await commitOn(github, ctx, input.branch, "src/reviewed.ts");
+    const prepared = await acts.prepareMerge(input);
+    if (prepared.status !== "ready") throw new Error("expected a pull request");
+    const pr = { prNumber: prepared.prNumber, prUrl: prepared.prUrl };
+    await acts.askMerge({ ...input, ...pr, reviewedSha: "c".repeat(40) });
+    expect(offline.calls.at(-1)).toMatchObject({ tool: "merge_pr", args: { ...mergeArgs(REPO, pr.prNumber, task.title), headSha: "c".repeat(40) } });
+    // GitHub's merge takes no commit to pin (the connector drops the field): the merge still runs under the approval.
+    const approved = githubGateway(github);
+    expect(await approved.acts.completeMerge({ ...input, ...pr, approvalId: APPROVAL, decidedBy: t.fixture.ownerId, reviewedSha: "c".repeat(40) })).toMatchObject({ status: "merged" });
+    expect(approved.offline.calls.at(-1)).toMatchObject({ tool: "merge_pr", args: { headSha: "c".repeat(40) } });
+  });
+
   it("asks the founder, records the wait for the checks, and merges under the approval in the founder's name", async () => {
     await connectRepo();
     const { github, offline, ctx, acts } = githubGateway(undefined, asksForMerge);
@@ -374,9 +413,9 @@ describe("askMerge, awaitChecks and completeMerge", () => {
 
 describe("pendingMerges", () => {
   /** A code task in review whose last session finished on its branch with these tests, as `finishSession` records it. */
-  async function finishedInReview(title: string, tests: { passing: number; total: number }, options: { branch?: string; reason?: string } = {}) {
+  async function finishedInReview(title: string, tests: { passing: number; total: number }, options: { branch?: string; reason?: string; landed?: "saved_only" } = {}) {
     const { task, input } = await reviewTask(title);
-    await repos.events.write(t.db, t.businessId, { type: "task.completed", actor: { kind: "agent", id: t.workerId }, payload: { taskId: task.id, kind: "code", title, assigneeAgentId: t.workerId, sessionId: input.sessionId, outcome: "success", durationMs: 1000, cost: { amountMinor: 1, currency: "USD" }, acceptanceTestsPassing: tests.passing, acceptanceTests: tests.total, prNumber: null, branch: options.branch ?? input.branch, summary: `${title} done` } });
+    await repos.events.write(t.db, t.businessId, { type: "task.completed", actor: { kind: "agent", id: t.workerId }, payload: { taskId: task.id, kind: "code", title, assigneeAgentId: t.workerId, sessionId: input.sessionId, outcome: "success", durationMs: 1000, cost: { amountMinor: 1, currency: "USD" }, acceptanceTestsPassing: tests.passing, acceptanceTests: tests.total, prNumber: null, branch: options.branch ?? input.branch, summary: `${title} done`, ...(options.landed ? { landed: options.landed } : {}) } });
     await repos.audit.append(t.db, t.businessId, { actorKind: "agent", actorId: t.workerId, action: "session.finish", target: { kind: "session", id: input.sessionId }, details: { outcome: "done", reason: options.reason ?? null, taskStatus: "review" } });
     return { task, input };
   }
@@ -409,5 +448,24 @@ describe("pendingMerges", () => {
     for (const left of [failing, otherBranch, setup, rejected, doneMerged]) expect(ids).not.toContain(left.task.id);
     expect(found.find((m) => m.taskId === passed.task.id)).toEqual({ ...passed.input, acceptance: { passing: 145, total: 145 }, summary: "Hydration fix done" });
     expect(found.find((m) => m.taskId === docs.task.id)?.acceptance).toBeNull();
+  });
+
+  it("a change saved with nowhere to push is not offered, even once a repository is connected (WP-05 T8)", async () => {
+    const { acts } = githubGateway();
+    const saved = await finishedInReview("Saved before the repository", { passing: 3, total: 3 }, { landed: "saved_only" });
+    await repos.tasks.setStatus(t.db, t.businessId, saved.task.id, "done", { force: true });
+    await connectRepo();
+    expect((await acts.pendingMerges({ businessId: t.businessId })).map((m) => m.taskId)).not.toContain(saved.task.id);
+  });
+
+  it("a change the founder sent back is offered again once its agent finished the rework (WP-05 T16)", async () => {
+    const { acts } = githubGateway();
+    await connectRepo();
+    const reworked = await finishedInReview("Reworked after a no", { passing: 4, total: 4 });
+    await repos.audit.append(t.db, t.businessId, { actorKind: "agent", actorId: t.workerId, action: MERGE_AUDIT.notMerged, target: { kind: "task", id: reworked.task.id }, details: { step: "decision", outcome: "rejected" } });
+    expect((await acts.pendingMerges({ businessId: t.businessId })).map((m) => m.taskId)).not.toContain(reworked.task.id);
+    // The rework session finished on the same branch after the founder's answer.
+    await repos.events.write(t.db, t.businessId, { type: "task.completed", actor: { kind: "agent", id: t.workerId }, occurredAt: new Date(Date.now() + 60_000), payload: { taskId: reworked.task.id, kind: "code", title: "Reworked after a no", assigneeAgentId: t.workerId, sessionId: reworked.input.sessionId, outcome: "success", durationMs: 1000, cost: { amountMinor: 1, currency: "USD" }, acceptanceTestsPassing: 4, acceptanceTests: 4, prNumber: null, branch: reworked.input.branch, summary: "Reworked" } });
+    expect((await acts.pendingMerges({ businessId: t.businessId })).map((m) => m.taskId)).toContain(reworked.task.id);
   });
 });

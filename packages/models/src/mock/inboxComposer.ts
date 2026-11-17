@@ -8,7 +8,7 @@
  * costs; every template sentence is digit-free). It is what mock-mode testers read, so it names no plumbing: no policy,
  * caps, named queries, exhibits, engines or hard gates, and no developer notes.
  */
-import { CHANNEL_KEYS, DEFAULT_BUSINESS_CURRENCY, EXHIBIT_KINDS, INBOX_ITEM_TYPES, type ChannelKey, type ExhibitKind, type InboxItemType } from "@foundmill/shared";
+import { CHANNEL_KEYS, DEFAULT_BUSINESS_CURRENCY, EXHIBIT_KINDS, INBOX_ITEM_TYPES, parkedTasksSentence, type ChannelKey, type ExhibitKind, type InboxItemType } from "@foundmill/shared";
 import type { ComposerOption, ComposerOutput } from "../schemas";
 import { type ManifestEntry, type MockContext, asUuid, channelLabel, ent, formatMoneyMinor, humaniseKey, isRecord, sentenceCase, truncate, wordCount } from "./inputs";
 
@@ -74,9 +74,25 @@ export function generateInboxComposer(ctx: MockContext): ComposerOutput {
   // or a data-change insight: write from it, never a "nothing new" filler note.
   const grounded = events.length === 0 ? readGrounded(ctx) : undefined;
 
+  // A finished task whose findings rest on simulated results (the composer's `note`, or the event's own flag) is said
+  // to be simulated, never narrated as real (WP-05 T3).
+  const simulated = !grounded && (events.some((e) => e.type === "task.completed" && simulatedFindings(e)) || (ctx.getString("note") ?? "").includes("Simulated findings:"));
+
+  // A finished task that saved a report (WP-05 T7): the note says what it found, in a sentence quoted from the report,
+  // and that the full result is on the task.
+  const report = !grounded && !simulated && primary?.type === "task.completed" && isRecord(primary.payload.report) ? primary.payload.report : undefined;
+
   // --- the stake, the fact, the ask -------------------------------------------------------------------------------
-  const fact = grounded ? groundedFact(grounded) : factSentence(type, primary, who, channel, taskTitle, amount, businessName, rng);
-  const why = grounded
+  const fact = grounded
+    ? groundedFact(grounded)
+    : simulated
+      ? `${taskTitle ? `"${taskTitle}"` : "The task"} is finished, but its findings were simulated: nothing real was read, found or done.`
+      : report
+        ? reportFact(taskTitle, report)
+        : factSentence(type, primary, who, channel, taskTitle, amount, businessName, rng);
+  const why = simulated
+    ? "Treat it as a practice run; the team can do it for real once the tools it needs are connected."
+    : grounded
     ? grounded.kind === "decision"
       ? "It is the most useful call while the team waits for news; each option says what changes for you and whether it can be undone."
       : "It is a real change in the numbers rather than an event, so I have kept to the figures behind it."
@@ -84,9 +100,11 @@ export function generateInboxComposer(ctx: MockContext): ComposerOutput {
   const ask = askSentence(type, rng);
   const brief = briefSentence(ctx);
 
+  // Tasks the round parked for want of a tool (WP-05 T18, founder D1): one closing sentence, said once, asking nothing.
+  const parked = parkedTasksSentence(readParkedTitles(ctx));
   const sentences = [fact, why, brief, ask].filter((s): s is string => Boolean(s));
-  const body = trimToWords(sentences.join(" "), COMPOSER_MAX_WORDS);
-  const bodyMd = splitParagraphs(body).join("\n\n");
+  const body = trimToWords(sentences.join(" "), COMPOSER_MAX_WORDS - wordCount(parked));
+  const bodyMd = [...splitParagraphs(body), ...(parked ? [parked] : [])].join("\n\n");
 
   // --- decision --------------------------------------------------------------------------------------------------
   const decision = DECISION_TYPES.has(type) || readOptions(ctx).length >= 2 ? buildDecision(ctx, type, channel, rng) : null;
@@ -94,7 +112,7 @@ export function generateInboxComposer(ctx: MockContext): ComposerOutput {
   // --- the chart or table under the note -------------------------------------------------------------------------
   const exhibit = chooseExhibit(type, queries, channel, rng);
 
-  const subject = truncate(grounded ? grounded.title : subjectLine(type, who ? plainName(subjectEntity, who) : undefined, channel, taskTitle, voice, rng), 80);
+  const subject = truncate(grounded ? grounded.title : simulated ? `Simulated: ${taskTitle ?? "a task"} (nothing real was done)` : subjectLine(type, who ? plainName(subjectEntity, who) : undefined, channel, taskTitle, voice, rng), 80);
 
   // A Composer note never holds Continue (Nov 7, 2026): only the platform's hard stops (credits, a revoked key) do.
   const blocksContinue = false;
@@ -129,6 +147,11 @@ function readEvents(ctx: MockContext): EventIn[] {
     out.push({ id, type, payload });
   });
   return out;
+}
+
+/** The titles of the tasks the round parked (apps/composer `composerInputs` sends `parked: [{ title, what_the_agent_said }]`). */
+function readParkedTitles(ctx: MockContext): string[] {
+  return ctx.getArray<unknown>("parked").flatMap((p) => (isRecord(p) && typeof p.title === "string" && p.title.trim() ? [p.title] : []));
 }
 
 function readMetrics(ctx: MockContext): MetricIn[] {
@@ -334,6 +357,8 @@ function factSentence(type: InboxItemType, e: EventIn | undefined, who: string |
         `Done: ${title ? `"${title}"` : "the task"} is complete${who ? ` thanks to ${who}` : ""}, reviewed and clean.`,
       ]);
     case /^campaign\.launched$/.test(e.type):
+      // Offline tracking: the team prepared the materials and the founder submits them; nothing went out (WP-02 T2).
+      if (e.payload.kitMode === true) return `The ${ch} materials${title ? ` for "${title}"` : ""} are ready for you to submit yourself; nothing has gone out from here yet.`;
       return `${ch} is live${title ? ` with "${title}"` : ""}, with tracking in place so every customer it brings can be traced back to it.`;
     case /^approval\.requested$/.test(e.type):
       return `${who ?? "An agent"} needs your go-ahead${title ? ` on "${title}"` : ""}${amount ? ` worth ${amount}` : ""} before going further.`;
@@ -373,6 +398,36 @@ export function metricWords(key: string): string {
     .split(" ")
     .map((w) => METRIC_WORDS[w] ?? w)
     .join(" ");
+}
+
+/** A `task.completed` whose findings rest on simulated results (apps/composer sends `payload.simulated`, and `report.simulated`). */
+/**
+ * Words a quoted report sentence must not carry: a report is untrusted (it may quote web pages), so a sentence with an
+ * address or an instruction-like word is never copied into the note. The live prompt says the same in words.
+ */
+const UNSAFE_QUOTE = /https?:|www\.|\[\[|ignore|instruction|system|notice|pay|wire|transfer|password|founder|click|call |email|send/i;
+
+/** The first sentence of a report's body that is safe to quote, as plain text; figures carry "Estimate". */
+export function reportFinding(text: string): string | undefined {
+  const body = text.includes("\n\n") ? text.slice(text.indexOf("\n\n") + 2) : text;
+  const plain = body.replace(/\[\[ent:[^|\]]*\|([^\]]*)\]\]/g, "$1").replace(/[#*_`>]/g, " ").replace(/\s+/g, " ").trim();
+  for (const raw of plain.split(/(?<=[.!?])\s+/)) {
+    const sentence = raw.replace(/^[-\s]+/, "").trim();
+    if (sentence.length < 8 || sentence.length > 220 || UNSAFE_QUOTE.test(sentence)) continue;
+    const ended = /[.!?]$/.test(sentence) ? sentence : `${sentence}.`;
+    return /\d/.test(ended) && !/\bEstimate\b/.test(ended) ? `${ended.replace(/[.!?]$/, "")} (Estimate).` : ended;
+  }
+  return undefined;
+}
+
+function reportFact(taskTitle: string | undefined, report: Record<string, unknown>): string {
+  const name = taskTitle ? `"${taskTitle}"` : "The task";
+  const finding = typeof report.text === "string" ? reportFinding(report.text) : undefined;
+  return finding ? `${name} is finished. What it found: ${finding} The full result is on the task.` : `${name} is finished, and the full result is on the task.`;
+}
+
+function simulatedFindings(e: EventIn): boolean {
+  return e.payload.simulated === true || (isRecord(e.payload.report) && e.payload.report.simulated === true);
 }
 
 function metricPhrase(e: EventIn): string {

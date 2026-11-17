@@ -19,16 +19,19 @@
  * to choose; free text on them goes to the agent's desk (`replyToInboxItem`).
  */
 import { classifyFounderText } from "@foundmill/agents";
-import { approvalOutcomeOf, closeApprovalItem, repos, type Approval, type DbTx, type Decision, type InboxItem, type PlanWithActions } from "@foundmill/db";
-import { ONE_CLICK_ACTION_TYPES, ValidationError, endSentence, hasSectionAccess, isPageReadyDecision, type SectionMembership } from "@foundmill/shared";
+import { approvalOutcomeOf, closeApprovalItem, releaseFollowUpOf, repos, resolveAgentPrompt, type Approval, type DbTx, type Decision, type InboxItem, type PlanWithActions } from "@foundmill/db";
+import { AppError, ONE_CLICK_ACTION_TYPES, SHOWCASE_ANSWER_HERE_MESSAGE, ValidationError, endSentence, hasSectionAccess, isPageReadyDecision, isPostalAddressDecision, isShowcaseConsentDecision, type SectionMembership } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
-import { assertApprovalAccess, deliverApprovalAnswer, recordApprovalAnswer, type ApprovalAnswer } from "./approvals";
+import { assertApprovalAccess, decideReleaseFollowUp, deliverApprovalAnswer, recordApprovalAnswer, type ApprovalAnswer } from "./approvals";
 import { assertMayConfirmAsks } from "./approver";
 import { idsOfItem, inboxWalls, isWalled, loadRedactionSource, mentionIds, noteMask, redactInboxItem, redactPlan, redactValue } from "./inbox-redaction";
 import { startModelRetests } from "./agent-model";
 import { decideGoalItem } from "./goals";
 import { decidePageNote } from "./pages";
+import { decideSiteNote } from "./sites";
+import { isSiteReadyDecision } from "@foundmill/shared/sites";
+import { decidePostalAddressNote } from "./postal-address";
 import { decideSignoffItem } from "./signoff";
 import { assertInstructionSectionAccess, assertPlanSectionAccess, choiceOf, compileOptionPlan, compilePlan, dispatchPlan, evaluatePlan, executePlanActions, planSectionRefusal, redispatchPlans, requiresConfirmation, stagedAction, syncChannelEngines, type ActionEvaluation, type ChannelToggle, type DecisionOption, type DispatchResult, type ModelRetests, type PlanContext } from "./plans";
 
@@ -60,9 +63,10 @@ interface ItemDecision {
 }
 
 export async function planContextFor(ctx: BusinessContext): Promise<PlanContext> {
-  const [agents, holiday, roadmap] = await Promise.all([repos.agents.list(ctx.db, ctx.businessId, { limit: 200 }), repos.holidays.current(ctx.db, ctx.businessId), repos.product.listRoadmap(ctx.db, ctx.businessId)]);
+  // The plan compiler speaks as the business's Chief of Staff as it is now: its live instructions and skills (WP-06 T1).
+  const [agents, holiday, roadmap, chiefOfStaff] = await Promise.all([repos.agents.list(ctx.db, ctx.businessId, { limit: 200 }), repos.holidays.current(ctx.db, ctx.businessId), repos.product.listRoadmap(ctx.db, ctx.businessId), resolveAgentPrompt(ctx.db, ctx.businessId, { templateKey: "chief_of_staff" })]);
   // Amounts the founder writes without a symbol ("spend up to 300 on ads") are in the business's own currency (0025).
-  return { business: ctx.business, agents: agents.items, holidayActive: holiday !== null, holidayBudgetMinor: holiday?.budgetCeilingMinor ?? null, currency: ctx.business.currency, roadmap };
+  return { business: ctx.business, agents: agents.items, holidayActive: holiday !== null, holidayBudgetMinor: holiday?.budgetCeilingMinor ?? null, currency: ctx.business.currency, roadmap, chiefOfStaff };
 }
 
 /**
@@ -119,6 +123,9 @@ export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInp
   // An agent's gated call waiting for the founder: Approve or Reject answers the approval itself.
   const approvals = await ctx.rls((tx) => repos.approvals.listForInboxItem(tx, ctx.businessId, item.id));
   if (approvals.length) return decideApprovalItem(ctx, item, approvals, { chosenOption, freeText });
+  // "What should happen to this change?" after a no without words (WP-05 T16): the founder's words or Drop, in-process.
+  const release = releaseFollowUpOf(item.decision);
+  if (release) return decideReleaseFollowUp(ctx, item, release, { chosenOption, freeText });
   // The founder's sign-off of the specification or the roadmap, or Ready to start selling (founder, 2026-10-18): decided
   // in-process from its round; free text is a request for changes in the founder's words.
   const signoff = await ctx.rls((tx) => repos.productSignoffs.forInboxItem(tx, ctx.businessId, item.id));
@@ -129,6 +136,12 @@ export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInp
   if (goal) return decideGoalItem(ctx, item, goal, { chosenOption, freeText });
   // The Product lead's "Your project's page is ready" (package 1.3): Check it and publish, or Later; decided in-process.
   if (isPageReadyDecision(item.decision) && item.fromAgentId) return decidePageNote(ctx, item, { chosenOption, freeText });
+  // The Product lead's "Your site is ready to look at" (WP-07): Publish it, or Not yet; decided in-process.
+  if (isSiteReadyDecision(item.decision) && item.fromAgentId) return decideSiteNote(ctx, item, { chosenOption, freeText });
+  // A founder's own showcase ask (0103) is answered from the note (showcase.answer), never by the plan compiler.
+  if (isShowcaseConsentDecision(item.decision)) throw new AppError("showcase_answer_here", SHOWCASE_ANSWER_HERE_MESSAGE, 409);
+  // The founders' postal address note (US CAN-SPAM): Add it in Settings, or Later; decided in-process, founders only.
+  if (isPostalAddressDecision(item.decision)) return decidePostalAddressNote(ctx, item, { chosenOption, freeText });
   if (freeText && !chosenOption && decision.free_text === false) throw new ValidationError("This decision takes one of its options. Pick one, or talk it through with the agent first.", { route: "conversation", itemId: item.id });
   const options = decision.options ?? [];
   const option = chosenOption ? options.find((o) => o.id === chosenOption) : undefined;

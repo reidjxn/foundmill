@@ -72,7 +72,7 @@ describe("account_preferences (table)", () => {
 
 /** The defaults everyone reads until they choose. */
 const NOTIFICATIONS_ON = { decision: true, approval: true, customer: true, agent_down: true, runway: true, run_finished: true, goal: true };
-const DEFAULTS = { date: "us", time: "12h", guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: "humans", builderView: false, notifications: NOTIFICATIONS_ON, hideAmountsOnLockScreen: false, email: { ...DEFAULT_EMAIL_NOTIFICATION_PREFS } };
+const DEFAULTS = { date: "us", time: "12h", guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: "humans", builderView: false, keyboardShortcuts: false, notifications: NOTIFICATIONS_ON, hideAmountsOnLockScreen: false, email: { ...DEFAULT_EMAIL_NOTIFICATION_PREFS } };
 
 describe("repos.preferences under RLS", () => {
   it("reads the defaults without writing a row, then upserts only what changed", async () => {
@@ -178,6 +178,26 @@ describe("account_preferences: Builder view (0073)", () => {
     await expect(h.asUser(kim).run((tx) => preferencesRepo.update(tx, kim, { builderView: "yes" } as never))).rejects.toThrow(/Invalid preferences/);
     const truth = await h.service().run((tx) => tx.select({ builderView: s.accountPreferences.builderView }).from(s.accountPreferences).where(eq(s.accountPreferences.userId, kim)));
     expect(truth).toEqual([{ builderView: false }]);
+  });
+});
+
+describe("account_preferences: single-key shortcuts (0114, WP-04 T13)", () => {
+  it("are off until chosen, save on their own, and only their owner can read or change them", async () => {
+    const lu = await h.createUser("lu-keys@test.local");
+    const mo = await h.createUser("mo-keys@test.local");
+    expect((await h.asUser(lu).run((tx) => preferencesRepo.get(tx, lu))).keyboardShortcuts).toBe(false);
+    expect(await h.asUser(lu).run((tx) => preferencesRepo.update(tx, lu, { keyboardShortcuts: true }))).toEqual({ ...DEFAULTS, keyboardShortcuts: true });
+    // Another account reads the defaults for Lu (her row is invisible) and cannot change it, through the repo or the table.
+    expect((await h.asUser(mo).run((tx) => preferencesRepo.get(tx, lu))).keyboardShortcuts).toBe(false);
+    await expect(h.asUser(mo).run((tx) => preferencesRepo.update(tx, lu, { keyboardShortcuts: false }))).rejects.toThrow(RLS_DENIED);
+    const changed = await h.asUser(mo).run((tx) => tx.update(s.accountPreferences).set({ keyboardShortcuts: false }).where(eq(s.accountPreferences.userId, lu)).returning());
+    expect(changed).toHaveLength(0);
+    // The other preferences are untouched by it, and a non-boolean is refused.
+    expect(await h.asUser(lu).run((tx) => preferencesRepo.update(tx, lu, { guidance: "off" }))).toMatchObject({ guidance: "off", keyboardShortcuts: true });
+    expect(await h.asUser(lu).run((tx) => preferencesRepo.update(tx, lu, { keyboardShortcuts: false }))).toEqual({ ...DEFAULTS, guidance: "off" });
+    await expect(h.asUser(lu).run((tx) => preferencesRepo.update(tx, lu, { keyboardShortcuts: "yes" } as never))).rejects.toThrow(/Invalid preferences/);
+    const truth = await h.service().run((tx) => tx.select({ keyboardShortcuts: s.accountPreferences.keyboardShortcuts }).from(s.accountPreferences).where(eq(s.accountPreferences.userId, lu)));
+    expect(truth).toEqual([{ keyboardShortcuts: false }]);
   });
 });
 

@@ -1,6 +1,17 @@
 # Cloud verification for every push (docs/DECISIONS.md "Cloud-first build and deploy").
 # Everything runs in mock mode with no secrets. The e2e job runs the Playwright suites (apps/web screens and the
 # e2e/ golden path) against the PGlite-backed local stack and gates the build like the other jobs.
+#
+# How much runs depends on the event (fewer runner minutes, founder's yes Nov 16, 2026; docs/log/2026-11 ci-fewer-minutes):
+#   pull_request       the "Changed areas" job reads the diff against the base. Unit entries run only for the packages the
+#                      change affects through the workspace graph (scripts/ci-affected.mjs); root config runs them all.
+#                      The eight Playwright shards run only when the change can reach a screen (`screens`). A skipped
+#                      entry or shard leaves the required gates green with a message that says why.
+#   push to main       a smoke set: the linters, typecheck and lint, every unit entry, Real Postgres, and the e2e/ golden
+#                      path and smoke on one runner; not the eight shards, the Docker image or Storybook (the pull
+#                      request ran them).
+#   schedule, dispatch everything: the full suite runs nightly on main (cron below) and on every dispatch (agent
+#                      branches). A red nightly opens or updates the "CI is red on main" issue (ci-alert.yml).
 name: CI
 
 on:
@@ -8,10 +19,20 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  schedule:
+    # The full suite on main once a day, so a regression the push smoke set misses is caught within a day.
+    - cron: "43 4 * * *"
 
+# The workflow only reads the repository (security audit, Nov 13, 2026): an explicit scope, not the repository's default.
+permissions:
+  contents: read
+
+# A pull request run and a dispatch on the same branch share a group. On main nothing running is cancelled: GitHub keeps
+# one run going and one waiting, and a newer push replaces the waiting one (docs/holistic-plan/audits/a10 EH-24). The
+# nightly run has a group of its own, so a push never replaces it and it never replaces a push.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event_name == 'schedule' && 'nightly' || (github.event_name == 'pull_request' && github.head_ref || github.ref_name) }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   CI: true
@@ -35,6 +56,15 @@ jobs:
           cache: pnpm
       # The vocabulary scan parses source files with the TypeScript compiler API from the root devDependencies.
       - run: pnpm install --frozen-lockfile
+      # static (below) is skipped on a docs-only change, so the freeze is checked here too.
+      # On a pull request HEAD is the merge commit, so a branch that is merely behind does not trip this (WP-01 T6).
+      - name: The frozen logs are not edited (new entries go in docs/log/)
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_REF"
+          git diff --quiet FETCH_HEAD HEAD -- docs/DECISIONS.md docs/PROGRESS.md || { echo "::error::docs/DECISIONS.md and docs/PROGRESS.md are frozen; add a file under docs/log/ (skill: log-entry)"; exit 1; }
       - name: Scanner self-test
         run: node --test scripts/banned-terms.test.mjs
       - name: Brand scan (Football Manager / SI / SEGA) and vocabulary scan (football-only words in user-facing text)
@@ -51,6 +81,12 @@ jobs:
       - name: Focus rings (no outline-none beside a focus outline width or color, which Tailwind v4 would draw as nothing)
         if: ${{ !cancelled() }}
         run: node scripts/focus-visible.mjs
+      - name: Design tokens self-test
+        if: ${{ !cancelled() }}
+        run: node --test scripts/design-tokens.test.mjs
+      - name: Design tokens (no new hex colors or arbitrary Tailwind values outside tokens.css; allowlist in scripts/design-tokens.allow.json)
+        if: ${{ !cancelled() }}
+        run: node scripts/design-tokens.mjs
       - name: Upload the vocabulary sweep
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
@@ -92,10 +128,69 @@ jobs:
           path: docs/PLAIN_LANGUAGE_SWEEP.md
           if-no-files-found: ignore
 
-  checks:
-    name: Typecheck, lint, unit tests
+  changes:
+    # Which lanes a pull request needs. A job skipped by its own `if:` satisfies a required check, a workflow that never
+    # starts does not, so the filtering is here and never on `on:`. Outputs:
+    #   code     anything with code or tests changed (static, the unit matrix, Real Postgres on a pull request)
+    #   unit     "all", or the space-separated packages whose unit entries run (scripts/ci-affected.mjs: the changed
+    #            packages, everything that depends on them, the tests that read them; root config means "all")
+    #   screens  the change can reach apps/web, apps/api or e2e/ through the workspace graph (the Playwright shards)
+    #   shards   the Playwright matrix: [1..8], or ["smoke"] (the e2e/ golden path and smoke only) on a push to main
+    #   image, stories  the Docker image and the Storybook build
+    # A push to main runs the smoke set; schedule (nightly) and workflow_dispatch (agent branches) run everything.
+    name: Changed areas
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 3
+    outputs:
+      code: ${{ steps.f.outputs.code }}
+      unit: ${{ steps.f.outputs.unit }}
+      screens: ${{ steps.f.outputs.screens }}
+      shards: ${{ steps.f.outputs.shards }}
+      image: ${{ steps.f.outputs.image }}
+      stories: ${{ steps.f.outputs.stories }}
+    steps:
+      # The whole history, so the pull request's base commit is there to diff against.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # scripts/ci-affected.mjs uses Node's standard library only: no install.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - id: f
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          ALL_SHARDS='[1,2,3,4,5,6,7,8]'
+          if [ "$EVENT" = "push" ]; then
+            echo "push to main: the smoke set (every unit entry, the golden path and smoke; no shards, image or Storybook)"
+            printf '%s\n' code=true unit=all screens=true 'shards=["smoke"]' image=false stories=false | tee -a "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$EVENT" != "pull_request" ]; then
+            echo "$EVENT run: every lane"
+            printf '%s\n' code=true unit=all screens=true "shards=$ALL_SHARDS" image=true stories=true | tee -a "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          FILES="$(git diff --name-only "$PR_BASE" HEAD)"
+          echo "changed files:"; echo "$FILES"
+          has() { if echo "$FILES" | grep -qE "$1"; then echo true; else echo false; fi; }
+          ROOT='^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|turbo\.json|tsconfig\.base\.json|eslint\.config\.mjs|\.github/)'
+          {
+            echo "code=$(has "^(apps|packages|evals|e2e|scripts|patches)/|$ROOT")"
+            echo "$FILES" | node scripts/ci-affected.mjs
+            echo "shards=$ALL_SHARDS"
+            echo "image=$(has "^(apps/(api|gateway|orchestrator|composer|stream|ingest|sites)|packages|patches|infra)/|^Dockerfile|$ROOT")"
+            echo "stories=$(has "^packages/(dugout|shared|config)/|$ROOT")"
+          } | tee -a "$GITHUB_OUTPUT"
+
+  static:
+    name: Typecheck and lint
+    needs: changes
+    if: ${{ needs.changes.outputs.code == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -104,25 +199,167 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Railway config (a healthcheck and watch patterns per service, the same teardown everywhere)
-        run: node --test scripts/railway-config.test.mjs
-      - name: .env.example lists exactly the variables the code reads
-        run: node --test scripts/env-example.test.mjs
+      - name: Config and guard self-tests (Railway, .env.example, Supabase, the decisions index, the unit matrix, the e2e shards, the affected packages and screens, the log entries, the Vercel ignore step)
+        run: node --test scripts/railway-config.test.mjs scripts/env-example.test.mjs scripts/supabase-config.test.mjs scripts/decisions-index.test.mjs scripts/ci-matrix.test.mjs scripts/e2e-shard.test.mjs scripts/ci-affected.test.mjs scripts/log-entries.test.mjs scripts/vercel-ignore.test.mjs scripts/test-inventory.test.mjs scripts/check-production.test.mjs
+      # On a pull request HEAD is the merge commit, so a branch that is merely behind does not trip this (WP-01 T6).
+      - name: The frozen logs are not edited (new entries go in docs/log/)
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_REF"
+          git diff --quiet FETCH_HEAD HEAD -- docs/DECISIONS.md docs/PROGRESS.md || { echo "::error::docs/DECISIONS.md and docs/PROGRESS.md are frozen; add a file under docs/log/ (skill: log-entry)"; exit 1; }
+      - name: Skipped test sites by reason (an unconditional skip, .only, .fixme or .todo fails)
+        run: node scripts/test-inventory.mjs --skips
       - name: Typecheck and lint (all packages)
         # apps/web's tsc needs more than Node's default 2 GB heap when it runs next to the other packages' (run 16 died
-        # with "JavaScript heap out of memory"); four at a time keeps the runner's 16 GB comfortable.
+        # with "JavaScript heap out of memory"). Four at a time at 4 GB each is the runner's whole 16 GB, and the job was
+        # killed for memory (exit 137) on Nov 15, 2026 (runs 43743691286, 43752199906); three leaves room for the OS.
         env:
           NODE_OPTIONS: --max-old-space-size=4096
-        run: pnpm exec turbo run typecheck lint --continue --concurrency=4 --output-logs=new-only
-      - name: Unit tests (all packages except e2e)
+        run: pnpm exec turbo run typecheck lint --continue --concurrency=3 --output-logs=new-only
+
+  unit:
+    # One runner per entry, so the slowest package no longer sets the pace of all of them. scripts/ci-matrix.test.mjs fails
+    # when a workspace package with a test script is in no entry, or when an entry's `pkgs` is not the packages its `run`
+    # filters. --maxWorkers=2 is what fits the runner today. On a pull request an entry runs only when one of its `pkgs` is
+    # in the "Changed areas" `unit` output; otherwise its first step says so and the job ends green in seconds (a matrix
+    # job cannot be skipped one entry at a time). Main, the nightly run and dispatch run every entry.
+    name: Unit (${{ matrix.name }})
+    needs: changes
+    if: ${{ needs.changes.outputs.code == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: "api 1 of 3", pkgs: "@foundmill/api", run: "pnpm --filter @foundmill/api exec vitest run --maxWorkers=2 --shard=1/3" }
+          - { name: "api 2 of 3", pkgs: "@foundmill/api", run: "pnpm --filter @foundmill/api exec vitest run --maxWorkers=2 --shard=2/3" }
+          - { name: "api 3 of 3", pkgs: "@foundmill/api", run: "pnpm --filter @foundmill/api exec vitest run --maxWorkers=2 --shard=3/3" }
+          - { name: "db 1 of 2", pkgs: "@foundmill/db", run: "pnpm --filter @foundmill/db exec vitest run --maxWorkers=2 --shard=1/2" }
+          - { name: "db 2 of 2", pkgs: "@foundmill/db", run: "pnpm --filter @foundmill/db exec vitest run --maxWorkers=2 --shard=2/2" }
+          - { name: "gateway 1 of 2", pkgs: "@foundmill/gateway", run: "pnpm --filter @foundmill/gateway exec vitest run --maxWorkers=2 --shard=1/2" }
+          - { name: "gateway 2 of 2", pkgs: "@foundmill/gateway", run: "pnpm --filter @foundmill/gateway exec vitest run --maxWorkers=2 --shard=2/2" }
+          - { name: "web 1 of 2", pkgs: "@foundmill/web", run: "pnpm --filter @foundmill/web exec vitest run --maxWorkers=2 --shard=1/2" }
+          - { name: "web 2 of 2", pkgs: "@foundmill/web", run: "pnpm --filter @foundmill/web exec vitest run --maxWorkers=2 --shard=2/2" }
+          - { name: "orchestrator", pkgs: "@foundmill/orchestrator", run: "pnpm --filter @foundmill/orchestrator exec vitest run --maxWorkers=2" }
+          - { name: "dugout", pkgs: "@foundmill/dugout", run: "pnpm --filter @foundmill/dugout exec vitest run --maxWorkers=2" }
+          - { name: "modules, widgets", pkgs: "@foundmill/modules @foundmill/widgets", run: "pnpm exec turbo run test --continue --concurrency=1 --output-logs=new-only --filter=@foundmill/modules --filter=@foundmill/widgets -- --maxWorkers=2" }
+          - { name: "services", pkgs: "@foundmill/ingest @foundmill/sites @foundmill/composer @foundmill/stream @foundmill/collab", run: "pnpm exec turbo run test --continue --concurrency=1 --output-logs=new-only --filter=@foundmill/ingest --filter=@foundmill/sites --filter=@foundmill/composer --filter=@foundmill/stream --filter=@foundmill/collab -- --maxWorkers=2" }
+          - { name: "libraries", pkgs: "@foundmill/connectors @foundmill/evals @foundmill/agents @foundmill/events @foundmill/shared @foundmill/journey @foundmill/models @foundmill/policy @foundmill/entity-linker @foundmill/sandbox @foundmill/config", run: "pnpm exec turbo run test --continue --concurrency=2 --output-logs=new-only --filter=@foundmill/connectors --filter=@foundmill/evals --filter=@foundmill/agents --filter=@foundmill/events --filter=@foundmill/shared --filter=@foundmill/journey --filter=@foundmill/models --filter=@foundmill/policy --filter=@foundmill/entity-linker --filter=@foundmill/sandbox --filter=@foundmill/config -- --maxWorkers=2" }
+    steps:
+      - name: Does the change affect this entry's packages
+        id: need
+        env:
+          AFFECTED: ${{ needs.changes.outputs.unit }}
+          PKGS: ${{ matrix.pkgs }}
+        run: |
+          if [ "$AFFECTED" = "all" ]; then
+            echo "every package runs (root config changed, or this is not a pull request)"; echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          for p in $PKGS; do
+            case " $AFFECTED " in *" $p "*) echo "$p is affected: this entry runs"; echo "run=true" >> "$GITHUB_OUTPUT"; exit 0 ;; esac
+          done
+          echo "::notice title=Unit entry not needed::No package of this entry ($PKGS) is affected by this pull request, so its tests did not run here. Main runs every entry after the merge."
+          echo "run=false" >> "$GITHUB_OUTPUT"
+      - if: ${{ steps.need.outputs.run == 'true' }}
+        uses: actions/checkout@v4
+      - if: ${{ steps.need.outputs.run == 'true' }}
+        uses: pnpm/action-setup@v4
+      - if: ${{ steps.need.outputs.run == 'true' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - if: ${{ steps.need.outputs.run == 'true' }}
+        run: pnpm install --frozen-lockfile
+      # One migrated PGlite database, dumped once and loaded by every test harness instead of replaying every migration
+      # per test file (WP-01 T3, packages/db src/testing/snapshot.ts). The cache is scoped to the branch by GitHub, so
+      # main never reads a dump that a branch built.
+      - name: Migrated PGlite snapshot (rebuilt only when a migration changes)
+        if: ${{ steps.need.outputs.run == 'true' }}
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/foundmill-pglite
+          key: pglite-${{ hashFiles('packages/db/migrations/**', 'packages/db/src/pglite.ts', 'packages/db/src/testing/snapshot.ts', 'pnpm-lock.yaml') }}
+      - name: Build the snapshot if the cache missed
+        if: ${{ steps.need.outputs.run == 'true' }}
+        env:
+          FM_PGLITE_SNAPSHOT_DIR: ${{ runner.temp }}/foundmill-pglite
+        run: pnpm --filter @foundmill/db exec tsx src/testing/build-snapshot.ts
+      - if: ${{ steps.need.outputs.run == 'true' }}
+        env:
+          FM_PGLITE_SNAPSHOT_DIR: ${{ runner.temp }}/foundmill-pglite
+        run: ${{ matrix.run }}
+
+  checks:
+    # The required check keeps its name; it is now a gate, like the Playwright one. It ends success when its inputs were
+    # skipped (a docs-only change), never cancelled, because the product's checksState reads cancelled as a failure. A unit
+    # entry the change does not affect ends success on its own (see unit). "Changed areas" must have succeeded: when it
+    # fails, everything after it is skipped, and that must not read as green.
+    name: Typecheck, lint, unit tests
+    needs: [changes, static, unit]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          CHANGES: ${{ needs.changes.result }}
+          STATIC: ${{ needs.static.result }}
+          UNIT: ${{ needs.unit.result }}
+          AFFECTED: ${{ needs.changes.outputs.unit }}
+        run: |
+          [ "$CHANGES" = "success" ] || { echo "Changed areas ended: $CHANGES"; exit 1; }
+          for r in "$STATIC" "$UNIT"; do
+            case "$r" in success|skipped) ;; *) echo "a needed job ended: $r"; exit 1 ;; esac
+          done
+          if [ "$UNIT" = "skipped" ]; then echo "No code changed: typecheck, lint and the unit tests were not needed."
+          elif [ "$AFFECTED" = "all" ]; then echo "Every unit entry ran."
+          else echo "Unit entries ran for the affected packages: ${AFFECTED:-none}"; fi
+
+  postgres-suites:
+    # The suites PGlite cannot run: grants, default privileges and real concurrency (WP-11 T1, audit a8 A8-01). Two
+    # production-only bugs had passed PGlite (0087's header; packages/db client.ts withDateParams). The cluster is set up
+    # the way Supabase sets one up (scripts/ci/supabase-like.sql). On main it always runs; on a pull request when code
+    # changed. Not a required check until it has been green five times on main (WP-11 F1).
+    name: Real Postgres (migrations and tenancy)
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.code == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RLS_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+      FM_TEST_POSTGRES_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Postgres 17 with Supabase's roles and default privileges
+        # pg_isready on 127.0.0.1: while it initializes, the image listens on its socket alone.
+        run: |
+          docker run -d --name pg -p 5432:5432 -e POSTGRES_USER=supabase_admin -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres pgvector/pgvector:pg17 -c max_connections=300
+          until docker exec pg pg_isready -q -h 127.0.0.1 -U supabase_admin; do sleep 1; done
+          docker exec -i pg psql -q -v ON_ERROR_STOP=1 -U supabase_admin -d template1 < scripts/ci/supabase-like.sql
+      # pnpm exec vitest, not turbo: turbo passes only the variables turbo.json declares.
+      - name: packages/db (every migration and the cross-tenant suites, the migration lock, the owner lock, date parameters)
+        run: pnpm --filter @foundmill/db exec vitest run src/__tests__/rls src/__tests__/testing-postgres.test.ts src/__tests__/migrate-lock.test.ts src/__tests__/owner-lock.test.ts src/__tests__/date-params.test.ts
+      - name: apps/api (migrations at boot, the people races)
         if: ${{ !cancelled() }}
-        run: pnpm exec turbo run test --continue --concurrency=2 --output-logs=new-only --filter='!@foundmill/e2e' -- --maxWorkers=2
+        run: pnpm --filter @foundmill/api exec vitest run src/__tests__/migrate-on-boot.test.ts src/__tests__/people-races.test.ts
 
   docker:
     # The image Railway builds for every backend service (#435): a base-image, corepack/pnpm or COPY regression used to
     # show up only in Railway's build. Booted once against an in-memory PGlite with no Redis, Temporal or secrets, the
-    # same degraded mode the e2e job uses, until /health answers.
+    # same degraded mode the e2e job uses, until /health answers. Not on a push to main (the pull request built it and
+    # Railway builds it again); nightly and on dispatch.
     name: Docker image (build and boot)
+    needs: changes
+    if: ${{ needs.changes.outputs.image == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -139,9 +376,12 @@ jobs:
           echo "the image did not answer /health within 90 s"; docker logs api; exit 1
 
   storybook:
+    # Not on a push to main (the pull request built it); nightly and on dispatch.
     name: Storybook build
+    needs: changes
+    if: ${{ needs.changes.outputs.stories == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -151,17 +391,29 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @foundmill/dugout storybook:build
+      # Every story through axe (WCAG 2.2 AA; packages/dugout/a11y): the stories' a11y panel is set to fail, but a build
+      # alone never ran it. A violation not in a11y/baseline.json fails, and so does a baseline entry that was fixed.
+      # The job keeps its name so a required check on "Storybook build" still matches.
+      - name: Install Chromium
+        run: pnpm --filter @foundmill/dugout exec playwright install --with-deps chromium
+      - name: Accessibility of every story (axe)
+        run: pnpm --filter @foundmill/dugout test:a11y
 
   e2e-shard:
-    # The screens take about two hours one after another, so they run as three shards at once, each on its own runner with
-    # its own seeded database. The required check below ("Playwright (web screens + golden path)") passes when all three do.
-    name: Playwright shard ${{ matrix.shard }} of 3
+    # The screens take about 75 minutes one after another, so they run as eight shards at once, each on its own runner with
+    # its own seeded database. The required check below ("Playwright (web screens + golden path)") passes when all eight do.
+    # A pull request runs them only when the change can reach a screen ("Changed areas" `screens`). A push to main runs one
+    # entry, "smoke": the same stack (seeded with the founder profile, like shards 2 to 8) and only the e2e/ golden path
+    # and smoke. The nightly run and dispatch run all eight.
+    name: ${{ matrix.shard == 'smoke' && 'Playwright golden path and smoke' || format('Playwright shard {0} of 8', matrix.shard) }}
+    needs: changes
+    if: ${{ needs.changes.outputs.screens == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: ${{ fromJSON(needs.changes.outputs.shards) }}
     continue-on-error: false
     env:
       # One file-backed PGlite database, seeded below, shared by the api and the seed script (packages/db/src/pglite.ts:
@@ -191,11 +443,18 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # On a hit the install below skips the download and still installs the system libraries.
+      - name: Cache the Playwright browser
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       - name: Install Chromium (replaces the preinstalled-browser step used in the build container)
         run: pnpm --filter @foundmill/web exec playwright install --with-deps chromium
       - name: Seed the PGlite database (Northwind Skincare + Ledgerly, reduced volume)
-        # Shard 1 starts without a founder profile (onboarding.spec.ts meets the gate and saves it); shards 2 and 3 start
-        # with one, so their screens do not bounce to /onboarding.
+        # Shard 1 starts without a founder profile (onboarding.spec.ts meets the gate and saves it); the other shards and the
+        # smoke entry start with one, so their screens do not bounce to /onboarding. Shard 1's golden path also runs after
+        # the profile is saved, so the smoke entry runs it against the same state.
         run: SEED_TARGET=pglite SEED_PGLITE_DIR=./.pglite/e2e SEED_VOLUME_SCALE=0.1 SEED_OWNER_PROFILE=${{ matrix.shard == 1 && '0' || '1' }} pnpm --filter @foundmill/db seed
       - name: Start apps/api against the seeded database
         # No Redis, Temporal or composer URL: the api degrades to in-process behaviour (docs/ARCHITECTURE.md §13).
@@ -219,11 +478,13 @@ jobs:
           done
           echo "apps/web did not answer within 120 s"; cat web.log; exit 1
       - name: Playwright (apps/web screens, this shard's files)
+        if: ${{ matrix.shard != 'smoke' }}
         # E2E_BASE_URL makes both configs skip their own webServer and use the servers started above. Spec files are dealt
-        # out to the shards round-robin; onboarding.spec.ts (the profile project) always runs in shard 1, first.
+        # out by the seconds each took in CI (scripts/e2e-shard.mjs, apps/web/e2e/shard-weights.json); shard 1 starts loaded,
+        # because it also runs onboarding.spec.ts (the profile project) first and the e2e/ golden path.
         working-directory: apps/web
         run: |
-          mapfile -t files < <(ls e2e/*.spec.ts | grep -v '/onboarding.spec.ts$' | awk -v n="${{ matrix.shard }}" '(NR - 1) % 3 == n - 1')
+          mapfile -t files < <(node ../../scripts/e2e-shard.mjs "${{ matrix.shard }}" 8)
           echo "this shard runs ${#files[@]} spec files"
           if [ "${{ matrix.shard }}" = "1" ]; then
             E2E_BASE_URL=http://localhost:3000 E2E_EXPECT_PROFILE_GATE=1 pnpm exec playwright test e2e/onboarding.spec.ts "${files[@]}"
@@ -231,8 +492,11 @@ jobs:
             E2E_BASE_URL=http://localhost:3000 pnpm exec playwright test --project=desktop-chromium --no-deps "${files[@]}"
           fi
       - name: Playwright (e2e/ golden path and smoke)
-        if: ${{ !cancelled() && matrix.shard == 1 }}
+        if: ${{ !cancelled() && (matrix.shard == 1 || matrix.shard == 'smoke') }}
         run: E2E_BASE_URL=http://localhost:3000 pnpm --filter @foundmill/e2e test
+      - name: Tests that passed only on retry
+        if: ${{ always() }}
+        run: node scripts/test-inventory.mjs --flaky apps/web/test-results/report.json e2e/test-results/report.json
       - name: Stop the servers
         if: ${{ always() }}
         run: |
@@ -255,14 +519,27 @@ jobs:
           retention-days: 7
 
   e2e:
-    # The check branch protection requires: green when every shard is.
+    # The check branch protection requires: green when every shard is, or when "Changed areas" found that no change can
+    # reach a screen (then the shards are skipped and this says so). It fails when "Changed areas" did not succeed.
     name: Playwright (web screens + golden path)
     runs-on: ubuntu-latest
-    needs: e2e-shard
+    needs: [changes, e2e-shard]
     if: ${{ always() }}
     timeout-minutes: 5
     steps:
-      - name: All three shards passed
+      - name: Every Playwright entry passed, or none was needed
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          SCREENS: ${{ needs.changes.outputs.screens }}
+          SHARDS: ${{ needs.changes.outputs.shards }}
+          RESULT: ${{ needs.e2e-shard.result }}
         run: |
-          echo "shards: ${{ needs.e2e-shard.result }}"
-          test "${{ needs.e2e-shard.result }}" = "success"
+          [ "$CHANGES" = "success" ] || { echo "Changed areas ended: $CHANGES"; exit 1; }
+          echo "Playwright entries $SHARDS: $RESULT"
+          case "$RESULT" in
+            success) echo "Every Playwright entry passed." ;;
+            skipped)
+              if [ "$SCREENS" != "false" ]; then echo "the shards were skipped although screens=$SCREENS"; exit 1; fi
+              echo "::notice title=Playwright not needed::No file in this pull request can reach apps/web, apps/api or e2e/ (scripts/ci-affected.mjs), so the Playwright shards did not run. Main runs the golden path after the merge, and the nightly run runs every shard." ;;
+            *) echo "a needed job ended: $RESULT"; exit 1 ;;
+          esac

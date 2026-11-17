@@ -107,7 +107,7 @@ describe("settings logic", () => {
     }
     expect(AUTOPILOT_HELP).toBe("Autopilot presses Continue for you on a schedule. It never answers notes for you.");
     // Continue runs until done and shares the daily limits (Nov 7, 2026).
-    expect(AUTOPILOT_CONTINUE_NOTE).toBe("Continue keeps the team working, one cycle after another, until nothing is left to do. The daily limits below apply to those cycles too.");
+    expect(AUTOPILOT_CONTINUE_NOTE).toBe("Continue keeps the team working, one round of work after another, until nothing is left to do. The daily limits below apply to those rounds too.");
   });
 
   it("What the team can do: the spend line's draft and parsing follow the currency's own minor unit", () => {

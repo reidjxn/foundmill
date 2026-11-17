@@ -31,6 +31,7 @@ import {
   type ToolError,
   type ToolResult,
 } from "./contract";
+import { factsProblem } from "./facts";
 import { wrapUntrusted, type UntrustedSourceKind } from "./quarantine";
 
 export interface ToolSpec<N extends string = string, I extends z.ZodType = z.ZodType, O extends z.ZodType = z.ZodType> {
@@ -47,6 +48,13 @@ export interface ToolSpec<N extends string = string, I extends z.ZodType = z.Zod
   untrustedRef?(args: z.output<I>): string | undefined;
   /** Required for `hints.hardGate` tools: what the founder must do instead. The tool itself never executes. */
   humanAction?(args: z.output<I>): { title: string; instructions: string; url?: string };
+  /**
+   * The tool's typed read (src/facts.ts): checked values projected from its validated output, built with `fact.*`. The
+   * gateway delivers them next to the quarantined reader's digest to an agent that may not read the content itself.
+   * Only for `untrusted` tools. Method syntax keeps specs assignable to `AnyToolSpec`. A projection that throws, or
+   * whose result breaks the facts limits, delivers no facts: the call itself is unaffected.
+   */
+  facts?(data: z.output<O>, args: z.output<I>): unknown;
   /** Estimated cost per call in minor units; falls back to the connector's `costModel`, then 0. */
   costMinor?(args: z.output<I>): number;
 }
@@ -66,6 +74,7 @@ export function defineTool<N extends string, I extends z.ZodType, O extends z.Zo
   if (!TOOL_NAME_RE.test(spec.name)) throw new Error(`Tool name "${spec.name}" must be snake_case`);
   if (spec.hints.hardGate && !spec.humanAction) throw new Error(`Hard-gated tool "${spec.name}" must describe its human action`);
   if (!spec.hints.hardGate && spec.humanAction) throw new Error(`Tool "${spec.name}" has a humanAction but is not hardGate`);
+  if (spec.facts && !spec.untrusted) throw new Error(`Tool "${spec.name}" declares facts but its output is not untrusted`);
   return spec;
 }
 
@@ -210,7 +219,19 @@ function createCallTool(spec: ConnectorSpec<readonly AnyToolSpec[]>, mode: Conne
     const costMinor = tool.costMinor ? tool.costMinor(parsed.data) : (spec.costModel?.(name, parsed.data) ?? 0);
     const result: ToolResult = { ok: true, data, costMinor };
     if (tool.untrusted) {
-      result.data = wrapUntrusted(data, { connector: spec.key, kind: tool.untrusted, ref: tool.untrustedRef?.(parsed.data) }, { now });
+      let facts: unknown;
+      if (tool.facts) {
+        try {
+          facts = tool.facts(data, parsed.data);
+        } catch (e) {
+          ctx.log.warn({ connector: spec.key, tool: name, reason: e instanceof Error ? e.name : "unknown" }, "typed read failed; no facts are delivered for this call");
+        }
+        if (facts !== undefined && factsProblem(facts) !== null) {
+          ctx.log.warn({ connector: spec.key, tool: name }, "typed read broke the facts limits; no facts are delivered for this call");
+          facts = undefined;
+        }
+      }
+      result.data = wrapUntrusted(data, { connector: spec.key, kind: tool.untrusted, ref: tool.untrustedRef?.(parsed.data) }, { now, ...(facts !== undefined ? { facts } : {}) });
       result.untrusted = true;
     }
     ctx.log.debug({ connector: spec.key, tool: name, mode, ms: now().getTime() - startedAt, costMinor, untrusted: result.untrusted ?? false }, "tool call ok");

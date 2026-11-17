@@ -7,17 +7,19 @@
 import { APP_NAME, LIMITS } from "@foundmill/config";
 import { platformBillingRefusal } from "@foundmill/models";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
-import { AppError, DEFAULT_AGENT_STYLE, isAgentStyle } from "@foundmill/shared";
+import { AppError, DEFAULT_AGENT_STYLE, isAgentStyle, liveConnectorKeys, platformMailLive } from "@foundmill/shared";
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { compress } from "hono/compress";
 import { cors } from "hono/cors";
 import type { ApiDeps } from "./context";
 import { createContextFactory } from "./context";
+import { registerIdeaBoxRoutes } from "./idea-box-routes";
 import { requestIdFrom } from "./request-id";
 import { appRouter } from "./router";
 import { etagMatches, storedPortrait } from "./services/personas";
 import { speechTickets } from "./services/speech-tickets";
+import { servePostMedia } from "./services/post-media";
 import { assertPlatformCredits } from "@foundmill/db";
 import { checkWorker } from "./services/worker-health";
 import { getTracer } from "@foundmill/shared/telemetry";
@@ -44,8 +46,10 @@ export function wwwTwinOrigin(origin: string): string | null {
   return url.origin;
 }
 
-export function allowedOrigins(env: { APP_URL: string }): string[] {
-  const origins = new Set<string>(["http://localhost:3000", "http://127.0.0.1:3000"]);
+export function allowedOrigins(env: { APP_URL: string; APP_ENV: string }): string[] {
+  // The local web origins only on a local stack (WP-11 T18, A8-27): staging and production answer their own site alone.
+  const local = env.APP_ENV === "development" || env.APP_ENV === "test";
+  const origins = new Set<string>(local ? ["http://localhost:3000", "http://127.0.0.1:3000"] : []);
   for (const raw of [env.APP_URL, process.env.NEXT_PUBLIC_APP_URL]) {
     if (!raw) continue;
     try {
@@ -104,8 +108,9 @@ export function clientOf(header: string | undefined): string | null {
   return /^[A-Za-z0-9._/+-]+(?: [A-Za-z0-9._/+-]+){0,2}$/.test(value) && value.length <= 64 ? value : null;
 }
 
-/** A path as it may be logged or traced: a Team call audio ticket (the key to one turn's speech) masked. */
+/** A path as it may be logged or traced: a Team call audio ticket and a post media link (each the key to one file) masked. */
 export function loggedPath(path: string): string {
+  if (path.startsWith("/post-media/")) return "/post-media/:token";
   return path.startsWith("/team-call-audio/") ? "/team-call-audio/:ticket" : path;
 }
 
@@ -135,6 +140,21 @@ export function withIdleTimeout(body: ReadableStream<Uint8Array>, idleMs = AUDIO
       return reader.cancel(reason);
     },
   });
+}
+
+/**
+ * The gateway's modes for the api's /health (WP-00 S3): the gateway has no public address, so the api relays what it
+ * runs live. Null when the gateway does not answer within 2 s; never throws.
+ */
+async function gatewayModes(url: string): Promise<{ integrations: string; liveConnectors: string[] } | null> {
+  try {
+    const res = await fetch(`${url.replace(/\/+$/, "")}/health`, { signal: AbortSignal.timeout(2_000) });
+    const body = (await res.json()) as { mode?: unknown; liveConnectors?: unknown };
+    if (typeof body.mode !== "string") return null;
+    return { integrations: body.mode, liveConnectors: Array.isArray(body.liveConnectors) ? body.liveConnectors.filter((k): k is string => typeof k === "string") : [] };
+  } catch {
+    return null;
+  }
 }
 
 export function createApp(deps: ApiDeps) {
@@ -180,6 +200,9 @@ export function createApp(deps: ApiDeps) {
 
   app.get("/", (c) => c.json({ name: APP_NAME, service: "api", ok: true }));
 
+  // The landing page's idea box (docs/IDEA_BOX.md): a signed-out visitor's card, streamed; its cookie keeps it.
+  registerIdeaBoxRoutes(app, deps, origins);
+
   app.get("/health", async (c) => {
     const probe = async (fn: () => Promise<boolean>) => {
       try {
@@ -188,13 +211,19 @@ export function createApp(deps: ApiDeps) {
         return false;
       }
     };
-    const [db, redis, temporal, composer, worker] = await Promise.all([
+    const [db, redis, temporal, composer, worker, schema, gateway] = await Promise.all([
       probe(deps.health.db),
       probe(deps.health.redis),
       probe(deps.health.temporal),
       probe(() => deps.composer.reachable()),
       Promise.race([checkWorker(deps.temporal, deps.env.TEMPORAL_TASK_QUEUE).catch(() => null), new Promise<null>((resolve) => setTimeout(() => resolve(null), 2_000))]),
+      deps.health.schema ? deps.health.schema().catch(() => ({ ready: false, applied: null, expected: null })) : Promise.resolve({ ready: true, applied: null, expected: null }),
+      // The gateway's own modes (it has no public address): what it runs live, relayed so one public read shows both.
+      gatewayModes(deps.env.GATEWAY_URL),
     ]);
+    // A migration that failed at boot leaves the api serving the old schema; it is not ready, so the previous deployment
+    // keeps the traffic (WP-11 T2).
+    const ready = db && schema.ready;
     // Readiness: Railway's healthcheck (railway/api.toml) moves traffic to a new deployment only on a 2xx, so an api
     // without its database answers 503 and the previous deployment keeps serving. Redis, Temporal, the composer, the
     // relay and the orchestrator's worker are reported but never fail the check (the api degrades without them).
@@ -203,13 +232,17 @@ export function createApp(deps: ApiDeps) {
     const billingRefusal = platformBillingRefusal();
     return c.json(
       {
-        ok: db,
+        ok: ready,
         service: "api",
         env: deps.env.APP_ENV,
         // The mode the api actually runs in: MODEL_MODE=live without ANTHROPIC_API_KEY serves the mock client.
-        modes: { integrations: deps.env.INTEGRATIONS_MODE, models: deps.models.mode },
+        modes: { integrations: deps.env.INTEGRATIONS_MODE, models: deps.models.mode, liveConnectors: liveConnectorKeys(deps.env) },
+        // Whether a project's Foundmill address really sends (WP-02 T7, checked by T12's production script).
+        platformMail: platformMailLive(deps.env) ? ("live" as const) : ("off" as const),
+        gateway,
         modelKeyMissing: deps.env.MODEL_MODE === "live" && deps.models.mode !== "live",
         db,
+        schema: { applied: schema.applied, expected: schema.expected },
         redis,
         temporal,
         composer,
@@ -217,12 +250,15 @@ export function createApp(deps: ApiDeps) {
         // `wedged`: the pool stopped answering while the database answers outside it (the process is about to exit and
         // be restarted); `down`: the database answers nowhere (packages/db pool-watchdog.ts).
         pool: deps.poolWatchdog?.status() ?? null,
+        transactions: deps.txGate?.stats() ?? null,
         worker,
         vault: deps.vault !== null,
+        // Supabase's Data API: "off" is the only safe answer (services/data-api-probe.ts); reported, never failed on.
+        dataApi: deps.dataApi?.state() ?? "unknown",
         modelBilling: billingRefusal ? { ok: false, ...billingRefusal } : { ok: true },
         time: new Date().toISOString(),
       },
-      db ? 200 : 503,
+      ready ? 200 : 503,
     );
   });
 
@@ -272,6 +308,26 @@ export function createApp(deps: ApiDeps) {
       const status = err instanceof AppError && err.status >= 400 && err.status < 600 ? err.status : 502;
       deps.log.warn({ code: err instanceof AppError ? err.code : "unknown", status }, "team call audio stream refused");
       return c.body(null, status as 404, plain);
+    }
+  });
+
+  // A post draft's media (services/post-media.ts): the file of a ready, real item at the signed address the Creative tab
+  // and the share panel were given (the web serves it from its own origin, `/api/post-media/<token>`). No sign-in here
+  // (a <video> element and a "Save" link send no bearer), so the token is the key: it names one item of one business
+  // and expires within the hour. Private to the browser, never kept by a shared cache, and never run as a page.
+  app.get("/post-media/:token", async (c) => {
+    const plain = { "cache-control": "private, max-age=600", "x-content-type-options": "nosniff" };
+    const gone = { ...plain, "cache-control": "no-store" };
+    try {
+      const file = await servePostMedia(deps.db, deps.env, c.req.param("token"));
+      if (!file) return c.body(null, 404, gone);
+      return new Response(file.content as unknown as BodyInit, {
+        status: 200,
+        headers: { ...plain, "content-type": file.mime, "content-length": String(file.content.byteLength), "cross-origin-resource-policy": "same-site", "content-security-policy": "default-src 'none'; sandbox" },
+      });
+    } catch (err) {
+      deps.log.warn({ code: err instanceof AppError ? err.code : "unknown" }, "post media not served");
+      return c.body(null, 404, gone);
     }
   });
 

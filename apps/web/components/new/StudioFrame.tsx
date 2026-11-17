@@ -22,22 +22,23 @@ export interface StudioStepItem {
 
 /**
  * The trail's words say what each step is for a first-timer (docs/UX_AUDIT_AND_PLAN.md §7.4, A9): "Your profile ·
- * Start · Ideas · Compare (optional) · Launch". The ids, slugs and routes are unchanged.
+ * New project · Ideas · Compare (optional) · Start". Commit reads "Start" since WP-04 T2 (its button is "Start my
+ * project"), so the doors step, "Start" before, reads "New project". The ids, slugs and routes are unchanged.
  */
 export const STUDIO_STEPS: readonly StudioStepItem[] = [
   { id: "profile", label: "Your profile", href: "/onboarding" },
-  { id: "new", label: "Start", href: "/new" },
+  { id: "new", label: "New project", href: "/new" },
   { id: "ideate", label: "Ideas", href: "/new/ideate" },
   { id: "compare", label: "Compare (optional)", href: "/new/compare" },
-  { id: "commit", label: "Launch", href: "/new/commit" },
+  { id: "commit", label: "Start", href: "/new/commit" },
 ];
 
 /** Door B replaces Ideas + Compare in the trail. */
 export const IMPORT_STEPS: readonly StudioStepItem[] = [
   { id: "profile", label: "Your profile", href: "/onboarding" },
-  { id: "new", label: "Start", href: "/new" },
+  { id: "new", label: "New project", href: "/new" },
   { id: "import", label: "Import", href: "/new/import" },
-  { id: "commit", label: "Launch", href: "/new/commit" },
+  { id: "commit", label: "Start", href: "/new/commit" },
 ];
 
 export interface StudioFrameProps {
@@ -53,26 +54,36 @@ export interface StudioFrameProps {
   viewer?: { email: string | null };
   /** Content width: "wide" (1440) or "measure" (960, forms). */
   width?: "wide" | "measure";
+  /**
+   * Renders at every width instead of asking for a larger window (CLAUDE.md "Small screens": the person's home works
+   * from 390 px). The frame is then a container (DESIGN §6 "Small screens"): the viewer's email folds away below
+   * `page-wide` (640 px), and the step trail is left out below 1280 px (WP-04 T2), so the top bar never overflows.
+   */
+  smallScreen?: boolean;
   children: ReactNode;
 }
 
-export function StudioFrame({ step, steps = STUDIO_STEPS, title, lede, actions, viewer, width = "wide", children }: StudioFrameProps) {
-  // Desktop only (BUILD §5.3): under 1280 px the window is asked to grow instead of drawing a top bar that overflows.
+export function StudioFrame({ step, steps = STUDIO_STEPS, title, lede, actions, viewer, width = "wide", smallScreen = false, children }: StudioFrameProps) {
+  // Desktop only (BUILD §5.3) unless `smallScreen`: under 1280 px the window is asked to grow instead of drawing a top
+  // bar that overflows.
   const viewportWidth = useViewportWidth();
-  if (isViewportTooSmall(viewportWidth)) return <NeedsLargerWindow width={viewportWidth} />;
+  if (!smallScreen && isViewportTooSmall(viewportWidth)) return <NeedsLargerWindow width={viewportWidth} />;
   const activeIndex = steps.findIndex((s) => s.id === step);
+  // The trail is a desktop aid: on a small screen its five steps would wrap out of the 56 px bar (WP-04 T2). Under
+  // `page-wide` CSS hides it from the first paint; up to 1280 px the measured width leaves it out.
+  const trail = step && !(smallScreen && isViewportTooSmall(viewportWidth));
   return (
-    <div className="relative isolate flex min-h-screen flex-col bg-canvas text-primary" data-testid="studio-frame" data-step={step || undefined}>
+    <div className={cn("relative isolate flex min-h-screen flex-col bg-canvas text-primary", smallScreen && "@container")} data-testid="studio-frame" data-step={step || undefined} data-small-screen={smallScreen || undefined}>
       {/* The landing page's light in Foundmill steel: there is no business yet, so no brand colour of its own. */}
       <div aria-hidden className="brand-backdrop -z-10" />
       {/* No sidebar here: toasts go bottom right, never onto the first column of cards. */}
       <ToastPlacement position="bottom-right" sidebar="none" />
       <header className="first-run-bar sticky top-0 z-20 flex h-kitbar shrink-0 items-center gap-8 px-gutter">
-        <Link href="/" className="flex items-center text-primary hover:no-underline" aria-label={`${APP_NAME} home`}>
+        <Link href="/" className={cn("flex items-center text-primary hover:no-underline", smallScreen && "min-h-tap")} aria-label={`${APP_NAME} home`}>
           <Wordmark height={20} label={APP_NAME} />
         </Link>
-        {step ? (
-          <nav aria-label="First-run steps" className="flex min-w-0 items-center">
+        {trail ? (
+          <nav aria-label="First-run steps" className={cn("min-w-0 items-center", smallScreen ? "hidden @page-wide:flex" : "flex")}>
             <ol className="flex flex-wrap items-center gap-x-2 gap-y-1">
               {steps.map((s, i) => {
                 const done = i < activeIndex;
@@ -108,8 +119,8 @@ export function StudioFrame({ step, steps = STUDIO_STEPS, title, lede, actions, 
           </nav>
         ) : null}
         <div className="ml-auto flex shrink-0 items-center gap-3">
-          {viewer?.email ? <span className="font-mono text-mono text-tertiary">{viewer.email}</span> : null}
-          <SignOutButton icon={LogOut} />
+          {viewer?.email ? <span className={cn("font-mono text-mono text-tertiary", smallScreen && "hidden @page-wide:inline")}>{viewer.email}</span> : null}
+          <SignOutButton icon={LogOut} className={smallScreen ? "min-h-tap" : undefined} />
         </div>
       </header>
       <main className={cn("mx-auto w-full flex-1 px-gutter pb-10 pt-8", width === "wide" ? "first-run-wide" : "first-run-measure")}>

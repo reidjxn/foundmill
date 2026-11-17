@@ -1,5 +1,5 @@
 import { expect, test, type Page, type Request, type Route } from "@playwright/test";
-import { LONG, ROADMAP_SIGNOFF, SPEC_SIGNOFF, UUID, approveBothSignoffs, ensureDeck, inboxRow, signIn } from "./helpers";
+import { FIRST_NOTE, LONG, PLAN_NOTE, UUID, approvePlan, ensureDeck, inboxRow, signIn } from "./helpers";
 
 /**
  * Foundations on the first open (BUILD §11.1 "Take charge" → first open, §11.5 Vision · Specification · Roadmap): a new
@@ -69,7 +69,7 @@ test.describe("foundations", () => {
     // The shell's ensure goes through: the drafting starts in the background and Today turns ready by itself.
     await hold.release();
     await expect(status).toHaveAttribute("data-foundations-state", "ready", { timeout: LONG });
-    await expect(status.getByRole("status")).toContainText("Your vision, specification and roadmap are drafted. Two notes in the Inbox ask for your sign-off.");
+    await expect(status.getByRole("status")).toContainText("Your vision, specification and roadmap are drafted. One note in the Inbox asks you to approve your plan.");
     await expect(status).toContainText(/specification sections · \d+ roadmap items, \d+ in Now/);
     await expect(status.getByRole("button", { name: "Open the Inbox" })).toBeVisible();
 
@@ -94,17 +94,19 @@ test.describe("foundations", () => {
     await expect(outline.getByRole("button").first()).toBeVisible({ timeout: LONG });
     await expect(outline.getByLabel("Agent-written").first()).toBeVisible();
 
-    // The Product lead's two sign-off notes are in the Inbox, each a decision waiting in Needs you, with the note that the
-    // project's page is ready (package 1.3, drafted first); none holds Continue.
+    // The Product lead's one plan note (WP-04 T5) is in the Inbox, a decision waiting in Needs you, with the note that the
+    // project's page is ready (package 1.3, drafted first); neither holds Continue.
     await page.goto(`/b/${bid}/inbox`);
-    await expect(inboxRow(page, SPEC_SIGNOFF)).toBeVisible({ timeout: LONG });
-    await expect(inboxRow(page, ROADMAP_SIGNOFF)).toBeVisible({ timeout: LONG });
+    await expect(inboxRow(page, PLAN_NOTE)).toBeVisible({ timeout: LONG });
+    await expect(inboxRow(page, /Sign off the product/)).toHaveCount(0);
     await expect(inboxRow(page, "Your project's page is ready")).toBeVisible({ timeout: LONG });
-    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Needs you/ })).toContainText("3", { timeout: LONG });
+    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Needs you/ })).toContainText("2", { timeout: LONG });
     await expect(page.getByRole("button", { name: /^Continue$/ })).toBeVisible({ timeout: LONG });
-    await inboxRow(page, SPEC_SIGNOFF).click();
+    await inboxRow(page, PLAN_NOTE).click();
     await expect(page.getByTestId("inbox-item")).toHaveAttribute("data-type", "decision", { timeout: LONG });
     await expect(page.getByTestId("signoff-panel")).toHaveAttribute("data-signoff-kind", "spec");
+    // Five lines at most, ending on the link to the full plan (the Roadmap tab).
+    await expect(page.getByTestId("inbox-note").getByRole("link", { name: "Read the full plan" })).toHaveAttribute("href", `/b/${bid}/d/product/roadmap`);
     // The specification tab shows the same round, awaiting the founder.
     await page.goto(`/b/${bid}/d/${deptSlug}/specification`);
     await expect(page.getByTestId("signoff-banner")).toHaveAttribute("data-signoff-status", "pending", { timeout: LONG });
@@ -129,7 +131,7 @@ test.describe("foundations", () => {
     const { bid } = await takeCharge(page, `Ledgerly ${Date.now().toString(36)}`);
     // The first note is the Chief of Staff's welcome; the Import report's first decisions arrive once the product is signed off.
     await page.goto(`/b/${bid}/inbox`);
-    await expect(inboxRow(page, "Your team is drafting the product foundations")).toBeVisible({ timeout: LONG });
+    await expect(inboxRow(page, FIRST_NOTE)).toBeVisible({ timeout: LONG });
     await expect(inboxRow(page, "Where should the team start with what you imported?")).toHaveCount(0);
 
     await page.goto(`/b/${bid}/d/product/roadmap`);
@@ -162,11 +164,12 @@ test.describe("foundations", () => {
     await page.goto(`/b/${bid}/d/product/vision`);
     await expect(page.getByTestId("vision-record")).toContainText("existing source", { timeout: LONG });
 
-    // Both sign-offs approved: the build starts and the import's first decisions are the Board's question.
-    await approveBothSignoffs(page, bid);
+    // The plan approved in one press: the build starts and the import's first decisions are the Board's question.
+    await approvePlan(page, bid);
     await expect(inboxRow(page, "Where should the team start with what you imported?")).toBeVisible({ timeout: LONG });
     await inboxRow(page, "Where should the team start with what you imported?").click();
     await expect(page.getByTestId("inbox-item")).toHaveAttribute("data-type", "decision", { timeout: LONG });
-    expect(await page.getByTestId("decision-bar").getByRole("group", { name: "Options" }).getByRole("button").count()).toBeGreaterThanOrEqual(2);
+    // At least two options: wait for the second (a bare count() reads the bar before its options render).
+    await expect(page.getByTestId("decision-bar").getByRole("group", { name: "Options" }).getByRole("button").nth(1)).toBeVisible({ timeout: LONG });
   });
 });

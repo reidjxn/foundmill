@@ -7,3 +7,7 @@ export * from "./firstrun/FirstWeekChecklist";
 export * from "./firstrun/Coachmark";
 export * from "./firstrun/ExampleToggle";
 export * from "./firstrun/AgentStylePicker";
+export * from "./firstrun/AdultCheck";
+export * from "./firstrun/FirstProfileForm";
+export * from "./firstrun/StartingTeamList";
+export * from "./firstrun/WriteIdeaForm";

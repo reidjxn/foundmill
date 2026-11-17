@@ -7,14 +7,14 @@
 import { repos, sqlState, type ComposerItem, type Db, type Executor, type InboxItem } from "@foundmill/db";
 import { buildEvent, type WriteEventInput } from "@foundmill/events";
 import type { ModelLogger } from "@foundmill/models";
-import type { EntityKind, EventType } from "@foundmill/shared";
+import type { BusinessEventType, EntityKind } from "@foundmill/shared";
 
 /**
  * `@foundmill/events`' `writeEvent` inserts `outbox (event_id)` only while the schema's `outbox` carries a NOT NULL
  * `business_id`, so (as apps/api does) the payload is validated with the catalogue and the rows are written through
  * `repos.events.write`, which fills both tables (see openIssues in the composer report).
  */
-export async function writeEventRow<T extends EventType>(tx: Executor, input: WriteEventInput<T>, idempotencyKey?: string): Promise<string> {
+export async function writeEventRow<T extends BusinessEventType>(tx: Executor, input: WriteEventInput<T>, idempotencyKey?: string): Promise<string> {
   const event = buildEvent(input);
   const row = await repos.events.write(tx, event.businessId, {
     id: event.id,

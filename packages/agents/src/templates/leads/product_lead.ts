@@ -45,13 +45,12 @@ export const productLead = defineTemplate({
     ],
   },
   tools: [
-    grant("platform", [...PLATFORM_LEAD_TOOLS, "spec.read", "spec.propose", "roadmap.read", "sources.list", "sources.read"]),
+    grant("platform", [...PLATFORM_LEAD_TOOLS, "spec.read", "spec.propose", "roadmap.read", "sources.list", "sources.read", "positioning.read", "positioning.propose"]),
     grant("web", WEB_TOOLS),
     grant("quarantine", QUARANTINE_TOOLS),
     grant("notion", ["pages.search", "pages.read"]),
   ],
   skills: withCoreSkills(["spec_writing", "roadmap_prioritisation", "evidence_synthesis", "change_management"]),
   autonomy: AUTONOMY_INHERIT,
-  schedule: { triggers: ["spec.proposal_created", "idea.committed", "task.completed"] },
   neverDoes: ["Overwrite pinned blocks", "Publish without an accepted proposal", "Invent customer evidence", "Change roadmap status by hand"],
 });

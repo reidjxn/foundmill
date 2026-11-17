@@ -65,6 +65,9 @@ export function departmentTabs(dept: Pick<DepartmentSeed, "moduleKeys" | "tabSlu
 /** Utilities every business runs; they are hired into Team so the squad table shows them, but they belong to no department screen. */
 export const UTILITY_TEMPLATE_KEYS: readonly string[] = Object.freeze(["entity_linker", "classifier", "categoriser", "triage", "moderation"]);
 
+// The starting team (WP-04 T4): defined in @foundmill/shared so Commit and Team › Agents read the same list.
+export { STARTING_TEAM_TEMPLATE_KEYS, startingTeam } from "@foundmill/shared";
+
 const CODING_CORE = ["planner", "backend_engineer", "frontend_engineer", "qa_engineer", "review_agent", "integration_agent"];
 
 interface DeptSpec {
@@ -154,6 +157,21 @@ const FINANCE_TASK = task({
 
 const LEGAL_TASK = (goal: string, acceptance: string[]): FirstCycleTask =>
   task({ kind: "legal", title: "Where to incorporate, and the rules that apply", goal, acceptance, assigneeTemplateKey: "legal_lead", departmentSlug: "legal" });
+
+/**
+ * The tasks commit seeds for this founder (WP-04 T3; founder, 2026-11-16 D1): without a budget there is no money to
+ * forecast and nothing to incorporate yet, so the finance and legal tasks are left out; with one, the seed's own list.
+ */
+export function firstCycleTasksFor(seed: Pick<ArchetypeSeed, "firstCycleTasks">, founder: { hasBudget: boolean }): FirstCycleTask[] {
+  if (founder.hasBudget) return seed.firstCycleTasks;
+  return seed.firstCycleTasks.filter((t) => t.kind !== "finance" && t.kind !== "legal");
+}
+
+/**
+ * The first build of a project whose code lands on its Foundmill site (WP-07 T9), whatever the archetype: one offer
+ * page a stranger can open, sign up on or pay from.
+ */
+export const SITE_FIRST_BUILD = { title: "Build the offer page", goal: "One page that says what this is, who it is for and what it costs, with a way to sign up or pay.", acceptance: ["The page reads well on a phone", "The sign-up form is on the page", "A price is shown, or the page says how to ask for one"] } as const;
 
 /** The Planner's fallback goal once the founder has signed off and Now is empty (`ArchetypeSeed.firstBuild`). */
 const FIRST_BUILD = (title: string, goal: string, acceptance: string[]): FirstBuild => ({ title, goal, acceptance });

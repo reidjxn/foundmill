@@ -3,8 +3,9 @@
  * Distribution section's (journey.get/list/roundup/markViewed need Distribution read). The Ribbon (journey.ribbon) is
  * Home's for everyone, so it keeps its shape for walled staff and loses what they may not read instead:
  *
- *   finance       the money in it: each day's spend and revenue read 0, conversion amounts read 0 and a Customer
- *                 Update's acquisition cost is null; money in its commentary reads "(amount hidden)".
+ *   finance       the money in it: each day's spend and revenue read 0, and so do each chapter's (Nov 14, 2026: the
+ *                 chapters summed them by quarter); conversion amounts read 0 and a Customer Update's acquisition cost
+ *                 is null; money in its commentary, and in a revenue milestone's label, reads "(amount hidden)".
  *   crm           customer names: a conversion's `entityName` is null and a Customer Update's entity is a stub
  *                 ("a customer"); names and mentions in its commentary read "a customer".
  *   distribution  (Ribbon only) the per-conversion list is empty; the count stays (Home's "customers won").
@@ -13,7 +14,7 @@
  */
 import type { Executor } from "@foundmill/db";
 import { hasSectionAccess, type SectionMembership } from "@foundmill/shared";
-import { loadRedactionSource, redactValue, standIn } from "./inbox-redaction";
+import { loadRedactionSource, maskFinance, redactValue, standIn } from "./inbox-redaction";
 
 export type JourneyWall = "finance" | "crm" | "distribution";
 
@@ -40,11 +41,23 @@ export function wallConversion<T extends { amountMinor: number; entityName?: str
   return out;
 }
 
+interface RibbonChapter {
+  summary: { spendMinor: number; revenueMinor: number; milestoneLabels: string[] };
+}
+
+/** A milestone's label behind a Finance wall: a revenue milestone names its amount ("€10k MRR"). */
+const milestoneLabel = (kind: string, label: string): string => (kind === "revenue" ? maskFinance(label) : label);
+
 /** The Ribbon as the reader may see it. */
-export function wallRibbon<R extends { rows: { spendMinor: number; revenueMinor: number }[]; conversions: { amountMinor: number; entityName?: string | null }[] }>(ribbon: R, walls: JourneyWalls): R & { redacted: JourneyWall[] } {
+export function wallRibbon<
+  R extends { rows: { spendMinor: number; revenueMinor: number }[]; conversions: { amountMinor: number; entityName?: string | null }[]; chapters?: RibbonChapter[]; milestones?: { kind: string; label: string }[] },
+>(ribbon: R, walls: JourneyWalls): R & { redacted: JourneyWall[] } {
   const rows = walls.finance ? ribbon.rows.map((r) => ({ ...r, spendMinor: 0, revenueMinor: 0 })) : ribbon.rows;
   const conversions = walls.distribution ? [] : ribbon.conversions.map((c) => wallConversion(c, walls));
-  return { ...ribbon, rows, conversions, redacted: listed(walls, ["finance", "crm", "distribution"]) };
+  if (!walls.finance) return { ...ribbon, rows, conversions, redacted: listed(walls, ["finance", "crm", "distribution"]) };
+  const chapters = ribbon.chapters?.map((c) => ({ ...c, summary: { ...c.summary, spendMinor: 0, revenueMinor: 0, milestoneLabels: c.summary.milestoneLabels.map(maskFinance) } }));
+  const milestones = ribbon.milestones?.map((m) => ({ ...m, label: milestoneLabel(m.kind, m.label) }));
+  return { ...ribbon, rows, conversions, ...(chapters ? { chapters } : {}), ...(milestones ? { milestones } : {}), redacted: listed(walls, ["finance", "crm", "distribution"]) };
 }
 
 /** One Customer Update as a Distribution reader walled from Finance or the CRM may see it. */

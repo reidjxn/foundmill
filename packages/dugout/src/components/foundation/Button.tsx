@@ -37,6 +37,8 @@ export const buttonVariants = cva(
         tinted: "btn-tinted text-primary",
         /** Brand-tinted glass pill: the marketing call to action, on the landing page and the sign-in frame only. */
         glass: "btn-glass rounded-full",
+        /** Google's light-theme sign-in button: only through `GoogleSignInButton`, on the sign-in frame. */
+        google: "btn-google rounded-full",
         /** The signature generate control (DESIGN §7): the only light slab in the product. See `running`, `progress`, `count`. */
         generate: "gen-slab font-semibold",
       },

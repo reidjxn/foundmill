@@ -11,7 +11,21 @@
  * holds every template to this. Agent versions stored before that date may still hold such grants: `resolveGrants` gives
  * them no tool, and `servedGrants` is what a screen shows.
  */
+import type { PolicyHint } from "./contract";
 import { anthropicTools } from "./connectors/anthropic/tools";
+import { apolloTools } from "./connectors/apollo/tools";
+import { posthogTools } from "./connectors/posthog/tools";
+import { resendTools } from "./connectors/resend/tools";
+import { bufferTools } from "./connectors/buffer/tools";
+import { vercelTools } from "./connectors/vercel/tools";
+import { firecrawlTools } from "./connectors/firecrawl/tools";
+import { RUNWAY_ROUTE_ONLY_TOOLS, runwayTools } from "./connectors/runway/tools";
+import { elevenlabsVoiceTools } from "./connectors/elevenlabs_voice/tools";
+import { geminiTools } from "./connectors/gemini/tools";
+import { indexNowTools } from "./connectors/indexnow/tools";
+import { openaiTools } from "./connectors/openai/tools";
+import { perplexityTools } from "./connectors/perplexity/tools";
+import { serpapiTools } from "./connectors/serpapi/tools";
 import { bolagsverketTools } from "./connectors/bolagsverket/tools";
 import { cloudflareTools } from "./connectors/cloudflare_dns/tools";
 import { companiesHouseTools } from "./connectors/companies_house/tools";
@@ -42,43 +56,107 @@ import { platformMailTools } from "./connectors/platform_mail/tools";
 
 const names = (tools: readonly { name: string }[]) => Object.freeze(tools.map((t) => t.name));
 
+/** Every tool the gateway serves, by connector, with its policy hints: the registry's connectors plus the built-ins. */
+const GATEWAY_TOOLS: Readonly<Record<string, readonly { name: string; hints: PolicyHint }[]>> = {
+  anthropic: anthropicTools,
+  voyage: voyageTools,
+  openai_images: openaiImagesTools,
+  elevenlabs: elevenlabsTools,
+  onesignal: onesignalTools,
+  platform_notify: platformNotifyTools,
+  github: githubTools,
+  google_drive: googleDriveTools,
+  gmail: gmailTools,
+  google_calendar: googleCalendarTools,
+  notion: notionTools,
+  cloudflare_dns: cloudflareTools,
+  opencorporates: opencorporatesTools,
+  bolagsverket: bolagsverketTools,
+  domains: domainsTools,
+  companies_house: companiesHouseTools,
+  e2b: e2bTools,
+  dropbox_sign: dropboxSignTools,
+  ecb_rates: ecbTools,
+  stripe: stripeTools,
+  sendgrid: sendgridTools,
+  shopify: shopifyTools,
+  tink: tinkTools,
+  plaid: plaidTools,
+  openai: openaiTools,
+  gemini: geminiTools,
+  perplexity: perplexityTools,
+  serpapi: serpapiTools,
+  firecrawl: firecrawlTools,
+  indexnow: indexNowTools,
+  apollo: apolloTools,
+  vercel: vercelTools,
+  posthog: posthogTools,
+  resend: resendTools,
+  runway: runwayTools,
+  elevenlabs_voice: elevenlabsVoiceTools,
+  buffer: bufferTools,
+  platform: platformTools,
+  web: webTools,
+  quarantine: quarantineTools,
+  platform_mail: platformMailTools,
+};
+
 /** Every tool the gateway serves, by connector: the registry's connectors plus the built-ins (platform, web, quarantine). */
-export const GATEWAY_TOOL_NAMES: Readonly<Record<string, readonly string[]>> = Object.freeze({
-  anthropic: names(anthropicTools),
-  voyage: names(voyageTools),
-  openai_images: names(openaiImagesTools),
-  elevenlabs: names(elevenlabsTools),
-  onesignal: names(onesignalTools),
-  platform_notify: names(platformNotifyTools),
-  github: names(githubTools),
-  google_drive: names(googleDriveTools),
-  gmail: names(gmailTools),
-  google_calendar: names(googleCalendarTools),
-  notion: names(notionTools),
-  cloudflare_dns: names(cloudflareTools),
-  opencorporates: names(opencorporatesTools),
-  bolagsverket: names(bolagsverketTools),
-  domains: names(domainsTools),
-  companies_house: names(companiesHouseTools),
-  e2b: names(e2bTools),
-  dropbox_sign: names(dropboxSignTools),
-  ecb_rates: names(ecbTools),
-  stripe: names(stripeTools),
-  sendgrid: names(sendgridTools),
-  shopify: names(shopifyTools),
-  tink: names(tinkTools),
-  plaid: names(plaidTools),
-  platform: names(platformTools),
-  web: names(webTools),
-  quarantine: names(quarantineTools),
-  platform_mail: names(platformMailTools),
-});
+export const GATEWAY_TOOL_NAMES: Readonly<Record<string, readonly string[]>> = Object.freeze(Object.fromEntries(Object.entries(GATEWAY_TOOLS).map(([key, tools]) => [key, names(tools)])));
+
+/** A tool the credit saver never moves to a lower-cost model: it reaches outside, spends money or cannot be undone. */
+function highStakesTool(hints: PolicyHint): boolean {
+  // A hard-gated tool never runs (it becomes a founder task, `request_human_action`), so it does not count.
+  if (hints.hardGate) return false;
+  return Boolean(hints.contactsThirdParty || hints.spendsMoney || hints.irreversible);
+}
+
+/**
+ * Whether a session granted `toolRefs` (`connector:tool` or `connector:*`, `ResolvedGrants.toolRefs`) holds a high-stakes
+ * tool: one that reaches someone outside the business, spends money or cannot be undone (`contactsThirdParty`,
+ * `spendsMoney`, `irreversible`: the hints the house rules' policy asks the founder about). Low credits keep such a session
+ * on its usual model (the credit saver, apps/orchestrator `prepareSession` and every run). It fails closed: a connector or
+ * tool this map does not know counts as high-stakes, so a tool added without its hints here is never downgraded.
+ */
+export function grantsActOutside(toolRefs: readonly string[]): boolean {
+  return toolRefs.some((ref) => {
+    const sep = ref.indexOf(":");
+    const connector = sep < 0 ? ref : ref.slice(0, sep);
+    const tool = sep < 0 ? "*" : ref.slice(sep + 1);
+    const tools = GATEWAY_TOOLS[connector];
+    if (!tools) return true;
+    const granted = tool === "*" ? tools : tools.filter((t) => t.name === tool);
+    if (granted.length === 0) return true;
+    return granted.some((t) => highStakesTool(t.hints));
+  });
+}
 
 const bankingCapabilities = { "accounts.list": ["list_accounts", "get_consent_status"], "transactions.list": ["list_transactions", "sync"] };
 
 /** Capability → tools, per connector served through the gateway. */
 export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>> = {
   anthropic: { "panel.query": ["ask_panel"] },
+  // The other assistants' panels, Google's results and AI Overview, a page as a crawler reads it, and telling search
+  // engines a page changed: each on the founder's own key at that vendor (founder, 2026-11-12).
+  openai: { "panel.query": ["ask_panel"] },
+  gemini: { "panel.query": ["ask_panel"] },
+  perplexity: { "panel.query": ["ask_panel"] },
+  serpapi: { "serp.read": ["search_google"] },
+  firecrawl: { "pages.read": ["scrape_page"] },
+  indexnow: { "urls.submit": ["submit_urls"] },
+  // Searching people is free at Apollo; a company search and a person lookup spend the founder's credits and ask first.
+  apollo: { "people.search": ["search_people"], "organizations.search": ["search_organizations"], "people.enrich": ["enrich_person"] },
+  // A redeploy goes live and uses the founder's build minutes: it asks first.
+  vercel: { "deployments.list": ["list_deployments"], "deployments.read": ["list_deployments", "get_deployment"], "deployments.create": ["create_deployment"] },
+  posthog: { "insights.query": ["query_insights"] },
+  // The founder's own Resend account and verified domain; a message to someone outside the project asks first.
+  resend: { "mail.send": ["send_mail", "list_domains"], "domains.read": ["list_domains"] },
+  // Generated video and voiceover on the founder's own Runway and ElevenLabs accounts (founder, 2026-11-13). Starting a clip
+  // or a voiceover spends the founder's money and asks first; looking a task up and listing voices are free reads.
+  runway: { "video.generate": ["generate_video_from_text", "generate_video_from_image", "get_video_task"], "video.read": ["get_video_task"] },
+  elevenlabs_voice: { "voiceover.generate": ["generate_voiceover", "list_voices"], "voices.list": ["list_voices"] },
+  // The founder's own Buffer account: reading channels and a post's status runs; queuing a post publishes in public later and asks first.
+  buffer: { "channels.read": ["list_channels"], "posts.queue": ["queue_post", "list_channels"], "posts.read": ["get_post"] },
   github: {
     // download_archive is the platform's own checkout (the gateway's archive route, ROUTE_ONLY_TOOLS): never an agent's tool.
     "repos.read": ["list_repos", "read_tree", "read_file", "compare_refs"],
@@ -135,6 +213,9 @@ export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, r
     "tasks.block": ["block_task"],
     "tasks.handoff": ["handoff_task"],
     "tasks.complete": ["complete_task"],
+    // WP-05 T3: the result of a task, saved for the founder and the next agent.
+    "reports.write": ["save_report"],
+    "reports.read": ["read_report"],
     "messages.request": ["send_message", "list_messages"],
     "messages.inform": ["send_message", "list_messages"],
     "messages.review": ["send_message", "list_messages"],
@@ -145,6 +226,7 @@ export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, r
     "assets.request_approval": ["request_human_action"],
     "memory.search": ["search_entities"],
     "crm.entities.search": ["search_entities"],
+    "payments.links.read": ["list_pay_links"],
     "entities.manifest.read": ["search_entities"],
     "business.mode.read": ["read_business"],
     "holiday.read_authority": ["read_business"],
@@ -170,6 +252,11 @@ export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, r
     "docs.read": ["list_repository_docs", "read_repository_doc"],
     // The team's skills: the Chief of Staff gives agents library skills and the business's own skill files (Nov 6, 2026).
     "skills.manage": ["list_skills", "assign_skill", "remove_skill"],
+    // The project's positioning notes (WP-08 T1): every marketing role reads them; two leads may propose a new version.
+    "positioning.read": ["read_positioning"],
+    "positioning.propose": ["propose_positioning_change"],
+    // A draft update to the project's followers (WP-08 T3): the founders check it and press Send; the tool never sends.
+    "updates.draft": ["draft_follower_update"],
   },
   web: { search: ["search_web"], fetch: ["fetch_page"] },
   quarantine: { read_untrusted: ["read_untrusted"] },
@@ -234,8 +321,22 @@ export function isServiceOnlyConnector(connectorKey: string): boolean {
  * Code-tab repository). No grant resolves to one, so no agent session token carries one (the orchestrator mints its
  * checkout token with `github:download_archive` explicitly); the gateway also never lists one on `/mcp/:connector` and
  * refuses one on `/v1/call` for an agent session, whatever a token says (a `github:*` wildcard included).
+ * `runway:download_video` is the platform's copy of a finished clip into a post draft's media (orchestrator
+ * `post-media.ts`), on `/v1/call` with a token outside any session.
  */
-export const ROUTE_ONLY_TOOLS: ReadonlySet<string> = new Set(GITHUB_ROUTE_ONLY_TOOLS.map((t) => `github:${t}`));
+export const ROUTE_ONLY_TOOLS: ReadonlySet<string> = new Set([...GITHUB_ROUTE_ONLY_TOOLS.map((t) => `github:${t}`), ...RUNWAY_ROUTE_ONLY_TOOLS.map((t) => `runway:${t}`)]);
+
+/**
+ * Tools whose answer is a media file the platform stores (a post draft's media, packages/db `post_media`), when a
+ * platform token outside any session calls them: the gateway hands that caller the file as it came (still inside the
+ * untrusted envelope with its notice), never a reader's digest, because code stores it and no agent reads it. An agent
+ * session calling the same tool is unchanged: it gets the reader's digest and the typed facts, never the bytes.
+ */
+export const SERVICE_MEDIA_TOOLS: ReadonlySet<string> = new Set(["elevenlabs_voice:generate_voiceover", "runway:download_video"]);
+
+export function isServiceMediaTool(connectorKey: string, tool: string): boolean {
+  return SERVICE_MEDIA_TOOLS.has(`${connectorKey}:${tool}`);
+}
 
 const hasRouteOnlyTools = (connectorKey: string): boolean => [...ROUTE_ONLY_TOOLS].some((ref) => ref.startsWith(`${connectorKey}:`));
 

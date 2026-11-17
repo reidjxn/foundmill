@@ -7,7 +7,7 @@
 import { eq } from "drizzle-orm";
 import { events, memberships, repos } from "@foundmill/db";
 import { buildEvent, type PlatformEvent, type WriteEventInput } from "@foundmill/events";
-import type { EventType } from "@foundmill/shared";
+import type { BusinessEventType } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { GatewayPushRequest, GatewayPushResult } from "../services/gateway";
 import { createPushNotifier, type PushNotifier } from "../services/push/notifier";
@@ -42,7 +42,7 @@ beforeAll(async () => {
 }, 120_000);
 afterAll(() => hz.close());
 
-const ev = <T extends EventType>(type: T, payload: WriteEventInput<T>["payload"], businessId = hz.A.businessId): PlatformEvent => buildEvent({ businessId, type, actor: { kind: "system", id: "test" }, payload }) as PlatformEvent;
+const ev = <T extends BusinessEventType>(type: T, payload: WriteEventInput<T>["payload"], businessId = hz.A.businessId): PlatformEvent => buildEvent({ businessId, type, actor: { kind: "system", id: "test" }, payload }) as PlatformEvent;
 
 const decision = (subject: string, businessId?: string) => ev("inbox.item_created", { inboxItemId: hz.A.inboxItemId, type: "decision", fromAgentId: hz.A.agentId, subject, blocksContinue: false, sourceEventIds: [], cost: null }, businessId);
 
@@ -135,6 +135,26 @@ describe("the push notifier", () => {
     const won = ev("customer.converted", { entityId: hz.A.entityId, conversionId: crypto.randomUUID(), journeyId, kind: "payment", matchdayLevel: "cup", amount: { amountMinor: 9600, currency: "GBP" }, nthOfKind: 1, fullMatchDay: true, captainChannelKey: "seo", touchCount: 2, timeToConvertHours: 10, acquisitionCost: null });
     expect(await notifier.handle(won)).toMatchObject({ status: "sent", kind: "customer" });
     expect(sent[0]).toMatchObject({ title: "New customer", body: `${entity.displayName} just became a paying customer · £96.00`, data: { kind: "journey", journeyId }, collapseKey: `journey:${journeyId}` });
+  });
+
+  it("a collaborator whose access has ended (0092) gets nothing on their phone; one whose date is ahead does", async () => {
+    sent = [];
+    const [ended, current] = [await hz.h.createUser("push-ended@test.local"), await hz.h.createUser("push-current@test.local")];
+    await hz.db.insert(memberships).values([
+      { businessId: hz.A.businessId, userId: ended, role: "collaborator", expiresAt: new Date(Date.now() - 60_000) },
+      { businessId: hz.A.businessId, userId: current, role: "collaborator", expiresAt: new Date(Date.now() + 7 * 86_400_000) },
+    ]);
+    await repos.devices.register(hz.db, ended, { platform: "ios", token: token("ended") });
+    await repos.devices.register(hz.db, current, { platform: "ios", token: token("current") });
+    try {
+      expect((await notifier.handle(decision("Who hears this?"))).status).toBe("sent");
+      const tokens = sent.flatMap((x) => x.subscriptionIds);
+      expect(tokens).toContain(token("current"));
+      expect(tokens).not.toContain(token("ended"));
+    } finally {
+      await hz.db.delete(memberships).where(eq(memberships.userId, ended));
+      await hz.db.delete(memberships).where(eq(memberships.userId, current));
+    }
   });
 
   it("a gateway failure is dropped: no record, the next event still goes", async () => {

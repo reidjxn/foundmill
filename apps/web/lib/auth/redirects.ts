@@ -13,6 +13,7 @@
  *   app/(live)/layout.tsx, because only the API knows whether the profile exists; the proxy only knows who is signed in.
  */
 import { exampleRoute } from "@/components/landing/examples/ids";
+import { landingVariant, landingVariantRoute } from "@/lib/landing-variant";
 import { NEXT_PARAM } from "./constants";
 import { STALE_BUSINESS_PARAM, lastBusinessHome } from "./last-business";
 
@@ -20,8 +21,10 @@ import { STALE_BUSINESS_PARAM, lastBusinessHome } from "./last-business";
  * Routes that never need a session. `/p/` is a project's public page (app/p/[slug]) and `/u/` a person's public profile
  * (app/u/[handle]), both open to anyone signed out. `/a/<token>` (a one-click answer) and `/email/pause` are opened from
  * a founder email, often on a phone with no session; `/email/unsubscribe` takes a mail app's one-click unsubscribe.
+ * `/i/<token>` (an invitation to a project) is opened by people who may have no account yet: the page says "Sign in"
+ * itself and comes back with `next`.
  */
-const PUBLIC_PREFIXES = ["/login", "/auth/", "/_next/", "/brand/", "/favicon", "/icon", "/apple-icon", "/opengraph-image", "/robots.txt", "/sitemap.xml", "/health", "/examples/", "/p/", "/u/", "/a/", "/email/pause", "/email/unsubscribe"];
+const PUBLIC_PREFIXES = ["/login", "/auth/", "/_next/", "/brand/", "/favicon", "/icon", "/apple-icon", "/opengraph-image", "/robots.txt", "/sitemap.xml", "/llms.txt", "/health", "/examples/", "/p/", "/u/", "/m/", "/a/", "/email/pause", "/email/unsubscribe", "/terms", "/privacy", "/i/", "/tour", "/lp/", "/.well-known/"];
 
 /** The signed-in index (app/start/page.tsx): a signed-in `/` the proxy cannot answer itself is rewritten here. */
 export const SIGNED_IN_INDEX = "/start";
@@ -35,7 +38,7 @@ export function isPublicPath(pathname: string): boolean {
 const LIVE_PREFIXES = ["/network", "/communities", "/profiles"];
 
 export function isFounderPath(pathname: string): boolean {
-  return pathname === "/" || pathname === "/onboarding" || pathname === "/businesses" || pathname === "/public-profile" || pathname.startsWith("/new") || pathname.startsWith("/b/") || LIVE_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+  return pathname === "/" || pathname === "/home" || pathname === "/onboarding" || pathname === "/businesses" || pathname === "/public-profile" || pathname.startsWith("/new") || pathname.startsWith("/b/") || LIVE_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
 /**
@@ -73,6 +76,23 @@ export function safeNextPath(next: string | null | undefined, fallback = "/"): s
 }
 
 /**
+ * The only places the three questions go on to (WP-04 T1): a kept card's Commit, the kept card itself, or the Ideation
+ * Studio opened on that card (`/new/ideate/<uuid>`); and the Studio itself, for a card kept with "Shape it in the
+ * Ideation Studio" (the landing page's idea box).
+ */
+const ONBOARDING_NEXT = /^(\/new\/(commit|card|ideate)\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\/new\/ideate)$/i;
+
+/**
+ * `/onboarding?next=`: the path the profile's first save goes on to, or null for anything but `/new/commit/<uuid>`,
+ * `/new/card/<uuid>`, `/new/ideate/<uuid>` and `/new/ideate` (the card a person kept from the idea box keeps its thread
+ * through the three questions). The path is clamped by `safeNextPath` first, then must be exactly one of these.
+ */
+export function onboardingNext(raw: string | null | undefined): string | null {
+  const path = safeNextPath(raw, "");
+  return ONBOARDING_NEXT.test(path) ? path : null;
+}
+
+/**
  * Where a signed-in founder goes instead of `target` when `target` is the index: their last business's Home when the
  * cookie names one (the redirect `/` would answer anyway, one hop sooner). Anything else is kept.
  */
@@ -80,7 +100,7 @@ export function signedInDestination(target: string, lastBusinessId: string | nul
   return target === "/" ? (lastBusinessHome(lastBusinessId) ?? target) : target;
 }
 
-export function decideRedirect(input: { pathname: string; search?: string; authenticated: boolean; lastBusinessId?: string | null }): RedirectDecision {
+export function decideRedirect(input: { pathname: string; search?: string; authenticated: boolean; lastBusinessId?: string | null; landingVariant?: string | null }): RedirectDecision {
   const { pathname, authenticated, lastBusinessId } = input;
   const search = input.search ?? "";
   if (authenticated && pathname === "/login") {
@@ -92,8 +112,13 @@ export function decideRedirect(input: { pathname: string; search?: string; authe
     if (pathname === "/") {
       // The landing page; a deep link to another example business is that business's own prerendered page.
       const example = exampleRoute(search);
-      return example ? { kind: "rewrite", to: example } : { kind: "next" };
+      if (example) return { kind: "rewrite", to: example };
+      // One of the landing page's other variants (lib/landing-variant.ts): its own prerendered page, under `/`.
+      const variant = landingVariantRoute(landingVariant(search, input.landingVariant));
+      return variant ? { kind: "rewrite", to: variant } : { kind: "next" };
     }
+    // An address that is no app route reaches Next's 404 (with the right status) instead of a sign-in that leads nowhere.
+    if (!isFounderPath(pathname) && pathname !== SIGNED_IN_INDEX && !pathname.startsWith("/integrations/")) return { kind: "next" };
     return { kind: "redirect", to: `/login?${NEXT_PARAM}=${encodeURIComponent(`${pathname}${search}`)}` };
   }
   if (pathname === "/") {

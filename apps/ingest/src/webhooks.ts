@@ -237,3 +237,12 @@ export function ackBody(connector: string, outcome: WebhookOutcome): { contentTy
 }
 
 export const isAppError = (e: unknown): e is AppError => e instanceof AppError;
+
+/**
+ * The most a vendor delivery to `/webhooks/:connector` may carry before ingest reads it (WP-11 T15, A8-22): 1 MiB, and
+ * GitHub's own 25 MB cap for GitHub, whose push and pull-request payloads can be large. A larger body is a 413 and the
+ * connector's verifier never runs.
+ */
+export const WEBHOOK_MAX_BYTES = 1024 * 1024;
+export const WEBHOOK_MAX_BYTES_BY_CONNECTOR: Readonly<Record<string, number>> = { github: 25 * 1024 * 1024 };
+

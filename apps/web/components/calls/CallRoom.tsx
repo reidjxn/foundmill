@@ -205,30 +205,37 @@ function LiveCall({ call }: { call: TeamCallView }) {
     [playback, send],
   );
 
+  // Every utterance the mic starts holds the team (they pause) and is released once dealt with: a line that is sent has
+  // stopped them first (`say`); one that comes to nothing (empty transcript, failed transcription) lets them carry on.
   const onUtterance = useCallback(
     (u: Utterance) => {
-      if (u.kind === "text") return say(u.text, "spoken");
+      if (u.kind === "text") {
+        say(u.text, "spoken");
+        return playback.release();
+      }
       const mime = audioMimeOf(u.mime);
-      if (!mime) return;
+      if (!mime) return playback.release();
       void blobToBase64(u.blob)
         .then((base64) => transcribeM.mutateAsync({ businessId, callId, mime, base64 }))
         .then((heard) => {
           if (heard.text.trim()) say(heard.text.trim(), "spoken");
         })
-        .catch((err: unknown) => setFailed({ item: { text: "", via: "spoken", clientTurnId: "" }, message: errorMessage(err) }));
+        .catch((err: unknown) => setFailed({ item: { text: "", via: "spoken", clientTurnId: "" }, message: errorMessage(err) }))
+        .finally(playback.release);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mutateAsync is stable
-    [say, businessId, callId],
+    [say, playback.release, businessId, callId],
   );
 
   const speakingRef = useRef(false);
-  speakingRef.current = playback.playing !== null;
+  speakingRef.current = playback.playing !== null && !playback.paused;
   const mic = useCallMicrophone({
     transcription: modes?.transcription,
     agentSpeaking: () => speakingRef.current,
-    // Speaking over the team stops them.
-    onSpeechStart: playback.stop,
+    // Speaking over the team pauses them; only a line that is sent stops them (a cough or a click does not).
+    onSpeechStart: playback.hold,
     onUtterance,
+    onSpeechDiscarded: playback.release,
   });
 
   // "Let the team discuss": once the team is quiet and the founder has been silent, the agents take another round.
@@ -300,7 +307,7 @@ function LiveCall({ call }: { call: TeamCallView }) {
           <CallStage
             kind={call.kind}
             participants={call.participants}
-            speakingAgentId={playback.playing?.agentId ?? null}
+            speakingAgentId={playback.paused ? null : (playback.playing?.agentId ?? null)}
             thinkingAgentIds={thinking}
             founderSpeaking={mic.speaking}
             micOn={mic.on}

@@ -139,7 +139,35 @@ export function createDb(url: string, options: CreateDbOptions = {}): AnyDb {
     // them to parse array columns, and a warm pool rarely opens one.
     onnotice: () => {},
   });
-  return drizzle({ client, schema, logger: options.logger ?? false });
+  return withDateParams(client, drizzle({ client, schema, logger: options.logger ?? false }));
+}
+
+/**
+ * The types whose serializers Drizzle's postgres-js driver makes pass through unchanged (drizzle-orm 0.45
+ * `postgres-js/driver`): timestamptz, date, time, timestamp, their arrays (1182 date[], 1185 timestamptz[], 1115
+ * timestamp[]) and 1231 numeric[]. A `Date` only ever reaches 1184; the list is Drizzle's, kept whole.
+ */
+const DATE_TIME_TYPES = ["1184", "1082", "1083", "1114", "1182", "1185", "1115", "1231"] as const;
+
+/**
+ * Lets a `Date` go into a raw `sql` template on postgres.js, as it already does on PGlite (Nov 14, 2026). Drizzle's
+ * postgres-js driver replaces postgres.js's serializers for the date and time types with a pass-through, because the
+ * values it maps from a column are already text. A `Date` in a raw template (`sql\`${t.expiresAt} > ${now}\``) has no
+ * column mapping: postgres.js infers timestamptz (1184) for it and the pass-through hands the `Date` itself to the wire
+ * writer, which throws (`The "string" argument must be of type string … Received an instance of Date`). The PGlite tests
+ * never saw it. This keeps text as text and writes a `Date` as its ISO string. Call it after `drizzle({ client })`,
+ * which is what installs the pass-through.
+ *
+ * A raw `Date` is always a timestamptz here (PGlite instead lets the server pick the type). Compared with a timestamptz
+ * column that is exact; for a `date` or `timestamp without time zone` value, pass `toISOString()` or cast explicitly.
+ */
+export function withDateParams<D>(client: Sql, db: D): D {
+  const serializers = client.options.serializers as Record<string, (v: unknown) => unknown>;
+  for (const type of DATE_TIME_TYPES) {
+    const inner = serializers[type];
+    serializers[type] = (v: unknown) => (v instanceof Date ? v.toISOString() : inner ? inner(v) : v);
+  }
+  return db;
 }
 
 /** `fn()` raced against `ms`; the loser is left alone (a pooled query cannot be taken back). */

@@ -57,6 +57,43 @@ export function includedCreditsMinor(tier: TierKey): number {
 }
 
 /**
+ * Low credits (credit saver). When a month's spendable credits fall below the line, routine work moves to a lower-cost
+ * model (each route's `lowCredits` in packages/models routing.ts) while founder-facing and high-stakes work keeps its
+ * own, so the team does not stop dead a few calls before the pause at zero.
+ *
+ * The line is the larger of a share of the month's included credits and a small floor:
+ * - `LOW_CREDITS_SHARE` (20 %): on the free plan's $5 that is $1, the last fifth of the month, where a founder with
+ *   little money most needs the team to keep going.
+ * - `LOW_CREDITS_FLOOR_MINOR` ($1): a month that started with nothing included (the founder's pool went to another
+ *   business) or a small top-up still gets the saver before the pause, and a larger plan's line never drops below it.
+ * A top-up raises the balance above the line again, and the saver lifts by itself.
+ */
+export const LOW_CREDITS_SHARE = 0.2;
+export const LOW_CREDITS_FLOOR_MINOR = 100;
+
+/** The low-credits line in USD cents for a month that includes `includedMinor` (see `LOW_CREDITS_SHARE`). */
+export function lowCreditsThresholdMinor(includedMinor: number): number {
+  return Math.max(LOW_CREDITS_FLOOR_MINOR, Math.round(Math.max(0, includedMinor) * LOW_CREDITS_SHARE));
+}
+
+/** Whether `spendableMinor` is in the saver's band: something left, but below the line. Zero is the pause, not this. */
+export function creditsAreLow(spendableMinor: number, includedMinor: number): boolean {
+  return spendableMinor > 0 && spendableMinor < lowCreditsThresholdMinor(includedMinor);
+}
+
+/**
+ * The first round of work of a free project on Foundmill's credits (WP-09 T11, founder D6, Nov 16, 2026): its sessions
+ * run one at a time under this cap, in US cents, so round 1 fits the $5.00 allowance's first-session target ($1.50,
+ * D1) less what the first day spends outside sessions. An Estimate until the cost report's `firstDayPerProject` sets it.
+ */
+export const FIRST_CYCLE_SESSION_CAP_MINOR = 75;
+
+/** What cycle 1 starts with, wherever it starts (commit, an approval, Continue): a free project on credits is capped; others start as before. */
+export function firstCycleInput(input: { modelBilling: "credits" | "byok"; tier: TierKey }): { budgetCapMinor?: number; maxConcurrent?: number } {
+  return input.tier === "free" && input.modelBilling === "credits" ? { budgetCapMinor: FIRST_CYCLE_SESSION_CAP_MINOR, maxConcurrent: 1 } : {};
+}
+
+/**
  * How a new business on `tier` pays for model calls: on credits (its included credits) unless the tier requires the
  * founder's own key. Storing a key moves a business to `byok` (apps/api keys).
  */
@@ -84,6 +121,39 @@ export function tierSeatLimit(tier: TierKey): number | null {
 export function tierIncludedCreditPlaces(tier: TierKey): number | null {
   const places: number | string = TIERS[tier].includedCreditBusinesses;
   return typeof places === "number" ? places : null;
+}
+
+/**
+ * Whether a project on `tier` carries the small "Built on Foundmill" mark on what its visitors see (docs/NETWORK.md F2;
+ * founder, 2026-11-12): the free plan does, and a paid plan removes it completely, from the page, the line after a
+ * follow, the confirmation email and page, and the share image.
+ */
+export function tierShowsBuiltOnMark(tier: TierKey): boolean {
+  return tier === "free";
+}
+
+/**
+ * Whether a business on `tier` gets the full set of models on Foundmill's key (founder, Nov 16, 2026; WP-13): only a
+ * paid plan. A tier is paid when it has a price, "TBD" included; `assertTierAvailable` (apps/api) keeps those out of
+ * production until a plan can be bought. A credit top-up never makes a tier paid.
+ */
+export function tierIsPaid(tier: TierKey): boolean {
+  return TIERS[tier].priceMonthly !== null;
+}
+
+/** Who pays for a model call (packages/models `ModelFunding`, the same three values). */
+export type ModelFundingKind = "paid_plan" | "free_plan" | "own_key";
+
+/**
+ * Who pays for a model call (WP-13): the business's own Anthropic key when it has one; a paid plan, every model on
+ * Foundmill's key; everyone else the free plan (Haiku 5.5 on Foundmill's key, and GLM-5.3 Flash for agent sessions):
+ * a free project, a person with no project (pass the highest tier among the projects they own, `businessAllowance`)
+ * and a visitor who is signed out (`planTier: null`).
+ */
+export function modelFundingFor(input: { planTier: TierKey | null; modelBilling: "credits" | "byok" | null }): ModelFundingKind {
+  if (input.modelBilling === "byok") return "own_key";
+  if (input.planTier !== null && tierIsPaid(input.planTier)) return "paid_plan";
+  return "free_plan";
 }
 
 /** The higher of two tiers. */

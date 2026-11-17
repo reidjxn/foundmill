@@ -131,6 +131,16 @@ function walledFromFinance(view: GoalView | null, ctx: BusinessContext): GoalVie
   return { ...view, sentence: `Reach a revenue goal by ${goalDateWords(view.dueOn, todayOf(ctx))}`, target: null, startValue: null, progress: null };
 }
 
+/**
+ * A stored goal row as this reader may see it (the answers of `goal.approve` and `goal.requestChange`): a revenue goal
+ * read by someone walled off Finance keeps its date and loses its money, as `goalView` shows it (the stream's `goal.*`
+ * walls hide the same numbers).
+ */
+export function goalAsSeenBy<G extends Goal | null>(goal: G, ctx: Pick<BusinessContext, "membership" | "business">): G {
+  if (!goal || goal.metricKind !== "revenue_month" || effectivePermission(ctx.membership, "finance") !== "none") return goal;
+  return { ...goal, sentence: `Reach a revenue goal by ${goalDateWords(goal.dueOn, todayOf(ctx))}`, targetValue: null, startValue: null, achievedValue: null };
+}
+
 /** The active goal and the open proposal as the screens read them. */
 export async function goalView(tx: DbTx, ctx: BusinessContext): Promise<GoalViews> {
   const [current, counters] = await Promise.all([repos.goals.current(tx, ctx.businessId), goalCounters(tx, ctx.businessId)]);
@@ -204,6 +214,17 @@ export interface EnsureGoalResult {
 }
 
 /**
+ * The goal waits for the page (WP-04 T8): nothing is proposed while the project is under a day old and its page is not
+ * live, so day one's notes are the page and the plan. Whichever ends first lifts it: the page going live, or the day
+ * passing. A business never committed is not held here (the first goal's own conditions apply).
+ */
+async function goalWaitsForPage(tx: DbTx, ctx: BusinessContext, now: Date): Promise<boolean> {
+  const committedAt = ctx.business.committedAt;
+  if (!committedAt || now.getTime() - committedAt.getTime() >= 24 * 60 * 60 * 1000) return false;
+  return repos.pages.isUnpublished(tx, ctx.businessId);
+}
+
+/**
  * Home's once-per-visit call. A reader who cannot write gets the views and nothing is written. Never throws for the
  * screen's sake on a missing Chief of Staff or a business still drafting: it just proposes nothing.
  */
@@ -224,6 +245,7 @@ export async function ensureGoal(ctx: BusinessContext, options: { now?: Date } =
     await repos.goals.lock(tx, ctx.businessId);
     const current = await repos.goals.current(tx, ctx.businessId);
     if (current.proposed) return false;
+    if (await goalWaitsForPage(tx, ctx, now)) return false;
     const today = todayOf(ctx, now);
     const counters = await goalCounters(tx, ctx.businessId, now);
 

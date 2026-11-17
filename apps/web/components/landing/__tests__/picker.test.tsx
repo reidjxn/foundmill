@@ -106,16 +106,18 @@ describe("the example picker", () => {
   });
 
   it("writes the choice into the address without a navigation, keeping other parameters and the hash", async () => {
-    window.history.replaceState(null, "", "/?utm_source=x#journey");
+    // The picker lives on the tour: the default is `/tour`, another business its `/?example=` deep link.
+    window.history.replaceState(null, "", "/tour?utm_source=x#journey");
     const before = window.history.length;
     renderPicker();
     fireEvent.click(radio("Northwind Skincare"));
+    expect(window.location.pathname).toBe("/");
     expect(window.location.search).toBe("?utm_source=x&example=northwind");
     expect(window.location.hash).toBe("#journey");
     await waitFor(() => expect(shown()).toBe("Northwind Skincare"));
     fireEvent.click(radio("Tutorlane"));
     expect(window.location.search).toBe("?utm_source=x");
-    expect(window.location.pathname).toBe("/");
+    expect(window.location.pathname).toBe("/tour");
     expect(window.history.length).toBe(before);
   });
 

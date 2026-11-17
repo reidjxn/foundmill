@@ -15,10 +15,17 @@ const ctx: RetentionEmailContext = {
   offLink: "https://ingest.foundmill.com/mail/notify/off?t=off",
   pauseLink: "https://foundmill.com/email/pause?t=x",
   oneClick: null,
+  postalAddress: "Box 1, 11422 Stockholm, Sweden",
 };
 const stats = (over: Partial<ReturnType<typeof briefStats>> = {}) => ({ since: ago(1440), rounds: 1, tasksDone: 1, costMinor: 0, costCurrency: "USD", wins: [], milestones: [], ...over });
 
 describe("retentionEmail", () => {
+  it("carries Foundmill's postal address in the footer of every kind (US CAN-SPAM)", () => {
+    const e = retentionEmail({ kind: "win", item: item("w1", "customer_won", 5) }, ctx);
+    expect(e.text.trimEnd().endsWith("Postal address: Foundmill, Box 1, 11422 Stockholm, Sweden.")).toBe(true);
+    expect(e.html).toContain("<br>Postal address: Foundmill, Box 1, 11422 Stockholm, Sweden.</p>");
+  });
+
   it("links back with where the person came from, and ends with the switch and the pause", () => {
     const e = retentionEmail({ kind: "win", item: item("w1", "customer_won", 5, { subject: "Ana from [[ent:abc|Bloom]] paid" }) }, ctx);
     expect(e.text).toContain("https://foundmill.com/b/b1/inbox/w1?via=email&n=n1");
@@ -37,7 +44,8 @@ describe("retentionEmail", () => {
   it("offers the one-click answer with its consequence", () => {
     const plan = { kind: "daily_brief" as const, day: "2026-11-11", waiting: [item("d1", "decision", 60)], stats: stats() };
     const e = retentionEmail(plan, { ...ctx, oneClick: { itemId: "d1", label: "Ask the strategist", consequence: "Nothing is spent until you pick.", url: "https://foundmill.com/a/tok" } });
-    expect(e.text).toContain("Answer “Ask the strategist”: https://foundmill.com/a/tok");
+    // Under the note it answers, in the Waiting on you section.
+    expect(e.text).toContain("Answer “Ask the strategist” in one click: https://foundmill.com/a/tok");
     expect(e.text).toContain("can be changed later: Nothing is spent until you pick.");
   });
 
@@ -56,8 +64,8 @@ describe("retentionEmail", () => {
 
   it("labels spend as an Estimate and escapes HTML", () => {
     const e = retentionEmail({ kind: "daily_brief", day: "2026-11-11", waiting: [item("d1", "decision", 60, { subject: "<b>Pick</b> a name" })], stats: stats({ rounds: 2, tasksDone: 3, costMinor: 42 }) }, ctx);
-    expect(e.subject).toBe("Tutorlane: 1 decision needs you since yesterday");
-    expect(e.text).toContain("Team spend $0.42 (Estimate)");
+    expect(e.subject).toBe("Tutorlane: 1 thing needs you");
+    expect(e.text).toContain("team spend $0.42 (Estimate)");
     expect(e.html).toContain("&lt;b&gt;Pick&lt;/b&gt;");
   });
 });

@@ -13,7 +13,7 @@ import { ROADMAP_HORIZONS, type RoadmapHorizon } from "@foundmill/shared";
 import { HORIZON_LABEL, computeRoadmapStatus, taskSummary } from "../roadmap-status";
 import { blockTitle, useAgentNames } from "../shared";
 import type { RoadmapRow, SpecBlockRow } from "../types";
-import { adjacentHorizon, type Columns, type DependencyIndex } from "./board";
+import { adjacentHorizon, type Columns, type DependencyIndex } from "./board-logic";
 
 export interface BoardProps {
   columns: Columns;

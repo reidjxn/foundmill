@@ -1,38 +1,54 @@
 // @vitest-environment node
 import { isValidElement, type ReactElement } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+// The idea box asks the api for this browser's card on mount: none here.
+beforeAll(() => vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 204 }))));
+afterAll(() => vi.unstubAllGlobals());
 import { exampleRoute } from "@/components/landing/examples";
 
 // The landing routes are prerendered: they must render without asking the api or reading a cookie.
 vi.mock("@/lib/trpc-server", () => ({ serverApi: vi.fn(async () => null) }));
 vi.mock("next/navigation", () => ({ redirect: vi.fn(), notFound: vi.fn(() => { throw new Error("NEXT_NOT_FOUND"); }) }));
+vi.mock("@/components/landing/TourPage", () => ({ TourPage: () => null }));
 vi.mock("@/components/landing/LandingPage", () => ({ LandingPage: () => null }));
 
 const { default: IndexPage, revalidate: indexRevalidate } = await import("../page");
 const examplesRoute = await import("../examples/[id]/page");
 const { default: StartPage } = await import("../start/page");
+const { TourPage } = await import("@/components/landing/TourPage");
 const { LandingPage } = await import("@/components/landing/LandingPage");
+const tourRoute = await import("../tour/page");
 const { serverApi } = await import("@/lib/trpc-server");
 
 type LandingProps = { initialExample?: { identity: { id: string; name: string } }; renderDay?: string };
 
-function landingProps(element: unknown): LandingProps {
+function landingProps(element: unknown, page: unknown = TourPage): LandingProps {
   expect(isValidElement(element)).toBe(true);
-  expect((element as ReactElement).type).toBe(LandingPage);
+  expect((element as ReactElement).type).toBe(page);
   return (element as ReactElement<LandingProps>).props;
 }
 
 describe("`/` (the signed-out landing page, prerendered)", () => {
-  it("renders the default business with the day it was rendered on, and regenerates hourly", () => {
-    const props = landingProps(IndexPage());
-    expect(props.initialExample).toBeUndefined();
+  it("renders the first-timer's page with its switches and the day it was rendered on, and regenerates hourly", () => {
+    const props = landingProps(IndexPage(), LandingPage) as LandingProps & { switches?: Record<string, boolean> };
+    expect(props.switches).toEqual({ signupOpen: false, peopleOpen: false, platformMail: false });
     expect(props.renderDay).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(indexRevalidate).toBe(3600);
     expect(serverApi).not.toHaveBeenCalled();
   });
 });
 
-describe("/?example= (the landing page's deep link)", () => {
+describe("/tour (the earlier page, for the second reader)", () => {
+  it("renders the tour on the default business, never indexed, prerendered hourly", () => {
+    const props = landingProps(tourRoute.default());
+    expect(props.initialExample).toBeUndefined();
+    expect(tourRoute.revalidate).toBe(3600);
+    expect(tourRoute.metadata.robots).toEqual({ index: false, follow: true });
+  });
+});
+
+describe("/?example= (the tour's deep link)", () => {
   it("is served from the business's own prerendered page: the proxy's rewrite target for each business but the default", () => {
     expect(exampleRoute("?example=glitchwick")).toBe("/examples/glitchwick");
     expect(exampleRoute("?example=%20Northwind%20")).toBe("/examples/northwind");
@@ -55,6 +71,6 @@ describe("/?example= (the landing page's deep link)", () => {
 
 describe("/start (the signed-in index the proxy serves for `/`)", () => {
   it("shows the landing page, never a redirect that could loop, when the session did not hold up on the server", async () => {
-    landingProps(await StartPage());
+    landingProps(await StartPage({ searchParams: Promise.resolve({}) }), LandingPage);
   });
 });

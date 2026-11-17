@@ -43,6 +43,8 @@ export interface ActivationFacts {
   roadmapSignedOffAt: Date | null;
   /** The first cycle the founder started by pressing Continue (trigger "founder"). */
   firstFounderContinueAt: Date | null;
+  /** The project's first page published by a person (`page.published`, actor a user). Not part of `activated`. */
+  firstPagePublishedAt?: Date | null;
 }
 
 export interface ActivationResult {
@@ -51,18 +53,25 @@ export interface ActivationResult {
   activatedAt: Date | null;
   /** The steps still missing (or done too late), in the order a founder meets them. */
   missing: ("specification" | "roadmap" | "continue")[];
+  /** The first page went live within 24 hours of commit (WP-02 T10, FR-10 step 4). */
+  pagePublishedWithin24h: boolean;
+  /** Minutes from commit to the first published page; null without a commit or a page. */
+  minutesToPage: number | null;
 }
 
 export function founderActivation(f: ActivationFacts): ActivationResult {
   const deadline = f.committedAt ? f.committedAt.getTime() + ACTIVATION.windowMs : null;
-  const inTime = (d: Date | null) => d !== null && deadline !== null && d.getTime() <= deadline;
+  const inTime = (d: Date | null | undefined) => d != null && deadline !== null && d.getTime() <= deadline;
+  const page = f.firstPagePublishedAt ?? null;
+  const minutesToPage = page && f.committedAt ? Math.round((page.getTime() - f.committedAt.getTime()) / 60_000) : null;
+  const pageFacts = { pagePublishedWithin24h: inTime(page), minutesToPage };
   const missing: ActivationResult["missing"] = [];
   if (!inTime(f.specificationSignedOffAt)) missing.push("specification");
   if (!inTime(f.roadmapSignedOffAt)) missing.push("roadmap");
   if (!inTime(f.firstFounderContinueAt)) missing.push("continue");
-  if (missing.length > 0) return { activated: false, activatedAt: null, missing };
+  if (missing.length > 0) return { activated: false, activatedAt: null, missing, ...pageFacts };
   const at = Math.max(f.specificationSignedOffAt!.getTime(), f.roadmapSignedOffAt!.getTime(), f.firstFounderContinueAt!.getTime());
-  return { activated: true, activatedAt: new Date(at), missing };
+  return { activated: true, activatedAt: new Date(at), missing, ...pageFacts };
 }
 
 /** Adds whole days to a `YYYY-MM-DD` key (calendar arithmetic in UTC, which is exact for date keys). */

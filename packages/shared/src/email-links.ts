@@ -11,13 +11,17 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 const PAUSE_LABEL = "foundmill:founder-email:pause:v1";
-/** Used only in development and test when SESSION_TOKEN_SECRET is unset. */
-const DEV_SECRET = "foundmill-dev-email-link-secret";
 export const PAUSE_TOKEN_TTL_MS = 60 * 86_400_000;
 
+/**
+ * The pause link's key, in every environment. There is no built-in fallback: until Nov 13, 2026 development and test
+ * used a fixed string from the repository, chosen on APP_ENV alone. A key of one process would not do either, because
+ * the gateway signs the link and the api checks it. Without the secret no founder email is sent in any case (the api
+ * and the orchestrator do not call the gateway without it), so the gateway sends no pause link and the api pauses
+ * nothing.
+ */
 export function emailLinkSecret(env: { SESSION_TOKEN_SECRET?: string; APP_ENV: string }): string {
   if (env.SESSION_TOKEN_SECRET) return env.SESSION_TOKEN_SECRET;
-  if (env.APP_ENV === "development" || env.APP_ENV === "test") return DEV_SECRET;
   throw new Error("SESSION_TOKEN_SECRET is required to sign founder email links");
 }
 

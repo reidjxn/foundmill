@@ -6,18 +6,35 @@
  * materialised view plus a security-barrier view"): app roles read the view, which filters on membership;
  * the service role has no membership so `dailyRange` reads the matview directly when the current role
  * bypasses RLS. `refreshDaily` is for the metrics consumer and the nightly schedule.
+ *
+ * `conversions` the same way since 0107: a client role reads `member_conversions` (`conversionsOf`), where a
+ * collaborator finds every conversion with `amount_minor` null, and the service reads the table. A collaborator reads
+ * no row of the table itself. `journey_daily`'s spend and revenue are null for a collaborator, read as 0 here.
  */
 import { CHANNEL_KEYS, CONVERSION_KINDS, MATCHDAY_LEVELS, MILESTONE_KINDS, ValidationError, VISIBILITY, type ConversionKind } from "@foundmill/shared";
-import { and, asc, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, ne, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import {
-  ATTRIBUTION_MODELS, CHAPTER_MOODS, chapterTitles, CONSENT_STATES, conversions, entities, journeyDaily, journeyDailyMv, journeys, milestones, touches, visitors, XC_MODEL_SOURCES,
+  ATTRIBUTION_MODELS, CHAPTER_MOODS, chapterTitles, CONSENT_STATES, conversions, entities, journeyDaily, journeyDailyMv, journeys, memberConversions, milestones, touches, visitors, XC_MODEL_SOURCES,
   type ChapterTitle, type Conversion, type Journey, type JourneyDailyRow, type Milestone, type Touch, type Visitor,
 } from "../schema";
 import {
-  bypassesRls, Currency, DateRange, DayRange, dayRange, Id, IsoDateInput, JsonArray, JsonObject, MinorAmount, one, PageInput, parseInput, rowsOf, timeKeyset, timeRange, toPage,
+  bypassesRls, Currency, DateRange, DayRange, dayRange, Id, IsoDateInput, JsonArray, JsonObject, maybeOne, MinorAmount, one, PageInput, parseInput, rowsOf, timeKeyset, timeRange, toPage,
   type Executor, type Page,
 } from "./_shared";
+
+/**
+ * The conversions this connection reads (0107): the table on the service's connection, `member_conversions` on a client
+ * role's (the same columns; `amount_minor` is null there for a collaborator, and the api's Finance walls put 0 or null
+ * in its place for every reader walled off Finance before anything is shown). Typed as the table: the view has its
+ * columns under the same keys.
+ */
+async function conversionsOf(db: Executor): Promise<typeof conversions> {
+  return (await bypassesRls(db)) ? conversions : (memberConversions as unknown as typeof conversions);
+}
+
+/** The columns of a conversion row, for a nested selection (a view's columns are not enumerable the way a table's are). */
+const conversionColumns = (c: typeof conversions) => ({ id: c.id, businessId: c.businessId, entityId: c.entityId, kind: c.kind, amountMinor: c.amountMinor, currency: c.currency, occurredAt: c.occurredAt, sourceEventId: c.sourceEventId, firstPayment: c.firstPayment, createdAt: c.createdAt, updatedAt: c.updatedAt });
 
 export const UpsertVisitorInput = z.object({
   anonId: z.string().min(1).max(200),
@@ -83,7 +100,7 @@ export const CreateJourneyInput = z.object({
 export type CreateJourneyInput = z.input<typeof CreateJourneyInput>;
 
 export const JourneyListFilter = PageInput.extend(DateRange.shape).extend({
-  matchdayLevel: z.union([z.enum(MATCHDAY_LEVELS), z.array(z.enum(MATCHDAY_LEVELS))]).optional(),
+  matchdayLevel: z.union([z.enum(MATCHDAY_LEVELS), z.array(z.enum(MATCHDAY_LEVELS)).max(MATCHDAY_LEVELS.length)]).optional(),
   kind: z.enum(CONVERSION_KINDS).optional(),
   unviewedOnly: z.boolean().default(false),
   /** `created` (default): the newest Customer Updates first; `converted`: the newest wins first, by when they happened. */
@@ -279,9 +296,8 @@ export const journeysRepo = {
     const entityOfVisitor = new Map(stitched.map((v) => [v.id, v.entityId] as const));
     const entityOf = (t: Touch): string | null => t.entityId ?? (t.visitorId ? (entityOfVisitor.get(t.visitorId) ?? null) : null);
     const entityIds = [...new Set(rows.map(entityOf).filter((e): e is string => e !== null))];
-    const convertedRows = entityIds.length
-      ? await db.selectDistinct({ entityId: conversions.entityId }).from(conversions).where(and(eq(conversions.businessId, businessId), inArray(conversions.entityId, entityIds)))
-      : [];
+    const c = await conversionsOf(db);
+    const convertedRows = entityIds.length ? await db.selectDistinct({ entityId: c.entityId }).from(c).where(and(eq(c.businessId, businessId), inArray(c.entityId, entityIds))) : [];
     const converted = new Set(convertedRows.map((r) => r.entityId));
     const groups = new Map<string, { touches: Touch[]; converted: boolean }>();
     for (const t of rows) {
@@ -310,7 +326,8 @@ export const journeysRepo = {
   },
 
   async getConversion(db: Executor, businessId: string, conversionId: string): Promise<Conversion> {
-    return one(await db.select().from(conversions).where(and(eq(conversions.businessId, businessId), eq(conversions.id, conversionId))).limit(1), "conversion", conversionId);
+    const c = await conversionsOf(db);
+    return one(await db.select(conversionColumns(c)).from(c).where(and(eq(c.businessId, businessId), eq(c.id, conversionId))).limit(1), "conversion", conversionId);
   },
 
   /**
@@ -333,18 +350,19 @@ export const journeysRepo = {
 
   async listConversions(db: Executor, businessId: string, filter: ConversionListFilter = {}): Promise<Page<Conversion>> {
     const f = parseInput(ConversionListFilter, filter, "conversion filter");
-    const ks = timeKeyset<Conversion>(conversions.occurredAt, conversions.id, (r) => ({ at: r.occurredAt, id: r.id }));
+    const c = await conversionsOf(db);
+    const ks = timeKeyset<Conversion>(c.occurredAt, c.id, (r) => ({ at: r.occurredAt, id: r.id }));
     const kinds = toArray(f.kind);
     const rows = await db
-      .select()
-      .from(conversions)
+      .select(conversionColumns(c))
+      .from(c)
       .where(
         and(
-          eq(conversions.businessId, businessId),
-          kinds?.length ? inArray(conversions.kind, kinds) : undefined,
-          f.entityId ? eq(conversions.entityId, f.entityId) : undefined,
-          f.firstPayment === undefined ? undefined : eq(conversions.firstPayment, f.firstPayment),
-          timeRange(conversions.occurredAt, f),
+          eq(c.businessId, businessId),
+          kinds?.length ? inArray(c.kind, kinds) : undefined,
+          f.entityId ? eq(c.entityId, f.entityId) : undefined,
+          f.firstPayment === undefined ? undefined : eq(c.firstPayment, f.firstPayment),
+          timeRange(c.occurredAt, f),
           ks.after(f.cursor),
         ),
       )
@@ -356,11 +374,12 @@ export const journeysRepo = {
   /** Counts per kind (the "nth customer" numbers the journey builder needs): `payment` counts first payments only. */
   async countConversions(db: Executor, businessId: string, range: DateRange = {}): Promise<Record<ConversionKind, number>> {
     const r = parseInput(DateRange, range, "date range");
+    const c = await conversionsOf(db);
     const rows = await db
-      .select({ kind: conversions.kind, n: sql<number>`count(*)::int` })
-      .from(conversions)
-      .where(and(eq(conversions.businessId, businessId), eq(conversions.firstPayment, true), timeRange(conversions.occurredAt, r)))
-      .groupBy(conversions.kind);
+      .select({ kind: c.kind, n: sql<number>`count(*)::int` })
+      .from(c)
+      .where(and(eq(c.businessId, businessId), eq(c.firstPayment, true), timeRange(c.occurredAt, r)))
+      .groupBy(c.kind);
     const out = Object.fromEntries(CONVERSION_KINDS.map((k) => [k, 0])) as Record<ConversionKind, number>;
     for (const row of rows) out[row.kind] = Number(row.n);
     return out;
@@ -379,6 +398,7 @@ export const journeysRepo = {
     const r = parseInput(DateRange, range, "date range");
     const to = r.to ?? new Date();
     const from = r.from ?? to;
+    const conversions = await conversionsOf(db);
     // The business id as a value too, not only through the outer row: the planner can then narrow entity_roles to this
     // business by its index instead of checking (under RLS, row by row) every role on the platform (audit api-db F5).
     const role = (cond: SQL) => sql`exists (select 1 from entity_roles r where r.business_id = ${businessId} and r.business_id = ${conversions.businessId} and r.entity_id = ${conversions.entityId} and r.role = 'customer' and ${cond})`;
@@ -399,6 +419,7 @@ export const journeysRepo = {
    */
   async sumConversions(db: Executor, businessId: string, filter: DateRange & { kind?: ConversionKind } = {}): Promise<{ currency: string; amountMinor: number; count: number }[]> {
     const f = parseInput(DateRange.extend({ kind: z.enum(CONVERSION_KINDS).optional() }), filter, "conversion sum");
+    const conversions = await conversionsOf(db);
     const total = sql<string>`coalesce(sum(${conversions.amountMinor}), 0)`;
     const rows = await db
       .select({ currency: conversions.currency, amountMinor: total, count: sql<number>`count(*)::int` })
@@ -412,6 +433,7 @@ export const journeysRepo = {
   /** Which number this conversion is among its kind (1-based, by occurred_at then id); payments count first payments only. */
   async nthOfKind(db: Executor, businessId: string, conversionId: string): Promise<number> {
     const c = await journeysRepo.getConversion(db, businessId, conversionId);
+    const conversions = await conversionsOf(db);
     const rows = await db
       .select({ n: sql<number>`count(*)::int` })
       .from(conversions)
@@ -421,6 +443,7 @@ export const journeysRepo = {
 
   /** Whether the entity already paid (any payment strictly earlier than `before`): a payment now is a repeat, not a new customer. */
   async hasPaidBefore(db: Executor, businessId: string, entityId: string, before: Date): Promise<boolean> {
+    const conversions = await conversionsOf(db);
     const rows = await db
       .select({ id: conversions.id })
       .from(conversions)
@@ -432,7 +455,7 @@ export const journeysRepo = {
   /** 75th percentile of first-payment amounts (the volume rule for a full Match Day, BUILD §11.4). Null without payments. */
   async paymentPercentile75(db: Executor, businessId: string): Promise<number | null> {
     const rows = rowsOf<{ p75: string | number | null }>(
-      await db.execute(sql`select percentile_cont(0.75) within group (order by amount_minor) as p75 from conversions where business_id = ${businessId}::uuid and kind = 'payment' and first_payment`),
+      await db.execute(sql`select percentile_cont(0.75) within group (order by amount_minor) as p75 from ${(await bypassesRls(db)) ? conversions : memberConversions} where business_id = ${businessId}::uuid and kind = 'payment' and first_payment`),
     );
     const p = rows[0]?.p75;
     return p === null || p === undefined ? null : Number(p);
@@ -444,6 +467,7 @@ export const journeysRepo = {
    * counted from payments: the revenue milestones read Finance's monthly figure (`awardRevenueMilestones`).
    */
   async paymentCountersBefore(db: Executor, businessId: string, input: { conversionId: string; occurredAt: Date; enterpriseMinMinor: number }): Promise<{ customers: number; enterpriseContracts: number }> {
+    const conversions = await conversionsOf(db);
     const earlier = sql`(${conversions.occurredAt}, ${conversions.id}) < (${input.occurredAt.toISOString()}::timestamptz, ${input.conversionId}::uuid)`;
     const rows = await db
       .select({
@@ -458,6 +482,7 @@ export const journeysRepo = {
 
   /** Every payment up to `until`, oldest first (the milestone catch-up replays them; one row per payment, a few columns). */
   async paymentsUntil(db: Executor, businessId: string, until: Date): Promise<Array<Pick<Conversion, "id" | "entityId" | "amountMinor" | "currency" | "occurredAt" | "firstPayment">>> {
+    const conversions = await conversionsOf(db);
     return db
       .select({ id: conversions.id, entityId: conversions.entityId, amountMinor: conversions.amountMinor, currency: conversions.currency, occurredAt: conversions.occurredAt, firstPayment: conversions.firstPayment })
       .from(conversions)
@@ -510,6 +535,7 @@ export const journeysRepo = {
    */
   async list(db: Executor, businessId: string, filter: JourneyListFilter = {}): Promise<Page<JourneyListRow>> {
     const f = parseInput(JourneyListFilter, filter, "journey filter");
+    const conversions = await conversionsOf(db);
     type Row = Journey & { conversion: Conversion };
     const ks =
       f.orderBy === "converted"
@@ -517,7 +543,7 @@ export const journeysRepo = {
         : timeKeyset<Row>(journeys.createdAt, journeys.id, (r) => ({ at: r.createdAt, id: r.id }));
     const levels = toArray(f.matchdayLevel);
     const rows = await db
-      .select({ journey: journeys, conversion: conversions })
+      .select({ journey: journeys, conversion: conversionColumns(conversions) })
       .from(journeys)
       .innerJoin(conversions, eq(conversions.id, journeys.conversionId))
       .where(
@@ -600,11 +626,13 @@ export const journeysRepo = {
   async dailyRange(db: Executor, businessId: string, filter: DailyRangeFilter = {}): Promise<JourneyDailyRow[]> {
     const f = parseInput(DailyRangeFilter, filter, "daily range");
     const relation = (await bypassesRls(db)) ? journeyDailyMv : journeyDaily;
-    return db
+    const rows = await db
       .select()
       .from(relation)
       .where(and(eq(relation.businessId, businessId), f.departmentId ? eq(relation.departmentId, f.departmentId) : undefined, dayRange(relation.day, f)))
       .orderBy(asc(relation.day), asc(relation.departmentId));
+    // 0107: a collaborator's view has no spend or revenue (null); the rows keep their shape with 0.
+    return rows.map((r) => (r.spendMinor === null || r.revenueMinor === null ? { ...r, spendMinor: r.spendMinor ?? 0, revenueMinor: r.revenueMinor ?? 0 } : r));
   },
 
   /** Business-level totals per day (every department folded together). */
@@ -717,6 +745,34 @@ export const journeysRepo = {
       .from(milestones)
       .where(and(eq(milestones.businessId, businessId), sql`${milestones.ref} ->> 'trophyKey' is not null`));
     return rows.map((r) => r.key);
+  },
+
+  /** One milestone of the business that is not archived, or null. */
+  async getMilestone(db: Executor, businessId: string, milestoneId: string): Promise<Milestone | null> {
+    return maybeOne(await db.select().from(milestones).where(and(eq(milestones.businessId, businessId), eq(milestones.id, milestoneId), isNull(milestones.archivedAt))).limit(1));
+  },
+
+  /**
+   * Shows a reached milestone on the project's page (`public`) or takes it off (`private`): 0089. Only a milestone the
+   * platform recorded (`ref.trophyKey`) can be shown. Conditional on the row's state, so a second tab changes nothing
+   * twice: the row when it changed, null when it already read that way (or is not there). Showing and hiding are an
+   * owner's or an admin's, whichever client wrote (the table's guard trigger).
+   */
+  async setMilestoneShown(db: Executor, businessId: string, milestoneId: string, shown: boolean): Promise<Milestone | null> {
+    const rows = await db
+      .update(milestones)
+      .set({ visibility: shown ? "public" : "private" })
+      .where(
+        and(
+          eq(milestones.businessId, businessId),
+          eq(milestones.id, milestoneId),
+          isNull(milestones.archivedAt),
+          sql`${milestones.ref} ->> 'trophyKey' is not null`,
+          shown ? ne(milestones.visibility, "public") : eq(milestones.visibility, "public"),
+        ),
+      )
+      .returning();
+    return rows[0] ?? null;
   },
 
   async archiveMilestone(db: Executor, businessId: string, milestoneId: string): Promise<Milestone> {

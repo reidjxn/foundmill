@@ -1,7 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { LONG, openBusiness, openSwitcher, signIn } from "./helpers";
+import { LONG, expectTapTarget, openBusiness, openSwitcher, signIn } from "./helpers";
 
 /**
  * A person's public profile (docs/THESIS_REVIEW.md package 2.3): Your public profile (/public-profile, from the business
@@ -76,9 +76,10 @@ async function expectPersonPage(browser: Browser, personPath: string, width: num
     // No horizontal scroll; the one link is a 44 px target; no text under 11 px.
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow, `horizontal overflow at ${width} px`).toBeLessThanOrEqual(0);
-    const made = page.getByRole("link", { name: "Made with Foundmill" });
-    await expect(made).toHaveAttribute("href", "/");
-    expect((await made.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    // A person's page carries no mark of the product (founder, Nov 12, 2026): no footer, no "Built on" or "Made with".
+    await expect(article.locator("footer")).toHaveCount(0);
+    await expect(article).not.toContainText(/(Built on|Made with) Foundmill/);
+    for (const link of await article.getByRole("link").all()) await expectTapTarget(link, "every link on a person's page is a 44 px target");
     const smallest = await article.evaluate((root) => Math.min(...[...root.querySelectorAll<HTMLElement>("p, h1, h2, span, a, li")].filter((e) => e.textContent?.trim()).map((e) => parseFloat(getComputedStyle(e).fontSize))));
     expect(smallest).toBeGreaterThanOrEqual(11);
     if (process.env.E2E_UX_AUDIT) {

@@ -13,9 +13,21 @@ export type ModelMode = "mock" | "live";
 
 export type ChatRole = "user" | "assistant";
 
+/** Media types an image block may carry (Anthropic image input). */
+export const CHAT_IMAGE_MEDIA_TYPES = ["image/png", "image/jpeg", "image/webp"] as const;
+export type ChatImageMediaType = (typeof CHAT_IMAGE_MEDIA_TYPES)[number];
+
+/** An image sent with a message, base64 without a data: prefix. Only routes marked `vision` in routing.ts accept them. */
+export interface ChatImage {
+  mediaType: ChatImageMediaType;
+  data: string;
+}
+
 export interface ChatMessage {
   role: ChatRole;
   content: string;
+  /** Images sent before the text of this (user) message; the route must be a `vision` route (client throws otherwise). */
+  images?: readonly ChatImage[];
 }
 
 /** Effort hint for the live client (`output_config.effort`). Ignored in mock mode. */
@@ -27,6 +39,8 @@ export type Speed = "standard" | "fast";
 /** Where a call's cost should be booked. All fields optional; forwarded verbatim to `onUsage`. */
 export interface UsageAttribution {
   businessId?: string;
+  /** The person a call with no business is for (a draft before commit): who pays is read from their plan (WP-13). */
+  userId?: string;
   agentId?: string;
   sessionId?: string;
   taskId?: string;
@@ -51,7 +65,17 @@ export interface CompleteRequest<T = unknown> {
   /** Put a prompt-cache breakpoint on the system blocks (BUILD §10.4: brief + instructions are cached). */
   cacheSystem?: boolean;
   /** Per-agent model choice (BUILD §11.10 "Model selection"); subject to the route's lock/warn rules. */
+  /**
+   * The account is not on a paid plan: the call runs on Haiku 5.5 whatever the route (`ResolveOptions.freePlan`). Set by
+   * the free-plan gate (`enforceModelFunding`), never by a caller.
+   */
+  freePlan?: boolean;
   modelOverride?: ModelKey;
+  /**
+   * The business's credits are low (credit saver): a routine route runs on its lower-cost model (`ROUTES[route].lowCredits`,
+   * routing.ts); a kept route is unchanged. Set by the credits gate (`ModelCallGate`), not by callers.
+   */
+  lowCredits?: boolean;
   /**
    * Caller scope for rate-limit isolation (BUILD §10.3: a 429 backs off the affected session only). Usually the agent
    * session id. Defaults to "default".
@@ -169,6 +193,34 @@ export interface ModelClient {
    * the `streamStructured(client, req)` helper, which falls back to `complete()` for a client without it.
    */
   streamStructured?<T, E>(req: StreamStructuredRequest<T, E>): Promise<StreamStructuredResult<T, E>>;
+  /**
+   * Anthropic's server web search on the `webSearch` route (WP-09 T3): one search, the result titles and addresses only,
+   * metered at the tokens' price plus the per-search fee (`pricing.ts`) and reported once through `onUsage`. The live,
+   * mock and gated clients implement it; optional so hand-written test doubles stay valid.
+   */
+  searchWeb?(req: WebSearchRequest): Promise<WebSearchResult>;
+}
+
+export interface WebSearchRequest {
+  query: string;
+  /** Set by the gates, never by a caller: the account is not on a paid plan, so the search runs on Haiku 5.5 (WP-13). */
+  freePlan?: boolean;
+  /** Set by the credits gate: the business's credits are low (the search's route keeps its model either way). */
+  lowCredits?: boolean;
+  /** Most results returned (the search may find more; the rest are dropped). */
+  limit: number;
+  /** Rate-limit scope, as on `CompleteRequest` (usually the session id). */
+  scope?: string;
+  attribution?: UsageAttribution;
+  signal?: AbortSignal;
+}
+
+export interface WebSearchResult {
+  results: { url: string; title: string; pageAge: string | null }[];
+  usage: TokenUsage;
+  /** The tokens and the search fee (an Estimate). */
+  cost: MeterResult;
+  mode: ModelMode;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

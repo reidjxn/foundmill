@@ -14,12 +14,20 @@ import { EXPERIENCE_OPTIONS, TIME_OPTIONS, budgetWords, placeAndMarketsWords } f
 export type FounderProfileGet = RouterOutputs["founder"]["profile"]["get"];
 
 export interface StudioViewer {
-  /** The account ID a co-founder adds this person by. */
+  /** The person's account ID (for support: people join a project by invitation, not by it). */
   userId: string | null;
   email: string | null;
   profile: FounderProfileGet["profile"];
+  /**
+   * The person may go on past sign-up: the founder profile exists AND their "I am 18 or older" is on record (0100).
+   * Every first-run page sends a person without both to /onboarding, which asks for whichever is missing.
+   */
   complete: boolean;
+  /** The account's "I am 18 or older" is on record (`founder.profile.get` `adultConfirmed`). */
+  adultConfirmed: boolean;
   businesses: FounderProfileGet["businesses"];
+  /** Whether the people layer (LIVE: finding people, requests, messages) is open on this deployment. */
+  liveMode: boolean;
 }
 
 export type StudioViewerResult = { kind: "signed_out" } | { kind: "unreachable"; message: string; error: unknown; email: string | null } | { kind: "ok"; viewer: StudioViewer };
@@ -31,7 +39,7 @@ export async function loadStudioViewer(): Promise<StudioViewerResult> {
     const data = await server.api.founder.profile.get.query();
     return {
       kind: "ok",
-      viewer: { userId: data.userId ?? null, email: data.email ?? server.auth.email, profile: data.profile, complete: data.complete, businesses: data.businesses },
+      viewer: { userId: data.userId ?? null, email: data.email ?? server.auth.email, profile: data.profile, complete: data.complete && data.adultConfirmed, adultConfirmed: data.adultConfirmed, businesses: data.businesses, liveMode: data.features?.liveMode ?? false },
     };
   } catch (err) {
     return { kind: "unreachable", message: errorMessage(err, "The API did not answer."), error: err, email: server.auth.email };

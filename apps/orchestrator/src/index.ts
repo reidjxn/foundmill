@@ -35,6 +35,7 @@ import { MemoryRedis } from "@foundmill/events";
 import { onShutdown } from "@foundmill/shared/shutdown";
 import { installTelemetry, parseOtlpHeaders } from "@foundmill/shared/telemetry";
 import { createActivities } from "./activities";
+import { waitlistEnvWarning } from "./activities/waitlist";
 import { MemoryControlBus } from "./control-bus";
 import { prepareDb } from "./db-boot";
 import { createDeps, type OrchestratorDeps } from "./deps";
@@ -114,6 +115,7 @@ export async function createWorker(options: CreateWorkerOptions = {}): Promise<{
   const taskQueue = options.taskQueue ?? env.TEMPORAL_TASK_QUEUE;
   const shutdownGraceTime = options.shutdownGraceTimeMs ?? workerShutdownTimes(env.SHUTDOWN_TIMEOUT_MS).graceMs;
   const shutdownForceTime = options.shutdownForceTimeMs ?? workerShutdownTimes(env.SHUTDOWN_TIMEOUT_MS).forceMs;
+  deps.workflowRunning = (workflowId) => workflowRunning(connection, namespace, workflowId);
   const activities = createActivities(deps);
   const worker = await Worker.create({
     connection,
@@ -221,6 +223,21 @@ export async function describeQueues(connection: Pick<NativeConnectionType, "wor
   }
 }
 
+/**
+ * Whether a workflow's latest run is running, as Temporal says (`OrchestratorDeps.workflowRunning`): true while it runs,
+ * false once it ended or when Temporal has never heard of it, null when it cannot be asked.
+ */
+export async function workflowRunning(connection: Pick<NativeConnectionType, "workflowService">, namespace: string, workflowId: string): Promise<boolean | null> {
+  try {
+    const r = await connection.workflowService.describeWorkflowExecution({ namespace, execution: { workflowId } });
+    // WORKFLOW_EXECUTION_STATUS_RUNNING = 1.
+    return r.workflowExecutionInfo?.status === 1;
+  } catch (err) {
+    // gRPC NOT_FOUND = 5: no such workflow (never started, or past retention).
+    return (err as { code?: unknown }).code === 5 ? false : null;
+  }
+}
+
 /** One worker's state and activity slots for /health. */
 export function workerSlots(worker: Pick<Worker, "getState" | "getStatus">, taskQueue: string, kind: WorkerSlots["kind"], maxActivities: number): WorkerSlots {
   return { taskQueue, kind, state: worker.getState(), maxActivities, inFlightActivities: worker.getStatus().numInFlightActivities };
@@ -235,6 +252,8 @@ export async function main(): Promise<void> {
   const deps = createDeps({ env, ...(backend.kind === "memory" ? { redis: new MemoryRedis(), control: new MemoryControlBus() } : {}) });
   deps.log[backend.level]({ redis: backend.kind }, backend.message);
   installRejectionLogger(deps.log);
+  const waitlistWarning = waitlistEnvWarning(env);
+  if (waitlistWarning) deps.log.warn({ waitlistAdmitPerDay: env.WAITLIST_ADMIT_PER_DAY }, waitlistWarning);
   installTemporalRuntime(deps.log, { otlpEndpoint: env.OTEL_EXPORTER_OTLP_ENDPOINT ?? null, otlpHeaders: parseOtlpHeaders(env.OTEL_EXPORTER_OTLP_HEADERS), serviceName: "orchestrator" });
   const abort = new AbortController();
   let connection: NativeConnectionType | null = null;

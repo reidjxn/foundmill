@@ -9,12 +9,20 @@
  * form element at all, for the console's phone preview.
  *
  * After a signup the form gives way to one line, "Check your email to confirm. {name} will only write to you after you
- * do." (double opt-in), and nothing else: never whether the address was already on the list. A hidden field ("Leave this empty", `website`) is out of sight and out of the tab
+ * do." (double opt-in): never whether the address was already on the list. For a visitor to a project on the free plan
+ * one small line follows it, `builtOn` ("{name} is built on Foundmill. Start your own"; docs/NETWORK.md F2): the
+ * moment a visitor is most glad of the project, and one its founders never meet on their own page. A hidden field ("Leave this empty", `website`) is out of sight and out of the tab
  * order; a person never fills it in, and a filled one is answered the same and written nowhere.
+ *
+ * The bot check (security audit 2026-11-13, finding 10) is the caller's: `onSubmit` gets a token before the action
+ * runs, `onFocus` may warm its script, and `widgetRef` is the box its widget draws in, inside the form, at most the
+ * column's width, and taking no room while it has nothing to show. Under the button, in the form's own small muted
+ * text, the check's disclosure on every plan: "Protected by Cloudflare Turnstile (privacy)", the link to Cloudflare's
+ * Turnstile Privacy Addendum in a new tab (a legal disclosure, never gated like the "Built on" mark).
  */
-import { useId } from "react";
+import { useId, type FocusEventHandler, type FormEventHandler, type Ref } from "react";
 import { Check } from "lucide-react";
-import { FOLLOW_EMAIL_MAX, followWords } from "@foundmill/shared/project-page";
+import { FOLLOW_EMAIL_MAX, FOLLOW_PRIVACY_HREF, followWords, TURNSTILE_PRIVACY_URL } from "@foundmill/shared/project-page";
 import { cn } from "../../lib/cn";
 import { Button } from "../foundation/Button";
 import { Icon } from "../foundation/Icon";
@@ -35,13 +43,21 @@ export interface ProjectFollowFormProps {
   pending?: boolean;
   /** The console's preview: drawn as it looks, nothing can be typed or sent. */
   preview?: boolean;
+  /** The line under the "check your email" answer: a sentence and one link. Nothing when left out. */
+  builtOn?: { line: string; linkLabel: string; href: string } | null;
+  /** Runs before the action (the bot check gets its token here, then submits); without JavaScript the form posts as it is. */
+  onSubmit?: FormEventHandler<HTMLFormElement>;
+  /** Focus inside the form (the bot check loads its script). */
+  onFocus?: FocusEventHandler<HTMLFormElement>;
+  /** The box the bot check's widget draws in, inside the form under the button; it takes no room while empty. */
+  widgetRef?: Ref<HTMLDivElement>;
   className?: string;
 }
 
-/** The form's field names (the Server Action reads them). */
-export const FOLLOW_FIELDS = { slug: "slug", email: "email", consent: "consent", trap: "website" } as const;
+/** The form's field names (the Server Action reads them). `turnstile` carries the bot check's token. */
+export const FOLLOW_FIELDS = { slug: "slug", email: "email", consent: "consent", trap: "website", turnstile: "turnstile" } as const;
 
-export function ProjectFollowForm({ name, slug, action, state = { status: "idle" }, pending = false, preview = false, className }: ProjectFollowFormProps) {
+export function ProjectFollowForm({ name, slug, action, state = { status: "idle" }, pending = false, preview = false, builtOn = null, onSubmit, onFocus, widgetRef, className }: ProjectFollowFormProps) {
   const id = useId();
   const words = followWords(name);
   const headingId = `${id}-heading`;
@@ -53,9 +69,19 @@ export function ProjectFollowForm({ name, slug, action, state = { status: "idle"
   const disabled = preview;
 
   const body = done ? (
-    <p role="status" className="t-body text-primary" data-follow-done="">
-      {words.done}
-    </p>
+    <>
+      <p role="status" className="t-body text-primary" data-follow-done="">
+        {words.done}
+      </p>
+      {builtOn ? (
+        <p className="t-small flex min-w-0 flex-wrap items-center gap-x-1.5 break-words text-secondary" data-follow-built-on="">
+          <span>{builtOn.line}</span>
+          <a href={builtOn.href} className="inline-flex min-h-tap items-center rounded-sm text-primary underline decoration-line-strong underline-offset-4 transition-colors duration-hover hover:decoration-current focus-ring">
+            {builtOn.linkLabel}
+          </a>
+        </p>
+      ) : null}
+    </>
   ) : (
     <>
       <p className="t-body text-secondary">{words.line}</p>
@@ -97,6 +123,18 @@ export function ProjectFollowForm({ name, slug, action, state = { status: "idle"
         </span>
         <span className="t-body min-w-0 break-words text-prose">{words.consent}</span>
       </label>
+      {/* What happens to the address, before it is left: the Privacy Policy's section on following a project. */}
+      <p className="t-small min-w-0 break-words text-secondary" data-follow-privacy="">
+        <a
+          href={FOLLOW_PRIVACY_HREF}
+          target="_blank"
+          rel="noopener"
+          aria-label={words.privacyLinkLabel}
+          className="inline-flex min-h-tap items-center rounded-sm underline decoration-line-strong underline-offset-4 transition-colors duration-hover hover:decoration-current focus-ring"
+        >
+          {words.privacyLink}
+        </a>
+      </p>
       {/* Out of sight and out of the tab order: a person never fills it in. */}
       <div aria-hidden="true" className="sr-only">
         <label htmlFor={`${id}-trap`}>{words.trap}</label>
@@ -110,6 +148,22 @@ export function ProjectFollowForm({ name, slug, action, state = { status: "idle"
       <Button type="submit" variant="tinted" size="lg" className="min-h-tap self-stretch @page-wide:self-start" disabled={preview} loading={pending}>
         {words.button}
       </Button>
+      {/* The bot check's disclosure, on every plan: a legal line, not the "Built on" mark. */}
+      <p className="t-small min-w-0 break-words text-secondary" data-follow-bot-check="">
+        {words.botCheck}{" "}
+        (
+        <a
+          href={TURNSTILE_PRIVACY_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={words.botCheckLinkLabel}
+          className="inline-flex min-h-tap items-center rounded-sm underline decoration-line-strong underline-offset-4 transition-colors duration-hover hover:decoration-current focus-ring"
+        >
+          {words.botCheckLink}
+        </a>
+        )
+      </p>
+      {widgetRef ? <div ref={widgetRef} className="min-w-0 max-w-full overflow-hidden empty:hidden" data-follow-widget="" /> : null}
     </>
   );
 
@@ -128,7 +182,7 @@ export function ProjectFollowForm({ name, slug, action, state = { status: "idle"
     );
   }
   return (
-    <form {...shared} action={action} noValidate>
+    <form {...shared} action={action} onSubmit={onSubmit} onFocus={onFocus} noValidate>
       {heading}
       {body}
     </form>

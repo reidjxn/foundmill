@@ -3,9 +3,13 @@
  * agent and hands its work back (TPD-09, ARB-19), merge moves the agents with their department (RA-16), line managers
  * stay a tree (TPD-27), approvals are routed by the Responsibilities matrix (TPD-04, VARB-B4-X2), training decisions and
  * runs are claimed once and versions never collide (RA-13), a rollback ends the watch (TPD-20), custom skill tests
- * count only once reviewed (AC-08), and the roster/profile reads come from the session rows themselves (TPD-08, TPD-29).
+ * count only once reviewed (AC-08), the roster/profile reads come from the session rows themselves (TPD-08, TPD-29),
+ * and hiring from a template has one implementation (WP-06 T5).
  */
+import { randomUUID } from "node:crypto";
+import { getSkillDefinition, getTemplate } from "@foundmill/agents";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { hireFromTemplate, hireMany } from "../../hire";
 import { repos } from "../../repos";
 import { inferDecisionType } from "../../repos/approvals";
 import { setupRepoHarness, type RepoHarness } from "./helpers";
@@ -375,5 +379,57 @@ describe("plan requests (RA-13)", () => {
     expect(await repos.audit.latestMatching(r.db, r.B.businessId, "dev.tasks.plan", { planKey: "k1" }, since)).toBeNull();
     expect(await repos.audit.latestMatching(r.db, businessId, "dev.tasks.plan", { planKey: "k1" }, new Date(Date.now() + 60_000))).toBeNull();
     expect((await repos.tasks.byIds(r.db, businessId, [taskId, task2Id, r.B.taskId])).map((t) => t.id).sort()).toEqual([taskId, task2Id].sort());
+  });
+
+  it("audit.latestForTarget finds one target's entry with the details match however many newer rows there are (WP-05 T17)", async () => {
+    const { businessId, ownerId, taskId, task2Id } = r.A;
+    const back = (id: string, why: string) => repos.audit.append(r.db, businessId, { actorKind: "user", actorId: ownerId, action: "merge.handed_back", target: { kind: "task", id }, details: { why } });
+    const first = await back(taskId, "review");
+    for (let i = 0; i < 205; i++) await back(task2Id, i % 2 ? "review" : "conflicts");
+    expect((await repos.audit.latestForTarget(r.db, businessId, "merge.handed_back", taskId, { why: "review" }))?.id).toBe(first.id);
+    expect(await repos.audit.latestForTarget(r.db, businessId, "merge.handed_back", taskId, { why: "conflicts" })).toBeNull();
+    expect(await repos.audit.latestForTarget(r.db, businessId, "merge.prepared", taskId)).toBeNull();
+    expect(await repos.audit.latestForTarget(r.db, r.B.businessId, "merge.handed_back", taskId, { why: "review" })).toBeNull();
+  });
+});
+
+describe("one hire implementation (WP-06 T5)", () => {
+  const skillRows = async (businessId: string, agentId: string) =>
+    (await repos.skills.listForAgent(r.db, businessId, agentId))
+      .map((s) => ({ skillKey: s.skillKey, group: s.group, tested: s.tested === null ? null : Number(s.tested), proven: s.proven, nLive: s.nLive, displayed: s.displayed, potential: s.potential }))
+      .sort((a, b) => a.skillKey.localeCompare(b.skillKey));
+
+  it("hireFromTemplate writes the agent, its live first version from the template and the template's skills at its baseline", async () => {
+    const { businessId, departmentId, agentId: lead, ownerId } = r.A;
+    const template = getTemplate("docs_writer");
+    expect(template.skills.length).toBeGreaterThan(0);
+    const hired = await hireFromTemplate(r.db, businessId, template.key, { departmentIds: [departmentId], lineManagerId: lead, name: "Docs hire", createdBy: ownerId });
+    expect(hired.template.key).toBe(template.key);
+    expect(hired.skillKeys).toEqual([...template.skills]);
+    const agent = await repos.agents.get(r.db, businessId, hired.agent.id);
+    expect(agent).toMatchObject({ name: "Docs hire", role: template.role, agentType: template.agentType, layer: template.layer, departmentIds: [departmentId], lineManagerId: lead, modelKey: template.modelKey, wageCapMinor: template.wageCapMinor, currency: "USD", avatarSeed: `${businessId}:${template.key}` });
+    expect(hired.agent.currentVersion).toMatchObject({ state: "live", modelKey: template.modelKey, createdByKind: "system", createdBy: ownerId });
+    expect(agent.currentVersionId).toBe(hired.agent.currentVersion!.id);
+    expect(await skillRows(businessId, agent.id)).toEqual(
+      template.skills
+        .map((skillKey) => ({ skillKey, group: getSkillDefinition(skillKey)?.group ?? "craft", tested: template.baselineRating, proven: null, nLive: 0, displayed: template.baselineRating, potential: template.baselineRating }))
+        .sort((a, b) => a.skillKey.localeCompare(b.skillKey)),
+    );
+  });
+
+  it("hireMany writes the same rows as hireFromTemplate, a line manager chosen inside the batch included", async () => {
+    const { businessId, departmentId } = r.A;
+    const one = await hireFromTemplate(r.db, businessId, "docs_writer", { departmentIds: [departmentId] });
+    const leadId = randomUUID();
+    const [lead, report] = await hireMany(r.db, businessId, [
+      { id: leadId, templateKey: "docs_writer", departmentIds: [departmentId], lineManagerId: null },
+      { id: randomUUID(), templateKey: "docs_writer", departmentIds: [departmentId], lineManagerId: leadId },
+    ]);
+    expect(lead!.agent.id).toBe(leadId);
+    expect(report!.agent.lineManagerId).toBe(leadId);
+    expect(report!.agent.currentVersion?.state).toBe("live");
+    const pick = (a: Awaited<ReturnType<typeof repos.agents.get>>) => ({ name: a.name, role: a.role, agentType: a.agentType, layer: a.layer, modelKey: a.modelKey, wageCapMinor: a.wageCapMinor, currency: a.currency, avatarSeed: a.avatarSeed, autonomy: a.autonomy, negotiation: a.negotiation, schedule: a.schedule });
+    expect(pick(await repos.agents.get(r.db, businessId, report!.agent.id))).toEqual(pick(await repos.agents.get(r.db, businessId, one.agent.id)));
+    expect(await skillRows(businessId, report!.agent.id)).toEqual(await skillRows(businessId, one.agent.id));
   });
 });

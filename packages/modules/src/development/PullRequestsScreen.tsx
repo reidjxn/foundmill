@@ -15,8 +15,9 @@ import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import { RelativeDateText } from "../dates";
 import { fitColumns, fitToGrow, humanise, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
+import { useBusinessStage } from "../stage";
 import { OpenInClaudeCodeDialog } from "./dialogs";
-import { WhatChanged, toFounderChangeRows, toFounderLiveRows } from "./founder-views";
+import { SAVED_ONLY_LINE, SAVED_ONLY_WORD, WhatChanged, toFounderChangeRows, toFounderLiveRows } from "./founder-views";
 import { useDevScreenOptions } from "./options";
 import { SIMPLE_VIEW_ID, Screen, WhatExistsNow, agentHref, shortSha, toDate, toTileAgent, useAgentIndex, useAgents, useDefaultViewId, useDevDepartment, useRepository } from "./shared";
 import type { AgentRow, MergedPrRow, OpenPrRow, PrsListResponse } from "./types";
@@ -155,6 +156,7 @@ export function PullRequestsScreen({ businessId, departmentId }: ModuleScreenPro
   // Where the code goes (first-time founder report, Nov 8, 2026): with no repository connected a "merged" change was
   // never pushed anywhere, and the rows say so instead of reading as shipped.
   const repo = useRepository();
+  const { buildDestination } = useBusinessStage();
   const pushed = repo.data?.connected !== false;
   // Agents named under the reader's preference, in the rows' name fields too (One name everywhere).
   const persona = useAgentPersona();
@@ -263,10 +265,11 @@ export function PullRequestsScreen({ businessId, departmentId }: ModuleScreenPro
             <span className="block min-w-0 truncate text-body-strong" title={row.original.title ?? undefined}>
               {row.original.title ?? "—"}
             </span>
-            {/* Nothing to open anywhere: no pull request, no commit, no repository. The word is "No artifact yet", never "Merged". */}
-            {!pushed && !row.original.url && !row.original.prNumber && !row.original.mergeCommitSha ? (
-              <StatusPill tone="warn" data-testid="no-artifact">
-                No artifact yet
+            {/* Nothing to open anywhere: no pull request, no commit, no repository, or a task finished with nowhere to push
+                (WP-05 T8). The words are "Saved, not live anywhere", never "Merged". */}
+            {row.original.landed === "saved_only" || (!pushed && !row.original.url && !row.original.prNumber && !row.original.mergeCommitSha) ? (
+              <StatusPill tone="warn" data-testid="no-artifact" title={SAVED_ONLY_LINE}>
+                {SAVED_ONLY_WORD}
               </StatusPill>
             ) : null}
           </span>
@@ -284,7 +287,7 @@ export function PullRequestsScreen({ businessId, departmentId }: ModuleScreenPro
 
   // Builder view off: the founder's What changed (no PR number, branch, lines or commit; founder titles and words).
   if (!builder) {
-    return <WhatChanged businessId={businessId} deptSlug={deptSlug} open={founderOpen} live={founderLive} loading={prs.isLoading} error={prs.error ? prs.error.message : undefined} onRetry={prs.refetch} now={now} />;
+    return <WhatChanged businessId={businessId} deptSlug={deptSlug} open={founderOpen} live={founderLive} loading={prs.isLoading} error={prs.error ? prs.error.message : undefined} onRetry={prs.refetch} now={now} destination={buildDestination} />;
   }
 
   const openActions = (row: OpenPrTableRow): RowAction<OpenPrTableRow>[] => [

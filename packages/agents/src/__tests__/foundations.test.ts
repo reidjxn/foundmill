@@ -9,8 +9,8 @@ import {
   escapeMarkdown,
   finaliseFoundations,
   foundationsSignoffNotes,
-  ROADMAP_SIGNOFF_SUBJECT,
-  SPEC_SIGNOFF_SUBJECT,
+  numbersIn,
+  PLAN_NOTE_MAX_LINES,
   knownNumbers,
   labelFigures,
   needsFigureLabel,
@@ -22,6 +22,19 @@ import {
 } from "../foundations";
 
 import { BLOCK, OUTLINE, ideationInputs, importInputs } from "./foundations.fixtures";
+import { buildFoundationsSkeletonRequest } from "../foundations-staged";
+import { getTemplate } from "../registry";
+import { agentParts, expectFollowsAgent } from "./agent-parts.fixtures";
+
+describe("the foundations calls follow the business's Product lead (WP-06 T1)", () => {
+  it("with `agent`, its instructions and skills; without, the template as before", () => {
+    const template = getTemplate("product_lead");
+    const inputs = ideationInputs();
+    const agent = agentParts(template);
+    expectFollowsAgent(buildFoundationsRequest({ ...inputs, agent }).system[0]!, buildFoundationsRequest(inputs).system[0]!, template, inputs.businessName);
+    expectFollowsAgent(buildFoundationsSkeletonRequest({ ...inputs, agent }).system[0]!, buildFoundationsSkeletonRequest(inputs).system[0]!, template, inputs.businessName);
+  });
+});
 
 describe("buildFoundationsRequest", () => {
   it("sends the house rules first, the Product lead's instructions, the prompt and the inputs on the foundations route", () => {
@@ -338,7 +351,7 @@ describe("finaliseFoundations over a hand-written answer", () => {
     out.roadmap[0]!.source_ref = "javascript:alert(1)";
     out.open_questions = [`Should we [pay](https://phish.example) [[ent:${ID}|Ada]]?`, `Ask [![](u)[ent:${ID}|Your bank]![](u)]?`];
     const draft = finaliseFoundations(out, ideationInputs());
-    const note = foundationsSignoffNotes(draft, "ideation", { sectionsWritten: 2, sectionsTotal: 10, sectionsKept: 0, roadmap: { now: 1, next: 2, later: 0 }, importedIssues: 0 });
+    const note = foundationsSignoffNotes(draft);
     const stored = JSON.stringify({ draft, note });
     for (const bad of ["](", "![", "[[", "ent:", "http", "www.", "@billing", "<img", "javascript:"]) expect(stored, bad).not.toContain(bad);
     expect(draft.vision.statement).toBe("Ledgerly x closes the month today, ask Ada.");
@@ -349,33 +362,40 @@ describe("finaliseFoundations over a hand-written answer", () => {
     expect(docText(draft.sections[0]!.content)).toBe(`Read me\nAsk Ada or mail ${ADDRESS_REMOVED}\nPay at ${LINK_REMOVED} now`);
     // The run that only formed markup when joined became one unmarked node.
     expect((draft.sections[0]!.content.content[1] as { content: unknown[] }).content).toEqual([{ type: "text", text: `Ask Ada or mail ${ADDRESS_REMOVED}` }]);
-    expect(note.spec.bodyMd).toContain("**Vision.** Ledgerly x closes the month today, ask Ada.");
-    expect(note.roadmap.bodyMd).toContain("**North star.** Paying practices ‹img src=x onerror=alert\\(1\\)\\>: 40 practices in six months \\(Forecast\\).");
-    expect(note.spec.bodyMd).toContain("First open question: Should we pay Ada?");
-    expect(note.roadmap.bodyMd).toContain("First in Now: Bank feed import.");
+    expect(note.plan.bodyMd).toContain("**First we build:** Bank feed import.");
+    expect(note.plan.bodyMd).toContain("**It is for:** Your bank.");
+    expect(note.plan.bodyMd).toContain("**When it is done:** Works for Ada.");
   });
 });
 
-describe("foundationsSignoffNotes", () => {
-  it("are two 60-180 word decision notes: the specification with the vision and the sections, the roadmap with the counts and the north star", async () => {
+describe("foundationsSignoffNotes: one plan note (WP-04 T5)", () => {
+  it("is one note of at most five lines: what is built first, who it is for, what is true when it is done, the cost and a link to the full plan", async () => {
     const draft = await mockDraft(importInputs());
-    const notes = foundationsSignoffNotes(draft, "import", { sectionsWritten: 9, sectionsTotal: 10, sectionsKept: 1, roadmap: { now: 4, next: 5, later: 2 }, importedIssues: 3 });
-    for (const note of [notes.spec, notes.roadmap]) {
-      const words = note.bodyMd.split(/\s+/).filter(Boolean).length;
-      expect(words, note.subject).toBeGreaterThanOrEqual(60);
-      expect(words, note.subject).toBeLessThanOrEqual(180);
-      expect(note.subject.length).toBeLessThanOrEqual(80);
-    }
-    expect(notes.spec.subject).toBe("Sign off the product specification");
-    expect(notes.roadmap.subject).toBe("Sign off the product roadmap");
-    expect(notes.spec.bodyMd).toContain("**Vision.**");
-    expect(notes.spec.bodyMd).toContain("9 of 10 sections");
-    expect(notes.spec.bodyMd).toContain("1 section was left as the team wrote it");
-    expect(notes.spec.bodyMd).toContain("Approve it and the team builds from this version");
-    expect(notes.roadmap.bodyMd).toContain(draft.vision.northStar.metric);
-    expect(notes.roadmap.bodyMd).toContain("4 items in Now, 5 in Next and 2 in Later, including 3 open issues from the import");
-    expect(notes.roadmap.bodyMd).toContain("Approve it and building starts");
-    // The same words the other stack uses (apps/api, apps/orchestrator read these constants).
-    expect([SPEC_SIGNOFF_SUBJECT, ROADMAP_SIGNOFF_SUBJECT]).toEqual([notes.spec.subject, notes.roadmap.subject]);
+    const { plan } = foundationsSignoffNotes(draft, { roadmapHref: "/b/abc/d/product/roadmap" });
+    expect(plan.subject).toBe("Your plan is ready");
+    const lines = plan.bodyMd.split(/\n+/).filter((l) => l.trim());
+    expect(lines.length).toBeLessThanOrEqual(PLAN_NOTE_MAX_LINES);
+    expect(PLAN_NOTE_MAX_LINES).toBe(5);
+    const firstNow = [...draft.roadmap].filter((r) => r.horizon === "now").sort((a, b) => a.position - b.position)[0]!;
+    expect(lines[0]).toBe(`**First we build:** ${escapeMarkdown(firstNow.title)}.`);
+    expect(lines[1]).toContain("**It is for:**");
+    expect(lines[2]).toContain("**When it is done:**");
+    expect(lines[3]).toBe("**What it costs:** Nothing until you approve a spend.");
+    expect(lines[4]).toBe("[Read the full plan](/b/abc/d/product/roadmap)");
+    // No figure the draft does not hold (the link's own address aside).
+    const draftNumbers = numbersIn(JSON.stringify(draft));
+    for (const n of numbersIn(plan.bodyMd.replace(/\]\([^)]*\)/g, "]"))) expect(draftNumbers.has(n), n).toBe(true);
+    // Plain words: no internal counts, no "sign off", nothing about a second person.
+    expect(plan.bodyMd).not.toMatch(/sign off|cycle|cofounder/i);
+  });
+
+  it("without a link it names the Roadmap tab, and a draft with nothing in Now still reads as five plain lines", async () => {
+    const draft = await mockDraft(ideationInputs());
+    const empty = { ...draft, roadmap: [] };
+    const { plan } = foundationsSignoffNotes(empty);
+    const lines = plan.bodyMd.split(/\n+/).filter((l) => l.trim());
+    expect(lines.length).toBeLessThanOrEqual(5);
+    expect(plan.bodyMd).not.toMatch(/undefined|null/);
+    expect(lines.at(-1)).toBe("Read the full plan on the Roadmap tab.");
   });
 });

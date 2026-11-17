@@ -15,7 +15,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { ELEVENLABS_SPEECH_TIMEOUT_MS, ELEVENLABS_TRANSCRIPTION_TIMEOUT_MS, OPENAI_IMAGES_GENERATION_TIMEOUT_MS } from "@foundmill/connectors";
-import { AppError, type AgentStyle, type EmailNotificationKind, type IntegrationStatus, type NotificationKind, type SpeechAccentKey, type TeamCallAudioMime } from "@foundmill/shared";
+import { AppError, type AgentStyle, type EmailNotificationKind, type IntegrationStatus, type NotificationKind, type ReplyNotSent, type SpeechAccentKey, type TeamCallAudioMime } from "@foundmill/shared";
 import { SignJWT } from "jose";
 
 export const TOKEN_ISSUER = "foundmill-gateway";
@@ -213,16 +213,109 @@ export interface GatewayConfirmFollowRequest {
 /** Sent (on the mock: simulated, nothing left), or not, and why; never an error for "not sent". */
 export type GatewayConfirmFollowResult = { sent: true; simulated: boolean } | { sent: false; reason: string };
 
-/** One email from Foundmill to one of its users (apps/gateway notify-email.ts `NotifyEmailRequest`): ids only. */
-export interface GatewayNotifyEmailRequest {
-  userId: string;
-  kind: EmailNotificationKind;
+/** A founder's answer to a reply the project received (WP-08 T2): ids and the words, never an address. */
+export interface GatewayAnswerReplyRequest {
   businessId: string;
-  data: { inboxItemId: string };
+  interactionId: string;
+  userId: string;
+  text: string;
+  /** One per answer written; the gateway sends a repeated one once. */
+  requestId: string;
+}
+export type GatewayAnswerReplyResult = { sent: true; simulated: boolean } | { sent: false; reason: ReplyNotSent };
+
+/** The founders' update to their followers, one press (WP-08 T3): ids only; the gateway reads the followers. */
+export interface GatewaySendUpdateRequest {
+  businessId: string;
+  updateId: string;
+  userId: string;
+  /** When the words the founder previewed were saved: a draft edited since is not sent. */
+  seenUpdatedAt?: string;
+}
+export interface GatewaySendUpdateResult {
+  sent: number;
+  skipped: number;
+  remaining: number;
+  simulated: boolean;
+  refusal: string | null;
 }
 
+/** One email from Foundmill to one of its users (apps/gateway notify-email.ts `NotifyEmailRequest`): ids only. */
+export type GatewayNotifyEmailRequest =
+  | {
+      userId: string;
+      kind: EmailNotificationKind;
+      businessId: string;
+      /** A note for every kind the api asks for but `invitation_accepted`, which names the invitation that was accepted. */
+      data: { inboxItemId: string; invitationId?: undefined; auditId?: undefined } | { invitationId: string; inboxItemId?: undefined; auditId?: undefined };
+    }
+  | {
+      userId: string;
+      /** An account-safety notice (security review P2-3; apps/gateway notify-founder-notice.ts): the audit entry it is about. */
+      kind: "founder_notice";
+      businessId: string;
+      /** The one-click cancel this person's email carries, minted by the api (only its hash is stored). */
+      data: { auditId: string; cancelToken?: string; inboxItemId?: undefined; invitationId?: undefined };
+    };
+
+/**
+ * The same sender's email to an address rather than an account (`ADDRESS_EMAIL_KINDS`: an invitation): the gateway
+ * reads the address from the invitation. Its link carries the one-time token only the api saw; it is sent here, and the
+ * gateway checks it against the invitation's hash before it builds the link.
+ */
+export type GatewayAddressEmailRequest = { kind: "invitation"; data: { invitationId: string; token: string } };
+
+/**
+ * The same sender's email to an account about the account itself that the api asks for (`ACCOUNT_EMAIL_KINDS`; WP-03
+ * T3): the link a person asked for from a small screen. The gateway reads the address from the account and checks the
+ * path again (`isContinuePath`).
+ */
+export type GatewayAccountEmailRequest = { kind: "continue_link"; userId: string; data: { path: string } };
+
 /** Sent (on the mock: simulated), or not, with the gateway's reason and a plain sentence; never an error for "not sent". */
-export type GatewayNotifyEmailResult = { sent: true; simulated: boolean; eventId: string | null } | { sent: false; reason: string; message: string };
+export type GatewayNotifyEmailResult = { sent: true; simulated: boolean; eventId: string | null; /** A founder notice: whether the email that went carried a one-click cancel. */ offersCancel?: boolean } | { sent: false; reason: string; message: string };
+
+/** A Turnstile token to check for the idea box (apps/gateway turnstile.ts `TurnstileVerifyRequest`). */
+export interface GatewayTurnstileRequest {
+  token: string;
+  remoteIp: string | null;
+  hostname: string | null;
+  /** The widget's action; Cloudflare must report the same. */
+  action?: string | null;
+}
+
+/** Passed or not, why (a fixed word, never Cloudflare's), and whether the mock answered. */
+export interface GatewayTurnstileResult {
+  ok: boolean;
+  reason: "ok" | "invalid" | "expired" | "hostname" | "action" | "unconfigured" | "unavailable";
+  simulated: boolean;
+}
+
+/** The bot check waits at most this long (the gateway gives Cloudflare 5 s). */
+export const TURNSTILE_CLIENT_TIMEOUT_MS = 7_000;
+
+/**
+ * One tool call through the gateway's generic path (`POST /v1/session-tokens`, then `POST /v1/call`), for work the api
+ * runs for a business outside any agent session: the showcase video's clips on the house business (connector `runway`).
+ * The connector is named by its key and the tool by its name, so nothing here imports a connector's code; the gateway
+ * runs the policy, the founder's own key, the approval in Needs you and the audit, as for any agent's call.
+ */
+export interface GatewayToolCallRequest {
+  businessId: string;
+  /** The agent the call is made as (its grants and its state are checked at mint). */
+  agentId: string;
+  connector: string;
+  tool: string;
+  args: Record<string, unknown>;
+  context?: { amountMinor?: number; currency?: string };
+}
+
+/** The gateway's policy outcome, as it answered. A transport or request error throws instead. */
+export type GatewayToolCallOutcome =
+  | { outcome: "allow"; result: { ok: boolean; data?: unknown; error?: { code?: string; message?: string }; simulated?: true; notice?: string }; auditId: string }
+  | { outcome: "ask"; approvalId: string; reasons: string[] }
+  | { outcome: "deny"; reasons: string[]; approvalId?: string }
+  | { outcome: "rate_limited"; reasons: string[]; retryAfterSeconds: number };
 
 /** A follow confirmation waits at most this long: the visitor's form is waiting on it. */
 export const CONFIRM_FOLLOW_TIMEOUT_MS = 10_000;
@@ -258,6 +351,10 @@ export interface ApiGatewayClient {
    * re-checks the person, the note and the day's counts, builds the words and sends; the api's notify pass asks.
    */
   notifyEmail(input: GatewayNotifyEmailRequest): Promise<GatewayNotifyEmailResult>;
+  /** The same sender (`POST /v1/notify/email`) to an address rather than an account: an invitation. Absent (test doubles): not sent. */
+  addressEmail?(input: GatewayAddressEmailRequest): Promise<GatewayNotifyEmailResult>;
+  /** The same sender to an account about itself: the link to continue on a computer. Absent (test doubles): not sent. */
+  accountEmail?(input: GatewayAccountEmailRequest): Promise<GatewayNotifyEmailResult>;
   /**
    * One agent turn spoken in a speech accent (Team call). Asked only when `elevenlabs` runs live; the gateway checks the
    * accent (400 `unknown_speech_accent`), the words (1 to 600 characters) and the business's day of spoken characters
@@ -272,6 +369,14 @@ export interface ApiGatewayClient {
    * with the gateway's code and status. Optional so test doubles need not stream.
    */
   streamSpeech?(input: GatewaySynthesizeSpeechRequest, signal?: AbortSignal): Promise<Response>;
+  /** The idea box's bot check (apps/gateway turnstile.ts). Optional so test doubles need not carry it; the HTTP client always does. */
+  verifyTurnstile?(input: GatewayTurnstileRequest): Promise<GatewayTurnstileResult>;
+  /** One tool call on the gateway's generic path (`GatewayToolCallRequest`). Optional so test doubles need not carry it. */
+  toolCall?(input: GatewayToolCallRequest): Promise<GatewayToolCallOutcome>;
+  /** A founder's answer to a kept reply, from the project's address (`POST /v1/platform-mail/answer-reply`). Absent (test doubles): not sent. */
+  answerReply?(input: GatewayAnswerReplyRequest): Promise<GatewayAnswerReplyResult>;
+  /** The founders' update to their followers (`POST /v1/platform-mail/send-update`). Absent (test doubles): not sent. */
+  sendUpdate?(input: GatewaySendUpdateRequest): Promise<GatewaySendUpdateResult>;
 }
 
 export interface CreateApiGatewayClientOptions {
@@ -282,8 +387,9 @@ export interface CreateApiGatewayClientOptions {
   timeoutMs?: number;
 }
 
-export async function signApiServiceToken(secret: string): Promise<string> {
-  return new SignJWT({ svc: "api" }).setProtectedHeader({ alg: "HS256", typ: "JWT" }).setIssuer(TOKEN_ISSUER).setAudience(SERVICE_AUDIENCE).setIssuedAt().setExpirationTime("60s").setJti(randomUUID()).sign(new TextEncoder().encode(secret));
+/** `businessId`: the one business the token acts for, where a route needs it (the own-key model route, WP-13 T11). */
+export async function signApiServiceToken(secret: string, businessId?: string): Promise<string> {
+  return new SignJWT({ svc: "api", ...(businessId ? { businessId } : {}) }).setProtectedHeader({ alg: "HS256", typ: "JWT" }).setIssuer(TOKEN_ISSUER).setAudience(SERVICE_AUDIENCE).setIssuedAt().setExpirationTime("60s").setJti(randomUUID()).sign(new TextEncoder().encode(secret));
 }
 
 export function createApiGatewayClient(opts: CreateApiGatewayClientOptions): ApiGatewayClient {
@@ -292,7 +398,7 @@ export function createApiGatewayClient(opts: CreateApiGatewayClientOptions): Api
   const timeoutMs = opts.timeoutMs ?? 30_000;
 
   const post = async <T>(path: string, body: unknown, callTimeoutMs = timeoutMs): Promise<T> => {
-    if (!opts.secret || opts.secret.length < 16) throw new AppError("config", "SESSION_TOKEN_SECRET is not set on the api, so it cannot call the gateway", 412);
+    if (!opts.secret || opts.secret.length < 16) throw new AppError("config", "Neither API_SERVICE_TOKEN_SECRET nor SESSION_TOKEN_SECRET is set on the api, so it cannot call the gateway", 412);
     const token = await signApiServiceToken(opts.secret);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), callTimeoutMs);
@@ -316,7 +422,7 @@ export function createApiGatewayClient(opts: CreateApiGatewayClientOptions): Api
 
   /** Like `post`, but answers the gateway's streamed body; the timeout covers only the wait for the first byte. */
   const stream = async (path: string, body: unknown, signal?: AbortSignal): Promise<Response> => {
-    if (!opts.secret || opts.secret.length < 16) throw new AppError("config", "SESSION_TOKEN_SECRET is not set on the api, so it cannot call the gateway", 412);
+    if (!opts.secret || opts.secret.length < 16) throw new AppError("config", "Neither API_SERVICE_TOKEN_SECRET nor SESSION_TOKEN_SECRET is set on the api, so it cannot call the gateway", 412);
     const token = await signApiServiceToken(opts.secret);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), Math.max(timeoutMs, SPEECH_CLIENT_TIMEOUT_MS));
@@ -348,10 +454,33 @@ export function createApiGatewayClient(opts: CreateApiGatewayClientOptions): Api
     repository: (businessId, owner, repo) => post<{ mode: "mock" | "live"; repository: GatewayRepository }>("/v1/github/repository", { businessId, owner, repo }),
     sendPush: (input) => post<GatewayPushResult>("/v1/push/send", input),
     confirmFollow: (input) => post<GatewayConfirmFollowResult>("/v1/platform-mail/confirm-follow", input, Math.min(timeoutMs, CONFIRM_FOLLOW_TIMEOUT_MS)),
+    // Up to 50 messages in sequence: the press waits for them (the client's timeout, at least a minute).
+    sendUpdate: (input) => post<GatewaySendUpdateResult>("/v1/platform-mail/send-update", input, Math.max(timeoutMs, 60_000)),
+    answerReply: (input) => post<GatewayAnswerReplyResult>("/v1/platform-mail/answer-reply", input, Math.min(timeoutMs, CONFIRM_FOLLOW_TIMEOUT_MS)),
+    verifyTurnstile: (input) => post<GatewayTurnstileResult>("/v1/turnstile/verify", input, Math.min(timeoutMs, TURNSTILE_CLIENT_TIMEOUT_MS)),
     notifyEmail: (input) => post<GatewayNotifyEmailResult>("/v1/notify/email", input, Math.min(timeoutMs, CONFIRM_FOLLOW_TIMEOUT_MS)),
+    addressEmail: (input) => post<GatewayNotifyEmailResult>("/v1/notify/email", input, Math.min(timeoutMs, CONFIRM_FOLLOW_TIMEOUT_MS)),
+    accountEmail: (input) => post<GatewayNotifyEmailResult>("/v1/notify/email", input, Math.min(timeoutMs, CONFIRM_FOLLOW_TIMEOUT_MS)),
     synthesizeSpeech: (input) => post<GatewaySpeech>("/v1/speech/synthesize", input, Math.max(timeoutMs, SPEECH_CLIENT_TIMEOUT_MS)),
     transcribeSpeech: (input) => post<GatewayTranscript>("/v1/speech/transcribe", input, Math.max(timeoutMs, TRANSCRIBE_CLIENT_TIMEOUT_MS)),
     validateKey: (businessId, apiKey) => post<GatewayKeyValidation>("/v1/keys/validate", { businessId, apiKey }),
     registryLookup: (input) => post<GatewayRegistryLookup>("/v1/registry/lookup", input),
+    toolCall: async (input) => {
+      const { token } = await post<{ token: string }>("/v1/session-tokens", { businessId: input.businessId, agentId: input.agentId, sessionId: null, allowedTools: [`${input.connector}:${input.tool}`], ttlSeconds: 120 });
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      let res: Response;
+      try {
+        res = await fetchImpl(`${baseUrl}/v1/call`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify({ connector: input.connector, tool: input.tool, args: input.args, context: input.context ?? {} }), signal: controller.signal });
+      } catch (e) {
+        throw new AppError("gateway_unreachable", `The gateway did not answer: ${(e as Error).message}`, 503);
+      } finally {
+        clearTimeout(timer);
+      }
+      const parsed = (await res.json().catch(() => null)) as (GatewayToolCallOutcome & { error?: { code?: string; message?: string } }) | null;
+      // A policy outcome comes with its own status (403 deny, 429 rate limited) and is an answer, not an error.
+      if (parsed && typeof (parsed as { outcome?: unknown }).outcome === "string") return parsed;
+      throw new AppError(parsed?.error?.code ?? "gateway_error", parsed?.error?.message ?? `The gateway answered ${res.status}`, res.status >= 400 && res.status < 600 ? res.status : 502);
+    },
   };
 }

@@ -12,7 +12,7 @@
  * a group member they are not connected with, a block) shows why in place of the reply box.
  */
 import { useInfiniteQuery, useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
-import { Ban, BellOff, BellRing, Lock, LogOut, Mail, MailCheck, MessageSquare, MoreHorizontal, SquarePen, UserPlus } from "lucide-react";
+import { ArrowLeft, Ban, BellOff, BellRing, Lock, LogOut, Mail, MailCheck, MessageSquare, MoreHorizontal, SquarePen, UserPlus } from "lucide-react";
 import { useEffect, useMemo, useRef, type KeyboardEvent } from "react";
 import {
   Avatar,
@@ -58,6 +58,11 @@ export interface MessagesPanelProps {
   hasMoreThreads?: boolean;
   onLoadMoreThreads?: () => void;
   loadingMoreThreads?: boolean;
+  /**
+   * The page is narrower than `page-wide` (CLAUDE.md "Small screens"): one pane at a time. The thread list fills the
+   * width; opening a thread shows the conversation instead, with a Back control. Absent or false keeps both panes.
+   */
+  narrow?: boolean;
 }
 
 /** Messages per page; the log opens on the newest and "Load earlier messages" pages upward. */
@@ -72,7 +77,7 @@ const CLOSED_COPY: Record<string, string> = {
   archived: "This conversation is closed.",
 };
 
-export function MessagesPanel({ viewerId, threads, unreadTotal, people, selection, onSelect, loading, error, onRetry, hasMoreThreads, onLoadMoreThreads, loadingMoreThreads }: MessagesPanelProps) {
+export function MessagesPanel({ viewerId, threads, unreadTotal, people, selection, onSelect, loading, error, onRetry, hasMoreThreads, onLoadMoreThreads, loadingMoreThreads, narrow = false }: MessagesPanelProps) {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -182,8 +187,8 @@ export function MessagesPanel({ viewerId, threads, unreadTotal, people, selectio
       footer="Messages go between people. An agent can draft one for you, but only your own Send sends it."
       data-testid="messages-panel"
     >
-      <div className="flex h-120">
-        <aside aria-label="Message threads" className="flex w-72 shrink-0 flex-col overflow-y-auto border-r border-subtle">
+      <div className={cn("flex", narrow ? "max-h-[75dvh] min-h-96 [&_button]:min-h-tap" : "h-120")} data-narrow={narrow || undefined} data-pane={narrow ? (selection ? "conversation" : "threads") : undefined}>
+        <aside aria-label="Message threads" className={cn("flex flex-col overflow-y-auto", narrow ? "w-full" : "w-72 shrink-0 border-r border-subtle", narrow && selection && "hidden")}>
           <ul ref={listRef} onKeyDown={onListKey} className="flex flex-col">
             {selection?.kind === "new" ? (
               <li>
@@ -235,10 +240,15 @@ export function MessagesPanel({ viewerId, threads, unreadTotal, people, selectio
             </div>
           ) : null}
         </aside>
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className={cn("flex min-w-0 flex-1 flex-col", narrow && !selection && "hidden")}>
           {selection ? (
             <>
-              <div className="flex h-8 shrink-0 items-center gap-2 border-b border-subtle px-panel-pad">
+              <div className={cn("flex shrink-0 items-center gap-2 border-b border-subtle px-panel-pad", narrow ? "min-h-tap" : "h-8")}>
+                {narrow ? (
+                  <Button variant="ghost" size="sm" icon={ArrowLeft} aria-label="Back to conversations" data-testid="messages-back" onClick={() => onSelect(null)}>
+                    Back
+                  </Button>
+                ) : null}
                 <span className="t-body-strong min-w-0 truncate text-primary" title={withName}>{withName}</span>
                 {headCount > 1 ? <Chip tone="neutral">{headCount + 1} people</Chip> : null}
                 {subject ? <span className="truncate text-small text-secondary" title={subject}>{subject}</span> : null}

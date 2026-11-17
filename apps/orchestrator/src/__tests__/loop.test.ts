@@ -67,6 +67,14 @@ describe("LoopDetector (same tool+args 3× in a row → fail)", () => {
     expect(new LoopDetector().observe({ kind: "test_result", at, passed: 1, failed: 0, acceptance: true })).toBeNull();
   });
 
+  it("the live runner's failing runs (no failure names) trip on the third whatever the counts: the run after the second fix turn (WP-05 T9)", () => {
+    const d = new LoopDetector();
+    const run = (passed: number): SessionEventInput => ({ kind: "test_result", at, suite: "acceptance", command: "pnpm test", passed, failed: 1, acceptance: true, failures: [] });
+    expect(d.observe(run(1))?.loop).toBe(false);
+    expect(d.observe(run(2))?.loop).toBe(false);
+    expect(d.observe(run(3))?.loop).toBe(true);
+  });
+
   it("a passing acceptance run or a different failure restarts the acceptance count", () => {
     const d = new LoopDetector();
     const fail = (failures: string[]): SessionEventInput => ({ kind: "test_result", at, command: "pnpm test", passed: 0, failed: failures.length, acceptance: true, failures });

@@ -251,6 +251,8 @@ export const DecisionBar = forwardRef<HTMLDivElement, DecisionBarProps>(function
       ref={setRootRef}
       role="group"
       aria-label="Decision"
+      // The shell's 1–4 choose only with focus in here (keyboard.ts DECISION_BAR_ATTRIBUTE, WP-04 T13).
+      data-decision-bar=""
       data-testid="decision-bar"
       data-state={answered ? "answered" : executing ? "executing" : disabled ? "disabled" : "open"}
       // The Inbox tour (Coachmark) rings the bar ("Every option says what it costs…") and then its ask button.
@@ -283,7 +285,7 @@ export const DecisionBar = forwardRef<HTMLDivElement, DecisionBarProps>(function
             </div>
             {leftLine ? <span className="text-small text-tertiary tabular-nums">{leftLine}</span> : null}
             {onAsk ? (
-              <Button size="sm" variant="default" icon={MessageCircle} disabled={!!disabled || !!executing} onClick={onAsk} className="decision-ask" data-decision-ask data-coachmark="decision-ask">
+              <Button size="sm" variant="default" icon={MessageCircle} disabled={!!disabled || !!executing} onClick={onAsk} className="decision-ask in-data-[phone]:min-h-tap" data-decision-ask data-coachmark="decision-ask">
                 <span>{askLabel}</span>
                 <span className="font-normal opacity-70">{askDescription}</span>
               </Button>

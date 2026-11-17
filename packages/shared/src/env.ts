@@ -1,6 +1,7 @@
 /** Single place that reads process.env (docs/ARCHITECTURE.md §3). */
 import { z } from "zod";
 import { MAIL_LOCAL_PART_PATTERN, mailLocalPartReserved } from "./platform-mail";
+import { sitesDomainProblem } from "./sites";
 
 const Env = z.object({
   APP_ENV: z.enum(["development", "test", "staging", "production"]).default("development"),
@@ -25,11 +26,16 @@ const Env = z.object({
   STREAM_PORT: z.coerce.number().default(4003),
   COLLAB_PORT: z.coerce.number().default(4004),
   INGEST_PORT: z.coerce.number().default(4005),
-  SOCIAL_PORT: z.coerce.number().default(4006),
   GATEWAY_URL: z.string().default("http://localhost:4001"),
   COMPOSER_URL: z.string().default("http://localhost:4002"),
   /** apps/api and apps/orchestrator: how long a composer call (refresh, narrate) may take; unset = LIMITS.composerClientTimeoutMs. Keep it above the composer's deadline. */
   COMPOSER_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(600_000).optional().catch(undefined),
+  /**
+   * apps/api: the size of its database pool (default 10). Raise it only with room under Postgres's `max_connections`
+   * for every service's pool and Temporal's (docs/DEPLOY.md "Database connections"). The transaction gate
+   * (apps/api services/tx-gate.ts) follows it: requests hold at most this many transactions less a reserve of 4.
+   */
+  API_DB_POOL_MAX: z.coerce.number().int().min(5).max(100).optional().catch(undefined),
   INGEST_URL: z.string().default("http://localhost:4005"),
   SUPABASE_URL: z.string().optional(),
   SUPABASE_ANON_KEY: z.string().optional(),
@@ -42,6 +48,18 @@ const Env = z.object({
   /** Every Node service: time from SIGTERM to exit, draining requests, sockets and workers; keep below railway.toml `drainingSeconds`. */
   SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(600_000).catch(45_000).default(45_000),
   ANTHROPIC_API_KEY: z.string().optional(),
+  /** Foundmill's Z.ai key: GLM-5.3 Flash for every account not on a paid plan (WP-13). Unset: free calls are refused. */
+  ZAI_API_KEY: z.string().optional(),
+  /**
+   * The month's ceiling on what the free plan costs Foundmill, in US cents: Haiku 5.5 and GLM-5.3 Flash together, web
+   * search included (founder, Nov 16, 2026: $600). Free work slows at 80% and is held at 100% (WP-13 T6).
+   */
+  FREE_PLAN_MONTHLY_CAP_CENTS: z.coerce.number().int().min(0).max(10_000_000).default(60_000),
+  /**
+   * The model a free business's agent sessions run on unless the agent is set to one of the two (WP-13; founder,
+   * Nov 16, 2026): GLM-5.3 Flash once a measured session costs about $0.019 or less (T8), Haiku 5.5 until then.
+   */
+  FREE_SESSION_MODEL: z.enum(["haiku", "glm"]).default("haiku"),
   VOYAGE_API_KEY: z.string().optional(),
   /** apps/gateway: the platform key behind the `openai_images` connector (AI-generated faces of anthropomorphic agents). */
   OPENAI_API_KEY: z.string().optional(),
@@ -52,6 +70,12 @@ const Env = z.object({
   /** apps/gateway: the OneSignal app id and REST API key behind the `onesignal` connector (push to the mobile app's phones, docs/mobile). */
   ONESIGNAL_APP_ID: z.string().optional(),
   ONESIGNAL_API_KEY: z.string().optional(),
+  /** apps/gateway: Cloudflare Turnstile's secret key for the bot check of the idea box (docs/IDEA_BOX.md) and of a public page's Follow form. Unset on staging or production, the idea box drafts nothing and pages take no followers. */
+  TURNSTILE_SECRET_KEY: z.string().optional(),
+  /** apps/api: the Domain of the idea box's cookie (`fm_idea`), so the web app reads it too: `foundmill.com` in production. Unset: a host-only cookie (local stacks). */
+  IDEA_COOKIE_DOMAIN: z.string().regex(/^[a-z0-9.-]{3,253}$/).optional(),
+  /** apps/api: the idea box's daily ceiling on model spend across every visitor, in US cents (founder, 2026-11-13: $20). */
+  IDEA_BOX_DAILY_CEILING_CENTS: z.coerce.number().int().min(0).max(100_000).default(2_000),
   REDIS_URL: z.string().default("redis://localhost:6379"),
   TEMPORAL_ADDRESS: z.string().default("localhost:7233"),
   TEMPORAL_NAMESPACE: z.string().default("default"),
@@ -63,6 +87,15 @@ const Env = z.object({
   KMS_KEY_ID: z.string().optional(),
   DEV_MASTER_KEY: z.string().optional(),
   SESSION_TOKEN_SECRET: z.string().optional(),
+  /** The api's own service-token secret for its calls to the gateway (WP-11 T12, N4); 32+ characters. Unset: the shared one. */
+  API_SERVICE_TOKEN_SECRET: z.string().optional(),
+  /**
+   * The composer's own secret for the gateway's own-key model route (WP-13 T11), on the composer and the gateway only.
+   * Unset: the composer runs an own-key business's calls as its plan says, on Foundmill's key.
+   */
+  COMPOSER_SERVICE_TOKEN_SECRET: z.string().optional(),
+  /** "1" while the switch to API_SERVICE_TOKEN_SECRET is in progress: the gateway still accepts the api signed with the shared secret. */
+  API_SERVICE_TOKEN_LEGACY: z.string().optional(),
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
   /**
@@ -102,6 +135,23 @@ const Env = z.object({
     .optional()
     .transform((v) => v?.trim().toLowerCase() || undefined)
     .refine((v) => v === undefined || /^(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(v), { message: "PLATFORM_MAIL_DOMAIN must be a domain name such as mail.foundmill.com" }),
+  /**
+   * Foundmill Sites (WP-07): the domain project sites are served on (`<slug>.<domain>`, previews `p-<token>.<domain>`),
+   * read by api, orchestrator and sites. Unset means the feature is off everywhere: no tab, no note, no Planner
+   * destination. Outside development and test it must not be APP_URL's host or a parent or subdomain of it.
+   */
+  SITES_DOMAIN: z
+    .string()
+    .optional()
+    .transform((v) => v?.trim().toLowerCase() || undefined)
+    .refine((v) => v === undefined || /^(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(v), { message: "SITES_DOMAIN must be a domain name such as example-sites.app" }),
+  /** apps/sites: the api it calls for a site's sign-up form (WP-07 T6; `publicPage.siteConsent`, `publicPage.follow`). Unset: `http://localhost:4000` on development and test; elsewhere sign-ups are closed. */
+  SITES_API_URL: z.string().optional(),
+  /**
+   * apps/sites: Cloudflare Turnstile's site key for a site's sign-up form (a public value; the widget's hostnames must
+   * include SITES_DOMAIN). Empty uses the mock token, which the api accepts on development and test stacks only.
+   */
+  SITES_TURNSTILE_SITE_KEY: z.string().optional(),
   /** Messages one project may send from its Foundmill address per UTC day (gateway; the api shows it). An operator raises one project's cap in `project_mail.daily_cap`. */
   PLATFORM_MAIL_DAILY_CAP: z.coerce.number().int().min(1).max(10_000).default(50),
   /** Messages every project together may send from the platform domain per UTC day: protects the domain's reputation (gateway). */
@@ -112,6 +162,28 @@ const Env = z.object({
    * room; and they wait while the projects' mail has used more than 75% of that ceiling.
    */
   PLATFORM_NOTIFY_DAILY_CEILING: z.coerce.number().int().min(1).max(1_000_000).default(1_000),
+  /**
+   * Every ordinary founder notice together in a UTC day (`pn:safety:day`; security review P2-3): enforced, apart from
+   * PLATFORM_NOTIFY_DAILY_CEILING. 0 (or an empty value, which reads as 0) is refused at boot: it would silence every
+   * ordinary founder notice; unset it for the default.
+   */
+  PLATFORM_SAFETY_DAILY_CEILING: z.coerce
+    .number()
+    .int()
+    .min(1, { message: "PLATFORM_SAFETY_DAILY_CEILING must be 1 or more (0, or an empty value, would refuse every founder notice); unset it for the default of 5,000" })
+    .max(1_000_000)
+    .default(5_000),
+  /**
+   * The circuit breaker over every essential founder notice together in a UTC day (`pn:safety:reserved:day`; final
+   * review): a warning at half, an error at the ceiling, and past it each person gets one folded email for the day. 0 (or
+   * an empty value) is refused at boot, as above.
+   */
+  PLATFORM_SAFETY_RESERVED_DAILY_CEILING: z.coerce
+    .number()
+    .int()
+    .min(1, { message: "PLATFORM_SAFETY_RESERVED_DAILY_CEILING must be 1 or more (0, or an empty value, would fold every essential founder notice); unset it for the default of 20,000" })
+    .max(10_000_000)
+    .default(20_000),
   /** gateway + ingest: signs the custom args on every send and the unsubscribe links, so a delivery event or an unsubscribe is bound to its project. 32+ random bytes. */
   PLATFORM_MAIL_SIGNING_SECRET: z.string().optional(),
   /** ingest: the token the platform's Inbound Parse URL carries as `?token=` (`/mail/inbound`). Never the businesses' SENDGRID_INBOUND_TOKEN. */
@@ -135,6 +207,15 @@ const Env = z.object({
    * 5.1). On unless "off" (or "0"/"false"); it sends only where PLATFORM_MAIL_DOMAIN is set.
    */
   NOTIFY_EMAIL: z
+    .string()
+    .optional()
+    .transform((v): "on" | "off" => (/^(off|0|false|no)$/i.test((v ?? "").trim()) ? "off" : "on")),
+  /**
+   * apps/api: may the notify pass email about the "page is ready" note the page catch-up writes for projects that began
+   * before public pages (WP-12 T1)? On unless "off" (or "0"/"false"/"no") (founder decision D6, Nov 16, 2026: yes); "off"
+   * keeps the note in the Inbox and on Today without an email.
+   */
+  PAGE_CATCH_UP_EMAIL: z
     .string()
     .optional()
     .transform((v): "on" | "off" => (/^(off|0|false|no)$/i.test((v ?? "").trim()) ? "off" : "on")),
@@ -181,6 +262,35 @@ const Env = z.object({
    * that can sign in. Staging sets it while sign-up is open (docs/DEPLOY.md §4).
    */
   SIGNUP_ALLOWLIST: z.string().optional(),
+  /**
+   * apps/api, apps/stream, apps/collab: open sign-up (THESIS_REVIEW package 2.2, founder 2026-11-12). "1"/"true"/"on":
+   * anyone who signs in with a confirmed address is admitted until the day's new accounts reach
+   * SIGNUP_DAILY_CEILING (UTC day), after which a new person is refused with `on_waitlist`; the addresses SIGNUP_ALLOWLIST names are
+   * admitted without counting. Off (the default): invite-only while SIGNUP_ALLOWLIST is set, and everyone is admitted
+   * while it is not (`signupMode`, @foundmill/shared allowlist.ts).
+   */
+  SIGNUP_OPEN: z.string().optional(),
+  /**
+   * apps/api: the waitlist emails a person the day their place opens (WP-03 T2's `waitlist-admissions` sweep on the
+   * orchestrator, through the gateway's platform mail). "1"/"true"/"on" lets the waitlist's saved line promise that
+   * email, and only while platform mail is live here too (`waitlistEmails`). Unset (the default): the line says it cannot
+   * email yet. Set by the Desktop session together with WAITLIST_ADMIT_PER_DAY, after WP-00 S1 and S2 (docs/DEPLOY.md §4).
+   */
+  WAITLIST_EMAILS: z.string().optional(),
+  /** apps/api: with SIGNUP_OPEN, how many new accounts are admitted per UTC day before the rest are refused with `on_waitlist`. */
+  SIGNUP_DAILY_CEILING: z.coerce.number().int().min(0).max(1_000_000).default(200),
+  /**
+   * apps/api: with SIGNUP_OPEN, how many new accounts open sign-up admits per UTC day from one private email domain
+   * (WP-03 T8). The large mailbox providers (@foundmill/shared `COMMON_MAIL_DOMAINS`) are not counted by domain. Past
+   * it a new person waits with `on_waitlist`. 5 is an Estimate (founder, Nov 15, 2026, D7).
+   */
+  SIGNUP_PER_DOMAIN_PER_DAY: z.coerce.number().int().min(1).max(10_000).default(5),
+  /**
+   * apps/api: with SIGNUP_OPEN, the cutover for "a person from before open sign-up" (an ISO timestamp): only an account
+   * whose founder profile was created before it is admitted without counting toward SIGNUP_DAILY_CEILING. Unset: the
+   * moment migration 0093 ran, which the database stores (`admission_existing_before()`).
+   */
+  SIGNUP_EXISTING_BEFORE: z.iso.datetime({ offset: true }).optional(),
   /**
    * apps/api: whether a credit top-up may be paid by simulation (the Billing tab's mock checkout, no money moves) when
    * Stripe is not live. "1"/"true" or "0"/"false"; unset allows it only when APP_ENV is development or test
@@ -233,6 +343,10 @@ export function loadEnv(overrides: Partial<NodeJS.ProcessEnv> = {}): Env {
     env.MOCK_MODEL_LATENCY_MS = 0;
     env.MOCK_MODEL_STREAM_MS = 0;
   }
+  if (env.SITES_DOMAIN && env.APP_ENV !== "development" && env.APP_ENV !== "test") {
+    const problem = sitesDomainProblem(env.SITES_DOMAIN, env.APP_URL);
+    if (problem) throw new Error(`Invalid environment: ${problem}`);
+  }
   if (Object.keys(overrides).length === 0) cached = env;
   return env;
 }
@@ -273,7 +387,13 @@ export function platformMailSigningSecret(env: Pick<Env, "APP_ENV"> & Partial<Pi
 }
 /** True when projects really send from their Foundmill address on this deployment. */
 export const platformMailLive = (env: Pick<Env, "INTEGRATIONS_MODE" | "LIVE_CONNECTORS"> & Partial<Pick<Env, "PLATFORM_MAIL_DOMAIN">>): boolean => platformMailDomain(env) !== null && platformMailMode(env) === "live";
+/**
+ * May the waitlist promise its email here (WAITLIST_EMAILS on, and platform mail live)? The api passes it with the
+ * `not_invited` and `on_waitlist` refusals so the web's saved line says "We email …" only where the email is sent.
+ */
+export const waitlistEmails = (env: Partial<Pick<Env, "WAITLIST_EMAILS" | "INTEGRATIONS_MODE" | "LIVE_CONNECTORS" | "PLATFORM_MAIL_DOMAIN">>): boolean =>
+  /^(1|true|yes|on)$/i.test((env.WAITLIST_EMAILS ?? "").trim()) && platformMailLive({ INTEGRATIONS_MODE: env.INTEGRATIONS_MODE ?? "mock", LIVE_CONNECTORS: env.LIVE_CONNECTORS ?? "", PLATFORM_MAIL_DOMAIN: env.PLATFORM_MAIL_DOMAIN });
 export const isMockModels = (env = loadEnv()) => env.MODEL_MODE === "mock";
 /** ALLOW_MOCK_PAYMENTS, or by default only in development and test: may a top-up be paid by simulation here? */
 export const allowMockPayments = (env: Pick<Env, "APP_ENV" | "ALLOW_MOCK_PAYMENTS">): boolean => env.ALLOW_MOCK_PAYMENTS ?? (env.APP_ENV === "development" || env.APP_ENV === "test");
-export const servicePort = (env: Env, named: "API_PORT" | "GATEWAY_PORT" | "COMPOSER_PORT" | "STREAM_PORT" | "COLLAB_PORT" | "INGEST_PORT" | "SOCIAL_PORT"): number => env.PORT ?? env[named];
+export const servicePort = (env: Env, named: "API_PORT" | "GATEWAY_PORT" | "COMPOSER_PORT" | "STREAM_PORT" | "COLLAB_PORT" | "INGEST_PORT"): number => env.PORT ?? env[named];

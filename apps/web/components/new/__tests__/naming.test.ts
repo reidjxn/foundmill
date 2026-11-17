@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { LIMITS } from "@foundmill/config";
-import { ARCHETYPE_CARDS, BUSINESS_MODE_CARDS, DEFAULT_KIT, DEFAULT_SPEND_CAP_MINOR, DOMAIN_NOTE, DOMAIN_STATUS_WORDS, commitInput, couldNotCheck, KNOWN_MARKS, TRADEMARK_REGISTRY_WORDS, TRADEMARK_STATUS_WORDS, domainCandidates, domainProvenanceWord, extractPalette, initialCommitForm, isValidKit, keywordsOf, kitContrast, nameSuggestions, normaliseHex, parseSpendCapMinor, trademarkScreen, validateCommitForm } from "../commit/naming";
+import { ARCHETYPE_CARDS, BUSINESS_MODE_CARDS, DEFAULT_KIT, DEFAULT_SPEND_CAP_MINOR, DOMAIN_NOTE, defaultSpendCapMinor, DOMAIN_STATUS_WORDS, commitInput, couldNotCheck, KNOWN_MARKS, TRADEMARK_REGISTRY_WORDS, TRADEMARK_STATUS_WORDS, domainCandidates, domainProvenanceWord, extractPalette, initialCommitForm, isValidKit, keywordsOf, kitContrast, nameSuggestions, normaliseHex, parseSpendCapMinor, trademarkScreen, validateCommitForm } from "../commit/naming";
 
 const IDEA = "11111111-1111-4111-8111-111111111111";
 
@@ -128,6 +128,18 @@ describe("commit screen: form (AC-11.1.6, AC-11.1.7)", () => {
     expect(ARCHETYPE_CARDS).toHaveLength(7);
   });
 
+  it("a founder with no budget starts with a spend line of 0, so every spend asks first, in every mode (WP-04 T3, D4)", () => {
+    const form = initialCommitForm({ title: "Ledgerly", archetype: "b2b_saas" }, DEFAULT_KIT, "USD", false, "humans", { hasBudget: false });
+    expect(form.spendCap).toBe("0");
+    expect(commitInput(IDEA, form).spendCapMinor).toBe(0);
+    for (const mode of BUSINESS_MODE_CARDS.map((m) => m.value)) {
+      expect(defaultSpendCapMinor(mode, { hasBudget: false }), mode).toBe(0);
+      expect(defaultSpendCapMinor(mode, { hasBudget: true }), mode).toBe(DEFAULT_SPEND_CAP_MINOR[mode]);
+    }
+    // With a budget, the mode's default as before.
+    expect(initialCommitForm({ title: "Ledgerly", archetype: "b2b_saas" }, DEFAULT_KIT, "USD", false, "humans", { hasBudget: true }).spendCap).toBe(String(DEFAULT_SPEND_CAP_MINOR.assisted / 100));
+  });
+
   it("validates name, kit, archetype and spend cap", () => {
     const form = initialCommitForm({ title: "", archetype: null }, { primary: "red", secondary: "#000" }, "EUR");
     const errors = validateCommitForm({ ...form, spendCap: "lots" });
@@ -152,7 +164,7 @@ describe("commit screen: form (AC-11.1.6, AC-11.1.7)", () => {
     expect(form.logo).toBeNull();
     expect(commitInput(IDEA, { ...form, spendCap: "1 250" })).toEqual({ ideaId: IDEA, name: "Ledgerly", gameMode: "personal", archetype: "b2b_saas", businessMode: "assisted", kit: { primary: "#1b4fd8", secondary: "#f5c400" }, logo: null, currency: "SEK", spendCapMinor: 125_000, autopilot: true, overnight: { timeZone: "UTC" }, anthropomorphicAgents: false, agentStyle: "humans" });
     expect(commitInput(IDEA, { ...form, spendCap: "" }).spendCapMinor).toBeNull();
-    // The Launch step's Anthropomorphic agents choice starts as the account preference and travels with idea.commit.
+    // The Launch step's Give agents names and faces choice starts as the account preference and travels with idea.commit.
     const on = initialCommitForm({ title: "Ledgerly", archetype: "b2b_saas" }, DEFAULT_KIT, "SEK", true);
     expect(on.anthropomorphicAgents).toBe(true);
     expect(commitInput(IDEA, on).anthropomorphicAgents).toBe(true);

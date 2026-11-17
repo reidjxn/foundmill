@@ -20,7 +20,7 @@ import { CREDITS_CURRENCY } from "@foundmill/config";
 import { MODEL_BILLING, MODEL_KEYS, USAGE_KINDS, ValidationError, type UsageKind } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
-import { agentSessions, agents, businesses, creditBalances, usageLedger, type CreditBalance, type UsageEntry } from "../schema";
+import { agentSessions, agents, businesses, creditBalances, creditLots, usageLedger, type CreditBalance, type CreditLot, type UsageEntry } from "../schema";
 import { Currency, DateRange, Id, IsoDateInput, JsonObject, MinorAmount, one, PageInput, parseInput, timeKeyset, timeRange, toPage, type Executor, type Page } from "./_shared";
 
 /** Millionths of a minor unit per minor unit (the meter's `costMicroMinor`, packages/models pricing.ts). */
@@ -97,6 +97,30 @@ export function periodRange(period: string): { from: Date; to: Date } {
 
 export function periodOf(date: Date): string {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+/** How long bought credits last (founder, 2026-11-13). */
+export const CREDIT_LOT_MONTHS = 12;
+
+/** When a lot bought at `purchasedAt` expires: the same moment `CREDIT_LOT_MONTHS` later (the month's last day when shorter). */
+export function creditLotExpiry(purchasedAt: Date): Date {
+  const d = new Date(purchasedAt.getTime());
+  const day = d.getUTCDate();
+  d.setUTCDate(1);
+  d.setUTCMonth(d.getUTCMonth() + CREDIT_LOT_MONTHS);
+  const last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+  d.setUTCDate(Math.min(day, last));
+  return d;
+}
+
+/** The live lots of a business, the one that expires first first, locked for the caller's transaction. */
+async function lockLiveLots(tx: Executor, businessId: string, now: Date): Promise<CreditLot[]> {
+  return tx
+    .select()
+    .from(creditLots)
+    .where(and(eq(creditLots.businessId, businessId), sql`${creditLots.remainingMinor} > 0`, sql`${creditLots.expiresAt} > ${now}`))
+    .orderBy(asc(creditLots.expiresAt), asc(creditLots.createdAt))
+    .for("update");
 }
 
 export const usageRepo = {
@@ -270,7 +294,9 @@ export const usageRepo = {
     const [row] = await db
       .select({ cost: sql<number>`coalesce(sum(${usageLedger.costMinor}), 0)::bigint`, quantity: sql<number>`coalesce(sum(${usageLedger.quantity}), 0)::bigint` })
       .from(usageLedger)
-      .where(and(eq(usageLedger.businessId, businessId), eq(usageLedger.sessionId, sessionId), eq(usageLedger.kind, "tokens"), eq(usageLedger.currency, CREDITS_CURRENCY)));
+      // Only the session's own rows (the Agent SDK's, booked as it ran): rows another service books under the session id
+      // (the gateway's reader, a web search) are not in the SDK's totals, so they must not shrink its final booking (WP-09 T3).
+      .where(and(eq(usageLedger.businessId, businessId), eq(usageLedger.sessionId, sessionId), eq(usageLedger.kind, "tokens"), eq(usageLedger.currency, CREDITS_CURRENCY), sql`${usageLedger.details}->>'source' = 'claude-agent-sdk'`));
     return { costMinor: Number(row?.cost ?? 0), quantity: Number(row?.quantity ?? 0) };
   },
 
@@ -305,15 +331,68 @@ export const usageRepo = {
   },
 
   /**
-   * The period's balance row, created with the tier's included credits (`includedCreditsMinor`, packages/config) when
-   * the period has none yet: at commit, and on the first charge of every month. `created` is true only for the call
-   * that inserted it; an existing row (a top-up came first) is returned untouched.
+   * Records a paid top-up as a lot (0098): `amountMinor` bought at `purchasedAt`, live for 12 months. The caller grants
+   * the same amount to the month's balance (`grantCredits`) in the same transaction; a checkout makes one lot only.
    */
-  async ensurePeriodCredits(db: Executor, businessId: string, period: string, includedMinor: number): Promise<{ balance: CreditBalance; created: boolean }> {
+  async addCreditLot(db: Executor, businessId: string, input: { amountMinor: number; purchasedAt: Date; checkoutId?: string | null }): Promise<CreditLot> {
+    const v = parseInput(z.object({ amountMinor: MinorAmount.positive() }), { amountMinor: input.amountMinor }, "credit lot");
+    return one(
+      await db
+        .insert(creditLots)
+        .values({ businessId, checkoutId: input.checkoutId ?? null, amountMinor: v.amountMinor, remainingMinor: v.amountMinor, currency: CREDITS_CURRENCY, purchasedAt: input.purchasedAt, expiresAt: creditLotExpiry(input.purchasedAt) })
+        .returning(),
+      "credit lot",
+    );
+  },
+
+  /** The bought credit still live for a business (what a new month carries over), in cents. */
+  async liveLotCredits(db: Executor, businessId: string, now = new Date()): Promise<number> {
+    const [row] = await db
+      .select({ total: sql<string>`coalesce(sum(${creditLots.remainingMinor}), 0)` })
+      .from(creditLots)
+      .where(and(eq(creditLots.businessId, businessId), sql`${creditLots.remainingMinor} > 0`, sql`${creditLots.expiresAt} > ${now}`));
+    return Number(row?.total ?? 0);
+  },
+
+  /** A business's lots, newest first (Billing shows what is left of each purchase and when it expires). */
+  async creditLots(db: Executor, businessId: string): Promise<CreditLot[]> {
+    return db.select().from(creditLots).where(eq(creditLots.businessId, businessId)).orderBy(desc(creditLots.purchasedAt));
+  },
+
+  /**
+   * Takes what is left of every expired lot out of the period's balance (never below zero) and empties those lots, in
+   * the caller's transaction. Returns how many cents expired. `chargeCreditsMicro` runs it with the period row locked.
+   */
+  async expireCreditLots(tx: Executor, businessId: string, period: string, now = new Date()): Promise<number> {
+    const expired = await tx
+      .select({ id: creditLots.id, remaining: creditLots.remainingMinor })
+      .from(creditLots)
+      .where(and(eq(creditLots.businessId, businessId), sql`${creditLots.remainingMinor} > 0`, sql`${creditLots.expiresAt} <= ${now}`))
+      .for("update");
+    if (expired.length === 0) return 0;
+    const total = expired.reduce((sum, l) => sum + Number(l.remaining), 0);
+    await tx.update(creditLots).set({ remainingMinor: 0, updatedAt: now }).where(inArray(creditLots.id, expired.map((l) => l.id)));
+    await tx
+      .update(creditBalances)
+      .set({ balanceMinor: sql`greatest(0, ${creditBalances.balanceMinor} - ${total})` })
+      .where(and(eq(creditBalances.businessId, businessId), eq(creditBalances.period, period)));
+    return total;
+  },
+
+  /**
+   * The period's balance row, created with the tier's included credits (`includedCreditsMinor`, packages/config) when
+   * the period has none yet: at commit, and on the first charge of every month, plus the bought credit still live from
+   * earlier months (0098: bought credits last 12 months). `created` is true only for the call that inserted it; an
+   * existing row (a top-up came first) is returned untouched.
+   */
+  async ensurePeriodCredits(db: Executor, businessId: string, period: string, includedMinor: number, now = new Date()): Promise<{ balance: CreditBalance; created: boolean }> {
     const v = parseInput(z.object({ period: Period, includedMinor: MinorAmount.nonnegative() }), { period, includedMinor }, "included credits");
+    // Bought credit still live carries over into the new month on top of its included credits (0098).
+    const carried = await usageRepo.liveLotCredits(db, businessId, now);
+    const opening = v.includedMinor + carried;
     const inserted = await db
       .insert(creditBalances)
-      .values({ businessId, period: v.period, balanceMinor: v.includedMinor, grantedMinor: v.includedMinor, spentMinor: 0, currency: CREDITS_CURRENCY })
+      .values({ businessId, period: v.period, balanceMinor: opening, grantedMinor: opening, spentMinor: 0, currency: CREDITS_CURRENCY })
       .onConflictDoNothing({ target: [creditBalances.businessId, creditBalances.period] })
       .returning();
     if (inserted[0]) return { balance: inserted[0], created: true };
@@ -377,10 +456,25 @@ export const usageRepo = {
         current = await lockRow();
       }
       if (!current) return null;
+      // Bought credit past its 12 months leaves the balance first (0098).
+      const now = new Date();
+      if (await usageRepo.expireCreditLots(tx, businessId, v.period, now)) current = (await lockRow())!;
       const carried = Number(current.carryMicroMinor ?? 0) + v.microMinor;
       const amountMinor = Math.floor(carried / MICRO_PER_MINOR);
       const balanceBefore = Number(current.balanceMinor);
       const balanceAfter = Math.max(0, balanceBefore - amountMinor);
+      // The month's included credits go first; what they cannot cover comes out of the lots, the one expiring first first.
+      if (balanceAfter < balanceBefore) {
+        const lots = await lockLiveLots(tx, businessId, now);
+        const lotTotal = lots.reduce((sum, l) => sum + Number(l.remainingMinor), 0);
+        let fromLots = Math.max(0, balanceBefore - balanceAfter - Math.max(0, balanceBefore - lotTotal));
+        for (const lot of lots) {
+          if (fromLots <= 0) break;
+          const take = Math.min(fromLots, Number(lot.remainingMinor));
+          await tx.update(creditLots).set({ remainingMinor: Number(lot.remainingMinor) - take, updatedAt: now }).where(eq(creditLots.id, lot.id));
+          fromLots -= take;
+        }
+      }
       const [row] = await tx
         .update(creditBalances)
         .set({ balanceMinor: balanceAfter, spentMinor: sql`${creditBalances.spentMinor} + ${amountMinor}`, carryMicroMinor: carried - amountMinor * MICRO_PER_MINOR })

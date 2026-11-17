@@ -3,7 +3,7 @@
  * `/u/<handle>`, signed out, from 390 px. The same component draws the edit screen's live preview at phone width, so
  * the person sees exactly what goes out. The same family as `ProjectPage`: dark like the product, a line along the top
  * (Foundmill's accent: a person has no brand colors of their own), the reading measure, a container query at
- * `--container-page-wide` so the preview lays it out as a phone does, and "Made with Foundmill" as the footer.
+ * `--container-page-wide` so the preview lays it out as a phone does,. It carries no mark of the product at all (founder, 2026-11-12): the mark belongs to what a person builds, a project's page on the free plan, never to the person.
  *
  * An initials avatar (no picture yet), the name as the headline, then the person's own headline, the place, one line
  * for what they are here for only when it is about people (`lookingForLine`; "Building on my own" shows nothing at
@@ -15,7 +15,6 @@
  */
 import { useId, type HTMLAttributes } from "react";
 import { ArrowUpRight, Handshake, MapPin } from "lucide-react";
-import { APP_NAME } from "@foundmill/config";
 import { lookingForLine, type PersonLookingFor } from "@foundmill/shared/person-profile";
 import { pageParagraphs } from "@foundmill/shared/project-page";
 import { cn } from "../../lib/cn";
@@ -49,8 +48,11 @@ export interface PersonPageProps extends Omit<HTMLAttributes<HTMLElement>, "chil
   place?: string | null;
   /** The person's public project pages. */
   projects?: readonly PersonPageProject[] | null;
-  /** Where "Made with Foundmill" goes. Default the site root. */
-  homeHref?: string;
+  /**
+   * The level of the page's title: 1 on its own route (default); 3 when the page is shown inside another page as an
+   * example (the landing page), so that page keeps one h1. Its section labels follow one level below.
+   */
+  titleLevel?: 1 | 3;
   /** "page" fills the window (the public route); "preview" sits inside a frame (the edit screen). */
   variant?: "page" | "preview";
 }
@@ -62,12 +64,13 @@ export const PERSON_PAGE_WORDS = {
   wantsToLearn: "Wants to learn",
   projects: "Projects",
   place: "Based in",
-  madeWith: `Made with ${APP_NAME}`,
 } as const;
 
 const clean = (tags: readonly string[] | null | undefined): string[] => (tags ?? []).map((t) => t.trim()).filter(Boolean);
 
-export function PersonPage({ name, headline, about, strengths, wantsToLearn, lookingFor, place, projects, homeHref = "/", variant = "page", className, ...rest }: PersonPageProps) {
+export function PersonPage({ name, headline, about, strengths, wantsToLearn, lookingFor, place, projects, titleLevel = 1, variant = "page", className, ...rest }: PersonPageProps) {
+  const Title = titleLevel === 1 ? "h1" : "h3";
+  const Sub = titleLevel === 1 ? "h2" : "h4";
   const paragraphs = pageParagraphs(about ?? "");
   const good = clean(strengths);
   const learn = clean(wantsToLearn);
@@ -78,17 +81,20 @@ export function PersonPage({ name, headline, about, strengths, wantsToLearn, loo
   const goodId = useId();
   const learnId = useId();
   const projectsId = useId();
+  // A full page is the document's one main landmark; a preview sits inside the console's own <main>, as an article.
+  const Root = variant === "page" ? "div" : "article";
+  const Body = variant === "page" ? "main" : "div";
   return (
-    <article data-person-page="" data-variant={variant} className={cn("@container relative flex flex-col bg-canvas text-primary", variant === "page" ? "min-h-dvh" : "min-h-full", className)} {...rest}>
+    <Root data-person-page="" data-variant={variant} className={cn("@container relative flex flex-col bg-canvas text-primary", variant === "page" ? "min-h-dvh" : "min-h-full", className)} {...rest}>
       {/* The line along the top, as on a project's page; a person has no brand colors, so it is the product's accent. */}
       <div aria-hidden className="h-1 w-full shrink-0 bg-accent" data-brand-line="" />
-      <div className="mx-auto flex w-full max-w-reading min-w-0 flex-1 flex-col gap-8 px-gutter py-10 @page-wide:gap-10 @page-wide:py-16">
+      <Body className="mx-auto flex w-full max-w-reading min-w-0 flex-1 flex-col gap-8 px-gutter py-10 @page-wide:gap-10 @page-wide:py-16">
         <header className="flex min-w-0 flex-col gap-4">
           <AvatarBase name={name} size={64} ring="none" className="self-start" data-person-avatar="" />
           <div className="flex min-w-0 flex-col gap-2">
-            <h1 className="t-display-lg min-w-0 text-balance break-words text-primary @page-wide:t-display-xl" data-person-name="">
+            <Title className="t-display-lg min-w-0 text-balance break-words text-primary @page-wide:t-display-xl" data-person-name="">
               {name}
-            </h1>
+            </Title>
             {sub ? (
               <p className="t-reading min-w-0 text-balance break-words text-secondary" data-person-headline="">
                 {sub}
@@ -124,9 +130,9 @@ export function PersonPage({ name, headline, about, strengths, wantsToLearn, loo
 
         {good.length ? (
           <section aria-labelledby={goodId} className="flex min-w-0 flex-col gap-2.5" data-person-strengths="">
-            <h2 id={goodId} className="t-label text-secondary">
+            <Sub id={goodId} className="t-label text-secondary">
               {PERSON_PAGE_WORDS.strengths}
-            </h2>
+            </Sub>
             <ul className="flex flex-wrap gap-1.5">
               {good.map((t) => (
                 <li key={t} className="flex max-w-full">
@@ -139,9 +145,9 @@ export function PersonPage({ name, headline, about, strengths, wantsToLearn, loo
 
         {learn.length ? (
           <section aria-labelledby={learnId} className="flex min-w-0 flex-col gap-2.5" data-person-wants-to-learn="">
-            <h2 id={learnId} className="t-label text-secondary">
+            <Sub id={learnId} className="t-label text-secondary">
               {PERSON_PAGE_WORDS.wantsToLearn}
-            </h2>
+            </Sub>
             <ul className="flex flex-wrap gap-1.5">
               {learn.map((t) => (
                 <li key={t} className="flex max-w-full">
@@ -154,9 +160,9 @@ export function PersonPage({ name, headline, about, strengths, wantsToLearn, loo
 
         {list.length ? (
           <section aria-labelledby={projectsId} className="flex min-w-0 flex-col gap-2.5" data-person-projects="">
-            <h2 id={projectsId} className="t-label text-secondary">
+            <Sub id={projectsId} className="t-label text-secondary">
               {PERSON_PAGE_WORDS.projects}
-            </h2>
+            </Sub>
             <ul className="flex flex-col gap-2">
               {list.map((p) => (
                 <li key={p.slug}>
@@ -176,14 +182,7 @@ export function PersonPage({ name, headline, about, strengths, wantsToLearn, loo
             </ul>
           </section>
         ) : null}
-      </div>
-      <footer className="border-t border-line">
-        <div className="mx-auto flex w-full max-w-reading px-gutter">
-          <a href={homeHref} className="t-action inline-flex min-h-tap items-center rounded-sm text-secondary transition-colors duration-hover hover:text-primary focus-ring" data-person-made-with="">
-            {PERSON_PAGE_WORDS.madeWith}
-          </a>
-        </div>
-      </footer>
-    </article>
+      </Body>
+    </Root>
   );
 }

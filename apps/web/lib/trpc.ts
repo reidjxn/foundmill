@@ -238,6 +238,24 @@ export function notInvitedReason(err: unknown): "not_listed" | "email_unconfirme
   return details?.reason === "email_unconfirmed" ? "email_unconfirmed" : "not_listed";
 }
 
+/**
+ * Whether the waitlist really emails a person here (the API's `details.waitlistEmails` on `not_invited` and
+ * `on_waitlist`: WAITLIST_EMAILS on and platform mail live). False when absent, so the saved line never promises an
+ * email the API did not vouch for.
+ */
+export function waitlistEmails(err: unknown): boolean {
+  const details = err instanceof TRPCClientError ? (err.data as { details?: { waitlistEmails?: unknown } } | undefined)?.details : undefined;
+  return details?.waitlistEmails === true;
+}
+
+/**
+ * Signed in, and the admission did not let the person in today (the API's `on_waitlist`, services/access.ts: open
+ * sign-up's daily ceiling). A refusal of its own, never `not_invited`.
+ */
+export function isOnWaitlist(err: unknown): boolean {
+  return appErrorCode(err) === "on_waitlist";
+}
+
 /** What a refused TOO_MANY_REQUESTS says when the API sent no sentence of its own. */
 export const RATE_LIMITED_MESSAGE = "That's a lot of requests in a short time. Wait a minute, then try again.";
 
@@ -263,8 +281,8 @@ export function forbiddenMessage(message: string): string {
   if (write && !/, and this plan would/.test(message)) return `You can read ${sectionWord(write[1]!)} but not change it. Ask an owner or admin for write access.`;
   const role = /^Your role \((\w+)\) cannot perform (.+)$/.exec(message);
   if (role) {
-    if (role[2] === "administration") return "Only an owner or admin can do this.";
-    if (role[2] === "owner actions") return "Only the owner can do this.";
+    if (role[2] === "administration") return "Only an owner, a cofounder or an admin can do this.";
+    if (role[2] === "owner actions") return "Only an owner or a cofounder can do this.";
     if (role[1] === "viewer" || role[1] === "advisor") return `As ${role[1] === "advisor" ? "an advisor" : "a viewer"} you can follow this business, but not change it.`;
   }
   return message;

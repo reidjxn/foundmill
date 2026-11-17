@@ -293,6 +293,29 @@ export const FOLLOW_SOURCE_LABEL = "Public page";
 export const FOLLOW_CONSENT_PURPOSE = "email";
 /** Longest address the form takes: the CRM's name limit (a follower's address is its identifier and, masked, its name). */
 export const FOLLOW_EMAIL_MAX = 200;
+/**
+ * The mark a free project's visitors meet (docs/NETWORK.md F2; founder, 2026-11-12): small and unobtrusive, placed on
+ * the visitor's path (the page's foot, the line after a follow, the foot of the confirmation email and page, a corner
+ * of the share image) and kept off the founder's. `appName` is APP_NAME. A paid plan shows none of it
+ * (`tierShowsBuiltOnMark` in @foundmill/config).
+ */
+export function builtOnWords(appName: string) {
+  return {
+    /** The mark itself: "Built on Foundmill". */
+    mark: `Built on ${appName}`,
+    /** Under "Check your email to confirm", for the visitor who just followed. */
+    afterFollow: (name: string) => `${oneLine(name)} is built on ${appName}.`,
+    /** The link after that sentence. */
+    afterFollowLink: "Start your own",
+    /** The same link once the project shows a story (`/p/<slug>/story`): it goes there instead (docs/NETWORK.md F2). */
+    afterFollowStoryLink: "See how it was made",
+    /** The foot of the confirmation email and of the page its link opens. */
+    foot: (name: string) => `${oneLine(name)} is built on ${appName}.`,
+    /** Beside the console's preview, for the founders of a project on the free plan. */
+    previewNote: "The small line at the foot is removed on a paid plan.",
+  } as const;
+}
+
 /** How long the link in the confirmation email works. */
 export const FOLLOW_CONFIRM_TTL_MS = 7 * 24 * 60 * 60_000;
 
@@ -313,8 +336,28 @@ export function followWords(name: string) {
     done: `Check your email to confirm. ${n} will only write to you after you do.`,
     /** The label of the hidden field people never see (programs that fill in every field fill it in). */
     trap: "Leave this empty",
+    /**
+     * The bot check's disclosure under the button, on every plan (a legal disclosure, not the "Built on" mark): the
+     * line, then "(privacy)" linking Cloudflare's Turnstile Privacy Addendum (`TURNSTILE_PRIVACY_URL`).
+     */
+    botCheck: "Protected by Cloudflare Turnstile",
+    botCheckLink: "privacy",
+    botCheckLinkLabel: "Cloudflare Turnstile privacy policy (opens in a new tab)",
+    /** The link to what happens to a follower's address (`FOLLOW_PRIVACY_HREF`), above the bot check's line. */
+    privacyLink: "How your email is used",
+    privacyLinkLabel: "How your email is used, in the Privacy Policy (opens in a new tab)",
   } as const;
 }
+
+/**
+ * The Privacy Policy's section on following a project (apps/web `content/legal/privacy.ts`, section `following`). The
+ * form links it so a visitor can read what happens to their address before they leave it; apps/web's
+ * `legal-content.test.ts` fails if the section is renamed or the policy moves.
+ */
+export const FOLLOW_PRIVACY_HREF = "/privacy#following";
+
+/** Cloudflare's Turnstile Privacy Addendum, which a site using Turnstile in Invisible mode must link. */
+export const TURNSTILE_PRIVACY_URL = "https://www.cloudflare.com/turnstile-privacy-policy/";
 
 /** Why a signup did not go through, in the visitor's words. */
 export const FOLLOW_ERRORS = {
@@ -323,7 +366,13 @@ export const FOLLOW_ERRORS = {
   busy: "A lot of people are signing up right now. Try again in a few minutes.",
   closed: "This project is not taking new followers right now.",
   failed: "That did not go through, so you are not following yet. Try again in a moment.",
+  /** The bot check (Turnstile) did not pass, or could not run in this browser (no JavaScript). */
+  unverified: "We could not check this browser, so you are not following yet. Reload the page and try again.",
+  /** The bot check could not be reached: nothing is recorded or sent until it can be. */
+  unavailable: "Following is paused for a moment, so you are not following yet. Try again in a few minutes.",
 } as const;
+/** The action the page's Turnstile widget runs with; the gateway checks Cloudflare reports the same. */
+export const FOLLOW_TURNSTILE_ACTION = "page_follow";
 export type FollowErrorKind = keyof typeof FOLLOW_ERRORS;
 
 const EMAIL_SHAPE = /^[^\s@<>()[\]\\,;:"]+@[^\s@<>()[\]\\,;:"]+\.[^\s@<>()[\]\\,;:"]{2,}$/;
@@ -352,15 +401,15 @@ export const FOLLOW_PENDING_LINE = "Not confirmed yet";
 /**
  * The name a new follower's contact gets: "Follower" and the address masked ("Follower (ma***@example.com)"), so the
  * whole address lives only in the contact's identifier and never in a name that agents and screens repeat. At most 200
- * characters (the CRM's name limit).
+ * characters (the CRM's name limit). `label` names someone who is not a follower (a reply's sender: "Contact").
  */
-export function followerDisplayName(email: string): string {
+export function followerDisplayName(email: string, label = "Follower"): string {
   const e = email.trim().toLowerCase();
   const at = e.lastIndexOf("@");
-  if (at <= 0) return "Follower";
+  if (at <= 0) return label;
   const local = e.slice(0, at);
   const shown = local.length <= 2 ? local.slice(0, 1) : local.slice(0, 2);
-  const name = `Follower (${shown}***@${e.slice(at + 1)})`;
+  const name = `${label} (${shown}***@${e.slice(at + 1)})`;
   return name.length <= 200 ? name : `${name.slice(0, 198)}…)`;
 }
 
@@ -370,9 +419,11 @@ export function followerDisplayName(email: string): string {
  */
 export const FOLLOW_CONFIRM_EMAIL = {
   subject: (name: string) => `Confirm that you want to follow ${oneLine(name)}`,
-  text: (name: string, appName: string, link: string) => {
+  /** `foot` is the "Built on" line for a project on the free plan (`builtOnWords().foot`): words only, never a second link. */
+  text: (name: string, appName: string, link: string, foot?: string | null) => {
     const n = oneLine(name);
-    return `Someone, hopefully you, asked to follow ${n} on ${appName} with this address. Confirm to get email from ${n} about this project:\n\n${link}\n\nIf it was not you, ignore this email and nothing will happen.`;
+    const body = `Someone, hopefully you, asked to follow ${n} on ${appName} with this address. Confirm to get email from ${n} about this project:\n\n${link}\n\nIf it was not you, ignore this email and nothing will happen.`;
+    return foot ? `${body}\n\n${oneLine(foot)}` : body;
   },
 } as const;
 

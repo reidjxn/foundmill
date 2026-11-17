@@ -42,7 +42,27 @@ const hex = (name: string) => {
   expect(v, `${name} resolves to a hex colour`).toMatch(/^#[0-9a-f]{6}$/i);
   return v;
 };
+/** WCAG compositing in sRGB: `fg` at `alpha` over the opaque `bg` (both hex). An Estimate of the browser's oklab mix, within about ±0.1 : 1. */
+function blend(fg: string, bg: string, alpha: number): string {
+  const ch = (h: string, i: number) => Number.parseInt(h.slice(1 + i * 2, 3 + i * 2), 16);
+  return `#${[0, 1, 2].map((i) => Math.round(ch(fg, i) * alpha + ch(bg, i) * (1 - alpha)).toString(16).padStart(2, "0")).join("")}`;
+}
+/** A `rgba(255, 255, 255, a)` token's alpha. */
+const whiteAlpha = (name: string) => {
+  const m = /^rgba\(255, 255, 255, ([0-9.]+)\)$/.exec(resolve(name));
+  expect(m, `${name} is white at an alpha`).not.toBeNull();
+  return Number(m![1]);
+};
 const ms = (name: string) => Number(/^(\d+(?:\.\d+)?)ms$/.exec(resolve(name))?.[1]);
+
+describe("daylight: the landing page's light zone meets the same floor (DESIGN §9a)", () => {
+  it.each(["--day-ink", "--day-ink-2", "--day-ink-3", "--day-accent", "--day-good", "--day-warn", "--day-bad"])("%s reaches 4.5 : 1 on the day canvas and the white field", (text) => {
+    for (const s of ["--day-canvas", "--day-surface-1"]) expect(contrastRatio(hex(text), hex(s)), `${text} on ${s}`).toBeGreaterThanOrEqual(4.5);
+  });
+  it("white reads on the brand's blue field at every stop of the descent", () => {
+    for (const s of ["--kit-primary", "--kit-lo", "--kit-deep"]) expect(contrastRatio("#ffffff", hex(s)), `white on ${s}`).toBeGreaterThanOrEqual(4.5);
+  });
+});
 
 describe("text ramp: WCAG AA is the floor (DIRECTION #1)", () => {
   const surfaces = ["--canvas", "--rail", "--surface-1", "--surface-2", "--surface-3", "--surface-4", "--ink"];
@@ -67,16 +87,50 @@ describe("status colours as text (UX plan D5)", () => {
   it.each(["--status-good", "--status-warn", "--status-bad", "--status-info"])("%s reaches 4.5 : 1 on surface-3 and surface-4", (status) => {
     for (const s of ["--surface-3", "--surface-4"]) expect(contrastRatio(hex(status), hex(s)), `${status} on ${s}`).toBeGreaterThanOrEqual(4.5);
   });
+  it("bad and info reach 4.5 : 1 as a pill's word on their own 12 % fill over surfaces 1 to 4 (WP-10 T5)", () => {
+    for (const status of ["--status-bad", "--status-info"]) {
+      for (const s of ["--surface-1", "--surface-2", "--surface-3", "--surface-4"]) {
+        expect(contrastRatio(hex(status), blend(hex(status), hex(s), 0.12)), `${status} on its fill over ${s}`).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+  it("rating-1 follows status-bad: one red", () => {
+    expect(tokens.get("--rating-1")).toBe("var(--status-bad)");
+  });
   it("documents the lifted values", () => {
-    expect(hex("--status-bad").toLowerCase()).toBe("#f36066");
-    expect(hex("--status-info").toLowerCase()).toBe("#5e8eff");
+    expect(hex("--status-bad").toLowerCase()).toBe("#f57a7f");
+    expect(hex("--status-info").toLowerCase()).toBe("#7ba1ff");
     // Lifted by the smallest step, not restyled: still within a hair of the old hues on the canvas.
     expect(contrastRatio(hex("--status-bad"), hex("--canvas"))).toBeGreaterThan(6);
     expect(contrastRatio(hex("--status-info"), hex("--canvas"))).toBeGreaterThan(6);
   });
 });
 
+describe("non-text contrast: a control's edge (WCAG 1.4.11, WP-10 T5)", () => {
+  it("line-control reaches 3 : 1 on the canvas and surfaces 1 to 3", () => {
+    const a = whiteAlpha("--line-control");
+    for (const s of ["--canvas", "--surface-1", "--surface-2", "--surface-3"]) expect(contrastRatio(blend("#ffffff", hex(s), a), hex(s)), `line-control on ${s}`).toBeGreaterThanOrEqual(3);
+    expect(whiteAlpha("--line-control-hover")).toBeGreaterThan(a);
+  });
+  it("edges fields, checkboxes, radios and switches with line-control", () => {
+    const controlsCss = readFileSync(join(__dirname, "controls.css"), "utf8");
+    for (const name of ["field-well", "check-box", "radio-dot", "switch-track"]) {
+      const body = new RegExp(`@utility ${name} \\{([\\s\\S]*?)\\n\\}`).exec(controlsCss)?.[1] ?? "";
+      expect(body, name).toContain("var(--line-control)");
+      expect(body, name).toContain("var(--line-control-hover)");
+    }
+  });
+  it("draws the focus ring 2 px at 80 % with a 5 px halo", () => {
+    expect(resolve("--ring")).toBe("0 0 0 2px rgba(124, 196, 255, 0.8), 0 0 0 5px rgba(124, 196, 255, 0.18)");
+  });
+});
+
 describe("type scale and text size (UX plan §9)", () => {
+  it("reads at 16/26 with no tracking (WP-10 T5)", () => {
+    expect(resolve("--fs-reading")).toBe("16px");
+    expect(resolve("--lh-reading")).toBe("26px");
+    expect(resolve("--ls-reading")).toBe("0em");
+  });
   it("keeps the data label at the 11 px floor on its 14 px line (DESIGN §2: nothing below 11 but kbd glyphs)", () => {
     expect(resolve("--fs-data")).toBe("11px");
     expect(resolve("--lh-data")).toBe("14px");
@@ -198,6 +252,34 @@ describe("dugout.css", () => {
     const code = dugoutCss.replace(/\/\*[\s\S]*?\*\//g, "");
     expect(code).not.toMatch(/#[0-9a-f]{3,8}\b/i);
     expect(code).not.toMatch(/rgba?\(/);
+  });
+  it("a focused field and the forced-colors block keep focus and edges visible in Windows High Contrast (WP-10 T7)", () => {
+    const controlsCss = readFileSync(join(__dirname, "controls.css"), "utf8");
+    const well = /@utility field-well \{([\s\S]*?)\n\}/.exec(controlsCss)?.[1] ?? "";
+    expect(well).toMatch(/&:focus-within \{\s*outline: 2px solid transparent;/);
+    expect(dugoutCss).toMatch(/@media \(forced-colors: active\) \{[\s\S]*?\.surface-panel[\s\S]*?border: 1px solid CanvasText;/);
+    expect(utility("hit-target")).toContain("var(--target-size)");
+  });
+  it("keeps a transparent outline under the focus rings, so forced-colors mode draws them (WP-10 T5)", () => {
+    for (const name of ["focus-ring", "focus-within-ring"]) {
+      expect(utility(name), name).toContain("outline: 2px solid transparent");
+      expect(utility(name), name).toContain("outline-offset: 2px");
+      expect(utility(name), name).not.toContain("outline: none");
+    }
+  });
+  it("type-outer declares the seven outer sizes (WP-10 T5; DESIGN §4 Outer type)", () => {
+    const css = utility("type-outer");
+    const want: Record<string, string> = {
+      "--fs-body": "16px", "--lh-body": "24px", "--fs-small": "14px", "--lh-small": "20px", "--fs-reading": "17px", "--lh-reading": "28px", "--ls-reading": "0em",
+      "--fs-label": "14px", "--lh-label": "20px", "--fs-action": "15px", "--lh-action": "20px", "--fs-title": "16px", "--lh-title": "22px", "--fs-chat": "16px", "--lh-chat": "24px",
+    };
+    const got = declarations(css);
+    for (const [k, v] of Object.entries(want)) expect(got.get(k), k).toBe(v);
+  });
+  it("draws a pressed tinted chip's word in text-1", () => {
+    const controlsCss = readFileSync(join(__dirname, "controls.css"), "utf8");
+    const body = /@utility chip-tone \{([\s\S]*?)\n\}/.exec(controlsCss)?.[1] ?? "";
+    expect(body).toMatch(/&\[aria-pressed="true"\] \{\s*color: var\(--text-1\);/);
   });
   it("sets sentence case on actions, tabs and labels, and caps only on the data label", () => {
     for (const name of ["t-tab", "t-tab-sm", "t-label", "t-action", "t-action-sm", "t-title"]) expect(utility(name), name).not.toContain("uppercase");

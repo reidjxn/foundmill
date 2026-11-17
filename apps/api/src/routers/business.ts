@@ -12,6 +12,7 @@ import { z } from "zod";
 import { areaWordsFor } from "../services/area-words";
 import { autopilotStatus, ensureAutopilot, setAutopilot } from "../services/autopilot";
 import { pauseCycle, resumeCycle, startCycle } from "../services/cycle";
+import { afterPeopleChange } from "../services/showcase";
 import { assertAgentsRunning, resumeAgents, stopAllAgents } from "../services/killswitch";
 import { requireAdultToGoLive } from "../services/live";
 import { archiveBusiness, cancelDeletion, deletionState, exportBusiness, requestDeletion, restoreBusiness } from "../services/lifecycle";
@@ -230,11 +231,12 @@ export const businessRouter = router({
      * the same business is never touched; `left: false` when there was none). Audited on the business when a row went.
      */
     leave: protectedProcedure.input(z.object({ businessId: Id })).mutation(({ ctx, input }) =>
-      ctx.db.transaction(async (tx) => {
+      // Anyone leaving a business: a showcase ask about it is checked again (review finding 8; services/showcase.ts).
+      afterPeopleChange({ ...ctx, businessId: input.businessId }, ctx.db.transaction(async (tx) => {
         const gone = await repos.memberships.leaveExample(tx, input.businessId, ctx.userId);
         if (gone) await audit(tx, { businessId: input.businessId, userId: ctx.userId }, { action: "business.example.leave", target: { kind: "membership", id: gone.id }, details: { businessId: input.businessId } });
         return { businessId: input.businessId, left: gone !== null };
-      }),
+      })),
     ),
   }),
 
@@ -275,6 +277,8 @@ export const businessRouter = router({
       productStage: signoffs.stage,
       signoffs: { spec: signoffs.spec, roadmap: signoffs.roadmap },
       distributionStartedAt: ctx.business.distributionStartedAt,
+      /** Where the team's code goes (WP-02 T5): "github" with a repository and pushing on, else "none". */
+      buildDestination: signoffs.destination,
       /**
        * Whether the orchestrator, the service that runs the team's work, can be reached from this api right now (null:
        * not known yet). The shell and Development › Plan say so before a press, instead of a Continue that writes one
@@ -423,11 +427,11 @@ export const businessRouter = router({
     .input(
       z.object({
         until: HolidayUntil,
-        authority: z.array(z.enum(DECISION_TYPES)).default(DECISION_TYPES.filter((d) => d !== "sign_contracts")),
+        authority: z.array(z.enum(DECISION_TYPES)).max(DECISION_TYPES.length).default(DECISION_TYPES.filter((d) => d !== "sign_contracts")),
         budgetCeilingMinor: z.number().int().nonnegative().nullable().default(null),
         /** The ceiling's currency; absent: the business's own (0025). */
         currency: CurrencyCode.optional(),
-        wakeEvents: z.array(z.enum(EVENT_TYPES)).default(["credential.expiring", "filing.due", "runway.threshold_crossed"]),
+        wakeEvents: z.array(z.enum(EVENT_TYPES)).max(EVENT_TYPES.length).default(["credential.expiring", "filing.due", "runway.threshold_crossed"]),
       }),
     )
     .mutation(async ({ ctx, input }) => {

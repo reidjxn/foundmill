@@ -6,14 +6,15 @@
  * the key left the sidebar foot (docs/UX_AUDIT_AND_PLAN.md §7.7, B13), and this list is where it is found now.
  */
 import { useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Briefcase, Building2, CalendarClock, CreditCard, KeyRound, LayoutList, Plug, SlidersHorizontal, SpellCheck, Users, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Briefcase, CircleDot, Building2, CalendarClock, CreditCard, KeyRound, LayoutList, Plug, SlidersHorizontal, SpellCheck, Users, type LucideIcon } from "lucide-react";
 import { useCallback, type ReactNode } from "react";
-import { Chip, Icon, ShellLink } from "@foundmill/dugout";
+import { Chip, Icon, ShellLink, useBuilderView } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { SETTINGS_TABS, type SettingsTabSlug } from "@/lib/search";
 import { trpcPathPrefix } from "@/lib/trpc";
 import { useBusiness } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
+import { BasicsTab } from "./BasicsTab";
 import { BillingTab } from "./BillingTab";
 import { BusinessTab } from "./BusinessTab";
 import { DangerTab } from "./DangerTab";
@@ -27,6 +28,7 @@ import { TeamCanDoTab } from "./TeamCanDoTab";
 import { PreferencesTab } from "./PreferencesTab";
 
 const ICONS: Record<SettingsTabSlug, LucideIcon> = {
+  basics: CircleDot,
   business: Building2,
   mode: SlidersHorizontal,
   departments: LayoutList,
@@ -40,6 +42,7 @@ const ICONS: Record<SettingsTabSlug, LucideIcon> = {
 };
 
 const TABS: Record<SettingsTabSlug, () => ReactNode> = {
+  basics: () => <BasicsTab />,
   business: () => <BusinessTab />,
   mode: () => <TeamCanDoTab />,
   departments: () => <DepartmentsTab />,
@@ -77,20 +80,34 @@ function KeyStatusChip() {
 export function SettingsScreen({ tab }: { tab: SettingsTabSlug }) {
   const { businessId } = useBusiness();
   const label = SETTINGS_TABS.find((t) => t.slug === tab)?.label ?? "Settings";
-  useShellChrome({ title: `Settings · ${label}`, breadcrumbs: [{ label: "Settings", href: routes.settings(businessId, "business"), icon: Briefcase }, { label }] }, [label, businessId]);
+  const builder = useBuilderView();
+  // Settings opens on Basics with Builder view off and on Business with it on, as before (WP-10 T11).
+  const home: SettingsTabSlug = builder ? "business" : "basics";
+  useShellChrome({ title: `Settings · ${label}`, breadcrumbs: [{ label: "Settings", href: routes.settings(businessId, home), icon: Briefcase }, { label }] }, [label, businessId, home]);
   const Body = TABS[tab];
   return (
     <div className="settings-grid p-gutter" data-testid="settings-screen" data-tab={tab}>
       <nav aria-label="Settings sections" className="surface-panel flex flex-col gap-0.5 self-start py-1.5">
         {SETTINGS_TABS.map((t) => {
           const active = t.slug === tab;
-          return (
+          const link = (
             <ShellLink key={t.slug} href={routes.settings(businessId, t.slug)} aria-current={active ? "page" : undefined} data-active={active || undefined} className={`sidebar-item hover:no-underline ${t.slug === "danger" ? "mt-1.5" : ""}`}>
               <Icon icon={ICONS[t.slug]} size="default" data-sidebar-icon="" className={t.slug === "danger" ? "text-status-bad" : undefined} />
               {t.label}
               {t.slug === "keys" ? <KeyStatusChip /> : null}
             </ShellLink>
           );
+          // The rest follow under one label, after Basics.
+          if (t.slug === "basics")
+            return (
+              <div key="basics-group" className="contents">
+                {link}
+                <span className="t-data px-3 pb-0.5 pt-2" data-settings-group="">
+                  Everything else
+                </span>
+              </div>
+            );
+          return link;
         })}
       </nav>
       <div className="flex min-w-0 flex-col gap-gutter">{Body()}</div>

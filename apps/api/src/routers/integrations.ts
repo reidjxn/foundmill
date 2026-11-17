@@ -4,11 +4,13 @@
  * needs one. A connector that runs live is connected and checked by the gateway (SEC-14), which holds the vendors' keys
  * and seals any secret the vendor hands back; the api never sees it. A mock one answers here.
  */
+import { INPUT_LIMITS } from "@foundmill/config";
 import { isServiceOnlyConnector, type HealthResult } from "@foundmill/connectors";
 import { repos, type Executor } from "@foundmill/db";
-import { AppError, connectorMode, ForbiddenError, platformMailAddress, platformMailDomain, platformMailLive } from "@foundmill/shared";
+import { AppError, boundedRecord, connectorMode, ForbiddenError, mockResultsAllowed, platformMailAddress, platformMailDomain, platformMailLive } from "@foundmill/shared";
 import { z } from "zod";
 import type { GatewayConnectResult } from "../services/gateway";
+import { clearPostalAddress, isProjectFounder, postalAddressOf, setPostalAddress } from "../services/postal-address";
 import { oauthRedirectUri, signConnectState, signInstallState, verifyConnectState, verifyInstallState } from "../services/install-state";
 import { ANTHROPIC, revokeAnthropicKey, storeAnthropicKey, validateAnthropicKey } from "../services/keys";
 import { Id, audit, router, sectionAdmin, sectionRead } from "../trpc";
@@ -42,7 +44,11 @@ export const integrationsRouter = router({
       return {
         mode: ctx.env.INTEGRATIONS_MODE,
         integrations: rows,
-        catalogue: catalogue.map((c) => ({ ...c, live: connectorMode(ctx.env, c.key) === "live", integration: rows.find((r) => r.connectorKey === c.key) ?? null })),
+        catalogue: catalogue.map((c) => {
+          const live = connectorMode(ctx.env, c.key) === "live";
+          // Whether it can be connected here: live, or a mock where simulated results are allowed (WP-02 T3).
+          return { ...c, live, available: live || mockResultsAllowed(ctx.env.APP_ENV, ctx.business.isDemo), integration: rows.find((r) => r.connectorKey === c.key) ?? null };
+        }),
       };
     }),
   ),
@@ -52,6 +58,8 @@ export const integrationsRouter = router({
    * sending domain (no row is shown). The address is chosen here on first view if no send chose it yet (service
    * connection: no app role writes `project_mail`), then kept. `sentToday` counts `mail.sent` since midnight UTC, the
    * window the gateway's cap uses; `cap` is the operator's override for this project, else the deployment's default.
+   * `postalAddress` is the founders' own (0101, US CAN-SPAM), read under RLS: null for a collaborator, who sees only
+   * whether one is needed (`canEditPostalAddress` false).
    */
   platformMail: read.query(async ({ ctx }) => {
     const domain = platformMailDomain(ctx.env);
@@ -59,18 +67,28 @@ export const integrationsRouter = router({
     const row = await repos.projectMail.ensure(ctx.db, ctx.businessId);
     const now = new Date();
     const since = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-    const { counts, own } = await ctx.rls(async (tx) => ({ counts: await repos.events.countByType(tx, ctx.businessId, { from: since }), own: await repos.integrations.getByKey(tx, ctx.businessId, "sendgrid") }));
+    const { counts, owns } = await ctx.rls(async (tx) => ({ counts: await repos.events.countByType(tx, ctx.businessId, { from: since }), owns: [await repos.integrations.getByKey(tx, ctx.businessId, "sendgrid"), await repos.integrations.getByKey(tx, ctx.businessId, "resend")] }));
+    const postalAddress = await postalAddressOf(ctx);
     return {
       address: platformMailAddress(row.localPart, domain),
       sentToday: counts["mail.sent"] ?? 0,
       cap: row.dailyCap ?? ctx.env.PLATFORM_MAIL_DAILY_CAP,
       paused: row.status !== "active",
       live: platformMailLive(ctx.env),
-      ownSender: own !== null && own.archivedAt === null && (own.status === "connected" || own.status === "degraded"),
+      // The founder's own sender, SendGrid or Resend: the gateway sends from it and the project's address steps aside.
+      ownSender: owns.some((own) => own !== null && own.archivedAt === null && (own.status === "connected" || (own.status === "degraded" && own.connectorKey !== "resend"))),
+      postalAddress,
+      canEditPostalAddress: isProjectFounder(ctx),
     };
   }),
 
-  connect: admin.input(z.object({ connectorKey: z.string().min(1).max(60), input: z.record(z.string(), z.unknown()).default({}) })).mutation(async ({ ctx, input }) => {
+  /** The founders enter or change the project's postal address for marketing email (US CAN-SPAM); answers the open note. */
+  setPostalAddress: admin.input(z.object({ address: z.string().max(1_000) })).mutation(({ ctx, input }) => setPostalAddress(ctx, input.address)),
+
+  /** The founders remove it: marketing email from the project's address waits again until one is entered. */
+  clearPostalAddress: admin.mutation(({ ctx }) => clearPostalAddress(ctx)),
+
+  connect: admin.input(z.object({ connectorKey: z.string().min(1).max(60), input: boundedRecord(INPUT_LIMITS.jsonObjectKeys, z.record(z.string(), z.unknown())).default({}) })).mutation(async ({ ctx, input }) => {
     const mode = connectorMode(ctx.env, input.connectorKey);
     if (!ctx.connectors.has(input.connectorKey)) throw new AppError("not_found", `Unknown connector ${input.connectorKey}`, 404);
     // The Anthropic key decides who pays for model calls and resumes a stopped team: it is stored only through
@@ -80,6 +98,8 @@ export const integrationsRouter = router({
     if (isServiceOnlyConnector(input.connectorKey)) throw new AppError("service_only_connector", "This connector is run by the platform itself and cannot be connected for a business.", 400, { connector: input.connectorKey });
     // Static metadata only (auth kind, OAuth flow): a live connector never runs in the api (SEC-14).
     const connector = ctx.connectors.get(input.connectorKey, mode);
+    // A mock connect on a person's project writes a row that looks connected and does nothing (audit a5 GTM-16).
+    if (mode === "mock" && !mockResultsAllowed(ctx.env.APP_ENV, ctx.business.isDemo)) throw new AppError("connector_not_live", `${connector.displayName} is not available yet. Nothing was connected.`, 409, { connector: input.connectorKey });
 
     let connected: GatewayConnectResult;
     if (mode === "live" && connector.auth.kind === "app") {

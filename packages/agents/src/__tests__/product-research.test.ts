@@ -17,6 +17,16 @@ import { productResearchPlanPrompt } from "../prompts/product-research";
 import { getArchetypeSeed } from "../archetypes";
 import { getTemplate, getTemplateByAgentType } from "../registry";
 import { ARCHETYPES } from "@foundmill/shared";
+import { agentParts, expectFollowsAgent } from "./agent-parts.fixtures";
+
+describe("buildResearchPlanRequest follows the business's Product Researcher (WP-06 T1)", () => {
+  it("with `agent`, its instructions and skills; without, the template as before", () => {
+    const template = getTemplate("product_researcher");
+    const inputs = researchInputs();
+    const withAgent = buildResearchPlanRequest({ ...inputs, agent: agentParts(template) }).system[0]!;
+    expectFollowsAgent(withAgent, buildResearchPlanRequest(inputs).system[0]!, template, inputs.businessName, false);
+  });
+});
 
 const wordsOf = (s: string) => s.split(/\s+/).filter(Boolean).length;
 
@@ -53,7 +63,8 @@ describe("the Product Researcher template (BUILD §11.10)", () => {
     expect(t.module).toBe("product");
     expect(t.taskKinds).toEqual(["research"]);
     for (const k of ["discovery_interviewing", "survey_design", "demo_scripting", "experiment_design", "evidence_synthesis"]) expect(t.skills).toContain(k);
-    expect(t.schedule?.triggers).toEqual(["spec.version_published", "task.completed", "pr.merged"]);
+    // Nothing runs a template schedule, so none is shown or stored (WP-08 T11).
+    expect(t.schedule).toBeUndefined();
     for (const a of ARCHETYPES) {
       const product = getArchetypeSeed(a).departments.find((d) => d.moduleKeys.includes("product"))!;
       expect(product.memberTemplateKeys, a).toContain("product_researcher");

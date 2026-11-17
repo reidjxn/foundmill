@@ -5,7 +5,7 @@
 import type { SessionCommand } from "../control-bus";
 import type { ProgressState } from "../progress";
 import type { FoundationsDraft } from "@foundmill/agents";
-import type { AgentStatus, BusinessMode, ModelKey, PlanActionType, PolicyOutcome, TaskKind, TaskStatus, ProductStage } from "@foundmill/shared";
+import type { AgentStatus, BusinessMode, ModelKey, ParkedTask, PlanActionType, PolicyOutcome, TaskKind, TaskStatus, ProductStage } from "@foundmill/shared";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Brief and cycle planning
@@ -168,6 +168,11 @@ export interface CyclePlan {
   costMinor: number;
   /** Nothing could start, so no model was called: the cycle posts one plain note instead of a narration. */
   idle?: boolean;
+  /**
+   * Tasks this plan stopped because no agent has a tool for them (`stopToollessTasks`), in the founder's words, for the
+   * round's note to say once (WP-05 T18, founder D1). An idle plan says it in its own summary instead.
+   */
+  parked?: ParkedTask[];
 }
 
 export type CycleTrigger = "continue" | "holiday" | "schedule" | "wake" | "autopilot";
@@ -219,6 +224,13 @@ export interface SessionLaunch {
   fellBackFrom: string | null;
   modelKey: ModelKey;
   modelId: string;
+  /** The business is not on a paid plan (WP-13): the session runs on Haiku 5.5 or GLM-5.3 Flash, and stays on it. */
+  freePlan?: boolean;
+  /**
+   * The credit saver moved this launch to its route's lower-cost model (`prepareSession`). Only such a launch is moved
+   * back up by a later run (`keptModelForRun`); a launch prepared before the field existed has none.
+   */
+  lowCredits?: boolean;
   /** Recording key replayed in mock mode. */
   recordingKey: string | null;
   /** `connector:tool` refs granted to the session token. */
@@ -239,7 +251,7 @@ export type SessionOutcome = "done" | "blocked" | "failed" | "stopped";
 export interface SessionResult {
   outcome: SessionOutcome;
   reason: string | null;
-  blockedReason: "awaiting_approval" | "approval_rejected" | "dependency" | "credential" | "budget" | "rate_limit" | "loop_detected" | "error" | "shout" | "stopped" | "needs_update" | null;
+  blockedReason: "awaiting_approval" | "approval_rejected" | "dependency" | "credential" | "budget" | "rate_limit" | "turn_limit" | "loop_detected" | "error" | "shout" | "stopped" | "needs_update" | "no_result" | "not_connected" | null;
   approvalId: string | null;
   progress: ProgressState;
   eventsEmitted: number;
@@ -270,6 +282,11 @@ export interface SessionResult {
    * (package.json scripts, a test runner config, a deleted test) compared with its checkout. Says why.
    */
   review?: string | null;
+  /**
+   * How many tool results of connectors outside the business were simulated in this run (`SessionRecorder.outside`);
+   * absent on results from before WP-05 T3's security review (read as 0). `task.completed.simulated` reads it.
+   */
+  simulatedResults?: number;
 }
 
 export interface SessionParked {
@@ -371,8 +388,13 @@ export type MergeAsked =
   | ({ status: "merged"; mergeCommitSha: string } & MergePullRequest)
   | ({ status: "held"; reason: string } & MergePullRequest);
 
-/** Why a merge was not made after the pull request existed. */
-export type MergeHoldReason = "conflicts" | "behind" | "checks_failed" | "checks_timeout" | "refused";
+/**
+ * Why a merge was not made after the pull request existed. `founder`: the founder said no with words, and the change
+ * goes back to its agent with them (the api hands it back at the answer, WP-05 T16; the wording is shared here).
+ * `review`: the second read asked for changes, and the change goes back to its author once before the founder is asked
+ * (WP-05 T17).
+ */
+export type MergeHoldReason = "conflicts" | "behind" | "checks_failed" | "checks_timeout" | "refused" | "founder" | "review";
 
 export type MergeOutcome =
   | ({ status: "merged"; mergeCommitSha: string } & MergePullRequest)

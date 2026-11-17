@@ -14,8 +14,8 @@ import { writeEventRow } from "./events";
 import { buildManifest, checkComposerText, type ManifestEntityInput } from "@foundmill/entity-linker";
 import { ComposerOutput, type ModelClient } from "@foundmill/models";
 import { APP_NAME, LIMITS } from "@foundmill/config";
-import { clubRulesPrompt, prompts } from "@foundmill/agents";
-import { AppError, founderTitleFallback, futureDeadline, type EntityKind } from "@foundmill/shared";
+import { clubRulesPrompt, composerEventPayload, composerNotesFor, prompts } from "@foundmill/agents";
+import { AppError, founderContextJson, founderTitleFallback, futureDeadline, type EntityKind } from "@foundmill/shared";
 import type { ApiLogger } from "./log";
 import { noteModelCall } from "./model-calls";
 
@@ -318,11 +318,6 @@ export function localNextBestDecisions(s: LocalDecisionState): LocalDecision[] {
   return out;
 }
 
-/** The owner's founder profile experience, as the Composer prompt reads it (UX plan §7.19, E3); first-time without a profile. */
-export async function loadFounderExperience(db: Db, businessId: string): Promise<prompts.FounderExperience> {
-  // One statement (the owner joined to their profile), not the owner and then the profile in sequence.
-  return prompts.founderExperienceFrom(await repos.founders.ownerExperience(db, businessId));
-}
 
 /** Compose one inbox item in-process (what the composer service does, without the buffer). */
 export async function composeLocally(db: Db, models: ModelClient, businessId: string, options: ComposeLocallyOptions = {}): Promise<InboxItem> {
@@ -352,11 +347,12 @@ async function composeLocallyWithSlot(db: Db, models: ModelClient, businessId: s
   const manifest = buildManifest(manifestInput, { strictKinds: false });
   const crmIds = new Set(crm.map((e) => e.id));
 
-  const [taskCounts, conversions, channels, founderExperience] = await Promise.all([
+  const [taskCounts, conversions, channels, founder] = await Promise.all([
     repos.tasks.countByStatus(db, businessId),
     repos.journeys.countConversions(db, businessId, { from: new Date(Date.now() - 30 * 86_400_000) }),
     repos.channels.list(db, businessId, { enabled: true }),
-    loadFounderExperience(db, businessId),
+    // Who the note is written to (WP-04 T10): the primary owner, as the composer service reads it.
+    repos.founders.contextFor(db, businessId),
   ]);
 
   const metrics = [
@@ -389,11 +385,13 @@ async function composeLocallyWithSlot(db: Db, models: ModelClient, businessId: s
     from_agent: { id: chief.id, name: chief.name, role: chief.role || "Chief of Staff" },
     agents: agents.map((a) => ({ id: a.id, name: a.name, role: a.role, agent_type: a.agentType, department_id: a.departmentIds[0] ?? null, status: a.status })),
     manifest: manifest.toJSON(),
-    events: events.map((e) => ({ id: e.id, type: e.type, occurred_at: e.occurredAt, payload: e.payload, entity_ids: e.entityIds })),
+    // A task report is untrusted data, and simulated findings are said to be simulated (as apps/composer sends them).
+    events: events.map((e) => ({ id: e.id, type: e.type, occurred_at: e.occurredAt, payload: composerEventPayload(e), entity_ids: e.entityIds })),
     metrics,
     named_queries: NAMED_QUERIES,
     // The model has no clock; without today's date it guesses deadlines (audit CML-13).
     now: new Date().toISOString(),
+    founder: founderContextJson(founder),
     ...(grounded
       ? {
           type: "decision",
@@ -402,7 +400,9 @@ async function composeLocallyWithSlot(db: Db, models: ModelClient, businessId: s
           options: grounded.options,
           note: "No new event and no data change. Offer the next-best decision grounded in the current state using the options given. Never invent an event.",
         }
-      : {}),
+      : composerNotesFor(events).length > 0
+        ? { note: composerNotesFor(events).join(" ") }
+        : {}),
   };
 
   // The same two blocks the composer service sends (apps/composer/src/compose.ts systemPrompt): the house rules, then
@@ -412,7 +412,7 @@ async function composeLocallyWithSlot(db: Db, models: ModelClient, businessId: s
     schema: ComposerOutput,
     system: [
       clubRulesPrompt.render({ business_name: business.name, APP_NAME }),
-      prompts.inboxComposerPrompt.render({ business_name: business.name, from_agent_name: chief.name, from_agent_role: chief.role || "Chief of Staff", founder_experience: founderExperience }),
+      prompts.inboxComposerPrompt.render({ business_name: business.name, from_agent_name: chief.name, from_agent_role: chief.role || "Chief of Staff" }),
     ],
     messages: [{ role: "user", content: "```json\n" + JSON.stringify(input) + "\n```" }],
     attribution: { businessId, kind: "inbox_composer" },

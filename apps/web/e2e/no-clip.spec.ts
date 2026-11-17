@@ -163,9 +163,11 @@ const DATE_FORMAT_RUNS: DatePrefs[] = (process.env.E2E_DATE_FORMATS ?? "us.12h")
     return { date, time };
   });
 
-async function setDatePrefs(playwright: Parameters<typeof devApi>[0], prefs: DatePrefs): Promise<DatePrefs> {
+async function setDatePrefs<P extends Record<string, string>>(playwright: Parameters<typeof devApi>[0], prefs: P): Promise<P> {
   const api = await devApi(playwright);
-  const before = ((await (await api.get("/trpc/founder.preferences.get")).json()) as { result: { data: { json: DatePrefs } } }).result.data.json;
+  const read = async (path: string) => ((await (await api.get(`/trpc/founder.preferences.${path}`)).json()) as { result: { data: { json: Record<string, string> } } }).result.data.json;
+  const all = { ...(await read("get")), ...(await read("guidance")) };
+  const before = Object.fromEntries(Object.keys(prefs).map((k) => [k, all[k]])) as P;
   const res = await api.post("/trpc/founder.preferences.update", { data: { json: prefs } });
   expect(res.ok(), await res.text()).toBe(true);
   await api.dispose();
@@ -185,11 +187,21 @@ async function measureEveryScreen(page: Page, width: number) {
   }
   const found: string[] = [];
   for (const route of routes) {
-    await page.goto(route);
-    await page.waitForLoadState("networkidle", { timeout: LONG }).catch(() => undefined);
-    await page.waitForTimeout(600);
-    const violations = await page.evaluate(measure);
+    // Settings › Preferences shows its examples on the current time: measure it in its own tab with the clock fixed at
+    // the widest time, 12:59 PM, so the result never depends on when the run happens (a two-digit hour is wider).
+    const fixedClock = route.endsWith("/settings/preferences");
+    const tab = fixedClock ? await page.context().newPage() : page;
+    if (fixedClock) {
+      const size = page.viewportSize();
+      if (size) await tab.setViewportSize(size);
+      await tab.clock.setFixedTime(new Date("2026-09-30T12:59:00"));
+    }
+    await tab.goto(route);
+    await tab.waitForLoadState("networkidle", { timeout: LONG }).catch(() => undefined);
+    await tab.waitForTimeout(600);
+    const violations = await tab.evaluate(measure);
     for (const v of violations) found.push(`${route} · ${v.kind} · ${v.where} · "${v.text}" ${v.px ?? ""}`);
+    if (fixedClock) await tab.close();
   }
   expect(found, `${found.length} clipped or overlapping elements at ${width} px:\n${found.join("\n")}`).toEqual([]);
 }
@@ -208,3 +220,18 @@ for (const prefs of DATE_FORMAT_RUNS) {
     });
   }
 }
+
+// Comfortable text is where a new guided account starts (WP-10 T5): body 14/20, small 12.5/16, chat 14/21 must fit too.
+for (const width of [1280, 1440]) {
+  test(`no text is clipped and no field overlaps at ${width} px (comfortable text)`, async ({ page, playwright }) => {
+    test.setTimeout(20 * 60_000);
+    const before = await setDatePrefs(playwright, { textSize: "comfortable" });
+    try {
+      await measureEveryScreen(page, width);
+      await expect(page.locator("html")).toHaveAttribute("data-text", "comfortable");
+    } finally {
+      await setDatePrefs(playwright, before);
+    }
+  });
+}
+

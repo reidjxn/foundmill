@@ -6,9 +6,9 @@
 
 export const SIGN_IN_ERROR_PARAM = "error";
 
-export type SignInErrorReason = "other_address" | "expired" | "missing_code" | "not_configured" | "failed";
+export type SignInErrorReason = "other_address" | "expired" | "missing_code" | "not_configured" | "failed" | "signups_closed" | "google_failed" | "google_unverified";
 
-const REASONS: readonly SignInErrorReason[] = ["other_address", "expired", "missing_code", "not_configured", "failed"];
+const REASONS: readonly SignInErrorReason[] = ["other_address", "expired", "missing_code", "not_configured", "failed", "signups_closed", "google_failed", "google_unverified"];
 
 /** Supabase Auth error codes for a link that is out of date: expired, already used, or older than a newer request. */
 const EXPIRED_CODES = new Set(["otp_expired", "flow_state_expired", "flow_state_not_found", "bad_code_verifier"]);
@@ -24,11 +24,27 @@ export function classifyExchangeError(error: { code?: string | undefined; name?:
   return "failed";
 }
 
-/** Supabase sends a link it refused back to the callback with `error_code` (and no `code`), for example `otp_expired`. */
+/**
+ * Supabase sends a link it refused back to the callback with `error_code` (and no `code`), for example `otp_expired`.
+ * A Google sign-in it refused comes back the same way: `signup_disabled` when "Allow new users to sign up" is off and
+ * the Google account has no account here yet, `provider_email_needs_verification` when Google has not verified the
+ * address (Supabase then finishes no sign-in).
+ */
 export function classifyCallbackParams(params: URLSearchParams): SignInErrorReason {
   const code = params.get("error_code");
+  if (code === "signup_disabled") return "signups_closed";
+  if (code === "provider_email_needs_verification") return "google_unverified";
   if (code && EXPIRED_CODES.has(code)) return "expired";
   return params.has("error") || code ? "failed" : "missing_code";
+}
+
+/**
+ * The reason /auth/callback reports for a sign-in that started with Continue with Google (`via=google`): the email
+ * link's own reasons (expired, incomplete, another address) talk about a link the founder never had, so they read as
+ * Google sign-in not finishing. Closed sign-ups, an unverified Google address and a server without Supabase keep theirs.
+ */
+export function googleSignInReason(reason: SignInErrorReason): SignInErrorReason {
+  return reason === "signups_closed" || reason === "google_unverified" || reason === "not_configured" ? reason : "google_failed";
 }
 
 /** The reason in `/login?error=`; anything unknown (an older build put raw messages there) reads as a generic failure. */
@@ -57,8 +73,21 @@ export function signInErrorCopy(reason: SignInErrorReason): SignInErrorCopy {
       return { title: "Sign-in unavailable", body: "Email sign-in is not set up on this server yet." };
     case "failed":
       return { title: "Sign-in failed", body: "That sign-in link didn't work. Send a new link to try again." };
+    case "signups_closed":
+      // The words the email form shows for the same refusal (sendLinkErrorMessage "signups_closed").
+      return { title: "New sign-ups are closed", body: "There is no account for this address, and new sign-ups are closed for now." };
+    case "google_failed":
+      return { title: "Google sign-in didn't finish", body: "You're not signed in yet. Try Continue with Google again, or use the email link below." };
+    case "google_unverified":
+      return { title: "Google address not verified", body: "Google hasn't verified the email address on that account, so it can't sign you in. Use the email link below instead." };
   }
 }
+
+/** Under Continue with Google when the button could not start a sign-in (the provider is not turned on, the network dropped). */
+/** The sign-in bot check (NEXT_PUBLIC_SIGNIN_BOT_CHECK, WP-03 T8) could not get a token: the idea box's own line. */
+export const BROWSER_CHECK_FAILED_MESSAGE = "We could not check this browser. Reload the page and try again.";
+
+export const GOOGLE_UNAVAILABLE_MESSAGE = "Google sign-in isn't available right now. Use the email link below.";
 
 /**
  * Why sending a sign-in link failed (`signInWithOtp`), as a reason the login form turns into plain words. Supabase Auth

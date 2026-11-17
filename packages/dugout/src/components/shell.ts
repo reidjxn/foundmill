@@ -17,6 +17,7 @@ export * from "./shell/FoundationsStatus";
 export * from "./shell/RightRail";
 export * from "./shell/CommandPalette";
 export * from "./shell/NeedsLargerWindow";
+export * from "./shell/PhoneBar";
 export * from "./shell/ProfileHeader";
 export * from "./shell/DecisionBar";
 export * from "./shell/HolidayDialog";

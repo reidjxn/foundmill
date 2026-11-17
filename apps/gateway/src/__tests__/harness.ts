@@ -37,7 +37,7 @@ export interface TestConnectorOptions {
   /** Connector key; default "test". A second instance keyed "anthropic" stands in for the key-bearing connector (SEC-1). */
   key?: string;
   /** How the connector authenticates; "app" stands in for GitHub (platform App keys, no stored secret). */
-  authKind?: "api_key" | "app";
+  authKind?: "api_key" | "app" | "none";
   /** Runs on the platform's own key once connected, with no stored credential (registries, Voyage, E2B...). */
   platformKey?: boolean;
   /** Stands in for the connector's connect() (GitHub's installation check). */
@@ -51,6 +51,9 @@ export interface TestConnectorOptions {
  * connector throws a refused merge), or `null` for an error with no status (a dropped connection, which may have run).
  */
 export const sendRefusals: (number | null)[] = [];
+
+/** While `until` is set, `send_message` waits on it before sending; `entered` counts the sends that reached it. */
+export const sendHold: { until: Promise<void> | null; entered: number } = { until: null, entered: 0 };
 
 /** `read_inbox` with this id returns a message whose addresses and URL each start a line (BUILD §9.8 step 4). */
 export const MULTILINE_MESSAGE_ID = "multiline";
@@ -118,6 +121,8 @@ export function createTestConnector(options: TestConnectorOptions = {}, seen: Se
           const status = sendRefusals.shift()!;
           throw status === null ? new Error("connection reset") : Object.assign(new Error("not mergeable"), { status });
         }
+        sendHold.entered++;
+        if (sendHold.until) await sendHold.until;
         record("send_message", args, ctx);
         return { sent: true as const, to: args.to };
       },
@@ -163,10 +168,17 @@ export interface GatewayFixture {
   token(opts?: { allowedTools?: string[]; sessionId?: string | null; kitMode?: boolean; agentId?: string }): Promise<string>;
   /** A fresh session id (valid agent_sessions row). */
   newSession(): Promise<string>;
+  /**
+   * Gives `email` a basis an agent may email it on (WP-08 T10): `consent` (a confirmed follow, the default) or `recorded`
+   * (a contact the founder added, with a lawful basis).
+   */
+  mailable(email: string, basis?: "consent" | "recorded"): Promise<void>;
   close(): Promise<void>;
 }
 
 export interface SetupGatewayOptions {
+  /** Addresses given a confirmed follow at setup, so agents may email them (WP-08 T10). */
+  mailable?: readonly string[];
   /** LIVE_CONNECTORS for this gateway. */
   liveConnectors?: string[];
   mode?: "mock" | "live";
@@ -195,12 +207,12 @@ export async function setupGateway(options: SetupGatewayOptions = {}): Promise<G
   const deps: GatewayDeps = { db, registry, vault, mode: options.mode ?? "mock", rateLimits, recipients, log: silentLog, ...(options.liveConnectors ? { liveConnectors: options.liveConnectors } : {}), ...(options.now ? { now: options.now } : {}) };
   const app = createGatewayApp(deps, { sessionTokenSecret: TEST_SECRET });
   const server = await listenGateway(app, { port: 0, host: "127.0.0.1" });
-  const client = createGatewayClient({ baseUrl: server.url, serviceSecret: TEST_SECRET, serviceName: "test-orchestrator" });
+  const client = createGatewayClient({ baseUrl: server.url, serviceSecret: TEST_SECRET, serviceName: "orchestrator" });
 
   const newSession = async () => (await repos.agents.createSession(db, business.id, { agentId: agent.id, modelKey: "sonnet" })).id;
   const sessionId = await newSession();
 
-  return {
+  const fixture: GatewayFixture = {
     h,
     db,
     deps,
@@ -225,9 +237,15 @@ export async function setupGateway(options: SetupGatewayOptions = {}): Promise<G
       });
       return minted.token;
     },
+    async mailable(email, basis = "consent") {
+      const lead = await repos.entities.upsertLead(db, business.id, { kind: "person", displayName: email, email, source: basis === "consent" ? "page" : "user", lawfulBasis: basis === "consent" ? "consent" : "legitimate_interest", ownerAgentId: null });
+      if (basis === "consent" && lead.entity) await h.pg.query("insert into contact_consents (business_id, entity_id, purpose, source, source_ref, consent_text, confirmed_at) values ($1, $2, 'email', 'page', 'test', 'I agree.', now()) on conflict do nothing", [business.id, lead.entity!.id]);
+    },
     async close() {
       await server.stop();
       await h.close();
     },
   };
+  for (const e of options.mailable ?? []) await fixture.mailable(e);
+  return fixture;
 }

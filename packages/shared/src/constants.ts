@@ -19,6 +19,14 @@ export type PlanTier = (typeof PLAN_TIERS)[number];
 export const MODEL_BILLING = ["byok", "credits"] as const;
 export type ModelBilling = (typeof MODEL_BILLING)[number];
 
+/**
+ * Who funds a business's agent work (0104, `businesses.funding_source`): the month's credits on the platform's key, the
+ * founder's own API key (`model_billing = byok`), or the founder's own AI plan at a provider (off: `FLAGS.ownPlanFunding`,
+ * packages/config, and no provider is integrated). The first two follow `model_billing`; only `own_plan` is set directly.
+ */
+export const FUNDING_SOURCES = ["foundmill_credits", "own_api_key", "own_plan"] as const;
+export type FundingSource = (typeof FUNDING_SOURCES)[number];
+
 export const DATA_REGIONS = ["eu", "us"] as const;
 export type DataRegion = (typeof DATA_REGIONS)[number];
 
@@ -164,8 +172,27 @@ export function firstVisibleTab<T extends { slug: string; title?: string; positi
   return visibleTabs(dept, builder)[0];
 }
 
-export const MEMBERSHIP_ROLES = ["owner", "admin", "member", "viewer", "advisor"] as const;
+/**
+ * The roles of a project's people (BUILD §11.9; THESIS_REVIEW package 3.3, founder 2026-11-11 "the words for people").
+ * `cofounder` and `collaborator` are appended, so every stored role keeps its meaning:
+ *   - `owner`: the founder who started the project (Commit writes it), with every right;
+ *   - `cofounder`: equal standing, any number. Owner-equivalent wherever an owner is meant (`isOwnerRole`, and the
+ *     database's `has_role`, 0092), never told apart from an owner in what they may do;
+ *   - `collaborator`: someone trying out or helping, with limited access: read and write Product and Customers, read the
+ *     plan, nothing of Money or Settings (`COLLABORATOR_SECTIONS`, permissions.ts), and an optional end date
+ *     (`memberships.expires_at`) after which the membership opens nothing;
+ *   - `admin`, `member`, `viewer`, `advisor`: as before.
+ */
+export const MEMBERSHIP_ROLES = ["owner", "admin", "member", "viewer", "advisor", "cofounder", "collaborator"] as const;
 export type MembershipRole = (typeof MEMBERSHIP_ROLES)[number];
+/** An owner's standing: the founder who started the project and every cofounder. */
+export const OWNER_ROLES: readonly MembershipRole[] = ["owner", "cofounder"];
+/** The roles that administer a project: an owner's standing and admins. */
+export const ADMIN_ROLES: readonly MembershipRole[] = ["owner", "cofounder", "admin"];
+/** Whether `role` has an owner's standing (an owner or a cofounder). */
+export const isOwnerRole = (role: string | null | undefined): boolean => role === "owner" || role === "cofounder";
+/** Whether `role` administers the project (an owner's standing or an admin). */
+export const isAdminRole = (role: string | null | undefined): boolean => isOwnerRole(role) || role === "admin";
 /**
  * How a membership came to be (migration 0065): `invite` (team.humans.invite, the seeds' owners, every row before
  * 0065), `founder` (the owner seat Commit writes), `example` (business.example.open: a read-only walk around a seeded
@@ -173,7 +200,8 @@ export type MembershipRole = (typeof MEMBERSHIP_ROLES)[number];
  */
 export const MEMBERSHIP_SOURCES = ["invite", "founder", "example"] as const;
 export type MembershipSource = (typeof MEMBERSHIP_SOURCES)[number];
-export const WRITE_ROLES: readonly MembershipRole[] = ["owner", "admin", "member"];
+/** The roles that may change things (each still within its sections, permissions.ts). */
+export const WRITE_ROLES: readonly MembershipRole[] = ["owner", "cofounder", "admin", "member", "collaborator"];
 
 export const DEPT_COLOUR_TOKENS = ["dept-1", "dept-2", "dept-3", "dept-4", "dept-5", "dept-6", "dept-7", "dept-8"] as const;
 export type DeptColourToken = (typeof DEPT_COLOUR_TOKENS)[number];
@@ -204,8 +232,15 @@ export type AgentPauseReason = (typeof AGENT_PAUSE_REASONS)[number];
 export const AGENT_LAYERS = ["assistant", "lead", "worker", "utility"] as const;
 export type AgentLayer = (typeof AGENT_LAYERS)[number];
 
-export const MODEL_KEYS = ["opus", "sonnet", "haiku"] as const;
+export const MODEL_KEYS = ["opus", "sonnet", "haiku", "glm"] as const;
 export type ModelKey = (typeof MODEL_KEYS)[number];
+/**
+ * The models an agent can be set to today (the model dialog, a plan's model change, a draft). GLM joins on the free
+ * plan when WP-13 T7 (the picker by plan) and T4 (sessions on the chosen model) land (founder, Nov 16, 2026: a free
+ * founder chooses Haiku 5.5 or GLM-5.3 Flash per agent); until then an agent cannot be set to it.
+ */
+export const CHOOSABLE_MODEL_KEYS = ["opus", "sonnet", "haiku"] as const satisfies readonly ModelKey[];
+export type ChoosableModelKey = (typeof CHOOSABLE_MODEL_KEYS)[number];
 
 export const SKILL_GROUPS = ["craft", "judgement", "execution"] as const;
 export type SkillGroup = (typeof SKILL_GROUPS)[number];
@@ -275,8 +310,8 @@ export const CHANNEL_META: Record<ChannelKey, { label: string; line: ChannelLine
   geo: { label: "GEO", line: "defence", coreMetric: "AI answer share", kitModeByDefault: false },
   content: { label: "Content marketing", line: "defence", coreMetric: "Leads from content", kitModeByDefault: false },
   direct_mail: { label: "Direct mail", line: "wings", coreMetric: "Response rate", kitModeByDefault: false },
-  print: { label: "Print", line: "wings", coreMetric: "Code redemptions", kitModeByDefault: true },
-  broadcast: { label: "Broadcast", line: "wings", coreMetric: "Vanity URL visits, lift", kitModeByDefault: true },
+  print: { label: "Print", line: "wings", coreMetric: "Code redemptions", kitModeByDefault: false },
+  broadcast: { label: "Broadcast", line: "wings", coreMetric: "Vanity URL visits, lift", kitModeByDefault: false },
   outdoor: { label: "Outdoor", line: "wings", coreMetric: "QR scans, geo-lift", kitModeByDefault: false },
 };
 
@@ -418,7 +453,7 @@ export type DecisionType = (typeof DECISION_TYPES)[number];
 export const EVENT_TYPES = [
   "idea.committed", "spec.proposal_created", "spec.version_published",
   "source.added", "source.scored",
-  "task.started", "task.progressed", "task.completed", "task.blocked",
+  "task.started", "task.progressed", "task.completed", "task.blocked", "task.design_checked",
   "pr.merged", "deploy.succeeded",
   "lead.created", "lead.replied", "campaign.launched", "channel.threshold_breached",
   "signup.created", "activation.reached", "payment.received", "customer.converted",
@@ -439,12 +474,28 @@ export const EVENT_TYPES = [
   "product.research_drafted",
   "goal.proposed", "goal.approved", "goal.change_requested", "goal.achieved",
   "page.published", "page.unpublished", "page.followed",
+  "site.release_created", "site.published", "site.unpublished",
   "guidance.tour_completed", "guidance.tour_skipped", "guidance.explainer_dismissed", "guidance.term_opened", "guidance.turned_off",
   "push.sent",
   "mail.sent",
   "notify.email_sent",
   "team_call.started", "team_call.ended",
   "founder.session_started",
+  "profile.published", "profile.unpublished",
+  "signup.attributed",
+  "milestone.shown", "milestone.hidden",
+  "share.opened",
+  "referral.arrived",
+  "post.drafted",
+  "quiz.approved", "quiz.published", "quiz.unpublished",
+  "positioning.approved",
+  "update.drafted", "update.sent",
+  "invitation.sent", "invitation.accepted", "invitation.declined",
+  "showcase.requested", "showcase.approved", "showcase.withdrawn", "showcase.asked", "showcase.settled",
+  "visit.attributed", "post.outcome_attributed",
+  "founder_notice.sent",
+  // The funnel's four account facts (WP-02 T9): admitted, profile created, a card kept, a first deck drafted.
+  "account.admitted", "profile.created", "idea.kept", "idea.drafted",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
@@ -470,6 +521,32 @@ export type GuidanceOffSource = (typeof GUIDANCE_OFF_SOURCES)[number];
  */
 export const PERSON_ADDRESSED_EVENT_TYPES = ["connection.requested", "message.received"] as const satisfies readonly EventType[];
 export const isPersonAddressedEvent = (type: string | null | undefined): boolean => (PERSON_ADDRESSED_EVENT_TYPES as readonly string[]).includes(type ?? "");
+
+/**
+ * Where an event belongs (founder, 2026-11-12). A `business` event is a fact about a project: it is stored in `events`,
+ * read by the project's members under their section walls and published on `ev:{businessId}`. An `account` event is a
+ * fact about one person (their profile went public; a public page or profile brought them; someone arrived through
+ * theirs; later a follow, an ask, an answer): it is stored in
+ * `account_events`, keyed by the person's account, read by that person and nobody else, and published on
+ * `ae:{userId}`. A fact about a person never goes into a business's events, where every member could read it.
+ *
+ * The event catalog (packages/events `catalogue.ts`) states the scope of every declaration; this tuple is the same
+ * fact for the packages below it (packages/db refuses these types in `repos.events.write`, apps/stream never delivers
+ * them on a business stream), and the catalog fails to compile, and to load, when the two disagree. Append only.
+ *
+ * The database holds the same list (`fm_account_event_types()`, migration `account_events`, redefined by `attributions`
+ * for the two sign-up attribution types): `account_events` takes only
+ * these types and `events` refuses them, whoever writes. A new account-scoped type therefore needs a migration that
+ * redefines that function; packages/db `rls/account-events.test.ts` fails until the two lists are the same.
+ */
+export const EVENT_SCOPES = ["business", "account"] as const;
+export type EventScope = (typeof EVENT_SCOPES)[number];
+export const ACCOUNT_EVENT_TYPES = ["profile.published", "profile.unpublished", "signup.attributed", "referral.arrived", "founder_notice.sent", "account.admitted", "profile.created", "idea.kept", "idea.drafted"] as const satisfies readonly EventType[];
+export type AccountEventType = (typeof ACCOUNT_EVENT_TYPES)[number];
+/** Every event type that belongs to a project: all of `EVENT_TYPES` but the account-scoped ones. */
+export type BusinessEventType = Exclude<EventType, AccountEventType>;
+export const isAccountEventType = (type: string | null | undefined): type is AccountEventType => (ACCOUNT_EVENT_TYPES as readonly string[]).includes(type ?? "");
+export const eventScopeOf = (type: EventType): EventScope => (isAccountEventType(type) ? "account" : "business");
 
 /** Entity mention markup written by agents: [[ent:<uuid>|Display]] */
 export const ENTITY_MARKUP_RE = /\[\[ent:([0-9a-f-]{36})\|([^\]]+)\]\]/g;
@@ -551,14 +628,93 @@ export const DEFAULT_NOTIFICATION_PREFS: Readonly<NotificationPrefs> = Object.fr
  * docs/THESIS_REVIEW.md packages 1.5 and 5.1; the retention plan's kinds joined it, founder 2026-11-12: one sender, one
  * preference): a note that needs their answer, a customer won, a milestone, a run they started and left finishing,
  * used-up credits, and the morning brief and the Monday weekly review. Every kind is on until the person turns it off
- * (Settings › Preferences, or the link in the email).
+ * (Settings › Preferences, or the link in the email). WP-04 T11 and T12 add the lifecycle kinds (`LIFECYCLE_EMAIL_KINDS`).
  */
-export const EMAIL_NOTIFICATION_KINDS = ["decision_waiting", "win", "milestone", "run_finished", "credits", "daily_brief", "weekly_review"] as const;
+export const EMAIL_NOTIFICATION_KINDS = ["decision_waiting", "win", "milestone", "run_finished", "credits", "daily_brief", "weekly_review", "invitation_accepted", "getting_started", "checkin"] as const;
 export type EmailNotificationKind = (typeof EMAIL_NOTIFICATION_KINDS)[number];
 export type EmailNotificationPrefs = Record<EmailNotificationKind, boolean>;
-export const DEFAULT_EMAIL_NOTIFICATION_PREFS: Readonly<EmailNotificationPrefs> = Object.freeze({ decision_waiting: true, win: true, milestone: true, run_finished: true, credits: true, daily_brief: true, weekly_review: true });
-/** The kinds the daily limits count; the morning brief and the weekly review are on their own schedule (founder, 2026-11-12). */
-export const LIMITED_EMAIL_KINDS: readonly EmailNotificationKind[] = ["decision_waiting", "win", "milestone", "run_finished", "credits"];
+export const DEFAULT_EMAIL_NOTIFICATION_PREFS: Readonly<EmailNotificationPrefs> = Object.freeze({ decision_waiting: true, win: true, milestone: true, run_finished: true, credits: true, daily_brief: true, weekly_review: true, invitation_accepted: true, getting_started: true, checkin: true });
+/**
+ * The kinds the daily limits count; the morning brief and the weekly review are on their own schedule (founder,
+ * 2026-11-12), and the note that someone a person invited joined is the answer to something they did, so it never uses up
+ * the three a day their own project's news has.
+ */
+export const LIMITED_EMAIL_KINDS: readonly EmailNotificationKind[] = ["decision_waiting", "win", "milestone", "run_finished", "credits", "getting_started", "checkin"];
+/**
+ * The lifecycle kinds (WP-04 T11, T12, T16): `getting_started` in a project's first week (its page is ready to check,
+ * then five people and one question) and, with no project yet, for a saved card; `checkin` after 14, 30 and 60 days
+ * away, and the held win-back letters for projects that went quiet before these emails existed. Both count toward the
+ * three a day, and each may only be one of the first two of a person's day, so a decision that holds up work always has
+ * room (`LIFECYCLE_PER_PERSON_PER_DAY`).
+ */
+export const LIFECYCLE_EMAIL_KINDS = ["getting_started", "checkin"] as const satisfies readonly EmailNotificationKind[];
+export const LIFECYCLE_PER_PERSON_PER_DAY = 2;
+/**
+ * What Foundmill may email to an address rather than to an account (`POST /v1/notify/email`, the same sender): an
+ * invitation to a project, sent to the address the inviter typed. Nobody holds a preference for it: it is one message
+ * the inviter asked for, with a "Don't send me invitations" link that stops every invitation to the address. It counts
+ * toward three a day per address, five emailed invitations a day per inviter (`INVITATION_EMAILS_PER_INVITER_PER_DAY`)
+ * and its own share of the daily ceiling (`ADDRESS_EMAIL_CEILING_SHARE`), never toward an account's own three a day.
+ */
+export const ADDRESS_EMAIL_KINDS = ["invitation"] as const;
+export type AddressEmailKind = (typeof ADDRESS_EMAIL_KINDS)[number];
+/**
+ * Account-safety notices (security review P2-3, Nov 13, 2026): Foundmill's email to the founders of a project when its
+ * founders change or its deletion is asked for or canceled. Classed apart from both lists above, like the security mail
+ * of any service: nobody holds a switch for it, the pause does not hold it, no daily limit, no project outreach room and
+ * no "Don't send me invitations" stops it; only a hard suppression of the address (a bounce or a spam report) does.
+ * Never sent to the person who did the thing.
+ */
+export const ACCOUNT_SAFETY_EMAIL_KINDS = ["founder_notice"] as const;
+/**
+ * Email to an account about the account itself, with no project (`POST /v1/notify/email`, the same sender; WP-03 T2):
+ * `waitlist_admitted`, once per waitlist entry, when the person's place opens; `continue_link` (WP-03 T3), the link a
+ * person asks for from a small screen. Each answers something the person did (joined the waitlist, pressed a button), so
+ * no preference holds it and it never uses up the person's own three a day; it counts toward three a day per address
+ * and Foundmill's daily ceiling, and an address suppressed platform-wide is never mailed.
+ */
+export const ACCOUNT_EMAIL_KINDS = ["waitlist_admitted", "continue_link"] as const;
+export type AccountEmailKind = (typeof ACCOUNT_EMAIL_KINDS)[number];
+export type AccountSafetyEmailKind = (typeof ACCOUNT_SAFETY_EMAIL_KINDS)[number];
+/** What a founder notice is about: a founder's role went below a founder's, a founder was removed, deletion asked for or canceled. */
+export const FOUNDER_NOTICES = ["role_changed", "removed", "deletion_requested", "deletion_canceled"] as const;
+export type FounderNotice = (typeof FOUNDER_NOTICES)[number];
+/**
+ * A former founder (security review P2-3, second review): someone whose founder's standing someone else took away
+ * (demoted or removed) within this long before a deletion request, or at any time after it, hears about that request
+ * and may cancel it until its scheduled day, from Foundmill's email or the card on their home. Counted from the request,
+ * never from the departure alone, so waiting does not wear the right away.
+ */
+export const FORMER_FOUNDER_LOOKBACK_MS = 30 * 86_400_000;
+/**
+ * The limits on founder notices and on the steps that send them (security review P2-3, second, third and final reviews):
+ *   - `perRecipientHour` / `perRecipientDay`: ordinary founder notices one person gets about one project; above either,
+ *     one "more changes" email for the window and nothing more until it ends (`folded` on the record);
+ *   - `perProjectDay`: every ordinary founder notice about one project in a UTC day (`pn:safety:project:<id>:day`), under
+ *     the platform's ceiling;
+ *   - `safetyCeilingDefault`: every ordinary founder notice together in a UTC day (`pn:safety:day`,
+ *     PLATFORM_SAFETY_DAILY_CEILING), enforced, and apart from the ceiling of every other email to people (`pn:all:day`);
+ *   - essential notices (`isEssentialFounderNotice`) skip those three and are bounded on their own:
+ *     `essentialPerRecipientDay` a day per person across every project (`pn:safety:essential:<user>:day`), and every
+ *     essential notice together under `reservedCeilingDefault` a day (`pn:safety:reserved:day`,
+ *     PLATFORM_SAFETY_RESERVED_DAILY_CEILING), a circuit breaker; past either, until the end of the UTC day, one email per
+ *     deletion that person may cancel (with its link) and one for none;
+ *   - `formerPerRequest`: beyond a request's 30-day window, the most recent people taken out that one deletion request
+ *     (or its cancel) emails; the former founders for the request itself are never capped;
+ *   - past the breaker, `perRequestPastBreakerDay` (3) emails per person a day for a deletion of their own, then the one
+ *     fold that carries the latest cancel; and a hard stop at `reservedHardFactor` (2) times the reserved ceiling, past
+ *     which an essential notice is recorded and not sent (the card on the person's home still shows a deletion they may
+ *     cancel), so the day's essential mail has a fixed ceiling whatever the number of accounts;
+ *   - `actorPerDay`: how many times one person may lower a founder's role, or ask for a deletion, in one project in a
+ *     day, and `actorPerDayAll`: both together, across every project, in a day;
+ *   - `projectRequestsPerDay` (3) and `projectLowersPerDay` (10): deletion requests, and founders' roles lowered, in one
+ *     project in a day, whoever asks (verification of the final review: per-actor limits alone let each extra account
+ *     add its own).
+ */
+export const FOUNDER_NOTICE_LIMITS = { perRecipientHour: 10, perRecipientDay: 30, perProjectDay: 500, safetyCeilingDefault: 5_000, essentialPerRecipientDay: 10, reservedCeilingDefault: 20_000, reservedHardFactor: 2, perRequestPastBreakerDay: 3, formerPerRequest: 50, actorPerDay: 5, actorPerDayAll: 10, projectRequestsPerDay: 3, projectLowersPerDay: 10 } as const;
+/** How a founder's standing ended (`founder_departures.how`, 0097): by another founder's change, by removal, or by their own. */
+export const FOUNDER_DEPARTURE_KINDS = ["demoted", "removed", "left"] as const;
+export type FounderDepartureKind = (typeof FOUNDER_DEPARTURE_KINDS)[number];
 
 /** The account's type size (`account_preferences.text_size`, 0064): comfortable grows body and small text; the structure keeps its sizes. */
 export const TEXT_SIZES = ["standard", "comfortable"] as const;

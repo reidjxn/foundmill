@@ -1,10 +1,10 @@
 /**
- * The three tours' definitions (docs/UX_AUDIT_AND_PLAN.md §6.2 Coachmark): the steps the plan names, one sentence each
+ * The tours' definitions (docs/UX_AUDIT_AND_PLAN.md §6.2 Coachmark): the steps the plan names, one sentence each
  * in the product's voice (sentence case, no exclamation marks, US English), every target a `data-coachmark` id the
  * shell carries natively or the tour stamps, and no two tours sharing an id.
  */
 import { describe, expect, it } from "vitest";
-import { DEPARTMENT_TOUR, HOME_TOUR, INBOX_TOUR, TOURS, tourCardSelector } from "../definitions";
+import { DEPARTMENT_TOUR, HOME_TOUR, INBOX_TOUR, TODAY_TOUR, TOURS, tourCardSelector } from "../definitions";
 
 /** The ids the design-system shell carries itself (packages/dugout shell/*: Sidebar, KitBar, ContinueButton, ProcessingStrip, TabBar, DecisionBar). */
 const SHELL_TARGETS = new Set(["sidebar", "top-bar", "continue", "processing-strip", "tabs", "decision-bar", "decision-ask"]);
@@ -15,8 +15,11 @@ function sentenceCount(text: string): number {
 }
 
 describe("tour definitions", () => {
-  it("names the three tours with the steps the plan asks for", () => {
-    expect(TOURS.map((t) => t.id)).toEqual(["home", "inbox", "department"]);
+  it("names the tours with the steps the plan asks for", () => {
+    expect(TOURS.map((t) => t.id)).toEqual(["home", "inbox", "department", "today"]);
+    // Today (WP-04 T7): Needs you, the first week, Continue; ending it stands in for Home's.
+    expect(TODAY_TOUR.steps.map((s) => [s.targetId, s.title])).toEqual([["needs-you", "What needs you"], ["first-week-timeline", "Your first week"], ["continue", "Continue: one round of work"]]);
+    expect(TODAY_TOUR.alsoDone).toEqual(["home"]);
     expect(HOME_TOUR.steps.map((s) => s.targetId)).toEqual(["sidebar", "continue", "processing-strip", "status-strip", "department-card"]);
     expect(INBOX_TOUR.steps.map((s) => s.targetId)).toEqual(["inbox-pane", "reading-pane", "decision-bar", "decision-ask"]);
     expect(DEPARTMENT_TOUR.steps.map((s) => s.targetId)).toEqual(["tabs", "explainer", "table-views"]);
@@ -26,7 +29,7 @@ describe("tour definitions", () => {
     const bodies = (tour: typeof HOME_TOUR) => tour.steps.map((s) => s.body);
     expect(bodies(HOME_TOUR)).toEqual([
       "Your business, one place per question.",
-      "This runs the team; what they need from you lands in the Inbox.",
+      "This runs the team; what they need from you lands in Needs you.",
       "A light here means the team is working.",
       "Your numbers; anything marked Estimate is worked out, not measured.",
       "Each department: who works there and what they are on now.",
@@ -55,12 +58,14 @@ describe("tour definitions", () => {
     }
   });
 
-  it("points every step at a target the shell carries or the tour stamps, each id used by one tour only", () => {
+  it("points every step at a target the shell carries or the tour stamps, each stamped id used by one tour only", () => {
     const seen = new Map<string, string>();
     for (const tour of TOURS) {
       const stamped = new Set(tour.stamps.map((s) => s.targetId));
       for (const step of tour.steps) {
         expect(SHELL_TARGETS.has(step.targetId) || stamped.has(step.targetId), `${tour.id}/${step.targetId} has no anchor`).toBe(true);
+        // A shell anchor (Continue) may be pointed at by two tours on two screens; a stamped id belongs to one tour.
+        if (SHELL_TARGETS.has(step.targetId)) continue;
         expect(seen.get(step.targetId), `${step.targetId} is also in ${seen.get(step.targetId)}`).toBeUndefined();
         seen.set(step.targetId, tour.id);
       }

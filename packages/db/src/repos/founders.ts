@@ -1,13 +1,15 @@
 /** founder_profiles — account-scoped (userId first), routers founder.profile.get/update. */
-import { BIDI_NAME_MESSAGE, RESERVED_NAME_MESSAGE, hasBidiControl, isReservedName } from "@foundmill/config";
-import { VISIBILITY, ValidationError } from "@foundmill/shared";
-import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import { BIDI_NAME_MESSAGE, INPUT_LIMITS, RESERVED_NAME_MESSAGE, hasBidiControl, isReservedName } from "@foundmill/config";
+import { ADMIN_ROLES, boundedRecord, founderContextFrom, OWNER_ROLES, VISIBILITY, ValidationError, type FounderContext } from "@foundmill/shared";
+import { and, asc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { authUsers } from "drizzle-orm/supabase";
 import { z } from "zod";
 import { businesses, founderProfiles, memberships, type Business, type FounderProfile, type Membership } from "../schema";
 import { Currency, changes, Id, maybeOne, MinorAmount, one, parseInput, type Executor, patchSchema } from "./_shared";
+import { adultsRepo } from "./adults";
+import { membershipNotEnded } from "./memberships";
 
-const SkillRatings = z.record(z.string(), z.number().int().min(1).max(20));
+const SkillRatings = boundedRecord(INPUT_LIMITS.founderProfileList, z.record(z.string(), z.number().int().min(1).max(20)));
 
 export const FounderProfileInput = z.object({
   // Not a name that poses as the platform or its staff ("Foundmill Support"): other founders read it as who wrote to them.
@@ -26,8 +28,8 @@ export const FounderProfileInput = z.object({
   currency: Currency.optional(),
   citizenship: z.string().max(80).nullable().optional(),
   residence: z.string().max(80).nullable().optional(),
-  targetMarkets: z.array(z.string().max(80)).default([]),
-  constraints: z.array(z.string().max(400)).default([]),
+  targetMarkets: z.array(z.string().max(80)).max(INPUT_LIMITS.founderProfileList).default([]),
+  constraints: z.array(z.string().max(400)).max(INPUT_LIMITS.founderProfileList).default([]),
   riskAppetite: z.string().max(80).nullable().optional(),
   visibility: z.enum(VISIBILITY).default("private"),
 });
@@ -63,7 +65,7 @@ export const foundersRepo = {
     return db
       .select({ userId: memberships.userId, role: memberships.role, sectionPermissions: memberships.sectionPermissions })
       .from(memberships)
-      .where(and(eq(memberships.businessId, businessId), inArray(memberships.role, ["owner", "admin"]), ne(memberships.source, "example")));
+      .where(and(eq(memberships.businessId, businessId), inArray(memberships.role, [...ADMIN_ROLES]), ne(memberships.source, "example")));
   },
 
   /**
@@ -114,15 +116,24 @@ export const foundersRepo = {
    * businesses with the role held in each as `businesses.listForUser` answers them (newest first). Until 2026-10-15 these
    * were three statements on three pooled connections. Each business says whether it is held through an example
    * membership (`isExample`, 0065), so the index route and the LIVE pages never take a demo for the founder's own.
+   * `adultConfirmed`: the account's "I am 18 or older" is on record (`adults.confirmedAt` has a date; 0100), in the same
+   * statement.
    */
-  async account(db: Executor, userId: string): Promise<{ profile: FounderProfile | null; memberships: Membership[]; businesses: (Business & { role: string; isExample: boolean })[] }> {
+  async account(db: Executor, userId: string): Promise<{ profile: FounderProfile | null; memberships: Membership[]; businesses: (Business & { role: string; isExample: boolean })[]; adultConfirmed: boolean }> {
     const id = parseInput(Id, userId, "user id");
     // One row per membership (one row of nulls when there is none), each carrying the profile.
     const rows = await db
-      .select({ profile: founderProfiles, membership: memberships, business: businesses, businessOrder: sql<number>`row_number() over (order by ${businesses.createdAt} desc nulls last)`.mapWith(Number) })
+      .select({
+        profile: founderProfiles,
+        membership: memberships,
+        business: businesses,
+        businessOrder: sql<number>`row_number() over (order by ${businesses.createdAt} desc nulls last)`.mapWith(Number),
+        adultConfirmed: sql<boolean>`(${adultsRepo.confirmedAtSql(id)}) is not null`.mapWith((v: unknown) => v === true || v === "t" || v === "true"),
+      })
       .from(sql`(select ${id}::uuid as user_id) as "me"`)
       .leftJoin(founderProfiles, and(sql`${founderProfiles.userId} = "me"."user_id"`, isNull(founderProfiles.archivedAt)))
-      .leftJoin(memberships, sql`${memberships.userId} = "me"."user_id"`)
+      // A membership that has ended (0092) is not one of the person's: `memberships.listForUser` leaves it out too.
+      .leftJoin(memberships, and(sql`${memberships.userId} = "me"."user_id"`, membershipNotEnded))
       .leftJoin(businesses, and(eq(businesses.id, memberships.businessId), isNull(businesses.archivedAt)))
       .orderBy(asc(memberships.createdAt));
     const held = rows.filter((r): r is typeof r & { membership: Membership } => r.membership !== null);
@@ -133,6 +144,7 @@ export const foundersRepo = {
         .filter((r): r is typeof r & { business: Business } => r.business !== null)
         .sort((a, b) => a.businessOrder - b.businessOrder)
         .map((r) => ({ ...r.business, role: r.membership.role, isExample: r.membership.source === "example" })),
+      adultConfirmed: rows[0]?.adultConfirmed === true,
     };
   },
 
@@ -147,10 +159,45 @@ export const foundersRepo = {
       .from(memberships)
       .innerJoin(businesses, eq(businesses.id, memberships.businessId))
       .leftJoin(founderProfiles, and(eq(founderProfiles.userId, memberships.userId), isNull(founderProfiles.archivedAt)))
-      .where(and(eq(memberships.businessId, businessId), eq(memberships.role, "owner")))
-      .orderBy(sql`(${memberships.userId} = ${businesses.createdBy}) desc`, asc(memberships.createdAt), asc(memberships.id))
+      .where(and(eq(memberships.businessId, businessId), inArray(memberships.role, [...OWNER_ROLES])))
+      .orderBy(sql`(${memberships.userId} = ${businesses.createdBy} and ${memberships.role} = 'owner') desc`, asc(memberships.createdAt), asc(memberships.id))
       .limit(1);
     return rows[0]?.experience ?? null;
+  },
+
+  /**
+   * Who an agent is talking with on one business (WP-04 T10): the person's own profile as `founderContextFrom` reads it,
+   * and the first names of the business's other founders (owners and cofounders whose membership has not ended, never an
+   * example one), oldest first, in one statement. Without `userId` the person is the business's primary owner (the one
+   * `ownerExperience` picks): a note goes to the project, not to whoever pressed. The person need not be a founder of
+   * the business (an admin talking with an agent): their own profile is still theirs to be addressed by.
+   *
+   * Other founders' profiles are outside the asker's RLS (`founder_profiles_own`), so it runs on the service connection;
+   * callers have already checked the person's membership, and only first names leave this function.
+   */
+  async contextFor(db: Executor, businessId: string, userId?: string | null): Promise<FounderContext> {
+    const bid = parseInput(Id, businessId, "business id");
+    const me = userId ? parseInput(Id, userId, "user id") : null;
+    const rows = await db
+      .select({
+        userId: memberships.userId,
+        displayName: founderProfiles.displayName,
+        experience: founderProfiles.experience,
+        strengths: founderProfiles.strengths,
+        wantsToLearn: founderProfiles.wantsToLearn,
+        lookingFor: founderProfiles.lookingFor,
+        budgetMinor: founderProfiles.budgetMinor,
+      })
+      .from(memberships)
+      .innerJoin(businesses, eq(businesses.id, memberships.businessId))
+      .leftJoin(founderProfiles, and(eq(founderProfiles.userId, memberships.userId), isNull(founderProfiles.archivedAt)))
+      .where(and(eq(memberships.businessId, bid), membershipNotEnded, ne(memberships.source, "example"), me ? or(inArray(memberships.role, [...OWNER_ROLES]), eq(memberships.userId, me)) : inArray(memberships.role, [...OWNER_ROLES])))
+      .orderBy(sql`(${memberships.userId} = ${businesses.createdBy} and ${memberships.role} = 'owner') desc`, asc(memberships.createdAt), asc(memberships.id));
+    // Every row but the person's is a founder's (the filter admits a non-founder only as the person themselves).
+    const self = me ? (rows.find((r) => r.userId === me) ?? null) : (rows[0] ?? null);
+    const others = rows.filter((r) => r !== self);
+    const profile = self && self.displayName !== null ? { displayName: self.displayName, experience: self.experience, strengths: self.strengths ?? [], wantsToLearn: self.wantsToLearn ?? [], lookingFor: self.lookingFor, budgetMinor: self.budgetMinor } : null;
+    return founderContextFrom(profile, others.map((r) => ({ displayName: r.displayName })));
   },
 
   async update(db: Executor, userId: string, patch: FounderProfilePatch): Promise<FounderProfile> {

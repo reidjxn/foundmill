@@ -53,7 +53,11 @@ export interface SessionToken extends SessionClaims {
   iat: number;
 }
 
-export const ServiceClaims = z.object({ svc: z.string().min(1).max(60) });
+export const ServiceClaims = z.object({
+  svc: z.string().min(1).max(60),
+  /** The one business a token may act for, when its route needs one (the own-key model route, WP-13 T11). */
+  businessId: z.string().max(60).optional(),
+});
 export type ServiceClaims = z.infer<typeof ServiceClaims>;
 
 export interface ServiceToken extends ServiceClaims {
@@ -78,9 +82,9 @@ export function toolAllowed(allowedTools: readonly string[], connector: string, 
   return allowedTools.some((ref) => ref === "*" || ref === wildcard || ref === exact);
 }
 
-export async function signServiceToken(secret: string, svc: string, ttlSeconds = DEFAULT_SERVICE_TOKEN_TTL_SECONDS): Promise<string> {
+export async function signServiceToken(secret: string, svc: string, ttlSeconds = DEFAULT_SERVICE_TOKEN_TTL_SECONDS, businessId?: string): Promise<string> {
   const { svc: name } = ServiceClaims.parse({ svc });
-  return new SignJWT({ svc: name })
+  return new SignJWT({ svc: name, ...(businessId ? { businessId } : {}) })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setIssuer(TOKEN_ISSUER)
     .setAudience(SERVICE_AUDIENCE)
@@ -96,6 +100,28 @@ export async function verifyServiceToken(secret: string, token: string): Promise
   if (!claims.success) throw new UnauthorizedError("Service token is missing the svc claim");
   return { ...claims.data, exp: payload.exp!, iat: payload.iat! };
 }
+
+/**
+ * Service tokens when the api has its own secret (WP-11 T12, N4). With `api` null, as before: every service signs with
+ * the shared secret. With `api` set, a token that verifies under it must claim `svc: "api"`; a token under the shared
+ * secret may claim `api` only while `legacy` is true (the switch in progress, DEPLOY §3); every other service verifies
+ * under the shared secret as before. So once the switch is done, holding SESSION_TOKEN_SECRET no longer lets a service
+ * pose as the api.
+ */
+export async function verifyServiceTokenFor(secrets: { shared: string; api: string | null; legacy: boolean }, token: string): Promise<ServiceToken> {
+  if (!secrets.api) return verifyServiceToken(secrets.shared, token);
+  const own = await verifyServiceToken(secrets.api, token).catch(() => null);
+  if (own) {
+    if (own.svc !== "api") throw new UnauthorizedError("A token signed with the api's secret must be the api's");
+    return own;
+  }
+  const shared = await verifyServiceToken(secrets.shared, token);
+  if (shared.svc === "api" && !secrets.legacy) throw new UnauthorizedError("The api signs with its own secret now");
+  return shared;
+}
+
+/** What `/health` says of the api's service token: "shared" (no own secret), "legacy" (switching), "own" (done). */
+export const apiServiceTokenMode = (secrets: { api: string | null; legacy: boolean }): "shared" | "legacy" | "own" => (!secrets.api ? "shared" : secrets.legacy ? "legacy" : "own");
 
 export interface MintedSessionToken {
   token: string;

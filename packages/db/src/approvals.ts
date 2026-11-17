@@ -249,7 +249,7 @@ export function approvalItem(approval: Pick<Approval, "connectorKey" | "tool" | 
   }
   if (isReleaseApproval(approval)) {
     const tests = details.tests === undefined ? null : details.tests;
-    const tested = tests && tests.total > 0 ? (tests.passing === tests.total ? "It passed every quality check." : "It passed most of its quality checks.") : tests === null && details.tests !== undefined ? "There was nothing in it to check." : "";
+    const tested = tests && tests.total > 0 ? (tests.passing === tests.total ? "It passed every quality check." : "It passed most of its quality checks.") : tests === null && details.tests !== undefined ? "No automatic check covers this change." : "";
     const body = `${whoMd} finished${task ? ` “${task}”` : " a change"}. ${tested} OK to put it live?`.replace(/\s+/g, " ");
     return {
       type: "decision" as const,
@@ -291,6 +291,56 @@ export function approvalItem(approval: Pick<Approval, "connectorKey" | "tool" | 
     source_event_ids: [...(details.sourceEventIds ?? [])],
     entity_ids: [],
   };
+}
+
+/**
+ * The next step after the founder said no to a change going live without saying why (WP-05 T16, A4-13): one question,
+ * "What should happen to this change?", answered with the founder's words (the change goes back to its agent) or Drop
+ * (the task is put away and the work that waited on it goes ahead). Recognized by `decision.key`, which carries the
+ * approval it follows (`release.follow_up:<approvalId>`; the stored decision keeps no other field), and through it the
+ * task. Never holds Continue, as the release itself does not.
+ */
+export const RELEASE_FOLLOW_UP = { key: "release.follow_up", subject: "What should happen to this change?", options: { rework: "release_rework", drop: "release_drop" }, reworkLabel: "Tell the team what to change", dropLabel: "Drop this change" } as const;
+
+export function releaseFollowUpItem(details: { agentId: string; agentName: string; taskTitle: string; approvalId: string }) {
+  const who = details.agentName.trim() || "The team";
+  const whoMd = agentMention({ id: details.agentId, name: details.agentName }) || who;
+  return {
+    type: "decision" as const,
+    from_agent_id: details.agentId,
+    subject: RELEASE_FOLLOW_UP.subject,
+    body_md: `You did not put ${whoMd}'s change for “${clip(details.taskTitle, 120)}” live. ${RELEASE_FOLLOW_UP.subject}`,
+    status_strip: [],
+    exhibit: { kind: "none" as const, spec_ref: null },
+    decision: {
+      options: [
+        { id: RELEASE_FOLLOW_UP.options.rework, label: RELEASE_FOLLOW_UP.reworkLabel, recommended: true, consequence: `Write what should change; ${who} reworks it and asks you again.`, cost_minor: 0, reversible: true },
+        { id: RELEASE_FOLLOW_UP.options.drop, label: RELEASE_FOLLOW_UP.dropLabel, recommended: false, consequence: "Nothing goes live and the task is put away; the work that waited on it goes ahead without it.", cost_minor: 0, reversible: false },
+      ],
+      free_text: true,
+      expires_at: null,
+      key: `${RELEASE_FOLLOW_UP.key}:${details.approvalId}`,
+    },
+    blocks_continue: false,
+    source_event_ids: [],
+    entity_ids: [],
+  };
+}
+
+/** The approval a release follow-up is about, or null for any other decision. */
+export function releaseFollowUpOf(decision: unknown): { approvalId: string } | null {
+  const key = decision && typeof decision === "object" ? (decision as { key?: unknown }).key : null;
+  const prefix = `${RELEASE_FOLLOW_UP.key}:`;
+  return typeof key === "string" && key.startsWith(prefix) && key.length > prefix.length ? { approvalId: key.slice(prefix.length) } : null;
+}
+
+/**
+ * The instruction a change carries back to its agent when the founder said no with words: the founder's words first, as
+ * the instruction, then what the next session must do. The agent reads all of it (`## Why this task is back`).
+ */
+export function founderReworkDetail(words: string, branch: string): string {
+  const said = words.trim().replace(/\s+/g, " ").slice(0, 1200);
+  return `The founder's instruction: “${said}”. The founder did not put this change live and asked for this first. Bring your working copy (${branch}) up to date with the newest version of the product, make the change the founder asked for, keep every check passing, and finish; it is offered to go live again when the checks pass.`.slice(0, 2000);
 }
 
 /** One line per batched request: "Paid advertising (£600.00)". */

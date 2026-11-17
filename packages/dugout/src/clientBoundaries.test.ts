@@ -53,6 +53,7 @@ export const BARRELS = [
   "components/firstrun.ts",
   "components/today.ts",
   "components/public.ts",
+  "components/share.ts",
   "brand.ts",
 ];
 
@@ -115,6 +116,7 @@ export const SERVER_SAFE_FILES = [
   // render; the next-step rules are pure; the fixture map and the keyboard-focus tracker hold no React at all.
   "components/guidance/ConsequenceLine.tsx",
   "components/guidance/ScaleLabel.tsx",
+  "components/guidance/RatingKey.tsx",
   "components/guidance/fixtures.ts",
   "components/guidance/keyboardFocus.ts",
   "components/firstrun/nextSteps.ts",
@@ -122,8 +124,20 @@ export const SERVER_SAFE_FILES = [
   "components/today/WeekPlan.tsx",
   // Public pages: the project page is rendered by the signed-out route as a Server Component.
   "components/public/ProjectPage.tsx",
+  "components/public/ProjectStory.tsx",
+  "components/public/MilestoneCard.tsx",
   "components/public/PersonPage.tsx",
-  // The streak (retention plan, 2026-11-11): plain markup inside a Panel.
+  // The Terms and the Privacy Policy (founder, 2026-11-13): rendered by their static routes as Server Components.
+  "components/public/LegalPage.tsx",
+  // "Get the app" (WP-03 T9): plain links any server-rendered page can show.
+  "components/public/GetTheApp.tsx",
+  // The landing page's pieces (DESIGN §9a): plain markup the prerendered page renders as Server Components.
+  "components/landing/ScreenFrame.tsx",
+  "components/landing/LandingSection.tsx",
+  "components/landing/DayList.tsx",
+  "components/landing/AssuranceList.tsx",
+  "components/landing/QuestionList.tsx",
+  // The streak (retention plan, 2026-11-11): one line of plain markup (WP-04 D5).
   "components/today/StreakStrip.tsx",
 ];
 

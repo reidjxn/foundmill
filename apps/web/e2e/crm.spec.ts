@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, chooseTableView, openBusiness } from "./helpers";
+import { LONG, chooseTableView, openBusiness, settled } from "./helpers";
 
 /**
  * CRM list and universal search (BUILD §11.12) on the seeded Northwind Skincare (customers, suppliers and supplier
@@ -62,6 +62,9 @@ test.describe("crm", () => {
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(page.getByRole("button", { name: `View: ${name}` })).toBeVisible();
     await page.reload();
+    // A reload streams the screen again: until React moves it in, a hidden copy sits outside the shell and an unscoped
+    // locator matches it twice (e2e/README.md "Streamed pages"), so wait for the live one before looking or clicking.
+    await settled(page);
     await expect(page.getByTestId("crm-screen")).toBeVisible({ timeout: LONG });
     await expect(page.getByRole("button", { name: `View: ${name}` })).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("crm-groups")).toBeVisible();
@@ -70,6 +73,7 @@ test.describe("crm", () => {
     await page.getByRole("menuitem", { name: "Delete view" }).click();
     await expect(page.getByRole("button", { name: "View: All" })).toBeVisible();
     await page.reload();
+    await settled(page);
     await expect(page.getByRole("button", { name: "View: All" })).toBeVisible({ timeout: LONG });
     await page.getByRole("button", { name: "View: All" }).click();
     await expect(page.getByRole("menuitemradio", { name })).toHaveCount(0);

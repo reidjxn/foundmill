@@ -45,6 +45,22 @@ export interface TasksListResponse {
   counts: Partial<Record<TaskStatus, number>>;
 }
 
+/** `dev.tasks.get`'s `report` (WP-05 T7): the task's latest saved result, null when none (or for a collaborator). */
+export interface TaskReportView {
+  id: string;
+  title: string;
+  /** Agent-written Markdown; mentions that do not validate were stripped by the api. */
+  bodyMd: string;
+  sources: { url: string; title: string }[];
+  simulated: boolean;
+  createdAt: string;
+}
+
+/** dev.tasks.get, the fields the Plan reads. */
+export interface TaskGetResponse {
+  report: TaskReportView | null;
+}
+
 /* dev.sessions.list / stream / replay */
 export interface SessionRow {
   id: string;
@@ -137,6 +153,8 @@ export interface MergedPrRow {
   deletions?: number;
   filesChanged?: number;
   url?: string | null;
+  /** `saved_only`: the task finished with nowhere to push (WP-05 T8), so it is saved with the task and not live anywhere. */
+  landed?: "saved_only" | null;
 }
 
 /* dev.deployments.list (the business's `deploy.succeeded` events, newest first) */

@@ -6,7 +6,7 @@
  *
  *   finance  money amounts and runway figures in the subject, body, decision options, plan and decision text read
  *            "(amount hidden)" / "(hidden)"; finance status metrics and finance exhibits are dropped; option costs and
- *            plan amounts are removed.
+ *            plan amounts are removed; what the note cost to write (`costMinor`, model credits) is null.
  *   crm      mentions of CRM records, and the names of the note's CRM records, read "a customer" / "a contact" / "an
  *            organization"…; the related records list is empty; an entity-card exhibit is dropped.
  *
@@ -208,7 +208,8 @@ function maskParams(params: unknown, m: Masker, finance: boolean): unknown {
   return out;
 }
 
-export type RedactedInboxItem<T extends InboxItem = InboxItem> = T & { redacted: WallSection[] };
+/** A note as a reader may see it: `costMinor` is null behind a Finance wall (the stream's `inbox.item_created` wall). */
+export type RedactedInboxItem<T extends InboxItem = InboxItem> = Omit<T, "costMinor"> & { costMinor: number | null; redacted: WallSection[] };
 
 /** How a text is masked besides its own mentions: which records' plain names to hide, and whether they are customers. */
 export interface MaskOptions {
@@ -269,6 +270,8 @@ export function redactInboxItem<T extends InboxItem>(item: T, source: RedactionS
     statusStrip: keptStrip,
     exhibit: financeExhibit || crmExhibit ? { kind: "none", spec_ref: null } : exhibit,
     decision,
+    costMinor: source.walls.finance ? null : item.costMinor,
+    // Not counted in `redacted`: the reading pane never shows a note's cost, so nothing on screen changed.
     redacted: [...m.touched].sort(),
   };
 }

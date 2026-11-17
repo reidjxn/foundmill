@@ -188,8 +188,8 @@ export async function personaContext(db: Executor, businessId: string): Promise<
        where a.persona_key is not null and a.archived_at is null and a.business_id <> ${businessId}::uuid
          and a.business_id in (
            select o.business_id from memberships o
-            where o.role = 'owner'
-              and o.user_id in (select m.user_id from memberships m where m.business_id = ${businessId}::uuid and m.role = 'owner'))`),
+            where o.role in ('owner', 'cofounder')
+              and o.user_id in (select m.user_id from memberships m where m.business_id = ${businessId}::uuid and m.role in ('owner', 'cofounder')))`),
   );
   const of = (kind: "taken" | "live" | "avoid") => rows.filter((r) => r.kind === kind).map((r) => r.key);
   return { taken: of("taken"), live: of("live"), avoid: of("avoid") };
@@ -603,7 +603,10 @@ export const agentsRepo = {
         schedule: source.schedule,
         wageCapMinor: source.wageCapMinor,
         currency: source.currency,
-        initialVersion: current ? { instructions: current.instructions as z.input<typeof AgentInstructions>, tools: current.tools, modelKey: current.modelKey, createdByKind: "system" } : undefined,
+        // Sessions read a system-written version 1 as "follow the template" (apps/orchestrator `followsTemplate`), so the
+        // copy is written by the system only when the source's live version follows its template too. Otherwise it is
+        // the user's, and the clone keeps the tools and instructions the source runs with (narrowed grants included).
+        initialVersion: current ? { instructions: current.instructions as z.input<typeof AgentInstructions>, tools: current.tools, modelKey: current.modelKey, createdByKind: current.version === 1 && current.createdByKind === "system" ? "system" : "user" } : undefined,
       });
     });
   },

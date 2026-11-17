@@ -1,8 +1,9 @@
 /**
  * "Your first week" on Today (founder's report, Phase 3 group K "A first week that explains itself"): what the team
  * does on Day 1, Days 2–3 and in Week 1, and what the founder will be asked and when. Day 1 starts with the project's
- * public page (docs/THESIS_REVIEW.md package 1.3: the first session ends on a link): the team drafts it with the
- * specification and the roadmap, and the founder is asked to publish it and to sign off the other two. A pure function
+ * public page (docs/THESIS_REVIEW.md package 1.3: the first session ends on a link): the team drafts it first, then the
+ * plan, and the founder is asked to publish it and to approve the plan (one note for the specification and the roadmap
+ * since WP-04 T5). A pure function
  * of facts the business already records (the page, sign-offs, goal, rounds of work, distribution), so the steps' state is read, never
  * stored: a step is done when its own facts are true, "now" is the first step not done, the rest are "next".
  *
@@ -20,6 +21,40 @@ export const FIRST_WEEK_DAYS = 10;
 export type FirstWeekStepId = "day1" | "days2to3" | "week1";
 export type FirstWeekStepState = "done" | "now" | "next";
 
+/**
+ * The one place the first day is told (WP-02 T6; WP-04 T7 "one first-day story"): Commit's "What happens next" lists
+ * these lines and the welcome note repeats them, so the two cannot drift. The page comes first, then one plan note.
+ */
+export const FIRST_DAY_PROMISE: readonly string[] = Object.freeze([
+  "Your page is drafted first, from your own words. About a minute.",
+  "You check it and publish it. Then you have a link to send.",
+  "Your plan arrives as one note to approve.",
+  "Nothing costs money or goes out in your name unless you say so.",
+]);
+
+/** Commit's toast once the project has started (WP-04 T7). */
+export const FIRST_DAY_TOAST = "Your page is being drafted now. You will check it first.";
+
+/** Words a first-day surface never uses (WP-04 T7): the old story of two documents to sign off. */
+export const OLD_FIRST_DAY_WORDS = /specification|roadmap|two notes|sign (them )?off|foundations/i;
+
+/**
+ * The Product lead's one plan note (WP-04 T5; founder, 2026-11-16 D3): it replaces the two sign-off notes. Both
+ * `product_signoffs` rounds (the specification and the roadmap) point at it, so one Approve approves both and starts the
+ * build. `key` marks its decision block (`decision.key`); the option ids stay `approve` and `request_changes`.
+ */
+export const PLAN_READY_NOTE = {
+  key: "product.plan_ready",
+  subject: "Your plan is ready",
+  approveLabel: "Approve the plan",
+  changeLabel: "Ask for changes",
+} as const;
+
+/** Whether a note's decision block is the plan note's (its `decision.key`). */
+export function isPlanReadyDecision(decision: unknown): boolean {
+  return !!decision && typeof decision === "object" && (decision as { key?: unknown }).key === PLAN_READY_NOTE.key;
+}
+
 /** Facts, all as the business's day keys ("2026-11-07") or flags. */
 export interface FirstWeekFacts {
   /** The business's day today. */
@@ -35,6 +70,8 @@ export interface FirstWeekFacts {
   firstRoundOn: string | null;
   /** The day the founder approved a goal; null before. */
   goalApprovedOn: string | null;
+  /** Where the team's code goes; "none" (no repository to push to) never promises changes going live. Absent reads as "github". */
+  destination?: "none" | "github";
   /** The day distribution started; null before. */
   distributionStartedOn: string | null;
   /** The team is stopped (Stop all agents, a revoked key, used-up credits). */
@@ -92,14 +129,16 @@ export function firstWeekTimeline(f: FirstWeekFacts): FirstWeekWords | null {
   const at = (n: number) => addDaysToDay(f.createdOn, n);
   const dateOf = (day: string | null) => (day ? goalDateWords(day, f.today) : null);
 
-  // Day 1 (package 1.3): the page first, then the two sign-offs; a step is done when all three are.
+  // Day 1 (package 1.3): the page first, then the plan (one note for both rounds, WP-04 T5); done when all three are.
   const pageOn = f.pagePublishedOn ?? null;
-  const signoffsOpen = [...(f.specSignedOffOn ? [] : ["the specification"]), ...(f.roadmapSignedOffOn ? [] : ["the roadmap"])];
-  const day1Done = pageOn !== null && signoffsOpen.length === 0;
+  const planOpen = !f.specSignedOffOn || !f.roadmapSignedOffOn;
+  const day1Done = pageOn !== null && !planOpen;
   const day1On = later(pageOn, f.specSignedOffOn, f.roadmapSignedOffOn);
-  const day1Asks = [...(pageOn ? [] : ["publish your page"]), ...(signoffsOpen.length ? [`sign off ${list(signoffsOpen)}`] : [])];
+  const day1Asks = [...(pageOn ? [] : ["publish your page"]), ...(planOpen ? ["approve your plan"] : [])];
 
-  const days2Open = [...(f.goalApprovedOn ? [] : ["your first goal, once your Chief of Staff proposes it"]), ...(f.firstRoundOn ? [] : ["the first changes going live"])];
+  // Nothing goes live from a project with no repository to push to (WP-02 T5): the founder approves pieces of work.
+  const firstWork = f.destination === "none" ? "the first pieces of work" : "the first changes going live";
+  const days2Open = [...(f.goalApprovedOn ? [] : ["your first goal, once your Chief of Staff proposes it"]), ...(f.firstRoundOn ? [] : [firstWork])];
   const days2Done = f.firstRoundOn !== null && f.goalApprovedOn !== null;
   const days2On = later(f.firstRoundOn, f.goalApprovedOn);
 
@@ -116,8 +155,9 @@ export function firstWeekTimeline(f: FirstWeekFacts): FirstWeekWords | null {
       label: "Day 1",
       state: stateOf(0),
       when: day1Done ? `Done ${dateOf(day1On ?? f.createdOn)}` : planned(at(0), at(0)),
-      team: day1Done ? "Drafted your page, your specification and your roadmap." : "Your team drafts your page, your specification and your roadmap.",
-      asks: day1Done ? "You published your page and signed off the specification and the roadmap." : `You are asked to ${list(day1Asks)}.`,
+      // The page first, then the plan (WP-04 T7): the plan holds the specification and the roadmap.
+      team: day1Done ? "Drafted your page and your plan." : "Your team drafts your page first, then your plan.",
+      asks: day1Done ? "You published your page and approved your plan." : `You are asked to ${list(day1Asks)}.`,
     },
     {
       id: "days2to3",
@@ -125,7 +165,7 @@ export function firstWeekTimeline(f: FirstWeekFacts): FirstWeekWords | null {
       state: stateOf(1),
       when: days2Done ? `Done ${dateOf(days2On)}` : planned(at(1), at(2)),
       team: days2Done ? "Built the first pieces of work and planned the channels." : "Your team builds the first pieces of work and plans the channels for finding customers.",
-      asks: days2Done ? "You approved your first goal and the first changes going live." : `You are asked to approve ${list(days2Open)}.`,
+      asks: days2Done ? `You approved your first goal and ${firstWork}.` : `You are asked to approve ${list(days2Open)}.`,
     },
     {
       id: "week1",

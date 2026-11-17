@@ -1,5 +1,5 @@
 import { expect, test, type Page, type PlaywrightWorkerArgs } from "@playwright/test";
-import { COACHMARK_CARD, LONG, chooseTableView, departmentBase as departmentBaseFor, devApi, dismissCoachmarks, openBusiness, openExplainer, setBuilderView } from "./helpers";
+import { COACHMARK_CARD, LONG, NORTHWIND_BUSINESS_ID, chooseTableView, departmentBase as departmentBaseFor, devApi, dismissCoachmarks, openBusiness, openExplainer, setBuilderView } from "./helpers";
 
 // Builder view on for this file (it reads the Code, Health and Hierarchy tabs, ratings out of 20 and the cycle number); global-setup.ts starts every run with it off. Restored afterwards.
 let builderViewBefore = false;
@@ -69,6 +69,19 @@ async function headersInside(page: Page, grid: string): Promise<string[]> {
       .filter((h) => h.getBoundingClientRect().right > box.right + 1)
       .map((h) => (h.textContent ?? "").trim());
   });
+}
+
+/** A tRPC answer (one result or a batch) with the first merge-queue row of `dev.prs.list` marked saved only. */
+function withOneSavedOnly(body: unknown): unknown {
+  for (const entry of Array.isArray(body) ? body : [body]) {
+    const merged = (entry as { result?: { data?: { json?: { merged?: Array<Record<string, unknown>> } } } })?.result?.data?.json?.merged;
+    const row = merged?.find((m) => m.source === "merge_queue");
+    if (row) {
+      row.landed = "saved_only";
+      break;
+    }
+  }
+  return body;
 }
 
 for (const width of [1280, 1440]) {
@@ -198,12 +211,12 @@ for (const width of [1280, 1440]) {
       expect(chart.smallest, "node text never drops below 11 px").toBeGreaterThanOrEqual(11);
 
       await openTab(page, team, "staff", "team/staff");
-      await expect(page.getByRole("grid", { name: "Staff" })).toBeVisible({ timeout: LONG });
+      await expect(page.getByRole("grid", { name: "People" })).toBeVisible({ timeout: LONG });
       // A member walled off a section says so ("Finance · no access"), never "Role default" (RUI-04).
-      const walled = page.getByRole("grid", { name: "Staff" }).getByText(/· no access/);
+      const walled = page.getByRole("grid", { name: "People" }).getByText(/· no access/);
       if (await walled.count()) await expect(walled.first()).toBeVisible();
       // Nobody edits their own role or permissions (team.humans.role refuses it): the founder's own row offers neither.
-      await page.getByRole("grid", { name: "Staff" }).getByRole("row").filter({ hasText: "You" }).first().click({ button: "right" });
+      await page.getByRole("grid", { name: "People" }).getByRole("row").filter({ hasText: "You" }).first().click({ button: "right" });
       await expect(page.getByRole("menuitem", { name: "Role and permissions…" })).toHaveAttribute("aria-disabled", "true");
       await page.keyboard.press("Escape");
     });
@@ -259,6 +272,9 @@ for (const width of [1280, 1440]) {
       await openTab(page, team, "recruitment", "team/recruitment");
       const draft = page.getByTestId("draft-agent");
       await expect(draft).toBeVisible({ timeout: LONG });
+      // The button finds the closest template by its words; no screen says an agent drafts anything (WP-06 T12).
+      await expect(draft).toContainText("Find the closest role");
+      await expect(page.locator("[data-module-screen='team/recruitment']")).not.toContainText(/Draft this agent|Agent builder/);
       await expect(draft).toBeDisabled();
       // The tab's explainer sits in the builder panel while guided; the key cap on the generate button is for
       // operators only (the shortcut works in both states).
@@ -383,6 +399,12 @@ for (const width of [1280, 1440]) {
       const labTabs = page.getByRole("tablist", { name: "Product tabs" }).locator(`[role=tab][id^="tab-${lab.split("/").pop()}/"]`);
       await expect(labTabs).toHaveText([/^Specialists · (Formulation Lab|Operations)/, /^Plan · (Formulation Lab|Operations)/]);
 
+      // One finished change saved with nowhere to push (WP-05 T8): the first queue merge of the real answer is marked
+      // `landed: "saved_only"`, as dev.prs.list marks a task whose latest completion says so (dev-prs.test.ts).
+      await page.route(/\/trpc\/[^?]*dev\.prs\.list/, async (route) => {
+        const response = await route.fetch();
+        await route.fulfill({ response, json: withOneSavedOnly(await response.json()) });
+      });
       await openTab(page, dev, "environments", "development/environments");
       const envs = page.getByRole("grid", { name: "Environments" });
       await expect(envs).toBeVisible({ timeout: LONG });
@@ -390,9 +412,15 @@ for (const width of [1280, 1440]) {
       expect(pills, "state pills are never cut").toEqual([]);
       expect(await headersInside(page, "Environments")).toEqual([]);
       // Live and awaiting branches come before the merged history.
-      const states = await envs.locator("[role=row]").evaluateAll((rows) => rows.slice(1).map((r) => (/Live|Awaiting deployment|Merged|Stopped/.exec(r.textContent ?? "") ?? [""])[0]));
-      const rank = (s: string) => ["Live", "Awaiting deployment", "Merged", "Stopped"].indexOf(s);
-      expect(states.map(rank), "rows ordered live, awaiting, merged, stopped").toEqual([...states.map(rank)].sort((a, b) => a - b));
+      const states = await envs.locator("[role=row]").evaluateAll((rows) => rows.slice(1).map((r) => (/Saved, not live anywhere|Live|Awaiting deployment|Merged|Stopped/.exec(r.textContent ?? "") ?? [""])[0]));
+      // Saved and merged rows share a rank (both finished history).
+      const rank = (s: string) => ["Live", "Awaiting deployment", "Merged", "Stopped"].indexOf(s === "Saved, not live anywhere" ? "Merged" : s);
+      expect(states.map(rank), "rows ordered live, awaiting, merged or saved, stopped").toEqual([...states.map(rank)].sort((a, b) => a - b));
+      // A change finished with nowhere to push reads as saved with its task, not live anywhere (WP-05 T8, D3).
+      const savedPill = envs.locator("[data-status-pill]", { hasText: "Saved, not live anywhere" }).first();
+      await expect(savedPill).toBeVisible();
+      await expect(savedPill).toHaveAttribute("title", "The work is kept with this task. It goes live once the project has a place to publish.");
+      await expect(page.getByTestId("env-saved-only")).toContainText("Saved, not live anywhere: The work is kept with this task.");
       // Branches read as their tasks ("order-webhook-hardening-3"), the git branch (agent/<task id>) in the tooltip. The
       // Simple view (guidance on, UX plan §7.10) leaves the Branch column out, so the check reads the full view.
       await chooseTableView(page, "All environments");
@@ -421,6 +449,36 @@ for (const width of [1280, 1440]) {
     });
   });
 }
+
+test("Development › Plan: a done research task shows its Result, the report the agent saved (WP-05 T7)", async ({ page, playwright }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const api = await devApi(playwright);
+  const res = await api.get(`/trpc/dev.tasks.list?input=${encodeURIComponent(JSON.stringify({ json: { businessId: NORTHWIND_BUSINESS_ID, limit: 500 } }))}`);
+  expect(res.ok(), `dev.tasks.list answered ${res.status()}`).toBe(true);
+  const items = ((await res.json()) as { result: { data: { json: { items: { id: string; title: string; status: string }[] } } } }).result.data.json.items;
+  await api.dispose();
+  const task = items.find((t) => t.title === "Reaction report synthesis Q3");
+  expect(task, "the seed has Northwind's research synthesis").toBeDefined();
+  expect(task!.status).toBe("done");
+
+  await openBusiness(page);
+  await page.goto(`${departmentBaseFor("development")}/plan?task=${task!.id}`);
+  await expect(page.getByTestId("module-screen")).toHaveAttribute("data-module", "development/plan", { timeout: LONG });
+  await closeTours(page);
+  const result = page.getByTestId("task-result");
+  await expect(result).toBeVisible({ timeout: LONG });
+  await expect(result.getByRole("heading", { name: "Result" })).toBeVisible();
+  await expect(result.getByRole("heading", { name: "Reaction reports Q3: three claims" })).toBeVisible();
+  await expect(result.getByRole("heading", { name: "What I found" })).toBeVisible({ timeout: LONG });
+  await expect(result.getByText(/Fragrance is the trigger/)).toBeVisible();
+  // The researcher's mention is an entity link; the source opens in a new tab; a real report carries no simulated notice.
+  await expect(result.locator("[data-entity-id]").first()).toBeVisible();
+  const source = result.getByRole("link", { name: /Support desk: reaction reports, Q3/ });
+  await expect(source).toHaveAttribute("href", "https://northwindskincare.example/support/reaction-reports");
+  await expect(source).toHaveAttribute("target", "_blank");
+  await expect(result.getByText("Simulated: sample data, nothing real was read")).toHaveCount(0);
+  expect(await result.evaluate((el) => el.scrollWidth <= el.clientWidth + 1), "the Result panel fits at 1280").toBe(true);
+});
 
 test.describe("saved table views on module screens", () => {
   test("Team › Agents: a view saved as new comes back after a reload, and deleting it sticks (audit #204)", async ({ page }) => {

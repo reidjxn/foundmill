@@ -4,9 +4,13 @@
  * task at once, whatever the wait or the count (five tasks past their retries sat through a Continue that planned
  * nothing; Foundmill business, Oct 28, 2026). Autopilot, the schedule and wakes keep the waits and the limit.
  */
-import { describe, expect, it } from "vitest";
+import { repos } from "@foundmill/db";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { loadDispatchFacts } from "../activities/brief";
 import { retryDeferral } from "../activities/cycle";
 import type { BriefTask } from "../activities/types";
+import { emitEvent } from "../events";
+import { openSessionRow, setupOrchestratorHarness, type OrchestratorTestHarness } from "./harness";
 
 const task = (patch: Partial<BriefTask>): BriefTask =>
   ({ id: "t1", title: "Fix the chip", kind: "code", status: "blocked", departmentId: null, assigneeAgentId: null, blocked: false, awaitingApproval: false, approvalHold: null, fileScope: [], budgetMinor: null, priority: 0, retry: null, ...patch }) as BriefTask;
@@ -31,5 +35,51 @@ describe("retryDeferral", () => {
     expect(retryDeferral(task({ retry: exhausted, awaitingApproval: true }), "continue")).toBe("waiting for your approval in the Inbox");
     expect(retryDeferral(task({ retry: { failures: 1, due: true, exhausted: false, nextAttemptAt: null } }))).toBeNull();
     expect(retryDeferral(task({ status: "ready", retry: null }), "continue")).toBeNull();
+  });
+});
+
+describe("loadDispatchFacts: a task blocked not_connected waits for the founder (WP-05 T2)", () => {
+  let t: OrchestratorTestHarness;
+  beforeAll(async () => {
+    t = await setupOrchestratorHarness({ prefix: "retry" });
+  });
+  afterAll(async () => {
+    await t?.close();
+  });
+
+  /** A research task whose one session ended blocked for `reason`, an hour ago (well past the first retry wait). */
+  const blockedOnce = async (title: string, reason: "not_connected" | "no_result" | "turn_limit") => {
+    const task = await repos.tasks.create(t.db, t.businessId, { kind: "research", title, goalMd: "Find suppliers.", assigneeAgentId: t.workerId, status: "ready" });
+    await repos.tasks.setStatus(t.db, t.businessId, task.id, "blocked", { force: true });
+    const sessionId = await openSessionRow(t, t.workerId, task.id);
+    await repos.agents.endSession(t.db, t.businessId, sessionId, { outcome: "blocked", endedAt: new Date(t.clock.now().getTime() - 3_600_000) });
+    await emitEvent(t.db, { businessId: t.businessId, type: "task.blocked", actor: { kind: "agent", id: t.workerId }, payload: { taskId: task.id, kind: task.kind, title, assigneeAgentId: t.workerId, sessionId, reason, detail: `blocked: ${reason}`, approvalId: null, occurrence: 1 } });
+    return task.id;
+  };
+
+  it("is not retried on a timer, only on the founder's Continue; a task blocked for another reason retries when due", async () => {
+    const waiting = await blockedOnce("Research the market", "not_connected");
+    const other = await blockedOnce("Write the welcome email", "no_result");
+    const facts = await loadDispatchFacts(t.deps, t.businessId);
+    const byId = new Map(facts.openTasks.map((x) => [x.id, x]));
+    expect(byId.get(waiting)!.retry).toMatchObject({ due: false, exhausted: true, nextAttemptAt: null });
+    expect(retryDeferral(byId.get(waiting)!, "schedule")).toBe("blocked once; start it from the Plan once the cause is fixed");
+    expect(retryDeferral(byId.get(waiting)!, "continue")).toBeNull();
+    expect(byId.get(other)!.retry).toMatchObject({ due: true, exhausted: false });
+  });
+
+  it("a task paused at the turn limit is offered again at once, however many rounds it took (WP-05 T10)", async () => {
+    const task = await repos.tasks.create(t.db, t.businessId, { kind: "code", title: "Rebuild the importer", goalMd: "Change the code.", assigneeAgentId: t.workerId, status: "ready" });
+    await repos.tasks.setStatus(t.db, t.businessId, task.id, "blocked", { force: true });
+    // Five rounds in a row, the last one just now: past TASK_RETRY_LIMIT and inside the first retry wait.
+    for (let n = 5; n >= 1; n -= 1) {
+      const sessionId = await openSessionRow(t, t.workerId, task.id);
+      await repos.agents.endSession(t.db, t.businessId, sessionId, { outcome: "blocked", endedAt: new Date(t.clock.now().getTime() - n * 1000) });
+      await emitEvent(t.db, { businessId: t.businessId, type: "task.blocked", actor: { kind: "agent", id: t.workerId }, payload: { taskId: task.id, kind: task.kind, title: task.title, assigneeAgentId: t.workerId, sessionId, reason: "turn_limit", detail: "the session reached its turn limit; the work so far is saved", approvalId: null, occurrence: 6 - n } });
+    }
+    const facts = await loadDispatchFacts(t.deps, t.businessId);
+    const offered = facts.openTasks.find((x) => x.id === task.id)!;
+    expect(offered.retry).toMatchObject({ due: true, exhausted: false, nextAttemptAt: null });
+    expect(retryDeferral(offered, "schedule")).toBeNull();
   });
 });

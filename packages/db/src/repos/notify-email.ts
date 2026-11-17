@@ -13,6 +13,7 @@ import { LIMITED_EMAIL_KINDS, type EmailNotificationKind } from "@foundmill/shar
 import { approvals, businesses, events, inboxItems, memberships, productSignoffs, type Membership } from "../schema";
 import { RESPOND_TYPES } from "./inbox";
 import type { Executor } from "./_shared";
+import { membershipNotEnded } from "./memberships";
 
 /** A note that asks the person for something: it holds Continue, is a decision, or is a warning with a choice to make. */
 const needsAnswer = and(
@@ -41,19 +42,25 @@ export const notifyEmailRepo = {
    * Every (note, person) pair where the note needs an answer, was written between `since` and `olderThan`, belongs to a
    * live business that is not a sample (`is_demo`), and the person is a member of it, not through an example
    * membership, who has no receipt for it. Oldest first, at most `limit`. Section walls are the caller's
-   * (`hasSectionAccess` on `membership`). Service connection only: it reads across businesses.
+   * (`hasSectionAccess` on `membership`). A note the page catch-up wrote (`decision.catch_up`) is left out unless
+   * `includeCatchUp`. Service connection only: it reads across businesses.
    */
-  async waitingAnswers(db: Executor, input: { olderThan: Date; since: Date; limit?: number }): Promise<WaitingAnswer[]> {
+  async waitingAnswers(db: Executor, input: { olderThan: Date; since: Date; limit?: number; includeCatchUp?: boolean }): Promise<WaitingAnswer[]> {
     const rows = await db
       .select({ businessId: inboxItems.businessId, inboxItemId: inboxItems.id, createdAt: inboxItems.createdAt, userId: memberships.userId, role: memberships.role, sectionPermissions: memberships.sectionPermissions })
       .from(inboxItems)
       .innerJoin(businesses, and(eq(businesses.id, inboxItems.businessId), eq(businesses.isDemo, false), isNull(businesses.archivedAt)))
-      .innerJoin(memberships, and(eq(memberships.businessId, inboxItems.businessId), ne(memberships.source, "example")))
+      // A membership that has ended (0092: a collaborator's date passed) is told nothing.
+      .innerJoin(memberships, and(eq(memberships.businessId, inboxItems.businessId), ne(memberships.source, "example"), membershipNotEnded))
       .where(
         and(
           needsAnswer,
+          // The page catch-up's note waits for the founder's own visit unless the deployment allows an email about it (D6).
+          input.includeCatchUp ? undefined : sql`coalesce(${inboxItems.decision}->>'catch_up', 'false') <> 'true'`,
           lte(inboxItems.createdAt, input.olderThan),
           gte(inboxItems.createdAt, input.since),
+          // 0103: a note for one person (a founder's showcase ask) is that person's only.
+          or(isNull(inboxItems.forUserId), eq(inboxItems.forUserId, memberships.userId)),
           // Qualified by hand (inbox.ts `stateFor`): the receipt is the person's own, for this note.
           sql`not exists (select 1 from "inbox_item_reads" "r" where "r"."inbox_item_id" = "inbox_items"."id" and "r"."user_id" = "memberships"."user_id")`,
         ),
@@ -73,6 +80,7 @@ export const notifyEmailRepo = {
           eq(inboxItems.businessId, businessId),
           eq(inboxItems.id, inboxItemId),
           needsAnswer,
+          or(isNull(inboxItems.forUserId), eq(inboxItems.forUserId, userId)),
           sql`not exists (select 1 from "inbox_item_reads" "r" where "r"."business_id" = ${businessId}::uuid and "r"."inbox_item_id" = ${inboxItemId}::uuid and "r"."user_id" = ${userId}::uuid)`,
         ),
       )

@@ -10,11 +10,11 @@ import { ZodError, z } from "zod";
 import { liveModeOpen } from "@foundmill/config";
 import { repos, SLUG_TAKEN, uniqueViolation, withRls, type Business, type DbTx, type Executor, type Membership } from "@foundmill/db";
 import type { EventPayloadInput } from "@foundmill/events";
-import { isModelBillingError } from "@foundmill/models";
-import { assertAllowlisted } from "./services/access";
+import { isModelBillingError, ModelNotFundedError, ModelRequestError } from "@foundmill/models";
+import { admitOrWait, assertConfirmedSignIn } from "./services/access";
 import { modelBillingAppError } from "./services/model-errors";
 import { writeEventRow } from "./services/events";
-import { AppError, ConflictError, DEFAULT_AGENT_STYLE, NotFoundError, WRITE_ROLES, effectivePermission, isAgentStyle, type Actor, type AgentStyle, type EventType, type MembershipRole, type PermissionLevel, type Section } from "@foundmill/shared";
+import { ADMIN_ROLES, AppError, ConflictError, DEFAULT_AGENT_STYLE, NotFoundError, OWNER_ROLES, WRITE_ROLES, effectivePermission, isAgentStyle, type Actor, type AgentStyle, type BusinessEventType, type MembershipRole, type PermissionLevel, type Section } from "@foundmill/shared";
 import type { Context } from "./context";
 
 export const Id = z.guid();
@@ -59,7 +59,7 @@ const t = initTRPC.context<Context>().create({
         ...shape.data,
         ...(hide ? { stack: undefined } : {}),
         appCode: cause instanceof AppError ? cause.code : undefined,
-        details: cause instanceof AppError ? cause.details : cause instanceof ZodError ? cause.issues : undefined,
+        details: cause instanceof AppError ? cause.details : cause instanceof ZodError ? boundedIssues(cause.issues) : undefined,
       },
     };
   },
@@ -71,6 +71,26 @@ export const createCallerFactory = t.createCallerFactory;
 export const middleware = t.middleware;
 
 // --- error mapping ---------------------------------------------------------------------------------------------------
+
+/**
+ * What an invalid input's error carries, bounded whatever the input (GHSA-mrhx-c7xc-m3w5): a huge input must not come
+ * back as a huge error. The first `ISSUES_SHOWN` issues, each message cut to `ISSUE_MESSAGE_MAX` characters and any list of
+ * unknown keys to `ISSUE_KEYS_SHOWN`; the rest is counted, not listed.
+ */
+const ISSUES_SHOWN = 20;
+const ISSUE_MESSAGE_MAX = 200;
+const ISSUE_KEYS_SHOWN = 20;
+const clip = (text: string) => (text.length > ISSUE_MESSAGE_MAX ? `${text.slice(0, ISSUE_MESSAGE_MAX - 1)}…` : text);
+export function boundedIssues(issues: readonly ZodError["issues"][number][]): unknown[] {
+  return issues.slice(0, ISSUES_SHOWN).map((issue) => {
+    const keys = (issue as { keys?: unknown }).keys;
+    return { ...issue, message: clip(issue.message), path: issue.path.slice(0, 10), ...(Array.isArray(keys) ? { keys: keys.slice(0, ISSUE_KEYS_SHOWN) } : {}) };
+  });
+}
+export function issueSummary(issues: readonly ZodError["issues"][number][]): string {
+  const shown = issues.slice(0, 10).map((i) => `${i.path.slice(0, 10).join(".") || "(root)"}: ${clip(i.message)}`).join("; ");
+  return issues.length > 10 ? `${shown}; and ${issues.length - 10} more` : shown;
+}
 
 const CODE_BY_APP_CODE: Record<string, TRPC_ERROR_CODE_KEY> = {
   not_found: "NOT_FOUND",
@@ -136,8 +156,17 @@ export function toTRPCError(err: unknown): TRPCError {
     const billing = modelBillingAppError(cause);
     return new TRPCError({ code: "PAYMENT_REQUIRED", message: billing.message, cause: billing });
   }
+  // The free plan's month is spent (WP-13 T6): a wait, said in plain words with the day it is back. A route a founder's
+  // own key cannot serve yet is a precondition, not a fault.
+  if (cause instanceof ModelNotFundedError) {
+    return new TRPCError({ code: cause.reason === "free_cap" ? "TOO_MANY_REQUESTS" : "PRECONDITION_FAILED", message: cause.message, cause });
+  }
+  // A project on its own Anthropic key whose key is missing or refused (WP-13 T11): the founder fixes it in Settings › Keys.
+  if (cause instanceof ModelRequestError && (cause.apiErrorType === "own_key_refused" || cause.apiErrorType === "own_key_missing")) {
+    return new TRPCError({ code: "PRECONDITION_FAILED", message: cause.message, cause });
+  }
   if (cause instanceof ZodError) {
-    return new TRPCError({ code: "BAD_REQUEST", message: cause.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; "), cause });
+    return new TRPCError({ code: "BAD_REQUEST", message: issueSummary(cause.issues), cause });
   }
   // A foreign-key violation is the caller's doing, not a server fault, and must not echo the failed statement. tRPC has
   // already wrapped a thrown database error as INTERNAL_SERVER_ERROR by the time it gets here; a code we set on purpose
@@ -277,10 +306,20 @@ const wakeRelay = t.middleware(async ({ ctx, type, next }) => {
 
 export const publicProcedure = t.procedure.use(mapErrors).use(wakeRelay);
 
-export const protectedProcedure = publicProcedure.use(({ ctx, next }) => {
+export const protectedProcedure = publicProcedure.use(async ({ ctx, next }) => {
   if (!ctx.userId) throw new TRPCError({ code: "UNAUTHORIZED", message: "Sign in to continue" });
-  // A deployment that is not open to everyone admits only the accounts SIGNUP_ALLOWLIST names (services/access.ts).
-  assertAllowlisted(ctx.env, { userId: ctx.userId, email: ctx.email, emailConfirmed: ctx.emailConfirmed });
+  // Admit now or wait (services/access.ts): the list, an admission, or open sign-up's ceiling; else a typed refusal.
+  await admitOrWait(ctx, { userId: ctx.userId, email: ctx.email, emailConfirmed: ctx.emailConfirmed });
+  return next({ ctx: { ...ctx, userId: ctx.userId } });
+});
+
+/**
+ * Signed in with a confirmed address, admitted or not: only for the procedure that is how a person gets in
+ * (`invitation.accept`). Everything else is `protectedProcedure`.
+ */
+export const signedInProcedure = publicProcedure.use(({ ctx, next }) => {
+  if (!ctx.userId) throw new TRPCError({ code: "UNAUTHORIZED", message: "Sign in to continue" });
+  assertConfirmedSignIn({ userId: ctx.userId, email: ctx.email, emailConfirmed: ctx.emailConfirmed });
   return next({ ctx: { ...ctx, userId: ctx.userId } });
 });
 
@@ -365,16 +404,16 @@ export function sectionPermission(section: Section, level: PermissionLevel = "wr
   });
 }
 
-/** Mutations: owner/admin/member only (viewers and advisors never write — RLS enforces the same). */
+/** Mutations: owner, cofounder, admin, member and collaborator (viewers and advisors never write — RLS enforces the same). */
 export const writeProcedure = businessProcedure.use(requireRoles(WRITE_ROLES, "changes"));
-/** Owner/admin only: modes, holiday, kill switch, staff, keys, billing, integrations, structure. */
-export const adminProcedure = businessProcedure.use(requireRoles(["owner", "admin"], "administration"));
-/** Owner only: tier changes, permanent actions. */
-export const ownerProcedure = businessProcedure.use(requireRoles(["owner"], "owner actions"));
-/** Owner/admin on a business that may be archived (export). */
-export const adminArchivedProcedure = archivedBusinessProcedure.use(requireRoles(["owner", "admin"], "administration"));
-/** Owner only on a business that may be archived (restore, permanent deletion). */
-export const ownerArchivedProcedure = archivedBusinessProcedure.use(requireRoles(["owner"], "owner actions"));
+/** An owner's standing (an owner or a cofounder) or an admin: modes, holiday, kill switch, people, keys, billing, integrations, structure. */
+export const adminProcedure = businessProcedure.use(requireRoles(ADMIN_ROLES, "administration"));
+/** An owner's standing only (an owner or a cofounder, THESIS_REVIEW 3.3): tier changes, permanent actions. */
+export const ownerProcedure = businessProcedure.use(requireRoles(OWNER_ROLES, "owner actions"));
+/** An owner's standing or an admin, on a business that may be archived (export). */
+export const adminArchivedProcedure = archivedBusinessProcedure.use(requireRoles(ADMIN_ROLES, "administration"));
+/** An owner's standing only, on a business that may be archived (restore, permanent deletion). */
+export const ownerArchivedProcedure = archivedBusinessProcedure.use(requireRoles(OWNER_ROLES, "owner actions"));
 
 /**
  * Closes the LIVE surfaces (live.*, going live, committing as LIVE) while `FLAGS.liveMode` is off and the deployment has
@@ -406,7 +445,7 @@ export function audit(tx: Executor, ctx: Pick<BusinessContext, "businessId" | "u
   return repos.audit.append(tx, ctx.businessId, { actorKind: "user", actorId: ctx.userId, action: input.action, target: input.target ?? {}, details: input.details ?? {} });
 }
 
-export interface EmitInput<T extends EventType> {
+export interface EmitInput<T extends BusinessEventType> {
   type: T;
   payload: EventPayloadInput<T>;
   entityIds?: readonly string[];
@@ -418,7 +457,7 @@ export interface EmitInput<T extends EventType> {
 }
 
 /** Write an event through the transactional outbox in the same transaction as the change it describes. */
-export function emit<T extends EventType>(tx: Executor, ctx: Pick<BusinessContext, "businessId" | "userId">, input: EmitInput<T>): Promise<string> {
+export function emit<T extends BusinessEventType>(tx: Executor, ctx: Pick<BusinessContext, "businessId" | "userId">, input: EmitInput<T>): Promise<string> {
   return writeEventRow(tx, { businessId: ctx.businessId, type: input.type, actor: input.actor ?? { kind: "user", id: ctx.userId }, payload: input.payload, entityIds: input.entityIds, ...(input.occurredAt ? { occurredAt: input.occurredAt } : {}) }, input.idempotencyKey);
 }
 

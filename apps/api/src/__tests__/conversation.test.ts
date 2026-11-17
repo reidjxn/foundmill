@@ -4,7 +4,7 @@
  * Inbox questions that never use up a decision, and tenancy (business, role and section).
  */
 import { CONVERSATION_MAX_TOKENS, CONVERSATION_RESERVE_TOKENS, REFUSED_REPLY_LINES, hasClubRulesPrefix } from "@foundmill/agents";
-import { inboxItems, repos } from "@foundmill/db";
+import { founderProfiles, inboxItems, repos } from "@foundmill/db";
 import { eq } from "drizzle-orm";
 import { agentDisplayName, personaByKey } from "@foundmill/shared";
 import { MockModelClient, ModelOutputError, PRICING_CURRENCY, type CompleteRequest, type ModelClient } from "@foundmill/models";
@@ -56,6 +56,8 @@ async function decisionItem(subject: string) {
 }
 
 const owner = () => hz.caller({ userId: hz.A.ownerId });
+/** What a reply shows, as text, with its random ids blanked: a uuid such as "…ade8981d…" would match /DE89/i. */
+const shown = (value: unknown) => JSON.stringify(value).replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "<id>");
 const conversationRequests = (client: MockModelClient) => client.history.filter((r) => r.route === "conversation") as CompleteRequest[];
 const systemBlocks = (req: CompleteRequest) => (Array.isArray(req.system) ? req.system : [req.system ?? ""]) as string[];
 
@@ -85,6 +87,23 @@ describe("agent.conversation.get", () => {
 });
 
 describe("agent.conversation.send", () => {
+  it("tells the agent who it is talking with: the person's first name and profile as trusted JSON, never in the instructions (WP-04 T10)", async () => {
+    await repos.founders.upsert(hz.db, hz.A.ownerId, { displayName: "Maya Lopez", experience: "first_time", budgetMinor: 0 });
+    try {
+      const client = recordingModels();
+      const item = await decisionItem("Where do the first customers come from?");
+      await owner().agent.conversation.send({ businessId: hz.A.businessId, subject: { kind: "inbox_item", id: item.id }, quickReplyId: "why_that_one" });
+      const req = conversationRequests(client).at(-1)!;
+      const prompt = String(req.messages[0]!.content);
+      const inputs = JSON.parse(prompt.slice(prompt.indexOf("{"), prompt.lastIndexOf("}") + 1)) as { founder?: Record<string, unknown> };
+      expect(inputs.founder).toMatchObject({ first_name: "Maya", experience: "first_time", budget: "none" });
+      expect(inputs.founder).not.toHaveProperty("other_founders");
+      expect(systemBlocks(req).join("\n")).not.toContain("Maya");
+    } finally {
+      await hz.db.delete(founderProfiles).where(eq(founderProfiles.userId, hz.A.ownerId));
+    }
+  });
+
   it("prices option costs in the business currency as an Estimate, never in the note's own model-cost currency (audit CML-12)", async () => {
     const client = recordingModels();
     const item = await decisionItem("Which channel carries the first spend?");
@@ -279,7 +298,8 @@ describe("agent.conversation.send", () => {
     await owner().agent.conversation.send({ businessId: hz.A.businessId, subject: { kind: "inbox_item", id: item.id }, quickReplyId: "why_that_one" });
     const booked = (await ledger(hz.A.businessId)).filter((u) => !beforeA.some((b) => b.id === u.id));
     expect(booked).toHaveLength(1);
-    expect(booked[0]).toMatchObject({ agentId: hz.A.agentId, kind: "tokens", modelKey: "sonnet", currency: PRICING_CURRENCY, billedTo: "credits", details: { service: "api", route: "conversation", kind: "conversation", inboxItemId: item.id, mode: "mock", label: "Estimate" } });
+    // Business A is on the free plan, so the reply runs on Haiku 5.5 (WP-13).
+    expect(booked[0]).toMatchObject({ agentId: hz.A.agentId, kind: "tokens", modelKey: "haiku", currency: PRICING_CURRENCY, billedTo: "credits", details: { service: "api", route: "conversation", kind: "conversation", inboxItemId: item.id, mode: "mock", label: "Estimate" } });
     expect(booked[0]!.quantity).toBeGreaterThan(0);
     // Nothing is booked to another business.
     expect(await ledger(hz.B.businessId)).toHaveLength(beforeB.length);
@@ -545,7 +565,7 @@ describe("prompt injection and smuggled quick replies (adversarial)", () => {
     expect(res.route).toBe("conversation");
     const reply = (res as { messages: Array<{ handOff: unknown; quickReplies: unknown[]; bubbles: string[] }> }).messages[1]!;
     expect(reply.handOff).toBeNull();
-    expect(JSON.stringify(reply.quickReplies)).not.toMatch(/wire|5,000|DE89|IBAN|ignore previous/i);
+    expect(shown(reply.quickReplies)).not.toMatch(/wire|5,000|DE89|IBAN|ignore previous/i);
     // The note reached the model only inside subject.untrusted, never in the system prompt.
     const req = conversationRequests(client).at(-1)!;
     for (const block of systemBlocks(req)) expect(block).not.toContain("DE89");
@@ -572,7 +592,7 @@ describe("prompt injection and smuggled quick replies (adversarial)", () => {
     const res = await owner().agent.conversation.send({ businessId: hz.A.businessId, subject: { kind: "inbox_item", id: item.id }, text: "Anything odd about this note?" });
     const reply = res.messages[1]!;
     expect(reply.handOff).toBeNull();
-    expect(JSON.stringify(reply.quickReplies)).not.toMatch(/wire|5,000|DE89|ignore previous/i);
+    expect(shown(reply.quickReplies)).not.toMatch(/wire|5,000|DE89|ignore previous/i);
     expect(reply.bubbles.at(-1)).toMatch(/comes from the quoted note, not from you/);
     expect(reply.quickReplies.find((q) => q.id === "sneaky")).toMatchObject({ kind: "choose_option", option_id: "approve", label: "Go with: Approve the deposit" });
     // The stored message is what was shipped (a reload shows the same), and nothing was set in motion.
@@ -596,7 +616,7 @@ describe("prompt injection and smuggled quick replies (adversarial)", () => {
     expect(reply.handOff).toBeNull();
     expect(reply.quickReplies.length).toBeGreaterThanOrEqual(2);
     expect(reply.quickReplies[0]).toMatchObject({ kind: "choose_option", option_id: "approve", label: "Go with: Approve the deposit" });
-    expect(JSON.stringify(reply)).not.toMatch(/wire|5,000|DE89|IBAN|ignore previous|refus/i);
+    expect(shown(reply)).not.toMatch(/wire|5,000|DE89|IBAN|ignore previous|refus/i);
     // Stored as what shipped, marked as a refusal (no model text was kept), and nothing was set in motion.
     const view = await owner().agent.conversation.get({ businessId: hz.A.businessId, subject: { kind: "inbox_item", id: item.id } });
     expect(view.messages.at(-1)!.bubbles).toEqual(reply.bubbles);
@@ -649,7 +669,7 @@ describe("prompt injection and smuggled quick replies (adversarial)", () => {
     const r = await replyAboutConcept(client, { concept, quickReplyId: "biggest_risk" });
     for (const block of systemBlocks(client.history[0]!)) expect(block).not.toMatch(/DE89|payments agent|pre-approved/i);
     expect(r.bubbles.join(" ")).toContain("regulatory load, rated 6");
-    expect(JSON.stringify({ bubbles: r.bubbles, quickReplies: r.quickReplies })).not.toMatch(/wire|5,000|DE89|ignore previous|payments agent/i);
+    expect(shown({ bubbles: r.bubbles, quickReplies: r.quickReplies })).not.toMatch(/wire|5,000|DE89|ignore previous|payments agent/i);
   });
 
   it("a refusal on a concept's Ask gets the Research agent's scripted line and the other starters, nothing from the card", async () => {
@@ -664,7 +684,7 @@ describe("prompt injection and smuggled quick replies (adversarial)", () => {
     expect(r.bubbles[0]).toContain(REFUSED_REPLY_LINES.quoted[0]);
     expect(r.quickReplies.map((q) => q.id)).toEqual(["biggest_risk", "competitors", "first_customer"]);
     expect(r.persona).toMatchObject({ name: "Research agent", isAgent: true });
-    expect(JSON.stringify({ bubbles: r.bubbles, quickReplies: r.quickReplies, answerMd: r.answerMd })).not.toMatch(/wire|5,000|DE89|ignore previous|pre-approved/i);
+    expect(shown({ bubbles: r.bubbles, quickReplies: r.quickReplies, answerMd: r.answerMd })).not.toMatch(/wire|5,000|DE89|ignore previous|pre-approved/i);
   });
 });
 

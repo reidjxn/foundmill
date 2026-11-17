@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, openBusiness, settingsScreen, settled, signIn } from "./helpers";
+import { LONG, PLAN_NOTE, commitThrowaway, dismissCoachmarks, inboxRow, openBusiness, setKeyboardShortcuts, settingsScreen, settled, signIn } from "./helpers";
 
 /** Ledgerly is seeded on vacation (packages/db/src/seed/ledgerly.ts). */
 const LEDGERLY_BUSINESS_ID = "b1e5e5e5-0000-4000-8000-000000000002";
@@ -205,5 +205,132 @@ test.describe("keyboard and screen readers", () => {
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("keyboard-help")).toHaveCount(0);
     await expect(cap).toBeFocused();
+  });
+});
+
+/**
+ * Single-key shortcuts off by default (WP-04 T13; audit A2-03, WCAG 2.1.4): a new guided account cannot start work or
+ * answer a note with one stray key. global-setup.ts turns the keys on for the other specs; this block turns them off,
+ * as a new founder has them, and puts back what it found.
+ */
+test.describe("single-key shortcuts off (a new founder's default)", () => {
+  let before = true;
+  test.beforeAll(async ({ playwright }) => {
+    before = await setKeyboardShortcuts(playwright, false);
+  });
+  test.afterAll(async ({ playwright }) => {
+    await setKeyboardShortcuts(playwright, before);
+  });
+
+  test("Space on Today scrolls and never starts work", async ({ page }) => {
+    await openBusiness(page, "today");
+    await dismissCoachmarks(page);
+    const cycle = await intercept(page, "business.continue");
+    // Record whether anything took Space from the browser (a page shortcut would prevent its scroll).
+    await page.evaluate(() => {
+      const w = window as unknown as { spaceTaken: boolean[] };
+      w.spaceTaken = [];
+      window.addEventListener("keydown", (e) => {
+        if (e.key === " ") w.spaceTaken.push(e.defaultPrevented);
+      });
+    });
+    await page.getByTestId("shell-content").focus();
+    await page.keyboard.press("Space");
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.keyboard.press("Space");
+    expect(await page.evaluate(() => (window as unknown as { spaceTaken: boolean[] }).spaceTaken)).toEqual([false, false]);
+    await page.waitForTimeout(500);
+    expect(cycle.calls()).toBe(0);
+    await expect(page.getByRole("button", { name: /^Continue$/ })).toBeVisible();
+  });
+
+  test("only /, Cmd-K, ? and Esc act: R, J, K and the G chords do nothing, and the shortcut list says where to turn them on", async ({ page }) => {
+    await openBusiness(page, "inbox");
+    await expect(page.getByTestId("inbox-list")).toBeVisible({ timeout: LONG });
+    await dismissCoachmarks(page);
+    const refresh = await intercept(page, "inbox.refresh");
+    const url = page.url();
+    await page.getByTestId("shell-content").focus();
+    for (const key of ["j", "k", "r", "e"]) await page.keyboard.press(key);
+    await page.keyboard.press("g");
+    await expect(page.getByTestId("app-shell")).not.toHaveAttribute("data-chord-pending", "true");
+    await page.keyboard.press("h");
+    await page.waitForTimeout(500);
+    expect(page.url()).toBe(url);
+    expect(refresh.calls()).toBe(0);
+    await page.keyboard.press("/");
+    await expect(page.getByTestId("command-palette")).toBeVisible({ timeout: LONG });
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("command-palette")).toHaveCount(0);
+    await page.keyboard.press("Control+k");
+    await expect(page.getByTestId("command-palette")).toBeVisible({ timeout: LONG });
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("command-palette")).toHaveCount(0);
+    await page.keyboard.press("?");
+    const help = page.getByTestId("keyboard-help");
+    await expect(help).toHaveAttribute("data-single-keys", "off");
+    await expect(help).toContainText("Single-key shortcuts are off. Turn them on in Settings › Preferences.");
+    await expect(help).toContainText("Refresh Inbox");
+    await page.keyboard.press("Escape");
+    await expect(help).toHaveCount(0);
+  });
+
+  test("Settings › Preferences turns them on and off, and the shortcut list follows", async ({ page }) => {
+    await openBusiness(page, "settings/preferences");
+    const sw = () => settingsScreen(page).getByTestId("keyboard-shortcuts-switch");
+    await expect(sw()).toHaveAttribute("aria-checked", "false", { timeout: LONG });
+    await expect(settingsScreen(page).getByTestId("keyboard-shortcuts-panel")).toContainText("Search (/ or ⌘K), the list of shortcuts (?) and Esc always work.");
+    await sw().click();
+    await expect(sw()).toHaveAttribute("aria-checked", "true");
+    await expect(page.getByText("Single-key shortcuts on").first()).toBeVisible({ timeout: LONG });
+    await page.reload();
+    await expect(sw()).toHaveAttribute("aria-checked", "true", { timeout: LONG });
+    await page.getByTestId("shell-content").focus();
+    await page.keyboard.press("?");
+    await expect(page.getByTestId("keyboard-help")).toHaveAttribute("data-single-keys", "on");
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("keyboard-help")).toHaveCount(0);
+    await sw().click();
+    await expect(sw()).toHaveAttribute("aria-checked", "false");
+  });
+
+  test("forced colors: a focused field still draws its outline and a panel keeps a 1 px edge (WP-10 T7)", async ({ page }) => {
+    await page.emulateMedia({ forcedColors: "active" });
+    await openBusiness(page, "settings/business");
+    const screen = settingsScreen(page);
+    await expect(screen).toHaveAttribute("data-tab", "business", { timeout: LONG });
+    const name = screen.locator("#biz-name");
+    await name.focus();
+    const outline = await name.evaluate((el) => getComputedStyle(el.closest(".field-well")!).outlineStyle);
+    expect(outline).not.toBe("none");
+    const edge = await page.locator(".surface-panel").first().evaluate((el) => getComputedStyle(el).borderTopWidth);
+    expect(edge).toBe("1px");
+  });
+
+  test("tabbing through a note never leaves the focused control under the decision bar (WP-10 T7, WCAG 2.4.11)", async ({ page }) => {
+    test.setTimeout(240_000);
+    const bid = await commitThrowaway(page, `Playwright focus ${Date.now().toString(36)}`);
+    await page.goto(`/b/${bid}/inbox`);
+    // The plan note is the decision the team sends first (the first row may be the welcome note or the day's digest).
+    const row = inboxRow(page, PLAN_NOTE);
+    await expect(row).toBeVisible({ timeout: LONG });
+    await row.click();
+    await expect(page.getByTestId("decision-bar")).toBeVisible({ timeout: LONG });
+    await dismissCoachmarks(page);
+    await page.setViewportSize({ width: 1440, height: 640 });
+    const pane = page.getByTestId("inbox-item");
+    await pane.locator("a, button, [tabindex='0']").first().focus();
+    for (let i = 0; i < 25; i++) {
+      const hidden = await page.evaluate(() => {
+        const el = document.activeElement as HTMLElement | null;
+        const bar = document.querySelector("[data-testid=decision-bar]");
+        if (!el || !bar || bar.contains(el) || !el.closest("[data-testid=inbox-item]")) return null;
+        const a = el.getBoundingClientRect();
+        const b = bar.getBoundingClientRect();
+        return a.top < b.bottom && a.bottom > b.top ? (el.textContent ?? el.tagName).trim().slice(0, 60) : null;
+      });
+      expect(hidden, `focus ${i} sits under the decision bar`).toBeNull();
+      await page.keyboard.press("Tab");
+    }
   });
 });

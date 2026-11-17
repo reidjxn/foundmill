@@ -34,14 +34,15 @@ export const SimulateBody = z
   .loose();
 export type SimulateBody = z.input<typeof SimulateBody>;
 
-/** Whether the Simulate routes exist for this environment (never in test or production). */
+/** Whether the Simulate routes exist for this environment (development only: never staging, test or production). */
 export const simulateEnabledFor = (appEnv: string, flag: boolean = FLAGS.devSimulatePanel): boolean => flag && isSimulateEnv(appEnv);
 
 /**
- * Whether the routes are mounted at all: the computed/forced `simulateEnabled` and never production, whatever a
- * caller passed (`buildIngest({ simulateEnabled: true })` in production still yields 404s).
+ * Whether the routes are mounted at all: the computed/forced `simulateEnabled` and never staging or production, whatever
+ * a caller passed (`buildIngest({ simulateEnabled: true })` there still yields 404s; production runs APP_ENV=staging).
+ * Only the test harness forces it on, under APP_ENV=test.
  */
-export const simulateRoutesMounted = (deps: Pick<IngestDeps, "env" | "simulateEnabled">): boolean => deps.simulateEnabled && deps.env.APP_ENV !== "production";
+export const simulateRoutesMounted = (deps: Pick<IngestDeps, "env" | "simulateEnabled">): boolean => deps.simulateEnabled && deps.env.APP_ENV !== "production" && deps.env.APP_ENV !== "staging";
 
 export interface SimulationCatalogueEntry {
   name: string;

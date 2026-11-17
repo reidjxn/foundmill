@@ -9,14 +9,18 @@
  *   the first Now items through the same service as Product › Work list, then the next cycle exactly as Continue does.
  * - `startDistribution` is the explicit step before any channel engine runs: `businesses.distribution_started_at`,
  *   the channel-scoring task, the archetype's Board question, the engines, one note from the Distribution strategist.
- * - `reopenSpecSignoffAfterPublish`: a specification published while its round was sent back asks for sign-off again.
+ * - `decidePlanNote` answers the one plan note (WP-04 T5): both rounds point at it, so one Approve settles both and
+ *   starts the build; Ask for changes sends the specification back.
+ * - `reopenSpecSignoffAfterPublish`: a specification published while its round was sent back asks for sign-off again
+ *   (with the plan note again while the roadmap round waits too).
  *
  * Nothing here calls a model except the Planner (through `planTaskGraph`); no plan compiler runs for a sign-off.
  */
-import { CHANNEL_SCORING_TASK, getArchetypeSeed } from "@foundmill/agents";
+import { CHANNEL_SCORING_TASK, getArchetypeSeed, planRoadmapHref, SITE_FIRST_BUILD } from "@foundmill/agents";
+import { sitesEnabled } from "@foundmill/shared/sites";
 import { LIMITS } from "@foundmill/config";
-import { bothSignedOff, loadProductStage, repos, signoffDecisionBlock, type Decision, type DbTx, type InboxItem, type PlanWithActions, type ProductSignoff, type Task } from "@foundmill/db";
-import { AppError, CHANNEL_KEYS, CHANNEL_META, channelMayRun, ConflictError, ForbiddenError, ValidationError, type ChannelKey, type ProductStage, type SignoffKind, type SignoffStatus } from "@foundmill/shared";
+import { bothSignedOff, buildDestinationOf, loadProductStage, planDecisionBlock, repos, signoffDecisionBlock, type Decision, type DbTx, type InboxItem, type PlanWithActions, type ProductSignoff, type Task } from "@foundmill/db";
+import { AppError, CHANNEL_KEYS, CHANNEL_META, channelEngineMayRun, ConflictError, ForbiddenError, isAdminRole, isPlanReadyDecision, PLAN_READY_NOTE, ValidationError, type BuildDestination, type ChannelKey, type ProductStage, type SignoffKind, type SignoffStatus } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
 import { channelRowsFor, MIN_DECISION_OPTIONS, offerableOptions, OPTIONS_LEFT_OUT_LINE } from "./channel-availability";
@@ -50,6 +54,8 @@ export interface SignoffView {
 
 export interface SignoffViews {
   stage: ProductStage;
+  /** Where the team's code goes (WP-02 T5). */
+  destination: BuildDestination;
   spec: SignoffView | null;
   roadmap: SignoffView | null;
   readyToSell: SignoffView | null;
@@ -73,9 +79,9 @@ function viewOf(row: ProductSignoff | null, versions: Map<string, number>): Sign
 
 /** The latest round of each kind as the screens read it, with the stage. */
 export async function signoffViews(tx: DbTx, businessId: string): Promise<SignoffViews> {
-  const [{ stage, signoffs }, versions] = await Promise.all([loadProductStage(tx, businessId), repos.product.listVersions(tx, businessId)]);
+  const [{ stage, signoffs, facts }, versions] = await Promise.all([loadProductStage(tx, businessId), repos.product.listVersions(tx, businessId)]);
   const numbers = new Map(versions.map((v) => [v.id, v.version] as const));
-  return { stage, spec: viewOf(signoffs.spec, numbers), roadmap: viewOf(signoffs.roadmap, numbers), readyToSell: viewOf(signoffs.readyToSell, numbers) };
+  return { stage, destination: facts.destination, spec: viewOf(signoffs.spec, numbers), roadmap: viewOf(signoffs.roadmap, numbers), readyToSell: viewOf(signoffs.readyToSell, numbers) };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -168,7 +174,115 @@ export interface SignoffResult {
 /** Priority of a revision task: ahead of every planned task, so the next cycle takes it first when it did not start now. */
 export const REVISION_TASK_PRIORITY = 10;
 
-/** The one implementation of Approve / Request changes for the specification and the roadmap. */
+interface DecidedRound {
+  round: ProductSignoff;
+  voice: { id: string; name: string } | null;
+  specVersion: { id: string; version: number } | null;
+  answered: AnsweredNote | null;
+  task: Task | null;
+}
+
+const isOpen = (r: Pick<ProductSignoff, "status">) => r.status === "pending" || r.status === "changes_requested";
+
+/**
+ * One round decided inside the caller's transaction (which holds `repos.productSignoffs.lock`): Approve publishes the
+ * specification as a numbered version or snapshots the roadmap; Request changes gives the Product lead a revision task
+ * in the founder's words. The round's note is answered unless `answer` is false, or, on an approval, another open round
+ * still waits on the same note (the plan note carries both, WP-04 T5: approving one on its tab leaves it open for the other).
+ */
+async function decideRoundTx(tx: DbTx, ctx: BusinessContext, input: DecideSignoffInput & { notes: string | null }, opts: { answer: boolean } = { answer: true }): Promise<DecidedRound> {
+  const notes = input.notes;
+  const words = KIND_WORDS[input.kind];
+  const before = await repos.productSignoffs.latest(tx, ctx.businessId);
+  const round = before[input.kind];
+  if (!round) throw new ValidationError(`Nothing to sign off yet: ${words.the} is drafted when the business is first opened.`, { kind: input.kind });
+  if (round.status === "approved") throw new ConflictError(`${words.tab} round ${round.round} is already signed off.`, { code: "already_decided", kind: input.kind, round: round.round });
+  const voice = await productVoice(tx, ctx.businessId, round.inboxItemId ? ((await repos.inbox.get(tx, ctx.businessId, round.inboxItemId).catch(() => null))?.fromAgentId ?? null) : null);
+
+  // Approving the specification publishes it as a numbered version: what the team builds from.
+  let specVersion: { id: string; version: number } | null = null;
+  if (input.decision === "approve" && input.kind === "spec") {
+    const published = await repos.product.publish(tx, ctx.businessId, { changelogMd: "Signed off by the founder", publishedBy: ctx.userId, unlessUnchanged: true });
+    specVersion = { id: published.version.id, version: published.version.version };
+    if (published.created) {
+      const blocks = (published.version.snapshot as { blocks?: Array<{ id: string }> }).blocks ?? [];
+      await emit(tx, ctx, { type: "spec.version_published", payload: { specVersionId: published.version.id, version: published.version.version, previousVersion: published.previousVersion, changedBlockIds: blocks.map((b) => b.id), changelog: "Signed off by the founder", hunksAccepted: 0, hunksRejected: 0, hunksEdited: 0 } });
+      await audit(tx, ctx, { action: "product.spec.publish", target: { kind: "spec_version", id: published.version.id }, details: { version: published.version.version, signoff: true } });
+    }
+  }
+  const snapshot = input.decision === "approve" && input.kind === "roadmap" ? { items: (await repos.product.listRoadmap(tx, ctx.businessId)).map((i) => ({ id: i.id, title: i.title, horizon: i.horizon, position: i.position })) } : undefined;
+  const status: SignoffStatus = input.decision === "approve" ? "approved" : "changes_requested";
+  const decided = await repos.productSignoffs.decide(tx, ctx.businessId, round.id, { status, notes, decidedBy: ctx.userId, decidedByKind: "user", from: ["pending", "changes_requested"], ...(specVersion ? { specVersionId: specVersion.id } : {}), ...(snapshot ? { snapshot } : {}) });
+  if (!decided) throw new ConflictError(`${words.tab} round ${round.round} was decided a moment ago.`, { code: "already_decided", kind: input.kind, round: round.round });
+
+  const summary = input.decision === "approve" ? `Approved ${words.the}${specVersion ? ` (version ${specVersion.version})` : ""}.` : `Requested changes to ${words.the}: ${clipWords(notes!, 40)}`;
+  const othersWaiting = round.inboxItemId ? (await repos.productSignoffs.listForInboxItem(tx, ctx.businessId, round.inboxItemId)).some((r) => r.id !== round.id && isOpen(r)) : false;
+  const answered = opts.answer && (input.decision === "request_changes" || !othersWaiting) ? await answerNote(tx, ctx, round.inboxItemId, input.decision === "approve" ? "approve" : "request_changes", notes, voice?.id ?? null, summary) : null;
+
+  // Request changes: the founder's own words become the Product lead's revision task (trusted: they are the founder's).
+  // The title stays the team's ("from your notes"), never the founder's sentence cut off mid-word; their words are the goal.
+  let task: Task | null = null;
+  if (input.decision === "request_changes") {
+    const departments = await repos.departments.list(tx, ctx.businessId, { includeHidden: true });
+    const product = departments.find((d) => (d.moduleKeys as string[]).includes("product")) ?? null;
+    task = await repos.tasks.create(tx, ctx.businessId, {
+      kind: "research",
+      title: `Revise ${words.the} from your notes`,
+      goalMd: `The founder asked for these changes to ${words.the}, in their own words:\n\n${notes}\n\nReflect them in ${input.kind === "spec" ? "the specification blocks through proposals, keeping the founder's audience, problem and place names as written" : "the roadmap items"}, then tell the founder it is ready to sign off again. Nothing else is built until they approve the revised version.`,
+      acceptance: ["The founder's requested changes are reflected", "The founder was asked to sign off again"],
+      assigneeAgentId: voice?.id ?? null,
+      departmentId: product?.id ?? null,
+      status: "ready",
+      priority: REVISION_TASK_PRIORITY,
+      currency: ctx.business.currency,
+    });
+  }
+  const after = await repos.productSignoffs.latest(tx, ctx.businessId);
+  await audit(tx, ctx, { action: "product.signoff.decide", target: { kind: "product_signoff", id: decided.id }, details: { kind: input.kind, round: decided.round, decision: status, specVersionId: specVersion?.id ?? null, notes: notes ? notes.slice(0, 500) : null, taskId: task?.id ?? null, bothApproved: bothSignedOff(after) } });
+  return { round: decided, voice, specVersion, answered, task };
+}
+
+/** Request changes started now, or why it waits for the next cycle (the task keeps its priority either way). */
+async function startRevision(ctx: BusinessContext, task: Task | null): Promise<SignoffResult["revision"]> {
+  if (!task) return null;
+  try {
+    await startTaskByHand(ctx, task.id);
+    return { started: true, reason: null };
+  } catch (err) {
+    if (!(err instanceof AppError)) throw err;
+    ctx.log.info({ businessId: ctx.businessId, taskId: task.id, code: err.code, err: err.message }, "sign-off revision: the task did not start now; it waits for the next cycle");
+    return { started: false, reason: err.message };
+  }
+}
+
+/** `product.signoff_decided` for each round decided, the build named on the last one. */
+async function emitDecided(tx: DbTx, ctx: BusinessContext, rounds: readonly DecidedRound[], decision: DecideSignoffInput["decision"], notes: string | null, build: BuildStart | null): Promise<void> {
+  for (const [i, r] of rounds.entries()) {
+    const last = i === rounds.length - 1;
+    await emit(tx, ctx, {
+      type: "product.signoff_decided",
+      payload: {
+        signoffId: r.round.id,
+        kind: r.round.kind as "spec" | "roadmap",
+        round: r.round.round,
+        decision: decision === "approve" ? "approved" : "changes_requested",
+        decidedBy: { kind: "user", id: ctx.userId },
+        notes,
+        specVersionId: r.specVersion?.id ?? null,
+        buildStarted: last && build !== null,
+        plannedTaskIds: last ? (build?.plannedTaskIds.slice(0, 64) ?? []) : [],
+        cycle: last && build?.cycle.workflowId ? { queued: build.cycle.started, workflowId: build.cycle.workflowId } : null,
+      },
+    });
+  }
+}
+
+/** "Building starts: …" from the product's voice, when the build started. */
+async function postBuildingStarts(tx: DbTx, ctx: BusinessContext, voiceId: string, build: BuildStart): Promise<InboxItem> {
+  return postUpdate(tx, ctx, voiceId, `Building starts: ${build.plannedTaskIds.length} task${build.plannedTaskIds.length === 1 ? "" : "s"} planned`, buildingStartsBody(build, buildDestinationOf(await repos.integrations.codeRepository(tx, ctx.businessId))));
+}
+
+/** The one implementation of Approve / Request changes for the specification and the roadmap, one round at a time. */
 export async function decideProductSignoff(ctx: BusinessContext, input: DecideSignoffInput): Promise<SignoffResult> {
   const notes = input.notes?.trim().slice(0, 2000) || null;
   const words = KIND_WORDS[input.kind];
@@ -178,52 +292,9 @@ export async function decideProductSignoff(ctx: BusinessContext, input: DecideSi
     // One decision at a time per business: the other kind approved in another tab at the same moment is seen committed
     // here, so exactly one of the two decisions reads "both approved" and starts the build.
     await repos.productSignoffs.lock(tx, ctx.businessId);
-    const before = await repos.productSignoffs.latest(tx, ctx.businessId);
-    const round = before[input.kind];
-    if (!round) throw new ValidationError(`Nothing to sign off yet: ${words.the} is drafted when the business is first opened.`, { kind: input.kind });
-    if (round.status === "approved") throw new ConflictError(`${words.tab} round ${round.round} is already signed off.`, { code: "already_decided", kind: input.kind, round: round.round });
-    const voice = await productVoice(tx, ctx.businessId, round.inboxItemId ? ((await repos.inbox.get(tx, ctx.businessId, round.inboxItemId).catch(() => null))?.fromAgentId ?? null) : null);
-
-    // Approving the specification publishes it as a numbered version: what the team builds from.
-    let specVersion: { id: string; version: number } | null = null;
-    if (input.decision === "approve" && input.kind === "spec") {
-      const published = await repos.product.publish(tx, ctx.businessId, { changelogMd: "Signed off by the founder", publishedBy: ctx.userId, unlessUnchanged: true });
-      specVersion = { id: published.version.id, version: published.version.version };
-      if (published.created) {
-        const blocks = (published.version.snapshot as { blocks?: Array<{ id: string }> }).blocks ?? [];
-        await emit(tx, ctx, { type: "spec.version_published", payload: { specVersionId: published.version.id, version: published.version.version, previousVersion: published.previousVersion, changedBlockIds: blocks.map((b) => b.id), changelog: "Signed off by the founder", hunksAccepted: 0, hunksRejected: 0, hunksEdited: 0 } });
-        await audit(tx, ctx, { action: "product.spec.publish", target: { kind: "spec_version", id: published.version.id }, details: { version: published.version.version, signoff: true } });
-      }
-    }
-    const snapshot = input.decision === "approve" && input.kind === "roadmap" ? { items: (await repos.product.listRoadmap(tx, ctx.businessId)).map((i) => ({ id: i.id, title: i.title, horizon: i.horizon, position: i.position })) } : undefined;
-    const status: SignoffStatus = input.decision === "approve" ? "approved" : "changes_requested";
-    const decided = await repos.productSignoffs.decide(tx, ctx.businessId, round.id, { status, notes, decidedBy: ctx.userId, decidedByKind: "user", from: ["pending", "changes_requested"], ...(specVersion ? { specVersionId: specVersion.id } : {}), ...(snapshot ? { snapshot } : {}) });
-    if (!decided) throw new ConflictError(`${words.tab} round ${round.round} was decided a moment ago.`, { code: "already_decided", kind: input.kind, round: round.round });
-
-    const summary = input.decision === "approve" ? `Approved ${words.the}${specVersion ? ` (version ${specVersion.version})` : ""}.` : `Requested changes to ${words.the}: ${clipWords(notes!, 40)}`;
-    const answered = await answerNote(tx, ctx, round.inboxItemId, input.decision === "approve" ? "approve" : "request_changes", notes, voice?.id ?? null, summary);
-
-    // Request changes: the founder's own words become the Product lead's revision task (trusted: they are the founder's).
-    // The title stays the team's ("from your notes"), never the founder's sentence cut off mid-word; their words are the goal.
-    let task: Task | null = null;
-    if (input.decision === "request_changes") {
-      const departments = await repos.departments.list(tx, ctx.businessId, { includeHidden: true });
-      const product = departments.find((d) => (d.moduleKeys as string[]).includes("product")) ?? null;
-      task = await repos.tasks.create(tx, ctx.businessId, {
-        kind: "research",
-        title: `Revise ${words.the} from your notes`,
-        goalMd: `The founder asked for these changes to ${words.the}, in their own words:\n\n${notes}\n\nReflect them in ${input.kind === "spec" ? "the specification blocks through proposals, keeping the founder's audience, problem and place names as written" : "the roadmap items"}, then tell the founder it is ready to sign off again. Nothing else is built until they approve the revised version.`,
-        acceptance: ["The founder's requested changes are reflected", "The founder was asked to sign off again"],
-        assigneeAgentId: voice?.id ?? null,
-        departmentId: product?.id ?? null,
-        status: "ready",
-        priority: REVISION_TASK_PRIORITY,
-        currency: ctx.business.currency,
-      });
-    }
+    const decided = await decideRoundTx(tx, ctx, { ...input, notes });
     const after = await repos.productSignoffs.latest(tx, ctx.businessId);
-    await audit(tx, ctx, { action: "product.signoff.decide", target: { kind: "product_signoff", id: decided.id }, details: { kind: input.kind, round: decided.round, decision: status, specVersionId: specVersion?.id ?? null, notes: notes ? notes.slice(0, 500) : null, taskId: task?.id ?? null, bothApproved: bothSignedOff(after) } });
-    return { round: decided, voice, specVersion, answered, task, after, bothApproved: input.decision === "approve" && bothSignedOff(after) };
+    return { ...decided, bothApproved: input.decision === "approve" && bothSignedOff(after) };
   });
 
   // The second approval starts the build: the Planner's graph for the first Now items, then the next cycle as Continue does.
@@ -232,48 +303,70 @@ export async function decideProductSignoff(ctx: BusinessContext, input: DecideSi
   // Request changes: the founder's correction is the next thing the team does, so the revision starts now, the way
   // Plan's Start starts a task. When it cannot (no orchestrator, the team stopped, the budget used up), the follow-up
   // says so and what to press; the task keeps its priority for the next cycle either way.
-  let revision: SignoffResult["revision"] = null;
-  if (written.task) {
-    try {
-      await startTaskByHand(ctx, written.task.id);
-      revision = { started: true, reason: null };
-    } catch (err) {
-      if (!(err instanceof AppError)) throw err;
-      ctx.log.info({ businessId: ctx.businessId, taskId: written.task.id, code: err.code, err: err.message }, "sign-off revision: the task did not start now; it waits for the next cycle");
-      revision = { started: false, reason: err.message };
-    }
-  }
+  const revision = await startRevision(ctx, written.task);
 
   const followUp = await ctx.rls(async (tx) => {
     const { stage } = await loadProductStage(tx, ctx.businessId);
     const day = dayWords(new Date(), ctx.business.timeZone);
     let note: InboxItem | null = null;
     if (written.voice) {
-      if (build) note = await postUpdate(tx, ctx, written.voice.id, `Building starts: ${build.plannedTaskIds.length} task${build.plannedTaskIds.length === 1 ? "" : "s"} planned`, buildingStartsBody(build));
+      if (build) note = await postBuildingStarts(tx, ctx, written.voice.id, build);
       else if (input.decision === "approve") {
         const other = input.kind === "spec" ? "roadmap" : "specification";
         note = await postUpdate(tx, ctx, written.voice.id, `${words.tab} signed off`, `You approved ${words.the}${written.specVersion ? ` (version ${written.specVersion.version})` : ""} on ${day}. Sign off the ${other} and the build starts.`);
       } else note = await postUpdate(tx, ctx, written.voice.id, `Changes requested: ${words.the}`, changesRequestedBody(written.voice.name, words, notes!, revision));
     }
-    await emit(tx, ctx, {
-      type: "product.signoff_decided",
-      payload: {
-        signoffId: written.round.id,
-        kind: input.kind,
-        round: written.round.round,
-        decision: input.decision === "approve" ? "approved" : "changes_requested",
-        decidedBy: { kind: "user", id: ctx.userId },
-        notes,
-        specVersionId: written.specVersion?.id ?? null,
-        buildStarted: build !== null,
-        plannedTaskIds: build?.plannedTaskIds.slice(0, 64) ?? [],
-        cycle: build?.cycle.workflowId ? { queued: build.cycle.started, workflowId: build.cycle.workflowId } : null,
-      },
-    });
+    await emitDecided(tx, ctx, [written], input.decision, notes, build);
     return { note, stage };
   });
 
   return { signoff: written.round, stage: followUp.stage, item: written.answered?.item ?? null, decision: written.answered?.decision ?? null, plan: written.answered?.plan ?? null, followUp: followUp.note, specVersion: written.specVersion, task: written.task, revision, build };
+}
+
+/**
+ * The one plan note answered (WP-04 T5; founder, 2026-11-16 D3). Approve settles every round still open on the note,
+ * the specification first, in one transaction (the specification published as a version, the roadmap snapshotted), and
+ * starts the build once. Ask for changes sends the first open round (the specification's, unless it was approved on its
+ * tab) back in the founder's words, with one revision task, and leaves the other pending: the revised specification asks
+ * with the plan note again (`reopenSpecSignoffAfterPublish`).
+ */
+export async function decidePlanNote(ctx: BusinessContext, item: InboxItem, input: { decision: DecideSignoffInput["decision"]; notes: string | null }): Promise<SignoffResult> {
+  const notes = input.notes?.trim().slice(0, 2000) || null;
+  if (input.decision === "request_changes" && !notes) throw new ValidationError("Say what should change, in a sentence or two, so the Product lead can revise it.", { route: "conversation", itemId: item.id });
+
+  const written = await ctx.rls(async (tx) => {
+    await repos.productSignoffs.lock(tx, ctx.businessId);
+    const latest = await repos.productSignoffs.latest(tx, ctx.businessId);
+    const open = (["spec", "roadmap"] as const).filter((k) => latest[k]?.inboxItemId === item.id && isOpen(latest[k]!));
+    if (!open.length) throw new ConflictError("This plan was answered a moment ago.", { itemId: item.id, code: "already_decided" });
+    const kinds = input.decision === "approve" ? open : open.slice(0, 1);
+    const rounds: DecidedRound[] = [];
+    for (const kind of kinds) rounds.push(await decideRoundTx(tx, ctx, { kind, decision: input.decision, notes }, { answer: false }));
+    const voice = rounds[0]!.voice;
+    const version = rounds.find((r) => r.specVersion)?.specVersion ?? null;
+    const summary = input.decision === "approve" ? `Approved the plan${version ? ` (specification version ${version.version})` : ""}.` : `Asked for changes to the plan: ${clipWords(notes!, 40)}`;
+    const answered = await answerNote(tx, ctx, item.id, input.decision, notes, voice?.id ?? null, summary);
+    const after = await repos.productSignoffs.latest(tx, ctx.businessId);
+    return { rounds, voice, version, answered, bothApproved: input.decision === "approve" && bothSignedOff(after) };
+  });
+
+  const build = written.bothApproved ? await startBuilding(ctx) : null;
+  const task = written.rounds.find((r) => r.task)?.task ?? null;
+  const revision = await startRevision(ctx, task);
+  const last = written.rounds.at(-1)!;
+
+  const followUp = await ctx.rls(async (tx) => {
+    const { stage } = await loadProductStage(tx, ctx.businessId);
+    let note: InboxItem | null = null;
+    if (written.voice) {
+      if (build) note = await postBuildingStarts(tx, ctx, written.voice.id, build);
+      else if (input.decision === "request_changes") note = await postUpdate(tx, ctx, written.voice.id, "Changes requested: your plan", changesRequestedBody(written.voice.name, KIND_WORDS[last.round.kind as "spec" | "roadmap"], notes!, revision));
+    }
+    await emitDecided(tx, ctx, written.rounds, input.decision, notes, build);
+    return { note, stage };
+  });
+
+  return { signoff: last.round, stage: followUp.stage, item: written.answered?.item ?? null, decision: written.answered?.decision ?? null, plan: written.answered?.plan ?? null, followUp: followUp.note, specVersion: written.version, task, revision, build };
 }
 
 /**
@@ -286,11 +379,13 @@ export function changesRequestedBody(voiceName: string, words: { the: string; ta
   return `${quoted} ${now} You can also edit it yourself on the ${words.tab} tab and approve it there.`;
 }
 
-function buildingStartsBody(build: BuildStart): string {
+export function buildingStartsBody(build: BuildStart, destination: BuildDestination = "github"): string {
   const planned = build.planned.length ? `The Planner turned ${build.planned.map((t) => `“${t}”`).join(" and ")} into ${build.plannedTaskIds.length} task${build.plannedTaskIds.length === 1 ? "" : "s"} on Product › Work list.` : "Nothing was planned yet: open Product › Work list and build a task graph for the first roadmap item.";
   const failed = build.failed.length ? ` ${build.failed.map((f) => `“${f.title}” could not be planned (${f.reason}); plan it from Product › Work list.`).join(" ")}` : "";
-  const cycle = build.cycle.started ? "The first build cycle is under way." : `Press Continue to start the first build cycle${build.cycle.reason ? `: ${build.cycle.reason}` : "."}`;
-  return `Signed off: the specification and the roadmap. ${planned}${failed} ${cycle} Distribution waits until you start it from Customers › Board.`;
+  const cycle = build.cycle.started ? "The first round of work is under way." : `Press Continue to start the first round of work${build.cycle.reason ? `: ${build.cycle.reason}` : "."}`;
+  // No repository to push to (WP-02 T5): the code stays in the project and nothing goes live from it.
+  const kept = destination === "none" ? " The code is kept in your project; nothing goes live from it until a repository is connected." : "";
+  return `Signed off: the specification and the roadmap. ${planned}${failed} ${cycle}${kept} Distribution waits until you start it from Customers › Board.`;
 }
 
 /**
@@ -307,7 +402,10 @@ export async function startBuilding(ctx: BusinessContext): Promise<BuildStart> {
   const plannedTaskIds: string[] = [];
   const planned: string[] = [];
   const failed: { title: string; reason: string }[] = [];
-  const requests = items.length ? items.map((i) => ({ title: i.title, input: { roadmapItemId: i.id } })) : seed ? [{ title: seed.firstBuild.title, input: { goal: `${seed.firstBuild.title}: ${seed.firstBuild.goal}\n\nAcceptance:\n${seed.firstBuild.acceptance.map((a) => `- ${a}`).join("\n")}`, ...(development ? { departmentId: development.id } : {}) } }] : [];
+  // A project whose code lands on its Foundmill site starts with an offer page, whatever its archetype (WP-07 T9).
+  const onSite = sitesEnabled(ctx.env) && !ctx.business.isDemo && (await repos.integrations.codeRepository(ctx.db, ctx.businessId)) === null;
+  const firstBuild = onSite ? SITE_FIRST_BUILD : (seed?.firstBuild ?? null);
+  const requests = items.length ? items.map((i) => ({ title: i.title, input: { roadmapItemId: i.id } })) : firstBuild ? [{ title: firstBuild.title, input: { goal: `${firstBuild.title}: ${firstBuild.goal}\n\nAcceptance:\n${firstBuild.acceptance.map((a) => `- ${a}`).join("\n")}`, ...(development ? { departmentId: development.id } : {}) } }] : [];
   for (const r of requests) {
     try {
       const result = await planTaskGraph(ctx, r.input);
@@ -393,13 +491,15 @@ export async function decideSignoffItem(ctx: BusinessContext, item: InboxItem, s
   }
 
   const kind = signoff.kind;
+  const plan = isPlanReadyDecision(item.decision);
   let decision: DecideSignoffInput["decision"];
   if (input.chosenOption === "approve") decision = "approve";
   else if (input.chosenOption === "request_changes" || (!input.chosenOption && input.freeText)) {
     if (!input.freeText) throw new ValidationError("Say what should change, in a sentence or two, so the Product lead can revise it.", { route: "conversation", itemId: item.id });
     decision = "request_changes";
-  } else throw new ValidationError(`Choose Approve or Request changes for ${KIND_WORDS[kind].the}.`, { itemId: item.id });
-  const result = await decideProductSignoff(ctx, { kind, decision, notes: input.freeText });
+  } else throw new ValidationError(plan ? `Choose ${PLAN_READY_NOTE.approveLabel} or ${PLAN_READY_NOTE.changeLabel}.` : `Choose Approve or Request changes for ${KIND_WORDS[kind].the}.`, { itemId: item.id });
+  // The one plan note (WP-04 T5) decides both rounds from one press.
+  const result = plan ? await decidePlanNote(ctx, item, { decision, notes: input.freeText }) : await decideProductSignoff(ctx, { kind, decision, notes: input.freeText });
   if (!result.item || !result.decision || !result.plan) {
     // The note was answered from the screen a moment before: say so instead of inventing a decision.
     throw new ConflictError("This sign-off was answered a moment ago.", { itemId: item.id, code: "already_decided" });
@@ -438,7 +538,7 @@ export function scoringTaskFor(available: readonly ChannelKey[]): { title: strin
 }
 
 export async function startDistribution(ctx: BusinessContext, input: { via: "board" | "inbox"; itemId?: string | null }): Promise<StartDistributionResult> {
-  if (ctx.role !== "owner" && ctx.role !== "admin") throw new ForbiddenError("Owners and admins start distribution.");
+  if (!isAdminRole(ctx.role)) throw new ForbiddenError("Owners, cofounders and admins start distribution.");
   await assertAgentsRunning(ctx, "distribution");
   const seed = ctx.business.archetype ? getArchetypeSeed(ctx.business.archetype) : null;
 
@@ -448,10 +548,11 @@ export async function startDistribution(ctx: BusinessContext, input: { via: "boa
     const [channels, agents, departments, chief, latest] = await Promise.all([repos.channels.list(tx, ctx.businessId, {}), repos.agents.list(tx, ctx.businessId, { limit: 500 }), repos.departments.list(tx, ctx.businessId, { includeHidden: true }), repos.agents.chiefOfStaff(tx, ctx.businessId), repos.productSignoffs.latest(tx, ctx.businessId)]);
     // Only channels that can really act start (founder, 2026-11-11): one that is not available and not in offline
     // tracking keeps its row, starts no engine and is not named as running. With none available nothing is scored and the
-    // Board asks nothing; the note says what opens first.
+    // Board asks nothing; the note says what opens first. A channel the founder posts by tap (founder, 2026-11-12) is on
+    // the board and starts no engine either: the team runs nothing there, so it is not a starter and no route relies on it.
     const availability = await channelRowsFor(tx, ctx);
     const kitModeOf = new Map(channels.map((c) => [c.channelKey, c.kitMode] as const));
-    const mayRun = (key: ChannelKey) => channelMayRun(availability.rows[key], kitModeOf.get(key) ?? CHANNEL_META[key].kitModeByDefault);
+    const mayRun = (key: ChannelKey) => channelEngineMayRun(availability.rows[key], kitModeOf.get(key) ?? CHANNEL_META[key].kitModeByDefault);
     const enabled = channels.filter((c) => c.enabled && !c.archivedAt && mayRun(c.channelKey));
 
     // The Ready to start selling? round, when it was offered: approved, its note answered.
@@ -464,12 +565,12 @@ export async function startDistribution(ctx: BusinessContext, input: { via: "boa
 
     // Scoring the channels is the first distribution work; a business whose channels were scored already keeps its scores.
     let scoringTaskId: string | null = null;
-    const allAvailable = availability.available.length === CHANNEL_KEYS.length;
-    if (!channels.some((c) => c.scoredAt) && availability.available.length > 0) {
+    const allAvailable = availability.teamRuns.length === CHANNEL_KEYS.length;
+    if (!channels.some((c) => c.scoredAt) && availability.teamRuns.length > 0) {
       const strategist = agents.items.find((a) => a.agentType === CHANNEL_SCORING_TASK.assigneeTemplateKey) ?? null;
       const distribution = departments.find((d) => d.slug === CHANNEL_SCORING_TASK.departmentSlug) ?? departments.find((d) => (d.moduleKeys as string[]).includes("distribution")) ?? null;
       // With only some channels able to run, the task says which the starters may come from.
-      const scoring = allAvailable ? { title: CHANNEL_SCORING_TASK.title, goal: CHANNEL_SCORING_TASK.goal, acceptance: CHANNEL_SCORING_TASK.acceptance } : scoringTaskFor(availability.available);
+      const scoring = allAvailable ? { title: CHANNEL_SCORING_TASK.title, goal: CHANNEL_SCORING_TASK.goal, acceptance: CHANNEL_SCORING_TASK.acceptance } : scoringTaskFor(availability.teamRuns);
       const task = await repos.tasks.create(tx, ctx.businessId, { kind: CHANNEL_SCORING_TASK.kind, title: scoring.title, goalMd: scoring.goal, acceptance: scoring.acceptance, assigneeAgentId: strategist?.id ?? distribution?.leadAgentId ?? null, departmentId: distribution?.id ?? null, status: "ready", currency: ctx.business.currency });
       scoringTaskId = task.id;
     }
@@ -539,12 +640,18 @@ export async function reopenSpecSignoffAfterPublish(tx: DbTx, ctx: BusinessConte
   const voice = await productVoice(tx, ctx.businessId, latest.spec.inboxItemId ? ((await repos.inbox.get(tx, ctx.businessId, latest.spec.inboxItemId).catch(() => null))?.fromAgentId ?? null) : null);
   if (!voice) return null;
   const changelog = version.changelogMd.trim() ? clipWords(version.changelogMd.trim(), 30) : "the changes you asked for";
+  // While the roadmap round waits too, the re-ask is the plan note again with both rounds on it (WP-04 T5): one press
+  // approves the revised plan. Otherwise only the specification is asked about, as before.
+  const roadmapWaits = latest.roadmap !== null && isOpen(latest.roadmap);
   const opened = await repos.productSignoffs.open(tx, ctx.businessId, {
     kind: "spec",
     specVersionId: version.id,
-    item: { type: "decision", from_agent_id: voice.id, subject: "Sign off the revised specification", body_md: `Version ${version.version} reflects the changes you asked for: ${changelog}. Read it on the Specification tab, then approve it or ask for more changes.`, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: signoffDecisionBlock("spec"), blocks_continue: true, source_event_ids: [], entity_ids: [] },
+    item: roadmapWaits
+      ? { type: "decision", from_agent_id: voice.id, subject: PLAN_READY_NOTE.subject, body_md: `Version ${version.version} of your specification reflects the changes you asked for: ${changelog}\n\n**What it costs:** Nothing until you approve a spend.\n\n[Read the full plan](${planRoadmapHref(ctx.businessId)})`, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: planDecisionBlock(), blocks_continue: false, source_event_ids: [], entity_ids: [] }
+      : { type: "decision", from_agent_id: voice.id, subject: "Sign off the revised specification", body_md: `Version ${version.version} reflects the changes you asked for: ${changelog}. Read it on the Specification tab, then approve it or ask for more changes.`, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: signoffDecisionBlock("spec"), blocks_continue: true, source_event_ids: [], entity_ids: [] },
   });
   if (!opened.created || !opened.item) return null;
+  if (roadmapWaits) await repos.productSignoffs.attach(tx, ctx.businessId, latest.roadmap!.id, opened.item.id);
   await emit(tx, ctx, { type: "inbox.item_created", actor: { kind: "agent", id: voice.id }, payload: { inboxItemId: opened.item.id, type: "decision", fromAgentId: voice.id, subject: opened.item.subject, blocksContinue: true, sourceEventIds: [], cost: null } });
   return opened.item;
 }

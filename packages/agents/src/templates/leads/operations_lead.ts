@@ -51,6 +51,5 @@ export const operationsLead = defineTemplate({
   ],
   skills: withCoreSkills(["process_design", "vendor_coordination", "quality_oversight", "capacity_planning"]),
   autonomy: AUTONOMY_INHERIT,
-  schedule: { triggers: ["task.completed", "task.blocked", "message.received"] },
   neverDoes: ["Place orders or pay deposits", "Book paid lab tests", "Sign supplier agreements", "Sign off safety assessments"],
 });

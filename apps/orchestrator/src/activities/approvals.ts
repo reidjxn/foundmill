@@ -7,6 +7,7 @@
  * `openApprovalNote` is how every approval the orchestrator opens (a session's recorded hold, a plan action, a channel
  * launch) reaches the founder: one decision Inbox item with Approve and Reject (audit FR-01).
  */
+import { recordExpiredApprovals } from "@foundmill/events";
 import { approvalTaskTitle, closeApprovalItem, openApprovalItem, repos, type Approval, type Executor } from "@foundmill/db";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
@@ -106,7 +107,8 @@ export function createApprovalActivities(deps: OrchestratorDeps) {
       const approval = await repos.approvals.get(deps.db, input.businessId, input.approvalId);
       if (approval.outcome !== null) return { expired: false, outcome: approval.outcome };
       const expired = await repos.approvals.resolve(deps.db, input.businessId, approval.id, { outcome: "expired", byKind: "system" });
-      await closeApprovalItem(deps.db, input.businessId, expired);
+      // The event says it expired and the note closes (WP-02 T1): requested minus resolved stays the number still open.
+      await recordExpiredApprovals(deps.db, input.businessId, [expired], deps.clock.now());
       return { expired: true, outcome: "expired" };
     },
   };

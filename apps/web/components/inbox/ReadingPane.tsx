@@ -52,9 +52,12 @@ import {
 } from "@foundmill/dugout";
 import type { DeptColourToken, EntityKind } from "@foundmill/shared";
 import { PAGE_READY_NOTE, isPageReadyDecision } from "@foundmill/shared/project-page";
+import { isShowcaseConsentDecision } from "@foundmill/shared/showcase";
+import { POSTAL_ADDRESS_NOTE, isPostalAddressDecision } from "@foundmill/shared/platform-mail";
 import { moduleTabHref } from "@foundmill/widgets/shared/departments";
 import { humanSender, NETWORK_SENDER } from "@foundmill/widgets/shared/note-tags";
 import { routes } from "@foundmill/widgets/shared/routes";
+import { useKeyboardShortcutsOn } from "@/components/providers/guidance-context";
 import { readOnlyReason } from "@/lib/access";
 import { entityHref } from "@/lib/entity-links";
 import { isGuid } from "@/lib/ids";
@@ -64,6 +67,7 @@ import { usePageShortcuts } from "@/lib/keys";
 import { useHydrated } from "@/lib/today";
 import { errorMessage, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
+import { markRowRead, patchInboxList, removeRow } from "./inbox-cache";
 import { useBusiness, useBusinessCurrency } from "@/components/shell/business-context";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { NotFoundPanel, RefreshFailedNotice, isMissing, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
@@ -74,6 +78,7 @@ import { roleBesideName } from "@/components/conversation/logic";
 import { ApprovalPanel } from "./ApprovalPanel";
 import { ConfirmPlanDialog } from "./ConfirmPlanDialog";
 import { SIGNOFF_NOTES_ID, SignoffPanel } from "./SignoffPanel";
+import { ShowcaseConsentPanel } from "./ShowcaseConsentPanel";
 import { Exhibit } from "./Exhibit";
 import { readExhibit } from "./exhibits";
 import { NoteTagChip } from "./InboxList";
@@ -189,6 +194,31 @@ export interface ReadingPaneProps {
   onArchived?: () => void;
 }
 
+/**
+ * The Inbox list in the cache, changed at once and put back on failure (WP-10 T12): marking read and archiving.
+ * Decisions stay pessimistic: they wait for the API.
+ */
+function useInboxListEdits() {
+  const queryClient = useQueryClient();
+  const optimistic = useCallback(
+    async (fn: Parameters<typeof patchInboxList>[1]) => {
+      const queryKey = trpcPathPrefix("inbox.list") as unknown[];
+      await queryClient.cancelQueries({ queryKey });
+      const snapshot = queryClient.getQueriesData({ queryKey });
+      queryClient.setQueriesData({ queryKey }, (d: unknown) => patchInboxList(d, fn));
+      return { snapshot };
+    },
+    [queryClient],
+  );
+  const restore = useCallback(
+    (ctx: { snapshot: [readonly unknown[], unknown][] } | undefined) => {
+      for (const [key, data] of ctx?.snapshot ?? []) queryClient.setQueryData(key, data);
+    },
+    [queryClient],
+  );
+  return { optimistic, restore };
+}
+
 export function ReadingPane({ itemId, onArchived }: ReadingPaneProps) {
   const { businessId, departments } = useBusiness();
   const trpc = useTRPC();
@@ -199,8 +229,16 @@ export function ReadingPane({ itemId, onArchived }: ReadingPaneProps) {
   const getQ = useQuery(trpc.inbox.get.queryOptions({ businessId, itemId }, { staleTime: 10_000, enabled: validId }));
   const invalidate = useCallback((routers: readonly string[]) => Promise.all(routers.map((r) => queryClient.invalidateQueries({ queryKey: trpcPathPrefix(r) as unknown[] }))), [queryClient]);
 
-  // Mark read once per item (the list and the sidebar badges follow through invalidation).
-  const markRead = useMutation(trpc.inbox.markRead.mutationOptions({ onSuccess: () => void invalidate(["inbox"]) }));
+  const { optimistic, restore } = useInboxListEdits();
+
+  // Mark read once per item: the row turns read at once; the sidebar badges follow through invalidation.
+  const markRead = useMutation(
+    trpc.inbox.markRead.mutationOptions({
+      onMutate: () => optimistic(markRowRead(itemId)),
+      onError: (_err, _vars, ctx) => restore(ctx),
+      onSettled: () => void invalidate(["inbox"]),
+    }),
+  );
   const unread = getQ.data?.item.state === "unread";
   useEffect(() => {
     if (unread && !markRead.isPending && !markRead.isSuccess) markRead.mutate({ businessId, itemId });
@@ -244,6 +282,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   const glossary = biz.business.glossary;
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+  const { optimistic, restore } = useInboxListEdits();
   const router = useRouter();
   const { toast } = useToast();
   const invalidate = useCallback((routers: readonly string[]) => Promise.all(routers.map((r) => queryClient.invalidateQueries({ queryKey: trpcPathPrefix(r) as unknown[] }))), [queryClient]);
@@ -280,7 +319,8 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   const pnlQ = useQuery(trpc.finance.pnl.queryOptions({ businessId, ...pnlRange }, { enabled: needs.has("finance") && wantsRevenue, staleTime: 60_000, retry: false }));
   const trailingRevenue = pnlQ.data ? pnlTotals(pnlQ.data.categories).revenueMinor : null;
   const ribbonQ = useQuery(trpc.journey.ribbon.queryOptions({ businessId, from: from30, to: today }, { enabled: needs.has("conversions"), staleTime: 60_000, retry: false }));
-  const tasksQ = useQuery(trpc.dev.tasks.list.queryOptions({ businessId, limit: 500 }, { enabled: needs.has("tasks"), staleTime: 30_000, retry: false }));
+  // One number, not the task list: the strip shows how many tasks are running (WP-10 T12).
+  const tasksQ = useQuery(trpc.dev.tasks.count.queryOptions({ businessId, status: "running" }, { enabled: needs.has("tasks"), staleTime: 30_000, retry: false }));
   const channelsQ = useQuery(trpc.distribution.channels.list.queryOptions({ businessId }, { enabled: needs.has("channels"), staleTime: 60_000, retry: false }));
   const tiles = useMemo(
     () =>
@@ -289,7 +329,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
           finance: financeQ.data ?? null,
           trailingRevenueMinor: trailingRevenue,
           conversions: ribbonQ.data?.conversions ?? null,
-          tasks: tasksQ.data?.items ?? null,
+          tasksRunning: tasksQ.data?.count ?? null,
           channelsEnabled: channelsQ.data ? channelsQ.data.channels.filter((c) => c.enabled).length : null,
           glossary,
         }),
@@ -343,11 +383,14 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
       void invalidate(["inbox", "plan", "dev", "distribution", "team", "business"]);
       if (res.approval) {
         const a = res.approval;
-        toast({ title: a.outcome === "approved" ? "Approved" : "Rejected", description: `${withNames(a.summary)}${a.cycle?.started ? " A cycle started." : ""}`, tone: a.outcome === "approved" ? "good" : "info", action: res.followUp ? { label: "Open the note", onClick: () => router.push(routes.inbox(businessId, res.followUp!.id)) } : undefined });
+        toast({ title: a.outcome === "approved" ? "Approved" : "Rejected", description: `${withNames(a.summary)}${a.cycle?.started ? " The team started working." : ""}`, tone: a.outcome === "approved" ? "good" : "info", action: res.followUp ? { label: "Open the note", onClick: () => router.push(routes.inbox(businessId, res.followUp!.id)) } : undefined });
       } else if (res.requiresConfirmation) setConfirmOpen(true);
       else if (isPageReadyDecision(item.decision) && res.decision.chosenOption === PAGE_READY_NOTE.options.check) {
         // "Check it and publish" (package 1.3): straight to Product › Public page, where the founder publishes.
         router.push(moduleTabHref(businessId, departments, "product", "public-page"));
+      } else if (isPostalAddressDecision(item.decision) && res.decision.chosenOption === POSTAL_ADDRESS_NOTE.options.add) {
+        // "Add it in Settings" (US CAN-SPAM): straight to Settings › Integrations, where the founder enters the address.
+        router.push(routes.settings(businessId, "integrations"));
       } else {
         toast({ title: "Decided", description: res.executed.length ? `${res.executed.length} action${res.executed.length === 1 ? "" : "s"} done, ${res.deferred.length} handed to the team.` : res.plan.summaryMd.slice(0, 140), tone: "good", action: res.followUp ? { label: "Open the update", onClick: () => router.push(routes.inbox(businessId, res.followUp!.id)) } : undefined });
         if (won && journeyId) router.push(routes.journey(businessId, journeyId));
@@ -391,12 +434,15 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   );
   const archive = useMutation(
     trpc.inbox.archive.mutationOptions({
+      // The row leaves the list at once and comes back if the archive fails.
+      onMutate: () => optimistic(removeRow(item.id)),
       onSuccess: () => {
         void invalidate(["inbox"]);
         toast({ title: "Archived", tone: "info" });
         onArchived?.();
       },
-      onError: (err) => {
+      onError: (err, _vars, ctx) => {
+        restore(ctx);
         void invalidate(["inbox"]);
         toast({ title: "Could not archive", description: errorMessage(err), tone: "bad" });
       },
@@ -442,6 +488,8 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   // An agent's desk opened as a sheet over the note (the palette's Ask, a profile's Talk) owns 1–4 while it is open:
   // the note gives the keys up, so they reach the sheet's quick replies and never decide this note underneath it.
   const sheetOpen = Boolean(useAgentDesk()?.current);
+  // The 1–4 caps show only while the keys work (single keys on, WP-04 T13) and guidance is off (DecisionBar hides them when guided).
+  const keysOn = useKeyboardShortcutsOn();
   usePageShortcuts({
     onChooseOption: options.length && !locked && !sheetOpen ? (n) => {
       // Any other dialog above the note (a confirmation, the keyboard help) holds the keys too.
@@ -515,12 +563,12 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
           {item.blocksContinue && !isAnswered ? (
             <HoldsContinueChip />
           ) : null}
-          {item.state !== "archived" && (isAnswered || !options.length) ? <Button size="sm" variant="ghost" icon={Archive} onClick={() => archive.mutate({ businessId, itemId: item.id })} loading={archive.isPending} data-testid="archive-item">Archive</Button> : null}
+          {item.state !== "archived" && (isAnswered || !options.length) ? <Button size="sm" variant="ghost" icon={Archive} className="in-data-[phone]:min-h-tap" onClick={() => archive.mutate({ businessId, itemId: item.id })} loading={archive.isPending} data-testid="archive-item">Archive</Button> : null}
         </div>
       </header>
 
       {/* scrolling body */}
-      <div className="flex min-h-0 flex-1 flex-col gap-gutter overflow-y-auto p-gutter [&>*]:shrink-0">
+      <div className="flex min-h-0 flex-1 flex-col gap-gutter overflow-y-auto scroll-pb-(--decision-bar) p-gutter [&>*]:shrink-0">
         <div className="flex flex-col gap-1.5" data-testid="inbox-title">
           {/* The subject has the full width of the pane: it wraps, it is never crushed by chips. */}
           <h1 className="t-display-md max-w-reading text-balance break-words text-primary" data-testid="inbox-subject">{withNames(item.subject)}</h1>
@@ -558,10 +606,13 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
 
         <InboxNote bodyMd={item.bodyMd} />
 
+        {/* A founder's own showcase ask (0103): watched and answered here, signed in. */}
+        {isShowcaseConsentDecision(item.decision) ? <ShowcaseConsentPanel businessId={businessId} inboxItemId={item.id} /> : null}
+
         {approval ? <ApprovalPanel approval={approval} businessId={businessId} departments={departments} reason={reason} onReasonChange={setReason} answered={isAnswered || decide.isPending} /> : null}
         {signoff ? <SignoffPanel signoff={signoff} notes={reason} onNotesChange={(v) => { setReason(v); if (v.trim()) setNeedsNotes(false); }} answered={isAnswered || decide.isPending} needsNotes={needsNotes} chosenOption={answered?.optionId ?? null} /> : null}
 
-        {tiles.length ? <StatusStrip tiles={tiles} data-testid="status-strip" /> : null}
+        {tiles.length ? <StatusStrip wrap tiles={tiles} data-testid="status-strip" /> : null}
 
         {hasExhibit ? (
           <Folded folded={guided} show="Show the numbers" hide="Hide the numbers" testId="exhibit-fold">
@@ -658,8 +709,8 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
           executing={decide.isPending || confirm.isPending}
           answered={answered}
           hotkeys={false}
-          // The shell's keyboard map owns 1–4 here; the caps say so to operators (guidance off hides nothing else).
-          keyHints
+          // The shell's keyboard map owns 1–4 here (with focus in the bar, once single keys are on); the caps say so to operators.
+          keyHints={keysOn}
           heading={
             <span className="inline-flex items-center gap-1">
               Your decision
@@ -718,7 +769,7 @@ export function Folded({ folded, show, hide, testId, children }: FoldedProps) {
   if (!foldable) return <div data-testid={testId}>{children}</div>;
   return (
     <div data-testid={testId} data-folded={!open || undefined}>
-      <Button size="sm" variant="ghost" icon={open ? ChevronDown : ChevronRight} aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen((o) => !o)} data-testid={testId ? `${testId}-toggle` : undefined}>
+      <Button size="sm" variant="ghost" icon={open ? ChevronDown : ChevronRight} className="in-data-[phone]:min-h-tap" aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen((o) => !o)} data-testid={testId ? `${testId}-toggle` : undefined}>
         {open ? hide : show}
       </Button>
       {open ? (
@@ -733,12 +784,13 @@ export function Folded({ folded, show, hide, testId, children }: FoldedProps) {
 /**
  * The note body in the reading style, with the first mention of each defined term carrying its definition on hover
  * (Markdown `terms`; off while guidance is off). Dugout's Markdown keeps its own props, so the test id lives on this
- * wrapper.
+ * wrapper. Images never load: a note quotes names and text other people chose (a customer's name at checkout), and an
+ * image there would make the reader's browser fetch from a stranger's server; it shows its alt text instead.
  */
 export const InboxNote = memo(function InboxNote({ bodyMd }: { bodyMd: string }) {
   return (
     <div data-testid="inbox-note">
-      <Markdown variant="reading" className="t-reading" terms>
+      <Markdown variant="reading" className="t-reading" terms images={false}>
         {bodyMd}
       </Markdown>
     </div>

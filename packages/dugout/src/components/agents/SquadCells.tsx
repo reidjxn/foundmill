@@ -6,7 +6,7 @@
  * them into DataTable column definitions.
  */
 import type { HTMLAttributes, ReactNode } from "react";
-import { Bot, Calendar, Code2, Cpu, CreditCard, FileText, HardDrive, Mail, PenLine, Search, ShoppingBag, Wrench } from "lucide-react";
+import { Bot, Calendar, Clapperboard, Code2, Cpu, CreditCard, FileText, HardDrive, Mail, Mic, PenLine, Search, ShoppingBag, Wrench } from "lucide-react";
 import type { AgentStatus, ModelKey } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { formatMoney, formatNumber, formatRelative } from "../../lib/format";
@@ -120,7 +120,7 @@ export function RatingCell({ value, compact, className }: RatingCellProps) {
 // Model
 // ---------------------------------------------------------------------------------------------------------------------
 
-export const MODEL_LABELS: Record<ModelKey, string> = { opus: "Opus", sonnet: "Sonnet", haiku: "Haiku" };
+export const MODEL_LABELS: Record<ModelKey, string> = { opus: "Opus", sonnet: "Sonnet", haiku: "Haiku", glm: "GLM-5.3 Flash" };
 
 export interface ModelChipProps extends Omit<HTMLAttributes<HTMLSpanElement>, "onClick" | "children"> {
   model: ModelKey;
@@ -161,6 +161,19 @@ export const TOOL_ICONS: Record<string, { icon: IconComponent; label: string }> 
   anthropic: { icon: Bot, label: "Anthropic" },
   voyage: { icon: Search, label: "Voyage" },
   dropbox_sign: { icon: PenLine, label: "Dropbox Sign" },
+  openai: { icon: Bot, label: "OpenAI" },
+  gemini: { icon: Bot, label: "Google Gemini" },
+  perplexity: { icon: Bot, label: "Perplexity" },
+  serpapi: { icon: Search, label: "SerpApi" },
+  firecrawl: { icon: FileText, label: "Firecrawl" },
+  indexnow: { icon: Search, label: "IndexNow" },
+  apollo: { icon: Search, label: "Apollo" },
+  vercel: { icon: Code2, label: "Vercel" },
+  posthog: { icon: Search, label: "PostHog" },
+  resend: { icon: Mail, label: "Resend" },
+  runway: { icon: Clapperboard, label: "Runway" },
+  elevenlabs_voice: { icon: Mic, label: "ElevenLabs" },
+  buffer: { icon: PenLine, label: "Buffer" },
 };
 
 export interface ToolIconsProps {
@@ -268,7 +281,7 @@ export function squadColumns(opts: SquadColumnOptions = {}): DataTableColumn<Squ
     { id: "form", accessorFn: (r) => formScore(r.form), header: () => <span title="The last five tasks, oldest left: green went well, amber partly, red failed">Form</span>, size: 80, cell: ({ row }) => <FormCells form={row.original.form} name={`${row.original.name} form`} />, meta: { numeric: true, label: "Form", term: "form", builderOnly: true } },
     { id: "rating", accessorKey: "rating", header: () => <span title={RATING_COLUMN_TOOLTIP}>{RATING_COLUMN_LABEL}</span>, size: 112, cell: ({ getValue }) => <RatingCell value={getValue() as number} />, meta: { numeric: true, label: RATING_COLUMN_LABEL, term: "rating", builderOnly: true } },
     { id: "tools", accessorFn: (r) => r.tools.length, header: "Tools", size: 140, cell: ({ row }) => <ToolIcons tools={row.original.tools} />, meta: { numeric: true, builderOnly: true } },
-    { id: "model", accessorKey: "model", header: "Model", size: 110, cell: ({ row }) => <ModelChip model={row.original.model} onClick={opts.onModelClick ? () => opts.onModelClick?.(row.original) : undefined} />, meta: { filter: "select", filterOptions: (["opus", "sonnet", "haiku"] as const).map((v) => ({ value: v, label: MODEL_LABELS[v] })), term: "model", builderOnly: true } },
+    { id: "model", accessorKey: "model", header: "Model", size: 110, cell: ({ row }) => <ModelChip model={row.original.model} onClick={opts.onModelClick ? () => opts.onModelClick?.(row.original) : undefined} />, meta: { filter: "select", filterOptions: (["opus", "sonnet", "haiku", "glm"] as const).map((v) => ({ value: v, label: MODEL_LABELS[v] })), term: "model", builderOnly: true } },
     { id: "wage", accessorFn: (r) => r.wage.amountMinor, header: WAGE_COLUMN_LABEL, size: 120, cell: ({ row }) => <WageCell wage={row.original.wage} />, meta: { numeric: true, csv: (r) => r.wage.amountMinor / 100, term: "wage" } },
     { id: "latestUpdate", accessorFn: (r) => r.latestUpdate?.at ?? "", header: "Latest update", size: 260, cell: ({ row }) => (row.original.latestUpdate ? <span className="truncate text-secondary" title={row.original.latestUpdate.text} data-allow-truncate="">{formatRelative(row.original.latestUpdate.at, now)} · {row.original.latestUpdate.text}</span> : "—") },
   ];

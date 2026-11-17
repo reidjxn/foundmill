@@ -9,12 +9,12 @@
  * The model never decides which events were narrated (`source_event_ids` are the real ids), never chooses an exhibit
  * outside the registry (AC-11.3.6) and never puts an unknown id in front of the founder (AC-11.3.1).
  */
-import { clubRulesPrompt, prompts } from "@foundmill/agents";
+import { SIMULATED_FINDINGS_NOTE, clubRulesPrompt, composerEventPayload, composerNotesFor, prompts } from "@foundmill/agents";
 import { APP_NAME, LIMITS } from "@foundmill/config";
 import type { ComposerItem, Event } from "@foundmill/db";
 import { checkComposerText, linkComposerText, stripMarkup, type LinkedText, type ValidationResult } from "@foundmill/entity-linker";
 import { ComposerOutput, ModelAbortedError, type ChatMessage, type CompleteResultWithJson, type ComposerOption, type ModelClient, type ModelLogger, type TokenUsage } from "@foundmill/models";
-import { AppError, founderJargonHits, futureDeadline, type InboxItemType } from "@foundmill/shared";
+import { AppError, UNKNOWN_FOUNDER_CONTEXT, founderContextJson, founderJargonHits, futureDeadline, PARKED_DETAIL_MAX, PARKED_TASKS_MAX, PARKED_TITLE_MAX, type InboxItemType, type ParkedTask } from "@foundmill/shared";
 import { businessBrief, type ComposeContext } from "./context";
 import type { NextBestDecision } from "./decisions";
 import { namedQueryCatalogue, sanitizeExhibit } from "./exhibits";
@@ -24,7 +24,7 @@ import type { Insight } from "./insights";
 export const ComposerSchema = ComposerOutput;
 export type ComposerSchema = ComposerOutput;
 
-export type ComposeBrief = { mode: "events"; events: Event[] } | { mode: "insight"; insight: Insight } | { mode: "decision"; decision: NextBestDecision };
+export type ComposeBrief = { mode: "events"; events: Event[]; parked?: readonly ParkedTask[] } | { mode: "insight"; insight: Insight } | { mode: "decision"; decision: NextBestDecision };
 
 export type ComposeSlot = ComposeBrief["mode"];
 
@@ -117,6 +117,13 @@ export function blocksContinueFor(_type: InboxItemType, _ctx: Pick<ComposeContex
   return false;
 }
 
+/** Read with a narrated `campaign.launched` in offline tracking (evals `channel_engine.reports_prepared_not_launched` sends the same). */
+export const OFFLINE_TRACKING_NOTE =
+  "Offline tracking: the team prepared these materials and the founder submits them. Nothing was launched, sent or published from here. Say the materials are ready for the founder to submit; never say the campaign launched, went live, was sent or was published.";
+
+/** Read with a narrated `task.completed` whose findings were simulated (packages/agents, shared with the api's fallback). */
+export { SIMULATED_FINDINGS_NOTE };
+
 /** Builds the JSON input block the model (and the mock) reads. */
 export function composerInputs(ctx: ComposeContext, brief: ComposeBrief): Record<string, unknown> {
   const base: Record<string, unknown> = {
@@ -131,13 +138,24 @@ export function composerInputs(ctx: ComposeContext, brief: ComposeBrief): Record
     glossary: ctx.glossary,
     // The model has no clock: without today's date it guesses deadlines, and a guessed one in the past locks the options.
     now: ctx.now.toISOString(),
+    // Who the note is written to (WP-04 T10): trusted JSON from their own profile, never in the system text, which stays
+    // the same for every founder (the cached prefix). A hand-built context without one still says the experience.
+    founder: founderContextJson(ctx.founder ?? { ...UNKNOWN_FOUNDER_CONTEXT, experience: ctx.founderExperience }),
   };
   switch (brief.mode) {
     case "events": {
-      const events = brief.events.map((e) => ({ id: e.id, type: e.type, occurred_at: e.occurredAt.toISOString(), actor: e.actor, entity_ids: e.entityIds, payload: e.payload }));
+      const events = brief.events.map((e) => ({ id: e.id, type: e.type, occurred_at: e.occurredAt.toISOString(), actor: e.actor, entity_ids: e.entityIds, payload: composerEventPayload(e) }));
+      // Tasks the round parked for want of a tool (WP-05 T18): the prompt ends the note with one sentence about them.
+      const parked = (brief.parked ?? []).slice(0, PARKED_TASKS_MAX).map((p) => ({ title: p.title.slice(0, PARKED_TITLE_MAX), what_the_agent_said: (p.detail ?? "").slice(0, PARKED_DETAIL_MAX) }));
+      if (parked.length > 0) base.parked = parked;
       // Wins the volume rule rolled up: one results note for the day, not a story per win.
       const rolled = brief.events.length > 0 && brief.events.every((e) => e.type === "customer.converted" && (e.payload as { fullMatchDay?: unknown } | null)?.fullMatchDay === false);
-      return rolled ? { ...base, events, note: "These wins were rolled up into the day's results table (volume rule): write one short results note that counts them by kind, names no more than three customers from the manifest, and does not narrate any journey." } : { ...base, events };
+      if (rolled) return { ...base, events, note: "These wins were rolled up into the day's results table (volume rule): write one short results note that counts them by kind, names no more than three customers from the manifest, and does not narrate any journey." };
+      // Offline tracking: the engine's "launch" prepared materials for the founder to submit; nothing went out (WP-02 T2).
+      const offline = brief.events.some((e) => e.type === "campaign.launched" && (e.payload as { kitMode?: unknown } | null)?.kitMode === true);
+      // A finished task whose findings rest on simulated results is narrated as simulated, never as real (WP-05 T3).
+      const notes = [...(offline ? [OFFLINE_TRACKING_NOTE] : []), ...composerNotesFor(brief.events)];
+      return notes.length > 0 ? { ...base, events, note: notes.join(" ") } : { ...base, events };
     }
     case "insight":
       return {
@@ -160,12 +178,12 @@ export function composerInputs(ctx: ComposeContext, brief: ComposeBrief): Record
   }
 }
 
-/** The house rules, then the Composer's own rules, which know who the founder is (`founder_experience`, UX plan §7.19). */
+/** The house rules, then the Composer's own rules, the same for every founder: who the founder is travels in the inputs (`founder`, UX plan §7.19, WP-04 T10). */
 export function systemPrompt(ctx: ComposeContext): string[] {
   return [
     clubRulesPrompt.render({ business_name: ctx.business.name, APP_NAME }),
     // plain-allow: agent-facing. The fallback role fills the system prompt's from_agent_role; only the model reads it.
-    prompts.inboxComposerPrompt.render({ business_name: ctx.business.name, from_agent_name: ctx.voice.name, from_agent_role: ctx.voice.role || "Chief of Staff", founder_experience: ctx.founderExperience }),
+    prompts.inboxComposerPrompt.render({ business_name: ctx.business.name, from_agent_name: ctx.voice.name, from_agent_role: ctx.voice.role || "Chief of Staff" }),
   ];
 }
 

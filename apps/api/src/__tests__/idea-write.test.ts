@@ -86,11 +86,20 @@ describe("idea.edit", () => {
   it("the committed card's founder words and brief reach the foundations' inputs", async () => {
     const mock = new MockModelClient();
     const { userId, caller } = await callerFor(mock, "edit-c@test.local");
-    await caller.founder.profile.update({ displayName: "Maya", experience: "first-time", skills: { engineering: 13, sales: 3 }, targetMarkets: ["UK"], riskAppetite: "medium", budgetMinor: 150_000, currency: "GBP" });
+    await caller.founder.profile.update({ confirmAdult: true, displayName: "Maya", experience: "first-time", skills: { engineering: 13, sales: 3 }, targetMarkets: ["UK"], riskAppetite: "medium", budgetMinor: 150_000, currency: "GBP" });
     const written = await caller.idea.write({ title: "ShiftMate", pitch: WORDS, archetype: "marketplace" });
     const result = await caller.idea.commit({ ideaId: written.idea.id, name: "ShiftMate", archetype: "marketplace", gameMode: "personal" });
     const inputs = await repos.foundations.inputs(hz.db, result.business.id);
     expect(inputs.idea).toMatchObject({ title: "ShiftMate", pitch: WORDS, founderWords: WORDS, brief: WORDS });
     expect(userId).toBeTruthy();
+  });
+
+  it("the first cards are one idea.drafted fact for the account; a second write adds none (WP-02 T9)", async () => {
+    const mock = new MockModelClient();
+    const { userId, caller } = await callerFor(mock, "write-facts@test.local");
+    await caller.idea.write({ title: "First", pitch: WORDS, archetype: "marketplace" });
+    await caller.idea.write({ title: "Second", pitch: WORDS, archetype: "marketplace" });
+    const facts = (await repos.accountEvents.list(hz.db, userId, { limit: 50 })).items.filter((e) => e.type === "idea.drafted");
+    expect(facts.map((e) => e.payload)).toEqual([{ source: "written", cards: 1 }]);
   });
 });

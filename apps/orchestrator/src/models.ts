@@ -14,10 +14,12 @@
  *
  * A call on the platform client for a business asks the credits gate first (SEC2 S2, `assertPlatformCredits`): once the
  * month's credits are used up (or, where calls are live, only simulated credits are left) it is refused with a
- * non-retryable `ModelRequestError` (`credits_exhausted`, 402) before anything is spent.
+ * non-retryable `ModelRequestError` (`credits_exhausted`, 402) before anything is spent. While the credits are low, the
+ * call runs with `lowCredits` (the credit saver): a routine route moves to its lower-cost model, a kept route keeps its
+ * own (packages/models routing.ts). A business on its own key is never moved: its agents' calls are the founder's.
  */
-import { assertPlatformCredits, loadByokApiKey, repos, type Db } from "@foundmill/db";
-import { createModelClient, keyFingerprint, ModelRequestError, type CompleteRequest, type CompleteResult, type CompleteResultWithJson, type ModelClient, type ModelLogger, type ModelMode, type StreamStructuredRequest, type StreamStructuredResult, type UsageSink } from "@foundmill/models";
+import { assertPlatformCredits, cachedModelFundingOf, freeCapCheck, loadByokApiKey, repos, type Db } from "@foundmill/db";
+import { createModelClient, enforceModelFunding, keyFingerprint, ModelRequestError, type CompleteRequest, type CompleteResult, type CompleteResultWithJson, type ModelClient, type ModelLogger, type ModelMode, type StreamStructuredRequest, type StreamStructuredResult, type UsageSink } from "@foundmill/models";
 import { CreditsExhaustedError, NotFoundError, type ModelBilling } from "@foundmill/shared";
 import type { Vault } from "@foundmill/shared/crypto";
 import type { z } from "zod";
@@ -26,6 +28,8 @@ export const BUSINESS_KEY_TTL_MS = 30_000;
 
 export interface BusinessModelClientOptions {
   db: Db;
+  /** The month's free-plan cap in US cents (WP-13 T6); unset, the cap is not checked (tests). */
+  freeCapCents?: number;
   vault: Vault | null;
   /** The mode business-key clients run in (the platform client's mode). */
   mode: ModelMode;
@@ -62,7 +66,11 @@ interface CachedRoute {
 const byokRefused = (businessId: string, why: string) =>
   new ModelRequestError(`This business runs on its own Anthropic key and ${why}; set a key in Settings → Keys`, undefined, "missing_api_key", { businessId });
 
-export function createBusinessModelClient(platform: ModelClient, opts: BusinessModelClientOptions): BusinessModelClient {
+export function createBusinessModelClient(platformKey: ModelClient, opts: BusinessModelClientOptions): BusinessModelClient {
+  // Who pays decides the model (WP-13): on the platform key a business not on a paid plan runs on Haiku 5.5. A business
+  // on its own key never reaches the platform client (`load` below), so the own key is served here.
+  const freeCap = opts.freeCapCents === undefined ? undefined : freeCapCheck(opts.db, opts.freeCapCents);
+  const platform = enforceModelFunding(platformKey, cachedModelFundingOf(opts.db, { ownKeyServed: true }), { freeCap });
   const ttlMs = opts.ttlMs ?? BUSINESS_KEY_TTL_MS;
   const now = opts.now ?? (() => Date.now());
   const build = opts.createClient ?? (({ mode, apiKey, onUsage, logger }) => createModelClient({ mode, apiKey: apiKey ?? undefined, billedTo: "byok", onUsage, logger }));
@@ -103,41 +111,45 @@ export function createBusinessModelClient(platform: ModelClient, opts: BusinessM
     return { expiresAt, route: { billedTo: "byok", source: "byok" }, client };
   }
 
-  /** The platform key's ceiling (SEC2 S2): a call for a business whose credits are used up is refused before it is made. */
-  async function assertCredits(businessId: string): Promise<void> {
-    if (opts.checkCredits === false) return;
+  /**
+   * The platform key's ceiling (SEC2 S2): a call for a business whose credits are used up is refused before it is made.
+   * True when the call may run but the credits are low (the credit saver: routine routes move to a lower-cost model).
+   */
+  async function assertCredits(businessId: string): Promise<boolean> {
+    if (opts.checkCredits === false) return false;
     try {
-      await assertPlatformCredits(opts.db, businessId, { live: platform.mode === "live" });
+      return (await assertPlatformCredits(opts.db, businessId, { live: platform.mode === "live" })).low;
     } catch (err) {
       // A business that no longer exists has nothing to charge (its route is the platform's, as `load` decides).
-      if (err instanceof NotFoundError) return;
+      if (err instanceof NotFoundError) return false;
       // A non-retryable request error, like a missing key: activities stop on it instead of retrying a refusal.
       if (err instanceof CreditsExhaustedError) throw new ModelRequestError(err.message, 402, "credits_exhausted", err.details);
       throw err;
     }
   }
 
-  async function pick(businessId: string | undefined): Promise<ModelClient> {
-    if (!businessId) return platform;
+  /** The client a call runs on, and whether its credits are low (only ever on the platform key). */
+  async function pick(businessId: string | undefined): Promise<{ client: ModelClient; lowCredits: boolean }> {
+    if (!businessId) return { client: platform, lowCredits: false };
     const entry = await resolve(businessId);
-    if (entry.route.source === "platform") await assertCredits(businessId);
-    return entry.client;
+    const lowCredits = entry.route.source === "platform" ? await assertCredits(businessId) : false;
+    return { client: entry.client, lowCredits };
   }
 
   async function complete<T>(req: CompleteRequest<T> & { schema: z.ZodType<T> }): Promise<CompleteResultWithJson<T>>;
   async function complete(req: CompleteRequest<unknown> & { schema?: undefined }): Promise<CompleteResult<unknown>>;
   async function complete(req: CompleteRequest<unknown>): Promise<CompleteResult<unknown>> {
-    const client = await pick(req.attribution?.businessId);
-    return client.complete(req as CompleteRequest<unknown> & { schema?: undefined });
+    const { client, lowCredits } = await pick(req.attribution?.businessId);
+    return client.complete((lowCredits ? { ...req, lowCredits } : req) as CompleteRequest<unknown> & { schema?: undefined });
   }
 
   return {
     mode: platform.mode,
     complete,
     async streamStructured<T, E>(req: StreamStructuredRequest<T, E>): Promise<StreamStructuredResult<T, E>> {
-      const client = await pick(req.attribution?.businessId);
+      const { client, lowCredits } = await pick(req.attribution?.businessId);
       if (!client.streamStructured) throw new ModelRequestError("this model client cannot stream structured output", undefined, "unsupported");
-      return client.streamStructured(req);
+      return client.streamStructured(lowCredits ? { ...req, lowCredits } : req);
     },
     async routeFor(businessId) {
       if (!businessId) return platformRoute;

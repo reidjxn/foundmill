@@ -72,6 +72,15 @@ export const auditRepo = {
     });
   },
 
+  /**
+   * Holds the business's audit-chain lock until the transaction ends (the lock `append` and the chain trigger take;
+   * re-entrant): a read of the latest entries made after it cannot be overtaken by another writer's append before this
+   * transaction's own (the former founder's cancel reads the waiting deletion request under it).
+   */
+  async lockChain(db: Executor, businessId: string): Promise<void> {
+    await db.execute(sql`select pg_advisory_xact_lock(hashtext('audit_log'), hashtext(${parseInput(Id, businessId, "business id")}::text))`);
+  },
+
   /** Several entries in one transaction, in order (one tool call → several audit lines). */
   async appendMany(db: Executor, businessId: string, inputs: AppendAuditInput[]): Promise<AuditEntry[]> {
     const parsed = inputs.map((i) => parseInput(AppendAuditInput, i, "audit entry"));
@@ -114,11 +123,25 @@ export const auditRepo = {
    * The newest entry for `action` whose details hold every key of `match` (jsonb containment) written at or after
    * `since`, or null. Used to recognise a repeated request (one planner run per goal: dev.tasks.plan).
    */
-  async latestMatching(db: Executor, businessId: string, action: string, match: Record<string, string>, since: Date): Promise<AuditEntry | null> {
+  async latestMatching(db: Executor, businessId: string, action: string, match: Record<string, string | boolean>, since: Date): Promise<AuditEntry | null> {
     const rows = await db
       .select()
       .from(auditLog)
       .where(and(eq(auditLog.businessId, businessId), eq(auditLog.action, action), sql`${auditLog.details} @> ${JSON.stringify(match)}::jsonb`, gte(auditLog.createdAt, since)))
+      .orderBy(desc(auditLog.seq))
+      .limit(1);
+    return rows[0] ?? null;
+  },
+
+  /**
+   * The newest entry for `action` about one target (`target.id`) whose details hold every key of `match`, or null,
+   * however old: the one-round check of a code review's hand-back (WP-05 T17) must not lose it on a busy business.
+   */
+  async latestForTarget(db: Executor, businessId: string, action: string, targetId: string, match: Record<string, string> = {}): Promise<AuditEntry | null> {
+    const rows = await db
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.businessId, businessId), eq(auditLog.action, action), sql`${auditLog.target} @> ${JSON.stringify({ id: targetId })}::jsonb`, sql`${auditLog.details} @> ${JSON.stringify(match)}::jsonb`))
       .orderBy(desc(auditLog.seq))
       .limit(1);
     return rows[0] ?? null;

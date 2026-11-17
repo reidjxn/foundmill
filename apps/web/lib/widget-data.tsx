@@ -43,8 +43,8 @@ export function withBusiness(businessId: string, input: Record<string, unknown> 
  * and preferences, ideas, imports, the network), apart from `BUSINESS_READS_IN_ACCOUNT_ROUTERS`: a business procedure,
  * or a read scoped by an optional `businessId` (saved table views are kept per business).
  */
-const ACCOUNT_ROUTERS: ReadonlySet<string> = new Set(["founder", "idea", "import", "live"]);
-const ACCOUNT_READS: ReadonlySet<string> = new Set(["health", "business.listArchived", "business.example.get", "publicPage.bySlug", "publicPerson.byHandle", "teamCall.sharing.get", "email.action.get"]);
+const ACCOUNT_ROUTERS: ReadonlySet<string> = new Set(["founder", "idea", "import", "live", "ideaBox", "waitlist"]);
+const ACCOUNT_READS: ReadonlySet<string> = new Set(["health", "business.listArchived", "business.example.get", "publicPage.bySlug", "publicPage.indexNowKeyFile", "publicPerson.byHandle", "publicPage.storyBySlug", "publicPage.cardById", "publicPage.siteConsent", "teamCall.sharing.get", "email.action.get", "invitation.byToken", "publicQuiz.bySlug"]);
 const BUSINESS_READS_IN_ACCOUNT_ROUTERS: ReadonlySet<string> = new Set(["founder.tableViews.get", "founder.presence.get", "founder.email.recent"]);
 
 /**
@@ -91,6 +91,8 @@ export const INVALIDATION_MAP: Record<string, readonly string[]> = {
   keys: ["keys", "integrations", "team"],
   billing: ["billing"],
   live: ["live"],
+  // A pressed share control is a product signal: no screen reads it back.
+  share: [],
 };
 
 export function routersToInvalidate(path: string): readonly string[] {

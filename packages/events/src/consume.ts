@@ -12,14 +12,22 @@
  *
  * With `pattern` (e.g. `ev:*`) the consumer discovers streams with SCAN every `discoverIntervalMs`,
  * so a business created after start-up is picked up without a restart.
+ *
+ * `consumeAccountEvents(redis, { userId | "*", group, consumer, handler, types? })` is the same reader over the account
+ * streams `ae:{userId}` (docs/ARCHITECTURE.md §5 "Account events"), with the same guarantees: it hands the handler a
+ * typed `AccountEvent`, and treats an entry that is not a valid account event of the stream's own person as poison.
  */
-import { ValidationError } from "@foundmill/shared";
+import { isAccountEventType, ValidationError, type AccountEventType } from "@foundmill/shared";
+import { AccountEventParseError, parseAccountEvent, type AccountEvent, type AccountEventParseReason } from "./account-event";
 import { parseEvent, type PlatformEvent } from "./catalogue";
 import {
+  ALL_ACCOUNT_STREAMS_PATTERN,
   ALL_BUSINESS_STREAMS_PATTERN,
+  accountStreamKey,
   businessStreamKey,
   deadLetterKey,
   DEFAULT_STREAM_MAXLEN,
+  userIdFromAccountStreamKey,
 } from "./keys";
 import {
   isBusyGroupError,
@@ -74,6 +82,14 @@ export interface ConsumeOptions<T = PlatformEvent> {
   deadLetterKey?: string;
   /** MAXLEN ~ for the dead-letter stream (default 100 000). */
   deadLetterMaxLen?: number;
+  /**
+   * What a dead letter says about the entry and why it failed. Default: every field of the entry, plus `source_stream`,
+   * `source_id` and `error` (the error's name and message). When given, its fields replace all of those, and only
+   * `group`, `consumer`, `deliveries` and `failed_at` are added. Account consumers use it (`accountDeadLetterRecord`):
+   * a person's event, their stream's name (it holds their account id) and a handler's own words are not kept on a
+   * stream that outlives their account.
+   */
+  deadLetterRecord?: (entry: StreamEntry, err: unknown, deliveries: number) => Record<string, string>;
   onError?: (
     err: unknown,
     ctx: { stage: "read" | "handle" | "ack" | "claim" | "discover" | "group"; entry?: StreamEntry },
@@ -224,23 +240,28 @@ export function consume<T = PlatformEvent>(redis: StreamRedis, opts: ConsumeOpti
 
   async function deadLetter(entry: StreamEntry, err: unknown, deliveries: number): Promise<void> {
     const fields: string[] = [];
-    for (const [k, v] of Object.entries(entry.fields)) fields.push(k, v);
-    fields.push(
-      "source_stream",
-      entry.stream,
-      "source_id",
-      entry.id,
-      "group",
-      group,
-      "consumer",
-      consumer,
-      "deliveries",
-      String(deliveries),
-      "error",
-      errorMessage(err),
-      "failed_at",
-      new Date().toISOString(),
-    );
+    if (opts.deadLetterRecord) {
+      for (const [k, v] of Object.entries(opts.deadLetterRecord(entry, err, deliveries))) fields.push(k, v);
+      fields.push("group", group, "consumer", consumer, "deliveries", String(deliveries), "failed_at", new Date().toISOString());
+    } else {
+      for (const [k, v] of Object.entries(entry.fields)) fields.push(k, v);
+      fields.push(
+        "source_stream",
+        entry.stream,
+        "source_id",
+        entry.id,
+        "group",
+        group,
+        "consumer",
+        consumer,
+        "deliveries",
+        String(deliveries),
+        "error",
+        errorMessage(err),
+        "failed_at",
+        new Date().toISOString(),
+      );
+    }
     await redis.xadd(dlqKey, "MAXLEN", "~", dlqMaxLen, "*", ...fields);
     await redis.xack(entry.stream, group, entry.id);
     opts.onDeadLetter?.(entry, err, deliveries);
@@ -418,4 +439,93 @@ export function consume<T = PlatformEvent>(redis: StreamRedis, opts: ConsumeOpti
     streams: () => [...subscribed],
     runOnce,
   };
+}
+
+/** Why an entry on an account stream could not be handed to a handler. */
+export type AccountEntryReason = "no_json" | "invalid_json" | "wrong_account";
+/** Everything an account consumer's dead letter can give as its reason. */
+export type AccountDeadLetterReason = AccountEntryReason | AccountEventParseReason | "handler_failed" | "too_many_deliveries";
+
+/** An entry that is not the stream's own person's account event. Its text names the reason, not the stream or the entry. */
+export class AccountEntryError extends ValidationError {
+  readonly reason: AccountEntryReason;
+  constructor(reason: AccountEntryReason, message: string) {
+    super(message, { reason });
+    this.reason = reason;
+  }
+}
+
+/**
+ * Decoder for account streams: the account relay writes `id`, `type`, `json`; `json` is the serialized AccountEvent.
+ * An entry whose event names another person than the stream it sits on is refused (poison): a consumer never acts on
+ * a person's stream with someone else's fact. The errors carry a reason code and no stream name (an account stream's
+ * name holds the person's account id), no entry text and no JSON.
+ */
+export function decodeAccountEntry(entry: StreamEntry): AccountEvent {
+  const json = entry.fields.json;
+  if (json === undefined) throw new AccountEntryError("no_json", "An account stream entry has no json field");
+  let raw: unknown;
+  try {
+    raw = JSON.parse(json);
+  } catch {
+    throw new AccountEntryError("invalid_json", "An account stream entry is not valid JSON");
+  }
+  const event = parseAccountEvent(raw);
+  const owner = userIdFromAccountStreamKey(entry.stream);
+  if (owner === null || owner !== event.userId.toLowerCase()) {
+    throw new AccountEntryError("wrong_account", "An account stream entry carries an account event of another account");
+  }
+  return event;
+}
+
+export interface ConsumeAccountOptions<T extends AccountEventType = AccountEventType>
+  extends Omit<ConsumeOptions<AccountEvent>, "stream" | "pattern" | "businessId" | "decode" | "handler" | "deadLetterRecord"> {
+  /** One person's account stream, or `"*"` for every person's (discovered with SCAN, like `businessId: "*"`). */
+  userId: string | "*";
+  /** Only these types reach the handler; every other entry is acknowledged untouched. Default: every account type. */
+  types?: readonly T[];
+  handler: EventHandler<AccountEvent<T>>;
+}
+
+const UUID_FIELD = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The reason code for a failure on an account stream. A handler's own error is `handler_failed`: its words are not kept. */
+export function accountDeadLetterReason(err: unknown): AccountDeadLetterReason {
+  if (err instanceof AccountEntryError || err instanceof AccountEventParseError) return err.reason;
+  if (err instanceof DeadLetterError) return "too_many_deliveries";
+  return "handler_failed";
+}
+
+/**
+ * What an account consumer's dead letter keeps: which event it was (its id, only when it is a UUID; its type, only when
+ * it is an account-scoped type) and a reason code. Not the payload, not the stream's name, not an error's message.
+ */
+export function accountDeadLetterRecord(entry: StreamEntry, err: unknown): Record<string, string> {
+  const id = entry.fields.id ?? "";
+  const type = entry.fields.type ?? "";
+  return { id: UUID_FIELD.test(id) ? id.toLowerCase() : "", type: isAccountEventType(type) ? type : "", reason: accountDeadLetterReason(err) };
+}
+
+/**
+ * Consume account-scoped events with a consumer group: the sibling of `consume` for `ae:{userId}`, with the same
+ * at-least-once delivery, retries, pending-claim and dead-lettering (handlers de-duplicate on `event.id`). A dead
+ * letter keeps the event's id, its type and a reason code (`accountDeadLetterRecord`); the row itself is in
+ * `account_events`. Without an `onError`, failures are logged by stage and reason code only.
+ *
+ * ```ts
+ * consumeAccountEvents(redis, { userId: "*", group: "network", consumer: "api-1", types: ["profile.published"], handler: async (event) => { ... } });
+ * ```
+ */
+export function consumeAccountEvents<T extends AccountEventType = AccountEventType>(redis: StreamRedis, opts: ConsumeAccountOptions<T>): Consumer {
+  const { userId, types, handler, ...rest } = opts;
+  if (!userId) throw new Error("consumeAccountEvents: userId (or \"*\") is required");
+  const wanted = types ? new Set<string>(types) : null;
+  return consume<AccountEvent>(redis, {
+    onError: (err, ctx) => console.error(`[events] account consumer ${rest.group}/${rest.consumer} ${ctx.stage} error: ${ctx.stage === "handle" ? accountDeadLetterReason(err) : err instanceof Error ? err.name : "error"}`),
+    ...rest,
+    ...(userId === "*" ? { pattern: ALL_ACCOUNT_STREAMS_PATTERN } : { stream: accountStreamKey(userId) }),
+    decode: decodeAccountEntry,
+    deadLetterRecord: accountDeadLetterRecord,
+    handler: (event, meta) => (wanted === null || wanted.has(event.type) ? handler(event as AccountEvent<T>, meta) : undefined),
+  });
 }

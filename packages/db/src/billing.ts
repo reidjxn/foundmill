@@ -27,8 +27,8 @@
  * `assertPlatformCredits` refuses a call while the month's credits are used up (or stopped for it), and where calls are
  * live, credits granted by a simulated payment never count (`ALLOW_MOCK_PAYMENTS`, docs/DEPLOY.md §4).
  */
-import { APP_NAME, CREDITS_CURRENCY, includedCreditsMinor, tierIncludedCreditPlaces } from "@foundmill/config";
-import { CreditsExhaustedError } from "@foundmill/shared";
+import { APP_NAME, creditsAreLow, CREDITS_CURRENCY, includedCreditsMinor, lowCreditsThresholdMinor, ownPlanFunds, tierIncludedCreditPlaces } from "@foundmill/config";
+import { CreditsExhaustedError, type FundingSource } from "@foundmill/shared";
 import { stopBusinessAgents } from "./controls";
 import { repos } from "./repos";
 import type { Executor } from "./repos/_shared";
@@ -37,6 +37,10 @@ import type { Business, CreditBalance, UsageEntry } from "./schema";
 import { businessAllowance } from "./tiers";
 
 export const CREDITS_EXHAUSTED_SUBJECT = "Credits used up: team paused";
+/** The one note a month when credits fall below the low line and routine work moves to a lower-cost model. */
+export const CREDITS_LOW_SUBJECT = "Credits running low: routine work moved to a lighter model";
+/** The audit action that records the low-credits note (one per business and month). */
+export const CREDITS_LOW_AUDIT_ACTION = "billing.credits_low";
 /** The warning a business on its own key gets: its agents keep working, the platform-key features wait. */
 export const PLATFORM_CREDITS_EXHAUSTED_SUBJECT = "Credits used up: conversations and Refresh paused";
 
@@ -51,6 +55,8 @@ export interface CreditsOutcome {
   exhausted: "now" | "already" | null;
   pausedAgents: number;
   noteId: string | null;
+  /** The low-credits note this charge posted (the first charge of the month below the low line), else null. */
+  lowNoteId?: string | null;
 }
 
 export interface BookUsageResult {
@@ -61,9 +67,67 @@ export interface BookUsageResult {
   replayed?: boolean;
 }
 
-/** Whether a ledger row is a platform cost charged to credits: billed to credits, not a tool call, in USD. */
-export function chargesCredits(entry: Pick<UsageEntry, "billedTo" | "kind" | "currency">): boolean {
-  return entry.billedTo === "credits" && entry.kind !== "tool" && entry.currency === CREDITS_CURRENCY;
+/** Overrides of `FLAGS.ownPlanFunding` and `OWN_PLAN_PROVIDERS` (tests); the product reads packages/config. */
+export interface OwnPlanOptions {
+  enabled?: boolean;
+  providers?: readonly string[];
+}
+
+/**
+ * Whether a ledger row is a platform cost charged to credits: billed to credits, not a tool call, in USD, and not paid by
+ * the founder's own plan. A row's own claim of the plan (`details.funding`) is believed only while the plan can fund work
+ * at all (`ownPlanFunds` for the provider it names: the flag on and the provider integrated); with the flag off, a row that
+ * says `own_plan` is charged like any other.
+ */
+export function chargesCredits(entry: Pick<UsageEntry, "billedTo" | "kind" | "currency"> & { details?: unknown }, ownPlan?: OwnPlanOptions): boolean {
+  if (entry.billedTo !== "credits" || entry.kind === "tool" || entry.currency !== CREDITS_CURRENCY) return false;
+  if (fundingOfRow(entry) !== "own_plan") return true;
+  const provider = (entry.details as { funding?: { provider?: unknown } } | null | undefined)?.funding?.provider;
+  return !ownPlanFunds(typeof provider === "string" ? provider : null, ownPlan);
+}
+
+/** Which source paid for a usage row, with the provider when it is the founder's own plan or own key. */
+export interface UsageFunding {
+  source: FundingSource;
+  provider?: string;
+}
+
+/** The funding recorded on a row (`details.funding.source`), else what its `billedTo` means. */
+export function fundingOfRow(entry: Pick<UsageEntry, "billedTo"> & { details?: unknown }): FundingSource {
+  const recorded = (entry.details as { funding?: { source?: unknown } } | null | undefined)?.funding?.source;
+  if (recorded === "foundmill_credits" || recorded === "own_api_key" || recorded === "own_plan") return recorded;
+  return entry.billedTo === "byok" ? "own_api_key" : "foundmill_credits";
+}
+
+/**
+ * What funds a business's agents' model calls now (0104): the founder's own plan only while `FLAGS.ownPlanFunding` is on
+ * and its provider is integrated (`ownPlanFunds`, packages/config; with the flag off, never); otherwise the founder's own
+ * key on `byok`, else the month's credits. `ownPlan` overrides the flag and the provider list (tests).
+ */
+export function agentWorkFunding(business: Pick<Business, "modelBilling" | "fundingSource" | "fundingPlanProvider">, ownPlan?: OwnPlanOptions): UsageFunding {
+  if (business.fundingSource === "own_plan" && ownPlanFunds(business.fundingPlanProvider, ownPlan)) return { source: "own_plan", provider: business.fundingPlanProvider! };
+  return business.modelBilling === "byok" ? { source: "own_api_key", provider: "anthropic" } : { source: "foundmill_credits" };
+}
+
+/** A booking, with the source that paid when the caller knows it (else it follows `billedTo`). */
+export type BookUsageInput = RecordUsageInput & { funding?: UsageFunding };
+
+/** What `billedTo` means: the founder's own Anthropic key, or the platform's key paid from credits. */
+function fundingOfBilling(billedTo: RecordUsageInput["billedTo"]): UsageFunding {
+  return billedTo === "byok" ? { source: "own_api_key", provider: "anthropic" } : { source: "foundmill_credits" };
+}
+
+/**
+ * The funding a booking records. A caller's claim that the founder's own plan paid is checked against the business: it
+ * holds only when the business's agent work is funded by that plan now (`agentWorkFunding`: on `own_plan`, the flag on,
+ * the provider integrated) and names the same provider; otherwise the row records what its `billedTo` means and is charged
+ * as such. Any other claim is replaced by what `billedTo` means too, so the row and its billing never disagree.
+ */
+async function fundingFor(db: Executor, businessId: string, input: BookUsageInput, ownPlan?: OwnPlanOptions): Promise<UsageFunding> {
+  if (input.funding?.source !== "own_plan") return fundingOfBilling(input.billedTo);
+  const business = await repos.businesses.get(db, businessId, { includeArchived: true });
+  const plan = agentWorkFunding(business, ownPlan);
+  return plan.source === "own_plan" && plan.provider === input.funding.provider ? plan : fundingOfBilling(input.billedTo);
 }
 
 type CreditsBusiness = Pick<Business, "id" | "planTier" | "createdBy">;
@@ -91,16 +155,24 @@ export async function includedCreditsFor(db: Executor, business: CreditsBusiness
  * the charge never leaves an empty balance with the team still working (audit BILL-20). A booking with an
  * `idempotencyKey` that was already booked (a retried session end) returns that row and charges nothing.
  */
-export async function bookUsage(db: Executor, businessId: string, input: RecordUsageInput): Promise<BookUsageResult> {
+export async function bookUsage(db: Executor, businessId: string, input: BookUsageInput, options: { ownPlan?: OwnPlanOptions } = {}): Promise<BookUsageResult> {
+  const { funding: _funding, ...row } = input;
   return db.transaction(async (tx) => {
-    const { entry, created } = await repos.usage.recordOnce(tx, businessId, input);
+    // Which source paid is recorded on the row (0104), checked against the business, so only a row the founder's own
+    // plan really paid is left uncharged.
+    const recorded: RecordUsageInput = input.kind === "tool" ? row : { ...row, details: { ...(row.details ?? {}), funding: await fundingFor(tx, businessId, input, options.ownPlan) } };
+    const { entry, created } = await repos.usage.recordOnce(tx, businessId, recorded);
     if (!created) return { entry, credits: null, replayed: true };
-    if (!chargesCredits(entry)) return { entry, credits: null };
+    if (!chargesCredits(entry, options.ownPlan)) return { entry, credits: null };
     const business = await repos.businesses.get(tx, businessId, { includeArchived: true });
     const period = periodOf(entry.occurredAt);
     // The exact cost (0039): a call under half a cent is carried until the period's charges complete a cent.
     const charged = await repos.usage.chargeCreditsMicro(tx, businessId, period, Number(entry.costMicroMinor ?? Number(entry.costMinor) * MICRO_PER_MINOR), { includedMinor: (t) => includedCreditsFor(t, business, period, { lock: true }) });
     if (!charged) return { entry, credits: { enforced: false, balance: null, exhausted: null, pausedAgents: 0, noteId: null } };
+    if (charged.exhausted === null) {
+      const lowNoteId = await creditsLowNotice(tx, business, period, charged.balance);
+      return { entry, credits: { enforced: true, balance: charged.balance, exhausted: null, pausedAgents: 0, noteId: null, lowNoteId } };
+    }
     if (charged.exhausted !== "now") return { entry, credits: { enforced: true, balance: charged.balance, exhausted: charged.exhausted, pausedAgents: 0, noteId: null } };
     const { pausedAgents, noteId } = await creditsUsedUp(tx, business, period, charged.balance);
     return { entry, credits: { enforced: true, balance: charged.balance, exhausted: "now", pausedAgents, noteId } };
@@ -181,7 +253,29 @@ export interface PlatformCreditsCheck {
   balanceMinor: number;
   /** What a live call may spend: the balance less credits granted by a simulated payment. Never below zero. */
   spendableMinor: number;
+  /**
+   * The call may run, but what is spendable is below the low line (`creditsAreLow`, packages/config): routine work runs on
+   * its lower-cost model (the credit saver, `ModelCallVerdict.lowCredits`). False whenever `ok` is false.
+   */
+  low: boolean;
   modelBilling: Business["modelBilling"];
+  /**
+   * Who pays for the call: the month's credits, unless the call is routed to the founder's own plan at its provider
+   * (`routedTo`, `agentWorkFunding`), which skips Foundmill's credits. With `FLAGS.ownPlanFunding` off, never.
+   */
+  fundedBy: FundingSource;
+}
+
+export interface CreditsCheckOptions {
+  /** The call spends real money (simulated credits do not count). */
+  live: boolean;
+  now?: Date;
+  /**
+   * The provider whose plan the call is routed to, for a call that does not run on the platform key. Absent for every
+   * platform-key call (the api's, the composer's, the orchestrator's platform client), which never skips credits.
+   */
+  routedTo?: string;
+  ownPlan?: OwnPlanOptions;
 }
 
 /**
@@ -189,21 +283,40 @@ export interface PlatformCreditsCheck {
  * team was stopped for it this month), and, where calls are `live`, no when only credits granted by a simulated
  * payment are left: free credits never pay for real model spend. Reads only; see `assertPlatformCredits`.
  */
-export async function checkPlatformCredits(db: Executor, businessId: string, options: { live: boolean; now?: Date }): Promise<PlatformCreditsCheck> {
+export async function checkPlatformCredits(db: Executor, businessId: string, options: CreditsCheckOptions): Promise<PlatformCreditsCheck> {
   const business = await repos.businesses.get(db, businessId, { includeArchived: true });
   const period = periodOf(options.now ?? new Date());
   const row = await repos.usage.creditBalance(db, business.id, period);
-  const balanceMinor = row ? Number(row.balanceMinor) : await includedCreditsFor(db, business, period);
+  // Only a call routed to the founder's own plan at its provider skips Foundmill's credits (0104); with the flag off none
+  // is. Every call on the platform key (no `routedTo`) keeps the stop and the zero check, whatever the business's funding.
+  const plan = agentWorkFunding(business, options.ownPlan);
+  if (options.routedTo !== undefined && plan.source === "own_plan" && plan.provider === options.routedTo) {
+    const balanceMinor = row ? Number(row.balanceMinor) : 0;
+    return { ok: true, reason: null, period, balanceMinor, spendableMinor: balanceMinor, low: false, modelBilling: business.modelBilling, fundedBy: "own_plan" };
+  }
+  const included = row ? null : await includedCreditsFor(db, business, period);
+  const balanceMinor = row ? Number(row.balanceMinor) : (included ?? 0);
   const mockMinor = options.live && balanceMinor > 0 ? await repos.checkouts.mockGrantedMinor(db, business.id, period) : 0;
   const spendableMinor = Math.max(0, balanceMinor - mockMinor);
   // A credits stop from an earlier month is lifted by the new month's credits (resuming the agents stays with an admin).
   const stopped = business.agentsStoppedReason === "credits_exhausted" && business.agentsStoppedAt !== null && periodOf(business.agentsStoppedAt) === period;
   const reason = stopped || balanceMinor <= 0 ? "exhausted" : spendableMinor <= 0 ? "mock_only" : null;
-  return { ok: reason === null, reason, period, balanceMinor, spendableMinor, modelBilling: business.modelBilling };
+  const low = reason === null && (await belowLowLine(db, business, period, spendableMinor, included));
+  return { ok: reason === null, reason, period, balanceMinor, spendableMinor, low, modelBilling: business.modelBilling, fundedBy: "foundmill_credits" };
+}
+
+/**
+ * Whether `amountMinor` is below this month's low line. The line is a share of what the month includes for this business
+ * (after the founder's pool, `includedCreditsFor`), so the pool is read only when the amount is under the highest line
+ * the tier could have: almost every call answers without a query. `included` is passed when the caller already has it.
+ */
+async function belowLowLine(db: Executor, business: CreditsBusiness, period: string, amountMinor: number, included: number | null = null): Promise<boolean> {
+  if (amountMinor <= 0 || amountMinor >= lowCreditsThresholdMinor(includedCreditsMinor(business.planTier))) return false;
+  return creditsAreLow(amountMinor, included ?? (await includedCreditsFor(db, business, period)));
 }
 
 /** Throws `CreditsExhaustedError` (402, a sentence the founder can act on) when `checkPlatformCredits` says no. */
-export async function assertPlatformCredits(db: Executor, businessId: string, options: { live: boolean; now?: Date }): Promise<PlatformCreditsCheck> {
+export async function assertPlatformCredits(db: Executor, businessId: string, options: CreditsCheckOptions): Promise<PlatformCreditsCheck> {
   const check = await checkPlatformCredits(db, businessId, options);
   if (check.ok) return check;
   const next = shortDate(periodRange(check.period).to);
@@ -272,7 +385,7 @@ async function pauseForCredits(db: Executor, business: Business, period: string,
       type: "warning",
       from_agent_id: chief.id,
       subject: CREDITS_EXHAUSTED_SUBJECT,
-      body_md: `${way} Conversations, Refresh and planning run on ${APP_NAME}'s key, so they wait for a top-up or next month's credits on ${shortDate(periodRange(period).to)}. Spend so far is an Estimate in US dollars; the model invoice is the real figure.`,
+      body_md: `${way} Or wait for next month's credits on ${shortDate(periodRange(period).to)}, then press Resume agents. Conversations, Refresh and planning run on ${APP_NAME}'s key, so they wait for a top-up or next month's credits. Spend so far is an Estimate in US dollars; the model invoice is the real figure.`,
       status_strip: [],
       exhibit: { kind: "none", spec_ref: null },
       decision: null,
@@ -290,6 +403,61 @@ async function pauseForCredits(db: Executor, business: Business, period: string,
   }
   await repos.audit.append(db, businessId, { actorKind: "system", action: "billing.credits_exhausted", target: { kind: "business", id: businessId }, details: { period, pausedAgents, noteId, planTier: business.planTier, modelBilling: business.modelBilling, teamStopped: true } });
   return { pausedAgents, noteId };
+}
+
+/**
+ * The low-credits note (the credit saver's one notice): the first charge of a month that leaves the balance above zero
+ * but below the low line posts one Inbox note from the Chief of Staff, in plain words: what changed (routine work runs on
+ * a lighter model), what did not (founder-facing and high-stakes work), and how to avoid it (a top-up or the founder's
+ * own key). One per business and month, recorded in the audit log (`CREDITS_LOW_AUDIT_ACTION`); the charges of one
+ * month are serialized on the balance row, so two charges never post two notes. Returns the note's id, else null.
+ */
+async function creditsLowNotice(db: Executor, business: Business, period: string, balance: CreditBalance): Promise<string | null> {
+  const balanceMinor = Number(balance.balanceMinor);
+  if (!(await belowLowLine(db, business, period, balanceMinor))) return null;
+  // Matched on the period it is about, not on when it was written: a late-booked charge belongs to its own month.
+  if (await repos.audit.latestMatching(db, business.id, CREDITS_LOW_AUDIT_ACTION, { period }, new Date(0))) return null;
+  const { to } = periodRange(period);
+  const chief = await repos.agents.chiefOfStaff(db, business.id);
+  let noteId: string | null = null;
+  if (chief) {
+    const note = await repos.inbox.createItem(db, business.id, {
+      type: "warning",
+      from_agent_id: chief.id,
+      subject: CREDITS_LOW_SUBJECT,
+      body_md: creditsLowBody(business, balanceMinor, to),
+      status_strip: [],
+      exhibit: { kind: "none", spec_ref: null },
+      decision: null,
+      blocks_continue: false,
+      source_event_ids: [],
+      entity_ids: [],
+    });
+    noteId = note.id;
+    await repos.events.write(db, business.id, {
+      type: "inbox.item_created",
+      actor: { kind: "agent", id: chief.id },
+      entityIds: [note.id],
+      payload: { inboxItemId: note.id, type: note.type, fromAgentId: chief.id, subject: note.subject, blocksContinue: note.blocksContinue, sourceEventIds: [], cost: null },
+    });
+  }
+  await repos.audit.append(db, business.id, { actorKind: "system", action: CREDITS_LOW_AUDIT_ACTION, target: { kind: "business", id: business.id }, details: { period, balanceMinor, noteId, planTier: business.planTier, modelBilling: business.modelBilling } });
+  return noteId;
+}
+
+/** The low-credits note's body, worded for how the business pays for its agents and for its plan. */
+function creditsLowBody(business: Business, balanceMinor: number, nextMonth: Date): string {
+  const left = `This month's credits are down to ${usd(balanceMinor)} (an Estimate in US dollars).`;
+  const kept = "Replies to you, plans, the Chief of Staff, anything that goes outside the business, and money and legal work keep their usual model.";
+  if (business.modelBilling === "byok") {
+    return `${left} Your agents run on your own Anthropic key, so they are not affected. To make the credits last, planning and first drafts on ${APP_NAME}'s key now use a lighter, lower-cost model. ${kept} To keep everything on its usual model, top up in Settings → Billing. Next month's credits arrive on ${shortDate(nextMonth)}.`;
+  }
+  const free = business.planTier === "free";
+  const avoid = free
+    ? "To keep everything on its usual model, add your own Anthropic key in Settings → Keys (Anthropic bills your key, not us)."
+    : "To keep everything on its usual model, top up in Settings → Billing, or add your own Anthropic key in Settings → Keys (Anthropic bills your key, not us).";
+  const until = free ? "you add your key" : "you top up or add your key";
+  return `${left} To make them last, routine work now runs on a lighter, lower-cost model: research, drafts, internal prep and planning. ${kept} ${avoid} If the credits run out, the team pauses until ${until}, or until next month's credits arrive on ${shortDate(nextMonth)}.`;
 }
 
 /**

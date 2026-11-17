@@ -190,7 +190,8 @@ describe("business.logo.generate (Opus, sanitised, metered, rate-limited)", () =
     const usage = await repos.usage.list(hz.db, businessId, { limit: 200 });
     const logoRows = usage.items.filter((u) => (u.details as { kind?: string }).kind === "logo");
     expect(logoRows).toHaveLength(2 * LIMITS.logoOptionsPerSet);
-    for (const row of logoRows) expect(row).toMatchObject({ kind: "tokens", modelKey: "opus", currency: "USD", details: { service: "api", route: "logoDesigner", label: "Estimate" } });
+    // The business is on the free plan, so the marks are drawn on Haiku 5.5 (WP-13).
+    for (const row of logoRows) expect(row).toMatchObject({ kind: "tokens", modelKey: "haiku", currency: "USD", details: { service: "api", route: "logoDesigner", label: "Estimate" } });
     expect(usage.items.filter((u) => (u.details as { purpose?: string }).purpose === "logo")).toHaveLength(0);
     const audit = await repos.audit.list(hz.db, businessId, { action: "business.logo.generate" });
     expect(audit.items[0]!.details).toMatchObject({ options: 4, costLabel: "Estimate", mode: "mock", round: 1 });
@@ -221,7 +222,7 @@ describe("idea.logo.* and idea.commit with a logo", () => {
   it("generates for the founder's idea, refuses someone else's idea, and commits the chosen mark", async () => {
     const userId = await hz.h.createUser("logo-founder@test.local");
     const caller = hz.caller({ userId });
-    await caller.founder.profile.update({ displayName: "Reid", experience: "first-time", skills: { engineering: 14 }, targetMarkets: ["EU"], riskAppetite: "medium" });
+    await caller.founder.profile.update({ confirmAdult: true, displayName: "Reid", experience: "first-time", skills: { engineering: 14 }, targetMarkets: ["EU"], riskAppetite: "medium" });
     const idea = (await caller.idea.generate({ prompt: "bookkeeping for freelancers" })).ideas[0]!;
 
     const set = await caller.idea.logo.generate({ ideaId: idea.id, name: "Ledgerly", colours: { primary: "#1f6f5f", secondary: "#e8c56b" } });
@@ -249,7 +250,7 @@ describe("idea.logo.* and idea.commit with a logo", () => {
   it("a commit with a logo spends an upload check; without one it does not", async () => {
     const userId = await hz.h.createUser("logo-founder-3@test.local");
     const caller = hz.caller({ userId });
-    await caller.founder.profile.update({ displayName: "Lea", experience: "operator", skills: { sales: 12 }, targetMarkets: ["EU"], riskAppetite: "low" });
+    await caller.founder.profile.update({ confirmAdult: true, displayName: "Lea", experience: "operator", skills: { sales: 12 }, targetMarkets: ["EU"], riskAppetite: "low" });
     const idea = (await caller.idea.generate({ prompt: "a bakery" })).ideas[0]!;
     for (let i = 0; i < LIMITS.logoChecksPerUserPerHour; i++) await takeLogoCheck(hz.limits, userId);
     expect(await code(caller.idea.commit({ ideaId: idea.id, name: "Crumb", archetype: "dtc_physical", logo: { source: "upload", dataUrl: pngUrl(64) } }))).toBe("TOO_MANY_REQUESTS");
@@ -260,7 +261,7 @@ describe("idea.logo.* and idea.commit with a logo", () => {
   it("prepare cleans an SVG upload before commit; commit without a logo leaves the initials mark", async () => {
     const userId = await hz.h.createUser("logo-founder-2@test.local");
     const caller = hz.caller({ userId });
-    await caller.founder.profile.update({ displayName: "Ana", experience: "operator", skills: { sales: 12 }, targetMarkets: ["EU"], riskAppetite: "low" });
+    await caller.founder.profile.update({ confirmAdult: true, displayName: "Ana", experience: "operator", skills: { sales: 12 }, targetMarkets: ["EU"], riskAppetite: "low" });
     const prepared = await caller.idea.logo.prepare({ dataUrl: svgUrl(HOSTILE_SVG) });
     expect(decodeSvg(prepared.dataUrl)).not.toMatch(/script|onload|evil/);
     const idea = (await caller.idea.generate({ prompt: "a newsletter" })).ideas[0]!;

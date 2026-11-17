@@ -1,26 +1,52 @@
 # Only the properties declared here are pushed to the linked project (supabase config push).
 project_id = "sdruubitufjqibsjyxlc"
 
+# The Data API (PostgREST) stays off: no client reaches the tables directly; every read and write goes through the api
+# (SEC-8 is accepted only while this holds; the api's /health reports it as `dataApi`, WP-11 T14).
+[api]
+enabled = false
+
 [auth]
 site_url = "https://foundmill.com"
+# No anonymous accounts: every account signs in with an email code, a link or Google.
+enable_anonymous_sign_ins = false
+# Production's sign-in callbacks only (docs/DEPLOY.md §4). Supabase sends the sign-in code to whatever address this list
+# matches, so preview deployments (*.vercel.app) and http://localhost:3000 are never listed here: they belong in a
+# separate development Supabase project. `**` after `callback` because the callback's `next` may carry a `.` or `/`.
+# scripts/supabase-config.test.mjs holds this list to exactly these entries.
 additional_redirect_urls = [
-  "https://foundmill.com/**",
-  "https://www.foundmill.com/**",
-  "https://foundmill.vercel.app/**",
-  "https://foundmill.vercel.app/**",
-  "https://*-fm-2f083c2b.vercel.app/**",
-  "http://localhost:3000/**",
+  "https://foundmill.com/auth/callback**",
+  "https://www.foundmill.com/auth/callback**",
   # The mobile companion app (docs/mobile): a magic link tapped on the phone opens the app on its own scheme.
   "foundmill://auth/callback",
 ]
 
+# Google sign-in (the web's "Continue with Google") is set in the dashboard, never here: a [auth.external.google] section
+# would be pushed too and turn the provider off, or blank its client secret, on the next `supabase config push`. The
+# client secret must never be committed. Setup and the flag that shows the button: docs/DEPLOY.md §4 "Signing in with Google".
+
 [auth.email]
+# "Confirm email" on: the allow-list trusts an address only when the session shows its holder controls it (SEC2 S11).
+enable_confirmations = true
 # The mobile app signs in by typing the six-digit code from the email (`verifyOtp` with type "email"); the link in the
 # same message keeps working on the web. 15 minutes is enough to type a code and short enough for a link left in an inbox.
 otp_length = 6
 otp_expiry = 900
 
+[auth.sms]
+# No phone sign-up: the product signs in by email or Google only.
+enable_signup = false
+
 # One template for every client: the link (which carries `emailRedirectTo`, docs/DEPLOY.md §2) and the code. Copy in US English.
+# The link opens the app's /auth/confirm page with `{{ .ConfirmationURL }}` as `confirmation_url`, and a button there opens
+# it: mail services that open every link ahead of the reader (Microsoft 365's Safe Links) would use the one-time link up
+# first (Supabase, "Email prefetching"; apps/web lib/auth/confirm-link.ts).
 [auth.email.template.magic_link]
 subject = "Sign in to Foundmill"
 content_path = "./supabase/templates/magic_link.html"
+
+# A new address gets "Confirm signup", not the magic link (WP-03 T4): the same body, the link and the six-digit code,
+# opening with "Welcome to Foundmill".
+[auth.email.template.confirmation]
+subject = "Your Foundmill sign-in code"
+content_path = "./supabase/templates/confirm_signup.html"

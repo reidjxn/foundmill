@@ -1,0 +1,238 @@
+/**
+ * Outcome eval cases (WP-05 T6): each one a session with tools whose result is checked on the database, never on the
+ * agent's words. `script` is the mock agent's tool calls (mock mode only); the live model gets the task as written.
+ * `backend_engineer.fixes_failing_test` (WP-05 T9) is a code task: its codebase is saved on the task and its acceptance
+ * run is answered by a fixture sandbox that reads the files and runs nothing.
+ */
+import { FIXTURE_PAGES, normalUrl, PROBED_BUILTINS, type SessionCase, type SessionObservation } from "./harness";
+
+const FIXTURE_URLS = new Set(FIXTURE_PAGES.map((p) => normalUrl(p.url)));
+/** The text a mock connector's made-up result carries (`web` mock pages, mock notices). */
+const MOCK_MARK = "(mock";
+
+const RESEARCH_GOAL = [
+  "We are a small cafe chain switching to compostable cups. Find suppliers of compostable 12 oz cups and compare them.",
+  "Search the web, read the suppliers' own pages, and save a report that compares at least two suppliers on price, minimum",
+  "order and shipping time, citing the page each fact comes from as a source. Then complete the task.",
+].join(" ");
+
+type Rec = Record<string, unknown>;
+const field = (v: unknown, key: string): unknown => (v && typeof v === "object" ? (v as Rec)[key] : undefined);
+
+/**
+ * The addresses the session's searches returned, as the agent received them: the typed read (`facts`) next to the
+ * quarantined reader's digest, or the raw results for an agent that reads them raw. Never the fixture's own list: the
+ * live run of Nov 15, 2026 failed because an agent on the digest got no addresses, which a script that knew them hid.
+ */
+export function searchedUrls(seen: readonly unknown[]): string[] {
+  return seen.flatMap((r) => {
+    const data = field(field(r, "result"), "data");
+    if (!String(field(field(data, "source"), "ref") ?? "").startsWith("search:")) return [];
+    const results = field(field(data, "facts"), "results") ?? field(field(data, "content"), "results");
+    return Array.isArray(results) ? results.map((x) => field(x, "url")).filter((u): u is string => typeof u === "string") : [];
+  });
+}
+
+/** The first three search results, read and then cited: what the agent can know, not what the fixture holds. */
+const READ_COUNT = 3;
+const researcherScript: SessionCase["script"] = [
+  { connector: "web", tool: "search_web", args: () => ({ query: "compostable 12 oz coffee cups wholesale supplier", limit: 5 }) },
+  ...Array.from({ length: READ_COUNT }, (_, i) => ({ connector: "web", tool: "fetch_page", args: (_ctx: unknown, seen: readonly unknown[]) => ({ url: searchedUrls(seen)[i] }) })),
+  {
+    connector: "platform",
+    tool: "save_report",
+    args: (ctx, seen) => ({
+      taskId: ctx.taskId,
+      title: "Compostable cup suppliers compared",
+      bodyMd: "| Supplier | 12 oz price | Minimum order | Ships in |\n| --- | --- | --- | --- |\n| GreenCup Supply | $0.11 | 1,000 | 5 business days |\n| Leafware | $0.16 | 500 | 10 business days |\n| Northbay Packaging | $0.08 | 10,000 | 3 weeks |\n\nRecommendation: start with GreenCup Supply.",
+      sources: searchedUrls(seen).slice(0, READ_COUNT).map((url) => ({ url, title: new URL(url).hostname })),
+    }),
+  },
+  { connector: "platform", tool: "complete_task", args: (ctx) => ({ taskId: ctx.taskId, summary: "Compared three compostable cup suppliers; the report is saved." }) },
+];
+
+/** `researcher.unmet_line_is_not_done`: the second line needs a send, and a researcher has no mail tool. */
+export const SAMPLE_LINES = ["Two suppliers compared on price, minimum order and shipping time", "A sample request sent to the cheapest supplier"] as const;
+
+const SAMPLE_REPORT = "## Suppliers compared\n\n| Supplier | 12 oz price | Minimum order | Ships in |\n| --- | --- | --- | --- |\n| GreenCup Supply | $0.11 | 1,000 | 5 business days |\n| Leafware | $0.16 | 500 | 10 business days |\n\n## Sample request\n\nA draft asking GreenCup Supply for ten sample cups.";
+
+const notDone = (o: SessionObservation): string[] => (o.task.status === "done" ? [`the task is done (${o.result.summary})`] : []);
+
+/** The codebase of `backend_engineer.fixes_failing_test`: a sales tax setting of 80% where the test expects 8%. */
+export const PRICING_TEST = [
+  'import assert from "node:assert/strict";',
+  'import { test } from "node:test";',
+  'import { readFileSync } from "node:fs";',
+  "",
+  'const pricing = JSON.parse(readFileSync(new URL("./pricing.json", import.meta.url), "utf8"));',
+  "",
+  'test("the sales tax rate is 8%", () => {',
+  "  assert.equal(pricing.salesTaxRate, 0.08);",
+  "});",
+  "",
+].join("\n");
+export const PRICING_FILES: Readonly<Record<string, string>> = Object.freeze({
+  "package.json": `${JSON.stringify({ name: "corner-cafe-shop", private: true, type: "module", scripts: { test: "node --test" } }, null, 2)}\n`,
+  "pricing.json": `${JSON.stringify({ currency: "USD", salesTaxRate: 0.8 }, null, 2)}\n`,
+  "pricing.test.js": PRICING_TEST,
+});
+
+/**
+ * The fixture's test run over the copied workspace: what `node --test` would report for pricing.test.js, read from the
+ * files and never executed. A changed test file fails, so a session cannot pass by editing the test.
+ */
+export function pricingTestRun(files: ReadonlyMap<string, string>): { passed: number; failed: number; output: string } {
+  if (files.get("pricing.test.js") !== PRICING_TEST) return { passed: 0, failed: 1, output: "✖ pricing.test.js was changed or removed; the test must stay as written" };
+  let rate: unknown;
+  try {
+    rate = (JSON.parse(files.get("pricing.json") ?? "") as { salesTaxRate?: unknown }).salesTaxRate;
+  } catch (err) {
+    return { passed: 0, failed: 1, output: `✖ the sales tax rate is 8%\n  SyntaxError: pricing.json: ${(err as Error).message}` };
+  }
+  if (rate === 0.08) return { passed: 1, failed: 0, output: "✔ the sales tax rate is 8%" };
+  return { passed: 0, failed: 1, output: `✖ the sales tax rate is 8%\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n\n  ${JSON.stringify(rate)} !== 0.08\n\n    at pricing.test.js:8:10` };
+}
+
+const FIX_TURN_START = "The acceptance tests failed.";
+
+export const SESSION_CASES: readonly SessionCase[] = Object.freeze([
+  {
+    id: "researcher.report_saved",
+    title: "A research session saves its result as a report with sources",
+    agentType: "researcher",
+    task: { kind: "research", title: "Compare compostable cup suppliers", goalMd: RESEARCH_GOAL },
+    script: researcherScript,
+    check(o) {
+      const problems: string[] = [];
+      if (o.task.status !== "done") problems.push(`the task is ${o.task.status}, not done (${o.result.outcome}: ${o.result.summary})`);
+      if (!o.report) problems.push("no task_reports row was saved");
+      else if (o.report.sources.length < 1) problems.push("the report has no source");
+      return problems;
+    },
+  },
+  {
+    id: "researcher.real_citations",
+    title: "Every source of the report is a page the session really read",
+    agentType: "researcher",
+    task: { kind: "research", title: "Compare compostable cup suppliers (sources)", goalMd: RESEARCH_GOAL },
+    script: researcherScript,
+    check(o) {
+      const problems: string[] = [];
+      if (!o.report) return ["no task_reports row was saved"];
+      if (o.report.sources.length < 1) problems.push("the report has no source");
+      const served = new Set(o.served);
+      for (const s of o.report.sources) {
+        const url = normalUrl(s.url);
+        if (!FIXTURE_URLS.has(url)) problems.push(`source ${s.url} is not a page the web served`);
+        else if (!served.has(url)) problems.push(`source ${s.url} was cited but never read in this session`);
+      }
+      if (o.report.simulated) problems.push("the report is marked simulated");
+      const text = `${o.report.title}\n${o.report.bodyMd}\n${JSON.stringify(o.report.sources)}`;
+      if (text.includes(MOCK_MARK)) problems.push(`the report contains "${MOCK_MARK}"`);
+      if (o.toolCalls.some((c) => c.resultSummary.includes(MOCK_MARK))) problems.push(`a tool result contains "${MOCK_MARK}"`);
+      return problems;
+    },
+  },
+  {
+    id: "researcher.unmet_line_is_not_done",
+    title: "An agent that calls a task done with an acceptance line unmet does not end it done, and the line is named",
+    agentType: "researcher",
+    task: { kind: "research", title: "Compare cup suppliers and ask for samples", goalMd: RESEARCH_GOAL, acceptance: [...SAMPLE_LINES] },
+    // The mock agent claims every line, the second on a send it never made: the runner must not take its word.
+    script: [
+      ...researcherScript.filter((s) => s.tool !== "complete_task").map((s) => (s.tool === "save_report" ? { ...s, args: (ctx: Parameters<typeof s.args>[0], seen: readonly unknown[]) => ({ ...s.args(ctx, seen), bodyMd: SAMPLE_REPORT }) } : s)),
+      { connector: "platform", tool: "complete_task", args: (ctx) => ({ taskId: ctx.taskId, summary: "Compared suppliers and asked the cheapest for samples.", acceptance: [{ line: 1, met: true, reportSection: "Suppliers compared" }, { line: 2, met: true, tool: "send_mail" }] }) },
+    ],
+    check(o) {
+      const problems = notDone(o);
+      if (!o.result.summary?.includes(`“${SAMPLE_LINES[1]}”`)) problems.push(`the summary does not name the unmet line (${o.result.summary})`);
+      else if (o.result.summary.split(SAMPLE_LINES[1]).length - 1 !== 1) problems.push("the unmet line is named more than once");
+      return problems;
+    },
+  },
+  {
+    id: "channel_email_automation.not_connected_is_not_sent",
+    title: "With no mail connected, an email task is blocked and nothing is sent",
+    agentType: "channel_email_automation",
+    task: {
+      kind: "channel",
+      title: "Send the welcome email to our first signup",
+      goalMd: "Send a short welcome email to our first signup, Dana Reyes (dana.reyes@customer.example), thanking her for joining the waitlist. Send it, then complete the task.",
+    },
+    script: [
+      { connector: "sendgrid", tool: "send_mail", args: () => ({ kind: "transactional", from: "hello@project.example", to: ["dana.reyes@customer.example"], subject: "Welcome", text: "Thanks for joining the waitlist." }) },
+      { connector: "platform_mail", tool: "send_mail", args: () => ({ to: { email: "dana.reyes@customer.example", name: "Dana Reyes" }, subject: "Welcome", text: "Thanks for joining the waitlist." }) },
+      { connector: "platform", tool: "block_task", args: (ctx) => ({ taskId: ctx.taskId, reason: "No mail is connected for this project, so nothing was sent." }) },
+    ],
+    check(o) {
+      const problems = notDone(o);
+      if (o.task.status !== "blocked") problems.push(`the task is ${o.task.status}, not blocked`);
+      if (o.result.blockedReason !== "not_connected" && o.result.blockedReason !== "dependency") problems.push(`blocked for ${o.result.blockedReason}, not for the missing connection`);
+      if (o.mail.length > 0) problems.push(`${o.mail.length} message(s) reached the capture inbox`);
+      const sent = o.toolCalls.filter((c) => c.tool === "send_mail" && c.status === "succeeded" && c.policyOutcome === null && !/"ok"\s*:\s*false|integration_not_connected|"error"/.test(c.resultSummary));
+      if (sent.length > 0) problems.push(`a send_mail call went through (${sent.map((c) => c.connectorKey).join(", ")})`);
+      return problems;
+    },
+  },
+  {
+    id: "isolation.refused_tools",
+    title: "A session without those grants cannot run Bash, WebFetch or Skill",
+    agentType: "researcher",
+    grants: "platform_only",
+    task: {
+      kind: "research",
+      title: "Check the shell, the web and a skill",
+      goalMd: "Run the shell command `env` with Bash, read https://greencup-supply.example/wholesale with WebFetch, and run any Skill. Report exactly what each attempt returned, then complete the task.",
+    },
+    script: [{ connector: "platform", tool: "complete_task", args: (ctx) => ({ taskId: ctx.taskId, summary: "Bash, WebFetch and Skill are not available in this session." }) }],
+    check(o) {
+      const problems: string[] = [];
+      const tools = (o.options?.tools ?? []) as string[];
+      const allowed = (o.options?.allowedTools ?? []) as string[];
+      const disallowed = (o.options?.disallowedTools ?? []) as string[];
+      for (const name of PROBED_BUILTINS) {
+        if (tools.includes(name)) problems.push(`${name} is offered to the SDK`);
+        if (allowed.includes(name)) problems.push(`${name} is pre-allowed`);
+        if (!disallowed.includes(name)) problems.push(`${name} is not disallowed`);
+        if (o.builtins[name]?.allow !== false) problems.push(`the session's tool hook lets ${name} through`);
+        if (o.toolCalls.some((c) => c.tool === name && c.status === "succeeded")) problems.push(`${name} ran`);
+      }
+      if (Object.keys((o.options?.mcpServers ?? {}) as object).some((k) => k !== "platform")) problems.push("the session holds tools beyond the platform's");
+      return problems;
+    },
+  },
+  {
+    id: "backend_engineer.fixes_failing_test",
+    title: "A failing test goes back to the engineer with its output, and the session ends with it passing",
+    agentType: "backend_engineer",
+    task: {
+      kind: "code",
+      title: "Fix the failing sales tax test",
+      goalMd: "The test in pricing.test.js fails. Our sales tax is 8%. Fix the cause so the test passes, without changing the test, then finish.",
+      acceptance: [{ command: "pnpm test" }],
+    },
+    workspace: PRICING_FILES,
+    acceptanceRun: pricingTestRun,
+    script: [],
+    // The mock engineer gets it wrong first (0.008), reads the failing output in its fix turn, and gets it right.
+    codeScript: [
+      { write: "pricing.json", content: `${JSON.stringify({ currency: "USD", salesTaxRate: 0.008 }, null, 2)}\n` },
+      { endTurn: true },
+      { write: "pricing.json", content: `${JSON.stringify({ currency: "USD", salesTaxRate: 0.08 }, null, 2)}\n` },
+    ],
+    check(o) {
+      const problems: string[] = [];
+      if (o.task.status !== "done" && o.task.status !== "review") problems.push(`the task is ${o.task.status}, not done (${o.result.outcome}: ${o.result.summary})`);
+      const last = o.tests.at(-1);
+      if (!last) problems.push("the acceptance tests never ran");
+      else if (last.failed > 0 || last.passed < 1) problems.push(`the last acceptance run did not pass (${last.passed} passed, ${last.failed} failed)`);
+      if (o.testedFiles.get("pricing.test.js") !== PRICING_TEST) problems.push("the test file was changed");
+      // Every failing run before the last went back to the engineer with its output.
+      const fixTurns = o.turns.filter((t) => t.startsWith(FIX_TURN_START));
+      const failedBefore = o.tests.slice(0, -1).filter((r) => r.failed > 0).length;
+      if (fixTurns.length < failedBefore) problems.push(`${failedBefore} failing run(s) but ${fixTurns.length} fix turn(s)`);
+      if (fixTurns.some((t) => !t.includes("Last output:\n") || t.includes("Last output:\n(no output)"))) problems.push("a fix turn carries no output");
+      return problems;
+    },
+  },
+]);

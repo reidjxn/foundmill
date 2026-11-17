@@ -4,7 +4,8 @@
  * size, which screens' explainers were dismissed, which tours were done and whether the first-week checklist was put
  * away; (0067) whether agents show a persona's first name and AI-generated face (anthropomorphic agents, off by
  * default; off shows agents exactly as before); and (0069) which character style those names and faces are drawn in
- * (humans by default; ignored while the switch is off); and (0073) Builder view (off by default). Routers founder.preferences.get/guidance/update. A person with no
+ * (humans by default; ignored while the switch is off); and (0073) Builder view (off by default); and (0114) the
+ * single-key shortcuts (off by default, WP-04 T13). Routers founder.preferences.get/guidance/update. A person with no
  * row reads the defaults (US dates, 12-hour times, guidance on, standard text, nothing seen), so reading never writes;
  * the first change creates the row.
  */
@@ -23,7 +24,7 @@ import {
   type EmailNotificationPrefs,
   type NotificationPrefs,
 } from "@foundmill/shared";
-import { FOUNDER_NOTIFICATION_LIMITS, isValidTimeZone } from "@foundmill/shared";
+import { boundedRecord, FOUNDER_NOTIFICATION_LIMITS, isValidTimeZone } from "@foundmill/shared";
 import { eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { accountPreferences, GUIDANCE_MODES, TEXT_SIZES, type GuidanceMode, type SeenMap, type TextSize } from "../schema";
@@ -48,6 +49,11 @@ export interface GuidancePrefs {
    * and Hierarchy tabs, ratings out of 20, technical columns). Default off: hidden, never rewritten.
    */
   builderView: boolean;
+  /**
+   * Single-key shortcuts (0114, WP-04 T13): R, the G chords, J, K, 1–4 in the decision bar and E. Default off, so one
+   * stray key never refreshes, moves or answers anything; /, Cmd-K, ? and Esc work either way.
+   */
+  keyboardShortcuts: boolean;
 }
 
 /**
@@ -68,21 +74,24 @@ export interface NotificationPreferences {
 export interface AccountPreferencesView extends DateFormatPrefs, GuidancePrefs, NotificationPreferences {}
 
 /** What everyone reads until they choose: guidance on, standard text, nothing seen, the checklist showing, agents as agents (humans when turned on). */
-export const DEFAULT_GUIDANCE_PREFS: Readonly<GuidancePrefs> = Object.freeze({ guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: DEFAULT_AGENT_STYLE, builderView: false });
+export const DEFAULT_GUIDANCE_PREFS: Readonly<GuidancePrefs> = Object.freeze({ guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false, agentStyle: DEFAULT_AGENT_STYLE, builderView: false, keyboardShortcuts: false });
 
 /** Every kind of push and of email on, amounts shown. */
 export const DEFAULT_NOTIFICATION_PREFERENCES: Readonly<NotificationPreferences> = Object.freeze({ notifications: { ...DEFAULT_NOTIFICATION_PREFS }, hideAmountsOnLockScreen: false, email: { ...DEFAULT_EMAIL_NOTIFICATION_PREFS } });
 
 export const DEFAULT_ACCOUNT_PREFERENCES: Readonly<AccountPreferencesView> = Object.freeze({ ...DEFAULT_DATE_FORMAT_PREFS, ...DEFAULT_GUIDANCE_PREFS, ...DEFAULT_NOTIFICATION_PREFERENCES });
 
-/** Ids to remember as seen or done, each set to true ("Got it" on Home: `{ home: true }`); at most 50 in one change. */
-const SeenMarks = z.record(z.string().trim().min(1).max(120), z.literal(true)).refine((m) => Object.keys(m).length <= 50, { message: "At most 50 screens or tours in one change" });
+/**
+ * Ids to remember as seen or done, each set to true ("Got it" on Home: `{ home: true }`); at most 50 in one change,
+ * counted before zod reads a key (`boundedRecord`, GHSA-mrhx-c7xc-m3w5).
+ */
+const SeenMarks = boundedRecord(50, z.record(z.string().trim().min(1).max(120), z.literal(true)), "At most 50 screens or tours in one change");
 
 /** The kinds of push to turn on or off in one change (`{ customer: false }`); only the known kinds, at least one. */
-const NotificationMarks = z.partialRecord(z.enum(NOTIFICATION_KINDS), z.boolean()).refine((m) => Object.keys(m).length > 0, { message: "Name at least one kind of notification" });
+const NotificationMarks = boundedRecord(NOTIFICATION_KINDS.length, z.partialRecord(z.enum(NOTIFICATION_KINDS), z.boolean()), "At most one setting per kind of notification").refine((m) => Object.keys(m).length > 0, { message: "Name at least one kind of notification" });
 
 /** The kinds of email to turn on or off in one change (`{ decision_waiting: false }`); only the known kinds, at least one. */
-const EmailNotificationMarks = z.partialRecord(z.enum(EMAIL_NOTIFICATION_KINDS), z.boolean()).refine((m) => Object.keys(m).length > 0, { message: "Name at least one kind of email" });
+const EmailNotificationMarks = boundedRecord(EMAIL_NOTIFICATION_KINDS.length, z.partialRecord(z.enum(EMAIL_NOTIFICATION_KINDS), z.boolean()), "At most one setting per kind of email").refine((m) => Object.keys(m).length > 0, { message: "Name at least one kind of email" });
 
 /** The stored map (only what was chosen) merged over the defaults, in the kinds' own order. */
 export function notificationPrefsOf(stored: Partial<NotificationPrefs> | null | undefined): NotificationPrefs {
@@ -119,6 +128,7 @@ export const AccountPreferencesPatch = z
     email: EmailNotificationMarks.optional(),
     hideAmountsOnLockScreen: z.boolean().optional(),
     builderView: z.boolean().optional(),
+    keyboardShortcuts: z.boolean().optional(),
     reset: z.literal(true).optional(),
   })
   .strict()
@@ -141,9 +151,10 @@ const columns = {
   notifications: accountPreferences.notifications,
   hideAmountsOnLockScreen: accountPreferences.hideAmountsOnLockScreen,
   builderView: accountPreferences.builderView,
+  keyboardShortcuts: accountPreferences.keyboardShortcuts,
 };
 
-type Row = Pick<typeof accountPreferences.$inferSelect, "guidance" | "textSize" | "explainersSeen" | "toursDone" | "checklistDismissedAt" | "anthropomorphicAgents" | "agentStyle" | "notifications" | "hideAmountsOnLockScreen" | "builderView"> & DateFormatPrefs;
+type Row = Pick<typeof accountPreferences.$inferSelect, "guidance" | "textSize" | "explainersSeen" | "toursDone" | "checklistDismissedAt" | "anthropomorphicAgents" | "agentStyle" | "notifications" | "hideAmountsOnLockScreen" | "builderView" | "keyboardShortcuts"> & DateFormatPrefs;
 
 function view(row: Row): AccountPreferencesView {
   return {
@@ -160,6 +171,7 @@ function view(row: Row): AccountPreferencesView {
     hideAmountsOnLockScreen: row.hideAmountsOnLockScreen ?? false,
     email: emailNotificationPrefsOf(row.notifications?.email),
     builderView: row.builderView ?? false,
+    keyboardShortcuts: row.keyboardShortcuts ?? false,
   };
 }
 
@@ -177,7 +189,7 @@ export const preferencesRepo = {
   async update(db: Executor, userId: string, patch: AccountPreferencesPatch): Promise<AccountPreferencesView> {
     const v = parseInput(AccountPreferencesPatch, patch, "preferences");
     const dismissedAt = v.checklistDismissed === undefined ? undefined : v.checklistDismissed ? new Date() : null;
-    const scalars = defined({ dateFormat: v.date, timeFormat: v.time, guidance: v.guidance, textSize: v.textSize, anthropomorphicAgents: v.anthropomorphicAgents, agentStyle: v.agentStyle, hideAmountsOnLockScreen: v.hideAmountsOnLockScreen, builderView: v.builderView });
+    const scalars = defined({ dateFormat: v.date, timeFormat: v.time, guidance: v.guidance, textSize: v.textSize, anthropomorphicAgents: v.anthropomorphicAgents, agentStyle: v.agentStyle, hideAmountsOnLockScreen: v.hideAmountsOnLockScreen, builderView: v.builderView, keyboardShortcuts: v.keyboardShortcuts });
     // A first row starts from the defaults, so a reset has nothing to clear and a mark is the whole map.
     const notifications = v.notifications || v.email ? { ...(v.notifications ?? {}), ...(v.email ? { email: v.email } : {}) } : undefined;
     const insert = { userId, ...scalars, ...defined({ explainersSeen: v.explainersSeen, toursDone: v.toursDone, checklistDismissedAt: dismissedAt, notifications }) };
@@ -244,7 +256,7 @@ export const DEFAULT_EMAIL_PREFS: Readonly<EmailPrefs> = Object.freeze({
 
 export const EmailPrefsPatch = z
   .object({
-    email: z.partialRecord(z.enum(EMAIL_NOTIFICATION_KINDS), z.boolean()).optional(),
+    email: boundedRecord(EMAIL_NOTIFICATION_KINDS.length, z.partialRecord(z.enum(EMAIL_NOTIFICATION_KINDS), z.boolean()), "At most one setting per kind of email").optional(),
     briefHour: z.number().int().min(0).max(23).optional(),
     timeZone: z.string().trim().max(64).refine((tz) => isValidTimeZone(tz), "Choose a real time zone").nullable().optional(),
     browserNotifications: z.boolean().optional(),

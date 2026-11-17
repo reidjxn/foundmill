@@ -9,6 +9,10 @@
  * on every channel), plus one the founder put on in offline tracking. The others are listed under "Not available yet"
  * in Builder view only. With no channel to show, the Board is one honest empty state: what opens first, and that
  * nothing is wrong.
+ *
+ * A channel the founder posts by tap (founder, 2026-11-12: social) is on the Board as available with its own sentence
+ * ("You post each one with one press: the text and link are filled in for you."). Put on the board it reads "You post
+ * it" and is never counted as running: no engine runs for it.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Megaphone, Play, RefreshCw, Sparkles } from "lucide-react";
@@ -23,11 +27,12 @@ import { useBusinessEvents, useToday, useWidgetData, useWidgetQuery } from "@fou
 import type { ModuleScreenProps } from "../registry";
 import { useBusinessStage } from "../stage";
 import { ChannelProfileDrawer } from "./ChannelProfileDrawer";
-import { buildChannelViews, channelStatus, resumeStatus, splitByAvailability, toChannelToken, totalBudget, type ChannelView } from "./channel-data";
+import { CHANNEL_META } from "@foundmill/shared/constants";
+import { buildChannelViews, channelStatus, postedByTap, resumeStatus, splitByAvailability, toChannelToken, totalBudget, type ChannelView } from "./channel-data";
 import { NotAvailableChannels } from "./NotAvailableChannels";
 import { InlineError, Screen, searchParam, useAction } from "./shared";
 import { localScores, RESCORE_DEBOUNCE_MS, useDebouncedRun } from "./rescore";
-import type { AgentRow, CampaignRow, ChannelMetricRow, ChannelsListResponse, Page, RecommendResponse, RecommendationRow } from "./types";
+import type { AgentsListResponse, CampaignRow, ChannelMetricRow, ChannelsListResponse, Page, RecommendResponse, RecommendationRow } from "./types";
 
 export interface FormationScreenProps extends ModuleScreenProps {
   /** Recommended tokens walk onto the Board after mount (default true; tests pass false). */
@@ -50,9 +55,16 @@ export const DISTRIBUTION_EXPLAINER = {
 /** Every channel the product knows (the Board says "of 15" only while all of them can run). */
 const ALL_CHANNELS = CHANNEL_KEYS.length;
 
-/** The tray's label: how many channels can run, in plain words. */
-export function benchLabelFor(shown: number): string {
-  return shown === ALL_CHANNELS ? `All ${ALL_CHANNELS} channels are available` : `${shown} channel${shown === 1 ? "" : "s"} can run now`;
+/**
+ * The tray's label: how many channels can run, in plain words. `byTap` of them are the founder's own to post (tap-to-
+ * post): they are named apart, never as channels that run.
+ */
+export function benchLabelFor(shown: number, byTap = 0): string {
+  if (shown === ALL_CHANNELS) return `All ${ALL_CHANNELS} channels are available`;
+  const runs = shown - byTap;
+  const yours = byTap > 0 ? `${byTap} you post yourself` : "";
+  if (byTap > 0 && runs <= 0) return `${byTap} channel${byTap === 1 ? "" : "s"} you post yourself`;
+  return `${runs} channel${runs === 1 ? "" : "s"} can run now${yours ? `, ${yours}` : ""}`;
 }
 
 export function FormationScreen({ businessId, departmentId, animateEntrance = true, rescoreDelayMs = RESCORE_DEBOUNCE_MS }: FormationScreenProps) {
@@ -61,7 +73,7 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
   const channels = useWidgetQuery<ChannelsListResponse>("distribution.channels.list", {});
   const campaigns = useWidgetQuery<Page<CampaignRow>>("distribution.campaigns.list", { limit: 200 });
   const metrics = useWidgetQuery<ChannelMetricRow[]>("distribution.channels.metrics", { from: addDays(today, -(METRICS_WINDOW_DAYS - 1)) });
-  const agents = useWidgetQuery<AgentRow[]>("team.agents.list", {});
+  const agents = useWidgetQuery<AgentsListResponse>("team.agents.list", {});
   const departments = useDepartments();
   const action = useAction();
   const [recommendation, setRecommendation] = useState<RecommendationRow[] | null>(null);
@@ -111,7 +123,7 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
   }, [all, provisional]);
 
   const budget = useMemo(() => totalBudget(views), [views]);
-  const tokens = useMemo(() => views.map((v) => toChannelToken(v, { agents: agents.data, totalBudgetMinor: budget, departmentId })), [views, agents.data, budget, departmentId]);
+  const tokens = useMemo(() => views.map((v) => toChannelToken(v, { agents: agents.data?.agents, totalBudgetMinor: budget, departmentId })), [views, agents.data, budget, departmentId]);
   const selectedView = selected ? (views.find((v) => v.channelKey === selected) ?? null) : null;
   const selectedToken = selected ? (tokens.find((t) => t.key === selected) ?? null) : null;
   const scored = views.filter((v) => v.scored).length;
@@ -120,6 +132,11 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
   // every channel on the board waits for the product.
   const waiting = stage.distributionStarted === false;
   const starting = views.filter((v) => channelStatus(v, { distributionStarted: stage.distributionStarted }).word === "Starting").length;
+  // Channels the founder posts by tap: on the Board with their own sentence, and never counted as running.
+  const byTapViews = views.filter((v) => v.availability.available && v.availability.byTap && v.availability.sentence);
+  const byTapOnly = views.filter(postedByTap);
+  const youPost = byTapOnly.filter((v) => v.enabled).length;
+  const runningWords = `${starters - starting - youPost} of ${views.length} running${starting ? ` · ${starting} starting` : ""}${youPost ? ` · ${youPost} you post` : ""}`;
 
   const rescore = useCallback(async () => {
     setRescoring(true);
@@ -199,7 +216,7 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
         >
           <p className="text-body text-secondary">
             {nothingToShow ? "No channel can run yet, so nothing starts today. You can still start distribution, and a channel starts the day it opens." : "The channels on the board keep their place; their engines start when you start distribution."}{" "}
-            {stage.stage === "building" ? "The team is building the first roadmap items now." : stage.stage === "awaiting_signoff" || stage.stage === "drafting" ? "Sign off the specification and the roadmap first." : ""}
+            {stage.stage === "building" ? "The team is building the first roadmap items now." : stage.stage === "awaiting_signoff" || stage.stage === "drafting" ? "Approve your plan first." : ""}
           </p>
           <Dialog open={startOpen} onOpenChange={setStartOpen}>
             <DialogContent size="sm">
@@ -227,7 +244,7 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
       <GridCell span={12} className="flex gap-gutter">
         <Panel
           title="Board"
-          meta={hasData && !nothingToShow ? (waiting ? `${starters} of ${views.length} on the board · waiting for the product` : starting ? `${starters - starting} of ${views.length} running · ${starting} starting` : `${starters} of ${views.length} running`) : undefined}
+          meta={hasData && !nothingToShow ? (waiting ? `${starters} of ${views.length} on the board · waiting for the product` : runningWords) : undefined}
           help="Each token is a channel; drag it onto the board to start it, or off the board to stop it."
           loading={channels.isLoading}
           error={channels.error ? channels.error.message : undefined}
@@ -271,13 +288,24 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
               {views.length === ALL_CHANNELS ? "The Distribution Strategist scores each one 1–20 for fit and picks 3 to 6 channels to start with." : "The Distribution Strategist scores each one 1–20 for fit and picks which to start with."}
             </p>
           ) : null}
+          {/* Tap-to-post: what "available" means for a channel no agent publishes to, in the founder's words. */}
+          {hasData && byTapViews.length > 0 ? (
+            <ul className="mb-2 flex max-w-reading flex-col gap-1" data-testid="board-by-tap">
+              {byTapViews.map((v) => (
+                <li key={v.channelKey} data-channel={v.channelKey} data-reason={v.availability.reason} className="flex flex-wrap items-baseline gap-x-2 text-small text-secondary">
+                  <span className="text-body-strong text-primary">{CHANNEL_META[v.channelKey].label}</span>
+                  <span>{v.availability.sentence}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
           <InlineError error={action.error} className="mb-2" />
           {nothingToShow ? (
             <EmptyState icon={Megaphone} title={none.title} data-testid="board-no-channels">
               {channels.data?.noChannel ?? none.text}
             </EmptyState>
           ) : hasData ? (
-            <FormationBoard channels={tokens} onToggle={onToggle} onOpenChannel={(k) => setSelected(k)} onPause={onPause} animateEntrance={animateEntrance} benchLabel={benchLabelFor(views.length)} />
+            <FormationBoard channels={tokens} onToggle={onToggle} onOpenChannel={(k) => setSelected(k)} onPause={onPause} animateEntrance={animateEntrance} benchLabel={benchLabelFor(views.length, byTapOnly.length)} />
           ) : null}
         </Panel>
         {/* The profile opens on the right when a channel is picked; closed, the board takes the whole width. */}

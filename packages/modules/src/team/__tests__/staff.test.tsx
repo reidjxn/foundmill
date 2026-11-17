@@ -2,7 +2,7 @@ import "./setup";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { STAFF_VIEWS, StaffScreen, inviteTarget, toStaffRows } from "../StaffScreen";
+import { STAFF_VIEWS, StaffScreen, toStaffRows } from "../StaffScreen";
 import { permissionSummary, readMe } from "../shared";
 import { BID, DEPT_TEAM, ME, USER_ADA, USER_BEN, dataResponses, emptyResponses, humans, me, responsibilities } from "./fixtures";
 import { createFakeSource, renderScreen } from "./fake-source";
@@ -30,7 +30,7 @@ describe("StaffScreen", () => {
   it("lists the humans with roles, section permissions and approvals, linking CRM entities", async () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <StaffScreen {...props} />);
-    const table = await screen.findByRole("grid", { name: "Staff" });
+    const table = await screen.findByRole("grid", { name: "People" });
     expect(within(table).getAllByRole("row")).toHaveLength(humans.length + 1);
     expect(within(table).getByText("You")).toBeTruthy();
     expect(within(table).getByText("Owner")).toBeTruthy();
@@ -44,62 +44,24 @@ describe("StaffScreen", () => {
     expect(screen.getByRole("button", { name: /^View: Simple/ })).toBeTruthy();
   });
 
-  it("invites a member by the email they sign in with, with a role and per-section permissions (C18: one flow, email first)", async () => {
-    const user = userEvent.setup();
-    const fake = createFakeSource({ businessId: BID, responses: dataResponses, onMutate: (_p, input) => ({ id: "m-4", userId: input.userId ?? "90000000-0000-4000-8000-000000000009", role: input.role, sectionPermissions: input.sectionPermissions, email: input.email }) });
+  it("offers no way to add or invite anyone here, and nothing for a project of one person (THESIS 3.1; the solo guard)", async () => {
+    // The silent add by email or account id is gone; inviting someone is Settings › People's alone.
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <StaffScreen {...props} />);
-    await screen.findByRole("grid", { name: "Staff" });
-    await user.click(screen.getByRole("button", { name: "Invite" }));
-    const dialog = await screen.findByTestId("invite-dialog");
-    const confirm = within(dialog).getByTestId("invite-confirm");
-    expect(confirm.hasAttribute("disabled")).toBe(true);
-    // The email comes first; the account ID is the fallback ("Or add by account ID"), never required.
-    const fields = within(dialog).getAllByRole("textbox").map((f) => f.getAttribute("id"));
-    expect(fields[0]).toMatch(/-email$/);
-    expect(fields[1]).toMatch(/-user$/);
-    await user.type(within(dialog).getByLabelText(/Sign-in email/), "cal@northwind");
-    expect(within(dialog).getByText("That is not an email address.")).toBeTruthy();
-    expect(confirm.hasAttribute("disabled")).toBe(true);
-    await user.type(within(dialog).getByLabelText(/Sign-in email/), ".example");
-    expect(confirm.hasAttribute("disabled")).toBe(false);
-    await user.click(within(dialog).getByRole("combobox", { name: "Role" }));
-    await user.click(await screen.findByRole("option", { name: "Viewer" }));
-    await user.click(within(dialog).getByRole("combobox", { name: "Finance permission" }));
-    await user.click(await screen.findByRole("option", { name: "Write" }));
-    await user.click(confirm);
-    // The same api as Settings › Members: `team.humans.invite` with the email, no account ID.
-    await waitFor(() => expect(fake.mutations).toEqual([{ path: "team.humans.invite", input: { email: "cal@northwind.example", role: "viewer", sectionPermissions: { finance: "write" } } }]));
-    await waitFor(() => expect(screen.getByTestId("staff-notice").textContent).toBe("cal@northwind.example invited as Viewer."));
-    expect(fake.refetches["team.humans.list"]).toBe(1);
-  });
-
-  it("falls back to the account ID, validated, when there is no email", async () => {
-    const user = userEvent.setup();
-    const fake = createFakeSource({ businessId: BID, responses: dataResponses, onMutate: (_p, input) => ({ id: "m-4", userId: input.userId, role: input.role, sectionPermissions: input.sectionPermissions, email: input.email }) });
-    renderScreen(fake, <StaffScreen {...props} />);
-    await screen.findByRole("grid", { name: "Staff" });
-    await user.click(screen.getByRole("button", { name: "Invite" }));
-    const dialog = await screen.findByTestId("invite-dialog");
-    const confirm = within(dialog).getByTestId("invite-confirm");
-    await user.type(within(dialog).getByLabelText(/Or add by account ID/), "not-a-uuid");
-    expect(within(dialog).getByText("That is not an account ID; it has 36 letters, digits and dashes.")).toBeTruthy();
-    expect(confirm.hasAttribute("disabled")).toBe(true);
-    await user.clear(within(dialog).getByLabelText(/Or add by account ID/));
-    await user.type(within(dialog).getByLabelText(/Or add by account ID/), "90000000-0000-4000-8000-000000000009");
-    await user.click(confirm);
-    await waitFor(() => expect(fake.mutations).toEqual([{ path: "team.humans.invite", input: { userId: "90000000-0000-4000-8000-000000000009", role: "member", sectionPermissions: {} } }]));
-    // What Invite sends: the account ID when one is typed (with the email beside it when valid), else the email.
-    expect(inviteTarget("cal@northwind.example", "")).toEqual({ email: "cal@northwind.example" });
-    expect(inviteTarget("cal@northwind.example", "90000000-0000-4000-8000-000000000009")).toEqual({ userId: "90000000-0000-4000-8000-000000000009", email: "cal@northwind.example" });
-    expect(inviteTarget("", "nope")).toBeNull();
-    expect(inviteTarget("nope", "")).toBeNull();
+    await screen.findByRole("grid", { name: "People" });
+    expect(screen.queryByRole("button", { name: /invite/i })).toBeNull();
+    expect(screen.queryByTestId("invite-dialog")).toBeNull();
+    const solo = createFakeSource({ businessId: BID, responses: { ...dataResponses, "team.humans.list": humans.filter((h) => h.userId === ME) } });
+    const { container } = renderScreen(solo, <StaffScreen {...props} />);
+    await waitFor(() => expect(container.textContent).toContain("1 person"));
+    expect(container.textContent).not.toMatch(/only you|invite|so far/i);
   });
 
   it("changes a role and permissions from the row menu, blocks removing the owner or yourself, removes an advisor", async () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ businessId: BID, responses: dataResponses, onMutate: (path, input) => (path === "team.humans.role" ? { ...humans.find((h) => h.userId === input.userId)!, role: input.role ?? "advisor", sectionPermissions: input.sectionPermissions } : { removed: true }) });
     renderScreen(fake, <StaffScreen {...props} />);
-    const table = await screen.findByRole("grid", { name: "Staff" });
+    const table = await screen.findByRole("grid", { name: "People" });
     fireEvent.contextMenu(within(table).getByText("Owner"));
     const ownerMenu = await screen.findByRole("menu");
     expect(within(ownerMenu).getByRole("menuitem", { name: "Remove" }).getAttribute("aria-disabled")).toBe("true");
@@ -135,7 +97,7 @@ describe("StaffScreen", () => {
     const asAdmin = humans.map((h) => (h.userId === ME ? { ...h, role: "admin" as const } : h.userId === USER_ADA ? { ...h, role: "owner" as const } : h));
     const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "team.humans.list": asAdmin, "founder.profile.get": { ...me, memberships: [{ businessId: BID, userId: ME, role: "admin" }] } } });
     renderScreen(fake, <StaffScreen {...props} />);
-    const table = await screen.findByRole("grid", { name: "Staff" });
+    const table = await screen.findByRole("grid", { name: "People" });
     fireEvent.contextMenu(within(table).getByText("Owner"));
     const ownerMenu = await screen.findByRole("menu");
     expect(within(ownerMenu).getByRole("menuitem", { name: "Role and permissions…" }).getAttribute("aria-disabled")).toBe("true");
@@ -157,9 +119,8 @@ describe("StaffScreen", () => {
   it("shows the empty state, loading and an error with retry", async () => {
     const empty = createFakeSource({ businessId: BID, responses: emptyResponses });
     const { unmount } = renderScreen(empty, <StaffScreen {...props} />);
-    expect(await screen.findByText("Only you so far")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Invite staff" }));
-    expect(await screen.findByTestId("invite-dialog")).toBeTruthy();
+    expect(await screen.findByText("No one to show")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /invite/i })).toBeNull();
     unmount();
 
     const loading = createFakeSource({ businessId: BID, responses: { "founder.profile.get": me } });

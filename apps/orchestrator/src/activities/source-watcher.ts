@@ -22,6 +22,7 @@ import { ApplicationFailure } from "@temporalio/common";
 import { z } from "zod";
 import {
   SOURCE_TEXT_LIMIT,
+  SOURCE_WATCH_TEMPLATE_KEY,
   blocksToPropose,
   buildSourceProposalRequest,
   buildSourceRelevanceRequest,
@@ -33,7 +34,7 @@ import {
   type SourceWatchBlock,
   type SourceWatchSource,
 } from "@foundmill/agents";
-import { repos, type Source } from "@foundmill/db";
+import { repos, resolveAgentPrompt, type ResolvedAgentPrompt, type Source } from "@foundmill/db";
 import type { OrchestratorDeps } from "../deps";
 import { agentActor, emitEvent, systemActor } from "../events";
 
@@ -192,6 +193,9 @@ export function createSourceWatcherActivities(deps: OrchestratorDeps) {
         const src: SourceWatchSource = { id: source.id, kind: source.kind, title: source.title, uri: source.uri };
         const attribution = { businessId: input.businessId, agentId: agent.id, kind: "source_watch" };
         const scope = `source-watch:${input.businessId}`;
+        // The Product lead as it is now (its live instructions and skills, WP-06 T1), read once and only when a model is asked.
+        let prompted: Promise<ResolvedAgentPrompt> | null = null;
+        const promptAgent = () => (prompted ??= resolveAgentPrompt(db, input.businessId, { templateKey: SOURCE_WATCH_TEMPLATE_KEY }));
 
         // 1. Relevance (skipped when this exact content was scored before).
         let relevance: SourceRelevance;
@@ -204,7 +208,7 @@ export function createSourceWatcherActivities(deps: OrchestratorDeps) {
           return skipped("no specification yet");
         } else {
           const candidates = candidateBlocks(`${content.title ?? ""}\n${content.text}\n${notes ?? ""}`, blocks);
-          const scored = await deps.models.complete({ ...buildSourceRelevanceRequest({ businessName: business.name, source: src, content, candidates }), signal: ctx?.cancellationSignal, scope, attribution });
+          const scored = await deps.models.complete({ ...buildSourceRelevanceRequest({ businessName: business.name, source: src, content, candidates, agent: await promptAgent() }), signal: ctx?.cancellationSignal, scope, attribution });
           costMinor += scored.cost.costMinorInt;
           relevance = finaliseRelevance(scored.json, { source: src, candidates });
           const topScore = relevance.blocks[0]?.score ?? null;
@@ -240,7 +244,7 @@ export function createSourceWatcherActivities(deps: OrchestratorDeps) {
         const current = asRecord(asRecord((await repos.product.getSource(db, input.businessId, source.id)).relevance).watch);
         if (current.proposalHash === contentHash) return result(str(current.proposalId));
         if (toPropose.length === 0) return result(null);
-        const drafted = await deps.models.complete({ ...buildSourceProposalRequest({ businessName: business.name, source: src, content, relevance, blocks: toPropose }), signal: ctx?.cancellationSignal, scope, attribution });
+        const drafted = await deps.models.complete({ ...buildSourceProposalRequest({ businessName: business.name, source: src, content, relevance, blocks: toPropose, agent: await promptAgent() }), signal: ctx?.cancellationSignal, scope, attribution });
         costMinor += drafted.cost.costMinorInt;
         const proposal = finaliseProposal(drafted.json, { source: src, blocks: toPropose, relevance });
         const created = await db.transaction(async (tx) => {

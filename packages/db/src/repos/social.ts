@@ -8,17 +8,19 @@
  * view only selects LIVE businesses (0012), so the visibility rule is enforced in SQL, not here.
  */
 import { RESERVED_NAME_MESSAGE, isReservedName } from "@foundmill/config";
-import { AppError, ForbiddenError, NotFoundError, ValidationError, VISIBILITY } from "@foundmill/shared";
+import { AppError, ForbiddenError, NotFoundError, OWNER_ROLES, ValidationError, VISIBILITY } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { authUsers } from "drizzle-orm/supabase";
 import { z } from "zod";
 import {
   businesses, communities, COMMUNITY_KINDS, communityMembers, CONNECTION_STATUSES, connections, founderProfiles, memberships, messages, messageThreads,
-  NEGOTIATION_STATUSES, negotiationThreads, networkAttestations, POST_REPORT_REASONS, postReports, posts, publicProfiles,
+  NEGOTIATION_STATUSES, negotiationThreads, POST_REPORT_REASONS, postReports, posts, publicProfiles,
   type COMMUNITY_ROLES, type Community, type CommunityMember, type Connection, type Message, type MessageThread, type NegotiationThread, type Post,
   type POST_REPORT_RESOLUTIONS, type PostReport, type PostScreening, type PublicProfile,
 } from "../schema";
 import { Id, JsonObject, one, PageInput, parseInput, rowsOf, sqlState, timeKeyset, toPage, type Executor, type Page } from "./_shared";
+import { adultsRepo } from "./adults";
+import { membershipNotEnded } from "./memberships";
 
 export const CreateCommunityInput = z.object({
   name: z.string().trim().min(1).max(120),
@@ -167,8 +169,8 @@ const badgeQueries = {
       .from(posts)
       .where(and(inArray(posts.communityId, moderated), isNull(posts.archivedAt), or(eq(posts.status, "pending_review"), and(eq(posts.status, "visible"), inArray(posts.id, reported)))));
   },
-  /** The person's own confirmation that they are 18 or older. */
-  adultConfirmedAt: (db: Executor, userId: string) => db.select({ at: networkAttestations.adultConfirmedAt }).from(networkAttestations).where(eq(networkAttestations.userId, userId)).limit(1),
+  /** The person's own confirmation that they are 18 or older: the account's record (0100), which every check reads. */
+  adultConfirmedAt: (_db: Executor, userId: string) => adultsRepo.confirmedAtSql(userId),
 };
 
 export const socialRepo = {
@@ -190,11 +192,14 @@ export const socialRepo = {
       .limit(limit);
   },
 
-  // the network is for adults (0027) ----------------------------------------------------------------------------------
-  /** When this person confirmed that they are 18 or older; null when they have not (BUILD §11.14 "18+ only"). */
+  // the network is for adults (0027; since 0100 the account's own confirmation at sign-up) -----------------------------
+  /**
+   * When this person confirmed that they are 18 or older; null when they have not (BUILD §11.14 "18+ only"). Reads the
+   * account's record (`adult_confirmations`, 0100): a confirmation at sign-up counts for the network, and every row of
+   * `network_attestations` was copied there and is kept in step.
+   */
   async adultConfirmedAt(db: Executor, userId: string): Promise<Date | null> {
-    const rows = await badgeQueries.adultConfirmedAt(db, userId);
-    return rows[0]?.at ?? null;
+    return adultsRepo.confirmedAt(db, userId);
   },
 
   /**
@@ -212,11 +217,12 @@ export const socialRepo = {
     return { unreadMessages: Number(row?.unreadMessages ?? 0), requestsWaiting: Number(row?.requestsWaiting ?? 0), invitations: Number(row?.invitations ?? 0), moderation: Number(row?.moderation ?? 0), adultConfirmed: row?.adultConfirmed === true };
   },
 
-  /** Records the person's own confirmation that they are 18 or older. The first one stands; asking again changes nothing. */
+  /**
+   * Records the person's own confirmation that they are 18 or older, on the account (`adult_confirmations`, 0100; a
+   * trigger writes the network's row too). The first one stands; asking again changes nothing.
+   */
   async confirmAdult(db: Executor, userId: string): Promise<Date> {
-    const v = parseInput(Id, userId, "user");
-    await db.insert(networkAttestations).values({ userId: v }).onConflictDoNothing({ target: networkAttestations.userId });
-    return one(await db.select({ at: networkAttestations.adultConfirmedAt }).from(networkAttestations).where(eq(networkAttestations.userId, v)).limit(1), "attestation").at;
+    return (await adultsRepo.confirm(db, userId)).confirmedAt;
   },
 
   /**
@@ -713,20 +719,20 @@ export const socialRepo = {
         .select({ businessId: businesses.id, name: businesses.name, slug: businesses.slug, kitPrimary: businesses.kitPrimary, kitSecondary: businesses.kitSecondary, archetype: businesses.archetype, gameMode: businesses.gameMode })
         .from(businesses)
         .innerJoin(memberships, eq(memberships.businessId, businesses.id))
-        // An example membership is a walk-through, not the viewer's business (0065).
-        .where(and(eq(memberships.userId, viewerId), ne(memberships.source, "example"), inArray(businesses.id, businessIds), isNull(businesses.archivedAt)));
+        // An example membership is a walk-through, not the viewer's business (0065); an ended one is not theirs any more.
+        .where(and(eq(memberships.userId, viewerId), ne(memberships.source, "example"), membershipNotEnded, inArray(businesses.id, businessIds), isNull(businesses.archivedAt)));
       for (const b of own) cards.set(b.businessId, { businessId: b.businessId, name: b.name, slug: b.slug, kitPrimary: b.kitPrimary, kitSecondary: b.kitSecondary, archetype: b.archetype, live: b.gameMode === "live" });
     }
     return { users, businesses: [...cards.values()] };
   },
 
-  /** The owner of a listed business: the person a request to connect with the business reaches. Null when it is not listed. */
+  /** The owner of a listed business (the longest-standing owner or cofounder): the person a request to connect with the business reaches. Null when it is not listed. */
   async listedBusinessOwner(db: Executor, businessId: string): Promise<string | null> {
     const rows = await db
       .select({ userId: memberships.userId })
       .from(memberships)
       .innerJoin(businesses, eq(businesses.id, memberships.businessId))
-      .where(and(eq(memberships.businessId, businessId), eq(memberships.role, "owner"), ne(memberships.source, "example"), publicBusiness))
+      .where(and(eq(memberships.businessId, businessId), inArray(memberships.role, [...OWNER_ROLES]), ne(memberships.source, "example"), publicBusiness))
       .orderBy(asc(memberships.createdAt))
       .limit(1);
     return rows[0]?.userId ?? null;

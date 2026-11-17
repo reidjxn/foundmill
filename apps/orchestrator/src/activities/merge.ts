@@ -19,9 +19,10 @@
  * Never a push to the default branch, never a merge the founder did not approve (or delegate), never a second Inbox item
  * for the same merge (the gateway reuses an open approval for the same call, and an approved one covers the retry).
  */
+import { codeReviewHandBack } from "@foundmill/agents";
 import { APP_NAME } from "@foundmill/config";
 import { isUntrusted } from "@foundmill/connectors";
-import { repos } from "@foundmill/db";
+import { founderReworkDetail, repos } from "@foundmill/db";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 import { postNote } from "./dispatch";
@@ -57,6 +58,8 @@ interface CompletedPayload {
   acceptanceTests: number;
   branch?: string | null;
   summary?: string;
+  /** `saved_only`: the session had no repository to push to (WP-05 T8), so its branch never reached GitHub. */
+  landed?: "saved_only" | "site" | null;
 }
 
 interface PullRequestSummary {
@@ -76,10 +79,10 @@ interface PullRequestSummary {
   changedFiles: number;
 }
 
-type CallResult<T> = { ok: true; data: T } | { ok: false; code: string; message: string };
+export type CallResult<T> = { ok: true; data: T } | { ok: false; code: string; message: string };
 
 /** The data of a gateway tool call, unwrapped from the quarantine envelope, or the error it answered. */
-function resultOf<T>(res: { outcome: string; result?: unknown; reasons?: string[] }): CallResult<T> {
+export function resultOf<T>(res: { outcome: string; result?: unknown; reasons?: string[] }): CallResult<T> {
   if (res.outcome !== "allow") return { ok: false, code: res.outcome, message: res.reasons?.join("; ") || res.outcome };
   const r = res.result as { ok?: boolean; data?: unknown; error?: { code?: string; message?: string } } | undefined;
   if (!r?.ok || r.data === undefined) return { ok: false, code: r?.error?.code ?? "tool_failed", message: r?.error?.message ?? "GitHub gave no result" };
@@ -103,9 +106,15 @@ export function mergeRefusalIsMomentary(message: string): boolean {
   return /not mergeable|\b405\b|\b409\b|status checks? (are|is) (expected|pending)|base branch was modified/i.test(message);
 }
 
-/** The `merge_pr` arguments for a task's pull request: the same on every call, so an approval of the first covers the second. */
-export function mergeArgs(target: { owner: string; repo: string }, prNumber: number, title: string): Record<string, unknown> {
-  return { owner: target.owner, repo: target.repo, prNumber, mergeMethod: "squash", commitTitle: `${title.trim()} (#${prNumber})`.slice(0, 256) };
+/**
+ * The `merge_pr` arguments for a task's pull request: the same on every call, so an approval of the first covers the
+ * second. `reviewedSha`, when the second read ran, is the commit it read: it is on the approval (the Inbox matches the
+ * review to it and says when the branch changed since), and a later run on a branch that moved asks again rather than
+ * reusing the approval. GitHub's merge is not pinned to it: the connector's `merge_pr` takes no `sha` (its contract is
+ * unchanged here), so the connector drops the field.
+ */
+export function mergeArgs(target: { owner: string; repo: string }, prNumber: number, title: string, reviewedSha?: string | null): Record<string, unknown> {
+  return { owner: target.owner, repo: target.repo, prNumber, mergeMethod: "squash", commitTitle: `${title.trim()} (#${prNumber})`.slice(0, 256), ...(reviewedSha ? { headSha: reviewedSha } : {}) };
 }
 
 /** What GitHub's merge state means for the review. */
@@ -132,6 +141,12 @@ export function mergeableOf(state: string | null | undefined, draft: boolean | u
  * the next session must do. The founder reads the first sentence in the Chief of Staff's note; the agent reads all of it.
  */
 export function handBackDetail(why: MergeHoldReason, branch: string, detail: string | null): string {
+  // The founder's words are the instruction, first (WP-05 T16); the api writes the same text when the founder answers.
+  if (why === "founder" && detail?.trim()) return founderReworkDetail(detail, branch);
+  // The second read asked for changes (WP-05 T17): `secondReadMerge` wrote the whole instruction, findings as data.
+  // Never cut: a slice could drop `</untrusted_content>` and leave what follows it inside an open block, so a detail that
+  // is too long or does not end closed falls back to the instruction without the findings.
+  if (why === "review") return detail && detail.length <= 2000 && detail.trimEnd().endsWith("</untrusted_content>") ? detail : codeReviewHandBack(null, branch);
   const what =
     why === "conflicts"
       ? "This change clashes with newer work on the live product, so it could not go live as it is."
@@ -214,17 +229,33 @@ export function createMergeActivities(deps: OrchestratorDeps) {
       const mergedTasks = new Set(mergedEvents.items.map((e) => (e.payload as { taskId?: unknown }).taskId).filter((id): id is string => typeof id === "string"));
       // Newest first: the first completion seen for a task is its latest.
       const latest = new Map<string, CompletedPayload>();
+      const completedAt = new Map<string, number>();
       for (const e of completed.items) {
         const p = e.payload as unknown as CompletedPayload;
-        if (p?.taskId && !latest.has(p.taskId)) latest.set(p.taskId, p);
+        if (p?.taskId && !latest.has(p.taskId)) {
+          latest.set(p.taskId, p);
+          completedAt.set(p.taskId, new Date(e.occurredAt).getTime());
+        }
       }
-      const settled = new Set(merges.items.filter((a) => a.action === MERGE_AUDIT.merged || ["decision", NOTHING_TO_MERGE].includes(String((a.details as { step?: unknown } | null)?.step))).map((a) => (a.target as { id?: unknown } | null)?.id).filter((id): id is string => typeof id === "string"));
+      // The founder's answer settles the work it was about, not the rework they asked for: a `decision` older than the
+      // task's latest completion is a change sent back and finished again (WP-05 T16), offered to go live again.
+      const settledRow = (a: (typeof merges.items)[number]) => {
+        const step = String((a.details as { step?: unknown } | null)?.step);
+        if (a.action === MERGE_AUDIT.merged || step === NOTHING_TO_MERGE) return true;
+        if (step !== "decision") return false;
+        const id = (a.target as { id?: unknown } | null)?.id;
+        const done = typeof id === "string" ? completedAt.get(id) : undefined;
+        return done === undefined || new Date(a.createdAt).getTime() >= done;
+      };
+      const settled = new Set(merges.items.filter(settledRow).map((a) => (a.target as { id?: unknown } | null)?.id).filter((id): id is string => typeof id === "string"));
       const heldForSetup = new Set(finishes.items.filter((a) => String((a.details as { reason?: unknown } | null)?.reason ?? "").startsWith(TEST_SETUP_REVIEW)).map((a) => (a.target as { id?: unknown } | null)?.id).filter((id): id is string => typeof id === "string"));
       const out: MergeInput[] = [];
       for (const task of waiting) {
         const done = latest.get(task.id);
         if (!done || settled.has(task.id) || mergedTasks.has(task.id) || heldForSetup.has(done.sessionId)) continue;
-        if (done.branch !== `agent/${task.id}`) continue;
+        // Saved with nowhere to push (WP-05 T8): its branch was never pushed, so a repository connected later has nothing
+        // of it to merge.
+        if (done.branch !== `agent/${task.id}` || done.landed === "saved_only" || done.landed === "site") continue;
         const tests = done.acceptanceTests ?? 0;
         if (tests > 0 && (done.acceptanceTestsPassing ?? 0) < tests) continue;
         if (task.assigneeAgentId && task.assigneeAgentId !== done.assigneeAgentId) continue;
@@ -343,12 +374,12 @@ export function createMergeActivities(deps: OrchestratorDeps) {
     },
 
     /** The merge, asked for: the gateway's policy makes it the founder's decision, or runs it when the decision was delegated. */
-    async askMerge(input: MergeInput & MergePullRequest): Promise<MergeAsked> {
+    async askMerge(input: MergeInput & MergePullRequest & { reviewedSha?: string | null }): Promise<MergeAsked> {
       const task = await repos.tasks.get(db, input.businessId, input.taskId);
       const found = await repository(input);
       if (!found) return { status: "held", reason: "no repository is chosen on the Code tab", prNumber: input.prNumber, prUrl: input.prUrl };
       const { read, write } = await tokens(input);
-      const merged = await call<{ merged: true; sha: string }>(write, "merge_pr", mergeArgs(found.repo, input.prNumber, task.title));
+      const merged = await call<{ merged: true; sha: string }>(write, "merge_pr", mergeArgs(found.repo, input.prNumber, task.title, input.reviewedSha));
       if (merged.res.outcome === "ask" && merged.res.approvalId) {
         await audit(input, MERGE_AUDIT.asked, { prNumber: input.prNumber, prUrl: input.prUrl, approvalId: merged.res.approvalId });
         return { status: "awaiting_approval", approvalId: merged.res.approvalId, prNumber: input.prNumber, prUrl: input.prUrl };
@@ -377,13 +408,13 @@ export function createMergeActivities(deps: OrchestratorDeps) {
     },
 
     /** After the founder approved and the checks passed: the same merge call, which the gateway runs under that approval, and the task is done. */
-    async completeMerge(input: MergeInput & MergePullRequest & { approvalId: string; decidedBy: string | null }): Promise<MergeOutcome & { retryable?: boolean }> {
+    async completeMerge(input: MergeInput & MergePullRequest & { approvalId: string; decidedBy: string | null; reviewedSha?: string | null }): Promise<MergeOutcome & { retryable?: boolean }> {
       const task = await repos.tasks.get(db, input.businessId, input.taskId);
       const found = await repository(input);
       if (!found) return { status: "skipped", reason: "no repository is chosen on the Code tab" };
       const { read, write } = await tokens(input);
       const current = ((await pullRequestsOf(read, found.repo, input.branch)) ?? []).find((p) => p.number === input.prNumber) ?? null;
-      const merged = await call<{ merged: true; sha: string }>(write, "merge_pr", mergeArgs(found.repo, input.prNumber, task.title));
+      const merged = await call<{ merged: true; sha: string }>(write, "merge_pr", mergeArgs(found.repo, input.prNumber, task.title, input.reviewedSha));
       if (merged.result.ok) {
         const pr: PullRequestSummary = current ?? { number: input.prNumber, title: task.title, url: input.prUrl ?? `https://github.com/${found.target.fullName}/pull/${input.prNumber}`, base: { ref: "main" }, head: { ref: input.branch }, additions: 0, deletions: 0, changedFiles: 0 };
         await finishMerged(input, found.target, pr, merged.result.data.sha, input.decidedBy ? { kind: "user", id: input.decidedBy } : systemActor, input.approvalId);
@@ -406,14 +437,18 @@ export function createMergeActivities(deps: OrchestratorDeps) {
     async handBack(input: MergeInput & MergePullRequest & { approvalId: string | null; why: MergeHoldReason; detail: string | null }): Promise<MergeOutcome> {
       const task = await repos.tasks.get(db, input.businessId, input.taskId);
       const reason = handBackDetail(input.why, input.branch, input.detail);
-      if (task.status === "review" || task.status === "done") await repos.tasks.setStatus(db, input.businessId, input.taskId, "blocked", { force: true });
-      await emitEvent(db, {
-        businessId: input.businessId,
-        type: "task.blocked",
-        actor: { kind: "agent", id: input.agentId },
-        payload: { taskId: input.taskId, kind: task.kind, title: task.title.slice(0, 200), assigneeAgentId: input.agentId, sessionId: input.sessionId, reason: "needs_update", detail: reason, approvalId: input.approvalId, occurrence: 1 },
-      }, { idempotencyKey: `task.blocked:merge:${input.taskId}:${input.prNumber}:${input.why}:${Date.now()}` });
-      await audit(input, MERGE_AUDIT.handedBack, { prNumber: input.prNumber, prUrl: input.prUrl, approvalId: input.approvalId, why: input.why, detail: input.detail });
+      // One transaction, so the one-round check (`merge.handed_back`) never disagrees with the blocked task. The key is the
+      // session's: a session's change goes back at most once (the task is blocked; its rework is a new session).
+      await db.transaction(async (tx) => {
+        if (task.status === "review" || task.status === "done") await repos.tasks.setStatus(tx, input.businessId, input.taskId, "blocked", { force: true });
+        await emitEvent(tx, {
+          businessId: input.businessId,
+          type: "task.blocked",
+          actor: { kind: "agent", id: input.agentId },
+          payload: { taskId: input.taskId, kind: task.kind, title: task.title.slice(0, 200), assigneeAgentId: input.agentId, sessionId: input.sessionId, reason: "needs_update", detail: reason, approvalId: input.approvalId, occurrence: 1 },
+        }, { idempotencyKey: `task.blocked:merge:${input.sessionId}:${input.prNumber}:${input.why}` });
+        await repos.audit.append(tx, input.businessId, { actorKind: "agent", actorId: input.agentId, action: MERGE_AUDIT.handedBack, target: { kind: "task", id: input.taskId }, details: { sessionId: input.sessionId, prNumber: input.prNumber, prUrl: input.prUrl, approvalId: input.approvalId, why: input.why, detail: input.detail } });
+      });
       return { status: "handed_back", why: input.why, reason, prNumber: input.prNumber, prUrl: input.prUrl };
     },
 

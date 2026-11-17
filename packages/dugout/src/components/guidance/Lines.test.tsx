@@ -44,11 +44,11 @@ describe("ConsequenceLine", () => {
 });
 
 describe("ReassuranceLine", () => {
-  it("is small tertiary text with a 14 px Undo2 or Settings icon, hidden when guidance is off", () => {
+  it("is small secondary text (WP-10 T5: 8.85 : 1) with a 14 px Undo2 or Settings icon, hidden when guidance is off", () => {
     const { rerender } = render(<ReassuranceLine>You can change this later in Settings › Business.</ReassuranceLine>);
     let line = document.querySelector("[data-reassurance]") as HTMLElement;
     expect(line.className).toContain("text-small");
-    expect(line.className).toContain("text-tertiary");
+    expect(line.className).toContain("text-secondary");
     expect(line.getAttribute("data-reassurance")).toBe("undo");
     expect(line.querySelector("svg")?.getAttribute("width")).toBe("14");
     rerender(<ReassuranceLine icon="settings">Change it any time in Settings › Preferences.</ReassuranceLine>);

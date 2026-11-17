@@ -134,12 +134,12 @@ describe("row builders", () => {
 });
 
 describe("what exists now (first-time founder report, Nov 8, 2026)", () => {
-  it("with no repository connected, a queue merge reads 'No artifact yet' and the panel says nothing was pushed anywhere", async () => {
+  it("with no repository connected, a queue merge reads 'Saved, not live anywhere' and the panel says nothing was pushed anywhere", async () => {
     const queued = { eventId: null, source: "merge_queue" as const, occurredAt: "2026-10-07T09:00:00Z", taskId: TASK_BUNDLE, title: "Gift wrap option at checkout", branch: `agent/${TASK_BUNDLE}`, mergedBy: { kind: "agent", id: AGENT_PIKE } };
     renderScreen(createFakeSource({ responses: { ...responses(), "dev.prs.list": { open: [], merged: [queued] }, "dev.repository": { connected: false, status: null, repository: null, simulated: true } } }), <PullRequestsScreen {...props} />);
     const merged = await screen.findByRole("grid", { name: "Merged pull requests" });
     const row = within(merged).getByText("Gift wrap option at checkout").closest("[role='row']") as HTMLElement;
-    expect(within(row).getByTestId("no-artifact").textContent).toBe("No artifact yet");
+    expect(within(row).getByTestId("no-artifact").textContent).toBe("Saved, not live anywhere");
     expect(screen.getByTestId("merged-counts").textContent).toBe("1 merged · nothing pushed yet");
     const panel = screen.getByTestId("what-exists-now");
     expect(panel.getAttribute("data-tone")).toBe("warn");

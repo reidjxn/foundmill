@@ -152,6 +152,12 @@ export interface ToolContext {
    * custom args that bind delivery events back to the project.
    */
   platformMail?: PlatformMailEnvelope;
+  /**
+   * Set by the gateway for a founder's own sender (`resend.send_mail`): Foundmill's signed one-click unsubscribe link for
+   * this recipient and project, the one ingest turns into a suppression entry. Never an argument of the call, so an agent
+   * cannot point an opt-out somewhere it is never recorded (security review, Nov 12, 2026). Absent: nothing is sent.
+   */
+  unsubscribeUrl?: string;
 }
 
 /** What the gateway hands `platform_mail.send_mail` (see `ToolContext.platformMail`). */
@@ -166,6 +172,14 @@ export interface PlatformMailEnvelope {
   unsubscribeUrl: string;
   /** `fm_b` (business id), `fm_m` (message ref), `fm_s` (their signature): SendGrid echoes them in every delivery event. */
   customArgs: Record<string, string>;
+  /**
+   * The message is commercial (US CAN-SPAM; packages/shared `projectMailClass`): it must carry `postalAddress`, and the
+   * connector sends nothing without it. False only for what the gateway proved transactional (a reply to a person who
+   * wrote first, a receipt, the follow confirmation).
+   */
+  commercial: boolean;
+  /** The founders' postal address for the footer (`project_postal_addresses`); set on every commercial message. */
+  postalAddress?: string;
 }
 
 /** Hand a refreshed credential to the host (`ctx.onCredentialRefreshed`); a failure to store it never fails the call. */

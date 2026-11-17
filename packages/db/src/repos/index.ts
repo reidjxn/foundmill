@@ -23,14 +23,20 @@ import { foundationsRepo } from "./foundations";
 import { foundersRepo } from "./founders";
 import { goalsRepo } from "./goals";
 import { pagesRepo } from "./pages";
+import { pageQuizzesRepo } from "./page-quizzes";
+import { positioningRepo } from "./positioning";
 import { personProfilesRepo } from "./person-profiles";
 import { mailRepo } from "./mail";
+import { postalAddressRepo } from "./postal-address";
+import { repliesRepo } from "./replies";
+import { updatesRepo } from "./updates";
 import { followersRepo } from "./followers";
 import { notifyEmailRepo } from "./notify-email";
 import { holidaysRepo } from "./holidays";
 import { ideasRepo } from "./ideas";
 import { inboxRepo } from "./inbox";
 import { integrationsRepo } from "./integrations";
+import { mockResultsRepo } from "./mock-results";
 import { journeysRepo } from "./journeys";
 import { legalRepo } from "./legal";
 import { logosRepo } from "./logos";
@@ -52,13 +58,30 @@ import { workspacesRepo } from "./workspaces";
 import { conversationsRepo } from "./conversations";
 import { emailPrefsRepo, preferencesRepo } from "./preferences";
 import { devicesRepo } from "./devices";
+import { dayOneNotesRepo } from "./day-one-notes";
+import { accountEventsRepo } from "./account-events";
 import { portabilityRepo } from "./portability";
 import { tableViewsRepo } from "./table-views";
 import { personaPortraitsRepo } from "./persona-portraits";
 import { teamCallsRepo } from "./team-calls";
 import { presenceRepo } from "./presence";
+import { costReportRepo } from "./cost-report";
 import { notificationsRepo } from "./notifications";
 import { notifyFactsRepo } from "./notify-facts";
+import { attributionsRepo } from "./attributions";
+import { teamPostsRepo } from "./team-posts";
+import { postMediaRepo } from "./post-media";
+import { postAttributionsRepo, postLinksRepo } from "./post-attributions";
+import { ideaDraftsRepo, waitlistRepo } from "./idea-drafts";
+import { admissionsRepo, invitationsRepo } from "./people";
+import { showcaseRepo } from "./showcase";
+import { adultsRepo } from "./adults";
+import { founderCancelLinksRepo, founderDeparturesRepo } from "./founder-departures";
+import { metricsRepo } from "./metrics";
+import { taskReportsRepo } from "./task-reports";
+import { sitesRepo } from "./sites";
+export { AddPayLinkInput } from "./pay-links";
+import { payLinksRepo } from "./pay-links";
 
 export const repos = {
   businesses: businessesRepo,
@@ -66,12 +89,19 @@ export const repos = {
   memberships: membershipsRepo,
   founders: foundersRepo,
   ideas: ideasRepo,
+  ideaDrafts: ideaDraftsRepo,
+  waitlist: waitlistRepo,
   product: productRepo,
   productSignoffs: productSignoffsRepo,
   goals: goalsRepo,
   pages: pagesRepo,
+  pageQuizzes: pageQuizzesRepo,
+  positioning: positioningRepo,
   personProfiles: personProfilesRepo,
   projectMail: mailRepo,
+  postalAddress: postalAddressRepo,
+  replies: repliesRepo,
+  updates: updatesRepo,
   followers: followersRepo,
   notifyEmail: notifyEmailRepo,
   departments: departmentsRepo,
@@ -87,6 +117,7 @@ export const repos = {
   plans: plansRepo,
   channels: channelsRepo,
   campaigns: campaignsRepo,
+  mockResults: mockResultsRepo,
   journeys: journeysRepo,
   entities: entitiesRepo,
   finance: financeRepo,
@@ -114,9 +145,27 @@ export const repos = {
   personaPortraits: personaPortraitsRepo,
   teamCalls: teamCallsRepo,
   presence: presenceRepo,
+  costReport: costReportRepo,
   notifications: notificationsRepo,
   emailPrefs: emailPrefsRepo,
   notifyFacts: notifyFactsRepo,
+  dayOneNotes: dayOneNotesRepo,
+  accountEvents: accountEventsRepo,
+  attributions: attributionsRepo,
+  teamPosts: teamPostsRepo,
+  postMedia: postMediaRepo,
+  admissions: admissionsRepo,
+  invitations: invitationsRepo,
+  showcase: showcaseRepo,
+  adults: adultsRepo,
+  postLinks: postLinksRepo,
+  postAttributions: postAttributionsRepo,
+  founderDepartures: founderDeparturesRepo,
+  founderCancelLinks: founderCancelLinksRepo,
+  metrics: metricsRepo,
+  taskReports: taskReportsRepo,
+  sites: sitesRepo,
+  payLinks: payLinksRepo,
 } as const;
 export type Repos = typeof repos;
 export type RepoArea = keyof Repos;
@@ -125,8 +174,12 @@ export type { Executor, Page, PageInput, DateRange, DayRange } from "./_shared";
 export { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, encodeCursor, decodeCursor, decodeTimeCursor, sqlState, uniqueViolation } from "./_shared";
 
 export * from "./agents";
+export * from "./positioning";
+export * from "./replies";
+export * from "./updates";
 export * from "./approvals";
 export * from "./audit";
+export { formerFounderSince, type FounderDepartureView } from "./founder-departures";
 export * from "./autopilot";
 export * from "./businesses";
 export * from "./campaigns";
@@ -142,11 +195,13 @@ export * from "./foundations";
 export * from "./founders";
 export * from "./goals";
 export * from "./pages";
+export * from "./page-quizzes";
 export * from "./person-profiles";
 export * from "./mail";
 export * from "./notify-email";
 export * from "./holidays";
 export * from "./ideas";
+export * from "./idea-drafts";
 export * from "./inbox";
 export * from "./integrations";
 export * from "./journeys";
@@ -162,8 +217,10 @@ export * from "./research";
 export * from "./screens";
 export * from "./skills";
 export * from "./social";
+export * from "./adults";
 export * from "./tasks";
 export * from "./training";
+export { boundMetricSql, FUNNEL_METRICS, METRIC_QUERIES, metricsRepo, metricWindowEnd, REAL_OUTCOME_PREDICATE, type FunnelMetric, type MetricFacts, type MetricQuery, type NorthStarWeek } from "./metrics";
 export * from "./usage";
 export * from "./workspaces";
 export * from "./logos";
@@ -176,5 +233,15 @@ export * from "./portability";
 export * from "./persona-portraits";
 export * from "./team-calls";
 export * from "./presence";
+export * from "./cost-report";
 export * from "./notifications";
 export * from "./notify-facts";
+export * from "./account-events";
+export * from "./attributions";
+export * from "./post-attributions";
+export * from "./team-posts";
+export * from "./post-media";
+export * from "./people";
+export * from "./showcase";
+export { SaveTaskReportInput, TASK_REPORT_LIMITS } from "./task-reports";
+export { SaveSiteReleaseInput, SITE_REPORT_REASONS, siteContentHash, type SiteFile, type SiteHost, type SiteReportReason, type SiteReportResult } from "./sites";

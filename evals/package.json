@@ -21,10 +21,17 @@
     "@foundmill/shared": "workspace:*",
     "@foundmill/config": "workspace:*",
     "@foundmill/entity-linker": "workspace:*",
-    "@foundmill/policy": "workspace:*"
+    "@foundmill/policy": "workspace:*",
+    "@foundmill/connectors": "workspace:*",
+    "@foundmill/db": "workspace:*",
+    "@foundmill/events": "workspace:*",
+    "@foundmill/sandbox": "workspace:*",
+    "@foundmill/gateway": "workspace:*",
+    "@foundmill/orchestrator": "workspace:*"
   },
   "devDependencies": {
     "vitest": "catalog:",
-    "tsx": "catalog:"
+    "tsx": "catalog:",
+    "@anthropic-ai/claude-agent-sdk": "catalog:"
   }
 }

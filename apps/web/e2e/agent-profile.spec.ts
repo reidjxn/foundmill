@@ -165,6 +165,12 @@ test.describe("agent profile", () => {
     } else {
       await expect(explainer).toHaveCount(0);
     }
+    // Focus: the instruction edits come from fixed code, so they are "Suggested edits", never a Coach's (WP-06 T12).
+    const sections = page.getByRole("tablist", { name: "Training sections" });
+    await sections.getByRole("tab", { name: /^Focus/ }).click();
+    await expect(page.getByTestId("coach-proposals")).toContainText("Suggested edits");
+    await expect(page.getByTestId("agent-training")).not.toContainText(/Coach proposals|The Coach proposes/);
+    await sections.getByRole("tab", { name: "Instructions" }).click();
     const liveChip = page.getByText(/^Live v\d+$/);
     const before = (await liveChip.count()) ? await liveChip.first().textContent() : null;
     const goals = page.locator("[data-instructions-editor]").getByRole("region", { name: "Goals" });
@@ -387,5 +393,17 @@ test.describe("agent profile", () => {
     await page.keyboard.press("Escape");
     await expect(desk).toBeHidden();
     await expect(page.getByTestId("agent-profile")).toBeVisible();
+  });
+
+  test("the skills say what their ratings are from, show the figure out of 20 and carry the rating key (WP-10 T9)", async ({ page }) => {
+    await openSquadAgent(page);
+    const grid = page.locator("[data-skill-grid-legend]");
+    await expect(grid).toBeVisible({ timeout: LONG });
+    await expect(grid.locator("[data-skill-source]")).toHaveText(/^(Starting estimate\. Not tested yet\.|From practice tests on [A-Z][a-z]{2} \d{1,2}\.|From \d+ tasks? of real work\.)$/);
+    await expect(grid.locator("[data-rating-key]")).toHaveCount(1);
+    // Founder decision 5: each skill shows its figure beside its band word, with Builder view on or off.
+    const first = grid.locator("[data-skill]").first();
+    await expect(first.locator("[data-rating-figure]")).toHaveText(/^\d{1,2}$/);
+    await expect(first.locator("[data-skill-band]")).toHaveAttribute("data-skill-band", /^(Poor|Average|Good|Excellent)$/);
   });
 });

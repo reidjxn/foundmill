@@ -33,7 +33,7 @@ import { MAX_INBOUND_BYTES, parseClientFrame } from "./frames";
 import { silentLog, StreamHub, type StreamHubOptions, type StreamLog } from "./hub";
 import { Metrics, type MetricsSnapshot } from "./metrics";
 import { CLOSE_CODES, parseChannel, STREAM_SUBPROTOCOL, tokenFromProtocols, type AuthedFrame, type ClientFrame, type ErrorFrame, type StreamErrorCode, type SubscribedFrame } from "./protocol";
-import { eventView, membershipChangeOf, viewEvent, type EventView } from "./walls";
+import { eventView, membershipChangeOf, viewAccountEvent, viewEvent, type EventView } from "./walls";
 
 export interface StreamServerOptions {
   /** Ping interval; a socket silent for two intervals is terminated (default 30 000 ms). */
@@ -57,10 +57,11 @@ export interface StreamServerDeps {
   auth: TokenVerifier;
   authorizer: Authorizer;
   /**
-   * Whether a signed-in account may use the app at all (`SIGNUP_ALLOWLIST`, the same list apps/api checks on every
-   * request); an account it refuses gets a 403 instead of a socket. Absent: everyone who signs in.
+   * Whether a signed-in account may use the app at all (the same rule apps/api applies on every request: the
+   * SIGNUP_ALLOWLIST, or an admission the api recorded; @foundmill/shared `liveChannelAdmit`); an account it refuses gets
+   * a 403 instead of a socket. Absent: everyone who signs in.
    */
-  admit?: (user: AuthUser) => boolean;
+  admit?: (user: AuthUser) => boolean | Promise<boolean>;
   log?: StreamLog;
   metrics?: Metrics;
   options?: StreamServerOptions;
@@ -95,6 +96,8 @@ interface Subscription {
   businessId: string | null;
   /** Business channels: what the reader may see of each event (their section walls). Null for session channels. */
   view: EventView | null;
+  /** Account channels (`ae:<userId>`): the account the channel belongs to; every entry is held to it. Null otherwise. */
+  accountUserId: string | null;
   /** Entries held back while the subscription is re-checked after a membership change; null when not held. */
   held: StreamEntry[] | null;
   /** Bumped by every re-check: only the latest one's answer counts (an older one may carry the old access). */
@@ -197,12 +200,12 @@ export function createStreamServer(deps: StreamServerDeps): StreamServer {
     const token = tokenFromProtocols(req.headers["sec-websocket-protocol"]);
     deps.auth
       .resolve(token)
-      .then((user) => {
+      .then(async (user) => {
         if (!user) {
           metrics.inc("auth_failures_total");
           return rejectUpgrade(socket, 401, "Unauthorized");
         }
-        if (deps.admit && !deps.admit(user)) {
+        if (deps.admit && !(await deps.admit(user))) {
           metrics.inc("auth_failures_total");
           log.info({ userId: user.userId }, "account is not on the invite list; upgrade refused");
           return rejectUpgrade(socket, 403, "Forbidden");
@@ -314,7 +317,9 @@ export function createStreamServer(deps: StreamServerDeps): StreamServer {
       log.info({ userId: client.user.userId }, user ? "refreshed token names another account; closing socket" : "refreshed token does not verify; closing socket");
       return client.ws.close(CLOSE_CODES.unauthorized, "unauthorized");
     }
-    if (deps.admit && !deps.admit(user)) {
+    const admitted = deps.admit ? await deps.admit(user) : true;
+    if (attempt !== client.auths || client.ws.readyState !== client.ws.OPEN) return;
+    if (!admitted) {
       metrics.inc("auth_failures_total");
       log.info({ userId: user.userId }, "account is not on the invite list; closing socket");
       return client.ws.close(CLOSE_CODES.forbidden, "forbidden");
@@ -390,7 +395,7 @@ export function createStreamServer(deps: StreamServerDeps): StreamServer {
     }
     if (client.ws.readyState !== client.ws.OPEN) return;
     const business = parsed.kind === "business";
-    const sub: Subscription = { detach: () => {}, businessId: decision.businessId ?? (business ? parsed.id : null), view: business ? eventView(decision.membership) : null, held: null, checks: 0 };
+    const sub: Subscription = { detach: () => {}, businessId: decision.businessId ?? (business ? parsed.id : null), view: business ? eventView(decision.membership) : null, accountUserId: parsed.kind === "account" ? parsed.id : null, held: null, checks: 0 };
     sub.detach = hub.subscribe(parsed.streamKey, (entry) => {
       if (sub.held) {
         if (sub.held.length < MAX_HELD) sub.held.push(entry);
@@ -409,9 +414,19 @@ export function createStreamServer(deps: StreamServerDeps): StreamServer {
     }
   }
 
-  /** One entry to one subscriber: business events through the reader's walls, session events as they are. */
+  /**
+   * One entry to one subscriber: business events through the reader's walls, account events only to the account they
+   * belong to (and only when that is still the account on this socket), session events and signals as they are.
+   */
   function deliver(client: Client, ch: string, sub: Subscription, entry: StreamEntry): void {
-    const json = sub.view ? viewEvent(entry, sub.view) : (entry.fields.json ?? JSON.stringify(entry.fields));
+    const json =
+      sub.accountUserId !== null
+        ? sameUser(client.user.userId, sub.accountUserId)
+          ? viewAccountEvent(entry, sub.accountUserId)
+          : null
+        : sub.view
+          ? viewEvent(entry, sub.view)
+          : (entry.fields.json ?? JSON.stringify(entry.fields));
     if (json === null) {
       metrics.inc("events_walled_total");
       return;

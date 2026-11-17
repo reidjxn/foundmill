@@ -37,6 +37,12 @@ export interface OrchestratorDeps {
   log: Logger;
   /** Worker shutdown: running sessions hand their work to the next worker (./drain). */
   drain: SessionDrain;
+  /**
+   * Whether the workflow with this id is running, as Temporal says: true, false (ended or never started), or null when
+   * it cannot be asked (no connection, an error). `createWorker` sets it from its connection; until then it is null, so
+   * nothing acts on a guess (`closeLostSessions`).
+   */
+  workflowRunning: (workflowId: string) => Promise<boolean | null>;
   /** Stop everything this process opened. */
   close(): Promise<void>;
 }
@@ -54,6 +60,7 @@ export interface CreateDepsOptions {
   clock?: Clock;
   log?: Logger;
   drain?: SessionDrain;
+  workflowRunning?: (workflowId: string) => Promise<boolean | null>;
 }
 
 /**
@@ -142,7 +149,7 @@ export function createDeps(options: CreateDepsOptions = {}): OrchestratorDeps {
       onUsage,
       logger: log,
     });
-  const models = createBusinessModelClient(platformModels, { db, vault, mode: modelMode, onUsage, logger: log });
+  const models = createBusinessModelClient(platformModels, { db, vault, mode: modelMode, onUsage, logger: log, freeCapCents: env.FREE_PLAN_MONTHLY_CAP_CENTS });
 
   const gateway =
     options.gateway ??
@@ -187,6 +194,7 @@ export function createDeps(options: CreateDepsOptions = {}): OrchestratorDeps {
     clock: options.clock ?? systemClock,
     log,
     drain: options.drain ?? new SessionDrain(),
+    workflowRunning: options.workflowRunning ?? (async () => null),
     async close() {
       for (const c of closers.reverse()) {
         try {

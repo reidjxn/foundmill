@@ -96,21 +96,21 @@ export const Chip = forwardRef<HTMLSpanElement, ChipProps>(function Chip(
   if (onClick) {
     return (
       <span ref={ref} className="inline-flex max-w-full" {...rest}>
-        <button type="button" aria-pressed={selected} onClick={onClick} className={base} data-tone={tone} data-chip="">
+        <button type="button" aria-pressed={selected} onClick={onClick} className={cn(base, "min-h-target")} data-tone={tone} data-chip="">
           {content}
         </button>
       </span>
     );
   }
   return (
-    <span ref={ref} className={cn(base, onRemove && "pr-0.5")} data-tone={tone} data-chip="" {...rest}>
+    <span ref={ref} className={cn(base, onRemove && "min-h-target pr-0.5")} data-tone={tone} data-chip="" {...rest}>
       {content}
       {onRemove ? (
         <button
           type="button"
           aria-label={removeLabel}
           onClick={onRemove}
-          className="inline-flex size-icon-inline shrink-0 items-center justify-center rounded-xs text-current opacity-75 transition-opacity hover:bg-white/8 hover:opacity-100 focus-visible:outline-1"
+          className="hit-target inline-flex size-icon-inline shrink-0 items-center justify-center rounded-xs text-current opacity-75 transition-opacity hover:bg-white/8 hover:opacity-100 focus-visible:outline-1"
         >
           <Icon icon={X} size={10} strokeWidth={2.25} />
         </button>
@@ -149,11 +149,11 @@ export function ProvenanceChip({ kind, appearance = "chip", showIcon, className,
   const word = kind === "forecast" ? "Forecast" : "Estimate";
   const chip =
     appearance === "word" ? (
-      <button type="button" data-provenance={kind} data-appearance="word" className={cn("inline cursor-help rounded-xs text-tertiary", className)} {...rest}>
+      <button type="button" data-provenance={kind} data-appearance="word" className={cn("inline cursor-help rounded-xs text-tertiary in-data-[phone]:tap-reach", className)} {...rest}>
         {word}
       </button>
     ) : (
-      <button type="button" data-provenance={kind} data-appearance="chip" className={cn("est-chip cursor-help", className)} {...rest}>
+      <button type="button" data-provenance={kind} data-appearance="chip" className={cn("est-chip cursor-help in-data-[phone]:tap-reach", className)} {...rest}>
         {showIcon ? <Icon icon={kind === "forecast" ? TrendingUp : Calculator} size={11} /> : null}
         <span>{word}</span>
       </button>

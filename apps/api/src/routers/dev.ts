@@ -4,10 +4,11 @@
  * `session:{sessionId}` that degrades to `{ queued: false, reason }`; the local task state is always updated so the
  * Training Ground reflects the intent.
  */
-import { FLAGS, isSimulateEnv } from "@foundmill/config";
+import { FLAGS, INPUT_LIMITS, isSimulateEnv } from "@foundmill/config";
 import { REPOSITORY_FULL_NAME, TaskListFilter, codeRepositoryOf, repos, type AgentSession, type DbTx, type Executor, type Task } from "@foundmill/db";
 import { SESSION_EVENT_KINDS, sessionStreamKey } from "@foundmill/events";
-import { ForbiddenError, NotFoundError, ValidationError, connectorMode, hasSectionAccess, sessionSections } from "@foundmill/shared";
+import { TASK_STATUSES, boundedRecord, ForbiddenError, NotFoundError, ValidationError, connectorMode, hasSectionAccess, sessionSections, type EntityKind } from "@foundmill/shared";
+import { buildManifest, extractEntityIds, stripInvalidMentions, type ManifestEntityInput } from "@foundmill/entity-linker";
 import { z } from "zod";
 import { verifyCodeRepository } from "../services/code-repository";
 import { replaySession } from "../services/replay";
@@ -44,10 +45,10 @@ export const SimulateInput = z.object({
   connector: z.string().trim().min(1).max(60).optional(),
   seed: z.string().max(120).optional(),
   /** Event-specific overrides (amountMinor, email, sentiment, channelKey...). */
-  params: z.record(z.string(), z.unknown()).optional(),
+  params: boundedRecord(INPUT_LIMITS.jsonObjectKeys, z.record(z.string(), z.unknown())).optional(),
 });
 
-/** Whether `dev.simulate` exists here: the flag and development/staging; production and test never (404). */
+/** Whether `dev.simulate` exists here: the flag and development; staging, test and production never (404). */
 export const simulateAvailable = (appEnv: string, flag: boolean = FLAGS.devSimulatePanel): boolean => flag && isSimulateEnv(appEnv);
 
 const SHOUT_PRESETS = ["Focus on tests", "Simplify", "Ask before schema changes", "Match the design system", "Hurry up"] as const;
@@ -66,6 +67,26 @@ async function readableSession(tx: Executor, ctx: Pick<BusinessContext, "busines
   const walled = sessionSections(await repos.agents.sessionModuleKeys(tx, ctx.businessId, session)).filter((section) => !hasSectionAccess(ctx.membership, section, "read"));
   if (walled.length > 0) throw new ForbiddenError(`You do not have read access to ${walled.join(" and ")}, where this session's work belongs`);
   return session;
+}
+
+/**
+ * The task's latest report (WP-05 T7), as the founder reads it on the task. Read in the caller's RLS transaction, so a
+ * collaborator gets null (`task_reports` is closed to them). The body is agent-written and may quote web pages: every
+ * mention that does not name something this reader can open is stripped to text (`stripInvalidMentions`). The manifest
+ * holds the records the body names: the business's agents, and its CRM entities only for a reader with CRM read (as
+ * the conversation's `manifestFor`).
+ */
+async function taskReportFor(tx: DbTx, ctx: Pick<BusinessContext, "businessId" | "membership">, taskId: string) {
+  const row = await repos.taskReports.latestForTask(tx, ctx.businessId, taskId);
+  if (!row) return null;
+  const ids = extractEntityIds(row.bodyMd).filter((id) => Id.safeParse(id).success);
+  const [crm, agents] = ids.length === 0 ? [[], []] : await Promise.all([hasSectionAccess(ctx.membership, "crm", "read") ? repos.entities.manifest(tx, ctx.businessId, { ids }) : Promise.resolve([]), repos.agents.list(tx, ctx.businessId, { limit: 200 }).then((p) => p.items)]);
+  const entries: ManifestEntityInput[] = [
+    ...crm.map((e) => ({ id: e.id, kind: e.kind as EntityKind, name: e.displayName, aliases: e.aliases })),
+    ...agents.map((a) => ({ id: a.id, kind: "agent" as const, name: a.name, aliases: [], role: a.role })),
+  ];
+  const bodyMd = stripInvalidMentions(row.bodyMd, buildManifest(entries, { strictKinds: false }));
+  return { id: row.id, title: row.title, bodyMd, sources: row.sources, simulated: row.simulated, createdAt: row.createdAt.toISOString() };
 }
 
 /** A merged pull request row: GitHub's `pr.merged` payload (repo, PR number, diff stats…) or the merge queue's own fields. */
@@ -112,11 +133,14 @@ export const devRouter = router({
       }),
     ),
 
+    /** How many of the business's tasks are in one status (the Inbox's "Tasks running" tile; WP-10 T12). */
+    count: read.input(z.object({ status: z.enum(TASK_STATUSES) })).query(({ ctx, input }) => ctx.rls(async (tx) => ({ count: (await repos.tasks.countByStatus(tx, ctx.businessId))[input.status] }))),
+
     get: read.input(z.object({ taskId: Id })).query(({ ctx, input }) =>
       ctx.rls(async (tx) => {
         const task = await repos.tasks.get(tx, ctx.businessId, input.taskId);
-        const sessions = await repos.agents.listSessions(tx, ctx.businessId, { taskId: task.id, limit: 20 });
-        return { task, sessions: sessions.items, branch: agentBranch(task.id) };
+        const [sessions, report] = await Promise.all([repos.agents.listSessions(tx, ctx.businessId, { taskId: task.id, limit: 20 }), taskReportFor(tx, ctx, task.id)]);
+        return { task, sessions: sessions.items, branch: agentBranch(task.id), report };
       }),
     ),
 
@@ -226,7 +250,7 @@ export const devRouter = router({
       }),
     ),
     /** The recorded events of a session (its saved recording once it finished, its `as:{sessionId}` stream while it runs, or the mock recording it was played from) plus where live frames arrive. */
-    replay: read.input(z.object({ sessionId: Id, limit: z.number().int().min(1).max(5000).optional(), after: z.string().max(64).optional(), kinds: z.array(z.enum(SESSION_EVENT_KINDS)).optional() })).query(async ({ ctx, input }) => {
+    replay: read.input(z.object({ sessionId: Id, limit: z.number().int().min(1).max(5000).optional(), after: z.string().max(64).optional(), kinds: z.array(z.enum(SESSION_EVENT_KINDS)).max(SESSION_EVENT_KINDS.length).optional() })).query(async ({ ctx, input }) => {
       const session = await ctx.rls((tx) => readableSession(tx, ctx, input.sessionId));
       const replay = await replaySession({ redis: ctx.redis, recordings: ctx.recordings, saved: () => ctx.rls((tx) => repos.recordings.get(tx, ctx.businessId, session.id)) }, session, { limit: input.limit, after: input.after, kinds: input.kinds });
       return { session, recordingRef: session.recordingRef, channel: sessionStreamKey(session.id), live: session.endedAt === null, ...replay };
@@ -347,7 +371,13 @@ export const devRouter = router({
      */
     list: read.query(({ ctx }) =>
       ctx.rls(async (tx) => {
-        const [tasks, events] = await Promise.all([repos.tasks.list(tx, ctx.businessId, { kind: "code", status: ["review", "merging", "done"], limit: 200 }), repos.events.list(tx, ctx.businessId, { type: "pr.merged", limit: 200 })]);
+        const [tasks, events, completed] = await Promise.all([repos.tasks.list(tx, ctx.businessId, { kind: "code", status: ["review", "merging", "done"], limit: 200 }), repos.events.list(tx, ctx.businessId, { type: "pr.merged", limit: 200 }), repos.events.list(tx, ctx.businessId, { type: "task.completed", limit: 200 })]);
+        // A task's latest completion (newest first) says whether its work was saved with nowhere to push (WP-05 T8).
+        const landedOf = new Map<string, unknown>();
+        for (const e of completed.items) {
+          const p = e.payload as { taskId?: unknown; landed?: unknown };
+          if (typeof p.taskId === "string" && !landedOf.has(p.taskId)) landedOf.set(p.taskId, p.landed ?? null);
+        }
         // Each merged row carries its task's founder title and agent (Builder view off reads "Gone live: <founder title>").
         const byTask = new Map(tasks.items.map((t) => [t.id, t]));
         const fromGitHub: MergedPr[] = events.items.map((e) => {
@@ -358,7 +388,7 @@ export const devRouter = router({
         const reported = new Set(fromGitHub.map((m) => m.taskId).filter((id): id is string => typeof id === "string"));
         const fromQueue: MergedPr[] = tasks.items
           .filter((t) => t.status === "done" && !reported.has(t.id))
-          .map((t) => ({ eventId: null, occurredAt: t.endedAt ?? t.updatedAt, source: "merge_queue" as const, taskId: t.id, title: t.title, founderTitle: t.founderTitle, agentId: t.assigneeAgentId, branch: agentBranch(t.id), mergedBy: t.assigneeAgentId ? { kind: "agent", id: t.assigneeAgentId } : { kind: "system", id: null } }));
+          .map((t) => ({ eventId: null, occurredAt: t.endedAt ?? t.updatedAt, source: "merge_queue" as const, taskId: t.id, title: t.title, founderTitle: t.founderTitle, agentId: t.assigneeAgentId, branch: agentBranch(t.id), mergedBy: t.assigneeAgentId ? { kind: "agent", id: t.assigneeAgentId } : { kind: "system", id: null }, landed: landedOf.get(t.id) === "saved_only" ? ("saved_only" as const) : null }));
         return {
           open: tasks.items.filter((t) => t.status !== "done").map((t) => ({ taskId: t.id, title: t.title, founderTitle: t.founderTitle, status: t.status, kind: t.kind, branch: agentBranch(t.id), agentId: t.assigneeAgentId })),
           merged: [...fromGitHub, ...fromQueue].sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime()),

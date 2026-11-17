@@ -75,7 +75,7 @@ describe("SkillGrid", () => {
     expect(document.querySelectorAll("[data-skill-band]")).toHaveLength(0);
     const figure = document.querySelector("[data-skill='comm'] [data-rating-figure]") as HTMLElement;
     expect(figure.getAttribute("title")).toBe("4 of 20 · Poor");
-    expect(figure.getAttribute("aria-label")).toBe("4 of 20, Poor");
+    expect(figure.getAttribute("aria-label")).toBe("4 of 20 · Poor");
   });
   it("focus mode allows at most three skills", async () => {
     const user = userEvent.setup();
@@ -250,6 +250,24 @@ describe("MetricTile and StatusStrip", () => {
     const tiles = Array.from({ length: 8 }, (_, i) => ({ label: `Tile ${i}`, value: i }));
     render(<StatusStrip tiles={tiles} />);
     expect(screen.getAllByRole("listitem")).toHaveLength(6);
+  });
+  it("StatusStrip keeps its single row, and wraps two to a row below `page-wide` only when asked (phone mode)", () => {
+    const tiles = Array.from({ length: 3 }, (_, i) => ({ label: `Tile ${i}`, value: i }));
+    const { container, rerender } = render(<StatusStrip tiles={tiles} />);
+    const strip = () => container.querySelector("[data-status-strip]") as HTMLElement;
+    expect(strip().style.gridTemplateColumns).toBe("repeat(3, minmax(0, 1fr))");
+    expect(strip().className).not.toContain("grid-cols-2");
+    expect(strip().hasAttribute("data-wrap")).toBe(false);
+    rerender(<StatusStrip tiles={tiles} wrap />);
+    expect(strip().className).toContain("grid-cols-2");
+    expect(strip().className).toContain("@page-wide:");
+    expect(strip().style.getPropertyValue("--strip-columns")).toBe("repeat(3, minmax(0, 1fr))");
+    expect(strip().hasAttribute("data-wrap")).toBe(true);
+    // The odd last tile takes the whole row; the third starts a new row under a hairline.
+    const items = screen.getAllByRole("listitem");
+    expect(items[2]!.className).toContain("@max-page-wide:col-span-2");
+    expect(items[2]!.className).toContain("@max-page-wide:border-t");
+    expect(items[1]!.className).not.toContain("col-span-2");
   });
   it("a clickable tile is a list item holding one button beside its provenance button, never around it", () => {
     const opened: string[] = [];

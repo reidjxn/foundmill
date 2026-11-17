@@ -18,6 +18,8 @@
  *   cards (Humans, 3D cartoon humans, 2D cartoon humans and animals, Fantasy). Both save through the same host at once.
  * - Builder view (0073, founder 2026-11-08): one switch that shows how the platform runs the team (round numbers, tokens,
  *   live screens, test counts, the technical tabs and columns, ratings). Off by default; saves through the same host.
+ * - Keyboard shortcuts (0114, WP-04 T13): one switch for the single-key shortcuts (J, K, R, the G chords, 1–4 in a
+ *   decision, E). Off by default, on for accounts that start with guidance off; saves through the same host.
  * - Email (packages 1.5 and 5.1): "Email me when something has waited a day for my answer", on by default; the link in
  *   every such email turns the same switch off.
  *
@@ -53,7 +55,7 @@ import { ANTHROPOMORPHIC_EXPLAINER, anthropomorphicSavedLine } from "@/lib/anthr
 import { useClientNow } from "@/lib/today";
 import { useDatePreferences } from "@/components/providers/DateFormatHost";
 import { agentStyleOf, useGuidancePreferences, type GuidancePatch, type GuidancePrefs } from "@/components/providers/GuidanceHost";
-import { builderViewSavedLine } from "@/components/providers/guidance-context";
+import { builderViewSavedLine, keyboardShortcutsSavedLine } from "@/components/providers/guidance-context";
 import { useTRPC } from "@/lib/trpc-react";
 import { accountRoutes } from "@/lib/account-routes";
 import { LinkButton } from "@/components/new/LinkButton";
@@ -217,7 +219,7 @@ export function AnthropomorphicAgentsSection() {
           data-testid="anthropomorphic-switch"
         />
         <div className="flex flex-col gap-1">
-          <Label htmlFor="anthropomorphic-switch">Anthropomorphic agents</Label>
+          <Label htmlFor="anthropomorphic-switch">Give agents names and faces</Label>
           <p id="anthropomorphic-switch-hint" className="text-small text-secondary">
             {ANTHROPOMORPHIC_EXPLAINER}
           </p>
@@ -255,6 +257,44 @@ export function BuilderViewSection() {
           <Label htmlFor="builder-view-switch">Builder view</Label>
           <p id="builder-view-switch-hint" className="text-small text-secondary">
             {BUILDER_VIEW_HINT}
+          </p>
+        </div>
+      </div>
+    </SettingsSection>
+  );
+}
+
+/** What the single-key shortcuts do, under their switch (docs/DESIGN.md "Key caps go the other way"). */
+export const KEYBOARD_SHORTCUTS_HINT =
+  "One key does one thing: J and K move through the Inbox, R refreshes it, G then a letter opens a page, and 1 to 4 choose in a decision. Search (/ or ⌘K), the list of shortcuts (?) and Esc always work.";
+
+export { keyboardShortcutsSavedLine };
+
+/**
+ * Keyboard shortcuts (WP-04 T13; audit A2-03, WCAG 2.1.4): one switch for the single-key shortcuts, off by default so a
+ * stray key never refreshes, moves or answers anything. Saved at once through the GuidanceHost, with a toast. The full
+ * list stays behind ? (the shell's KeyboardHelp), which says whether they are on.
+ */
+export function KeyboardShortcutsSection() {
+  const { prefs, save } = useGuidancePreferences();
+  const t = useSettingsToast();
+  const on = prefs.keyboardShortcuts === true;
+  const change = (next: boolean) =>
+    save({ keyboardShortcuts: next }).then(
+      (saved) => {
+        const line = keyboardShortcutsSavedLine(saved.keyboardShortcuts === true);
+        t.saved(line.title, line.description);
+      },
+      (err: unknown) => t.failed(err, "Preference not saved"),
+    );
+  return (
+    <SettingsSection title="Keyboard shortcuts" data-testid="keyboard-shortcuts-panel">
+      <div className="flex items-start gap-3" data-testid="keyboard-shortcuts-choice">
+        <Switch id="keyboard-shortcuts-switch" checked={on} onCheckedChange={(next) => void change(next)} aria-describedby="keyboard-shortcuts-switch-hint" data-testid="keyboard-shortcuts-switch" />
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="keyboard-shortcuts-switch">Single-key shortcuts</Label>
+          <p id="keyboard-shortcuts-switch-hint" className="text-small text-secondary">
+            {KEYBOARD_SHORTCUTS_HINT}
           </p>
         </div>
       </div>
@@ -373,6 +413,7 @@ export function PreferencesTab() {
       <GuidanceSection />
       <AnthropomorphicAgentsSection />
       <BuilderViewSection />
+      <KeyboardShortcutsSection />
       <EmailNotificationsSection />
       <CallSharingSection />
       <PublicProfileSection />

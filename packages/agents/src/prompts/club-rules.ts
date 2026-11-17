@@ -64,7 +64,7 @@ export const HOUSE_STYLE =
  * the welcome note at Take charge and by the Chief of Staff's profile. The seven rules above stay the agents' text; this
  * is the founder's.
  */
-export const HOUSE_RULES_FOUNDER_LINE = "I'm your Chief of Staff. I run the team so you only read and decide. Some things are always yours: money, signatures, contracts, deleting things.";
+export const HOUSE_RULES_FOUNDER_LINE = "I'm your Chief of Staff. I run the team beside you and tell you what matters and why. Some things are always yours: money, signatures, contracts, deleting things.";
 
 export const ClubRulesVariables = z.object({
   business_name: z.string().min(1),

@@ -5,6 +5,10 @@ import { SKILL_GROUPS, type SkillGroup } from "@foundmill/shared/constants";
 import { cn } from "../../lib/cn";
 import { formatNumber } from "../../lib/format";
 import { RATING_MAX, ratingBandLabel } from "../../lib/rating";
+import { RATING_SHOWS_FIGURE_WITHOUT_BUILDER, ratingSourceLine, ratingText, type RatingSource } from "../../lib/rating-words";
+import { ProvenanceChip } from "../foundation/Chip";
+import { useFormatters } from "../foundation/DateFormatProvider";
+import { RatingKey } from "../guidance/RatingKey";
 import { Chip } from "../foundation/Chip";
 import { Icon } from "../foundation/Icon";
 import { Tooltip } from "../foundation/Tooltip";
@@ -21,7 +25,7 @@ export const SKILL_GROUP_LABELS: Record<SkillGroup, string> = {
 export const MAX_FOCUS_SKILLS = 3;
 
 /** What the grid's figures mean, in one line for a panel footer (UX plan §7.15). */
-export const SKILL_GRID_FOOTER = `Scores 1–${RATING_MAX}. 'Tested' is the result on practice tests, 'Proven' the result on real work; more real work makes Proven count for more. Potential is how good the agent could become with training.`;
+export const SKILL_GRID_FOOTER = `Scores run from 1 to ${RATING_MAX}. A new agent starts on an estimate for its role. Practice tests and real work replace it as they happen.`;
 /** Why the scores matter, for guided mode. */
 export const SKILL_GRID_WHY = "Higher skills mean fewer failed tasks and fewer questions to you.";
 
@@ -45,13 +49,16 @@ export interface SkillGridProps {
    * tooltip).
    */
   density?: SkillGridDensity;
+  /** Above the columns: what the ratings are from and the rating key (WP-10 T9). Once per screen. */
+  legend?: boolean;
   className?: string;
 }
 
 /** "Tested 15 · Proven 13 · 42 tasks" (BUILD §11.10). */
 export function skillHoverText(s: SkillRow): string {
   const parts: string[] = [];
-  if (s.tested !== undefined) parts.push(`Tested ${s.tested}`);
+  // A rating written at hire is a starting estimate, not a test result (WP-10 T9, TS-02).
+  if (s.tested !== undefined) parts.push(s.source?.kind === "starting" ? `Starting estimate ${s.tested}` : `Tested ${s.tested}`);
   if (s.proven !== undefined) parts.push(`Proven ${s.proven}`);
   if (s.tasks !== undefined)
     parts.push(`${formatNumber(s.tasks, { maxDigits: 0 })} ${s.tasks === 1 ? "task" : "tasks"}`);
@@ -112,9 +119,13 @@ export function SkillGrid({
   showPotential,
   dimUnselected = true,
   density = "comfortable",
+  legend = false,
   className,
 }: SkillGridProps) {
   const builder = useBuilderView();
+  const fmt = useFormatters();
+  const figure = builder || RATING_SHOWS_FIGURE_WITHOUT_BUILDER;
+  const source = gridSource(skills);
   const groups = useMemo(
     () => SKILL_GROUPS.map((g) => ({ group: g, rows: skills.filter((s) => s.group === g) })),
     [skills],
@@ -123,9 +134,9 @@ export function SkillGrid({
   const selected = focus?.selected ?? [];
   const full = selected.length >= max;
   const compact = density === "compact";
-  return (
+  const grid = (
     <div
-      className={cn("grid grid-cols-3 gap-gutter", className)}
+      className={cn("grid grid-cols-3 gap-gutter", !legend && className)}
       data-skill-grid
       data-density={density}
       data-focus-mode={focus ? "on" : undefined}
@@ -194,6 +205,7 @@ export function SkillGrid({
                         {s.note}
                       </Chip>
                     ) : null}
+                    {s.source?.kind === "starting" ? <ProvenanceChip kind="estimate" className="ml-1.5" /> : null}
                     {drop ? (
                       <Chip tone="bad" className="ml-1.5" title="Dropped more than one point">
                         Drop
@@ -202,7 +214,7 @@ export function SkillGrid({
                   </span>
                   {builder ? (
                     <>
-                      <RatingFigure value={s.value} className="w-6 text-right" title={compact ? `${s.value} of ${RATING_MAX} · ${band}` : undefined} aria-label={`${s.value} of ${RATING_MAX}, ${band}`} />
+                      <RatingFigure value={s.value} className="w-6 text-right" title={compact ? ratingText(s.value, { figure: true }) : undefined} aria-label={ratingText(s.value, { figure: true })} />
                       {compact ? null : <ScaleLabel value={s.value} scale={RATING_MAX} className="shrink-0" data-skill-band={band} />}
                       <span className="w-28 shrink-0">
                         <RatingBar
@@ -213,8 +225,11 @@ export function SkillGrid({
                       </span>
                     </>
                   ) : (
-                    // Builder view off: the band word alone, no figure out of 20 and no cells.
-                    <ScaleLabel value={s.value} scale={RATING_MAX} compact={compact} className="shrink-0" data-skill-band={band} aria-label={`${s.name}: ${band}`} />
+                    // Builder view off: the figure out of 20 and the band word (founder decision 5), no cells.
+                    <>
+                      {figure ? <RatingFigure value={s.value} className="w-6 text-right" aria-hidden /> : null}
+                      <ScaleLabel value={s.value} scale={RATING_MAX} compact={compact} className="shrink-0" data-skill-band={band} aria-label={`${s.name}: ${ratingText(s.value, { figure })}`} />
+                    </>
                   )}
                   <DeltaArrow delta={s.delta} />
                 </li>
@@ -237,4 +252,31 @@ export function SkillGrid({
       ) : null}
     </div>
   );
+  if (!legend) return grid;
+  return (
+    <div className={cn("flex flex-col gap-2", className)} data-skill-grid-legend="">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+        {source ? (
+          <p className="text-small text-secondary" data-skill-source={source.kind}>
+            {ratingSourceLine(source, fmt.formatDateShort)}
+          </p>
+        ) : null}
+        <RatingKey compact />
+      </div>
+      {grid}
+    </div>
+  );
+}
+
+/**
+ * The line over a set of rows: practice tests when any row was tested (the latest date), else real work when any row
+ * has tasks, else the starting estimate. Null when no row says where it is from.
+ */
+export function gridSource(rows: readonly { source?: RatingSource }[]): RatingSource | null {
+  const sources = rows.map((r) => r.source).filter((x): x is RatingSource => !!x);
+  const tested = sources.filter((x): x is Extract<RatingSource, { kind: "tested" }> => x.kind === "tested").sort((a, b) => b.on.localeCompare(a.on))[0];
+  if (tested) return tested;
+  const work = sources.filter((x): x is Extract<RatingSource, { kind: "work" }> => x.kind === "work");
+  if (work.length) return { kind: "work", tasks: work.reduce((n, w) => n + w.tasks, 0) };
+  return sources.length ? { kind: "starting" } : null;
 }

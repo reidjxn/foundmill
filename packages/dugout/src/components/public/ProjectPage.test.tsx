@@ -31,12 +31,32 @@ describe("ProjectPage", () => {
     expect(screen.getByText("Published Oct 7, 2026")).toBeTruthy();
   });
 
-  it("links home with the product's name and carries no form", () => {
-    render(<ProjectPage {...props} />);
-    const link = screen.getByRole("link", { name: `Made with ${APP_NAME}` });
-    expect(link.getAttribute("href")).toBe("/");
+  it("for a visitor the mark is the one link: small, with a 44 px target, to where it is told", () => {
+    render(<ProjectPage {...props} markHref="/?via=p.northwind" />);
+    const link = screen.getByRole("link", { name: `Built on ${APP_NAME}` });
+    expect(link.getAttribute("href")).toBe("/?via=p.northwind");
     expect(link.className).toContain("min-h-tap");
+    expect(link.className).toContain("t-small");
+    expect(link.className).toContain("mark-arrive");
+    expect(document.querySelectorAll("a")).toHaveLength(1);
+    expect(document.querySelector("[data-project-mark]")!.getAttribute("data-project-mark")).toBe("visitor");
     expect(document.querySelector("form, input, button, textarea")).toBeNull();
+  });
+
+  it("for a signed-in member the mark is plain metadata: the same words, no link, dimmer", () => {
+    render(<ProjectPage {...props} mark="member" />);
+    expect(screen.queryByRole("link")).toBeNull();
+    const words = screen.getByText(PROJECT_PAGE_WORDS.builtOn);
+    expect(words.tagName).toBe("P");
+    expect(words.className).toContain("text-tertiary");
+    expect(words.className).not.toContain("mark-arrive");
+  });
+
+  it("on a paid plan there is no mark and no foot at all", () => {
+    render(<ProjectPage {...props} mark="none" />);
+    expect(screen.queryByText(PROJECT_PAGE_WORDS.builtOn)).toBeNull();
+    expect(document.querySelector("footer")).toBeNull();
+    expect(document.body.textContent).not.toContain(APP_NAME);
   });
 
   it("shows the follow form it is given, after what the founders wrote", () => {
@@ -82,5 +102,13 @@ describe("ProjectPage", () => {
 
   it("is a server component: it renders to static markup with no client code", () => {
     expect(renderToStaticMarkup(<ProjectPage {...props} />)).toContain("data-project-page");
+  });
+});
+
+describe("ProjectPage inside another page (titleLevel 3)", () => {
+  it("titles itself with an h3, so the host page keeps one h1", () => {
+    render(<ProjectPage {...props} titleLevel={3} />);
+    expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
+    expect(screen.getByRole("heading", { level: 3 }).textContent).toBe(props.pitch);
   });
 });

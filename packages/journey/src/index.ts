@@ -17,7 +17,7 @@ export { buildJourney, shouldPlayFullMatchDay, matchdayLevelFor } from "./builde
 export type { BuildJourneyInput, JourneyAgentInput, JourneyCounts, JourneyCosts } from "./builder";
 export { percentile75, applyVolumeRules, buildDailyRoundup } from "./roundup";
 export type { MatchDayDecision, ApplyVolumeRulesOptions, RoundupEntry, RoundupRow, RoundupTable } from "./roundup";
-export { TROPHIES, TROPHY_BY_KEY, detectTrophies, customerTrophyFor, isEnterpriseContract, isTrophyKey, formatThreshold, thresholdFor, enterpriseContractMinMinor, ENTERPRISE_CONTRACT_MIN_MAJOR, ENTERPRISE_CONTRACT_MIN_MINOR } from "./trophies";
+export { TROPHIES, TROPHY_BY_KEY, EVENT_TROPHIES, eventTrophyDescription, detectTrophies, customerTrophyFor, isEnterpriseContract, isTrophyKey, isShowableTrophyKey, formatThreshold, thresholdFor, enterpriseContractMinMinor, ENTERPRISE_CONTRACT_MIN_MAJOR, ENTERPRISE_CONTRACT_MIN_MINOR } from "./trophies";
 export type { TrophyCounters, TrophyMetric, TrophyDefinition, DetectTrophiesInput } from "./trophies";
 export { buildChapters, chapterIdFor, provisionalChapterTitle } from "./chapters";
 export type { BuildChaptersInput } from "./chapters";

@@ -1,13 +1,13 @@
 /**
  * The share image of a project's public page (1200 × 630): the project's name and pitch on its own brand colors, the
- * product's name small. Colors come from the business (its brand) and the design system's computed ink
+ * "Built on" mark small in a corner for a project on the free plan (none on a paid plan). Colors come from the business (its brand) and the design system's computed ink
  * (`kitOnPrimary`, `kitRamp`), never a literal here. A page that is not public has no image.
  */
 import { ImageResponse } from "next/og";
 import { notFound } from "next/navigation";
 import { APP_NAME } from "@foundmill/config";
 import { ON_KIT_DARK, isHexColour, kitOnPrimary, kitRamp } from "@foundmill/dugout";
-import { PAGE_STAGE_LABELS, clipText } from "@foundmill/shared/project-page";
+import { PAGE_STAGE_LABELS, builtOnWords, clipText } from "@foundmill/shared/project-page";
 import { publicProjectPage } from "@/lib/public-page.server";
 
 export const size = { width: 1200, height: 630 };
@@ -30,9 +30,9 @@ export default async function Image({ params }: { params: Promise<{ slug: string
           <div style={{ display: "flex", fontSize: 40, fontWeight: 600, opacity: 0.85 }}>{clipText(page.name, 60)}</div>
           <div style={{ display: "flex", fontSize: 68, fontWeight: 700, lineHeight: 1.1 }}>{clipText(page.pitch, 110)}</div>
         </div>
-        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 28, opacity: 0.75 }}>
-          <span>{PAGE_STAGE_LABELS[page.stage]}</span>
-          <span>{`Made with ${APP_NAME}`}</span>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
+          <span style={{ fontSize: 28, opacity: 0.75 }}>{PAGE_STAGE_LABELS[page.stage]}</span>
+          {page.mark ? <span style={{ fontSize: 20, opacity: 0.6 }}>{builtOnWords(APP_NAME).mark}</span> : null}
         </div>
       </div>
     ),

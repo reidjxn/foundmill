@@ -20,7 +20,9 @@ let asked: GatewayNotifyEmailRequest[] = [];
 let answer: (input: GatewayNotifyEmailRequest) => Promise<GatewayNotifyEmailResult>;
 
 /** What the real gateway records after a send: one event per person and UTC day within the business. */
-async function recordSent(input: GatewayNotifyEmailRequest, at = NOW): Promise<GatewayNotifyEmailResult> {
+async function recordSent(request: GatewayNotifyEmailRequest, at = NOW): Promise<GatewayNotifyEmailResult> {
+  if (request.kind === "founder_notice") return { sent: false, reason: "not_founder", message: "" };
+  const input = request;
   const event = await repos.events.write(hz.db, input.businessId, { type: "notify.email_sent", actor: { kind: "system", id: "notify-email" }, entityIds: [], occurredAt: at, payload: { kind: input.kind, userId: input.userId, inboxItemId: input.data.inboxItemId, messageId: "m", simulated: true, notificationId: randomUUID(), offersAnswer: false }, idempotencyKey: notifyEmailDayKey(input.kind, input.userId, at) });
   return { sent: true, simulated: true, eventId: event.id };
 }
@@ -72,6 +74,17 @@ describe("the notify email pass", () => {
       await hz.db.update(memberships).set({ sectionPermissions: {} }).where(eq(memberships.userId, hz.A.memberId));
       await repos.preferences.update(hz.db, hz.A.adminId, { email: { decision_waiting: true } });
     }
+  });
+
+  it("the page catch-up's note is emailed about by default, and not when PAGE_CATCH_UP_EMAIL is off (WP-12 T1, D6)", async () => {
+    const decision = { options: [], free_text: false, expires_at: null, key: "project_page.ready", catch_up: true };
+    const id = await note(hz.A.businessId, { decision });
+    const gateway = { ...hz.deps.gateway, notifyEmail: async (input: GatewayNotifyEmailRequest) => (asked.push(input), answer(input)) };
+    await runNotifyEmailPass({ db: hz.db, log: hz.deps.log, gateway, env: { PAGE_CATCH_UP_EMAIL: "off" } }, NOW);
+    expect(asked).toEqual([]);
+    await runNotifyEmailPass({ db: hz.db, log: hz.deps.log, gateway }, NOW);
+    expect(asked.length).toBeGreaterThan(0);
+    expect(asked.every((a) => a.data.inboxItemId === id)).toBe(true);
   });
 
   it("only notes that ask for an answer, a day to a week old", async () => {

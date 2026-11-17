@@ -6,7 +6,7 @@
  * sessions as diamonds) and the contract panel. The version and type live on the History tab.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BookOpenText, CalendarClock, ShieldOff } from "lucide-react";
+import { BookOpenText, ShieldOff } from "lucide-react";
 import { useMemo } from "react";
 import { effectiveApprovalThresholdMinor } from "@foundmill/config";
 import { Chip, DevelopmentChart, Icon, KeyValueList, Markdown, POSITION_MAP_BASIS, POSITION_MAP_TITLE, Panel, PositionMap, ProvenanceChip, RATING_MAX, SKILL_GRID_WHY, SkillGrid, SpeechAccentPicker, Term, TraitChips, formatMoney, formatRelative, useFormatters, useGuided, useToast } from "@foundmill/dugout";
@@ -82,7 +82,6 @@ export function OverviewTab({ businessId, profile, currency }: TabProps) {
   const coachRun = latestPromotedRun(profile.trainingRuns) ?? profile.trainingRuns.find((r) => r.coachSummaryMd) ?? null;
   const about = whatIDo(profile);
   const autonomy = autonomyFromAgent(agent.autonomy);
-  const schedule = (agent.schedule ?? {}) as { cron?: string; triggers?: string[] };
   const money = (minor: number | null) => (minor === null ? "No cap" : formatMoney({ amountMinor: minor, currency }));
   // The founder's "Spend cap per action" (Settings › What the team can do) lowers every agent's ask line, as the gateway applies it.
   const businessCapMinor = business.data.business.spendCapMinor;
@@ -146,7 +145,7 @@ export function OverviewTab({ businessId, profile, currency }: TabProps) {
         data-testid="skills-panel"
       >
         <div className="p-panel-pad">
-          <SkillGrid skills={skills} showPotential />
+          <SkillGrid skills={skills} showPotential legend />
         </div>
       </Panel>
 
@@ -184,7 +183,6 @@ export function OverviewTab({ businessId, profile, currency }: TabProps) {
             { label: "Spend cap per action", value: money(autonomy.spendCapMinor), numeric: true },
             { label: "Needs your OK above", value: asksAbove, numeric: true },
             { label: <Term id="autonomy">Autonomy</Term>, value: autonomy.mode === "inherit" ? <Term id="business_mode">Business mode</Term> : autonomy.mode === "lower" ? "Asks more often" : "Acts more freely" },
-            { label: "Schedule", value: schedule.cron ? <span className="font-mono text-mono">{schedule.cron}</span> : schedule.triggers?.length ? `${schedule.triggers.length} ${schedule.triggers.length === 1 ? "trigger" : "triggers"}` : <span className="inline-flex items-center gap-1 text-secondary"><Icon icon={CalendarClock} size="inline" /> On demand</span> },
           ]}
         />
       </Panel>

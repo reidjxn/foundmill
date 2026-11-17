@@ -16,7 +16,7 @@ import { useCanWrite } from "../env";
 import { FoundationsBanner, useFoundations } from "./foundations";
 import { computeRoadmapStatus, type RoadmapStatus } from "./roadmap-status";
 import { SignoffBanner, useSignoffs } from "./signoff";
-import { groupByHorizon, indexDependencies, isMove, moveInput } from "./roadmap/board";
+import { groupByHorizon, indexDependencies, isMove, moveInput } from "./roadmap/board-logic";
 import { Board } from "./roadmap/Board";
 import { ItemDialog } from "./roadmap/ItemDialog";
 import { Timeline } from "./roadmap/Timeline";

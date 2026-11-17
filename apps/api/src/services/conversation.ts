@@ -560,7 +560,9 @@ async function seenAtDesk(tx: DbTx, ctx: BusinessContext, r: Resolved, messages:
   const ids = [...(r.item ? idsOfItem(r.item) : []), ...messages.flatMap((m) => mentionIds(JSON.stringify([m.bubbles, m.quickReplies, m.handOff]))), ...mentionIds(JSON.stringify(chips))];
   const source = await loadRedactionSource(tx, ctx.businessId, walls, ids);
   const mask = r.item ? noteMask(r.item) : {};
-  const item = r.item ? redactInboxItem(r.item, source) : null;
+  // The desk never shows what the note cost to write: behind a Finance wall it reads 0 here (the Resolved shape is a note's).
+  const masked = r.item ? redactInboxItem(r.item, source) : null;
+  const item = masked ? { ...masked, costMinor: masked.costMinor ?? 0 } : null;
   const options = item ? itemOptions(item) : r.options;
   // A "Go with: …" chip quotes its option cut to fit ("Go with: Send Wren Ga…"), past where a name can be matched: it is
   // written again from the masked option, as finaliseAgentReply writes it.
@@ -910,8 +912,12 @@ export async function sendConversationMessage(ctx: BusinessContext, input: SendI
 
   // 4. Everything else → the conversation route, then the server-side checks.
   const model = ctxData.model ?? (await ctx.rls((tx) => replyContext(tx, ctx, p, true))).model!;
+  // Who the agent is talking with (WP-04 T10): this person's profile and the other founders' first names. The other
+  // founders' profiles are outside this person's RLS, so it reads on the service connection; the membership was checked.
+  const founder = await repos.founders.contextFor(ctx.db, ctx.businessId, ctx.userId);
   const requestInput: ConversationRequestInput = {
     ...turn,
+    founder,
     businessName: ctx.business.name,
     appName: APP_NAME,
     agent: { ...turn.agent, instructions: model.ins.instructions, description: model.ins.description, skills: model.skills },
@@ -1125,7 +1131,7 @@ export async function replyAboutConcept(
   try {
     const result = await conversationReply(
       models,
-      { ...request, attribution: { kind: "ideation_ask" }, scope: input.userId ? `ideation:${input.userId}` : undefined },
+      { ...request, attribution: { kind: "ideation_ask", ...(input.userId ? { userId: input.userId } : {}) }, scope: input.userId ? `ideation:${input.userId}` : undefined },
       CONCEPT_GUARD,
       emit ? { show: (b) => emit({ type: "bubble", ...b }), reset: () => emit({ type: "reset" }) } : undefined,
     );

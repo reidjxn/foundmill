@@ -1,0 +1,93 @@
+import { expect, test, type Page } from "@playwright/test";
+import { PLACEHOLDER_IDEAS } from "../components/landing/idea-box/typing";
+
+/**
+ * The first-timer's page at `/` (DESIGN §9a; docs/holistic-plan/landing/DIRECTION.md): one page for every width from
+ * 390 px, one h1, the idea box the one main action, people in the first half. Signed out: a fresh context. Sign-up and
+ * platform mail are off on the test stack, as in production; the people layer follows the build's LIVE_MODE (on in CI),
+ * read from the page's `data-people`. The card itself is idea-box.spec.ts.
+ */
+test.use({ storageState: { cookies: [], origins: [] } });
+
+const SECTIONS = ["hero", "result", "ways", "studio", "people", "first-week", "control", "questions", "start"];
+const overflow = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+
+for (const [width, height] of [
+  [390, 844],
+  [1440, 900],
+] as const) {
+  test(`at ${width} px: the same sections, one h1, no sideways scroll, the box first and labeled`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    await page.goto("/");
+    await expect(page.getByTestId("landing")).toBeVisible();
+    await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
+    await expect(page.locator("h1")).toHaveCount(1);
+    await expect(page.locator("h1")).toHaveText("Turn one sentence into a business of your own.");
+    expect(await page.locator("main > section").evaluateAll((s) => s.map((e) => e.id))).toEqual(SECTIONS);
+    expect(await overflow(page)).toBeLessThanOrEqual(0);
+
+    // The idea box: a visible label, the button on the first screen, the page's one filled thing there.
+    const field = page.getByLabel("What do you want to make?");
+    await expect(field).toBeVisible();
+    const button = page.getByTestId("idea-generate");
+    await expect(button).toBeInViewport();
+    expect((await button.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await expect(page.locator("header .idea-gen-filled, header button")).toHaveCount(0);
+    for (const a of ["Shaping your first idea is free and needs no sign-up", "Your idea stays private until you choose to share it", "Nothing spends money or signs in your name without you"]) {
+      await expect(page.getByText(a, { exact: true })).toBeVisible();
+    }
+
+    // People sit in the first half of the page. The find block and the top bar's link follow the people layer the page
+    // was built with (LIVE_MODE: on in CI and the local stack, off in production today), and nothing says "coming soon".
+    expect(SECTIONS.indexOf("people")).toBeLessThan(SECTIONS.length / 2);
+    const open = (await page.getByTestId("landing").getAttribute("data-people")) === "open";
+    await expect(page.getByTestId("people-find")).toHaveCount(open ? 1 : 0);
+    await expect(page.getByRole("link", { name: "Find people" })).toHaveCount(open ? 2 : 0);
+    if (open) for (const a of await page.getByRole("link", { name: "Find people" }).all()) await expect(a).toHaveAttribute("href", "/network");
+    await expect(page.locator("body")).not.toContainText(/coming soon|opening soon/i);
+
+    // The closing button takes the visitor back to the box with the cursor in it.
+    await page.getByTestId("start-shape").click();
+    await expect(field).toBeFocused();
+
+    // The tour's links (top bar, after the Studio, footer) are for wide screens only.
+    // (Hidden links have no role, so a narrow screen counts none.)
+    await expect(page.getByRole("link", { name: "Take the tour" })).toHaveCount(width >= 1280 ? 3 : 0);
+    await expect(page.getByTestId("landing-tour-top")).toBeVisible({ visible: width >= 1280 });
+  });
+}
+
+test("under reduced motion the placeholder shows its first idea, still", async ({ browser }) => {
+  const context = await browser.newContext({ reducedMotion: "reduce", viewport: { width: 390, height: 844 }, storageState: { cookies: [], origins: [] } });
+  const page = await context.newPage();
+  await page.goto("/");
+  await expect(page.getByTestId("idea-placeholder")).toHaveText(PLACEHOLDER_IDEAS[0]);
+  await page.waitForTimeout(1500);
+  await expect(page.getByTestId("idea-placeholder")).toHaveText(PLACEHOLDER_IDEAS[0]);
+  await context.close();
+});
+
+test("/tour is the earlier page, signed out, on a wide screen", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/tour");
+  await expect(page).toHaveURL(/\/tour$/);
+  await expect(page.getByTestId("landing")).toBeVisible();
+  await expect(page.getByRole("radiogroup", { name: "Watch it run" })).toBeVisible();
+});
+
+test("search and share: the first-timer's title, one JSON-LD block, its own share image, and no index while sign-up is closed", async ({ page }) => {
+  await page.goto("/");
+  await expect(page).toHaveTitle("Foundmill | Start your first project with one sentence");
+  await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", /noindex/);
+  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", /^https:\/\/[^/]+\/?$/);
+  const ld = page.locator('script[type="application/ld+json"]');
+  await expect(ld).toHaveCount(1);
+  const graph = JSON.parse((await ld.textContent())!)["@graph"] as { "@type": string }[];
+  expect(graph.map((n) => n["@type"])).toEqual(["Organization", "WebSite", "SoftwareApplication"]);
+  const image = await page.locator('meta[property="og:image"]').getAttribute("content");
+  const res = await page.request.get(new URL(image!).pathname);
+  expect(res.status()).toBe(200);
+  expect(res.headers()["content-type"]).toBe("image/png");
+  // The paragraph an answer engine quotes is on the page as plain text.
+  await expect(page.getByTestId("what-foundmill-is")).toContainText("Foundmill is a web app where one person, or a few people together");
+});

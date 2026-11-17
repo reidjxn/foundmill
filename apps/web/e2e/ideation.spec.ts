@@ -393,7 +393,9 @@ test.describe("the founder's own words (first-time founder report, Nov 8, 2026)"
     await dialog.getByTestId("write-submit").click();
     await page.waitForURL(/\/new\/commit\/[0-9a-f-]+/, { timeout: LONG });
     await expect(page.getByTestId("commit-form")).toBeVisible({ timeout: LONG });
-    // The card on Commit carries the founder's words and says so; the note under it says the team builds from them.
+    // The card on Commit (under More options since WP-04 T2) carries the founder's words and says so; the note under it
+    // says the team builds from them.
+    await page.getByTestId("commit-more").click();
     const card = page.locator("[data-concept]").first();
     await expect(card).toContainText(WORDS);
     await expect(card.locator("[data-concept-your-words]")).toBeVisible();

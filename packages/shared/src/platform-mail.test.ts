@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { loadEnv, PLATFORM_MAIL_SECRET_MIN_LENGTH, platformMailDomain, platformMailLive, platformMailMode, platformMailSigningSecret } from "./env";
-import { isMailLocalPart, mailLocalPartReserved, MAIL_RESERVED_LOCAL_PARTS, platformMailAddress, platformMailCountLine, platformMailLocalPartOf, PLATFORM_MAIL_REFUSALS } from "./platform-mail";
+import { loadEnv, PLATFORM_MAIL_SECRET_MIN_LENGTH, platformMailDomain, platformMailLive, platformMailMode, platformMailSigningSecret, waitlistEmails } from "./env";
+import { FOLLOW_CONFIRMATION_MAIL_CLASS, isMailLocalPart, isPostalAddressDecision, mailLocalPartReserved, MAIL_RESERVED_LOCAL_PARTS, normalizePostalAddress, platformMailAddress, platformMailCountLine, platformMailLocalPartOf, PLATFORM_MAIL_REFUSALS, POSTAL_ADDRESS_NOTE, postalAddressLine, postalAddressProblem, projectMailClass } from "./platform-mail";
 
 describe("the Foundmill sending address", () => {
   it("is off without a domain, simulated while SendGrid is mock, live where SendGrid is live", () => {
@@ -10,6 +10,17 @@ describe("the Foundmill sending address", () => {
     expect(platformMailMode({ ...base, LIVE_CONNECTORS: "github, sendgrid" })).toBe("live");
     expect(platformMailLive({ ...base, LIVE_CONNECTORS: "sendgrid", PLATFORM_MAIL_DOMAIN: "mail.foundmill.com" })).toBe(true);
     expect(platformMailLive({ INTEGRATIONS_MODE: "live", LIVE_CONNECTORS: "" })).toBe(false);
+  });
+
+  it("lets the waitlist promise its email only with WAITLIST_EMAILS on and platform mail live (WP-03 T2)", () => {
+    const live = { INTEGRATIONS_MODE: "mock" as const, LIVE_CONNECTORS: "sendgrid", PLATFORM_MAIL_DOMAIN: "mail.foundmill.com" };
+    expect(waitlistEmails({ ...live, WAITLIST_EMAILS: "1" })).toBe(true);
+    expect(waitlistEmails({ ...live, WAITLIST_EMAILS: " On " })).toBe(true);
+    expect(waitlistEmails(live)).toBe(false);
+    expect(waitlistEmails({ ...live, WAITLIST_EMAILS: "0" })).toBe(false);
+    expect(waitlistEmails({ ...live, LIVE_CONNECTORS: "", WAITLIST_EMAILS: "1" })).toBe(false);
+    expect(waitlistEmails({ ...live, PLATFORM_MAIL_DOMAIN: undefined, WAITLIST_EMAILS: "1" })).toBe(false);
+    expect(waitlistEmails({ WAITLIST_EMAILS: "1" })).toBe(false);
   });
 
   it("reads its variables with their defaults and refuses a domain that is not one", () => {
@@ -63,5 +74,46 @@ describe("the Foundmill sending address", () => {
   it("speaks in plain words", () => {
     expect(platformMailCountLine(1_200, 2_000)).toBe("1,200 of 2,000 sent today");
     expect(PLATFORM_MAIL_REFUSALS.daily_cap(50)).toBe("This project has sent its 50 messages for today. Nothing was sent; sending opens again at midnight UTC.");
+  });
+});
+
+describe("commercial or transactional (CAN-SPAM), in one place", () => {
+  it("is commercial unless a declared reply or receipt has its proof", () => {
+    expect(projectMailClass({ purpose: undefined, wroteFirst: true, paid: true })).toBe("commercial");
+    expect(projectMailClass({ purpose: "marketing", wroteFirst: true, paid: true })).toBe("commercial");
+    expect(projectMailClass({ purpose: "reply", wroteFirst: true, paid: false })).toBe("transactional");
+    expect(projectMailClass({ purpose: "reply", wroteFirst: false, paid: true })).toBe("commercial");
+    expect(projectMailClass({ purpose: "receipt", wroteFirst: false, paid: true })).toBe("transactional");
+    expect(projectMailClass({ purpose: "receipt", wroteFirst: true, paid: false })).toBe("commercial");
+    expect(FOLLOW_CONFIRMATION_MAIL_CLASS).toBe("transactional");
+  });
+
+  it("the refusal says plainly that nothing was sent and why", () => {
+    expect(PLATFORM_MAIL_REFUSALS.no_postal_address.startsWith("Not sent: the founder has not added a postal address yet.")).toBe(true);
+  });
+});
+
+describe("the founders' postal address", () => {
+  it("is one tidy line, a PO box included", () => {
+    expect(normalizePostalAddress("  PO Box 1234\nSpringfield, IL 62701\r\n\nUSA.  ")).toBe("PO Box 1234, Springfield, IL 62701, USA");
+    expect(normalizePostalAddress("12 Main St,,  Springfield ,\n, USA")).toBe("12 Main St, Springfield, USA");
+    expect(postalAddressLine("PO Box 1234, Springfield, IL 62701")).toBe("Postal address: PO Box 1234, Springfield, IL 62701.");
+    expect(postalAddressProblem("PO Box 1234, Springfield, IL 62701, USA")).toBeNull();
+  });
+
+  it("refuses what is not a postal address", () => {
+    expect(postalAddressProblem("home")).toMatch(/whole address/);
+    expect(postalAddressProblem("x".repeat(301) + " 1")).toMatch(/under 300/);
+    expect(postalAddressProblem("see https://example.com 12")).toMatch(/not a web or email address/);
+    expect(postalAddressProblem("write to me@example.com 12")).toMatch(/not a web or email address/);
+    expect(postalAddressProblem("<b>12 Main St</b>, Springfield")).toMatch(/ordinary punctuation/);
+    expect(postalAddressProblem("12 Main St\u0007 Springfield")).toMatch(/ordinary punctuation/);
+    expect(postalAddressProblem("Main Street, Springfield")).toMatch(/number/);
+  });
+
+  it("marks its note by key", () => {
+    expect(isPostalAddressDecision({ key: POSTAL_ADDRESS_NOTE.key, options: [] })).toBe(true);
+    expect(isPostalAddressDecision({ key: "project_page.ready" })).toBe(false);
+    expect(isPostalAddressDecision(null)).toBe(false);
   });
 });

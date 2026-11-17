@@ -3,7 +3,7 @@
  * call asked again waits on the same approval, and once the founder approves the same call runs once under it (in the
  * session still waiting or the next session on the task), never for more than the amount that was asked for.
  */
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { APPROVAL_OPTIONS, repos } from "@foundmill/db";
 import { SAFE_EMAIL, sendRefusals, setupGateway, type GatewayFixture } from "./harness";
 import type { AllowResponse, AskResponse, CallResponse } from "../types";
@@ -58,7 +58,7 @@ describe("one approval per gated call", () => {
     expect((await repos.events.outboxPending(g.db, g.businessId)).some((o) => o.eventId === created!.id)).toBe(true);
   });
 
-  it("once approved, the same call runs once under the approval; the next one asks again", async () => {
+  it("once approved, the same call runs once under the approval; in this session a repeat is not run again, in another it asks again", async () => {
     const token = await g.token();
     const args = { to: SAFE_EMAIL, body: "Welcome aboard" };
     const asked = asAsk(await g.client.call(token, { connector: "test", tool: "send_message", args }));
@@ -71,7 +71,12 @@ describe("one approval per gated call", () => {
     expect(audit.details).toMatchObject({ outcome: "allow", approvalId: asked.approvalId });
     expect(await repos.approvals.get(g.db, g.businessId, asked.approvalId)).toMatchObject({ usedBySessionId: g.sessionId });
 
-    const next = asAsk(await g.client.call(token, { connector: "test", tool: "send_message", args }));
+    // The same send again in this session already went through: answered, not run and not asked again (WP-05 T14).
+    const repeat = asAllow(await g.client.call(token, { connector: "test", tool: "send_message", args }));
+    expect(repeat.result.data).toMatchObject({ replayed: true });
+    // In another session it is a new question.
+    const otherToken = await g.token({ sessionId: await g.newSession() });
+    const next = asAsk(await g.client.call(otherToken, { connector: "test", tool: "send_message", args }));
     expect(next.approvalId).not.toBe(asked.approvalId);
     expect(g.seen).toHaveLength(1);
   });
@@ -129,6 +134,98 @@ describe("one approval per gated call", () => {
     asAllow(await g.client.call(await g.token({ sessionId: s2 }), { connector: "test", tool: "send_message", args }));
     expect(g.seen.map((s) => s.tool)).toEqual(["send_message"]);
     expect(await repos.approvals.get(g.db, g.businessId, asked.approvalId)).toMatchObject({ usedBySessionId: s2 });
+  });
+
+  it("an approval an agent decided through Team › Responsibilities runs its one call; a repeat is not run again, another session asks again", async () => {
+    const dept = await repos.departments.create(g.db, g.businessId, { name: "Delegated once" });
+    const reviewer = await repos.agents.create(g.db, g.businessId, { name: "Reviewer", agentType: "review_agent", departmentIds: [dept.id] });
+    await repos.agents.update(g.db, g.businessId, g.agentId, { departmentIds: [dept.id] });
+    await repos.departments.update(g.db, g.businessId, dept.id, { approvers: [{ decisionType: "message_customers", handler: { kind: "agent", id: reviewer.id } }] });
+    const args = { to: SAFE_EMAIL, body: "Delegated hello" };
+    try {
+      const token = await g.token();
+      const ran = asAllow(await g.client.call(token, { connector: "test", tool: "send_message", args }));
+      const approvalId = (await repos.approvals.list(g.db, g.businessId, { agentId: g.agentId, connectorKey: "test", limit: 1 })).items[0]!.id;
+      expect(await repos.approvals.get(g.db, g.businessId, approvalId)).toMatchObject({ outcome: "approved", byKind: "agent", byId: reviewer.id, usedBySessionId: g.sessionId });
+      // The audit row names the approval and who decided it: the agent, not the founder.
+      const audit = await repos.audit.get(g.db, g.businessId, ran.auditId);
+      expect(audit.details).toMatchObject({ outcome: "allow", approvalId });
+      expect(JSON.stringify((audit.details as { reasons: string[] }).reasons)).not.toContain("by the founder");
+
+      // The founder takes the decision back: the same call again is the founder's question, not a second run.
+      await repos.departments.update(g.db, g.businessId, dept.id, { approvers: [] });
+      // A repeat in this session is answered as already done (WP-05 T14); another session asks again.
+      expect(asAllow(await g.client.call(token, { connector: "test", tool: "send_message", args })).result.data).toMatchObject({ replayed: true });
+      const next = asAsk(await g.client.call(await g.token({ sessionId: await g.newSession() }), { connector: "test", tool: "send_message", args }));
+      expect(next.approvalId).not.toBe(approvalId);
+      expect(g.seen.map((s) => s.tool)).toEqual(["send_message"]);
+    } finally {
+      await repos.departments.update(g.db, g.businessId, dept.id, { approvers: [] });
+      await repos.agents.update(g.db, g.businessId, g.agentId, { departmentIds: [] });
+    }
+  });
+
+  it("an agent's approval given back after a call that did not run never runs a retry once the delegation is withdrawn", async () => {
+    const dept = await repos.departments.create(g.db, g.businessId, { name: "Delegated, refused" });
+    const reviewer = await repos.agents.create(g.db, g.businessId, { name: "Reviewer", agentType: "review_agent", departmentIds: [dept.id] });
+    await repos.agents.update(g.db, g.businessId, g.agentId, { departmentIds: [dept.id] });
+    await repos.departments.update(g.db, g.businessId, dept.id, { approvers: [{ decisionType: "message_customers", handler: { kind: "agent", id: reviewer.id } }] });
+    const args = { to: SAFE_EMAIL, body: "Delegated, then refused" };
+    try {
+      const token = await g.token();
+      sendRefusals.push(405);
+      const refused = asAllow(await g.client.call(token, { connector: "test", tool: "send_message", args }));
+      expect(refused.result.ok).toBe(false);
+      const approvalId = (await repos.approvals.list(g.db, g.businessId, { agentId: g.agentId, connectorKey: "test", limit: 1 })).items[0]!.id;
+      expect(await repos.approvals.get(g.db, g.businessId, approvalId)).toMatchObject({ byKind: "agent", usedAt: null });
+      await repos.departments.update(g.db, g.businessId, dept.id, { approvers: [] });
+      const retry = asAsk(await g.client.call(token, { connector: "test", tool: "send_message", args }));
+      expect(retry.approvalId).not.toBe(approvalId);
+      expect(g.seen).toHaveLength(0);
+    } finally {
+      sendRefusals.length = 0;
+      await repos.departments.update(g.db, g.businessId, dept.id, { approvers: [] });
+      await repos.agents.update(g.db, g.businessId, g.agentId, { departmentIds: [] });
+    }
+  });
+
+  it("an agent's approval another call took first opens a fresh one instead of waiting on it", async () => {
+    const dept = await repos.departments.create(g.db, g.businessId, { name: "Delegated, raced" });
+    const reviewer = await repos.agents.create(g.db, g.businessId, { name: "Reviewer", agentType: "review_agent", departmentIds: [dept.id] });
+    await repos.agents.update(g.db, g.businessId, g.agentId, { departmentIds: [dept.id] });
+    await repos.departments.update(g.db, g.businessId, dept.id, { approvers: [{ decisionType: "message_customers", handler: { kind: "agent", id: reviewer.id } }] });
+    // The first approval the agent decides is taken before this call can use it.
+    const taken = vi.spyOn(repos.approvals, "useDecided").mockResolvedValueOnce(null);
+    try {
+      const ran = asAllow(await g.client.call(await g.token(), { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL, body: "Raced" } }));
+      expect(ran.result.ok).toBe(true);
+      expect(taken).toHaveBeenCalledTimes(2);
+      expect(g.seen.map((s) => s.tool)).toEqual(["send_message"]);
+    } finally {
+      taken.mockRestore();
+      await repos.departments.update(g.db, g.businessId, dept.id, { approvers: [] });
+      await repos.agents.update(g.db, g.businessId, g.agentId, { departmentIds: [] });
+    }
+  });
+
+  it("when the fresh approval is taken too, the call is refused with 'try again', never left waiting on an approval nobody will see", async () => {
+    const dept = await repos.departments.create(g.db, g.businessId, { name: "Delegated, raced twice" });
+    const reviewer = await repos.agents.create(g.db, g.businessId, { name: "Reviewer", agentType: "review_agent", departmentIds: [dept.id] });
+    await repos.agents.update(g.db, g.businessId, g.agentId, { departmentIds: [dept.id] });
+    await repos.departments.update(g.db, g.businessId, dept.id, { approvers: [{ decisionType: "message_customers", handler: { kind: "agent", id: reviewer.id } }] });
+    const taken = vi.spyOn(repos.approvals, "useDecided").mockResolvedValue(null);
+    try {
+      const r = await g.client.call(await g.token(), { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL, body: "Raced twice" } });
+      expect(r.outcome).toBe("deny");
+      expect((r as { reasons: string[] }).reasons.join(" ")).toMatch(/try again/i);
+      expect((r as { approvalId?: string }).approvalId).toBeUndefined();
+      expect(taken).toHaveBeenCalledTimes(2);
+      expect(g.seen).toHaveLength(0);
+    } finally {
+      taken.mockRestore();
+      await repos.departments.update(g.db, g.businessId, dept.id, { approvers: [] });
+      await repos.agents.update(g.db, g.businessId, g.agentId, { departmentIds: [] });
+    }
   });
 
   it("an open approval of an earlier session on the task is handed to the session asking now", async () => {

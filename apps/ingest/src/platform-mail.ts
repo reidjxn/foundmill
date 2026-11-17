@@ -31,6 +31,10 @@
  *   GET|POST /mail/notify/off?t=  The link in Foundmill's own email to a person (packages 1.5 and 5.1): the same
  *                           pattern; the token (`notifyOffToken`) names the person by id and the kind of email, and a
  *                           valid one turns that kind off in their preferences.
+ *   GET|POST /mail/invitations/off?t=  "Don't send me invitations", the link in every invitation email (and its
+ *                           List-Unsubscribe): the same pattern; the token (`invitationsOffToken`) names the address by
+ *                           its suppression hash, and a valid one suppresses that hash platform-wide, so no invitation
+ *                           (and no project's mail) reaches it again.
  *
  * Whatever suppresses an address for a project here (an unsubscribe link, one-click, a reply asking to stop, a bounce, a
  * drop, a spam report) also withdraws the project's consent records for that address (`withdrawn_at`), so the person no
@@ -39,10 +43,12 @@
  * With PLATFORM_MAIL_DOMAIN unset every route answers 404, as if it did not exist. Bodies are capped before they are read
  * (app.ts: PLATFORM_MAIL_EVENTS_MAX_BYTES, PLATFORM_MAIL_INBOUND_MAX_BYTES).
  */
-import { DEV_PLATFORM_MAIL_SECRET, PLATFORM_NOTIFY_OFF_PATH, readNotifyOffToken, followConfirmNonceHash, platformMailSenderName, readFollowConfirmToken, inboundSenderVerified, normaliseInboundMail, normalisePlatformMailEvents, PLATFORM_MAIL_FOOTER_MARKERS, platformInboundLocalParts, readInboundMail, readPlatformUnsubscribeToken, safeEqual, stableHash, suppressionHashOfEmail, verifySendgridSignature, withinTolerance, type SgEvent } from "@foundmill/connectors";
-import { repos } from "@foundmill/db";
-import { FOLLOW_CONFIRM_PAGE, NOTIFY_OFF_PAGE, notifyOffBody, PLATFORM_MAIL_SECRET_MIN_LENGTH, UNSUBSCRIBE_CONFIRM_BODY, UNSUBSCRIBE_CONFIRM_BUTTON, UNSUBSCRIBE_CONFIRM_TITLE, UNSUBSCRIBE_DONE_BODY, UNSUBSCRIBE_INVALID_BODY } from "@foundmill/shared";
+import { DEV_PLATFORM_MAIL_SECRET, inboundReplyText, PLATFORM_INVITATIONS_OFF_PATH, PLATFORM_NOTIFY_OFF_PATH, readInvitationsOffToken, readNotifyOffToken, followConfirmNonceHash, platformMailSenderName, readFollowConfirmToken, inboundSenderVerified, normaliseInboundMail, normalisePlatformMailEvents, PLATFORM_MAIL_FOOTER_MARKERS, platformInboundLocalParts, readInboundMail, readPlatformUnsubscribeToken, safeEqual, stableHash, suppressionHashOfEmail, verifySendgridSignature, withinTolerance, type SgEvent } from "@foundmill/connectors";
+import { APP_NAME, tierShowsBuiltOnMark } from "@foundmill/config";
+import { repos, awardFirstFollowerMilestone } from "@foundmill/db";
+import { FOLLOW_CONFIRM_PAGE, INBOUND_STORED_DAILY_CAP, INVITATIONS_OFF_PAGE, JOINING_OFF_VARIANT, joiningOffPage, NOTIFY_OFF_PAGE, notifyOffBody, PLATFORM_MAIL_SECRET_MIN_LENGTH, UNSUBSCRIBE_CONFIRM_BODY, UNSUBSCRIBE_CONFIRM_BUTTON, UNSUBSCRIBE_CONFIRM_TITLE, UNSUBSCRIBE_DONE_BODY, UNSUBSCRIBE_INVALID_BODY, builtOnWords, REPLY_WORDS } from "@foundmill/shared";
 import { ingestPlatformEvents, writeEventRow } from "./ingest";
+import { writeCreditEvent } from "./post-outcomes";
 import { nonceKey } from "./nonce-store";
 import type { IngestDeps } from "./types";
 
@@ -77,7 +83,7 @@ const fail = (status: MailRouteResult["status"], error: string, message: string)
 const OFF = fail(404, "not_found", "No route for this address");
 
 /** The secret custom args and unsubscribe links verify with, or null when none may be used here. */
-function signingSecretFor(deps: Deps): string | null {
+export function signingSecretFor(deps: Deps): string | null {
   const configured = deps.platformMail?.signingSecret?.trim();
   if (configured && configured.length >= PLATFORM_MAIL_SECRET_MIN_LENGTH) return configured;
   return deps.env.APP_ENV === "development" || deps.env.APP_ENV === "test" ? DEV_PLATFORM_MAIL_SECRET : null;
@@ -138,7 +144,10 @@ export async function handlePlatformInbound(deps: Deps, req: Request): Promise<M
       return { status: 200, body: { ok: true, written: 0, projects: 0 } };
     }
     let written = 0;
+    let kept = 0;
     const eventIds: string[] = [];
+    // The reply's own words, kept for the founders to read (WP-08 T2): quoted text and the footer left out.
+    const ownText = inboundReplyText(mail, PLATFORM_MAIL_FOOTER_MARKERS);
     for (const businessId of businessIds) {
       // The footer of the message being answered (its unsubscribe link) is never read as the reply's own words.
       const events = normaliseInboundMail(mail, businessId, deps.now, { ownMarkers: PLATFORM_MAIL_FOOTER_MARKERS });
@@ -146,16 +155,48 @@ export async function handlePlatformInbound(deps: Deps, req: Request): Promise<M
       written += result.written;
       eventIds.push(...result.eventIds);
       deps.followups.dispatch(result);
+      // The row the event's `interactionId` names (a replay of the event finds it already there and writes nothing).
+      const replied = events.find((e) => e.type === "lead.replied");
+      const interactionId = (replied?.payload as { interactionId?: string } | undefined)?.interactionId;
+      if (replied && interactionId && ownText) {
+        const stored = await keepReply(deps, businessId, { interactionId, sender, subject: mail.subject, text: ownText, occurredAt: replied.occurredAt });
+        if (stored) kept += 1;
+      }
       // A reply that asks to stop: the sender is not written to again by this project.
       if (events.some((e) => e.type === "lead.replied" && (e.payload as { sentiment?: string }).sentiment === "unsubscribe")) {
         await suppress(deps, businessId, suppressionHashOfEmail(sender), "asked to be removed in a reply");
       }
     }
-    return { status: 200, body: { ok: true, written, projects: businessIds.length, eventIds } };
+    return { status: 200, body: { ok: true, written, kept, projects: businessIds.length, eventIds } };
   } catch (e) {
     await deps.nonces.release(nonce);
     throw e;
   }
+}
+
+/**
+ * Keeps a verified reply's words on the `interactions` row its `lead.replied` names (`repos.replies.storeInbound`: the
+ * sender's record found by address or created masked, at most `INBOUND_STORED_DAILY_CAP` a project a day, nothing for a
+ * record whose deletion was requested), and tells the founders in one Inbox note from the Chief of Staff that names the
+ * record and none of the text. In one transaction; true when a new row was written.
+ */
+async function keepReply(deps: Deps, businessId: string, input: { interactionId: string; sender: string; subject: string; text: string; occurredAt: Date }): Promise<boolean> {
+  const result = await repos.replies.storeInbound(deps.db, businessId, {
+    interactionId: input.interactionId,
+    email: input.sender,
+    subject: input.subject,
+    body: input.text,
+    occurredAt: input.occurredAt,
+    dailyCap: INBOUND_STORED_DAILY_CAP,
+    onStored: async (tx, stored) => {
+      const chief = await repos.agents.chiefOfStaff(tx, businessId).catch(() => null);
+      if (!chief) return;
+      const item = await repos.inbox.createItem(tx, businessId, { type: "update", from_agent_id: chief.id, subject: REPLY_WORDS.noteSubject(stored.displayName).slice(0, 200), body_md: REPLY_WORDS.noteBody, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: null, blocks_continue: false, source_event_ids: [], entity_ids: [stored.entityId] });
+      await writeEventRow(tx, { businessId, type: "inbox.item_created", actor: { kind: "webhook", id: PLATFORM_MAIL_SOURCE }, payload: { inboxItemId: item.id, type: item.type, fromAgentId: chief.id, subject: item.subject, blocksContinue: false, sourceEventIds: [], cost: null }, occurredAt: input.occurredAt });
+    },
+  });
+  if (result.status === "over_cap") deps.log.warn({ businessId }, "platform inbound mail: the project's replies kept today reached the cap; this one's words were not kept");
+  return result.status === "stored";
 }
 
 export async function handlePlatformMailEvents(deps: Deps, req: Request): Promise<MailRouteResult> {
@@ -211,13 +252,14 @@ export function unsubscribePage(body: string, form?: { token: string }): string 
 }
 
 /** The follow confirmation's page (the same look as the unsubscribe page). */
-export function followConfirmPage(body: string, form?: { token: string }): string {
-  return mailPage(FOLLOW_CONFIRM_PAGE.title, body, form ? { action: `/mail/confirm?t=${encodeURIComponent(form.token)}`, button: FOLLOW_CONFIRM_PAGE.button } : undefined);
+export function followConfirmPage(body: string, form?: { token: string }, foot?: string | null): string {
+  return mailPage(FOLLOW_CONFIRM_PAGE.title, body, form ? { action: `/mail/confirm?t=${encodeURIComponent(form.token)}`, button: FOLLOW_CONFIRM_PAGE.button } : undefined, foot);
 }
 
-function mailPage(title: string, body: string, form?: { action: string; button: string }): string {
+/** `foot`: one small line under everything (the "Built on" mark of a project on the free plan, docs/NETWORK.md F2): words only. */
+function mailPage(title: string, body: string, form?: { action: string; button: string }, foot?: string | null): string {
   const button = form ? `<form method="post" action="${escapeHtml(form.action)}"><button type="submit">${escapeHtml(form.button)}</button></form>` : "";
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>${escapeHtml(title)}</title><style>body{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem;color:#1b1b1b}button{font:inherit;padding:.5rem 1rem;border-radius:6px;border:1px solid #1b1b1b;background:#1b1b1b;color:#fff;cursor:pointer}</style></head><body><h1>${escapeHtml(title)}</h1><p>${escapeHtml(body)}</p>${button}</body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>${escapeHtml(title)}</title><style>body{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem;color:#1b1b1b}button{font:inherit;padding:.5rem 1rem;border-radius:6px;border:1px solid #1b1b1b;background:#1b1b1b;color:#fff;cursor:pointer}.foot{margin-top:3rem;font-size:13px;color:#6b6b6b}</style></head><body><h1>${escapeHtml(title)}</h1><p>${escapeHtml(body)}</p>${button}${foot ? `<p class="foot">${escapeHtml(foot)}</p>` : ""}</body></html>`;
 }
 
 export type UnsubscribeResult = { status: 200 | 400 | 404; html: string };
@@ -267,6 +309,39 @@ export async function handleNotifyOff(deps: Deps, req: Request): Promise<Unsubsc
   return { status: 200, html: notifyOffPage(NOTIFY_OFF_PAGE.done) };
 }
 
+/**
+ * The page behind "Don't send me invitations" (the same look as the unsubscribe page), or, opened from the waitlist's
+ * email (`?for=joining`), its words about joining. Only the words differ.
+ */
+export function invitationsOffPage(body: string, form?: { token: string }, joining = false): string {
+  const words = joining ? joiningOffPage(APP_NAME) : INVITATIONS_OFF_PAGE;
+  const action = form ? `${PLATFORM_INVITATIONS_OFF_PATH}?t=${encodeURIComponent(form.token)}${joining ? `&for=${JOINING_OFF_VARIANT}` : ""}` : "";
+  return mailPage(words.title, body, form ? { action, button: words.button } : undefined);
+}
+
+/**
+ * `GET|POST /mail/invitations/off?t=`: "Don't send me invitations" from an invitation email, and its one-click POST (RFC
+ * 8058). The token (`invitationsOffToken`, signed by the gateway under its own label) names the address by its
+ * suppression hash only; a valid one suppresses that hash platform-wide (`suppressEverywhere`), which the gateway checks
+ * before every invitation email. GET shows a button (link scanners open links); only the POST changes anything.
+ * Idempotent. Nothing here knows or logs the address or its hash.
+ */
+export async function handleInvitationsOff(deps: Deps, req: Request): Promise<UnsubscribeResult> {
+  const url = new URL(req.url);
+  const joining = url.searchParams.get("for") === JOINING_OFF_VARIANT;
+  const words = joining ? joiningOffPage(APP_NAME) : INVITATIONS_OFF_PAGE;
+  const page = (body: string, form?: { token: string }) => invitationsOffPage(body, form, joining);
+  if (!deps.platformMail?.domain) return { status: 404, html: page(words.invalid) };
+  const secret = signingSecretFor(deps);
+  const token = url.searchParams.get("t") ?? "";
+  const named = secret ? readInvitationsOffToken(secret, token) : null;
+  if (!named) return { status: 400, html: page(words.invalid) };
+  if (req.method === "GET") return { status: 200, html: page(words.body, { token }) };
+  const written = await repos.channels.suppressEverywhere(deps.db, { emailHash: named.emailHash, reason: "asked for no invitations", source: "invitation_link" });
+  deps.log.info({ written }, "invitations stopped for an address from its link");
+  return { status: 200, html: page(words.done) };
+}
+
 /** The project's name as the confirmation email showed it (never one that reads as Foundmill's own). */
 async function projectNameFor(deps: Deps, businessId: string, name: string): Promise<string> {
   const row = await repos.projectMail.get(deps.db, businessId).catch(() => null);
@@ -289,11 +364,12 @@ export async function handleFollowConfirm(deps: Deps, req: Request): Promise<Uns
   // Asked not to be emailed since (an unsubscribe from the confirmation's own footer, a deletion request): nothing changes.
   if (await repos.channels.isSuppressed(deps.db, business.id, { emailHash: claims.emailHash })) return invalid(400);
   const at = deps.now();
+  let first = false;
   const outcome = await deps.db.transaction(async (tx) => {
     const result = await repos.followers.confirm(tx, { businessId: business.id, consentId: claims.consentId, emailHash: claims.emailHash, tokenHash: followConfirmNonceHash(claims.nonce), at });
     if (result.status !== "confirmed") return result.status;
     // The real outcome (the north star counts it): written once, when the person confirmed, never at the signup.
-    await writeEventRow(tx, {
+    const followed = await writeEventRow(tx, {
       businessId: business.id,
       type: "page.followed",
       actor: { kind: "system", id: "public-page" },
@@ -303,8 +379,19 @@ export async function handleFollowConfirm(deps: Deps, req: Request): Promise<Uns
       idempotencyKey: `page.followed:${result.consentId}`,
     });
     await repos.audit.append(tx, business.id, { actorKind: "system", actorId: null, action: "page.followed", target: { kind: "entity", id: result.entityId }, details: { consentId: result.consentId, pageId: result.pageId, lawfulBasisSet: result.lawfulBasisSet } });
+    // The follow came through a shared team post (the signup kept the project's own visited link): credited to that
+    // post, once, in this transaction (item 8). An unconfirmed signup credits nothing: this is the only place a follow is.
+    const credit = await repos.postAttributions.creditFollow(tx, { businessId: business.id, consentId: result.consentId, outcomeEventId: followed.id, at });
+    if (credit) await writeCreditEvent(writeEventRow, tx, business.id, credit, at);
+    // The project's first confirmed follower is a milestone (0089), recorded once, here, with the consent record's id
+    // and nothing about the person. Every later follower awards nothing; a sample business has no real followers.
+    if (!business.isDemo && (await awardFirstFollowerMilestone(tx, business.id, { consentId: result.consentId, at }))) first = true;
     return "confirmed" as const;
   });
   if (outcome === "invalid") return invalid(400);
-  return { status: 200, html: followConfirmPage(FOLLOW_CONFIRM_PAGE.done(name)) };
+  // The first follower, recorded just now: the social agent may draft a post about it for the founder to share by tap
+  // (followups.ts). After the commit, never waited on, and never for a later follower.
+  if (first) deps.followups.firstFollower(business.id);
+  // The visitor has just said yes to the project: the one place on their path where the mark is a sentence (free plan only).
+  return { status: 200, html: followConfirmPage(FOLLOW_CONFIRM_PAGE.done(name), undefined, tierShowsBuiltOnMark(business.planTier) ? builtOnWords(APP_NAME).foot(name) : null) };
 }

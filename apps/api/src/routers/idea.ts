@@ -15,6 +15,7 @@ import { checkDomainAvailability, DomainCheckInput } from "../services/domains";
 import { linkableImportJob } from "../services/foundations";
 import { draftEventStream, draftIdeas, isMeta, readMeta, takeIdeationAllowance, withMeta, writeIdea, type DraftEvent } from "../services/ideation";
 import { importJobKey } from "../services/import";
+import { requireAdult } from "../services/adults";
 import { requireAdultToGoLive } from "../services/live";
 import { LogoChoice, takeLogoCheck } from "../services/logo";
 import { modelLimited } from "../services/model-limits";
@@ -232,7 +233,7 @@ export const ideaRouter = router({
       schema: Verdict,
       system: `Compare the concept cards attribute by attribute and give an agent verdict with a ranking. ${HOUSE_STYLE}`,
       messages: [{ role: "user", content: "```json\n" + JSON.stringify({ concepts: ideas.map((i) => ({ id: i.id, title: i.title, pitch: i.pitch, attributes: i.current?.attributes ?? {} })) }) + "\n```" }],
-      attribution: { kind: "ideation_compare" },
+      attribution: { kind: "ideation_compare", userId: ctx.userId },
     });
     const versionIds = ideas.map((i) => i.current?.id).filter((v): v is string => Boolean(v));
     const comparison = await repos.ideas.compare(ctx.db, ctx.userId, { ideaVersionIds: versionIds, verdictMd: result.json.verdict_md });
@@ -321,7 +322,7 @@ export const ideaRouter = router({
 
   /** What "Take charge" will seed for an archetype (Commit screen preview). */
   // The channels named are the starters a brand-new project can really run here (no integration is connected yet).
-  preview: protectedProcedure.input(z.object({ archetype: Archetype })).query(({ ctx, input }) => squadPreview(input.archetype, new Set(channelAnswer(channelAvailabilityFacts(ctx.env, { isDemo: false }, [])).available))),
+  preview: protectedProcedure.input(z.object({ archetype: Archetype })).query(({ ctx, input }) => squadPreview(input.archetype, new Set(channelAnswer(channelAvailabilityFacts(ctx.env, { isDemo: false }, [])).teamRuns))),
 
   /** Take charge (AC-11.1.6, AC-11.1.7: default business mode is Assisted). */
   commit: protectedProcedure
@@ -360,10 +361,15 @@ export const ideaRouter = router({
       if (input.gameMode === "live") assertLiveOpen(ctx.env);
       const profile = await repos.founders.get(ctx.db, ctx.userId);
       if (!profile) throw new ValidationError("Complete your founder profile before taking charge of a business");
-      // A LIVE business is on the network from its first minute, so taking charge of one asks what Go live asks.
+      // A LIVE business is on the network from its first minute, so taking charge of one asks what Go live asks. Any
+      // project is for people 18 or older (services/adults.ts): an account with no confirmation on record (here before
+      // sign-up asked) cannot start one; the confirmation it gave at sign-up answers both.
       if (input.gameMode === "live") await requireAdultToGoLive(ctx.db, ctx.userId, input.confirmAdult);
+      else await requireAdult(ctx.db, ctx.userId, input.confirmAdult);
       // A logo is an upload check like any other (the SVG check is CPU work).
       if (input.logo) await takeLogoCheck(ctx.limits, ctx.userId);
-      return commitIdea(ctx.db, ctx.temporal, ctx.userId, input, () => importJobKey(ctx.env), { log: ctx.log, env: ctx.env });
+      // A profile with no budget starts no cycle and no finance or legal task at commit (WP-04 T3). The welcome note
+      // greets the founder by the profile's name (WP-04 T7).
+      return commitIdea(ctx.db, ctx.temporal, ctx.userId, { ...input, hasBudget: (profile.budgetMinor ?? 0) > 0, displayName: profile.displayName ?? null }, () => importJobKey(ctx.env), { log: ctx.log, env: ctx.env });
     }),
 });

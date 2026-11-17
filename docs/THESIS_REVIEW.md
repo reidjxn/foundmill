@@ -363,6 +363,8 @@ Subtext, worked: say "something that is yours", "what you can do now that you co
 
 ## 13. Roadmap
 
+> **Nov 12, 2026:** `docs/NETWORK.md` specifies the network and community side in detail (how the product spreads, the features of phases 3 to 5 and what it adds to them, a build order in four waves). The founder answered its questions the same day (its section 14): it is the plan for the network side, built in its own four waves, wave 1 first.
+
 Seven phases. Each work package lists what to build, where, and what done means. Every package also carries the standing definition of done from CLAUDE.md (typecheck, lint, unit tests, Playwright for a touched screen, a story for a new component, an eval for new agent behavior, cross-tenant tests for a new table, PROGRESS updated). Phases 1 and 2 can overlap; phase 3 depends on 1; phase 4 on 3.
 
 ### Phase 0: Decide and tell the truth
@@ -412,7 +414,7 @@ Goal: R5 and the first half of R4. In the first session a project has a live pag
 
 ### Phase 2: Reach and the person
 
-Status, Nov 12, 2026: 2.3 first part done (a person's own public profile at `/u/<handle>`). Next: 2.4 (a home for a person with no project) and 2.1 (small screens for the outer product).
+Status, Nov 12, 2026: 2.3 first part done (a person's own public profile at `/u/<handle>`); 2.2's Google half done (Continue with Google on the web, off until set up). **Ownership (founder, Nov 12):** the waitlist half of 2.2 and invitations (3.1) belong to the network session (`docs/NETWORK.md`), not this roadmap. 2.4 done: `/home`, a person with no project lands on a real screen, and the people pages (`/network`, `/communities`, `/profiles`) now work without a project, in a person frame (Nov 13). Next here: 2.1 (small screens for the outer product).
 
 Goal: R1 and R6. A person on a phone can arrive, exist and be found before any project exists.
 

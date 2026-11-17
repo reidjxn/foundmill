@@ -7,7 +7,7 @@ import { buildFoundationsRequest, docText, finaliseFoundations } from "@foundmil
 import { MockModelClient } from "@foundmill/models";
 import { describe, expect, it } from "vitest";
 import { FOUNDATIONS_CASES } from "../foundations/cases";
-import { LIVE_MARKUP_RE, checkFoundations, runFoundationsCase, runFoundationsStagedCase, storedStrings } from "../foundations/run";
+import { LIVE_MARKUP_RE, checkFoundations, planNoteProblems, runFoundationsCase, runFoundationsStagedCase, storedStrings } from "../foundations/run";
 
 describe("foundations eval cases", () => {
   it("cover both doors, have unique ids, a rubric, and a physical archetype", () => {
@@ -98,6 +98,19 @@ describe("foundations eval cases", () => {
     const paraphrased = { ...result.json, sections: result.json.sections.map((s) => ({ ...s, content: JSON.parse(JSON.stringify(s.content).split(c.mustStore![0]!).join("Students want shifts; venues want staff.")) })) };
     const problems = checkFoundations(c, finaliseFoundations(paraphrased, c.inputs), result.text);
     expect(problems.some((p) => p.startsWith("the founder's words were not kept verbatim"))).toBe(true);
+  });
+});
+
+describe("the plan note (WP-04 T5)", () => {
+  it("has at most five lines and no figure the draft lacks for every case; a longer note or an invented figure is caught", async () => {
+    for (const c of FOUNDATIONS_CASES) {
+      const result = await runFoundationsCase(c, { client: new MockModelClient(), grade: false });
+      expect(result.draft, c.id).not.toBeNull();
+      expect(planNoteProblems(result.draft!), c.id).toEqual([]);
+    }
+    const draft = (await runFoundationsCase(FOUNDATIONS_CASES[0]!, { client: new MockModelClient(), grade: false })).draft!;
+    expect(planNoteProblems(draft, { subject: "Your plan is ready", bodyMd: "a\n\nb\n\nc\n\nd\n\ne\n\nf" })).toEqual(["the plan note has 6 lines (at most 5)"]);
+    expect(planNoteProblems(draft, { subject: "Your plan is ready", bodyMd: "**What it costs:** 987654 a month.\n\n[Read the full plan](/b/123e4567/d/product/roadmap)" })).toEqual(["the plan note has figures the draft does not: 987654"]);
   });
 });
 

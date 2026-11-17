@@ -24,12 +24,17 @@ const CHIEF = "Ines Park";
 const signoffNote = (agentId: string, kind: "spec" | "roadmap"): ComposerItem => ({ type: "decision", from_agent_id: agentId, subject: kind === "spec" ? "Sign off the product specification" : "Sign off the product roadmap", body_md: "Approve it or ask for changes.", status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: signoffDecisionBlock(kind), blocks_continue: false, source_event_ids: [], entity_ids: [] });
 
 let n = 0;
-/** A committed business with an owner, a member and a viewer, a Chief of Staff named Ines Park, and open sign-offs. */
-async function business(name: string) {
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * A committed business with an owner, a member and a viewer, a Chief of Staff named Ines Park, and open sign-offs.
+ * Committed two days ago unless told otherwise, so the first day's wait for the page (WP-04 T8) is over.
+ */
+async function business(name: string, options: { committedAt?: Date } = {}) {
   n += 1;
   const [ownerId, memberId, viewerId] = await Promise.all(["owner", "member", "viewer"].map((r) => hz.h.createUser(`goals-${n}-${r}@test.local`)));
   const b = await repos.businesses.create(hz.db, { name: `${name} ${n}`, archetype: "b2b_saas" });
-  await repos.businesses.commit(hz.db, b.id, { archetype: "b2b_saas" });
+  await repos.businesses.commit(hz.db, b.id, { archetype: "b2b_saas", committedAt: options.committedAt ?? new Date(Date.now() - 2 * DAY_MS) });
   for (const [userId, role] of [[ownerId, "owner"], [memberId, "member"], [viewerId, "viewer"]] as const) await repos.memberships.add(hz.db, b.id, { userId: userId!, role });
   const chief = await repos.agents.create(hz.db, b.id, { name: CHIEF, agentType: "chief_of_staff", layer: "assistant", status: "healthy" });
   const owner = hz.caller({ userId: ownerId! });
@@ -94,6 +99,24 @@ describe("goal.ensure: when the Chief of Staff proposes the first goal", () => {
     await expect(b.viewer.inbox.decide({ businessId: b.id, itemId: notes[0]!.id, chosenOption: "approve" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     // The open proposal is answered, never filed away.
     await expect(b.owner.inbox.archive({ businessId: b.id, itemId: notes[0]!.id })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+});
+
+describe("goal.ensure: the first goal waits for the page (WP-04 T8)", () => {
+  it("proposes nothing on a project's first day until its page is live", async () => {
+    const b = await business("Goal Page Co", { committedAt: new Date(Date.now() - 60 * 60 * 1000) });
+    await signedOffAndWorked(b);
+    expect(await b.owner.goal.ensure({ businessId: b.id })).toMatchObject({ proposedNow: false, proposed: null });
+    expect(await repos.goals.recent(hz.db, b.id)).toEqual([]);
+
+    await repos.pages.publish(hz.db, b.id, { content: { pitch: "Bread by bike", about: "Fresh bread.", forWhom: "", stage: "building", showFounders: false, followForm: false }, slug: `goal-page-${n}`, userId: b.ownerId });
+    expect((await b.owner.goal.ensure({ businessId: b.id })).proposedNow).toBe(true);
+  });
+
+  it("proposes once the first day has passed, with no page", async () => {
+    const b = await business("Goal Later Co", { committedAt: new Date(Date.now() - DAY_MS - 60_000) });
+    await signedOffAndWorked(b);
+    expect((await b.owner.goal.ensure({ businessId: b.id })).proposedNow).toBe(true);
   });
 });
 

@@ -16,7 +16,7 @@
 import { z } from "zod";
 import { APP_NAME } from "@foundmill/config";
 import { SEVERITIES, type Severity, type SourceKind } from "@foundmill/shared";
-import { buildSystemPrompt } from "./club-rules";
+import { agentPromptFields, buildSystemPrompt, type AgentPromptParts } from "./club-rules";
 import { docText, inertJson, plainLine, plainModelText, untrustedBlock } from "./foundations";
 import { sourceRelevancePrompt, sourceWatcherPrompt } from "./prompts/source-watcher";
 import { getTemplate } from "./registry";
@@ -121,8 +121,8 @@ export interface SourceWatchRequest<T> {
 const excerpt = (text: string, chars: number) => (text.length > chars ? `${text.slice(0, chars).trimEnd()}…` : text);
 const label = (b: SourceWatchBlock) => `${b.id} (${b.section}${b.pinned ? ", pinned" : ""})`;
 
-function system(businessName: string): string[] {
-  return [buildSystemPrompt({ businessName, appName: APP_NAME, template: getTemplate(SOURCE_WATCH_TEMPLATE_KEY) })];
+function system(businessName: string, agent?: AgentPromptParts): string[] {
+  return [buildSystemPrompt({ businessName, appName: APP_NAME, ...agentPromptFields(agent, getTemplate(SOURCE_WATCH_TEMPLATE_KEY)) })];
 }
 
 function sourceBlock(source: SourceWatchSource, content: SourceContent, chars: number, extra: Record<string, unknown> = {}): string {
@@ -130,12 +130,12 @@ function sourceBlock(source: SourceWatchSource, content: SourceContent, chars: n
 }
 
 /** Step 1 (Haiku): which candidate blocks the source speaks to, its severity, summary and topics. */
-export function buildSourceRelevanceRequest(input: { businessName: string; source: SourceWatchSource; content: SourceContent; candidates: readonly SourceWatchBlock[] }): SourceWatchRequest<SourceRelevanceOutput> {
+export function buildSourceRelevanceRequest(input: { businessName: string; source: SourceWatchSource; content: SourceContent; candidates: readonly SourceWatchBlock[]; agent?: AgentPromptParts }): SourceWatchRequest<SourceRelevanceOutput> {
   const prompt = sourceRelevancePrompt.render({ source_kind: input.source.kind, candidate_blocks: input.candidates.map(label) });
   const trusted = { source: { id: input.source.id, kind: input.source.kind }, candidate_blocks: input.candidates.map((b) => ({ id: b.id, section: b.section, pinned: b.pinned, excerpt: excerpt(docText(b.content), 600) })) };
   return {
     route: "classifier",
-    system: system(input.businessName),
+    system: system(input.businessName, input.agent),
     messages: [{ role: "user", content: [prompt, "```json\n" + inertJson(trusted) + "\n```", sourceBlock(input.source, input.content, SOURCE_TEXT_LIMIT)].join("\n\n") }],
     schema: SourceRelevanceOutput,
     maxTokens: SOURCE_RELEVANCE_MAX_TOKENS,
@@ -143,7 +143,7 @@ export function buildSourceRelevanceRequest(input: { businessName: string; sourc
 }
 
 /** Step 2 (Opus): the proposed text of each relevant block. The classifier's summary travels with the source, as data. */
-export function buildSourceProposalRequest(input: { businessName: string; source: SourceWatchSource; content: SourceContent; relevance: SourceRelevance; blocks: readonly SourceWatchBlock[] }): SourceWatchRequest<SourceProposalOutput> {
+export function buildSourceProposalRequest(input: { businessName: string; source: SourceWatchSource; content: SourceContent; relevance: SourceRelevance; blocks: readonly SourceWatchBlock[]; agent?: AgentPromptParts }): SourceWatchRequest<SourceProposalOutput> {
   const severity: Severity = input.relevance.severity;
   const prompt = sourceWatcherPrompt.render({ business_name: input.businessName, severity, blocks: input.blocks.map(label) });
   const scores = new Map(input.relevance.blocks.map((b) => [b.blockId, b]));
@@ -151,7 +151,7 @@ export function buildSourceProposalRequest(input: { businessName: string; source
   const classified = { summary: input.relevance.summary, reasons: input.blocks.map((b) => ({ block_id: b.id, reason: scores.get(b.id)?.reason ?? "" })) };
   return {
     route: "departmentLead",
-    system: system(input.businessName),
+    system: system(input.businessName, input.agent),
     messages: [{ role: "user", content: [prompt, "```json\n" + inertJson(trusted) + "\n```", sourceBlock(input.source, input.content, SOURCE_DRAFT_TEXT_LIMIT, { classifier: classified })].join("\n\n") }],
     schema: SourceProposalOutput,
     maxTokens: SOURCE_PROPOSAL_MAX_TOKENS,

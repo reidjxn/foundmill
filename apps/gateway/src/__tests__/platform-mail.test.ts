@@ -2,21 +2,26 @@
  * A project's Foundmill sending address through the gateway (package 1.5): Cedar first and unchanged (a first message to
  * someone outside the project asks), then the guards of platform-mail.ts in order, then the vendor; the sender and the
  * signed custom args come from the gateway, a send that went out writes `mail.sent`, and only sends that went out count
- * against the project's day and the deployment's ceiling.
+ * against the project's day and the deployment's ceiling. A commercial message carries the founders' postal address and
+ * is refused without one (US CAN-SPAM); a proven reply or receipt is transactional and goes without it.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { createPlatformMailConnector, createPlatformMailMock, platformMailCustomArgs, readPlatformUnsubscribeToken, routedFetch, suppressionHashOfEmail, verifyPlatformMailArgs } from "@foundmill/connectors";
+import { createPlatformMailConnector, createPlatformMailMock, emailEntityId, platformMailCustomArgs, readPlatformUnsubscribeToken, routedFetch, suppressionHashOfEmail, verifyPlatformMailArgs } from "@foundmill/connectors";
 import { repos, suppressionHash } from "@foundmill/db";
 import { APP_NAME } from "@foundmill/config";
-import { PLATFORM_MAIL_REFUSALS } from "@foundmill/shared";
+import { PLATFORM_MAIL_REFUSALS, POSTAL_ADDRESS_NOTE } from "@foundmill/shared";
 import { DEV_PLATFORM_MAIL_SECRET, PLATFORM_MAIL_POLICY, platformMailConfig, type PlatformMailConfig } from "../platform-mail";
 import { DAY_MS, RedisRateLimitStore, windowStart, type RedisCounter } from "../rate-limit";
 import { setupGateway, type GatewayFixture } from "./harness";
 import type { AllowResponse, AskResponse, CallResponse, DenyResponse } from "../types";
 
 const DOMAIN = "mail.foundmill.test";
+const POSTAL = "PO Box 1234, Springfield, IL 62701, USA";
 const config = (over: Partial<PlatformMailConfig> = {}): PlatformMailConfig => ({ domain: DOMAIN, dailyCap: 50, ceiling: 2_000, signingSecret: null, unsubscribeBase: "http://localhost:4005", ...over });
 const message = (to = "anna@example.com", over: Record<string, unknown> = {}) => ({ connector: "platform_mail", tool: "send_mail", args: { to: { email: to, name: "Anna" }, subject: "Thanks for joining", text: "Hi Anna, thanks for joining the list.", ...over } });
+
+/** The addresses these tests mail, each given a basis to be mailed on (a confirmed follow; WP-08 T10). */
+const MAILABLE = ["Payer@Example.com", "anna@example.com", "dev@example.com", "five@example.com", "four@example.com", "gone@example.com", "lead2@example.com", "lead@example.com", "memory@example.com", "named@example.com", "off.person@example.com", "one@example.com", "quit@example.com", "redis-down@example.com", "redis-up@example.com", "seven@example.com", "six@example.com", "staging@example.com", "stranger@example.com", "three@example.com", "two@example.com", "writer@example.com", "Payer@Example.com"];
 
 /** A Redis that answers (or not, while `down`): counts shared by every replica, as on staging and production. */
 function fakeRedis() {
@@ -51,10 +56,13 @@ describe("platform_mail through the gateway (mock)", () => {
   beforeAll(async () => {
     g = await setupGateway({ businessMode: "automated", connectors: [mock] });
     g.deps.appEnv = "test";
-    token = await g.token({ allowedTools: ["platform_mail:*"] });
+    for (const e of MAILABLE) await g.mailable(e);
+    await repos.postalAddress.set(g.db, g.businessId, { address: POSTAL, userId: null });
   }, 120_000);
   afterAll(async () => g.close());
   beforeEach(async () => {
+    // A fresh session per test: an identical send already done in the same session is replayed, not sent again (WP-05 T14).
+    token = await g.token({ allowedTools: ["platform_mail:*"], sessionId: await g.newSession() });
     g.deps.platformMail = config();
     await repos.businesses.setBusinessMode(g.db, g.businessId, "automated");
   });
@@ -67,16 +75,39 @@ describe("platform_mail through the gateway (mock)", () => {
     expect(mock.sentFor(g.businessId)).toHaveLength(0);
   });
 
-  it("a first message to someone new asks the founder in assisted mode, and nothing is sent or counted", async () => {
+  it("off → no approval row: a first message to someone new in assisted mode is refused, not asked (WP-02 T3)", async () => {
     await repos.businesses.setBusinessMode(g.db, g.businessId, "assisted");
-    const r = (await g.client.call(token, message("new.person@example.com"))) as AskResponse;
-    expect(r.outcome).toBe("ask");
-    expect(r.approvalId).toBeTruthy();
-    expect(r.reasons.join(" ")).toMatch(/irreversible/i);
+    g.deps.platformMail = config({ domain: null });
+    const approvals = async () => (await g.h.pg.query<{ n: number }>("select count(*)::int as n from approvals where business_id = $1", [g.businessId])).rows[0]!.n;
+    const before = await approvals();
+    const r = asDeny(await g.client.call(token, message("off.person@example.com")));
+    expect(r.policyIds).toEqual([PLATFORM_MAIL_POLICY.off]);
+    expect(r.reasons).toEqual([PLATFORM_MAIL_REFUSALS.off]);
+    expect(await approvals()).toBe(before);
+    expect(g.rateLimits.peek(`pm:${g.businessId}:day`, Date.now())).toBe(0);
+  });
+
+  it("a first message to someone the founder added asks the founder, in every mode; someone new is refused (WP-08 T10)", async () => {
+    await g.mailable("new.person@example.com", "recorded");
+    for (const mode of ["assisted", "automated"] as const) {
+      await repos.businesses.setBusinessMode(g.db, g.businessId, mode);
+      const r = (await g.client.call(token, message("new.person@example.com"))) as AskResponse;
+      expect(r.outcome, mode).toBe("ask");
+      expect(r.approvalId).toBeTruthy();
+      expect(r.policyIds).toContain("mail-recorded-basis-asks");
+    }
     expect(mock.sentFor(g.businessId).some((m) => m.to === "new.person@example.com")).toBe(false);
     expect(g.rateLimits.peek(`pm:${g.businessId}:day`, Date.now())).toBe(0);
-    await repos.businesses.setBusinessMode(g.db, g.businessId, "augmented");
-    expect((await g.client.call(token, message("other.person@example.com"))).outcome).toBe("ask");
+    // Nobody at this address agreed, wrote or paid, and the founder did not add them: refused, with no approval to ask.
+    const approvals = async () => (await g.h.pg.query<{ n: number }>("select count(*)::int as n from approvals where business_id = $1", [g.businessId])).rows[0]!.n;
+    const before = await approvals();
+    for (const mode of ["augmented", "assisted", "automated"] as const) {
+      await repos.businesses.setBusinessMode(g.db, g.businessId, mode);
+      const r = asDeny(await g.client.call(token, message("other.person@example.com")));
+      expect(r.policyIds, mode).toEqual(["mail-needs-basis"]);
+    }
+    expect(await approvals()).toBe(before);
+    expect(mock.sentFor(g.businessId).some((m) => m.to === "other.person@example.com")).toBe(false);
   });
 
   it("sends from the project's own address with signed custom args, marks it simulated and writes mail.sent", async () => {
@@ -95,6 +126,8 @@ describe("platform_mail through the gateway (mock)", () => {
     // Signed with the development secret on a test stack, for this recipient; ingest verifies the same way.
     expect(verifyPlatformMailArgs(DEV_PLATFORM_MAIL_SECRET, { ...body.personalizations[0]!.customArgs, email: "anna@example.com" })).toEqual({ businessId: g.businessId, messageRef: sent.messageRef });
     expect(verifyPlatformMailArgs(DEV_PLATFORM_MAIL_SECRET, { ...body.personalizations[0]!.customArgs, email: "someone.else@example.com" })).toBeNull();
+    // A marketing message: the founders' postal address is in the footer (US CAN-SPAM).
+    expect((sent.body as { text: string }).text).toContain(`Postal address: ${POSTAL}.`);
     const unsubscribe = new URL(body.headers["List-Unsubscribe"]!.slice(1, -1));
     expect(unsubscribe.origin + unsubscribe.pathname).toBe("http://localhost:4005/mail/unsubscribe");
     expect(readPlatformUnsubscribeToken(DEV_PLATFORM_MAIL_SECRET, unsubscribe.searchParams.get("t")!)).toEqual({ businessId: g.businessId, emailHash: suppressionHashOfEmail("anna@example.com") });
@@ -189,6 +222,7 @@ describe("platform_mail through the gateway (mock)", () => {
       expect(asDeny(await g.client.call(token, message())).policyIds).toEqual([PLATFORM_MAIL_POLICY.unconfigured]);
     } finally {
       g.deps.appEnv = "test";
+    for (const e of MAILABLE) await g.mailable(e);
     }
   });
 
@@ -204,6 +238,7 @@ describe("platform_mail through the gateway (mock)", () => {
       expect((await repos.audit.get(g.db, g.businessId, r.auditId)).details).toMatchObject({ outcome: "deny", policyIds: [PLATFORM_MAIL_POLICY.simulated] });
     } finally {
       g.deps.appEnv = "test";
+    for (const e of MAILABLE) await g.mailable(e);
     }
   });
 
@@ -238,6 +273,7 @@ describe("platform_mail through the gateway (mock)", () => {
     } finally {
       g.deps.rateLimits = memory;
       g.deps.appEnv = "test";
+    for (const e of MAILABLE) await g.mailable(e);
       await g.h.pg.query(`update businesses set is_demo = false where id = $1`, [g.businessId]);
     }
   });
@@ -248,6 +284,7 @@ describe("platform_mail through the gateway (mock)", () => {
       asAllow(await g.client.call(token, message("dev@example.com")));
     } finally {
       g.deps.appEnv = "test";
+    for (const e of MAILABLE) await g.mailable(e);
     }
   });
 
@@ -290,8 +327,10 @@ describe("platform_mail through the gateway (live: SendGrid on the platform key)
     });
     g = await setupGateway({ businessMode: "automated", connectors: [live], liveConnectors: ["sendgrid"] });
     g.deps.appEnv = "production";
+    for (const e of MAILABLE) await g.mailable(e);
     g.deps.rateLimits = new RedisRateLimitStore(counter.redis);
     token = await g.token({ allowedTools: ["platform_mail:*"] });
+    await repos.postalAddress.set(g.db, g.businessId, { address: POSTAL, userId: null });
   }, 120_000);
   afterAll(async () => g.close());
 
@@ -312,6 +351,7 @@ describe("platform_mail through the gateway (live: SendGrid on the platform key)
     const p = (posted[0]!.body.personalizations as { custom_args: Record<string, string> }[])[0]!;
     expect(verifyPlatformMailArgs(SECRET, { ...p.custom_args, email: "anna@example.com" })?.businessId).toBe(g.businessId);
     expect((posted[0]!.body.from as { name: string }).name).toBe(`Gateway Test Club via ${APP_NAME}`);
+    expect(posted[0]!.body.content).toEqual(expect.arrayContaining([expect.objectContaining({ type: "text/plain", value: expect.stringContaining(`Postal address: ${POSTAL}.`) })]));
     const [event] = (await repos.events.list(g.db, g.businessId, { type: "mail.sent" })).items;
     expect(event?.payload).toMatchObject({ messageId: "sg-1", simulated: false });
 
@@ -353,3 +393,93 @@ describe("platform_mail through the gateway (live: SendGrid on the platform key)
     expect((await repos.events.list(g.db, g.businessId, { type: "mail.sent" })).items).toHaveLength(1);
   });
 });
+
+describe("platform_mail and the founders' postal address (US CAN-SPAM)", () => {
+  let g: GatewayFixture;
+  const mock = createPlatformMailMock();
+  let token: string;
+  const notes = async () => (await repos.inbox.list(g.db, g.businessId, { tab: "all", limit: 50 })).items.filter((i) => (i.decision as { key?: string } | null)?.key === POSTAL_ADDRESS_NOTE.key);
+
+  beforeAll(async () => {
+    g = await setupGateway({ businessMode: "automated", connectors: [mock] });
+    g.deps.appEnv = "test";
+    for (const e of MAILABLE) await g.mailable(e);
+    g.deps.platformMail = config();
+    token = await g.token({ allowedTools: ["platform_mail:*"] });
+  }, 120_000);
+  afterAll(async () => g.close());
+
+  it("refuses a marketing message without the address, in plain words the agent reports, counting nothing", async () => {
+    const r = asDeny(await g.client.call(token, message("lead@example.com")));
+    expect(r.policyIds).toEqual([PLATFORM_MAIL_POLICY.no_postal_address]);
+    expect(r.reasons).toEqual([PLATFORM_MAIL_REFUSALS.no_postal_address]);
+    expect(r.reasons[0]).toMatch(/^Not sent: the founder has not added a postal address yet\./);
+    expect(mock.sentFor(g.businessId)).toHaveLength(0);
+    expect(g.rateLimits.peek(`pm:${g.businessId}:day`, Date.now())).toBe(0);
+    expect((await repos.audit.get(g.db, g.businessId, r.auditId)).details).toMatchObject({ outcome: "deny", policyIds: [PLATFORM_MAIL_POLICY.no_postal_address] });
+    // A purpose the gateway cannot prove is marketing too.
+    expect(asDeny(await g.client.call(token, message("stranger@example.com", { purpose: "reply" }))).policyIds).toEqual([PLATFORM_MAIL_POLICY.no_postal_address]);
+    expect(asDeny(await g.client.call(token, message("stranger@example.com", { purpose: "receipt" }))).policyIds).toEqual([PLATFORM_MAIL_POLICY.no_postal_address]);
+  });
+
+  it("raises one note to the founders, in Needs you, and no other while it is open", async () => {
+    const open = await notes();
+    expect(open).toHaveLength(1);
+    expect(open[0]).toMatchObject({ type: "decision", subject: POSTAL_ADDRESS_NOTE.subject, blocksContinue: false });
+    const created = (await repos.events.list(g.db, g.businessId, { type: "inbox.item_created" })).items.filter((e) => (e.payload as { inboxItemId?: string }).inboxItemId === open[0]!.id);
+    expect(created).toHaveLength(1);
+    const respond = (await repos.inbox.list(g.db, g.businessId, { tab: "respond", limit: 50 })).items.map((i) => i.id);
+    expect(respond).toContain(open[0]!.id);
+    asDeny(await g.client.call(token, message("lead2@example.com")));
+    expect(await notes()).toHaveLength(1);
+  });
+
+  it("a reply to a person who wrote first goes out without the address; a reply to someone who never wrote does not", async () => {
+    const replier = "writer@example.com";
+    await writeGatewayEventForTest(g, "lead.replied", replier);
+    const r = asAllow(await g.client.call(token, message(replier, { purpose: "reply", subject: "Re: your question", text: "Yes, the class is on Tuesday at 5 PM." })));
+    expect(r.result.ok).toBe(true);
+    const sent = mock.sentFor(g.businessId).at(-1)!;
+    expect(sent.to).toBe(replier);
+    const text = (sent.body as { text: string }).text;
+    expect(text).not.toContain("Postal address");
+    expect(text).toContain("To stop getting these emails:");
+    // Their reply does not make a marketing message to them transactional.
+    expect(asDeny(await g.client.call(token, message(replier))).policyIds).toEqual([PLATFORM_MAIL_POLICY.no_postal_address]);
+  });
+
+  it("a reply asking to stop is no relationship to answer", async () => {
+    const quitter = "quit@example.com";
+    await writeGatewayEventForTest(g, "lead.replied", quitter, { sentiment: "unsubscribe" });
+    expect(asDeny(await g.client.call(token, message(quitter, { purpose: "reply" }))).policyIds).toEqual([PLATFORM_MAIL_POLICY.no_postal_address]);
+  });
+
+  it("a receipt for a payment from that address goes out without it", async () => {
+    const payer = "Payer@Example.com";
+    await writeGatewayEventForTest(g, "payment.received", payer);
+    const r = asAllow(await g.client.call(token, message(payer, { purpose: "receipt", subject: "Your receipt", text: "Thanks for your payment of $20 for the March class." })));
+    expect(r.result.ok).toBe(true);
+    expect((mock.sentFor(g.businessId).at(-1)!.body as { text: string }).text).not.toContain("Postal address");
+  });
+
+  it("once the founders add it, marketing goes out with it in the footer", async () => {
+    await repos.postalAddress.set(g.db, g.businessId, { address: POSTAL, userId: null });
+    try {
+      asAllow(await g.client.call(token, message("lead@example.com")));
+      const body = mock.sentFor(g.businessId).at(-1)!.body as { text: string; html?: string };
+      expect(body.text).toContain(`Postal address: ${POSTAL}.`);
+    } finally {
+      await repos.postalAddress.clear(g.db, g.businessId);
+    }
+  });
+});
+
+/** A verified reply from `email` (as ingest writes it) or a payment from it, in this business's event log. */
+async function writeGatewayEventForTest(g: GatewayFixture, type: "lead.replied" | "payment.received", email: string, over: Record<string, unknown> = {}): Promise<void> {
+  const entityId = emailEntityId(email);
+  const payload =
+    type === "lead.replied"
+      ? { entityId, channelKey: "email_automation", campaignId: null, interactionId: crypto.randomUUID(), sentiment: "neutral", summary: "Email reply (12 words); body quarantined for the reader.", requestsMeeting: false, ...over }
+      : { entityId, conversionId: crypto.randomUUID(), amount: { amountMinor: 2000, currency: "USD" }, provider: "stripe", externalId: `in_${crypto.randomUUID()}`, firstPayment: true, recurring: false, productRef: null, fee: null, customer: { externalId: null, email, name: null }, source: null, ...over };
+  await repos.events.write(g.db, g.businessId, { id: crypto.randomUUID(), type, actor: { kind: "webhook", id: "test" }, entityIds: [entityId], payload, occurredAt: new Date() });
+}

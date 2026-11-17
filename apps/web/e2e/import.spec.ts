@@ -51,10 +51,10 @@ test.describe("import", () => {
     // Import's own trail (no Ideate or Compare), and the report's archetype is the one preselected.
     await expect(page.locator("[data-step-item]")).toHaveCount(4);
     await expect(page.locator('[data-step-item="ideate"]')).toHaveCount(0);
-    // "How it runs" is collapsed for a guided founder (plan A3): the summary chip names the archetype, and
-    // "Change" opens the cards with the report's one preselected.
+    // "How it runs" sits under More options (WP-04 T2): its summary names the archetype over the cards, the report's
+    // one preselected.
+    await page.getByTestId("commit-more").click();
     await expect(page.locator('[data-summary="archetype"]')).toHaveText("B2B SaaS");
-    await page.getByTestId("how-it-runs-change").click();
     await expect(page.locator('[data-option="b2b_saas"]')).toHaveAttribute("data-selected", "true");
   });
 
@@ -71,8 +71,8 @@ test.describe("import", () => {
     await expect(page.getByTestId("scouting-report")).toBeVisible({ timeout: LONG });
   });
 
-  test("a window under 1280 px asks for a larger one instead of an overflowing top bar (audit PAS-5)", async ({ page }) => {
-    await page.setViewportSize({ width: 1279, height: 800 });
+  test("a window under 640 px asks for a larger one instead of an overflowing top bar (audit PAS-5; decision 3 scrolls from 640 px)", async ({ page }) => {
+    await page.setViewportSize({ width: 600, height: 800 });
     await expect(page.getByTestId("needs-larger-window")).toBeVisible();
     await page.setViewportSize({ width: 1440, height: 900 });
     await expect(page.getByTestId("import-sources")).toBeVisible();

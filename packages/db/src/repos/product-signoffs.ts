@@ -10,7 +10,7 @@
  */
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
-import { SIGNOFF_KINDS, SIGNOFF_STATUSES, type SignoffKind } from "@foundmill/shared";
+import { PLAN_READY_NOTE, SIGNOFF_KINDS, SIGNOFF_STATUSES, type SignoffKind } from "@foundmill/shared";
 import { productSignoffs, type InboxItem, type ProductSignoff } from "../schema";
 import { Id, JsonObject, maybeOne, parseInput, type Executor } from "./_shared";
 import { inboxRepo, type ComposerItem } from "./inbox";
@@ -42,7 +42,7 @@ export const SIGNOFF_OPTIONS: Record<SignoffKind, readonly SignoffOption[]> = {
     { id: "request_changes", label: "Request changes", recommended: false, consequence: "Tell me what to change; I revise the specification and ask for your sign-off again.", cost_minor: 0, reversible: true },
   ],
   roadmap: [
-    { id: "approve", label: "Approve the roadmap", recommended: true, consequence: "Building starts: the Planner turns the Now items into tasks and the engineers pick them up in the next cycle.", cost_minor: 0, reversible: true },
+    { id: "approve", label: "Approve the roadmap", recommended: true, consequence: "Building starts: the Planner turns the Now items into tasks and the team starts on them in its next round of work.", cost_minor: 0, reversible: true },
     { id: "request_changes", label: "Request changes", recommended: false, consequence: "Tell me what to change; I revise the roadmap and ask for your sign-off again.", cost_minor: 0, reversible: true },
   ],
   ready_to_sell: [
@@ -54,6 +54,20 @@ export const SIGNOFF_OPTIONS: Record<SignoffKind, readonly SignoffOption[]> = {
 /** The decision block of a sign-off note of `kind` (options fixed, free text allowed, no deadline). */
 export function signoffDecisionBlock(kind: SignoffKind): NonNullable<ComposerItem["decision"]> {
   return { options: SIGNOFF_OPTIONS[kind].map((o) => ({ ...o })), free_text: true, expires_at: null };
+}
+
+/**
+ * The options of the one plan note (WP-04 T5): the same ids as a sign-off (`approve`, `request_changes`), so the Inbox,
+ * the one-click answer and Today decide it as they decide any sign-off; the words are the plan's.
+ */
+export const PLAN_OPTIONS: readonly SignoffOption[] = [
+  { id: "approve", label: PLAN_READY_NOTE.approveLabel, recommended: true, consequence: "Your team starts building the first item on the plan.", cost_minor: 0, reversible: true },
+  { id: "request_changes", label: PLAN_READY_NOTE.changeLabel, recommended: false, consequence: "Tell me what to change; I revise the plan and ask you again.", cost_minor: 0, reversible: true },
+];
+
+/** The decision block of the plan note: both rounds (the specification and the roadmap) are answered from it. */
+export function planDecisionBlock(): NonNullable<ComposerItem["decision"]> {
+  return { options: PLAN_OPTIONS.map((o) => ({ ...o })), free_text: true, expires_at: null, key: PLAN_READY_NOTE.key };
 }
 
 const OpenInput = z.object({
@@ -107,24 +121,51 @@ export const productSignoffsRepo = {
     return maybeOne(await db.select().from(productSignoffs).where(scoped(businessId, id)).limit(1));
   },
 
-  /** The round an Inbox decision note asks about, or null for any other note. */
+  /**
+   * The round an Inbox decision note asks about, or null for any other note. The plan note (WP-04 T5) carries two rounds:
+   * one still open comes first, then the newest, then the specification's.
+   */
   async forInboxItem(db: Executor, businessId: string, inboxItemId: string): Promise<ProductSignoff | null> {
-    return maybeOne(await db.select().from(productSignoffs).where(and(eq(productSignoffs.businessId, businessId), eq(productSignoffs.inboxItemId, inboxItemId))).orderBy(desc(productSignoffs.round)).limit(1));
+    return maybeOne(
+      await db
+        .select()
+        .from(productSignoffs)
+        .where(and(eq(productSignoffs.businessId, businessId), eq(productSignoffs.inboxItemId, inboxItemId)))
+        .orderBy(sql`case when ${productSignoffs.status} in ('pending', 'changes_requested') then 0 else 1 end`, desc(productSignoffs.round), desc(productSignoffs.kind))
+        .limit(1),
+    );
+  },
+
+  /** Every round tied to an Inbox note (the plan note has two), newest first. */
+  async listForInboxItem(db: Executor, businessId: string, inboxItemId: string): Promise<ProductSignoff[]> {
+    return db
+      .select()
+      .from(productSignoffs)
+      .where(and(eq(productSignoffs.businessId, businessId), eq(productSignoffs.inboxItemId, inboxItemId)))
+      .orderBy(desc(productSignoffs.round), desc(productSignoffs.kind));
+  },
+
+  /** Point a round at another Inbox note (the plan note asked again carries the roadmap round still pending, WP-04 T5). */
+  async attach(db: Executor, businessId: string, signoffId: string, inboxItemId: string): Promise<ProductSignoff | null> {
+    const rows = await db.update(productSignoffs).set({ inboxItemId }).where(scoped(businessId, signoffId)).returning();
+    return rows[0] ?? null;
   },
 
   /**
    * Open the next round of `kind`: the Inbox decision note (`item`, whose decision block the caller takes from
-   * `signoffDecisionBlock`) and the row, together. While a pending round of that kind exists nothing is written and that
-   * round comes back (`created: false`), so a retried apply or a second publish never asks twice.
+   * `signoffDecisionBlock` or `planDecisionBlock`) and the row, together; with `inboxItemId` instead, the round is
+   * attached to that existing note (the plan note's second round, WP-04 T5) and no note is written. While a pending round
+   * of that kind exists nothing is written and that round comes back (`created: false`), so a retried apply or a second
+   * publish never asks twice.
    */
-  async open(db: Executor, businessId: string, input: { kind: SignoffKind; item: ComposerItem; snapshot?: Record<string, unknown> | null; specVersionId?: string | null }): Promise<{ signoff: ProductSignoff; item: InboxItem | null; created: boolean }> {
+  async open(db: Executor, businessId: string, input: { kind: SignoffKind; snapshot?: Record<string, unknown> | null; specVersionId?: string | null } & ({ item: ComposerItem; inboxItemId?: undefined } | { inboxItemId: string; item?: undefined })): Promise<{ signoff: ProductSignoff; item: InboxItem | null; created: boolean }> {
     const v = parseInput(OpenInput, input, "product sign-off");
     const latest = maybeOne(await db.select().from(productSignoffs).where(and(eq(productSignoffs.businessId, businessId), eq(productSignoffs.kind, v.kind))).orderBy(desc(productSignoffs.round)).limit(1));
     if (latest && latest.status === "pending") {
       const item = latest.inboxItemId ? await inboxRepo.get(db, businessId, latest.inboxItemId).catch(() => null) : null;
       return { signoff: latest, item, created: false };
     }
-    const item = await inboxRepo.createItem(db, businessId, input.item);
+    const item = input.inboxItemId ? await inboxRepo.get(db, businessId, input.inboxItemId) : await inboxRepo.createItem(db, businessId, input.item!);
     const [signoff] = await db
       .insert(productSignoffs)
       .values({ businessId, kind: v.kind, round: (latest?.round ?? 0) + 1, status: "pending", inboxItemId: item.id, snapshot: v.snapshot ?? null, specVersionId: v.specVersionId ?? null })

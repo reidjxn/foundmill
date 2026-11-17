@@ -90,6 +90,8 @@ describe("writing and publishing", () => {
     const live = first.page;
     expect(live).toMatchObject({ live: true, changed: false, published: page() });
     expect(live.publishedAt).toBeInstanceOf(Date);
+    // Dated by the database when it went live (0090), not by a client.
+    expect(Math.abs(live.publishedAt!.getTime() - Date.now())).toBeLessThan(60_000);
     const url = `http://localhost:3000/p/${live.slug}`;
     expect(await pageEvents(b.id)).toEqual([{ type: "page.published", payload: expect.objectContaining({ slug: live.slug, url }) }]);
     expect((await repos.audit.list(hz.db, b.id, { action: "page.published" })).items).toHaveLength(1);
@@ -97,7 +99,13 @@ describe("writing and publishing", () => {
     // Signed out: exactly what the page shows.
     const anon = hz.caller(null);
     const pub = await anon.publicPage.bySlug({ slug: live.slug });
-    expect(pub).toEqual({ slug: live.slug, url, name: b.name, pitch: page().pitch, about: page().about, forWhom: page().forWhom, stage: "building", publishedAt: live.publishedAt, brandPrimary: expect.any(String), brandSecondary: expect.any(String), logo: null, founderNames: [], followForm: true });
+    expect(pub).toEqual({ slug: live.slug, url, name: b.name, pitch: page().pitch, about: page().about, forWhom: page().forWhom, stage: "building", publishedAt: live.publishedAt, brandPrimary: expect.any(String), brandSecondary: expect.any(String), logo: null, founderNames: [], followForm: true, mark: true, story: false });
+    // The mark is the free plan's: a paid plan removes it, for the visitor and in the founders' own view (docs/NETWORK.md F2).
+    expect((await b.owner.page.get({ businessId: b.id })).mark).toBe(true);
+    await repos.businesses.update(hz.db, b.id, { planTier: "pro" });
+    expect((await anon.publicPage.bySlug({ slug: live.slug }))!.mark).toBe(false);
+    expect((await b.owner.page.get({ businessId: b.id })).mark).toBe(false);
+    await repos.businesses.update(hz.db, b.id, { planTier: "free" });
 
     // A draft edit shows "changes not yet published" and does not reach the public page.
     const edited = await b.member.page.saveDraft({ businessId: b.id, draft: page({ stage: "live" }) });
@@ -110,11 +118,36 @@ describe("writing and publishing", () => {
     const down = await b.owner.page.unpublish({ businessId: b.id });
     expect(down).toMatchObject({ live: false, published: null, draft: { stage: "live" } });
     expect(down.unpublishedAt).toBeInstanceOf(Date);
+    expect(Math.abs(down.unpublishedAt!.getTime() - Date.now())).toBeLessThan(60_000);
+    // Taken down, the day it went live is kept.
+    expect(down.publishedAt).toEqual(live.publishedAt);
     expect(await anon.publicPage.bySlug({ slug: live.slug })).toBeNull();
     expect((await pageEvents(b.id)).map((e) => e.type)).toEqual(["page.published", "page.published", "page.unpublished"]);
     // A second take-down changes nothing and writes nothing.
     await b.owner.page.unpublish({ businessId: b.id });
     expect((await pageEvents(b.id)).map((e) => e.type)).toEqual(["page.published", "page.published", "page.unpublished"]);
+  });
+
+  it("an owner's direct write cannot backdate or forward-date a live page, or mark when it was taken down", async () => {
+    const b = await project("Dated Page");
+    const { page: live } = await b.owner.page.publish({ businessId: b.id, content: page() });
+    const anon = hz.caller(null);
+    // The owner's own session, straight at the table (around the api).
+    const direct = hz.h.asUser(b.ownerId);
+    for (const typed of ["2020-01-01T00:00:00Z", "2031-01-01T00:00:00Z"]) {
+      await direct.execute(sql`update project_pages set published_at = ${typed}::timestamptz where business_id = ${b.id}`);
+      expect((await anon.publicPage.bySlug({ slug: live.slug }))!.publishedAt).toEqual(live.publishedAt);
+      expect((await b.member.page.get({ businessId: b.id })).publishedAt).toEqual(live.publishedAt);
+    }
+    // The api's own publish and take-down still work afterwards, with the dates the database recorded.
+    const again = await b.owner.page.publish({ businessId: b.id, content: page({ stage: "live" }) });
+    expect(again.outcome === "published" && again.page.publishedAt).toEqual(live.publishedAt);
+    const down = await b.owner.page.unpublish({ businessId: b.id });
+    const takenDown = down.unpublishedAt!;
+    await direct.execute(sql`update project_pages set unpublished_at = '2020-01-01T00:00:00Z', published_at = '2020-01-01T00:00:00Z' where business_id = ${b.id}`);
+    expect(await b.owner.page.get({ businessId: b.id })).toMatchObject({ live: false, publishedAt: live.publishedAt, unpublishedAt: takenDown });
+    // Today's first-week line reads the day the page really went live.
+    expect((await repos.pages.get(hz.db, b.id))!.publishedAt).toEqual(live.publishedAt);
   });
 
   it("names the owners only when the page says so", async () => {
@@ -229,5 +262,69 @@ describe("publicPage.bySlug limits", () => {
     expect((await publicPageBySlug({ ...hz.deps, clientAddress: "203.0.113.31" }, live.slug))?.name).toBe(b.name);
     expect(publicPageLimitKeys.caller(hz.deps.env, "203.0.113.30")).not.toContain("203.0.113.30");
     expect(PUBLIC_PAGE_LIMITS.perCaller.limit).toBeGreaterThanOrEqual(300);
+  });
+});
+
+describe("publicPage.indexNowKeyFile", () => {
+  const KEY = "a1b2c3d4e5f6";
+  /** Connects IndexNow for the page the way the gateway stores it (hosted mode). */
+  async function connectHosted(businessId: string, slug: string, key = KEY) {
+    const settings = { config: { host: "localhost:3000", keyLocation: `http://localhost:3000/p/${slug}/${key}.txt`, key, hosted: true, slug } };
+    await hz.db.execute(sql`insert into integrations (business_id, connector_key, status, auth_kind, settings) values (${businessId}, 'indexnow', 'connected', 'api_key', ${JSON.stringify(settings)}::jsonb)`);
+  }
+
+  it("answers the key for the right key, signed out", async () => {
+    const b = await project("Key Page");
+    const live = (await b.owner.page.publish({ businessId: b.id, content: page() })).page;
+    await connectHosted(b.id, live.slug);
+    expect(await hz.caller(null).publicPage.indexNowKeyFile({ slug: live.slug, key: KEY })).toEqual({ key: KEY });
+    // The address is tidied like a page view's.
+    expect(await hz.caller(null).publicPage.indexNowKeyFile({ slug: ` ${live.slug.toUpperCase()} `, key: KEY })).toEqual({ key: KEY });
+    expect(await hits(publicPageLimitKeys.unknown)).toBe(0);
+    expect(await hits(publicPageLimitKeys.slug(live.slug))).toBe(2);
+  });
+
+  it("answers null for a wrong key, a malformed key, an unknown address and a page that is not public", async () => {
+    const b = await project("Wrong Key");
+    const live = (await b.owner.page.publish({ businessId: b.id, content: page() })).page;
+    await connectHosted(b.id, live.slug);
+    const anon = hz.caller(null);
+    expect(await anon.publicPage.indexNowKeyFile({ slug: live.slug, key: "zzzzzzzzzzzz" })).toBeNull();
+    expect(await anon.publicPage.indexNowKeyFile({ slug: live.slug, key: "short" })).toBeNull();
+    expect(await anon.publicPage.indexNowKeyFile({ slug: "no-such-page", key: KEY })).toBeNull();
+    expect(await anon.publicPage.indexNowKeyFile({ slug: "../etc", key: KEY })).toBeNull();
+
+    const draft = await project("Draft Key");
+    const drafted = await draft.member.page.saveDraft({ businessId: draft.id, draft: page() });
+    await connectHosted(draft.id, drafted.slug);
+    expect(await anon.publicPage.indexNowKeyFile({ slug: drafted.slug, key: KEY })).toBeNull();
+
+    // Taken down: the key is gone at once.
+    await b.owner.page.unpublish({ businessId: b.id });
+    expect(await anon.publicPage.indexNowKeyFile({ slug: live.slug, key: KEY })).toBeNull();
+  });
+
+  it("never serves one project's key at another project's address", async () => {
+    const a = await project("Key A");
+    const c = await project("Key C");
+    const liveA = (await a.owner.page.publish({ businessId: a.id, content: page() })).page;
+    const liveC = (await c.owner.page.publish({ businessId: c.id, content: page() })).page;
+    await connectHosted(a.id, liveA.slug);
+    expect(await hz.caller(null).publicPage.indexNowKeyFile({ slug: liveC.slug, key: KEY })).toBeNull();
+  });
+
+  it("a miss draws from the unknown limit and gives the per-address hit back", async () => {
+    const b = await project("Key Limits");
+    const live = (await b.owner.page.publish({ businessId: b.id, content: page() })).page;
+    await connectHosted(b.id, live.slug);
+    const anon = hz.caller(null);
+    for (let i = 0; i < 5; i++) expect(await anon.publicPage.indexNowKeyFile({ slug: live.slug, key: `wrongkey${i}x` })).toBeNull();
+    expect(await hits(publicPageLimitKeys.unknown)).toBe(5);
+    expect(await hits(publicPageLimitKeys.slug(live.slug))).toBe(0);
+    expect(await hits(publicPageLimitKeys.all)).toBe(0);
+    // With the unknown ceiling full, misses are refused and the real key file still reads.
+    await fill(publicPageLimitKeys.unknown, PUBLIC_PAGE_LIMITS.unknown);
+    expect(await code(anon.publicPage.indexNowKeyFile({ slug: live.slug, key: "wrongkeyyyyy" }))).toBe("TOO_MANY_REQUESTS");
+    expect(await anon.publicPage.indexNowKeyFile({ slug: live.slug, key: KEY })).toEqual({ key: KEY });
   });
 });

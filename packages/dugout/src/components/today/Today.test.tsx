@@ -7,6 +7,7 @@ import { GOAL_PANEL_WORDS, GoalPanel, proposedByLine, type GoalPanelGoal, type G
 import { NEEDS_YOU_WORDS, NeedsYouList, needsYouMeta, type NeedsYouRow } from "./NeedsYouList";
 import { WEEK_PLAN_WORDS, WeekPlan } from "./WeekPlan";
 import { PUBLIC_PAGE_NOTE_WORDS, PublicPageNote } from "./PublicPageNote";
+import { PostReadyNote } from "./PostReadyNote";
 
 const proposal: GoalPanelProposal = { id: "g2", sentence: "Get the first 10 paying customers by Dec 19", proposedBy: "Ines Park", because: "Recommended because the first customers tell us what to build next." };
 const active: GoalPanelGoal = { id: "g1", sentence: "Get the first 10 paying customers by Dec 19", state: "on_pace", progress: { current: 4, target: 10, valueText: "4 of 10 paying customers", pace: "4 of 10 so far, 38 days left: on pace (Forecast)." } };
@@ -117,6 +118,17 @@ describe("NeedsYouList", () => {
     expect(screen.getByRole("link", { name: NEEDS_YOU_WORDS.seeAll }).getAttribute("href")).toBe("/inbox?tab=respond");
   });
 
+  it("lays a row out from its container (stacked under page-wide) and keeps every control a finger's size", () => {
+    render(<NeedsYouList items={rows} total={7} seeAllHref="/inbox?tab=respond" onQuickAnswer={() => {}} />);
+    const first = screen.getAllByRole("listitem")[0]!;
+    expect(first.className).toContain("flex-col");
+    expect(first.className).toContain("@page-wide:flex-row");
+    for (const el of [...within(first).getAllByRole("button"), ...within(first).getAllByRole("link"), screen.getByRole("link", { name: NEEDS_YOU_WORDS.seeAll })]) {
+      expect(el.className).toContain("min-h-tap");
+      expect(el.className).toContain("@page-wide:min-h-0");
+    }
+  });
+
   it("offers one tap only where the row has a quick option, and Open on every row", async () => {
     const onQuickAnswer = vi.fn();
     render(<NeedsYouList items={rows} total={7} seeAllHref="/inbox?tab=respond" onQuickAnswer={onQuickAnswer} />);
@@ -125,7 +137,7 @@ describe("NeedsYouList", () => {
     expect(within(items[0]!).getByRole("button", { name: "Approve the specification" })).toBeTruthy();
     expect(within(items[1]!).queryByRole("button")).toBeNull();
     expect(within(items[1]!).getByRole("link", { name: "Open: Which channel first?" }).getAttribute("href")).toBe("/inbox/b");
-    expect(within(items[2]!).getByText("Holds Continue")).toBeTruthy();
+    expect(within(items[2]!).getByText("The team is waiting on this")).toBeTruthy();
     expect(screen.getByText("3 of 7 waiting")).toBeTruthy();
     await userEvent.click(within(items[0]!).getByRole("button", { name: "Approve the specification" }));
     expect(onQuickAnswer).toHaveBeenCalledWith(rows[0]);
@@ -184,5 +196,22 @@ describe("PublicPageNote", () => {
     const link = screen.getByRole("link", { name: /Your project's public page is ready to check/ });
     expect(link.getAttribute("href")).toBe("/b/b1/d/product/public-page");
     expect(link.textContent).toBe(`${PUBLIC_PAGE_NOTE_WORDS.line}${PUBLIC_PAGE_NOTE_WORDS.open}`);
+  });
+});
+
+describe("PostReadyNote", () => {
+  it("is one quiet link to the waiting post, through the shell's link renderer: no count badge, no button, nothing about posting", () => {
+    render(<PostReadyNote href="/b/b1/d/distribution/creative?asset=a1" />);
+    const link = screen.getByRole("link", { name: /A post is ready to share/ });
+    expect(link.getAttribute("href")).toBe("/b/b1/d/distribution/creative?asset=a1");
+    expect(link.textContent).toBe("A post is ready to shareOpen");
+    expect(screen.getByTestId("post-ready-note").querySelectorAll("button")).toHaveLength(0);
+    expect(link.textContent).not.toMatch(/posted|published/i);
+  });
+
+  it("says how many wait in the same one line", () => {
+    render(<PostReadyNote href="/x" waiting={2} />);
+    expect(screen.getByRole("link").textContent).toBe("2 posts are ready to shareOpen");
+    expect(screen.getAllByRole("link")).toHaveLength(1);
   });
 });

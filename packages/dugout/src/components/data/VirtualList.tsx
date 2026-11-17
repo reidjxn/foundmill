@@ -79,18 +79,21 @@ function VirtualListInner<T>(
   const before = isVirtual ? (virtualizer.getVirtualItems()[0]?.start ?? 0) : 0;
   const after = isVirtual ? Math.max(0, virtualizer.getTotalSize() - (virtualizer.getVirtualItems().at(-1)?.end ?? 0)) : 0;
 
+  // With a role of its own (a listbox), the rows are presentation and the caller's options carry the semantics. Without
+  // one it is a plain list: the rows are list items and the scroller takes a Tab stop so a keyboard can scroll it.
+  const rowRole = rest.role ? "presentation" : undefined;
   return (
-    <ul ref={scrollRef} className={cn("overflow-y-auto", className)} data-virtual={isVirtual || undefined} {...rest}>
-      {isVirtual ? <li role="presentation" aria-hidden style={{ height: before }} /> : null}
+    <ul ref={scrollRef} className={cn("overflow-y-auto", !rest.role && "focus-ring", className)} data-virtual={isVirtual || undefined} tabIndex={rest.role ? undefined : 0} {...rest}>
+      {isVirtual ? <li role={rowRole} aria-hidden style={{ height: before }} /> : null}
       {drawn.map((index) => {
         const item = items[index] as T;
         return (
-          <li key={getKey(item, index)} role="presentation" data-index={index} ref={isVirtual ? virtualizer.measureElement : undefined} className={rowClassName}>
+          <li key={getKey(item, index)} role={rowRole} data-index={index} ref={isVirtual ? virtualizer.measureElement : undefined} className={rowClassName}>
             {renderItem(item, index, items.length)}
           </li>
         );
       })}
-      {isVirtual ? <li role="presentation" aria-hidden style={{ height: after }} /> : null}
+      {isVirtual ? <li role={rowRole} aria-hidden style={{ height: after }} /> : null}
     </ul>
   );
 }

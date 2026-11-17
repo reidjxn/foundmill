@@ -6,6 +6,7 @@
  * templates, agent versions, skills and skill tests.
  */
 import { z } from "zod";
+import { INPUT_LIMITS } from "@foundmill/config";
 import type { ROUTES as ModelRoutes } from "@foundmill/models/routing";
 import {
   AgentLayer,
@@ -37,6 +38,7 @@ export const ROUTE_KEYS = [
   "leadRecommendation",
   "planner",
   "codeReview",
+  "documentReview",
   "ideation",
   "ideationSlate",
   "logoDesigner",
@@ -58,6 +60,8 @@ export const ROUTE_KEYS = [
   "projectPage",
   "teamCallTurn",
   "teamCallWrapUp",
+  "designReview",
+  "webSearch",
 ] as const;
 export const RouteKey = z.enum(ROUTE_KEYS);
 export type RouteKey = (typeof ROUTE_KEYS)[number];
@@ -76,6 +80,7 @@ export const ROUTE_DEFAULT_MODEL: Record<RouteKey, ModelKey> = {
   leadRecommendation: "opus",
   planner: "opus",
   codeReview: "opus",
+  documentReview: "opus",
   ideation: "opus",
   ideationSlate: "opus",
   logoDesigner: "opus",
@@ -97,6 +102,8 @@ export const ROUTE_DEFAULT_MODEL: Record<RouteKey, ModelKey> = {
   projectPage: "sonnet",
   teamCallTurn: "sonnet",
   teamCallWrapUp: "opus",
+  designReview: "opus",
+  webSearch: "sonnet",
 };
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -111,11 +118,11 @@ export type AgentExample = z.infer<typeof AgentExample>;
 
 export const AgentInstructions = z.object({
   role: z.string().min(1),
-  goals: z.array(z.string().min(1)).min(1),
-  rules: z.array(z.string().min(1)).min(1),
-  playbook: z.array(z.string().min(1)).min(1),
+  goals: z.array(z.string().min(1)).max(INPUT_LIMITS.agentInstructionLines).min(1),
+  rules: z.array(z.string().min(1)).max(INPUT_LIMITS.agentInstructionLines).min(1),
+  playbook: z.array(z.string().min(1)).max(INPUT_LIMITS.agentInstructionLines).min(1),
   tone: z.string().min(1),
-  examples: z.array(AgentExample),
+  examples: z.array(AgentExample).max(INPUT_LIMITS.agentInstructionLines),
 });
 export type AgentInstructions = z.infer<typeof AgentInstructions>;
 

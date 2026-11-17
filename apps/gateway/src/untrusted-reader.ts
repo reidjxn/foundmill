@@ -57,11 +57,15 @@ export interface UntrustedReader {
   digest(input: ReadRequest): Promise<UntrustedDigest>;
 }
 
-export function createUntrustedReader(models: Pick<ModelClient, "complete">): UntrustedReader {
+/** One client for every business, or the client for each business (builtins.ts `readerClientFor`: its own key or the platform's, gated). */
+export type ReaderModels = Pick<ModelClient, "complete"> | ((businessId: string) => Promise<Pick<ModelClient, "complete">>);
+
+export function createUntrustedReader(models: ReaderModels): UntrustedReader {
   return {
     async digest({ content, businessId, agentId, sessionId }) {
       const text = typeof content === "string" ? content : JSON.stringify(content ?? null);
-      const result = await models.complete({
+      const client = typeof models === "function" ? await models(businessId) : models;
+      const result = await client.complete({
         route: "quarantinedReader",
         system: READER_INSTRUCTION.replace("{schema}", SCHEMA_TEXT),
         messages: [{ role: "user", content: JSON.stringify({ schema: JSON.parse(SCHEMA_TEXT) as unknown, fields: Object.keys(UntrustedDigest.shape), content: text.slice(0, READER_MAX_CHARS) }) }],

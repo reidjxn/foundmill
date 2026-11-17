@@ -19,11 +19,12 @@
  * included. Pause ends the run (and pauses the round in progress); the next press starts a new one. Without Temporal
  * the in-process step is unchanged: one step, no run.
  */
-import { CREDITS_CURRENCY, LIMITS, TIERS } from "@foundmill/config";
+import { CREDITS_CURRENCY, firstCycleInput, LIMITS, TIERS } from "@foundmill/config";
 import { openRunOf, productStageOf, repos, runRoundsOf, type Executor, type InboxItem } from "@foundmill/db";
-import { AppError, vacationUntilLabel, type ContinueRunEndReason, type ProductStage } from "@foundmill/shared";
+import { AppError, eventAsSeenBy, hasSectionAccess, vacationUntilLabel, type ContinueRunEndReason, type ProductStage, type SectionMembership } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
+import { maskFinance } from "./inbox-redaction";
 import { alreadyRunningSummary, orchestratorUnreachableSummary, resumedSummary, startedSummary, type ContinueSummary } from "./continue-summary";
 import { redispatchPlans } from "./plans";
 import { assertAgentsRunning } from "./stop-guard";
@@ -112,7 +113,17 @@ export interface CycleScope {
   businessId: string;
   /** Who is asking: a win waits for *their* Customer Update until they have opened it (per-person reads, 0048). */
   userId?: string;
+  /**
+   * Whose walls the answer follows (the collaborator's walls, Nov 14, 2026). With a membership (a `BusinessContext`
+   * passed as the scope carries the caller's own), the cycle events are read as that person may read them
+   * (@foundmill/shared `eventAsSeenBy`, the stream's `hide` lists: a reader walled off Finance gets `lastCost: null`) and
+   * a vacation's condition loses its figures. Without one (the service's own decisions), as stored.
+   */
+  membership?: SectionMembership;
 }
+
+/** Whether this scope reads as someone walled off Finance. */
+const financeWalled = (ctx: CycleScope): boolean => ctx.membership !== undefined && !hasSectionAccess(ctx.membership, "finance", "read");
 
 export async function cycleStatus(ctx: CycleScope): Promise<CycleStatus> {
   const { db, businessId } = ctx;
@@ -123,9 +134,11 @@ export async function cycleStatus(ctx: CycleScope): Promise<CycleStatus> {
     repos.audit.list(db, businessId, { action: [PAUSE_ACTION, RESUME_ACTION], limit: 1 }),
     repos.audit.list(db, businessId, { action: [CONTINUE_ACTION, QUEUE_ACTION], limit: 8 }),
   ]);
-  // Newest first.
-  const started = events.items.filter((e) => e.type === "cycle.started");
-  const completed = events.items.filter((e) => e.type === "cycle.completed");
+  // Newest first; as the caller may read them (no cost or budget behind a Finance wall).
+  const membership = ctx.membership;
+  const seen = membership ? events.items.map((e) => eventAsSeenBy(membership, e)) : events.items;
+  const started = seen.filter((e) => e.type === "cycle.started");
+  const completed = seen.filter((e) => e.type === "cycle.completed");
   const completedIds = new Set(completed.map((e) => str(asRecord(e.payload).cycleId)));
   const latestStart = started[0] ?? null;
   const latestStartPayload = asRecord(latestStart?.payload);
@@ -160,7 +173,7 @@ export async function cycleStatus(ctx: CycleScope): Promise<CycleStatus> {
   for (const q of queuedEntries) numbers.push(num(asRecord(q.details).cycleNumber) ?? 0);
   const maxNumber = numbers.reduce((m, n) => Math.max(m, n), 0);
   const workflowId = openWorkflowId;
-  const openRun = openRunOf(events.items, Date.now());
+  const openRun = openRunOf(seen, Date.now());
   const run: CycleRun | null = openRun ? { id: openRun.runId, startedAt: new Date(openRun.startedAt).toISOString(), rounds: runRoundsOf(completed, openRun.startedAt).rounds } : null;
   return {
     running: open,
@@ -217,7 +230,10 @@ export async function continueStateFor(ctx: CycleScope, status?: CycleStatus | P
   const [holiday, blocking] = await Promise.all([repos.holidays.current(db, businessId), repos.inbox.countBlocking(db, businessId)]);
   if (holiday) {
     const condition = holiday.untilCondition as { text?: string } | null;
-    return { kind: "holiday", until: holiday.untilAt ? holiday.untilAt.toISOString() : null, untilLabel: holiday.untilAt ? null : vacationUntilLabel(condition?.text) };
+    // "until MRR hits 10k": the stream hides the condition from a reader walled off Finance (`holiday.started`), so
+    // its figures go here too.
+    const label = vacationUntilLabel(condition?.text);
+    return { kind: "holiday", until: holiday.untilAt ? holiday.untilAt.toISOString() : null, untilLabel: holiday.untilAt ? null : financeWalled(ctx) ? maskFinance(label) : label };
   }
   if (blocking > 0) return { kind: "blocked", count: blocking };
   return cycleContinueState(await (status ?? cycleStatus(ctx)));
@@ -320,8 +336,15 @@ export async function startCycle(ctx: BusinessContext): Promise<StartCycleResult
   const cycleNumber = status.nextCycleNumber;
   const workflowId = workflowIds.cycle(ctx.businessId, cycleNumber);
   const runId = crypto.randomUUID();
-  // The run's first round is this press's cycle: the workflow starts it at once with the number reserved here.
-  const workflow = await ctx.temporal.signalWithStart(WORKFLOWS.autopilot, { workflowId: workflowIds.autopilot(ctx.businessId), args: [{ businessId: ctx.businessId }], signal: SIGNALS.continueRun, signalArgs: [{ runId, cycleNumber, by: ctx.userId }] });
+  // The run's first round is this press's cycle: the workflow starts it at once with the number reserved here. Round 1
+  // of a free project on credits carries the first-round cap (WP-09 T11).
+  const firstRound = cycleNumber === 1 ? firstCycleInput({ modelBilling: ctx.business.modelBilling, tier: ctx.business.planTier }) : {};
+  const workflow = await ctx.temporal.signalWithStart(WORKFLOWS.autopilot, {
+    workflowId: workflowIds.autopilot(ctx.businessId),
+    args: [{ businessId: ctx.businessId }],
+    signal: SIGNALS.continueRun,
+    signalArgs: [{ runId, cycleNumber, by: ctx.userId, ...(Object.keys(firstRound).length ? { cycleInput: firstRound } : {}) }],
+  });
   if (workflow.queued) {
     const mark = await ctx.rls(async (tx) => {
       const row = await audit(tx, ctx, { action: CONTINUE_ACTION, target: { kind: "cycle", id: workflowId }, details: { cycleNumber, mode: "temporal", workflowId, trigger: "continue", runId, runWorkflowId: workflow.workflowId } });

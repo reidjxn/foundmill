@@ -1,6 +1,6 @@
 import { expect, test, type APIRequestContext, type Page, type PlaywrightWorkerArgs } from "@playwright/test";
 import { E2E_EXAMPLE_VIEWER_ID } from "../playwright.config";
-import { API_URL, LONG, NORTHWIND_BUSINESS_ID, devApi, openBusiness, settled, signIn, signInAs } from "./helpers";
+import { API_URL, LONG, NORTHWIND_BUSINESS_ID, answerFirstProfile, devApi, openBusiness, settled, signIn, signInAs } from "./helpers";
 
 /**
  * The example business (docs/UX_AUDIT_AND_PLAN.md §10 Phase 3, §12 item 5; migration 0065): a signed-in founder opens
@@ -83,15 +83,11 @@ async function signInAsExampleViewer(page: Page): Promise<void> {
   await signInAs(page, EXAMPLE_VIEWER_ID, "/new");
   // /new sends a founder without a profile on to /onboarding, so the URL can read /new for a moment before that
   // redirect lands: wait for whichever screen actually renders, then branch on it.
-  const form = page.getByTestId("onboarding-form");
+  const form = page.getByTestId("first-profile");
   await expect(form.or(page.getByTestId("doors"))).toBeVisible({ timeout: LONG });
   if (await form.isVisible()) {
-    await page.getByLabel(/What the team calls you/).fill("Example Explorer");
-    await page.getByLabel("First-time founder").check();
-    await page.getByLabel("Full time").check();
-    // The first pass is enough to complete the profile (§7.3 two passes): "Add detail" (budget, markets, constraints,
-    // risk) stays closed and optional.
-    await page.getByTestId("profile-submit-bottom").click();
+    // The three questions create the profile (WP-04 T1); a new account confirms it is 18 or older there, once (0100).
+    await answerFirstProfile(page, "Example Explorer");
     await expect(page).toHaveURL(/\/new$/, { timeout: LONG });
   }
   await expect(page.getByTestId("doors")).toBeVisible({ timeout: LONG });
@@ -124,7 +120,7 @@ test.describe("the example business, as an example viewer", () => {
     await expect(page.getByTestId("kitbar-business-name")).toHaveText("Northwind Skincare");
     const chip = page.getByTestId("sample-chip");
     await expect(chip).toBeVisible();
-    await expect(chip).toHaveText("Sample business");
+    await expect(chip).toHaveText("Sample project");
     await expect(chip).toHaveAttribute("data-example", "true");
     await chip.hover();
     await expect(page.getByRole("tooltip")).toContainText("Its figures are made up for the example: nothing here is real money or real customers. Nothing you do here is saved.", { timeout: LONG });
@@ -155,7 +151,7 @@ test.describe("the example business, as an example viewer", () => {
       openDecision = await readOnlyNote.waitFor({ state: "visible", timeout: 3_000 }).then(() => true, () => false);
     }
     expect(openDecision, "an open decision in Northwind shows the example's read-only reason").toBe(true);
-    await expect(readOnlyNote).toContainText("This is an example business: look around, then start your own.");
+    await expect(readOnlyNote).toContainText("This is an example project: look around, then start your own.");
 
     await start.click();
     await page.waitForURL(/\/new$/, { timeout: LONG });

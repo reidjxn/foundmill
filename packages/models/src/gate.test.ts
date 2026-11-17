@@ -57,11 +57,38 @@ describe("gateModelClient", () => {
     expect(mock.history).toHaveLength(1);
   });
 
+  it("a gate that says credits are low moves routine work to its lower-cost model and leaves founder-facing work alone", async () => {
+    const events: UsageEvent[] = [];
+    const inner = new MockModelClient({ onUsage: (e) => void events.push(e) });
+    const client = gateModelClient(inner, async (call) => (call.attribution?.businessId === "low" ? { lowCredits: true } : undefined));
+    const ask = (route: "worker" | "departmentLead" | "conversation" | "planCompiler", businessId: string) => client.complete({ route, system: "Answer.", messages: [{ role: "user", content: "Summarize the week." }], attribution: { businessId } });
+    await ask("worker", "low");
+    await ask("departmentLead", "low");
+    await ask("conversation", "low");
+    await ask("planCompiler", "low");
+    await ask("worker", "fine");
+    expect(events.map((e) => [e.route, e.modelKey])).toEqual([
+      ["worker", "haiku"],
+      ["departmentLead", "sonnet"],
+      ["conversation", "sonnet"],
+      ["planCompiler", "opus"],
+      ["worker", "sonnet"],
+    ]);
+    expect(inner.history.map((r) => r.lowCredits ?? false)).toEqual([true, true, true, true, false]);
+  });
+
   it("keeps its methods on the prototype, as the built-in clients do: a spread with its own complete has no stream of its own", async () => {
     const client = gateModelClient(new MockModelClient(), async () => undefined);
     const overridden: ModelClient = { ...client, complete: (async () => Promise.reject(new Refused("truncated"))) as ModelClient["complete"] };
     expect(overridden.mode).toBe("mock");
     expect(overridden.streamStructured).toBeUndefined();
     await expect(streamStructured(overridden, { ...req, elementPath: "concepts", elementSchema: ConceptCard })).rejects.toBeInstanceOf(Refused);
+  });
+
+  it("a client that cannot search stays one that cannot search; one that can keeps its search behind the gate", () => {
+    const inner = new MockModelClient();
+    const bare = { mode: inner.mode, complete: inner.complete.bind(inner) } as ModelClient;
+    expect(gateModelClient(bare, async () => undefined).searchWeb).toBeUndefined();
+    expect(typeof gateModelClient(inner, async () => undefined).searchWeb).toBe(typeof inner.searchWeb);
   });
 });

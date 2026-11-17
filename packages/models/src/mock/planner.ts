@@ -31,6 +31,8 @@ export function generatePlanner(ctx: MockContext): TaskGraphOutput {
   const goal = ctx.getString("goal", "objective", "epic");
   const sources: RoadmapItemIn[] = items.length > 0 ? items : [{ id: null, title: goal ?? firstLine(ctx.lastUser) ?? "Deliver the next roadmap step" }];
   const tasks: PlannedTask[] = [];
+  const noDestination = ctx.getString("destination") === "none";
+  const onSite = ctx.getString("destination") === "site";
 
   sources.forEach((item, idx) => {
     const base = `${idx + 1}`;
@@ -80,6 +82,43 @@ export function generatePlanner(ctx: MockContext): TaskGraphOutput {
       hard: false,
       roadmap_item_id: item.id,
     };
+    if (noDestination) {
+      // Nowhere for code to go live yet (WP-05 T5): no code task; the work that moves the goal, and building says when it starts.
+      const kept = [implement, verify].filter((t) => t.kind !== "code");
+      const writePlan: PlannedTask = {
+        id: `t${base}.4`,
+        title: truncate(`Write the build plan for ${item.title}`, 80),
+        goal: `Write down, step by step, what building ${item.title} takes and what counts as done for each step. Building starts once the project has a place to publish.`,
+        kind: "research",
+        acceptance_criteria: [`A written plan for ${item.title} lists each step and what counts as done for it`],
+        test_expectations: [],
+        file_scope_hints: ["docs/", "spec blocks"],
+        depends_on: [design.id],
+        estimate_hours: 1,
+        hard: false,
+        roadmap_item_id: item.id,
+      };
+      tasks.push(design, ...kept.map((t) => ({ ...t, depends_on: [design.id] })), writePlan);
+      return;
+    }
+    if (onSite) {
+      // The project's Foundmill site (WP-07 T9): pages of a static site only; what needs a server is named, not planned.
+      const page: PlannedTask = {
+        id: `t${base}.2`,
+        title: truncate(`Build the ${item.title} page`, 80),
+        goal: `Write the page of the site for ${item.title}: what it is, who it is for and how to sign up. Anything that needs sign-in, a server or a database is not possible on the site yet.`,
+        kind: "code",
+        acceptance_criteria: ["The page reads well on a phone", "The sign-up form is on the page"],
+        test_expectations: ["The release passes the platform's screening"],
+        file_scope_hints: ["index.html", "styles.css"],
+        depends_on: [design.id],
+        estimate_hours: 2,
+        hard: false,
+        roadmap_item_id: item.id,
+      };
+      tasks.push(design, page);
+      return;
+    }
     tasks.push(design, implement, verify);
   });
 

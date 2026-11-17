@@ -152,9 +152,13 @@ export interface HealthResponse {
   /** False when the database did not answer at boot (the service still runs; see db-boot.ts). */
   db: boolean;
   mode: "mock" | "live";
+  /** The connectors switched live one by one (LIVE_CONNECTORS), by key; names only, never a credential. */
+  liveConnectors: string[];
   connectors: number;
   policy: { cedar: string; policies: number };
   vault: "local" | "kms" | "none";
   rateLimitStore: "memory" | "redis";
+  /** How the api's service token is checked (WP-11 T12): "shared", "legacy" (switching), "own". A word, never a value. */
+  apiServiceToken: "shared" | "legacy" | "own";
   time: string;
 }

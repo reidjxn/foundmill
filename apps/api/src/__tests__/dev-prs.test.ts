@@ -48,6 +48,19 @@ describe("dev.prs.list", () => {
     expect(byTask.get(onGitHub.id)).toMatchObject({ agentId, founderTitle: null });
     expect(byTask.get(landed.id)).toMatchObject({ agentId });
   });
+
+  it("a done code task whose latest completion was saved only says so on its row (WP-05 T8)", async () => {
+    const { businessId, ownerId, agentId } = hz.A;
+    const complete = (taskId: string, landed: "saved_only" | null, at: string) => repos.events.write(hz.db, businessId, { type: "task.completed", occurredAt: new Date(at), actor: { kind: "agent", id: agentId }, payload: { taskId, kind: "code", title: "x", assigneeAgentId: agentId, sessionId: null, outcome: "success", durationMs: 1, cost: { amountMinor: 0, currency: "USD" }, acceptanceTestsPassing: 1, acceptanceTests: 1, prNumber: null, branch: `agent/${taskId}`, summary: "x", landed } });
+    const saved = await repos.tasks.create(hz.db, businessId, { kind: "code", title: "Saved landing page", status: "done", assigneeAgentId: agentId });
+    const later = await repos.tasks.create(hz.db, businessId, { kind: "code", title: "Saved, then merged", status: "done", assigneeAgentId: agentId });
+    await complete(saved.id, "saved_only", "2026-11-10T10:00:00Z");
+    await complete(later.id, "saved_only", "2026-11-10T10:00:00Z");
+    await complete(later.id, null, "2026-11-11T10:00:00Z");
+    const byTask = new Map((await hz.caller({ userId: ownerId }).dev.prs.list({ businessId })).merged.map((m) => [m.taskId as string, m]));
+    expect(byTask.get(saved.id)).toMatchObject({ source: "merge_queue", landed: "saved_only" });
+    expect(byTask.get(later.id)).toMatchObject({ landed: null });
+  });
 });
 
 describe("dev.deployments.list", () => {

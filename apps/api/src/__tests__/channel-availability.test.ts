@@ -3,16 +3,20 @@
  * every channel's availability with its rows, cannot put on the board one that is not available unless it is in offline
  * tracking, is never recommended one, and never has one switched on or launched by a plan, a campaign or a commit. A
  * sample business, and every business in development and test, keeps all fifteen.
+ *
+ * Tap-to-post (founder, 2026-11-12): social is available there with no connector, because the founder posts each draft
+ * with one press. It can be put on the board, and it is never a channel the team runs: no engine starts for it, nothing
+ * is scheduled or launched on it, it is never a recommended starter, a default start or a route the Board offers.
  */
 import { businesses, repos } from "@foundmill/db";
 import { getArchetypeSeed } from "@foundmill/agents";
-import { CHANNEL_KEYS, type ChannelKey } from "@foundmill/shared";
+import { CHANNEL_BY_TAP_SENTENCE, CHANNEL_KEYS, type ChannelKey } from "@foundmill/shared";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ApiDeps, CallerUser } from "../context";
 import { createCaller } from "../router";
 import { normaliseRecommendation } from "../routers/distribution";
-import { CHANNEL_NOT_AVAILABLE, OPTIONS_LEFT_OUT_LINE, offerableOptions, optionChannels } from "../services/channel-availability";
+import { CHANNEL_NOT_AVAILABLE, FOUNDER_POSTS_CHANNEL, OPTIONS_LEFT_OUT_LINE, channelAnswer, offerableOptions, optionChannels } from "../services/channel-availability";
 import { scoringTaskFor } from "../services/signoff";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
 
@@ -32,17 +36,22 @@ const rowOf = async (key: ChannelKey) => (await repos.channels.getByKey(hz.db, h
 const ensure = (key: ChannelKey, over: { enabled?: boolean; kitMode?: boolean } = {}) => repos.channels.upsert(hz.db, hz.A.businessId, { channelKey: key, line: "midfield", enabled: over.enabled ?? false, kitMode: over.kitMode ?? false });
 
 describe("distribution.channels.list carries each channel's availability", () => {
-  it("a person's project on staging: email is not connected, social has no publisher, each with a plain sentence", async () => {
+  it("a person's project on staging: email is not connected, content has no publisher, social is the founder's by tap, each with a plain sentence", async () => {
     await ensure("social");
     await ensure("email_automation");
     const listed = await staging().distribution.channels.list({ businessId: hz.A.businessId });
     expect(Object.keys(listed.availability).sort()).toEqual([...CHANNEL_KEYS].sort());
     expect(listed.availability.email_automation).toEqual({ available: false, reason: "not_connected", connectorKey: "sendgrid", connectable: false, sentence: "Not available yet: SendGrid is not switched on for your project yet. Nothing is waiting on you." });
-    expect(listed.availability.social).toEqual({ available: false, reason: "no_publisher", sentence: "Not available yet: the team cannot publish here yet." });
+    expect(listed.availability.content).toEqual({ available: false, reason: "no_publisher", sentence: "Not available yet: the team cannot publish here yet." });
+    // Tap-to-post: available with no connector, with the sentence that says what that means.
+    expect(listed.availability.social).toEqual({ available: true, reason: "by_tap", byTap: true, sentence: "You post each one with one press: the text and link are filled in for you." });
+    expect(listed.availability.social.sentence).toBe(CHANNEL_BY_TAP_SENTENCE);
     expect(listed.channels.find((c) => c.channelKey === "social")?.availability).toEqual(listed.availability.social);
     expect(listed.channels.find((c) => c.channelKey === "email_automation")?.availability.reason).toBe("not_connected");
-    expect(listed.channels.every((c) => !c.availability.available && !c.recommended)).toBe(true);
-    expect(listed.noChannel).toBe("No channel can run on its own yet. Email opens first, as soon as sending is switched on for your project. Nothing is wrong, and nothing is waiting on you.");
+    expect(CHANNEL_KEYS.filter((k) => listed.availability[k].available)).toEqual(["social"]);
+    expect(listed.channels.every((c) => !c.recommended)).toBe(true);
+    // The team can still run nothing: the sentence for that stays, and ends with what is ready.
+    expect(listed.noChannel).toBe("No channel can run on its own yet. Email opens first, as soon as sending is switched on for your project. Nothing is wrong, and nothing is waiting on you. Social media is ready now: you post each one with one press.");
   });
 
   it("a connector that is live here is the founder's to connect; once connected the channel acts", async () => {
@@ -50,7 +59,7 @@ describe("distribution.channels.list carries each channel's availability", () =>
     const before = await live.distribution.channels.list({ businessId: hz.A.businessId });
     expect(before.availability.email_automation).toMatchObject({ available: false, reason: "not_connected", connectable: true, sentence: "Not available yet: connect SendGrid in Settings › Integrations and the team can run this." });
     expect(before.availability.seo).toMatchObject({ available: false, reason: "not_connected", connectorKey: "github", connectable: true });
-    expect(before.noChannel).toBe("No channel can run on its own yet. Email automation opens first: connect SendGrid in Settings › Integrations and the team can run it. Nothing is wrong.");
+    expect(before.noChannel).toBe("No channel can run on its own yet. Email automation opens first: connect SendGrid in Settings › Integrations and the team can run it. Nothing is wrong. Social media is ready now: you post each one with one press.");
 
     // An integration row with status `mock` (connected while the connector was simulated) does not count.
     await repos.integrations.upsert(hz.db, hz.A.businessId, { connectorKey: "sendgrid", status: "mock", authKind: "api_key" });
@@ -67,7 +76,8 @@ describe("distribution.channels.list carries each channel's availability", () =>
 
   it("development and test keep all fifteen (simulated results are allowed)", async () => {
     const listed = await testEnv().distribution.channels.list({ businessId: hz.A.businessId });
-    for (const key of CHANNEL_KEYS) expect(listed.availability[key], key).toEqual({ available: true, reason: "simulated_allowed", sentence: null });
+    // Social runs simulated like the rest, and also says the founder can post it with one press (the share panel is real there).
+    for (const key of CHANNEL_KEYS) expect(listed.availability[key], key).toEqual(key === "social" ? { available: true, reason: "simulated_allowed", byTap: true, sentence: CHANNEL_BY_TAP_SENTENCE } : { available: true, reason: "simulated_allowed", sentence: null });
     expect(listed.noChannel).toBeNull();
     expect((await callerWith({ APP_ENV: "development" }, { userId: hz.A.ownerId }).distribution.channels.list({ businessId: hz.A.businessId })).availability.social.available).toBe(true);
   });
@@ -86,15 +96,15 @@ describe("distribution.channels.list carries each channel's availability", () =>
 });
 
 describe("turning on a channel that cannot run is refused", () => {
-  it("social cannot be put on the board on staging: a typed, plainly worded refusal, and nothing changes", async () => {
-    await ensure("social");
+  it("content cannot be put on the board on staging: a typed, plainly worded refusal, and nothing changes", async () => {
+    await ensure("content");
     const starts = temporal.starts.length;
-    await expect(staging().distribution.channels.enable({ businessId: hz.A.businessId, channelKey: "social" })).rejects.toMatchObject({
+    await expect(staging().distribution.channels.enable({ businessId: hz.A.businessId, channelKey: "content" })).rejects.toMatchObject({
       code: "CONFLICT",
-      message: "Social media is not available yet: the team cannot publish there yet.",
-      cause: expect.objectContaining({ code: CHANNEL_NOT_AVAILABLE, details: { channelKey: "social", reason: "no_publisher" } }),
+      message: "Content marketing is not available yet: the team cannot publish there yet.",
+      cause: expect.objectContaining({ code: CHANNEL_NOT_AVAILABLE, details: { channelKey: "content", reason: "no_publisher" } }),
     });
-    expect((await rowOf("social")).enabled).toBe(false);
+    expect((await rowOf("content")).enabled).toBe(false);
     expect(temporal.starts.length).toBe(starts);
     await expect(staging().distribution.channels.enable({ businessId: hz.A.businessId, channelKey: "email_automation" })).rejects.toMatchObject({
       message: "Email automation is not available yet: SendGrid is not switched on for your project yet. Nothing is waiting on you.",
@@ -113,8 +123,8 @@ describe("turning on a channel that cannot run is refused", () => {
     const listed = await staging().distribution.channels.list({ businessId: hz.A.businessId });
     // Still not available (no publisher): it is on the board because of offline tracking alone.
     expect(listed.channels.find((c) => c.channelKey === "print")).toMatchObject({ enabled: true, kitMode: true, availability: { available: false, reason: "no_publisher" } });
-    // Broadcast has no row yet and is in offline tracking by default.
-    expect((await staging().distribution.channels.enable({ businessId: hz.A.businessId, channelKey: "broadcast" })).channel).toMatchObject({ enabled: true, kitMode: true });
+    // Broadcast has no row yet and no longer starts in offline tracking (WP-08 T9): with no publisher it is refused.
+    await expect(staging().distribution.channels.enable({ businessId: hz.A.businessId, channelKey: "broadcast" })).rejects.toThrow();
     // Taking any channel off the board is always allowed.
     expect((await staging().distribution.channels.disable({ businessId: hz.A.businessId, channelKey: "print" })).channel.enabled).toBe(false);
   });
@@ -138,7 +148,14 @@ describe("turning on a channel that cannot run is refused", () => {
     const offline = await testEnv().distribution.campaigns.create({ businessId: hz.A.businessId, channelId: outdoor.id, name: "Posters", budgetMinor: 5_000 });
     await repos.campaigns.createAsset(hz.db, hz.A.businessId, { campaignId: offline.id, kind: "print", title: "Poster", approvalState: "approved", authoredByAgentId: hz.A.agentId });
     expect((await staging().distribution.campaigns.setStatus({ businessId: hz.A.businessId, campaignId: offline.id, status: "scheduled" })).status).toBe("scheduled");
-    expect((await staging().distribution.campaigns.setStatus({ businessId: hz.A.businessId, campaignId: offline.id, status: "live" })).status).toBe("live");
+    // Nothing is sent from here, so a real project never marks it live by hand (WP-02 T2, GTM-36): the founder submits the
+    // materials and ends it. A sample or test project still can.
+    await expect(staging().distribution.campaigns.setStatus({ businessId: hz.A.businessId, campaignId: offline.id, status: "live" })).rejects.toMatchObject({
+      code: "CONFLICT",
+      message: "Nothing is sent from here, so the campaign stays as it is. Submit the materials yourself, then mark it ended.",
+    });
+    expect((await repos.campaigns.get(hz.db, hz.A.businessId, offline.id)).status).toBe("scheduled");
+    expect((await testEnv().distribution.campaigns.setStatus({ businessId: hz.A.businessId, campaignId: offline.id, status: "live" })).status).toBe("live");
   });
 
   it("a plan never turns one on: the action is refused in the founder's words, the channel stays off and no engine starts", async () => {
@@ -180,7 +197,8 @@ describe("the Distribution Strategist recommends only channels that can run", ()
     const before = JSON.stringify(await usage());
     const out = await staging().distribution.recommend({ businessId: hz.A.businessId });
     expect(out.recommendation).toEqual([]);
-    expect(out.note).toBe("No channel can run on its own yet. Email opens first, as soon as sending is switched on for your project. Nothing is wrong, and nothing is waiting on you.");
+    // Social is available by tap, and that is not a channel the team can run: still no model call, and the note says what is ready.
+    expect(out.note).toBe("No channel can run on its own yet. Email opens first, as soon as sending is switched on for your project. Nothing is wrong, and nothing is waiting on you. Social media is ready now: you post each one with one press.");
     expect(out.channels.some((c) => c.recommended)).toBe(false);
     expect(JSON.stringify(await usage())).toBe(before);
   });
@@ -202,22 +220,104 @@ describe("the Distribution Strategist recommends only channels that can run", ()
   });
 });
 
+describe("tap-to-post: social is available with no connector, and the team never runs it", () => {
+  const starters = () => temporal.starts.filter((s) => s.type === "channelEngine").length;
+
+  it("the answer keeps the two questions apart: available to the founder, and what the team can run", () => {
+    const staged = channelAnswer({ liveConnectors: [], connectedConnectors: [], mockResultsAllowed: false });
+    expect(staged.available).toEqual(["social"]);
+    expect(staged.teamRuns).toEqual([]);
+    expect(staged.noneSentence).toBe("No channel can run on its own yet. Email opens first, as soon as sending is switched on for your project. Nothing is wrong, and nothing is waiting on you. Social media is ready now: you post each one with one press.");
+    const withGithub = channelAnswer({ liveConnectors: ["github"], connectedConnectors: ["github"], mockResultsAllowed: false });
+    expect(withGithub.available).toEqual(["seo", "geo", "social"]);
+    expect(withGithub.teamRuns).toEqual(["seo", "geo"]);
+    expect(withGithub.noneSentence).toBeNull();
+    // Where simulated results are allowed the team runs all fifteen, social included.
+    const simulated = channelAnswer({ liveConnectors: [], connectedConnectors: [], mockResultsAllowed: true });
+    expect(simulated.teamRuns).toHaveLength(15);
+  });
+
+  it("goes on the board on staging with one press, and no engine starts for it", async () => {
+    await ensure("social");
+    await repos.businesses.startDistribution(hz.db, hz.A.businessId);
+    const before = starters();
+    const from = temporal.starts.length;
+    const enabled = await staging().distribution.channels.enable({ businessId: hz.A.businessId, channelKey: "social" });
+    expect(enabled.channel).toMatchObject({ enabled: true, kitMode: false, engineWorkflowId: null });
+    expect(enabled.workflow).toMatchObject({ queued: false, reason: FOUNDER_POSTS_CHANNEL });
+    expect(starters()).toBe(before);
+    expect((await rowOf("social")).engineWorkflowId).toBeNull();
+    const listed = await staging().distribution.channels.list({ businessId: hz.A.businessId });
+    expect(listed.channels.find((c) => c.channelKey === "social")).toMatchObject({ enabled: true, recommended: false, availability: { available: true, reason: "by_tap", sentence: CHANNEL_BY_TAP_SENTENCE } });
+    // Resuming the team starts engines for the channels it runs, never for this one.
+    const { restartEngines } = await import("../services/killswitch");
+    const restarted = await restartEngines({ db: hz.db, businessId: hz.A.businessId, temporal: hz.deps.temporal, env: { ...hz.deps.env, ...STAGING }, business: { isDemo: false } } as never);
+    expect(restarted.some((r) => r.workflowId === `engine:${enabled.channel.id}`)).toBe(false);
+    // The channels in offline tracking restart as before; nothing was ever started for social.
+    expect(temporal.starts.slice(from).some((s) => s.workflowId === `engine:${enabled.channel.id}`)).toBe(false);
+    expect((await rowOf("social")).engineWorkflowId).toBeNull();
+  });
+
+  it("nothing is scheduled or launched on it: the refusal says the founder posts it, and nothing is recorded as launched", async () => {
+    const social = await rowOf("social");
+    const campaign = await testEnv().distribution.campaigns.create({ businessId: hz.A.businessId, channelId: social.id, name: "Spring posts", budgetMinor: 0 });
+    await repos.campaigns.createAsset(hz.db, hz.A.businessId, { campaignId: campaign.id, kind: "post", title: "Post", body: "Fresh batch out today.", approvalState: "approved", authoredByAgentId: hz.A.agentId });
+    for (const status of ["scheduled", "live"] as const) {
+      await expect(staging().distribution.campaigns.setStatus({ businessId: hz.A.businessId, campaignId: campaign.id, status })).rejects.toMatchObject({
+        code: "CONFLICT",
+        message: "Social media is yours to post, one press at a time: the team cannot publish there, so nothing is launched. Open a drafted post and press Share.",
+        cause: expect.objectContaining({ code: CHANNEL_NOT_AVAILABLE, details: { channelKey: "social", reason: "by_tap" } }),
+      });
+    }
+    expect((await repos.campaigns.get(hz.db, hz.A.businessId, campaign.id)).status).toBe("draft");
+    expect((await repos.events.list(hz.db, hz.A.businessId, { type: "campaign.launched", limit: 100 })).items.some((e) => (e.payload as { campaignId: string }).campaignId === campaign.id)).toBe(false);
+    // In offline tracking (the founder's own choice) it launches as any offline channel does.
+    await repos.channels.upsert(hz.db, hz.A.businessId, { channelKey: "social", line: "midfield", enabled: true, kitMode: true });
+    expect((await staging().distribution.campaigns.setStatus({ businessId: hz.A.businessId, campaignId: campaign.id, status: "scheduled" })).status).toBe("scheduled");
+    await repos.channels.upsert(hz.db, hz.A.businessId, { channelKey: "social", line: "midfield", enabled: true, kitMode: false });
+  });
+
+  it("a plan may put it on the board, and its engine does not follow; a budget never puts it there", async () => {
+    await staging().distribution.channels.disable({ businessId: hz.A.businessId, channelKey: "social" });
+    const before = starters();
+    const plan = await repos.plans.create(hz.db, hz.A.businessId, { origin: "free_text", summaryMd: "Put social on the board", status: "pending_confirmation", actions: [{ type: "enable_channel", params: { channel: "social" }, policyOutcome: "ask" }] });
+    const confirmed = await staging().plan.confirm({ businessId: hz.A.businessId, planId: plan.id });
+    expect(confirmed.exec.denied).toEqual([]);
+    expect(confirmed.exec.executed).toEqual([plan.actions[0]!.id]);
+    expect((await rowOf("social")).enabled).toBe(true);
+    expect((await rowOf("social")).engineWorkflowId).toBeNull();
+    expect(starters()).toBe(before);
+  });
+
+  it("the Strategist is told which channels the founder posts, and never picks one as a starter", async () => {
+    await repos.integrations.upsert(hz.db, hz.A.businessId, { connectorKey: "github", status: "connected", authKind: "app" });
+    const out = await staging({ LIVE_CONNECTORS: "github" }).distribution.recommend({ businessId: hz.A.businessId });
+    const picked = out.recommendation.filter((r) => r.recommended).map((r) => r.channel);
+    expect(picked).not.toContain("social");
+    expect(picked.every((c) => c === "seo" || c === "geo")).toBe(true);
+    // Whatever a model answered, a channel the founder posts is held out of the starters.
+    const forced = normaliseRecommendation({ channels: CHANNEL_KEYS.map((k, i) => ({ channel: k, fit: 20 - i, potential: 3, recommended: true, cpa_range_minor: { low: 100, high: 200 }, why: `${k} why` })) }, new Set<ChannelKey>(["seo", "geo"]));
+    expect(forced.find((r) => r.channel === "social")?.recommended).toBe(false);
+  });
+});
+
 describe("a new project", () => {
   const commitOn = async (env: Partial<ApiDeps["env"]>, email: string, name: string) => {
     const userId = await hz.h.createUser(email);
     // The founder profile and the idea come from the test stack; the commit and what follows run with `env`.
     const setup = hz.caller({ userId, email });
-    await setup.founder.profile.update({ displayName: "Sam", experience: "first-time", skills: { engineering: 10, sales: 10 }, targetMarkets: ["EU"], riskAppetite: "medium" });
+    await setup.founder.profile.update({ confirmAdult: true, displayName: "Sam", experience: "first-time", skills: { engineering: 10, sales: 10 }, targetMarkets: ["EU"], riskAppetite: "medium" });
     const idea = (await setup.idea.generate({ prompt: `${name}: booking software for dog groomers` })).ideas[0]!;
     const caller = callerWith(env, { userId, email });
     const { business } = await caller.idea.commit({ ideaId: idea.id, name, archetype: "b2b_saas", gameMode: "personal" });
     return { caller, businessId: business.id };
   };
 
-  it("committed on staging starts with no channel on the board and none recommended; the preview names none", async () => {
+  it("committed on staging starts with no channel on the board and none recommended; the preview names none (social waits, available, for the founder to put on)", async () => {
     const { caller, businessId } = await commitOn(STAGING, "new-staging@test.local", "Groom Staging");
     const listed = await caller.distribution.channels.list({ businessId });
     expect(listed.channels).toHaveLength(15);
+    expect(listed.availability.social).toMatchObject({ available: true, reason: "by_tap" });
     expect(listed.channels.filter((c) => c.enabled)).toEqual([]);
     expect(listed.channels.filter((c) => c.recommended)).toEqual([]);
     expect((await repos.channels.list(hz.db, businessId)).some((c) => c.enabled || c.recommended)).toBe(false);
@@ -255,7 +355,7 @@ describe("a new project", () => {
   it("an archetype whose routes need no channel still gets the Board's question on staging, whole", async () => {
     const userId = await hz.h.createUser("services-staging@test.local");
     const setup = hz.caller({ userId, email: "services-staging@test.local" });
-    await setup.founder.profile.update({ displayName: "Sam", experience: "first-time", skills: { engineering: 10, sales: 10 }, targetMarkets: ["EU"], riskAppetite: "medium" });
+    await setup.founder.profile.update({ confirmAdult: true, displayName: "Sam", experience: "first-time", skills: { engineering: 10, sales: 10 }, targetMarkets: ["EU"], riskAppetite: "medium" });
     const idea = (await setup.idea.generate({ prompt: "bookkeeping for dog groomers, done for them" })).ideas[0]!;
     const caller = callerWith(STAGING, { userId, email: "services-staging@test.local" });
     const { business } = await caller.idea.commit({ ideaId: idea.id, name: "Groom Books", archetype: "services", gameMode: "personal" });

@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { createModelClient } from "@foundmill/models";
 import { PLAIN_LANGUAGE_TIERS } from "@foundmill/shared";
-import { COMPOSER_CASE_KINDS, COMPOSER_CORPUS, COMPOSER_CORPUS_MANIFEST, COMPOSER_RUBRIC, agentNamingHits, composerSystemPrompt, corpusId, plainLanguageHits, replaceTierPatterns, runComposerCase, summariseComposer } from "../composer";
+import { COMPOSER_CASE_KINDS, COMPOSER_CORPUS, COMPOSER_CORPUS_MANIFEST, COMPOSER_PARKED_CASES, parkedClauseProblems, runParkedClauseCase, COMPOSER_RUBRIC, agentNamingHits, composerSystemPrompt, corpusId, plainLanguageHits, replaceTierPatterns, runComposerCase, summariseComposer } from "../composer";
 
 describe("composer eval corpus (AC-11.3.1, 100 notes)", () => {
   it("has 100 cases with unique ids, every note kind and every founder experience", () => {
@@ -31,11 +31,12 @@ describe("composer eval corpus (AC-11.3.1, 100 notes)", () => {
     expect(corpusId("customer", 7)).not.toBe(corpusId("customer", 8));
   });
 
-  it("renders the house rules and the Composer rules with the case's founder experience", () => {
+  it("renders the house rules and the Composer rules, and sends the case's founder experience in the inputs", () => {
     const first = COMPOSER_CORPUS[0]!;
     const [rules, composer] = composerSystemPrompt(first);
     expect(rules).toMatch(/^You are an AI agent working for Ledgerly/);
-    expect(composer).toContain(`Founder experience: ${first.founderExperience}.`);
+    expect(composer).toContain("Founder experience: `founder.experience` in the inputs");
+    expect((first.input.founder as { experience: string }).experience).toBe(first.founderExperience);
     expect(composer).toContain(`in the voice of ${first.voice.name}, ${first.voice.role}`);
   });
 });
@@ -120,5 +121,29 @@ describe("the mock Composer over the corpus (what mock-mode testers read)", () =
     expect(r.grader!.lines.length).toBeGreaterThanOrEqual(1);
     expect(r.score).toBeGreaterThanOrEqual(0);
     expect(r.score).toBeLessThanOrEqual(1);
+  });
+});
+
+describe("composer.parked_clause (WP-05 T18, founder D1: said once, in plain words, never as a chore)", () => {
+  it("the gate passes one explained sentence and catches a repeat, a request, a title-only line and an option", () => {
+    const title = "Import agent skills as business skills";
+    const ok = { subject: "The pricing page is done", body_md: `The pricing page is done. One thing the team cannot do yet is “${title}”: none of the agents has a tool for it, so it is parked; nothing is needed from you.`, decision: null };
+    expect(parkedClauseProblems(ok, [title])).toEqual([]);
+    expect(parkedClauseProblems({ ...ok, body_md: `${ok.body_md} Again: “${title}” is parked.` }, [title])).toContain(`"${title}" appears 2 times in the note`);
+    expect(parkedClauseProblems({ ...ok, body_md: `${ok.body_md} Could you set up the tool for it?` }, [title]).some((p) => p.startsWith("asks the founder"))).toBe(true);
+    expect(parkedClauseProblems({ ...ok, body_md: `Parked: “${title}”.` }, [title])).toContain(`the sentence naming "${title}" does not say what is missing`);
+    expect(parkedClauseProblems({ ...ok, decision: { options: [{ label: `Do “${title}” yourself`, consequence: "You do it." }] } }, [title])).toContain(`"${title}" is offered as an option`);
+    expect(parkedClauseProblems({ ...ok, subject: title }, [title])).toContain(`"${title}" is in the subject`);
+  });
+
+  it("every case: the mock note says the parked task once, explained, and asks nothing", async () => {
+    const client = createModelClient({ mode: "mock" });
+    expect(COMPOSER_PARKED_CASES.length).toBeGreaterThanOrEqual(3);
+    for (const c of COMPOSER_PARKED_CASES) {
+      const r = await runParkedClauseCase(c, client);
+      expect(r.error, c.id).toBeUndefined();
+      expect(r.problems, c.id).toEqual([]);
+      expect(r.passed, c.id).toBe(true);
+    }
   });
 });

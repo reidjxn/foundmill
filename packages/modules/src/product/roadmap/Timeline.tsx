@@ -8,7 +8,7 @@ import { CalendarOff } from "lucide-react";
 import { Chip, Icon, ProvenanceChip, cn, useFormatters } from "@foundmill/dugout";
 import { HORIZON_LABEL, computeRoadmapStatus, type RoadmapStatusKey } from "../roadmap-status";
 import type { RoadmapRow } from "../types";
-import { barSpan, timelineScale } from "./board";
+import { barSpan, timelineScale } from "./board-logic";
 
 const BAR_CLASS: Record<RoadmapStatusKey, string> = {
   done: "bg-status-good/70",

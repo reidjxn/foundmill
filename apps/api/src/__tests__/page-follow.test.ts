@@ -7,33 +7,48 @@
  * `page.followed` is written until the person confirms (ingest `/mail/confirm`, here `repos.followers.confirm`). An
  * existing contact keeps its name, lawful basis and roles; a new one is "Follower (ma***@example.com)" with no lawful
  * basis. The answer is the same for a new address, a repeat, a suppressed address and a filled hidden field. Repeats and
- * unknown addresses never spend a page's budget; the email keys are an HMAC of the address.
+ * unknown addresses never spend a page's budget; the email keys are an HMAC of the address. Nothing is recorded, sent
+ * or spent from a person's allowance without a valid Turnstile token, checked through the gateway (security audit
+ * 2026-11-13, finding 10).
  */
 import { contactConsents, entities, repos, suppressionHash } from "@foundmill/db";
 import { FOLLOW_ERRORS, followConsentText, type ProjectPageContent } from "@foundmill/shared";
 import { createHash } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { followAddressKey, followLimitKeys, followPage, PAGE_FOLLOW_LIMITS } from "../services/pages";
-import type { GatewayConfirmFollowRequest, GatewayConfirmFollowResult } from "../services/gateway";
+import { FOLLOW_MOCK_TURNSTILE_TOKEN, followAddressKey, followLimitKeys, followPage, PAGE_FOLLOW_LIMITS, publicPageBySlug } from "../services/pages";
+import type { GatewayConfirmFollowRequest, GatewayConfirmFollowResult, GatewayTurnstileRequest, GatewayTurnstileResult } from "../services/gateway";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
 /** What the stand-in gateway was asked for, and what it answers next. */
 const asked: GatewayConfirmFollowRequest[] = [];
 let answer: (input: GatewayConfirmFollowRequest) => Promise<GatewayConfirmFollowResult> = async () => ({ sent: true, simulated: true });
+/** The token the stand-in gateway's Turnstile check passes; what it was asked, and what it answers next. */
+const TOKEN = "a-token-from-the-widget";
+const checked: GatewayTurnstileRequest[] = [];
+const passes = async (input: GatewayTurnstileRequest): Promise<GatewayTurnstileResult> => (input.token === TOKEN ? { ok: true, reason: "ok", simulated: false } : { ok: false, reason: "invalid", simulated: false });
+let turnstile: (input: GatewayTurnstileRequest) => Promise<GatewayTurnstileResult> = passes;
+const verifyTurnstile = async (input: GatewayTurnstileRequest) => {
+  checked.push(input);
+  return turnstile(input);
+};
 beforeAll(async () => {
   hz = await createApiHarness({ prefix: "follow" });
   hz.deps.gateway.confirmFollow = async (input) => {
     asked.push(input);
     return answer(input);
   };
+  hz.deps.gateway.verifyTurnstile = verifyTurnstile;
 }, 120_000);
 afterAll(() => hz?.close());
 beforeEach(() => {
   hz.limits.reset();
   asked.length = 0;
+  checked.length = 0;
   answer = async () => ({ sent: true, simulated: true });
+  turnstile = passes;
+  hz.deps.gateway.verifyTurnstile = verifyTurnstile;
 });
 
 const page = (over: Partial<ProjectPageContent> = {}): ProjectPageContent => ({ pitch: "Candles that smell like a walk in the woods", about: "Small batches, poured by hand.", forWhom: "", stage: "idea", showFounders: false, followForm: true, ...over });
@@ -57,6 +72,8 @@ async function project(name: string, options: { publish?: Partial<ProjectPageCon
 }
 
 const anon = () => hz.caller(null);
+/** A signed-out follow from the page, with the widget's token unless the input says otherwise. */
+const follow = (input: { slug: string; email: string; consent: boolean; website?: string | null; turnstile?: string | null }) => anon().publicPage.follow({ turnstile: TOKEN, ...input });
 const refusal = (p: Promise<unknown>) => p.then(() => "ok", (err: { code?: string; cause?: { code?: string } }) => `${err.code}:${err.cause?.code ?? ""}`);
 const followEvents = async (businessId: string) => (await repos.events.outboxPending(hz.db, businessId)).filter((o) => o.event.type === "page.followed").map((o) => o.event);
 const consents = async (businessId: string) => hz.db.select().from(contactConsents).where(eq(contactConsents.businessId, businessId));
@@ -72,7 +89,7 @@ async function fill(key: string, rule: { limit: number; windowMs: number }, left
 describe("publicPage.follow (double opt-in)", () => {
   it("a signup is a pending record and one confirmation email; only the confirmation makes it consent and a follower", async () => {
     const b = await project("Northwood");
-    expect(await anon().publicPage.follow({ slug: b.slug, email: "  Maya.Lee@Example.com ", consent: true, website: "" })).toEqual({ ok: true });
+    expect(await follow({ slug: b.slug, email: "  Maya.Lee@Example.com ", consent: true, website: "" })).toEqual({ ok: true });
 
     const [lead] = await leads(b.id);
     // The address only in the identifier; no lawful basis before the person confirms.
@@ -109,11 +126,61 @@ describe("publicPage.follow (double opt-in)", () => {
     expect(await confirmFrom(b.id, asked[0]!)).toEqual({ status: "already" });
   });
 
+  it("a follow without a valid Turnstile token is refused before anything is recorded, sent or spent", async () => {
+    const b = await project("Unchecked");
+    // No token, an empty one, or one the check refuses: the same plain refusal, and nothing anywhere.
+    for (const token of [null, "", "   ", "a-made-up-token"]) {
+      expect(await refusal(follow({ slug: b.slug, email: "maya@example.com", consent: true, turnstile: token })), String(token)).toBe("FORBIDDEN:follow_unverified");
+    }
+    const err = await follow({ slug: b.slug, email: "maya@example.com", consent: true, turnstile: null }).catch((e: Error) => e);
+    expect((err as Error).message).toBe(FOLLOW_ERRORS.unverified);
+    // An expired token, a token from another site or for another action: refused the same way.
+    for (const reason of ["expired", "hostname", "action"] as const) {
+      turnstile = async () => ({ ok: false, reason, simulated: false });
+      expect(await refusal(follow({ slug: b.slug, email: "maya@example.com", consent: true })), reason).toBe("FORBIDDEN:follow_unverified");
+    }
+    // The check cannot run (no secret on the gateway, Cloudflare down, the gateway unreachable): fails closed.
+    for (const down of [async () => ({ ok: false, reason: "unconfigured" as const, simulated: false }), async () => ({ ok: false, reason: "unavailable" as const, simulated: false }), async () => Promise.reject(new Error("gateway unreachable"))]) {
+      turnstile = down;
+      expect(await refusal(follow({ slug: b.slug, email: "maya@example.com", consent: true }))).toBe("SERVICE_UNAVAILABLE:follow_unavailable");
+    }
+    expect(await leads(b.id)).toEqual([]);
+    expect(await consents(b.id)).toHaveLength(0);
+    expect(asked).toEqual([]);
+    // The check is the page's own action, from the site's address, without the address the api sees (the web's).
+    expect(checked.at(-1)).toEqual({ token: TOKEN, remoteIp: null, hostname: null, action: "page_follow" });
+    // Nothing was taken from the person's allowance or the page's: with a valid token the same address follows at once.
+    turnstile = passes;
+    expect(await follow({ slug: b.slug, email: "maya@example.com", consent: true })).toEqual({ ok: true });
+    expect(await consents(b.id)).toHaveLength(1);
+    expect(asked).toHaveLength(1);
+  });
+
+  it("without the gateway only a development or test stack on mock integrations passes, and only the mock token", async () => {
+    const b = await project("NoGateway");
+    delete hz.deps.gateway.verifyTurnstile;
+    expect(await refusal(follow({ slug: b.slug, email: "dev@example.com", consent: true, turnstile: TOKEN }))).toBe("SERVICE_UNAVAILABLE:follow_unavailable");
+    expect(await follow({ slug: b.slug, email: "dev@example.com", consent: true, turnstile: FOLLOW_MOCK_TURNSTILE_TOKEN })).toEqual({ ok: true });
+    expect(asked).toHaveLength(1);
+    // Live integrations, or staging: the mock token is no pass.
+    for (const env of [{ ...hz.deps.env, INTEGRATIONS_MODE: "live" as const }, { ...hz.deps.env, APP_ENV: "staging" as const }]) {
+      expect(await followPage({ ...hz.deps, env }, { slug: b.slug, email: "other@example.com", consent: true, turnstile: FOLLOW_MOCK_TURNSTILE_TOKEN }).then(() => "ok", (e: { code?: string }) => e.code)).toBe("follow_unavailable");
+    }
+    expect(asked).toHaveLength(1);
+  });
+
+  it("on staging and production the token must come from the site's own hostname", async () => {
+    const b = await project("Hostname");
+    const env = { ...hz.deps.env, APP_ENV: "production" as const, APP_URL: "https://www.foundmill.com", PLATFORM_MAIL_DOMAIN: "mail.foundmill.com", LIVE_CONNECTORS: "sendgrid" };
+    expect(await followPage({ ...hz.deps, env }, { slug: b.slug, email: "host@example.com", consent: true, turnstile: TOKEN })).toEqual({ ok: true });
+    expect(checked.at(-1)).toMatchObject({ hostname: "foundmill.com", action: "page_follow" });
+  });
+
   it("a second signup with the same address answers the same, writes nothing and sends nothing", async () => {
     const b = await project("Repeat");
-    await anon().publicPage.follow({ slug: b.slug, email: "sam@example.com", consent: true });
+    await follow({ slug: b.slug, email: "sam@example.com", consent: true });
     const before = await leads(b.id);
-    expect(await anon().publicPage.follow({ slug: b.slug, email: "SAM@example.com ", consent: true })).toEqual({ ok: true });
+    expect(await follow({ slug: b.slug, email: "SAM@example.com ", consent: true })).toEqual({ ok: true });
     expect(await leads(b.id)).toEqual(before);
     expect(await consents(b.id)).toHaveLength(1);
     expect(asked).toHaveLength(1);
@@ -124,9 +191,9 @@ describe("publicPage.follow (double opt-in)", () => {
     const kept = await repos.entities.create(hz.db, b.id, { kind: "person", displayName: "Lee Park", identifiers: { email: "lee@example.com" }, source: "manual", lawfulBasis: "contract" });
     await repos.entities.addRole(hz.db, b.id, kept.id, { role: "customer", stage: "active" });
     const bare = await repos.entities.create(hz.db, b.id, { kind: "person", displayName: "Ana Ruiz", identifiers: { email: "ana@example.com" }, source: "manual" });
-    await anon().publicPage.follow({ slug: b.slug, email: "lee@example.com", consent: true });
+    await follow({ slug: b.slug, email: "lee@example.com", consent: true });
     hz.limits.reset();
-    await anon().publicPage.follow({ slug: b.slug, email: "ana@example.com", consent: true });
+    await follow({ slug: b.slug, email: "ana@example.com", consent: true });
     for (const [e, basis] of [[kept, "contract"], [bare, null]] as const) {
       const now = await repos.entities.get(hz.db, b.id, e.id);
       expect(now).toMatchObject({ displayName: e.displayName, source: "manual", lawfulBasis: basis });
@@ -142,9 +209,9 @@ describe("publicPage.follow (double opt-in)", () => {
 
   it("the hidden field filled in, or a suppressed address: the same answer, nothing written, nothing sent", async () => {
     const b = await project("Quiet");
-    expect(await anon().publicPage.follow({ slug: b.slug, email: "bot@example.com", consent: true, website: "http://spam.example" })).toEqual({ ok: true });
+    expect(await follow({ slug: b.slug, email: "bot@example.com", consent: true, website: "http://spam.example" })).toEqual({ ok: true });
     await repos.channels.addSuppression(hz.db, b.id, { emailHash: suppressionHash("email", "gone@example.com"), reason: "Unsubscribed", scope: "business", source: "test" });
-    expect(await anon().publicPage.follow({ slug: b.slug, email: "Gone@example.com", consent: true })).toEqual({ ok: true });
+    expect(await follow({ slug: b.slug, email: "Gone@example.com", consent: true })).toEqual({ ok: true });
     expect(await leads(b.id)).toEqual([]);
     expect(await consents(b.id)).toHaveLength(0);
     expect(asked).toEqual([]);
@@ -154,7 +221,7 @@ describe("publicPage.follow (double opt-in)", () => {
     const b = await project("Archived");
     const old = await repos.entities.create(hz.db, b.id, { kind: "person", displayName: "Old Friend", identifiers: { email: "old@example.com" }, source: "manual" });
     await repos.entities.archive(hz.db, b.id, old.id);
-    expect(await anon().publicPage.follow({ slug: b.slug, email: "old@example.com", consent: true })).toEqual({ ok: true });
+    expect(await follow({ slug: b.slug, email: "old@example.com", consent: true })).toEqual({ ok: true });
     expect((await repos.entities.get(hz.db, b.id, old.id)).archivedAt).not.toBeNull();
     expect((await hz.db.select().from(entities).where(and(eq(entities.businessId, b.id), sql`${entities.identifiers} ->> 'email' = 'old@example.com'`))).length).toBe(1);
     expect(await consents(b.id)).toHaveLength(0);
@@ -164,13 +231,13 @@ describe("publicPage.follow (double opt-in)", () => {
   it("refuses an unusable address (201 characters included) or an unticked box in plain words", async () => {
     const b = await project("Refuse");
     const at200 = `${"a".repeat(200 - "@example.com".length)}@example.com`;
-    for (const email of ["", "maya", "maya@example", "a b@example.com", `a${at200}`]) expect(await refusal(anon().publicPage.follow({ slug: b.slug, email, consent: true })), email.slice(0, 20)).toBe("BAD_REQUEST:follow_email");
-    expect(await refusal(anon().publicPage.follow({ slug: b.slug, email: "maya@example.com", consent: false }))).toBe("BAD_REQUEST:follow_consent");
-    const err = await anon().publicPage.follow({ slug: b.slug, email: `a${at200}`, consent: true }).catch((e: Error) => e);
+    for (const email of ["", "maya", "maya@example", "a b@example.com", `a${at200}`]) expect(await refusal(follow({ slug: b.slug, email, consent: true })), email.slice(0, 20)).toBe("BAD_REQUEST:follow_email");
+    expect(await refusal(follow({ slug: b.slug, email: "maya@example.com", consent: false }))).toBe("BAD_REQUEST:follow_consent");
+    const err = await follow({ slug: b.slug, email: `a${at200}`, consent: true }).catch((e: Error) => e);
     expect((err as Error).message).toBe(FOLLOW_ERRORS.email);
     expect(await leads(b.id)).toEqual([]);
     // 200 characters is fine.
-    expect(await anon().publicPage.follow({ slug: b.slug, email: at200, consent: true })).toEqual({ ok: true });
+    expect(await follow({ slug: b.slug, email: at200, consent: true })).toEqual({ ok: true });
     expect(await consents(b.id)).toHaveLength(1);
   });
 
@@ -186,7 +253,7 @@ describe("publicPage.follow (double opt-in)", () => {
     const down = await project("Down");
     await down.owner.page.unpublish({ businessId: down.id });
     for (const slug of [off.slug, draftSlug, sample.slug, old.slug, down.slug, "no-such-page", "x", "../etc"]) {
-      expect(await refusal(anon().publicPage.follow({ slug, email: "maya@example.com", consent: true })), slug).toBe("NOT_FOUND:follow_closed");
+      expect(await refusal(follow({ slug, email: "maya@example.com", consent: true })), slug).toBe("NOT_FOUND:follow_closed");
     }
     for (const b of [off, draftOnly, sample, old, down]) expect(await consents(b.id)).toHaveLength(0);
     expect(asked).toEqual([]);
@@ -198,14 +265,14 @@ describe("publicPage.follow (double opt-in)", () => {
   it("holds the page's caps and the ceiling", async () => {
     const b = await project("Busy");
     await fill(followLimitKeys.perPageHour(b.pageId), PAGE_FOLLOW_LIMITS.perPageHour);
-    expect(await refusal(anon().publicPage.follow({ slug: b.slug, email: "late@example.com", consent: true }))).toBe("TOO_MANY_REQUESTS:rate_limited");
+    expect(await refusal(follow({ slug: b.slug, email: "late@example.com", consent: true }))).toBe("TOO_MANY_REQUESTS:rate_limited");
     expect(await leads(b.id)).toEqual([]);
     hz.limits.reset();
     await fill(followLimitKeys.all, PAGE_FOLLOW_LIMITS.all);
-    expect(await refusal(anon().publicPage.follow({ slug: b.slug, email: "new@example.com", consent: true }))).toBe("TOO_MANY_REQUESTS:rate_limited");
+    expect(await refusal(follow({ slug: b.slug, email: "new@example.com", consent: true }))).toBe("TOO_MANY_REQUESTS:rate_limited");
     // A refusal by a page cap gave the address's confirmation back: once there is room it goes through.
     hz.limits.reset();
-    expect(await anon().publicPage.follow({ slug: b.slug, email: "late@example.com", consent: true })).toEqual({ ok: true });
+    expect(await follow({ slug: b.slug, email: "late@example.com", consent: true })).toEqual({ ok: true });
     expect(asked.map((a) => a.email)).toEqual(["late@example.com"]);
   });
 
@@ -213,14 +280,14 @@ describe("publicPage.follow (double opt-in)", () => {
     const b = await project("Repeats");
     // One follow left on the page's hour.
     await fill(followLimitKeys.perPageHour(b.pageId), PAGE_FOLLOW_LIMITS.perPageHour, 1);
-    for (let i = 0; i < 8; i++) expect(await anon().publicPage.follow({ slug: b.slug, email: "again@example.com", consent: true })).toEqual({ ok: true });
+    for (let i = 0; i < 8; i++) expect(await follow({ slug: b.slug, email: "again@example.com", consent: true })).toEqual({ ok: true });
     expect(await consents(b.id)).toHaveLength(1);
     // The seven repeats stopped at the address's allowance, so the page has no room left only because of the first.
-    expect(await refusal(anon().publicPage.follow({ slug: b.slug, email: "other@example.com", consent: true }))).toBe("TOO_MANY_REQUESTS:rate_limited");
+    expect(await refusal(follow({ slug: b.slug, email: "other@example.com", consent: true }))).toBe("TOO_MANY_REQUESTS:rate_limited");
     // Beyond one a day per page and address, even with the cross-project slot free, nothing is written.
     hz.limits.reset();
     await fill(followLimitKeys.perAddress(hz.deps.env, b.slug, "fresh@example.com"), PAGE_FOLLOW_LIMITS.perAddress);
-    expect(await anon().publicPage.follow({ slug: b.slug, email: "fresh@example.com", consent: true })).toEqual({ ok: true });
+    expect(await follow({ slug: b.slug, email: "fresh@example.com", consent: true })).toEqual({ ok: true });
     expect((await consents(b.id)).length).toBe(1);
   });
 
@@ -228,10 +295,10 @@ describe("publicPage.follow (double opt-in)", () => {
     const b = await project("Real");
     // One follow left across every page.
     await fill(followLimitKeys.all, PAGE_FOLLOW_LIMITS.all, 1);
-    for (let i = 0; i < PAGE_FOLLOW_LIMITS.closed.limit; i++) expect(await refusal(anon().publicPage.follow({ slug: `no-such-page-${i}`, email: `p${i}@example.com`, consent: true }))).toBe("NOT_FOUND:follow_closed");
-    expect(await refusal(anon().publicPage.follow({ slug: "no-such-page-x", email: "px@example.com", consent: true }))).toBe("TOO_MANY_REQUESTS:rate_limited");
+    for (let i = 0; i < PAGE_FOLLOW_LIMITS.closed.limit; i++) expect(await refusal(follow({ slug: `no-such-page-${i}`, email: `p${i}@example.com`, consent: true }))).toBe("NOT_FOUND:follow_closed");
+    expect(await refusal(follow({ slug: "no-such-page-x", email: "px@example.com", consent: true }))).toBe("TOO_MANY_REQUESTS:rate_limited");
     // The real page still has the last follow, and the address that tried an unknown page first was not held back.
-    expect(await anon().publicPage.follow({ slug: b.slug, email: "p0@example.com", consent: true })).toEqual({ ok: true });
+    expect(await follow({ slug: b.slug, email: "p0@example.com", consent: true })).toEqual({ ok: true });
     expect(await consents(b.id)).toHaveLength(1);
     expect(asked).toHaveLength(1);
   });
@@ -241,24 +308,24 @@ describe("publicPage.follow (double opt-in)", () => {
     const b = await project("Second");
     const c = await project("Third");
     const d = await project("Fourth");
-    await anon().publicPage.follow({ slug: a.slug, email: "busy.person@example.com", consent: true });
+    await follow({ slug: a.slug, email: "busy.person@example.com", consent: true });
     // The same day, two more projects: each gets its confirmation (a person may follow a few in one sitting).
-    await anon().publicPage.follow({ slug: b.slug, email: "busy.person@example.com", consent: true });
-    await anon().publicPage.follow({ slug: c.slug, email: "busy.person@example.com", consent: true });
+    await follow({ slug: b.slug, email: "busy.person@example.com", consent: true });
+    await follow({ slug: c.slug, email: "busy.person@example.com", consent: true });
     expect(await consents(b.id)).toHaveLength(1);
     expect(asked).toHaveLength(3);
     // A fourth the same day: nothing written and nothing sent (they can follow it tomorrow).
-    expect(await anon().publicPage.follow({ slug: d.slug, email: "busy.person@example.com", consent: true })).toEqual({ ok: true });
+    expect(await follow({ slug: d.slug, email: "busy.person@example.com", consent: true })).toEqual({ ok: true });
     expect(await consents(d.id)).toHaveLength(0);
     expect(asked).toHaveLength(3);
     // A day later (the windows reset), the same project again: the record is pending, but 30 days have not passed.
     hz.limits.reset();
-    await anon().publicPage.follow({ slug: a.slug, email: "busy.person@example.com", consent: true });
+    await follow({ slug: a.slug, email: "busy.person@example.com", consent: true });
     expect(asked).toHaveLength(3);
     // ...and once they have, it is sent again with a new nonce (the old link stops working).
     await hz.db.update(contactConsents).set({ confirmationSentAt: new Date(Date.now() - 31 * 86_400_000) }).where(eq(contactConsents.businessId, a.id));
     hz.limits.reset();
-    await anon().publicPage.follow({ slug: a.slug, email: "busy.person@example.com", consent: true });
+    await follow({ slug: a.slug, email: "busy.person@example.com", consent: true });
     expect(asked).toHaveLength(4);
     expect(asked[3]!.nonce).not.toBe(asked[0]!.nonce);
     expect(await confirmFrom(a.id, asked[0]!)).toEqual({ status: "invalid" });
@@ -268,13 +335,13 @@ describe("publicPage.follow (double opt-in)", () => {
   it("when the email is not sent the record stays pending and may be sent later; nothing claims it went out", async () => {
     const b = await project("Unsent");
     answer = async () => ({ sent: false, reason: "off" });
-    await anon().publicPage.follow({ slug: b.slug, email: "wait@example.com", consent: true });
+    await follow({ slug: b.slug, email: "wait@example.com", consent: true });
     let [row] = await consents(b.id);
     expect(row).toMatchObject({ confirmedAt: null, confirmationSentAt: null, confirmationTokenHash: null });
     // Not sent, so the day's confirmation for the address was given back: another project can send one.
     const other = await project("Other");
     answer = async () => ({ sent: true, simulated: true });
-    await anon().publicPage.follow({ slug: other.slug, email: "wait@example.com", consent: true });
+    await follow({ slug: other.slug, email: "wait@example.com", consent: true });
     expect(asked.map((a) => a.businessId)).toEqual([b.id, other.id]);
     // The gateway not answering at all: the record stays pending, and the visitor still gets the same answer.
     const third = await project("Third");
@@ -282,7 +349,7 @@ describe("publicPage.follow (double opt-in)", () => {
       throw new Error("gateway unreachable");
     };
     hz.limits.reset();
-    expect(await anon().publicPage.follow({ slug: third.slug, email: "down@example.com", consent: true })).toEqual({ ok: true });
+    expect(await follow({ slug: third.slug, email: "down@example.com", consent: true })).toEqual({ ok: true });
     [row] = await consents(third.id);
     expect(row).toMatchObject({ confirmedAt: null, confirmationSentAt: null });
     expect((await third.member.page.get({ businessId: third.id })).followers).toBe(0);
@@ -292,8 +359,8 @@ describe("publicPage.follow (double opt-in)", () => {
     const b = await project("Caller");
     const ctx = { ...hz.deps, clientAddress: "203.0.113.7" };
     await fill(followLimitKeys.caller(hz.deps.env, "203.0.113.7"), PAGE_FOLLOW_LIMITS.perCaller);
-    expect(await followPage(ctx, { slug: b.slug, email: "c1@example.com", consent: true }).then(() => "ok", (e: { code?: string }) => e.code)).toBe("rate_limited");
-    expect(await followPage({ ...hz.deps, clientAddress: "203.0.113.8" }, { slug: b.slug, email: "c1@example.com", consent: true })).toEqual({ ok: true });
+    expect(await followPage(ctx, { slug: b.slug, email: "c1@example.com", consent: true, turnstile: TOKEN }).then(() => "ok", (e: { code?: string }) => e.code)).toBe("rate_limited");
+    expect(await followPage({ ...hz.deps, clientAddress: "203.0.113.8" }, { slug: b.slug, email: "c1@example.com", consent: true, turnstile: TOKEN })).toEqual({ ok: true });
     expect(PAGE_FOLLOW_LIMITS.perCaller.limit).toBeGreaterThanOrEqual(120);
   });
 
@@ -312,7 +379,7 @@ describe("publicPage.follow (double opt-in)", () => {
     const b = await project("Counting");
     for (const email of ["c1@example.com", "c2@example.com", "c3@example.com", "c4@example.com", "c5@example.com"]) {
       hz.limits.reset();
-      await anon().publicPage.follow({ slug: b.slug, email, consent: true });
+      await follow({ slug: b.slug, email, consent: true });
     }
     for (const req of asked.slice(0, 4)) await confirmFrom(b.id, req);
     expect((await b.member.page.get({ businessId: b.id })).followers).toBe(4);
@@ -328,7 +395,7 @@ describe("publicPage.follow (double opt-in)", () => {
   it("a follower belongs to that project only", async () => {
     const a = await project("Alpha");
     const other = await project("Bravo");
-    await anon().publicPage.follow({ slug: a.slug, email: "only-alpha@example.com", consent: true });
+    await follow({ slug: a.slug, email: "only-alpha@example.com", consent: true });
     await confirmFrom(a.id, asked[0]!);
     expect(await leads(other.id)).toEqual([]);
     expect((await other.member.page.get({ businessId: other.id })).followers).toBe(0);
@@ -337,3 +404,20 @@ describe("publicPage.follow (double opt-in)", () => {
     expect(await refusal(other.member.crm.roles.byRole({ businessId: a.id, role: "lead" }))).toMatch(/^FORBIDDEN:/);
   });
 });
+
+describe("the Follow form only where a confirmation can be sent (WP-02 T7)", () => {
+  it("staging without platform mail live: the public page has no form and following is refused as closed; live mail keeps it", async () => {
+    const b = await project("MailOff");
+    const off = { ...hz.deps.env, APP_ENV: "staging" as const, INTEGRATIONS_MODE: "mock" as const, LIVE_CONNECTORS: "", PLATFORM_MAIL_DOMAIN: "mail.foundmill.test" };
+    const offPage = await publicPageBySlug({ ...hz.deps, env: off }, b.slug);
+    expect(offPage!.followForm).toBe(false);
+    expect(await followPage({ ...hz.deps, env: off }, { slug: b.slug, email: "off@example.com", consent: true, turnstile: TOKEN }).then(() => "ok", (e: { code?: string }) => e.code)).toBe("follow_closed");
+    expect(asked).toHaveLength(0);
+    const on = { ...off, LIVE_CONNECTORS: "sendgrid" };
+    expect((await publicPageBySlug({ ...hz.deps, env: on }, b.slug))!.followForm).toBe(true);
+    expect(await followPage({ ...hz.deps, env: on }, { slug: b.slug, email: "on@example.com", consent: true, turnstile: TOKEN })).toEqual({ ok: true });
+    // The founders see why the switch is off (page.get's followAvailable).
+    expect((await b.owner.page.get({ businessId: b.id })).followAvailable).toBe(true);
+  });
+});
+

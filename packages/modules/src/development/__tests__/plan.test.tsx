@@ -6,7 +6,7 @@ import { createAgentPersonaApi } from "@foundmill/dugout";
 import { PLAN_VIEWS, PlanScreen, toPlanRows, withRunColumn } from "../PlanScreen";
 import { ReassignDialog } from "../dialogs";
 import { BUSINESS_ID, createFakeSource, renderScreen } from "./fake-source";
-import { AGENT_JUNO, ROADMAP_ITEM, TASK_BUNDLE, TASK_INDEX, TASK_PLAYWRIGHT, TASK_RATE, agents, agentsResponse, edges, emptyTasksResponse, roadmapResponse, tasks, tasksResponse } from "./fixtures";
+import { AGENT_JUNO, ROADMAP_ITEM, TASK_BUNDLE, TASK_DONE, TASK_INDEX, TASK_PLAYWRIGHT, TASK_RATE, agents, agentsResponse, edges, emptyTasksResponse, roadmapResponse, tasks, tasksResponse } from "./fixtures";
 
 const props = { businessId: BUSINESS_ID, departmentId: "d-dev" };
 const responses = () => ({ "dev.tasks.list": tasksResponse, "product.roadmap.list": roadmapResponse, "team.agents.list": agentsResponse });
@@ -298,6 +298,37 @@ describe("PlanScreen", () => {
     await screen.findByRole("grid", { name: "Tasks" });
     act(() => fake.emit({ type: "task.started", payload: { taskId: TASK_RATE } }));
     expect(fake.refetches["dev.tasks.list"]).toBe(1);
+  });
+});
+
+describe("PlanScreen › Result (WP-05 T7)", () => {
+  const report = { id: "r-1", title: "Sitemap: what changed", bodyMd: "Fixed **three** canonical tags.", sources: [{ url: "https://example.com/sitemap", title: "Sitemap guide" }], simulated: true, createdAt: "2026-10-06T15:00:00Z" };
+  const withReport = () => ({ ...freeResponses(), "dev.tasks.get": (input?: Record<string, unknown>) => ({ report: input?.taskId === TASK_DONE ? report : null }) });
+
+  it("shows a finished task's result: title, body, sources, and the simulated notice", async () => {
+    const user = userEvent.setup();
+    const fake = createFakeSource({ responses: withReport() });
+    renderScreen(fake, <PlanScreen {...props} />);
+    const table = await screen.findByRole("grid", { name: "Tasks" });
+    expect(screen.queryByTestId("task-result")).toBeNull();
+    await user.click(within(table).getByText("Sitemap and canonical fixes"));
+    const panel = await screen.findByTestId("task-result");
+    expect(within(panel).getByRole("heading", { name: "Result" })).toBeTruthy();
+    expect(within(panel).getByRole("heading", { name: "Sitemap: what changed" })).toBeTruthy();
+    expect(within(panel).getByText("Simulated: sample data, nothing real was read")).toBeTruthy();
+    expect(within(panel).getByRole("link", { name: /Sitemap guide/ }).getAttribute("href")).toBe("https://example.com/sitemap");
+    expect(fake.queried.get("dev.tasks.get")).toEqual({ taskId: TASK_DONE });
+  });
+
+  it("asks for no result while a task has not finished, and shows no panel without one", async () => {
+    const user = userEvent.setup();
+    const fake = createFakeSource({ responses: withReport() });
+    renderScreen(fake, <PlanScreen {...props} />);
+    const table = await screen.findByRole("grid", { name: "Tasks" });
+    await user.click(within(table).getByText("Playwright coverage for checkout"));
+    await screen.findByRole("application", { name: /Dependencies of Playwright coverage/ });
+    expect(fake.queried.has("dev.tasks.get")).toBe(false);
+    expect(screen.queryByTestId("task-result")).toBeNull();
   });
 });
 
