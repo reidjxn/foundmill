@@ -88,8 +88,8 @@ export function teamWorkCaption(tasks: { blocked: number; doneLast7Days: number 
   return `${tasks.doneLast7Days} finished this week · ${tasks.blocked} blocked`;
 }
 // The tiles Today reads too live in shared/today-tiles.ts, so Today imports them without registering every widget.
-import { PLAIN_LINES, RUNWAY_CAPTION, SPEND_WORDS, cashTile, customersWeekTile, runwayTile, spendWeekTiles, unavailableTile, type StatusTile, type WeekSpend } from "../shared/today-tiles";
-export { PLAIN_LINES, RUNWAY_CAPTION, SPEND_WORDS, cashTile, customersWeekTile, runwayTile, spendWeekTiles, unavailableTile, type StatusTile, type WeekSpend };
+import { PLAIN_LINES, RUNWAY_CAPTION, cashTile, customersWeekTile, runwayTile, unavailableTile, type StatusTile } from "../shared/today-tiles";
+export { PLAIN_LINES, RUNWAY_CAPTION, cashTile, customersWeekTile, runwayTile, unavailableTile, type StatusTile };
 
 export function statusTiles(i: StatusStripInputs): StatusTile[] {
   const financeError = !i.finance ? (i.errors?.finance ?? null) : null;
