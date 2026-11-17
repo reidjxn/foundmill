@@ -25,14 +25,14 @@
 ## Tasks
 
 - [x] T1 Profile as three questions; the card keeps its thread (M)
-- [ ] T2 Commit as name and go, at any width (M)
+- [x] T2 Commit as name and go, at any width (M)
 - [x] T3 What commit starts on the free plan (M)
 - [ ] T4 The starting team, as shown (S)
 - [x] T5 One plan note, one approval (M)
 - [x] T6 Check, publish and share the page on any screen (M)
 - [ ] T7 One first-day story; guidance on Today (M)
 - [x] T8 Note budget and the day's digest (M)
-- [ ] T9 The founder's own task and tomorrow's reason (M)
+- [x] T9 The founder's own task and tomorrow's reason (M)
 - [x] T10 Chief of Staff as mentor, with founder context (M)
 - [ ] T11 Lifecycle email for a started project (M, needs setup)
 - [ ] T12 Email for a person with a card and no project (M, needs setup)
@@ -71,7 +71,7 @@ Order: T1, T2, T3 first (the path), then T6, T5, T4, T7, T8; T9 to T16 in any or
 **Done when:** a new account on a phone goes kept card → three questions → Commit without a wall; the long form is reachable only when editing.
 **Left for later, on purpose:** re-rating "Founder fit" after the profile (FR-15) is one more Opus call for a number a first-timer cannot use; the card keeps `founderFitKnown={false}`. Time, place, budget and the five ratings stay in the editing form; an agent asks when it first needs one (T10's context carries nulls as "not said").
 
-### T2: Commit as name and go, at any width   [M] [ships alone]
+### [x] T2: Commit as name and go, at any width   [M] [ships alone]
 
 **Why:** FR-09, FR-03 item 2, FR-16 (weak strings), FR-19 (the 18+ source), s2 §4.1 (Commit table), s1 §3.7.
 
@@ -121,7 +121,7 @@ Order: T1, T2, T3 first (the path), then T6, T5, T4, T7, T8; T9 to T16 in any or
 **Tests and evals:** as above, plus `apps/web/e2e/first-days.spec.ts` (Today after commit shows no running cycle and no finance or legal task). No eval: the planner prompt is unchanged.
 **Done when:** a no-budget project commits with one task, no agent session before the page note, and less than $1.00 spent in its first hour (Estimate; WP-02's cost report confirms).
 
-### T4: The starting team, as shown   [S] [ships after T2]
+### [x] T4: The starting team, as shown   [S] [ships after T2]
 
 **Why:** s2 §5.3 ("25 agents and up to 17 notes on day one"), s1 §3.7 and §3.8, a3b §2.2, FR-16 row 2.
 
@@ -177,7 +177,7 @@ Order: T1, T2, T3 first (the path), then T6, T5, T4, T7, T8; T9 to T16 in any or
 **Tests and evals:** as above, both widths; Storybook story of the screen at 390.
 **Done when:** Done-when 1 of this package passes.
 
-### T7: One first-day story; guidance on Today   [M] [ships after T5 and T6]
+### [x] T7: One first-day story; guidance on Today   [M] [ships after T5 and T6]
 
 **Why:** FR-07, FR-16 rows 2 and "also weak", FR-18 (tour), A2-05, A2-06 (Today only; the other screens are WP-10), A2-10, s1 §3.8 and §3.9.
 
@@ -223,7 +223,7 @@ Order: T1, T2, T3 first (the path), then T6, T5, T4, T7, T8; T9 to T16 in any or
 **Done when:** a project left alone on day one holds the welcome or digest note, the page note and the plan note, and nothing else unarchived.
 **Risk:** an update a founder wanted is one click further away. The digest links each line to its note.
 
-### T9: The founder's own task and tomorrow's reason   [M] [ships after T7]
+### [x] T9: The founder's own task and tomorrow's reason   [M] [ships after T7]
 
 **Why:** s2 §5.1 (the session's end), §6.4 ("One thing to do today … Not built"), THESIS R7; onboarding skill: one goal per session, end on a positive note.
 
@@ -328,7 +328,7 @@ Bodies are s2 §6.3's, edited to the emails skill (reason first, one action, no 
 **Steps:** 1. Test first: a failed `email.action.answer` renders an inline `role="alert"` line "That did not go through. Try again." with a Try again button; at 390 the answer button is at least 44 px tall. 2. Both buttons `size="lg" className="min-h-tap w-full @page-wide:w-auto"`; add `onError`; replace bare "Loading…" with a three-line skeleton. verify: both tests pass.
 **Done when:** a tap from an email on a phone either answers or says why not.
 
-### T15: A phone start without a card   [S] [ships after T2]
+### [x] T15: A phone start without a card   [S] [ships after T2]
 
 **Why:** FR-03 item 5, s2 §5.3 ("A first-timer who has no idea"), FR-18 (`/home`).
 **Files:** create `apps/web/app/new/write/page.tsx`, `apps/web/components/new/WriteIdea.tsx` (+ test, + story); modify `apps/web/components/person-home/PersonHome.tsx`, `DesktopOnly.tsx` (`"/new/write"`).

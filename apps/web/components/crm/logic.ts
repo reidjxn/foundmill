@@ -411,7 +411,7 @@ export function exportEntityJson(get: EntityGet, exportedAt: Date = new Date()):
       entity: { id: entity.id, kind: entity.kind, displayName: entity.displayName, aliases: entity.aliases, identifiers: entity.identifiers, lawfulBasis: entity.lawfulBasis, source: entity.source, visibility: entity.visibility, createdAt: entity.createdAt, updatedAt: entity.updatedAt },
       roles: roles.map((r) => ({ role: r.role, stage: r.stage, owner: r.ownerRef, startedAt: r.startedAt, endedAt: r.endedAt })),
       relationships: relationships.map((r) => ({ type: r.type, strength: r.strength, with: r.other })),
-      interactions: interactions.map((i) => ({ kind: i.kind, occurredAt: i.occurredAt, direction: i.direction, summary: i.summary, bodyRef: i.contentRef })),
+      interactions: interactions.map((i) => ({ kind: i.kind, occurredAt: i.occurredAt, direction: i.direction, summary: i.summary, bodyRef: i.contentRef, ...(i.bodyUntrusted ? { body: i.bodyUntrusted } : {}) })),
       mentions: mentions.map((m) => ({ in: m.containerKind, id: m.containerId, at: m.createdAt })),
       conversions: conversions.map((c) => ({ kind: c.kind, amountMinor: c.amountMinor, currency: c.currency, occurredAt: c.occurredAt })),
       merges: mergeHistory.map((m) => ({ keptId: m.keptId, mergedId: m.mergedId, at: m.createdAt, revertedAt: m.revertedAt })),

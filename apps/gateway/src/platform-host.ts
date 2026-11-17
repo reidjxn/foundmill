@@ -15,6 +15,7 @@ import { attachAddedSkills, repos, resolveLibrarySkill, resolveSkillFile, skillL
 import { acceptanceLines, acceptanceRefusal, PlatformToolError, type PlatformCaller, type PlatformHost, type TaskSummaryT } from "@foundmill/connectors";
 import { writeGatewayEvent } from "./events";
 import { hashRecipient } from "./recipients";
+import { recipientBasis } from "./recipient-basis";
 import type { GatewayLogger } from "./pipeline";
 import { AUDIT_ACTION_TOOL_CALL, safeError } from "./pipeline";
 
@@ -299,6 +300,11 @@ export function createDbPlatformHost({ db, log, now = () => new Date(), reposito
       const result = await repos.entities.search(db, caller.businessId, { q: query, limit });
       return { items: result.hits.map((h) => ({ id: h.entity.id, kind: h.entity.kind, name: h.entity.displayName })) };
     },
+    async listPayLinks(caller) {
+      // Never a simulated link (a mock connector's): it is not on the site. Never the URL either: the site's button is /_fm/pay/<key>.
+      const links = await repos.payLinks.list(db, caller.businessId);
+      return { items: links.filter((l) => !l.simulated).map((l) => ({ key: l.key, label: l.label, priceMinor: l.priceMinor, currency: l.currency })) };
+    },
     async listApprovals(caller, { limit }) {
       const pending = await repos.approvals.pending(db, caller.businessId, limit);
       return { items: pending.map((a) => ({ id: a.id, agentId: a.agentId, connectorKey: a.connectorKey, tool: a.tool, reasons: a.reasons, requestedAt: a.requestedAt.toISOString() })) };
@@ -309,7 +315,9 @@ export function createDbPlatformHost({ db, log, now = () => new Date(), reposito
     },
     async checkContact(caller, { email }) {
       const suppressed = await repos.channels.isSuppressed(db, caller.businessId, { emailHash: hashRecipient("email", email) });
-      return { email, contactable: !suppressed };
+      // The same basis the gateway checks at send time (WP-08 T10): nobody is contactable without one.
+      const basis = await recipientBasis(db, caller.businessId, email, new Date());
+      return { email, contactable: !suppressed && basis !== "none", basis };
     },
     async readProduct(caller, { maxChars }) {
       const [blocks, roadmap, sources] = await Promise.all([repos.product.listBlocks(db, caller.businessId), repos.product.listRoadmap(db, caller.businessId), repos.product.listSources(db, caller.businessId, { limit: 50 })]);

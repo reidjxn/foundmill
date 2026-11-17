@@ -107,9 +107,12 @@ export function googleSignInEnabled(env: Pick<PublicEnv, "authGoogle"> = publicE
   return env.authGoogle;
 }
 
-/** The Simulate panel (BUILD §13.3) exists in development and staging only; it calls `dev.simulate` on apps/api, never ingest directly (SEC-2). */
+/**
+ * The Simulate panel (BUILD §13.3) exists on a development stack only; it calls `dev.simulate` on apps/api, never ingest
+ * directly (SEC-2). Never on staging: production runs APP_ENV=staging, and founders there must never fire mock events.
+ */
 export function simulatePanelAvailable(env: Pick<PublicEnv, "appEnv"> = publicEnv()): boolean {
-  return env.appEnv === "development" || env.appEnv === "staging";
+  return env.appEnv === "development";
 }
 
 /** Test hook. */

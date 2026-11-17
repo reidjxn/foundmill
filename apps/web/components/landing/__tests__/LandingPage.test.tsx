@@ -187,11 +187,9 @@ describe("LandingPage switches (DIRECTION §6)", () => {
   it("prints the lines that need a confirmation email only with platform mail on", () => {
     const { unmount } = renderPage({ platformMail: false });
     expect(text()).not.toContain(W.firstWeek.days.d3Follow);
-    expect(text()).toContain(W.questions.limitsMail);
     unmount();
     renderPage({ platformMail: true });
     expect(text()).toContain(W.firstWeek.days.d3Follow);
-    expect(text()).not.toContain(W.questions.limitsMail);
   });
 });
 

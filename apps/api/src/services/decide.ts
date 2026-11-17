@@ -29,6 +29,8 @@ import { idsOfItem, inboxWalls, isWalled, loadRedactionSource, mentionIds, noteM
 import { startModelRetests } from "./agent-model";
 import { decideGoalItem } from "./goals";
 import { decidePageNote } from "./pages";
+import { decideSiteNote } from "./sites";
+import { isSiteReadyDecision } from "@foundmill/shared/sites";
 import { decidePostalAddressNote } from "./postal-address";
 import { decideSignoffItem } from "./signoff";
 import { assertInstructionSectionAccess, assertPlanSectionAccess, choiceOf, compileOptionPlan, compilePlan, dispatchPlan, evaluatePlan, executePlanActions, planSectionRefusal, redispatchPlans, requiresConfirmation, stagedAction, syncChannelEngines, type ActionEvaluation, type ChannelToggle, type DecisionOption, type DispatchResult, type ModelRetests, type PlanContext } from "./plans";
@@ -134,6 +136,8 @@ export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInp
   if (goal) return decideGoalItem(ctx, item, goal, { chosenOption, freeText });
   // The Product lead's "Your project's page is ready" (package 1.3): Check it and publish, or Later; decided in-process.
   if (isPageReadyDecision(item.decision) && item.fromAgentId) return decidePageNote(ctx, item, { chosenOption, freeText });
+  // The Product lead's "Your site is ready to look at" (WP-07): Publish it, or Not yet; decided in-process.
+  if (isSiteReadyDecision(item.decision) && item.fromAgentId) return decideSiteNote(ctx, item, { chosenOption, freeText });
   // A founder's own showcase ask (0103) is answered from the note (showcase.answer), never by the plan compiler.
   if (isShowcaseConsentDecision(item.decision)) throw new AppError("showcase_answer_here", SHOWCASE_ANSWER_HERE_MESSAGE, 409);
   // The founders' postal address note (US CAN-SPAM): Add it in Settings, or Later; decided in-process, founders only.

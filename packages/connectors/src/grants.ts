@@ -226,6 +226,7 @@ export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, r
     "assets.request_approval": ["request_human_action"],
     "memory.search": ["search_entities"],
     "crm.entities.search": ["search_entities"],
+    "payments.links.read": ["list_pay_links"],
     "entities.manifest.read": ["search_entities"],
     "business.mode.read": ["read_business"],
     "holiday.read_authority": ["read_business"],

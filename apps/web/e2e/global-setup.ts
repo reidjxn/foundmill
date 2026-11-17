@@ -11,7 +11,7 @@ import { API_URL } from "./helpers";
  * T13) because many specs drive the screens by key: keyboard-a11y.spec.ts turns them off with `setKeyboardShortcuts`
  * for its own checks and restores them.
  */
-const TOUR_IDS = ["home", "inbox", "department", "first-continue", "first-decision", "example-start", "start-your-own", "continue"];
+const TOUR_IDS = ["home", "inbox", "department", "today", "first-continue", "first-decision", "example-start", "start-your-own", "continue"];
 
 export default async function globalSetup(): Promise<void> {
   const api = await request.newContext({ baseURL: API_URL, extraHTTPHeaders: { authorization: "Bearer dev" } });

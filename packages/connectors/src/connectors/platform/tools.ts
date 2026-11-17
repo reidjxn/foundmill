@@ -7,7 +7,7 @@
  */
 import { z } from "zod";
 import { AGENT_MESSAGE_TYPES } from "@foundmill/events";
-import { AppError, PositioningNotesInput, TASK_KINDS, TASK_STATUSES } from "@foundmill/shared";
+import { AppError, PositioningNotesInput, RECIPIENT_BASES, TASK_KINDS, TASK_STATUSES } from "@foundmill/shared";
 import { defineTool } from "../../define";
 import { AcceptanceResult } from "./acceptance";
 
@@ -185,6 +185,14 @@ export const platformTools = [
     annotations: { readOnlyHint: true },
   }),
   defineTool({
+    name: "list_pay_links",
+    description: "The project's payment links, for pay buttons on its site: each key, name and price. A pay button is <a href=\"/_fm/pay/<key>\">; the site never holds the payment address itself. A simulated link is not listed.",
+    input: z.object({}),
+    output: z.object({ items: z.array(z.object({ key: z.string(), label: z.string(), priceMinor: z.number().nullable(), currency: z.string().nullable() })) }),
+    hints: {},
+    annotations: { readOnlyHint: true },
+  }),
+  defineTool({
     name: "list_approvals",
     description: "Approvals waiting for the founder: what each one is for and since when.",
     input: z.object({ limit: z.number().int().min(1).max(100).default(20) }),
@@ -202,9 +210,9 @@ export const platformTools = [
   }),
   defineTool({
     name: "check_contact",
-    description: "Whether an address may be contacted at all: false when it is on the business's suppression list (opted out, bounced, complained).",
+    description: "Whether an address may be emailed, and on what basis: it agreed, it wrote or paid, the founder added it, or none. Not contactable when it opted out, bounced or complained, or when there is no basis.",
     input: z.object({ email: z.email() }),
-    output: z.object({ email: z.string(), contactable: z.boolean() }),
+    output: z.object({ email: z.string(), contactable: z.boolean(), basis: z.enum(RECIPIENT_BASES) }),
     hints: {},
     annotations: { readOnlyHint: true },
   }),
@@ -380,6 +388,7 @@ export interface PlatformHost {
   listMessages(caller: PlatformCaller, args: PlatformArgs<"list_messages">): Promise<PlatformResult<"list_messages">>;
   readBusiness(caller: PlatformCaller): Promise<PlatformResult<"read_business">>;
   searchEntities(caller: PlatformCaller, args: PlatformArgs<"search_entities">): Promise<PlatformResult<"search_entities">>;
+  listPayLinks(caller: PlatformCaller): Promise<PlatformResult<"list_pay_links">>;
   listApprovals(caller: PlatformCaller, args: PlatformArgs<"list_approvals">): Promise<PlatformResult<"list_approvals">>;
   listSessions(caller: PlatformCaller, args: PlatformArgs<"list_sessions">): Promise<PlatformResult<"list_sessions">>;
   checkContact(caller: PlatformCaller, args: PlatformArgs<"check_contact">): Promise<PlatformResult<"check_contact">>;

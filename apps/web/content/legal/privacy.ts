@@ -10,9 +10,14 @@ import { APP_NAME } from "@foundmill/config";
 import type { LegalDocument } from "@foundmill/dugout";
 import { LEGAL_CONTACT_EMAIL, LEGAL_ENTITY, LEGAL_ROUTES, PRIVACY_UPDATED, entityLine } from "./facts";
 import { VIA_POST_MAX_AGE_SECONDS } from "@foundmill/shared/via";
+import { FOLLOW_CONFIRM_TTL_MS } from "@foundmill/shared/project-page";
+import { REPLY_BODY_MAX } from "@foundmill/shared/replies";
 
 /** How long `fm_post` lives, in whole days, from the very constant the cookie is set with (7). */
 export const POST_COOKIE_DAYS = VIA_POST_MAX_AGE_SECONDS / 86_400;
+
+/** How long a follow's confirmation link works, in whole days, from the constant the gateway signs it with (7). */
+export const FOLLOW_CONFIRM_DAYS = FOLLOW_CONFIRM_TTL_MS / 86_400_000;
 
 const mail = { text: LEGAL_CONTACT_EMAIL, href: `mailto:${LEGAL_CONTACT_EMAIL}` };
 const terms = { text: "Terms of Service", href: LEGAL_ROUTES.terms };
@@ -104,9 +109,30 @@ export const PRIVACY: LegalDocument = {
       id: "ai",
       heading: "AI and your content",
       blocks: [
-        { kind: "p", text: "Your team of agents runs on AI models from other companies. To do what you ask, we send them the parts of your project the work needs. Under the terms we use them on, Anthropic and OpenAI do not use what we send to train their models." },
+        { kind: "p", text: "Your team of agents runs on AI models from other companies. To do what you ask, we send them the parts of your project the work needs. Under the terms we use them on, Anthropic, OpenAI and Z.ai do not use what we send to train their models." },
         { kind: "p", text: "We do not use your content to train AI models, and we do not sell it." },
         { kind: "p", text: "If you connect your own AI provider with your own key, that work runs on your account with that provider, under your agreement with them." },
+      ],
+    },
+    {
+      // Linked from the Follow form (`FOLLOW_PRIVACY_HREF`); legal-content.test.ts holds the id.
+      id: "following",
+      heading: "Following a project",
+      blocks: [
+        { kind: "p", text: `A project on ${N} can have a public page with a Follow form. You do not need an account to follow one. If you leave your email address there, this is what happens to it.` },
+        {
+          kind: "terms",
+          items: [
+            { term: "What is kept", detail: "Your email address, the sentence you agreed to, when you agreed, the page you followed from and, if a post from that project brought you there, which post." },
+            { term: "Confirming", detail: `We send you one email to confirm. You are a follower only once you confirm. The link in it works for ${FOLLOW_CONFIRM_DAYS} days.` },
+            { term: "Who sees it", detail: "Your address is added to the project's contacts, together with whether you have confirmed. The project's founders and collaborators who have access to its Customers can see it." },
+            { term: "Who writes to you", detail: `The project's founders decide what to send you and are responsible for it. They write to you because you agreed to it. Their emails come from the project's ${N} address, say who sent them and carry an unsubscribe link. We keep the list and send the emails for them.` },
+            { term: "If you reply", detail: `A reply you send to the project's emails is kept with your contact as plain text, up to ${REPLY_BODY_MAX.toLocaleString("en-US")} characters, for the same people to read.` },
+            { term: "Stopping", detail: "Unsubscribe from any of the project's emails. That ends your agreement with that project; a bounce or a spam report does the same. We keep a note that you unsubscribed, so you are not emailed again." },
+            { term: "Deleting", detail: ["Your address and your replies stay in the project's contacts until the project deletes your record or the project is deleted. To have them deleted sooner, reply to one of the project's emails or write to ", mail, "."] },
+          ],
+        },
+        { kind: "p", text: "The form's bot check is described under What we collect." },
       ],
     },
     {
@@ -133,6 +159,7 @@ export const PRIVACY: LegalDocument = {
             { term: "Railway", detail: "The servers that run the service. Amsterdam, the Netherlands." },
             { term: "Vercel", detail: "The website. Frankfurt, Germany, served through a worldwide network." },
             { term: "Anthropic", detail: "The AI models your agents run on. United States." },
+            { term: "Z.ai", detail: "An AI model your agents' work can run on when your project is on the free plan. Singapore." },
             { term: "Voyage AI", detail: "Search across your project's own material. United States." },
             { term: "OpenAI", detail: "Pictures, such as agents' portraits. United States." },
             { term: "ElevenLabs", detail: "Turning your voice into text. United States." },
@@ -153,7 +180,7 @@ export const PRIVACY: LegalDocument = {
       id: "transfers",
       heading: "Where your data is",
       blocks: [
-        { kind: "p", text: "Your account and your projects are stored in the European Union. When a provider in the United States processes them, the transfer is protected by the EU-U.S. Data Privacy Framework where the provider is certified, or by the European Commission's Standard Contractual Clauses. You can ask us for a copy of the safeguards that apply." },
+        { kind: "p", text: "Your account and your projects are stored in the European Union. When a provider in the United States or Singapore processes them, the transfer is protected by the EU-U.S. Data Privacy Framework where the provider is certified, or by the European Commission's Standard Contractual Clauses. You can ask us for a copy of the safeguards that apply." },
       ],
     },
     {

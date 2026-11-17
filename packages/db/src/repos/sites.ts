@@ -9,9 +9,13 @@
  *   (`sites_reader`) may execute.
  */
 import { createHash, randomBytes } from "node:crypto";
-import { and, count, desc, eq, gte, ne, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
-import { siteReleases, sites, type Site, type SiteRelease, type SiteScreening } from "../schema";
+import { auditLog, inboxItems, siteReleases, sites, type InboxItem, type Site, type SiteRelease, type SiteScreening } from "../schema";
+import { SITE_READY_NOTE, SITE_TAB } from "@foundmill/shared/sites";
+import { inboxRepo } from "./inbox";
+import { departmentsRepo } from "./departments";
+import { screensRepo } from "./screens";
 import { Id, maybeOne, parseInput, rowsOf, type Executor } from "./_shared";
 
 const ManifestEntry = z.object({
@@ -68,10 +72,27 @@ export const sitesRepo = {
   /** The business's site, created as a draft with this slug when it has none (an existing site keeps its slug). */
   async ensure(db: Executor, businessId: string, input: { slug: string }): Promise<Site> {
     const [created] = await db.insert(sites).values({ businessId, slug: input.slug }).onConflictDoNothing({ target: sites.businessId }).returning();
-    if (created) return created;
+    if (created) {
+      await sitesRepo.ensureTab(db, businessId);
+      return created;
+    }
     const existing = await sitesRepo.get(db, businessId);
     if (!existing) throw new Error("sites.ensure: no site after insert");
     return existing;
+  },
+
+  /**
+   * The Product › Site tab, added to the department that holds the Product module when the business's site is created
+   * (WP-07 T5). It is not in `MODULE_TABS`, so no business gets it at Commit: a project has the tab only once the
+   * platform made it a site, which happens only where SITES_DOMAIN is set. Idempotent; a business without a Product
+   * department gets no tab.
+   */
+  async ensureTab(db: Executor, businessId: string): Promise<void> {
+    const product = (await departmentsRepo.list(db, businessId)).find((d) => d.moduleKeys.includes("product"));
+    if (!product) return;
+    const tabs = await screensRepo.list(db, businessId, product.id);
+    if (tabs.some((t) => t.tabSlug === SITE_TAB.slug)) return;
+    await screensRepo.upsert(db, businessId, { departmentId: product.id, tabSlug: SITE_TAB.slug, title: SITE_TAB.title, layout: { widgets: [{ key: `module:product/${SITE_TAB.slug}`, x: 0, y: 0, w: 12, h: 60, settings: {} }] } });
   },
 
   /** The newest `preview` release, or null. */
@@ -166,6 +187,70 @@ export const sitesRepo = {
     return site;
   },
 
+  /** A new address for the site (owner or admin under RLS). Throws when the site is missing or taken down. */
+  async setSlug(tx: Executor, businessId: string, slug: string): Promise<Site> {
+    const [site] = await tx.update(sites).set({ slug }).where(and(eq(sites.businessId, businessId), ne(sites.status, "taken_down"))).returning();
+    if (!site) throw new Error("sites.setSlug: the site is missing, taken down or not yours to change");
+    return site;
+  },
+
+  /** One release of the business, or null (another business's id reads as null). */
+  async getRelease(db: Executor, businessId: string, releaseId: string): Promise<SiteRelease | null> {
+    return maybeOne(await db.select().from(siteReleases).where(and(eq(siteReleases.businessId, businessId), eq(siteReleases.id, releaseId))).limit(1));
+  },
+
+  /** Serializes the publishes of one business inside the caller's transaction (the daily limit counts under it). */
+  async lockPublishes(tx: Executor, businessId: string): Promise<void> {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext('site_publish'), hashtext(${businessId}))`);
+  },
+
+  /** The open "Your site is ready to look at" note (unread or read), else null. */
+  async openReadyNote(db: Executor, businessId: string): Promise<InboxItem | null> {
+    return maybeOne(
+      await db
+        .select()
+        .from(inboxItems)
+        .where(and(eq(inboxItems.businessId, businessId), inArray(inboxItems.state, ["unread", "read"]), sql`${inboxItems.decision}->>'key' = ${SITE_READY_NOTE.key}`))
+        .orderBy(desc(inboxItems.createdAt))
+        .limit(1),
+    );
+  },
+
+  /**
+   * The Product lead's note for a new preview, from the agent that made it: written only when no note is open and no
+   * publish happened since the last note (one note per round of looking, never one per version).
+   */
+  async writeReadyNote(db: Executor, businessId: string, input: { agentId: string; agentName: string; previewUrl: string }): Promise<InboxItem | null> {
+    if (await sitesRepo.openReadyNote(db, businessId)) return null;
+    const [last] = await db.select({ at: inboxItems.createdAt }).from(inboxItems).where(and(eq(inboxItems.businessId, businessId), sql`${inboxItems.decision}->>'key' = ${SITE_READY_NOTE.key}`)).orderBy(desc(inboxItems.createdAt)).limit(1);
+    if (last) {
+      const [published] = await db.select({ n: count() }).from(siteReleases).where(and(eq(siteReleases.businessId, businessId), gte(siteReleases.publishedAt, last.at)));
+      if (Number(published?.n ?? 0) === 0) return null;
+    }
+    return inboxRepo.createItem(db, businessId, {
+      type: "decision",
+      from_agent_id: input.agentId,
+      subject: SITE_READY_NOTE.subject,
+      body_md: SITE_READY_NOTE.body(input.agentName, input.previewUrl),
+      status_strip: [],
+      exhibit: { kind: "none", spec_ref: null },
+      decision: {
+        options: [
+          { id: SITE_READY_NOTE.options.publish, label: SITE_READY_NOTE.publishLabel, recommended: true, consequence: "The newest version of your site goes live at its address.", cost_minor: 0, reversible: true },
+          { id: SITE_READY_NOTE.options.later, label: SITE_READY_NOTE.laterLabel, recommended: false, consequence: "Nothing is public. You can publish from the Site tab any time.", cost_minor: 0, reversible: true },
+        ], free_text: false, expires_at: null, key: SITE_READY_NOTE.key },
+      blocks_continue: false,
+      source_event_ids: [],
+      entity_ids: [],
+    });
+  },
+
+  /** Publishing answers the note (the founder did what it asked). */
+  async closeReadyNote(db: Executor, businessId: string, userId: string | null): Promise<void> {
+    const open = await sitesRepo.openReadyNote(db, businessId);
+    if (open) await inboxRepo.decide(db, businessId, open.id, { chosenOption: SITE_READY_NOTE.options.publish, decidedByKind: "user", decidedBy: userId });
+  },
+
   /** The business's releases, newest first. */
   async listReleases(db: Executor, businessId: string, limit = 20): Promise<SiteRelease[]> {
     const n = Math.min(Math.max(Math.trunc(limit), 1), 100);
@@ -198,6 +283,18 @@ export const sitesRepo = {
       .select({ n: count() })
       .from(siteReleases)
       .where(and(eq(siteReleases.businessId, businessId), gte(siteReleases.publishedAt, utcMidnight(options.now ?? new Date()))));
+    return Number(row?.n ?? 0);
+  },
+
+  /**
+   * Presses of Publish since UTC midnight (the `site.published` audit rows apps/api writes), republishing the same
+   * release included: what `SITE_LIMITS.publishesPerDay` counts.
+   */
+  async publishPressesToday(db: Executor, businessId: string, options: { now?: Date } = {}): Promise<number> {
+    const [row] = await db
+      .select({ n: count() })
+      .from(auditLog)
+      .where(and(eq(auditLog.businessId, businessId), eq(auditLog.action, "site.published"), gte(auditLog.createdAt, utcMidnight(options.now ?? new Date()))));
     return Number(row?.n ?? 0);
   },
 };

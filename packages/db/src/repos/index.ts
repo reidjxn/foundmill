@@ -28,6 +28,7 @@ import { positioningRepo } from "./positioning";
 import { personProfilesRepo } from "./person-profiles";
 import { mailRepo } from "./mail";
 import { postalAddressRepo } from "./postal-address";
+import { repliesRepo } from "./replies";
 import { followersRepo } from "./followers";
 import { notifyEmailRepo } from "./notify-email";
 import { holidaysRepo } from "./holidays";
@@ -77,6 +78,8 @@ import { founderCancelLinksRepo, founderDeparturesRepo } from "./founder-departu
 import { metricsRepo } from "./metrics";
 import { taskReportsRepo } from "./task-reports";
 import { sitesRepo } from "./sites";
+export { AddPayLinkInput } from "./pay-links";
+import { payLinksRepo } from "./pay-links";
 
 export const repos = {
   businesses: businessesRepo,
@@ -95,6 +98,7 @@ export const repos = {
   personProfiles: personProfilesRepo,
   projectMail: mailRepo,
   postalAddress: postalAddressRepo,
+  replies: repliesRepo,
   followers: followersRepo,
   notifyEmail: notifyEmailRepo,
   departments: departmentsRepo,
@@ -157,6 +161,7 @@ export const repos = {
   metrics: metricsRepo,
   taskReports: taskReportsRepo,
   sites: sitesRepo,
+  payLinks: payLinksRepo,
 } as const;
 export type Repos = typeof repos;
 export type RepoArea = keyof Repos;
@@ -166,6 +171,7 @@ export { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, encodeCursor, decodeCursor, decodeTim
 
 export * from "./agents";
 export * from "./positioning";
+export * from "./replies";
 export * from "./approvals";
 export * from "./audit";
 export { formerFounderSince, type FounderDepartureView } from "./founder-departures";

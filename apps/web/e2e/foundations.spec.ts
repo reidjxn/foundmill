@@ -1,5 +1,5 @@
 import { expect, test, type Page, type Request, type Route } from "@playwright/test";
-import { LONG, PLAN_NOTE, UUID, approvePlan, ensureDeck, inboxRow, signIn } from "./helpers";
+import { FIRST_NOTE, LONG, PLAN_NOTE, UUID, approvePlan, ensureDeck, inboxRow, signIn } from "./helpers";
 
 /**
  * Foundations on the first open (BUILD §11.1 "Take charge" → first open, §11.5 Vision · Specification · Roadmap): a new
@@ -131,7 +131,7 @@ test.describe("foundations", () => {
     const { bid } = await takeCharge(page, `Ledgerly ${Date.now().toString(36)}`);
     // The first note is the Chief of Staff's welcome; the Import report's first decisions arrive once the product is signed off.
     await page.goto(`/b/${bid}/inbox`);
-    await expect(inboxRow(page, /Your team is drafting your page and your plan|What your team did today/)).toBeVisible({ timeout: LONG });
+    await expect(inboxRow(page, FIRST_NOTE)).toBeVisible({ timeout: LONG });
     await expect(inboxRow(page, "Where should the team start with what you imported?")).toHaveCount(0);
 
     await page.goto(`/b/${bid}/d/product/roadmap`);

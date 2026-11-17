@@ -21,7 +21,7 @@
  */
 import { FOLLOW_CONSENT_PURPOSE, FOLLOW_SOURCE, followerDisplayName, ProjectPageSlug, readPageContent } from "@foundmill/shared";
 import { and, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
-import { contactConsents, entities, projectPages, publicProjectPages } from "../schema";
+import { businesses, contactConsents, entities, projectPages, publicProjectPages, siteReleases, sites } from "../schema";
 import { suppressionHash } from "./channels";
 import { entitiesRepo } from "./entities";
 import { maybeOne, type Executor } from "./_shared";
@@ -32,7 +32,8 @@ export const FOLLOW_CONFIRM_RESEND_MS = 30 * 24 * 60 * 60_000;
 /** The page a follow is for, as only a published page gives it. */
 export interface FollowTarget {
   businessId: string;
-  pageId: string;
+  /** Null for a site's form when the project has no page row (WP-07 T6). */
+  pageId: string | null;
   slug: string;
   name: string;
   /** The founders' switch on the published copy (`followForm`; a copy published before it existed reads as off). */
@@ -40,8 +41,11 @@ export interface FollowTarget {
 }
 
 export interface RecordFollowerInput {
-  pageId: string;
+  /** The page signed up on; null for a site's form when the project has no page row (WP-07 T6). */
+  pageId: string | null;
   slug: string;
+  /** Where the signup came from (`contact_consents.source_ref`): the page's slug, or `site:<slug>` for a site's form. */
+  sourceRef?: string;
   /** Trimmed and lowercased by the caller, already checked. */
   email: string;
   /** The sentence beside the box, exactly as the visitor read it. */
@@ -106,6 +110,29 @@ export const followersRepo = {
   },
 
   /**
+   * The business behind the live site at `slug` (WP-07 T6), with the project page's id when it has a page row: the
+   * same rules as a published page (committed, not archived, not a sample), and a site that is `live`.
+   */
+  async siteTarget(db: Executor, slug: string): Promise<FollowTarget | null> {
+    if (!ProjectPageSlug.safeParse(slug).success) return null;
+    const row = maybeOne(
+      await db
+        .select({ businessId: businesses.id, name: businesses.name, slug: sites.slug, pageId: projectPages.id, pageDraft: projectPages.draft, pagePublished: projectPages.published })
+        .from(sites)
+        .innerJoin(businesses, eq(businesses.id, sites.businessId))
+        // The live release must still be servable (`site_resolve` serves a preview-state release only).
+        .innerJoin(siteReleases, and(eq(siteReleases.id, sites.liveReleaseId), eq(siteReleases.state, "preview")))
+        .leftJoin(projectPages, eq(projectPages.businessId, sites.businessId))
+        .where(and(eq(sites.slug, slug), eq(sites.status, "live"), isNotNull(businesses.committedAt), isNull(businesses.archivedAt), eq(businesses.isDemo, false)))
+        .limit(1),
+    );
+    if (!row) return null;
+    // The founders' Follow switch on their page holds for the site too; a project with no page row takes sign-ups.
+    const content = row.pageId ? (readPageContent(row.pagePublished) ?? readPageContent(row.pageDraft, true)) : null;
+    return { businessId: row.businessId, pageId: row.pageId ?? null, slug: row.slug, name: row.name, followForm: content ? content.followForm : true };
+  },
+
+  /**
    * Writes one signup in the caller's transaction. Two signups with the same address at the same moment are serialized
    * by a transaction lock on the business and the address's hash, so they never make two contacts.
    */
@@ -143,7 +170,7 @@ export const followersRepo = {
     }
     const rows = await db
       .insert(contactConsents)
-      .values({ businessId, entityId, purpose: FOLLOW_CONSENT_PURPOSE, source: FOLLOW_SOURCE, sourceRef: input.slug, pageId: input.pageId, consentText: input.consentText, agreedAt: input.at ?? new Date(), postLinkId: input.postLinkId ?? null })
+      .values({ businessId, entityId, purpose: FOLLOW_CONSENT_PURPOSE, source: FOLLOW_SOURCE, sourceRef: input.sourceRef ?? input.slug, pageId: input.pageId, consentText: input.consentText, agreedAt: input.at ?? new Date(), postLinkId: input.postLinkId ?? null })
       .onConflictDoNothing({ target: [contactConsents.businessId, contactConsents.entityId, contactConsents.purpose, contactConsents.source] })
       .returning({ id: contactConsents.id });
     const consent = rows[0];
@@ -284,5 +311,26 @@ export const followersRepo = {
       .innerJoin(entities, and(eq(entities.id, contactConsents.entityId), eq(entities.businessId, businessId)))
       .where(and(pageConsent(businessId), isNull(contactConsents.confirmedAt), isNull(entities.lawfulBasis), inArray(sql`lower(trim(${entities.identifiers} ->> 'email'))`, list)));
     return [...new Set(rows.map((r) => r.email))];
+  },
+  /**
+   * What the project holds on the live contacts with this address (trimmed, lowercased), for the gateway's send-time
+   * basis (WP-08 T10, apps/gateway `recipientBasis`): each one's lawful basis and source, and whether any of them has a
+   * confirmed page consent not withdrawn.
+   */
+  async basisFacts(db: Executor, businessId: string, email: string): Promise<{ contacts: { id: string; lawfulBasis: string | null; source: string | null }[]; consented: boolean }> {
+    const address = email.trim().toLowerCase();
+    if (!address) return { contacts: [], consented: false };
+    const contacts = await db
+      .select({ id: entities.id, lawfulBasis: entities.lawfulBasis, source: entities.source })
+      .from(entities)
+      .where(and(eq(entities.businessId, businessId), liveContact, sql`lower(trim(${entities.identifiers} ->> 'email')) = ${address}`))
+      .limit(20);
+    if (!contacts.length) return { contacts, consented: false };
+    const consent = await db
+      .select({ id: contactConsents.id })
+      .from(contactConsents)
+      .where(and(pageConsent(businessId), isNotNull(contactConsents.confirmedAt), isNull(contactConsents.withdrawnAt), inArray(contactConsents.entityId, contacts.map((c) => c.id))))
+      .limit(1);
+    return { contacts, consented: consent.length > 0 };
   },
 };

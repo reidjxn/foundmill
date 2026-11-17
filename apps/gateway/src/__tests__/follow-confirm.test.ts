@@ -225,9 +225,12 @@ describe("follow confirmation (gateway)", () => {
     // Once the person confirmed, the same send goes through (automated mode).
     await g.db.transaction((tx) => repos.followers.confirm(tx, { businessId: g.businessId, consentId: f.consentId, emailHash: suppressionHashOfEmail(f.email), tokenHash: followConfirmNonceHash(f.nonce) }));
     expect((await g.client.call(token, message("unconfirmed@example.com"))).outcome).toBe("allow");
-    // A contact that had a basis of its own before signing up is not held back by a pending signup.
+    // A contact that had a basis of its own before signing up is not held back by a pending signup: the founder added
+    // them, so the founder approves the first message (WP-08 T10, D4), and it is not refused.
     await repos.entities.create(g.db, g.businessId, { kind: "person", displayName: "Kim Customer", identifiers: { email: "kim@example.com" }, source: "manual", lawfulBasis: "contract" });
     await pendingFollower("kim@example.com");
-    expect((await g.client.call(token, message("kim@example.com"))).outcome).toBe("allow");
+    const kim = await g.client.call(token, message("kim@example.com"));
+    expect(kim.outcome).toBe("ask");
+    expect((kim as { policyIds: string[] }).policyIds).toEqual(["mail-recorded-basis-asks"]);
   });
 });
