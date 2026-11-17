@@ -44,6 +44,8 @@ export const SMALL_SCREEN_PREFIXES: readonly string[] = [
   "/new/card/",
   // The three questions after a kept card (WP-04 T1).
   "/onboarding",
+  // A phone start without a card (WP-04 T15): a working name and the idea, then Commit.
+  "/new/write",
   // The person's own pages and the people pages (package 2.1): their profile, finding people, communities, messages.
   "/public-profile",
   "/network",

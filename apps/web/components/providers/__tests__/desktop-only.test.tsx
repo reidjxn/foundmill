@@ -56,10 +56,14 @@ describe("desktop only (audit PAS-4: a phone rendered a 390 px slice of a 1280 p
   });
 
   it("a project's public page and a person's public profile work from 390 px: the one list of small-screen routes, nothing else changes", () => {
-    expect(SMALL_SCREEN_PREFIXES).toEqual(["/p/", "/u/", "/m/", "/login", "/home", "/a/", "/email/pause", "/terms", "/privacy", "/", "/new/card/", "/onboarding", "/public-profile", "/network", "/communities", "/communities/", "/profiles/", "/i/", "/start"]);
+    expect(SMALL_SCREEN_PREFIXES).toEqual(["/p/", "/u/", "/m/", "/login", "/home", "/a/", "/email/pause", "/terms", "/privacy", "/", "/new/card/", "/onboarding", "/new/write", "/public-profile", "/network", "/communities", "/communities/", "/profiles/", "/i/", "/start"]);
     expect(worksOnSmallScreens("/new/card/11111111-1111-4111-8111-111111111111")).toBe(true);
     // The three questions after a kept card (WP-04 T1): exactly /onboarding, so a phone goes on from the card.
     expect(worksOnSmallScreens("/onboarding")).toBe(true);
+    // A phone start without a card (WP-04 T15): exactly /new/write; the doors and the studio stay desktop.
+    expect(worksOnSmallScreens("/new/write")).toBe(true);
+    expect(worksOnSmallScreens("/new/write/")).toBe(true);
+    for (const p of ["/new", "/new/write/x", "/new/ideate"]) expect(worksOnSmallScreens(p), p).toBe(false);
     // The signed-in index (WP-03 T1): what it renders in place (the landing page, the gate's pages) works from 390 px.
     expect(worksOnSmallScreens("/start")).toBe(true);
     // The landing page's hero (founder, 2026-11-13): exactly "/", never a prefix of every path.

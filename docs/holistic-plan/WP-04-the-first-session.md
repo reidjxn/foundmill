@@ -328,7 +328,7 @@ Bodies are s2 §6.3's, edited to the emails skill (reason first, one action, no 
 **Steps:** 1. Test first: a failed `email.action.answer` renders an inline `role="alert"` line "That did not go through. Try again." with a Try again button; at 390 the answer button is at least 44 px tall. 2. Both buttons `size="lg" className="min-h-tap w-full @page-wide:w-auto"`; add `onError`; replace bare "Loading…" with a three-line skeleton. verify: both tests pass.
 **Done when:** a tap from an email on a phone either answers or says why not.
 
-### T15: A phone start without a card   [S] [ships after T2]
+### [x] T15: A phone start without a card   [S] [ships after T2]
 
 **Why:** FR-03 item 5, s2 §5.3 ("A first-timer who has no idea"), FR-18 (`/home`).
 **Files:** create `apps/web/app/new/write/page.tsx`, `apps/web/components/new/WriteIdea.tsx` (+ test, + story); modify `apps/web/components/person-home/PersonHome.tsx`, `DesktopOnly.tsx` (`"/new/write"`).
