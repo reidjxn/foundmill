@@ -20,6 +20,9 @@ const POSTAL = "PO Box 1234, Springfield, IL 62701, USA";
 const config = (over: Partial<PlatformMailConfig> = {}): PlatformMailConfig => ({ domain: DOMAIN, dailyCap: 50, ceiling: 2_000, signingSecret: null, unsubscribeBase: "http://localhost:4005", ...over });
 const message = (to = "anna@example.com", over: Record<string, unknown> = {}) => ({ connector: "platform_mail", tool: "send_mail", args: { to: { email: to, name: "Anna" }, subject: "Thanks for joining", text: "Hi Anna, thanks for joining the list.", ...over } });
 
+/** The addresses these tests mail, each given a basis to be mailed on (a confirmed follow; WP-08 T10). */
+const MAILABLE = ["Payer@Example.com", "anna@example.com", "dev@example.com", "five@example.com", "four@example.com", "gone@example.com", "lead2@example.com", "lead@example.com", "memory@example.com", "named@example.com", "off.person@example.com", "one@example.com", "quit@example.com", "redis-down@example.com", "redis-up@example.com", "seven@example.com", "six@example.com", "staging@example.com", "stranger@example.com", "three@example.com", "two@example.com", "writer@example.com", "Payer@Example.com"];
+
 /** A Redis that answers (or not, while `down`): counts shared by every replica, as on staging and production. */
 function fakeRedis() {
   const counts = new Map<string, number>();
@@ -53,6 +56,7 @@ describe("platform_mail through the gateway (mock)", () => {
   beforeAll(async () => {
     g = await setupGateway({ businessMode: "automated", connectors: [mock] });
     g.deps.appEnv = "test";
+    for (const e of MAILABLE) await g.mailable(e);
     await repos.postalAddress.set(g.db, g.businessId, { address: POSTAL, userId: null });
   }, 120_000);
   afterAll(async () => g.close());
@@ -83,16 +87,27 @@ describe("platform_mail through the gateway (mock)", () => {
     expect(g.rateLimits.peek(`pm:${g.businessId}:day`, Date.now())).toBe(0);
   });
 
-  it("a first message to someone new asks the founder in assisted mode, and nothing is sent or counted", async () => {
-    await repos.businesses.setBusinessMode(g.db, g.businessId, "assisted");
-    const r = (await g.client.call(token, message("new.person@example.com"))) as AskResponse;
-    expect(r.outcome).toBe("ask");
-    expect(r.approvalId).toBeTruthy();
-    expect(r.reasons.join(" ")).toMatch(/irreversible/i);
+  it("a first message to someone the founder added asks the founder, in every mode; someone new is refused (WP-08 T10)", async () => {
+    await g.mailable("new.person@example.com", "recorded");
+    for (const mode of ["assisted", "automated"] as const) {
+      await repos.businesses.setBusinessMode(g.db, g.businessId, mode);
+      const r = (await g.client.call(token, message("new.person@example.com"))) as AskResponse;
+      expect(r.outcome, mode).toBe("ask");
+      expect(r.approvalId).toBeTruthy();
+      expect(r.policyIds).toContain("mail-recorded-basis-asks");
+    }
     expect(mock.sentFor(g.businessId).some((m) => m.to === "new.person@example.com")).toBe(false);
     expect(g.rateLimits.peek(`pm:${g.businessId}:day`, Date.now())).toBe(0);
-    await repos.businesses.setBusinessMode(g.db, g.businessId, "augmented");
-    expect((await g.client.call(token, message("other.person@example.com"))).outcome).toBe("ask");
+    // Nobody at this address agreed, wrote or paid, and the founder did not add them: refused, with no approval to ask.
+    const approvals = async () => (await g.h.pg.query<{ n: number }>("select count(*)::int as n from approvals where business_id = $1", [g.businessId])).rows[0]!.n;
+    const before = await approvals();
+    for (const mode of ["augmented", "assisted", "automated"] as const) {
+      await repos.businesses.setBusinessMode(g.db, g.businessId, mode);
+      const r = asDeny(await g.client.call(token, message("other.person@example.com")));
+      expect(r.policyIds, mode).toEqual(["mail-needs-basis"]);
+    }
+    expect(await approvals()).toBe(before);
+    expect(mock.sentFor(g.businessId).some((m) => m.to === "other.person@example.com")).toBe(false);
   });
 
   it("sends from the project's own address with signed custom args, marks it simulated and writes mail.sent", async () => {
@@ -207,6 +222,7 @@ describe("platform_mail through the gateway (mock)", () => {
       expect(asDeny(await g.client.call(token, message())).policyIds).toEqual([PLATFORM_MAIL_POLICY.unconfigured]);
     } finally {
       g.deps.appEnv = "test";
+    for (const e of MAILABLE) await g.mailable(e);
     }
   });
 
@@ -222,6 +238,7 @@ describe("platform_mail through the gateway (mock)", () => {
       expect((await repos.audit.get(g.db, g.businessId, r.auditId)).details).toMatchObject({ outcome: "deny", policyIds: [PLATFORM_MAIL_POLICY.simulated] });
     } finally {
       g.deps.appEnv = "test";
+    for (const e of MAILABLE) await g.mailable(e);
     }
   });
 
@@ -256,6 +273,7 @@ describe("platform_mail through the gateway (mock)", () => {
     } finally {
       g.deps.rateLimits = memory;
       g.deps.appEnv = "test";
+    for (const e of MAILABLE) await g.mailable(e);
       await g.h.pg.query(`update businesses set is_demo = false where id = $1`, [g.businessId]);
     }
   });
@@ -266,6 +284,7 @@ describe("platform_mail through the gateway (mock)", () => {
       asAllow(await g.client.call(token, message("dev@example.com")));
     } finally {
       g.deps.appEnv = "test";
+    for (const e of MAILABLE) await g.mailable(e);
     }
   });
 
@@ -308,6 +327,7 @@ describe("platform_mail through the gateway (live: SendGrid on the platform key)
     });
     g = await setupGateway({ businessMode: "automated", connectors: [live], liveConnectors: ["sendgrid"] });
     g.deps.appEnv = "production";
+    for (const e of MAILABLE) await g.mailable(e);
     g.deps.rateLimits = new RedisRateLimitStore(counter.redis);
     token = await g.token({ allowedTools: ["platform_mail:*"] });
     await repos.postalAddress.set(g.db, g.businessId, { address: POSTAL, userId: null });
@@ -383,6 +403,7 @@ describe("platform_mail and the founders' postal address (US CAN-SPAM)", () => {
   beforeAll(async () => {
     g = await setupGateway({ businessMode: "automated", connectors: [mock] });
     g.deps.appEnv = "test";
+    for (const e of MAILABLE) await g.mailable(e);
     g.deps.platformMail = config();
     token = await g.token({ allowedTools: ["platform_mail:*"] });
   }, 120_000);

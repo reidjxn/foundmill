@@ -11,7 +11,7 @@
  * businesses whose team is not stopped.
  */
 import { WorkflowExecutionAlreadyStartedError } from "@temporalio/common";
-import { ParentClosePolicy, getExternalWorkflowHandle, proxyActivities, startChild } from "@temporalio/workflow";
+import { ParentClosePolicy, getExternalWorkflowHandle, patched, proxyActivities, startChild } from "@temporalio/workflow";
 import type { Activities, EngineToEnsure, ScheduleInput, ScheduleResult } from "../activities";
 import { channelEngine } from "./channelEngine";
 import { stopSignal } from "./signals";
@@ -44,10 +44,15 @@ export async function journeyMatviewRefresh(): Promise<{ refreshed: boolean; err
 
 /**
  * Every five minutes: founder emails (retention plan, 2026-11-11). Waiting decisions, wins, milestones, finished runs,
- * used-up credits and the morning brief / weekly review at each founder's hour (activities/notify.ts).
+ * used-up credits, the morning brief / weekly review at each founder's hour and the lifecycle emails, then the emails
+ * about a kept card to people with no project yet (WP-04 T12; activities/notify.ts).
  */
 export async function founderNotifications(input: ScheduleInput = {}): Promise<ScheduleResult> {
-  return acts.founderNotificationsSweep({ businessIds: await scheduledBusinesses(input), at: input.at });
+  const projects = await acts.founderNotificationsSweep({ businessIds: await scheduledBusinesses(input), at: input.at });
+  // A run given business ids (a test, a replay) is about those businesses only; a run recorded before the card emails
+  // existed replays without them.
+  if (input.businessIds || !patched("card-emails")) return projects;
+  return merge(projects, await acts.cardEmailsSweep({ at: input.at }));
 }
 
 export async function benchmarksRebuild(input: ScheduleInput = {}): Promise<ScheduleResult> {
@@ -190,4 +195,12 @@ export async function businessDeletionSweep(input: { at?: string } = {}): Promis
     }
   }
   return { due: due.length, purged, skipped };
+}
+
+/**
+ * Nightly (WP-12 T1): a drafted, unpublished public page and the Product lead's note for each real project that began
+ * before public pages and has none. A batch of at most `limit` a night, oldest first.
+ */
+export async function pageCatchUp(input: { businessIds?: string[]; limit?: number; at?: string } = {}): Promise<ScheduleResult> {
+  return acts.draftMissingProjectPages(input);
 }

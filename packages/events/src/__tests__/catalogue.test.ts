@@ -317,7 +317,7 @@ describe("event catalogue", () => {
     // The events the catalogue marks as real outside results say so in their own words. Pinned: adding one is a decision.
     const counts = (doc: string) => /the north star counts it/i.test(doc);
     const real = EVENT_TYPES.filter((t) => counts(EVENTS[t].doc));
-    expect(real).toEqual(["page.published", "page.followed"]);
+    expect(real).toEqual(["page.published", "page.followed", "site.published"]);
     expect(real).not.toContain("share.opened");
     const doc = EVENTS["share.opened"].doc;
     expect(doc).toMatch(/not an outside result and the north star does not count it/);

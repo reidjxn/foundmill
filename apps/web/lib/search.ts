@@ -37,6 +37,8 @@ export interface SearchInboxItem {
 }
 
 export const SETTINGS_TABS = [
+  // The five a first-timer looks for, each one press away (WP-10 T11); Settings opens here with Builder view off.
+  { slug: "basics", label: "Basics" },
   { slug: "business", label: "Business" },
   // "What the team can do" on screen (founder, 2026-11-07); the slug stays "mode", and "mode" stays a keyword.
   { slug: "mode", label: "What the team can do" },

@@ -12,7 +12,7 @@
  */
 import { prompts } from "@foundmill/agents";
 import { FounderTitlesOutput, type ModelClient } from "@foundmill/models";
-import { FOUNDER_WORDS, PLAIN_LANGUAGE_TIERS, TERMS, TITLE_BANNED_TERM_IDS, founderTitleProblems, type FounderTitleProblem } from "@foundmill/shared";
+import { FIRST_DAY_PROMISE, FIRST_DAY_TOAST, FOUNDER_WORDS, PLAIN_LANGUAGE_TIERS, TERMS, TITLE_BANNED_TERM_IDS, emptyWhy, founderTitleProblems, type FounderTitleProblem } from "@foundmill/shared";
 import { EVAL_BUSINESS_NAME } from "./harness";
 
 export interface FounderTitleCase {
@@ -47,6 +47,13 @@ export const FOUNDER_TITLE_CORPUS: readonly FounderTitleCase[] = Object.freeze([
   { id: "t19", title: "Supplier RFQ round two", goal: "Ask the three shortlisted suppliers for revised quotes on 5,000 units.", kind: "specialist" },
   { id: "t20", title: "Write the first help article", goal: "How to connect a bank, with screenshots.", kind: "channel" },
 ]);
+
+/**
+ * The first-day story (WP-04 T7), as a founder reads it on Commit, in the toast and on Today's empty Needs you: the
+ * shared lines, checked here for jargon with the rest of the runtime founder strings. The welcome note repeats
+ * `FIRST_DAY_PROMISE` and is checked in apps/api's idea-commit test.
+ */
+export const FIRST_DAY_STRINGS: readonly string[] = Object.freeze([...FIRST_DAY_PROMISE, FIRST_DAY_TOAST, emptyWhy("today_needs_you", { firstDays: true }).text]);
 
 export interface FounderTitleCaseResult {
   caseId: string;

@@ -35,7 +35,7 @@
 ## Tasks
 
 ### T0: The standing solo-guard test            [S] [ships alone, first]
-- [ ] merged
+- [x] merged
 
 Why: A9 §6 gap 4; NETWORK §10 ("Each feature ships with a test of the right-hand column"); THESIS_REVIEW §13 phase 3 guard. Today the guard is tested only on the person page and `/home`.
 Files: create `packages/shared/src/solo-guard.ts`, `packages/shared/src/solo-guard.test.ts`, `apps/api/src/__tests__/solo-guard.test.ts`, `apps/web/e2e/solo-guard.spec.ts`.
@@ -50,7 +50,7 @@ Solo guard: this task is the guard. Every later task adds its own case to these 
 Done when: both suites run in CI and pass.
 
 ### T1: Draft a public page for every project committed before the feature            [S] [ships alone; merges after D6]
-- [ ] merged
+- [x] merged
 
 Why: A9-P0-3; e0 (`project_pages` 0 rows, 13 real projects). Chosen over "a prompt on Today" because Today already shows its quiet page line for these projects (see Corrections 1) and 11 of 13 founders have not opened Today since day one: the missing piece is the draft and its note, not a prompt.
 Files: modify `packages/db/src/repos/pages.ts`, `apps/orchestrator/src/activities/foundations.ts`, `apps/orchestrator/src/workflows/schedules.ts`, `apps/orchestrator/src/workflows/index.ts`, `apps/orchestrator/src/schedules.ts`, `docs/ARCHITECTURE.md` §10 (the schedule list). Create `apps/orchestrator/src/__tests__/page-catch-up.test.ts`.
@@ -70,7 +70,7 @@ Done when: Done-when 1 returns 0 in production and `select count(*) from project
 Cost (Estimate): one `projectPage` call per project, about one cent each, charged to the project's own credits; a project with none gets the starter draft.
 
 ### T2: An invited person lands in the project            [S] [ships alone]
-- [ ] merged
+- [x] merged
 
 Why: A9-P1-2. After Accept, a new account is redirected to `/onboarding` (`apps/web/app/b/[bid]/layout.tsx:67`), which is desktop-only and ends at `/new`.
 Files: modify `apps/api/src/services/invitations.ts`, `apps/web/components/people/InvitationScreen.tsx`, `apps/web/e2e/invitations.spec.ts`. Create `apps/web/components/people/__tests__/InvitationScreen.name.test.tsx`; add cases to `apps/api/src/__tests__/invitations-admission.test.ts`.
@@ -89,7 +89,7 @@ Solo guard: the name field exists only on `/i/<token>` after an accept; `solo-gu
 Done when: Done-when 2.
 
 ### T3: "Someone arrived through your page", privately            [S] [ships alone; needs D1]
-- [ ] merged
+- [x] merged
 
 Why: A9-P1-4 (the F6 line), A9 §1.4, A11 §6 item 4. A sign-up through a page is recorded (`attributions`, `referral.arrived`) and nobody can see it. NETWORK F20 puts people lines in "Since you were last here"; F6's running total on the Network page waits with the credit (Not now).
 Decision it waits on (D1): docs/PROGRESS.md:1937, "A person can read their own account events ... For the founder to confirm". The line tells the credited founder that someone arrived and, by the visit window, roughly when. Build it behind `FLAGS.referralLine` (false); the founder's yes is a one-line change.
@@ -141,7 +141,7 @@ Solo guard: no screen changes; T0's suites pass unchanged.
 Done when: no people-side limit is counted in process memory, and none is looser than before.
 
 ### T6: The people layer flag, as a decision with its steps            [S] [needs the founder: D2]
-- [ ] merged
+- [x] merged
 
 Why: A9-P1-3, THESIS_REVIEW 2.5, A11 "just below the line". `FLAGS.liveMode` is false and production leaves `LIVE_MODE` unset; docs/DEPLOY.md:72 still describes leaderboards.
 What `LIVE_MODE=1` changes, from the code: every `live.*` procedure answers (`liveGate`, `apps/api/src/routers/live.ts:25`); committing as Live and "Go live" are allowed (`routers/idea.ts:361`, `routers/business.ts:342`) and `business.get` stops reading a stored `live` as Personal; `founder.profile.get` answers `features.liveMode: true`, so `/home` links to `/network` instead of the "Opening soon" chip and Commit offers "Personal or live".
@@ -181,7 +181,7 @@ Solo guard: the pack adds no People screen, no invite step and no empty state fo
 Done when: Done-when 6, and `git diff origin/main origin/claude/zealous-rubin-8q52gr -- docs/mobile packages/shared/src/autopilot.ts` shows only lines main gained after the merge.
 
 ### T8: The app prompt on public pages and the universal-link files            [S] [ships alone, after WP-03 T9; values need the founder]
-- [ ] merged
+- [x] merged
 
 Why: A9-P2-1; CLAUDE.md "Small screens" (after launch a public page "still shows its content with a prompt to get the app, through one config value"); `docs/mobile/BACKEND_CHANGES.md` §5 (the two files do not exist).
 Who does which half: WP-03 T9 adds the one value (`NEXT_PUBLIC_STORE_LINKS`), its parser, `PublicEnv.storeLinks`, the `GetTheApp` component and its first readers (the wall's controls and the landing footer), and leaves the signed-in handover as a commented branch in `DesktopOnly`. This task passes the links to the four public page kinds and adds the two files.
@@ -198,7 +198,7 @@ Solo guard: with the value set, a one-person project's public page shows its con
 Done when: setting the store links shows the prompt on a project page, a person page, a card and an invitation at 390 px, and the two files answer once their ids are set.
 
 ### T9: The fate of `apps/social`            [S] [needs the founder: D4]
-- [ ] merged
+- [x] merged
 
 Why: THESIS_REVIEW 4.10 and §11 "Decide once"; A11 §6 item 5. It is 295 lines: one read over the old `public_profiles` view and four routes that answer 501 (`apps/social/src/app.ts`). It is not deployed (e0: "No collab or social service deployed"). The people side's signed-in procedures and the public reads (`publicPage.*`, `publicPerson.byHandle`) are all in the api.
 Recommendation: remove it. NETWORK §8 proposed making it the home of public reads and of the feed and suggestion jobs; the public reads were built in the api, the jobs do not exist, and a scheduled job belongs in the orchestrator. Bring a separate service back when a measured load asks for one.

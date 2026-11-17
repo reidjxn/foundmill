@@ -194,6 +194,8 @@ export const EMAIL_NOTIFICATION_LABELS: Readonly<Record<EmailNotificationKind, s
   daily_brief: "Morning brief",
   weekly_review: "Weekly review",
   invitation_accepted: "Someone accepted my invitation",
+  getting_started: "Help while you set up",
+  checkin: "When your project has been quiet",
 });
 /**
  * A record's kind as Settings › Preferences › Email lists the latest emails: the switches' labels, and the founder
@@ -210,6 +212,8 @@ export const EMAIL_NOTIFICATION_HINTS: Readonly<Record<EmailNotificationKind, st
   daily_brief: "What the team did since yesterday and the one thing that needs you, at your hour.",
   weekly_review: "Monday morning, instead of the brief: the week in numbers and what comes next.",
   invitation_accepted: "When a person you invited joins your project.",
+  getting_started: "In your first week: when your page is ready to check, then one way to hear from people. At most one a day.",
+  checkin: "After two weeks away, a month and two months. Three at most, and none once you are back.",
 });
 export const EMAIL_NOTIFICATIONS_HINT = "To the address you sign in with, never while you are in the app: at most three a day in all and one a day for each project. The morning brief and the weekly review don't count.";
 export function emailNotificationSavedLine(kind: EmailNotificationKind, on: boolean): { title: string; description: string } {

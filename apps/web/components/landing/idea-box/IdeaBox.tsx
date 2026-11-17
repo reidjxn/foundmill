@@ -217,9 +217,11 @@ export function IdeaBox({ onLanded, label = IDEA_BOX_WORDS.label, ideas = PLACEH
   const drafting = phase === "drafting";
   const showField = phase !== "landed";
 
-  // One layout for every width (DESIGN §9a): it reads the page's own width (`@page-wide:`, 640 px), never the window's.
+  // One layout for every width (DESIGN §9a), read from the box's own width (`@container`; `@page-wide:` is 640 px of it),
+  // never the window's: the field and "Shape my idea" sit side by side only when the box itself has room, so a box
+  // squeezed beside the hero's example at 1024 px stacks them like a phone does (founder, 2026-11-17).
   return (
-    <div className="flex w-full flex-col items-stretch gap-4" data-idea-box="" data-phase={phase}>
+    <div className="@container flex w-full flex-col items-stretch gap-4" data-idea-box="" data-phase={phase}>
       {showField ? (
         <form onSubmit={submit} className="relative flex w-full flex-col gap-2 text-left" aria-label="Your idea" noValidate>
           <label htmlFor={inputId} className="t-landing-body font-medium text-primary">
@@ -259,8 +261,10 @@ export function IdeaBox({ onLanded, label = IDEA_BOX_WORDS.label, ideas = PLACEH
                 />
                 {/* The typing placeholder: decorative, under the empty field until the visitor clicks in. */}
                 {!focused && value === "" && !drafting ? (
-                  <span aria-hidden className="idea-input pointer-events-none absolute inset-y-0 left-0 flex items-center overflow-hidden text-tertiary" data-testid="idea-placeholder">
-                    <span className="truncate">{placeholder}</span>
+                  // Pinned to the text area on both sides, so an example longer than the field is clipped with an ellipsis
+                  // instead of running out of it (founder, 2026-11-17). The examples are written to fit (typing.ts).
+                  <span aria-hidden className="idea-input pointer-events-none absolute inset-0 flex items-center overflow-hidden text-tertiary" data-testid="idea-placeholder">
+                    <span className="min-w-0 truncate">{placeholder}</span>
                     <span className="idea-caret" />
                   </span>
                 ) : null}

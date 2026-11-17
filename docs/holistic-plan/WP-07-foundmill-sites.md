@@ -91,7 +91,7 @@ Before (`archetypes.ts:455`): "At least 20 suppliers recorded as CRM entities". 
 
 ### T2: Site tables, the switch and the events   [M] [ships alone] [needs go-ahead A]
 
-- [ ] done
+- [x] done
 
 **Why:** A4-02, A4-03; §8 architecture items 1 and "Events".
 
@@ -118,7 +118,7 @@ Before (`archetypes.ts:455`): "At least 20 suppliers recorded as CRM entities". 
 
 ### T3: A site session starts from the latest release and ends in a release   [L] [ships alone] [needs go-ahead A] [after every WP-05 task on `session.ts`]
 
-- [ ] done
+- [x] done
 
 **Why:** A4-02 ("Do not patch per-task restore"), A4-03, A4-14; §8 item 2; a3a §1.4 ("After the SDK ends"), §1.6.
 
@@ -143,7 +143,7 @@ Before (`archetypes.ts:455`): "At least 20 suppliers recorded as CRM entities". 
 
 ### T4: `apps/sites`, the service that serves previews and live sites   [M] [ships alone] [code needs go-ahead A; deploy needs go-ahead B, WP-00 S9]
 
-- [ ] done
+- [x] done (code; the deploy waits for WP-00 S9)
 
 **Why:** A4-03; §8 item 3 and "Risks".
 
@@ -171,7 +171,7 @@ Before (`archetypes.ts:455`): "At least 20 suppliers recorded as CRM entities". 
 
 ### T5: Screening, Publish, the Site tab and the note in Needs you   [L] [ships alone] [needs go-ahead A]
 
-- [ ] done
+- [x] done (the note, "Live product" and the first-week line come with T3)
 
 **Why:** A4-03 ("where is my product?"); §8 items 4 and 5 and "Screens"; CLAUDE.md small-screen rule (Needs you works from 390 px).
 
@@ -204,7 +204,7 @@ Before (`archetypes.ts:455`): "At least 20 suppliers recorded as CRM entities". 
 
 ### T6: The waitlist form   [M] [ships alone] [needs go-ahead A; switched on after WP-00 S2]
 
-- [ ] done
+- [x] done (code; switched on after WP-00 S2; the starter's form block and the session note come with T3, the Playwright steps with T10)
 
 **Why:** §8 item 6; A4-03; §1.5 row "Sign-ups reaching Customers".
 
@@ -230,7 +230,7 @@ Before (`archetypes.ts:455`): "At least 20 suppliers recorded as CRM entities". 
 
 ### T7: The pay button, with a link the founder pastes   [M] [ships alone] [needs go-ahead A; needs no Stripe setup]
 
-- [ ] done
+- [x] done (pull request "Pay buttons", with the 30-day address hold)
 
 **Why:** AR-04 (`audits/a3a-agent-runtime.md`: no agent path to a payment link), §1.5 "Payments: Missing", §8 item 7. The smallest thing that puts a working button on a site is a link the founder made in their own Stripe account.
 
@@ -274,7 +274,7 @@ Before (`archetypes.ts:455`): "At least 20 suppliers recorded as CRM entities". 
 
 ### T9: The Planner builds for a site; first builds; the demo task   [M] [ships alone] [needs go-ahead A] [after WP-05's Planner task and T3]
 
-- [ ] done
+- [x] done
 
 **Why:** §8 item 8; A4-14; A4-18; A4-07 ("For services: replace `firstBuild`").
 
@@ -294,7 +294,7 @@ Before (`archetypes.ts:455`): "At least 20 suppliers recorded as CRM entities". 
 
 ### T10: The proof: idea to published site to a sign-up in Customers   [S] [ships alone] [after T6]
 
-- [ ] done
+- [x] done (in one process; see the log entry)
 
 **Why:** §8 "Done when"; A4 §6.2 gaps 2 and 8; THESIS 1.8.
 **Files:** `apps/web/e2e/site.spec.ts` (complete it as the golden path), `e2e/tests/golden-path.spec.ts` (one added stage behind `SITES_DOMAIN`), docs/DEPLOY.md (the production check), a line for WP-02's `scripts/check-production.mjs`: `GET https://<canary-slug>.<SITES_DOMAIN>/` is 200 with the CSP header, and a preview host is `noindex`.

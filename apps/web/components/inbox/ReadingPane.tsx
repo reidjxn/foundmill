@@ -67,6 +67,7 @@ import { usePageShortcuts } from "@/lib/keys";
 import { useHydrated } from "@/lib/today";
 import { errorMessage, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
+import { markRowRead, patchInboxList, removeRow } from "./inbox-cache";
 import { useBusiness, useBusinessCurrency } from "@/components/shell/business-context";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { NotFoundPanel, RefreshFailedNotice, isMissing, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
@@ -193,6 +194,31 @@ export interface ReadingPaneProps {
   onArchived?: () => void;
 }
 
+/**
+ * The Inbox list in the cache, changed at once and put back on failure (WP-10 T12): marking read and archiving.
+ * Decisions stay pessimistic: they wait for the API.
+ */
+function useInboxListEdits() {
+  const queryClient = useQueryClient();
+  const optimistic = useCallback(
+    async (fn: Parameters<typeof patchInboxList>[1]) => {
+      const queryKey = trpcPathPrefix("inbox.list") as unknown[];
+      await queryClient.cancelQueries({ queryKey });
+      const snapshot = queryClient.getQueriesData({ queryKey });
+      queryClient.setQueriesData({ queryKey }, (d: unknown) => patchInboxList(d, fn));
+      return { snapshot };
+    },
+    [queryClient],
+  );
+  const restore = useCallback(
+    (ctx: { snapshot: [readonly unknown[], unknown][] } | undefined) => {
+      for (const [key, data] of ctx?.snapshot ?? []) queryClient.setQueryData(key, data);
+    },
+    [queryClient],
+  );
+  return { optimistic, restore };
+}
+
 export function ReadingPane({ itemId, onArchived }: ReadingPaneProps) {
   const { businessId, departments } = useBusiness();
   const trpc = useTRPC();
@@ -203,8 +229,16 @@ export function ReadingPane({ itemId, onArchived }: ReadingPaneProps) {
   const getQ = useQuery(trpc.inbox.get.queryOptions({ businessId, itemId }, { staleTime: 10_000, enabled: validId }));
   const invalidate = useCallback((routers: readonly string[]) => Promise.all(routers.map((r) => queryClient.invalidateQueries({ queryKey: trpcPathPrefix(r) as unknown[] }))), [queryClient]);
 
-  // Mark read once per item (the list and the sidebar badges follow through invalidation).
-  const markRead = useMutation(trpc.inbox.markRead.mutationOptions({ onSuccess: () => void invalidate(["inbox"]) }));
+  const { optimistic, restore } = useInboxListEdits();
+
+  // Mark read once per item: the row turns read at once; the sidebar badges follow through invalidation.
+  const markRead = useMutation(
+    trpc.inbox.markRead.mutationOptions({
+      onMutate: () => optimistic(markRowRead(itemId)),
+      onError: (_err, _vars, ctx) => restore(ctx),
+      onSettled: () => void invalidate(["inbox"]),
+    }),
+  );
   const unread = getQ.data?.item.state === "unread";
   useEffect(() => {
     if (unread && !markRead.isPending && !markRead.isSuccess) markRead.mutate({ businessId, itemId });
@@ -248,6 +282,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   const glossary = biz.business.glossary;
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+  const { optimistic, restore } = useInboxListEdits();
   const router = useRouter();
   const { toast } = useToast();
   const invalidate = useCallback((routers: readonly string[]) => Promise.all(routers.map((r) => queryClient.invalidateQueries({ queryKey: trpcPathPrefix(r) as unknown[] }))), [queryClient]);
@@ -284,7 +319,8 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   const pnlQ = useQuery(trpc.finance.pnl.queryOptions({ businessId, ...pnlRange }, { enabled: needs.has("finance") && wantsRevenue, staleTime: 60_000, retry: false }));
   const trailingRevenue = pnlQ.data ? pnlTotals(pnlQ.data.categories).revenueMinor : null;
   const ribbonQ = useQuery(trpc.journey.ribbon.queryOptions({ businessId, from: from30, to: today }, { enabled: needs.has("conversions"), staleTime: 60_000, retry: false }));
-  const tasksQ = useQuery(trpc.dev.tasks.list.queryOptions({ businessId, limit: 500 }, { enabled: needs.has("tasks"), staleTime: 30_000, retry: false }));
+  // One number, not the task list: the strip shows how many tasks are running (WP-10 T12).
+  const tasksQ = useQuery(trpc.dev.tasks.count.queryOptions({ businessId, status: "running" }, { enabled: needs.has("tasks"), staleTime: 30_000, retry: false }));
   const channelsQ = useQuery(trpc.distribution.channels.list.queryOptions({ businessId }, { enabled: needs.has("channels"), staleTime: 60_000, retry: false }));
   const tiles = useMemo(
     () =>
@@ -293,7 +329,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
           finance: financeQ.data ?? null,
           trailingRevenueMinor: trailingRevenue,
           conversions: ribbonQ.data?.conversions ?? null,
-          tasks: tasksQ.data?.items ?? null,
+          tasksRunning: tasksQ.data?.count ?? null,
           channelsEnabled: channelsQ.data ? channelsQ.data.channels.filter((c) => c.enabled).length : null,
           glossary,
         }),
@@ -398,12 +434,15 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   );
   const archive = useMutation(
     trpc.inbox.archive.mutationOptions({
+      // The row leaves the list at once and comes back if the archive fails.
+      onMutate: () => optimistic(removeRow(item.id)),
       onSuccess: () => {
         void invalidate(["inbox"]);
         toast({ title: "Archived", tone: "info" });
         onArchived?.();
       },
-      onError: (err) => {
+      onError: (err, _vars, ctx) => {
+        restore(ctx);
         void invalidate(["inbox"]);
         toast({ title: "Could not archive", description: errorMessage(err), tone: "bad" });
       },
@@ -529,7 +568,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
       </header>
 
       {/* scrolling body */}
-      <div className="flex min-h-0 flex-1 flex-col gap-gutter overflow-y-auto p-gutter [&>*]:shrink-0">
+      <div className="flex min-h-0 flex-1 flex-col gap-gutter overflow-y-auto scroll-pb-(--decision-bar) p-gutter [&>*]:shrink-0">
         <div className="flex flex-col gap-1.5" data-testid="inbox-title">
           {/* The subject has the full width of the pane: it wraps, it is never crushed by chips. */}
           <h1 className="t-display-md max-w-reading text-balance break-words text-primary" data-testid="inbox-subject">{withNames(item.subject)}</h1>

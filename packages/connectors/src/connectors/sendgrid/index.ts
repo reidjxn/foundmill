@@ -170,4 +170,4 @@ export function createSendgridConnector(options: LiveConnectorOptions = {}): Con
 
 export { sendgridMock, createSendgridMock, signedEventRequest, inboundParseRequest, sgEvent, signSendgridBody } from "./mock";
 export { sendgridTools, SENDGRID_KEY, assertUnsubscribe, assertVerifiedSender, assertNoneSuppressed, buildMailData } from "./tools";
-export { createSendgridEventWebhook, createSendgridInboundWebhook, emailEntityId, normaliseSendgridEvents, normaliseInboundMail, verifySendgridSignature } from "./webhooks";
+export { createSendgridEventWebhook, createSendgridInboundWebhook, emailEntityId, inboundReplyText, normaliseSendgridEvents, normaliseInboundMail, verifySendgridSignature } from "./webhooks";

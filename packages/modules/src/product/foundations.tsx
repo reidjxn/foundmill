@@ -14,7 +14,11 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { CircleCheck, CircleDashed, Compass, LoaderCircle } from "lucide-react";
 import { Avatar, Chip, EntityLink, FoundationsStatus, Icon, LiveRun, Panel, ProvenanceChip, StatusPill, cn, foundationsNeedsAttention, useDateFormat, type GridSpan, type LiveRunItem, type LiveRunStep } from "@foundmill/dugout";
 import type { DeptColourToken, RoadmapHorizon } from "@foundmill/shared";
-import { failedWithoutData, isForbidden, moduleHref, routes, useDepartments, useHostStreamOpen, useWidgetData, useWidgetQuery, type QueryState } from "@foundmill/widgets";
+// Deep imports, not the barrel (which registers every widget): Today reads this file (WP-10 T13).
+import { useHostStreamOpen, useWidgetData, useWidgetQuery, type QueryState } from "@foundmill/widgets/data";
+import { failedWithoutData, isForbidden } from "@foundmill/widgets/shared/errors";
+import { moduleHref, useDepartments } from "@foundmill/widgets/shared/departments";
+import { routes } from "@foundmill/widgets/shared/routes";
 import { PlainDoc } from "./PlainDoc";
 import { errorMessage, useAction } from "./shared";
 import type { FoundationsProgress, FoundationsResponse, FoundationsVision } from "./types";

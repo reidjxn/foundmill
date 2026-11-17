@@ -9,8 +9,9 @@
  * credits for the month are used up is refused before the request leaves (`credits_exhausted`, 402, which the api
  * passes through), whatever the business's model billing; a pre-written note from the buffer still serves Refresh.
  */
-import { assertPlatformCredits, bookUsage, type Db } from "@foundmill/db";
-import type { ModelCallGate, ModelLogger, UsageEvent, UsageSink } from "@foundmill/models";
+import { createHmac, randomUUID } from "node:crypto";
+import { assertPlatformCredits, bookUsage, cachedModelFundingOf, freeCapCheck, type Db } from "@foundmill/db";
+import { enforceModelFunding, gateModelClient, ownKeyViaGateway, routeOwnKeyCalls, type ModelCallGate, type ModelClient, type ModelLogger, type UsageEvent, type UsageSink } from "@foundmill/models";
 
 /** The composer's check before every model call: the business's credits must allow it (`live`: simulated credits do not count). */
 export function creditsGate(db: Db, live: boolean): ModelCallGate {
@@ -20,6 +21,46 @@ export function creditsGate(db: Db, live: boolean): ModelCallGate {
     // Low credits (the credit saver): commentary moves to a lower-cost model; the Inbox note is locked to its own.
     return check.low ? { lowCredits: true } : undefined;
   };
+}
+
+/**
+ * The composer's client on the platform key: the credits gate, and who pays decides the model (WP-13: a business not on
+ * a paid plan runs on Haiku 5.5). With `ownKey`, a business on its own Anthropic key runs on that key through the
+ * gateway (WP-13 T11); without it (tests, no secret), it runs as its plan says.
+ */
+export function composerModelClient(platform: ModelClient, db: Db, freeCapCents?: number, ownKey?: ComposerOwnKeyOptions): ModelClient {
+  const freeCap = freeCapCents === undefined ? undefined : freeCapCheck(db, freeCapCents);
+  const onPlatform = enforceModelFunding(gateModelClient(platform, creditsGate(db, platform.mode === "live")), cachedModelFundingOf(db, { ownKeyServed: false }), { freeCap });
+  // A business on its own key (WP-13 T11): its live calls go through the gateway's model route on that key, booked
+  // `byok`. Never a fallback to Foundmill's key.
+  if (!ownKey || platform.mode !== "live") return onPlatform;
+  const ownKeyOf = cachedModelFundingOf(db, { ownKeyServed: true });
+  const clientFor = ownKeyViaGateway({ gatewayUrl: ownKey.gatewayUrl, serviceToken: (businessId) => composerServiceToken(ownKey.secret, businessId), onUsage: ownKey.onUsage, logger: ownKey.logger, ...(ownKey.fetch ? { fetch: ownKey.fetch } : {}) });
+  return routeOwnKeyCalls(onPlatform, { ownKey: async (a) => (await ownKeyOf(a)) === "own_key", clientFor });
+}
+
+export interface ComposerOwnKeyOptions {
+  gatewayUrl: string;
+  /** COMPOSER_SERVICE_TOKEN_SECRET, the composer's own, also set on the gateway (the composer signs `svc: composer`). */
+  secret: string;
+  onUsage: UsageSink;
+  logger: ModelLogger;
+  /** Injectable fetch (tests). */
+  fetch?: typeof globalThis.fetch;
+}
+
+const b64url = (data: string | Buffer) => Buffer.from(data).toString("base64url");
+
+/**
+ * The gateway's service token (`aud foundmill-gateway/service`, `svc composer`, the one business, 60 s), as apps/gateway
+ * `signServiceToken` signs it: HS256 over the composer's own secret, built here so the composer needs no JWT library.
+ */
+export function composerServiceToken(secret: string, businessId: string, nowMs: number = Date.now()): Promise<string> {
+  const iat = Math.floor(nowMs / 1000);
+  const head = b64url(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+  const body = b64url(JSON.stringify({ svc: "composer", businessId, iss: "foundmill-gateway", aud: "foundmill-gateway/service", iat, exp: iat + 60, jti: randomUUID() }));
+  const signature = createHmac("sha256", secret).update(`${head}.${body}`).digest("base64url");
+  return Promise.resolve(`${head}.${body}.${signature}`);
 }
 
 export interface UsageSinkOptions {

@@ -168,10 +168,17 @@ export interface GatewayFixture {
   token(opts?: { allowedTools?: string[]; sessionId?: string | null; kitMode?: boolean; agentId?: string }): Promise<string>;
   /** A fresh session id (valid agent_sessions row). */
   newSession(): Promise<string>;
+  /**
+   * Gives `email` a basis an agent may email it on (WP-08 T10): `consent` (a confirmed follow, the default) or `recorded`
+   * (a contact the founder added, with a lawful basis).
+   */
+  mailable(email: string, basis?: "consent" | "recorded"): Promise<void>;
   close(): Promise<void>;
 }
 
 export interface SetupGatewayOptions {
+  /** Addresses given a confirmed follow at setup, so agents may email them (WP-08 T10). */
+  mailable?: readonly string[];
   /** LIVE_CONNECTORS for this gateway. */
   liveConnectors?: string[];
   mode?: "mock" | "live";
@@ -205,7 +212,7 @@ export async function setupGateway(options: SetupGatewayOptions = {}): Promise<G
   const newSession = async () => (await repos.agents.createSession(db, business.id, { agentId: agent.id, modelKey: "sonnet" })).id;
   const sessionId = await newSession();
 
-  return {
+  const fixture: GatewayFixture = {
     h,
     db,
     deps,
@@ -230,9 +237,15 @@ export async function setupGateway(options: SetupGatewayOptions = {}): Promise<G
       });
       return minted.token;
     },
+    async mailable(email, basis = "consent") {
+      const lead = await repos.entities.upsertLead(db, business.id, { kind: "person", displayName: email, email, source: basis === "consent" ? "page" : "user", lawfulBasis: basis === "consent" ? "consent" : "legitimate_interest", ownerAgentId: null });
+      if (basis === "consent" && lead.entity) await h.pg.query("insert into contact_consents (business_id, entity_id, purpose, source, source_ref, consent_text, confirmed_at) values ($1, $2, 'email', 'page', 'test', 'I agree.', now()) on conflict do nothing", [business.id, lead.entity!.id]);
+    },
     async close() {
       await server.stop();
       await h.close();
     },
   };
+  for (const e of options.mailable ?? []) await fixture.mailable(e);
+  return fixture;
 }

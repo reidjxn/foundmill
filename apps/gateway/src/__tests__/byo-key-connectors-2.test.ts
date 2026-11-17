@@ -37,6 +37,8 @@ const PLATFORM_SECRETS = { sendgridApiKey: "SG.platform-key-0123456789", openaiA
 const KEYS = { apollo: "apollo-founder-key-0123456789", vercel: "vercel-founder-token-0123456789", posthog: "phx_founder_key_0123456789", resend: "re_founder_key_0123456789" } as const;
 const POSTHOG_CONFIG = { projectId: "12345", region: "us" };
 
+/** The addresses these tests mail, each with a confirmed follow (WP-08 T10). */
+const MAILABLE = ["new.person@outside.example", "anna@example.com"];
 const MAIL = { from: { email: "hello@northwindskincare.com", name: "Northwind" }, to: { email: "new.person@outside.example", name: "New Person" }, subject: "Hello", text: "Hi, thanks for your interest." };
 /** Where the gateway signs unsubscribe links from: platform mail switched on, with a secret and an https ingest address. */
 const MAIL_CONFIG: PlatformMailConfig = { domain: "mail.foundmill.test", dailyCap: 50, ceiling: 2_000, signingSecret: "s".repeat(40), unsubscribeBase: "https://ingest.foundmill.test" };
@@ -77,7 +79,7 @@ describe("live: outward or costly tools ask first in augmented and assisted mode
   /** The founder's rule (2026-11-12): these ask in both modes, and nothing reaches the vendor until the founder approves. */
   async function expectAsks(businessMode: "augmented" | "assisted", keys: CallKey[]) {
     const vendor = recordingFetch();
-    const g = await setupGateway({ mode: "live", businessMode, connectors: liveConnectors(vendor.fetch) });
+    const g = await setupGateway({ mailable: MAILABLE,  mode: "live", businessMode, connectors: liveConnectors(vendor.fetch) });
     open = g;
     for (const c of ["apollo", "vercel", "posthog", "resend"] as const) await connect(g, c);
     const token = await g.token({ allowedTools: ["apollo:*", "vercel:*", "posthog:*", "resend:*"] });
@@ -97,7 +99,7 @@ describe("live: outward or costly tools ask first in augmented and assisted mode
 
   it("assisted: vercel.list_deployments, apollo.search_people, posthog.query_insights and resend.list_domains run", async () => {
     const vendor = recordingFetch(() => jsonResponse({ deployments: [], people: [], total_entries: 0, columns: ["1"], results: [[1]], hasMore: false, data: [] }));
-    const g = await setupGateway({ mode: "live", businessMode: "assisted", connectors: liveConnectors(vendor.fetch) });
+    const g = await setupGateway({ mailable: MAILABLE,  mode: "live", businessMode: "assisted", connectors: liveConnectors(vendor.fetch) });
     open = g;
     for (const c of ["apollo", "vercel", "posthog", "resend"] as const) await connect(g, c);
     const token = await g.token({ allowedTools: ["apollo:*", "vercel:*", "posthog:*", "resend:*"] });
@@ -118,7 +120,7 @@ describe("live: outward or costly tools ask first in augmented and assisted mode
 describe("live: no stored credential", () => {
   it("every tool of the four is 409 integration_not_connected with no vendor request, with platform secrets set", async () => {
     const vendor = recordingFetch();
-    const g = await setupGateway({ mode: "live", businessMode: "automated", connectors: liveConnectors(vendor.fetch) });
+    const g = await setupGateway({ mailable: MAILABLE,  mode: "live", businessMode: "automated", connectors: liveConnectors(vendor.fetch) });
     open = g;
     const token = await g.token({ allowedTools: ["apollo:*", "vercel:*", "posthog:*", "resend:*"] });
     // The row exists and its credential does not.
@@ -139,7 +141,7 @@ describe("platform_mail steps aside for the founder's own Resend", () => {
   const message = { connector: "platform_mail", tool: "send_mail", args: { to: { email: "anna@example.com", name: "Anna" }, subject: "Thanks for joining", text: "Hi Anna, thanks for joining the list." } };
 
   it("is refused with the own-sender policy id while resend is connected, and goes through when it is degraded, archived or disconnected", async () => {
-    const g = await setupGateway({ businessMode: "automated", connectors: [createPlatformMailMock()] });
+    const g = await setupGateway({ mailable: MAILABLE,  businessMode: "automated", connectors: [createPlatformMailMock()] });
     open = g;
     g.deps.appEnv = "test";
     g.deps.platformMail = config;
@@ -167,7 +169,7 @@ describe("mock mode", () => {
       .list("mock")
       .filter((c) => ["apollo", "vercel", "posthog", "resend"].includes(c.key));
     expect(mock).toHaveLength(4);
-    const g = await setupGateway({ mode: "mock", businessMode: "automated", connectors: mock });
+    const g = await setupGateway({ mailable: MAILABLE,  mode: "mock", businessMode: "automated", connectors: mock });
     open = g;
     g.deps.appEnv = "test";
     g.deps.platformMail = MAIL_CONFIG;
@@ -186,7 +188,7 @@ describe("typed reads: an agent that only gets the reader's digest still gets th
   const DIGEST = { title: null, sender: null, summary: "A list of people.", amounts: [], dates: [] };
   const setup = async () => {
     const mock = createDefaultRegistry({ secrets: {}, fetch: recordingFetch().fetch }).list("mock").filter((c) => c.key === "apollo");
-    const g = await setupGateway({ mode: "mock", businessMode: "automated", connectors: mock });
+    const g = await setupGateway({ mailable: MAILABLE,  mode: "mock", businessMode: "automated", connectors: mock });
     open = g;
     const read: unknown[] = [];
     g.deps.reader = { digest: async ({ content }) => (read.push(content), DIGEST) };
@@ -232,7 +234,7 @@ describe("typed reads: an agent that only gets the reader's digest still gets th
 describe("a value in a typed read is still first seen in untrusted content", () => {
   it("the work email from an Apollo lookup cannot be mailed until the founder approves it", async () => {
     const mock = createDefaultRegistry({ secrets: {}, fetch: recordingFetch().fetch }).list("mock").filter((c) => ["apollo", "resend"].includes(c.key));
-    const g = await setupGateway({ mode: "mock", businessMode: "automated", connectors: mock });
+    const g = await setupGateway({ mailable: MAILABLE,  mode: "mock", businessMode: "automated", connectors: mock });
     open = g;
     g.deps.appEnv = "test";
     g.deps.platformMail = MAIL_CONFIG;
@@ -257,7 +259,7 @@ describe("resend.send_mail carries the gateway's own unsubscribe link", () => {
       if (req.method === "POST") bodies.push((await req.json()) as Record<string, unknown>);
       return req.url.endsWith("/domains") ? jsonResponse({ data: [{ id: "d1", name: "northwindskincare.com", status: "verified" }] }) : jsonResponse({ id: "email_1" });
     }) as unknown as typeof globalThis.fetch;
-    const g = await setupGateway({ mode: "live", businessMode: "automated", connectors: liveConnectors(fetch) });
+    const g = await setupGateway({ mailable: MAILABLE,  mode: "live", businessMode: "automated", connectors: liveConnectors(fetch) });
     open = g;
     g.deps.appEnv = "production";
     if (platformMail) g.deps.platformMail = platformMail;
@@ -298,7 +300,7 @@ describe("resend.send_mail carries the gateway's own unsubscribe link", () => {
 describe("resend.send_mail to a suppressed recipient", () => {
   it("is refused before any vendor request, in every business mode", async () => {
     const vendor = recordingFetch();
-    const g = await setupGateway({
+    const g = await setupGateway({ mailable: MAILABLE, 
       mode: "live",
       connectors: liveConnectors(vendor.fetch, { isSuppressed: (businessId, email) => repos.channels.isSuppressed(g.db, businessId, { emailHash: suppressionHash("email", email) }) }),
     });
@@ -309,7 +311,8 @@ describe("resend.send_mail to a suppressed recipient", () => {
     for (const mode of ["augmented", "assisted", "automated"] as const) {
       await repos.businesses.setBusinessMode(g.db, g.businessId, mode);
       const r = asDeny(await g.client.call(token, { connector: "resend", tool: "send_mail", args: { ...MAIL, to: { email: "gone@outside.example" } } }));
-      expect(r.policyIds, mode).toEqual(["suppressed-recipient"]);
+      // The address has no basis either (WP-08 T10); the suppression list refuses it whatever its basis.
+      expect(r.policyIds, mode).toContain("suppressed-recipient");
     }
     expect(vendor.urls).toEqual([]);
   });

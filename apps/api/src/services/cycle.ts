@@ -19,7 +19,7 @@
  * included. Pause ends the run (and pauses the round in progress); the next press starts a new one. Without Temporal
  * the in-process step is unchanged: one step, no run.
  */
-import { CREDITS_CURRENCY, LIMITS, TIERS } from "@foundmill/config";
+import { CREDITS_CURRENCY, firstCycleInput, LIMITS, TIERS } from "@foundmill/config";
 import { openRunOf, productStageOf, repos, runRoundsOf, type Executor, type InboxItem } from "@foundmill/db";
 import { AppError, eventAsSeenBy, hasSectionAccess, vacationUntilLabel, type ContinueRunEndReason, type ProductStage, type SectionMembership } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
@@ -336,8 +336,15 @@ export async function startCycle(ctx: BusinessContext): Promise<StartCycleResult
   const cycleNumber = status.nextCycleNumber;
   const workflowId = workflowIds.cycle(ctx.businessId, cycleNumber);
   const runId = crypto.randomUUID();
-  // The run's first round is this press's cycle: the workflow starts it at once with the number reserved here.
-  const workflow = await ctx.temporal.signalWithStart(WORKFLOWS.autopilot, { workflowId: workflowIds.autopilot(ctx.businessId), args: [{ businessId: ctx.businessId }], signal: SIGNALS.continueRun, signalArgs: [{ runId, cycleNumber, by: ctx.userId }] });
+  // The run's first round is this press's cycle: the workflow starts it at once with the number reserved here. Round 1
+  // of a free project on credits carries the first-round cap (WP-09 T11).
+  const firstRound = cycleNumber === 1 ? firstCycleInput({ modelBilling: ctx.business.modelBilling, tier: ctx.business.planTier }) : {};
+  const workflow = await ctx.temporal.signalWithStart(WORKFLOWS.autopilot, {
+    workflowId: workflowIds.autopilot(ctx.businessId),
+    args: [{ businessId: ctx.businessId }],
+    signal: SIGNALS.continueRun,
+    signalArgs: [{ runId, cycleNumber, by: ctx.userId, ...(Object.keys(firstRound).length ? { cycleInput: firstRound } : {}) }],
+  });
   if (workflow.queued) {
     const mark = await ctx.rls(async (tx) => {
       const row = await audit(tx, ctx, { action: CONTINUE_ACTION, target: { kind: "cycle", id: workflowId }, details: { cycleNumber, mode: "temporal", workflowId, trigger: "continue", runId, runWorkflowId: workflow.workflowId } });

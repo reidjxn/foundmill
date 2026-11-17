@@ -121,12 +121,12 @@ export class ModelAbortedError extends ModelError {
 
 /**
  * A call refused before it left because Foundmill's key must not pay for it (WP-13, `enforceModelFunding`): a business
- * on its own Anthropic key is served on that key, and the free plan has no web search on Foundmill's key (WP-13 T5).
+ * on its own Anthropic key is served on that key.
  */
 export class ModelNotFundedError extends ModelError {
   constructor(
     message: string,
-    readonly reason: "own_key_route" | "search_unavailable",
+    readonly reason: "own_key_route" | "free_cap",
   ) {
     super("not_funded", message, false, { reason });
     this.name = "ModelNotFundedError";

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { viewport } from "../../../app/layout";
 import { renderToString } from "react-dom/server";
 import { hydrateRoot } from "react-dom/client";
-import { DesktopOnly, SMALL_SCREEN_PREFIXES, WorksOnSmallScreens, worksOnSmallScreens } from "../DesktopOnly";
+import { DesktopOnly, SMALL_SCREEN_PREFIXES, WorksOnSmallScreens, isTodayPath, worksOnSmallScreens } from "../DesktopOnly";
 
 let pathname = "/b/x/today";
 vi.mock("next/navigation", () => ({ usePathname: () => pathname }));
@@ -25,11 +25,29 @@ describe("desktop only (audit PAS-4: a phone rendered a 390 px slice of a 1280 p
     pathname = "/b/x/today";
   });
 
+  it("knows Today's path, for the phone title row's Explain this page (WP-04 T7)", () => {
+    const id = "0f9b5f8e-3c1d-4d2a-9b7e-2a6c8d1e4f00";
+    expect(isTodayPath(`/b/${id}/today`)).toBe(true);
+    expect(isTodayPath(`/b/${id}/inbox`)).toBe(false);
+    expect(isTodayPath(null)).toBe(false);
+  });
+
   it("does not force a 1280 px layout viewport: the meta keeps Next's device-width, so a phone reports its real width", () => {
     expect((viewport as { width?: unknown }).width).toBeUndefined();
   });
 
-  it("shows only NeedsLargerWindow below 1280 px on a desktop route", () => {
+  it("renders a desktop route from 640 px: the console scrolls sideways instead (founder decision 3)", () => {
+    setWidth(1152);
+    render(
+      <DesktopOnly>
+        <p>Console</p>
+      </DesktopOnly>,
+    );
+    expect(screen.queryByTestId("needs-larger-window")).toBeNull();
+    expect(screen.getByText("Console")).toBeTruthy();
+  });
+
+  it("shows only NeedsLargerWindow below 640 px on a desktop route", () => {
     setWidth(390);
     render(
       <DesktopOnly>
@@ -42,24 +60,28 @@ describe("desktop only (audit PAS-4: a phone rendered a 390 px slice of a 1280 p
     expect(screen.queryByText("Sign in")).toBeNull();
   });
 
-  it("renders the page from 1280 px up, and again when the window is widened", () => {
-    setWidth(1000);
+  it("renders the page from 640 px up, and again when the window is widened", () => {
+    setWidth(600);
     render(
       <DesktopOnly>
         <p>Sign in</p>
       </DesktopOnly>,
     );
     expect(screen.queryByText("Sign in")).toBeNull();
-    setWidth(1280);
+    setWidth(640);
     expect(screen.getByText("Sign in")).toBeTruthy();
     expect(screen.queryByTestId("needs-larger-window")).toBeNull();
   });
 
   it("a project's public page and a person's public profile work from 390 px: the one list of small-screen routes, nothing else changes", () => {
-    expect(SMALL_SCREEN_PREFIXES).toEqual(["/p/", "/u/", "/m/", "/login", "/home", "/a/", "/email/pause", "/terms", "/privacy", "/", "/new/card/", "/onboarding", "/public-profile", "/network", "/communities", "/communities/", "/profiles/", "/i/", "/start"]);
+    expect(SMALL_SCREEN_PREFIXES).toEqual(["/p/", "/u/", "/m/", "/login", "/home", "/a/", "/email/pause", "/terms", "/privacy", "/", "/new/card/", "/onboarding", "/new/write", "/public-profile", "/network", "/communities", "/communities/", "/profiles/", "/i/", "/start"]);
     expect(worksOnSmallScreens("/new/card/11111111-1111-4111-8111-111111111111")).toBe(true);
     // The three questions after a kept card (WP-04 T1): exactly /onboarding, so a phone goes on from the card.
     expect(worksOnSmallScreens("/onboarding")).toBe(true);
+    // A phone start without a card (WP-04 T15): exactly /new/write; the doors and the studio stay desktop.
+    expect(worksOnSmallScreens("/new/write")).toBe(true);
+    expect(worksOnSmallScreens("/new/write/")).toBe(true);
+    for (const p of ["/new", "/new/write/x", "/new/ideate"]) expect(worksOnSmallScreens(p), p).toBe(false);
     // The signed-in index (WP-03 T1): what it renders in place (the landing page, the gate's pages) works from 390 px.
     expect(worksOnSmallScreens("/start")).toBe(true);
     // The landing page's hero (founder, 2026-11-13): exactly "/", never a prefix of every path.
@@ -179,5 +201,11 @@ describe("desktop only (audit PAS-4: a phone rendered a 390 px slice of a 1280 p
       "/b/not-a-uuid/d/product/public-page",
     ])
       expect(worksOnSmallScreens(p), p).toBe(false);
+  });
+
+  it("WP-04 T2: Commit works from 390 px for one concept; the studio and the rest of /new do not", () => {
+    const ID = "6f1d2c3b-4a5e-4f60-8a71-0b2c3d4e5f60";
+    for (const p of [`/new/commit/${ID}`, `/new/commit/${ID}/`, `/new/commit/${ID.toUpperCase()}`]) expect(worksOnSmallScreens(p), p).toBe(true);
+    for (const p of ["/new/commit", "/new/commit/", "/new/commit/not-a-uuid", `/new/commit/${ID}/x`, "/new", "/new/ideate", "/new/compare", "/new/import"]) expect(worksOnSmallScreens(p), p).toBe(false);
   });
 });

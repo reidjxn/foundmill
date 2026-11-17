@@ -5,7 +5,7 @@
  */
 import { readFoundationsProgress } from "@foundmill/agents";
 import { repos } from "@foundmill/db";
-import { PAGE_READY_NOTE } from "@foundmill/shared";
+import { PAGE_READY_NOTE, POSITIONING_NOTE } from "@foundmill/shared";
 import { meter, MockModelClient, ModelRequestError, ModelUnavailableError, MODELS, type UsageEvent } from "@foundmill/models";
 import { ApplicationFailure } from "@temporalio/common";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -198,6 +198,37 @@ describe("draftProjectPage (package 1.2): the page first, written once, never pu
     const acts = createFoundationsActivities({ ...t.deps, models: new MockModelClient({ failWith: { projectPage: new ModelUnavailableError("upstream 529") } }) });
     expect(await acts.draftProjectPage({ businessId: f.businessId, attempt: 1 })).toMatchObject({ current: true, written: true, source: "starter", usage: { calls: 0 } });
     expect((await repos.pages.get(t.db, f.businessId))!.draft).toEqual({ pitch: expect.stringMatching(/^Page Step/), about: "", forWhom: "", stage: "idea", showFounders: false, followForm: true });
+  });
+});
+
+describe("draftPositioning (WP-08 T1): one draft and one note, never approved, a rerun writes nothing", () => {
+  it("writes the waiting copy and the note once; a failed call writes the starter", async () => {
+    const b = await repos.businesses.create(t.db, { name: "Positioning Step", archetype: "services" });
+    await repos.businesses.commit(t.db, b.id, { archetype: "services" });
+    const chief = await repos.agents.create(t.db, b.id, { name: "Ines Park", agentType: "chief_of_staff", layer: "assistant", status: "healthy" });
+    await repos.foundations.create(t.db, b.id, { door: "ideation" });
+    await repos.foundations.claim(t.db, b.id);
+    const models = new MockModelClient();
+    const acts = createFoundationsActivities({ ...t.deps, models });
+    expect(await acts.draftPositioning({ businessId: b.id, attempt: 9 })).toEqual({ written: false, source: null });
+    expect((await acts.draftPositioning({ businessId: b.id, attempt: 1 })).written).toBe(true);
+    const copies = await repos.positioning.get(t.db, b.id);
+    expect(copies.approved).toBeNull();
+    expect(copies.draft?.oneLine).toBeTruthy();
+    const notes = (await repos.inbox.list(t.db, b.id, { limit: 50 })).items.filter((i) => i.subject === POSITIONING_NOTE.subject);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatchObject({ type: "update", fromAgentId: chief.id, blocksContinue: false });
+    const calls = models.history.length;
+    expect(await acts.draftPositioning({ businessId: b.id, attempt: 1 })).toEqual({ written: false, source: null });
+    expect(models.history).toHaveLength(calls);
+
+    const c = await repos.businesses.create(t.db, { name: "Positioning Starter", archetype: "services" });
+    await repos.businesses.commit(t.db, c.id, { archetype: "services" });
+    await repos.foundations.create(t.db, c.id, { door: "ideation" });
+    await repos.foundations.claim(t.db, c.id);
+    const down = createFoundationsActivities({ ...t.deps, models: new MockModelClient({ failWith: { projectPage: new ModelUnavailableError("upstream 529") } }) });
+    expect(await down.draftPositioning({ businessId: c.id, attempt: 1 })).toEqual({ written: true, source: "starter" });
+    expect((await repos.positioning.get(t.db, c.id)).draft).toMatchObject({ oneLine: "Positioning Starter", forWhom: [], proof: [] });
   });
 });
 

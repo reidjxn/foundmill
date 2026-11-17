@@ -267,6 +267,8 @@ export interface AcceptedInvitation {
   businessId: string;
   /** True when the person was already one of the project's people: nothing changed and the invitation still waits. */
   already: boolean;
+  /** Whether the account has a founder profile yet; false sends a new person to name themselves before Today (the invitation card), not to /onboarding. */
+  hasProfile: boolean;
 }
 
 /** Who accepts: the signed-in account, and the address it signed in with (the token's, confirmed: `signedInProcedure`). */
@@ -320,7 +322,8 @@ export async function acceptInvitation(ctx: Pick<Context, "db" | "env" | "limits
     await emit(tx, actor, { type: "membership.changed", payload: { userId, change: "added" } });
     return { already: false as const, row: accepted };
   });
-  if (result.already || !result.row) return { businessId, already: true };
+  const hasProfile = async () => (await repos.founders.get(ctx.db, userId)) !== null;
+  if (result.already || !result.row) return { businessId, already: true, hasProfile: await hasProfile() };
   rememberAdmitted(userId);
   // A new cofounder was never asked: a showcase ask about the project is checked again (and withdrawn).
   if (result.row.role === "cofounder") queueShowcaseCheck(ctx, businessId);
@@ -333,7 +336,7 @@ export async function acceptInvitation(ctx: Pick<Context, "db" | "env" | "limits
       ctx.log.warn({ businessId, invitationId: result.row.id, code: e instanceof AppError ? e.code : "unknown" }, "invitation accepted email not sent: the gateway did not answer");
     }
   }
-  return { businessId, already: false };
+  return { businessId, already: false, hasProfile: await hasProfile() };
 }
 
 /**

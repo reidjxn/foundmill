@@ -1,0 +1,29 @@
+{
+  "name": "@foundmill/sites",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "hono": "catalog:",
+    "@hono/node-server": "catalog:",
+    "@foundmill/db": "workspace:*",
+    "@foundmill/shared": "workspace:*",
+    "@foundmill/config": "workspace:*"
+  },
+  "devDependencies": {
+    "drizzle-orm": "catalog:",
+    "vitest": "catalog:",
+    "tsx": "catalog:"
+  }
+}

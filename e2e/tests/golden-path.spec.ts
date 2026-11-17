@@ -63,7 +63,8 @@ async function commitFreshBusiness(page: Page, name: string): Promise<{ bid: str
   return { bid };
 }
 
-const WELCOME_NOTE = "Your team is drafting your page and your plan";
+/** The Chief of Staff's welcome note, "{Project} has started" (WP-04 T7), never "Distribution has started". */
+const WELCOME_NOTE = "(?<!Distribution) has started";
 /** The Chief of Staff's note of the day in a project's first week (WP-04 T8, `DIGEST_SUBJECT`): it replaces the welcome note once an agent's update is folded into it. */
 const DIGEST_NOTE = "What your team did today";
 /** Whichever of the two is there: both are updates with no decision. */
@@ -242,8 +243,8 @@ test.describe("golden path", () => {
     await page.getByTestId("commit-link").first().click();
     await expect(page.getByTestId("commit-form")).toBeVisible();
     await expect(page.getByTestId("commit-form")).toHaveAttribute("data-business-mode", "assisted");
-    // How it runs is one line of chips until Change opens the five controls (commit.spec.ts, UX plan §7.6).
-    await page.getByTestId("how-it-runs-change").click();
+    // How it runs and its five controls sit under More options (WP-04 T2; commit.spec.ts).
+    await page.getByTestId("commit-more").click();
     await expect(page.getByTestId("business-mode-panel")).toBeVisible();
     await expect(page.locator('[data-option="assisted"]')).toHaveAttribute("data-selected", "true");
     const name = `Playwright Business ${Date.now().toString(36)}`;
@@ -514,7 +515,7 @@ test.describe("seeded business (Northwind Skincare)", () => {
     await expect(page.getByTestId("crm-table-panel")).toContainText("Pennine Contract Cosmetics", { timeout: LONG });
   });
 
-  test("NeedsLargerWindow replaces a desktop-only screen below 1280 px (Needs you stays) and the shell returns at 1440 px; the shell renders without React update loops", async ({ page }) => {
+  test("a desktop-only screen scrolls sideways from 640 to 1279 px, NeedsLargerWindow replaces it below 640 px (Needs you stays) and the shell returns at 1440 px; the shell renders without React update loops", async ({ page }) => {
     const loops: string[] = [];
     page.on("console", (msg) => {
       if (msg.type() === "error" && /Maximum update depth/.test(msg.text())) loops.push(msg.text());
@@ -524,10 +525,14 @@ test.describe("seeded business (Northwind Skincare)", () => {
     await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/inbox`);
     await expect(page.getByTestId("inbox-list").getByRole("option").first()).toBeVisible({ timeout: LONG });
     // The Inbox (Needs you) works from 390 px since package 2.1, so it stays on screen below 1280; a desktop-only route
-    // (the CRM) is the one that asks for a larger window.
+    // (the CRM) keeps the console at its 1280 px floor in a sideways scroll from 640 px (founder decision 3, Nov 16, 2026)
+    // and asks for a larger window below that.
     await page.setViewportSize({ width: 1279, height: 900 });
     await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
     await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/crm`);
+    await expect(page.getByTestId("scroll-shell").getByTestId("app-shell")).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
+    await page.setViewportSize({ width: 639, height: 900 });
     await expect(page.getByTestId("needs-larger-window")).toBeVisible({ timeout: LONG });
     // The note replaces the shell: no shell is left in the document. For a moment after hydration one still can be, hidden:
     // DesktopOnly drops the business layout's Suspense boundary (app/b/loading.tsx) before React has revealed it, and

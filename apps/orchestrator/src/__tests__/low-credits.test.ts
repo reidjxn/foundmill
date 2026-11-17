@@ -17,6 +17,8 @@ import { openSessionRow, setupOrchestratorHarness, type OrchestratorTestHarness 
 let t: OrchestratorTestHarness;
 beforeAll(async () => {
   t = await setupOrchestratorHarness({ prefix: "low-credits" });
+  // These tests cover a paid plan's sessions; a free business runs every session on the free plan's model (WP-13 T4).
+  await repos.businesses.update(t.db, t.businessId, { planTier: "pro" });
 });
 afterAll(async () => {
   await t?.close();
@@ -171,6 +173,8 @@ describe("the per-business client with low credits", () => {
   it("sends routine routes on their lower-cost model and keeps the Chief of Staff and the Inbox on theirs", async () => {
     // The client's gate reads the wall clock's month (as in production), not the harness clock.
     await setBalance(LINE - 1, periodOf(new Date()));
+    // The credit saver moves models on a paid plan; on the free plan every route already runs on Haiku 5.5 (WP-13).
+    await repos.businesses.update(t.db, B(), { planTier: "pro" });
     const events: UsageEvent[] = [];
     const client = createBusinessModelClient(new MockModelClient({ onUsage: (e) => void events.push(e) }), { db: t.db, vault: null, mode: "mock", now: () => t.clock.nowMs() });
     const ask = (route: "planner" | "chiefOfStaff" | "inboxComposer") => client.complete({ route, system: "Answer.", messages: [{ role: "user", content: "Plan the week." }], attribution: { businessId: B() } });
@@ -182,5 +186,13 @@ describe("the per-business client with low credits", () => {
       ["chiefOfStaff", "opus"],
       ["inboxComposer", "opus"],
     ]);
+    await repos.businesses.update(t.db, B(), { planTier: "free" });
+  });
+
+  it("runs every route of a free business on Haiku 5.5, with or without low credits (WP-13)", async () => {
+    const events: UsageEvent[] = [];
+    const client = createBusinessModelClient(new MockModelClient({ onUsage: (e) => void events.push(e) }), { db: t.db, vault: null, mode: "mock", now: () => t.clock.nowMs() });
+    for (const route of ["planner", "chiefOfStaff", "inboxComposer"] as const) await client.complete({ route, system: "Answer.", messages: [{ role: "user", content: "Plan the week." }], attribution: { businessId: B() } });
+    expect(events.map((e) => e.modelKey)).toEqual(["haiku", "haiku", "haiku"]);
   });
 });

@@ -14,7 +14,7 @@
  */
 import { createContext, useContext, useLayoutEffect, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
-import { NeedsLargerWindow, isViewportTooSmall, useViewportWidth } from "@foundmill/dugout";
+import { NeedsLargerWindow, isViewportTooNarrowToScroll, useViewportWidth } from "@foundmill/dugout";
 import { isPublicPath } from "@/lib/auth/redirects";
 import { ContinueLater } from "./ContinueLater";
 
@@ -44,6 +44,8 @@ export const SMALL_SCREEN_PREFIXES: readonly string[] = [
   "/new/card/",
   // The three questions after a kept card (WP-04 T1).
   "/onboarding",
+  // A phone start without a card (WP-04 T15): a working name and the idea, then Commit.
+  "/new/write",
   // The person's own pages and the people pages (package 2.1): their profile, finding people, communities, messages.
   "/public-profile",
   "/network",
@@ -61,13 +63,21 @@ export const SMALL_SCREEN_PREFIXES: readonly string[] = [
  * Routes inside a project that work from 390 px (package 2.1): Today and Needs you (the Inbox), each in the business
  * shell's phone layout, and Product › Public page (WP-04 T6), so the page can be checked, published and shared on a
  * phone; it is matched by its tab slug under any department, since departments are labels over modules. Matched as
- * patterns because the project's id is part of the path; every other project route keeps the 1280 px floor.
+ * patterns because the project's id is part of the path; every other project route keeps the 1280 px floor. Before a
+ * project exists, Commit for one concept (`/new/commit/<id>`, WP-04 T2: name and go), so a kept card goes on to a
+ * started project on a phone; the studio around it stays desktop.
  */
 export const SMALL_SCREEN_PATTERNS: readonly RegExp[] = [
   /^\/b\/[0-9a-f-]{36}\/today\/?$/i,
   /^\/b\/[0-9a-f-]{36}\/inbox(\/[^/]+)?\/?$/i,
   /^\/b\/[0-9a-f-]{36}\/d\/[^/]+\/public-page\/?$/i,
+  /^\/new\/commit\/[0-9a-f-]{36}\/?$/i,
 ];
+
+/** Today in a project (`/b/<id>/today`): its phone title row carries "Explain this page" (WP-04 T7). */
+export function isTodayPath(pathname: string | null | undefined): boolean {
+  return !!pathname && SMALL_SCREEN_PATTERNS[0]!.test(pathname);
+}
 
 /** Whether `pathname` renders at every width (one of `SMALL_SCREEN_PREFIXES` or `SMALL_SCREEN_PATTERNS`). */
 export function worksOnSmallScreens(pathname: string | null | undefined): boolean {
@@ -93,7 +103,9 @@ export function DesktopOnly({ children }: { children: ReactNode }) {
   // branch here on `publicEnv().storeLinks` (lib/env.ts), the same value every "Get the app" prompt reads. Not built yet.
   // The note carries its exits (WP-03 T3): Email me a link (or Copy link) and one way back. Every route the proxy does
   // not serve signed out (`isPublicPath`) is a signed-in one: the proxy sends a signed-out visitor to sign in first.
-  if (!allowed && !worksOnSmallScreens(pathname) && isViewportTooSmall(width))
+  // Below 640 px the note; from 640 to 1279 px the console renders at 1280 px and scrolls sideways (founder decision 3,
+  // Nov 16, 2026: AppShell draws the scrolling shell and its note).
+  if (!allowed && !worksOnSmallScreens(pathname) && isViewportTooNarrowToScroll(width))
     return <NeedsLargerWindow width={width} actions={<ContinueLater pathname={pathname ?? "/"} signedIn={!isPublicPath(pathname ?? "/")} />} />;
   return <SmallScreenAllowance.Provider value={setAllowed}>{children}</SmallScreenAllowance.Provider>;
 }

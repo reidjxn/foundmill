@@ -74,6 +74,18 @@ export function pagePostDraft(input: PagePostInput): PostDraft {
   return { text, link: viaPage(page, input.slug), image: { url: `${page}${SHARE_IMAGE_SUFFIX}`, alt: pageTitle(name, pitch, 200) }, variants: {} };
 }
 
+/**
+ * The words a founder sends to a few people once the page is live (WP-04 T6, T9): "I'm starting Northwood. Candles that
+ * smell like a walk in the woods. Would you use this?". The founder's own voice, since they send it themselves. The
+ * public page's ask (packages/modules `pageAskDraft`) and Today's founder task (`founderTaskOf`) both say exactly this.
+ */
+export function pageAskText(projectName: string, pitch: string | null | undefined): string {
+  const name = oneLine(projectName);
+  const said = oneLine(pitch ?? "");
+  const line = !said || said.toLowerCase() === name.toLowerCase() ? "" : ` ${sentence(said)}`;
+  return `I'm starting ${name}.${line} Would you use this?`;
+}
+
 export interface WrittenPostInput {
   /** The post as it was drafted (the social channel agent's copy). */
   text: string;

@@ -42,6 +42,9 @@
   "devDependencies": {
     "vitest": "catalog:",
     "tsx": "catalog:",
-    "@temporalio/testing": "catalog:"
+    "@temporalio/testing": "catalog:",
+    "@foundmill/api": "workspace:*",
+    "@foundmill/sites": "workspace:*",
+    "drizzle-orm": "catalog:"
   }
 }

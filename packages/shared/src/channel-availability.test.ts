@@ -9,6 +9,7 @@ import {
   channelEngineMayRun,
   channelMayRun,
   channelNotAvailableMessage,
+  channelNotNowSentence,
   channelSharedByTap,
   channelTeamRuns,
   mockResultsAllowed,
@@ -93,21 +94,21 @@ describe("tap-to-post (founder, 2026-11-12): a channel the founder posts with on
     expect(channelMayRun(byTap, false)).toBe(true);
     expect(channelTeamRuns(byTap)).toBe(false);
     expect(channelEngineMayRun(byTap, false)).toBe(false);
-    // Offline tracking is the founder's own choice: the agent prepares, the founder submits.
-    expect(channelEngineMayRun(byTap, true)).toBe(true);
+    // WP-08 T9: offline tracking no longer starts an engine for a real project.
+    expect(channelEngineMayRun(byTap, true)).toBe(false);
     // Every other available reason is the team's to run, as before.
     for (const reason of ["acts", "simulated_allowed"] as const) expect(channelTeamRuns({ available: true, reason }), reason).toBe(true);
     // The weekly engine's launch step sends nothing for any channel yet (WP-02 T2): a channel whose agents can act does
     // so through tasks and sessions, so it gets no engine. Sample projects, development and tests keep theirs.
     expect(channelEngineMayRun({ available: true, reason: "acts" }, false)).toBe(false);
-    expect(channelEngineMayRun({ available: true, reason: "acts" }, true)).toBe(true);
+    expect(channelEngineMayRun({ available: true, reason: "acts" }, true)).toBe(false);
     expect(channelEngineMayRun({ available: true, reason: "simulated_allowed" }, false)).toBe(true);
     const simulatedTap: ChannelAvailability = { available: true, reason: "simulated_allowed", byTap: true };
     expect(channelTeamRuns(simulatedTap)).toBe(true);
     for (const reason of ["no_publisher", "not_connected"] as const) {
       expect(channelTeamRuns({ available: false, reason }), reason).toBe(false);
       expect(channelEngineMayRun({ available: false, reason }, false), reason).toBe(false);
-      expect(channelEngineMayRun({ available: false, reason }, true), reason).toBe(true);
+      expect(channelEngineMayRun({ available: false, reason }, true), reason).toBe(false);
     }
     // No answer (an older response): nothing is stopped.
     expect(channelTeamRuns(undefined)).toBe(true);
@@ -132,5 +133,14 @@ describe("assertMockResultsAllowed (WP-02 T4)", () => {
     expect(() => assertMockResultsAllowed("staging", false, "estimated channel numbers")).toThrow(/simulated results are not written/);
     expect(() => assertMockResultsAllowed("production", true, "x")).not.toThrow();
     expect(() => assertMockResultsAllowed("test", false, "x")).not.toThrow();
+  });
+});
+
+describe("channelNotNowSentence (WP-08 T9)", () => {
+  it("gives the week-one reason, unless connecting a tool is the founder's own step now", () => {
+    expect(channelNotNowSentence("paid_ads", { reason: "not_connected", connectable: false, sentence: "Not available yet: x" })).toBe("Paid ads start when there is a budget and a page that sells.");
+    expect(channelNotNowSentence("paid_ads", { reason: "not_connected", connectable: true, sentence: "Connect it" })).toBe("Connect it");
+    expect(channelNotNowSentence("seo", { reason: "no_publisher", sentence: "Not available yet: the team cannot publish here yet." })).toBe("Not available yet: the team cannot publish here yet.");
+    expect(channelNotNowSentence("print", { reason: "no_publisher", sentence: null })).toBe("Offline channels come later.");
   });
 });

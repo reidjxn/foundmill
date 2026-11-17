@@ -43,6 +43,12 @@ export const contactConsents = pgTable(
     /** Set when the person unsubscribes from the project's mail (or it bounced, or they reported it). */
     withdrawnAt: tstz("withdrawn_at"),
     /**
+     * 0134: sha256 hex of the address that agreed (and then confirmed), trimmed and lowercased (`suppressionHash`). A
+     * follower update goes only to a contact whose address still has this hash, so editing a contact's address never
+     * moves the consent to someone else.
+     */
+    emailHash: text("email_hash"),
+    /**
      * 0106: the post link the visitor last arrived through before signing up (the project's own, not simulated, visited);
      * the follow is credited to that post once confirmed. Written by the services only.
      */

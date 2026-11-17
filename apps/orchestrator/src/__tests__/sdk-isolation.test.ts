@@ -8,7 +8,7 @@ import path from "node:path";
 import { LONG_LIVED_NAME_PATTERNS, LongLivedCredentialError } from "@foundmill/sandbox";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildSandboxEnv, mcpToolNames } from "../activities/session";
-import { ALWAYS_DISALLOWED_TOOLS, FILE_TOOLS, SDK_HOST_PASSTHROUGH, SDK_MODEL_KEY_NAME, SDK_SESSION_TOKEN_NAME, createSessionWorkspace, guardToolCall, hookOutputFor, removeSessionWorkspace, sdkEnvFor, sdkToolPolicyFor } from "../activities/sdk-isolation";
+import { ALWAYS_DISALLOWED_TOOLS, FILE_TOOLS, SDK_HOST_PASSTHROUGH, SDK_MODEL_KEY_NAME, SDK_MODEL_SLOT_NAMES, SDK_SESSION_TOKEN_NAME, createSessionWorkspace, guardToolCall, hookOutputFor, removeSessionWorkspace, sdkEnvFor, sdkToolPolicyFor } from "../activities/sdk-isolation";
 
 const MODEL_KEY = "sk-ant-api03-" + "k".repeat(60);
 const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
@@ -249,5 +249,22 @@ describe("session workspace", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe("sdkEnvFor on another provider's endpoint (WP-13 T4)", () => {
+  const base = { cwd: "/tmp/fm-ws", apiKey: "zai-key-" + "z".repeat(32), sessionToken: "short", sandboxEnv: { FM_SESSION_ID: "s" } };
+  const endpoint = { baseURL: "https://api.z.ai/api/anthropic", modelId: "glm-5.3-flash" };
+
+  it("sends the key as a bearer token, overrides the host's base URL and pins every model slot", () => {
+    const env = sdkEnvFor({ ...base, endpoint, host: { PATH: "/bin", ANTHROPIC_BASE_URL: "https://proxy.internal" } });
+    expect(env.ANTHROPIC_BASE_URL).toBe(endpoint.baseURL);
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBe(base.apiKey);
+    expect(env[SDK_MODEL_KEY_NAME]).toBeUndefined();
+    for (const k of SDK_MODEL_SLOT_NAMES) expect(env[k]).toBe(endpoint.modelId);
+  });
+
+  it("refuses a sandbox env that would set a model slot, the bearer key or the base URL", () => {
+    for (const k of ["ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"]) expect(() => sdkEnvFor({ ...base, endpoint, sandboxEnv: { [k]: "x" } })).toThrow(/may not set/);
   });
 });

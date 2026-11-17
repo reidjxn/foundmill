@@ -383,9 +383,10 @@ const taskCompleted = declareEvent(
     simulated: z.boolean().default(false),
     /**
      * Where a code task's work stayed when it reached no repository (WP-05 T8): `saved_only` when the project had no
-     * repository to push to, or pushing was off. The work is kept with the task and no merge is offered for it.
+     * repository to push to, or pushing was off. The work is kept with the task and no merge is offered for it. `site`
+     * (WP-07 T3): the work became a new version of the project's Foundmill site.
      */
-    landed: z.enum(["saved_only"]).nullable().default(null),
+    landed: z.enum(["saved_only", "site"]).nullable().default(null),
   }),
   {
     doc: "A task passed its acceptance tests and review (or ended partially complete). The Update inbox item links the PR, preview and session replay.",
@@ -1752,6 +1753,53 @@ const PageFacts = z.object({
   url: z.string().url().max(2048),
 });
 
+/**
+ * Foundmill Sites (WP-07): a project's static site, served by apps/sites at `<slug>.<SITES_DOMAIN>`. A release is the
+ * whole site as one session left it; `preview` can be opened at its preview address and published by the founder,
+ * `held` failed the platform's screening and is never served. Previews and releases also emit `deploy.succeeded` with
+ * `provider: "foundmill"` and the release's content hash as `commitSha`.
+ */
+const SiteSlug = z.string().min(3).max(40);
+const siteReleaseCreated = declareEvent(
+  "site.release_created",
+  z.object({
+    siteId: Id,
+    releaseId: Id,
+    number: Count,
+    /** The code task whose session made it; null for a release made outside a task. */
+    taskId: Id.nullable(),
+    fileCount: Count,
+    totalBytes: Count,
+    state: z.enum(["preview", "held"]),
+    /** The preview address; null for a held release, which is never served. */
+    previewUrl: z.url().max(2048).nullable(),
+  }),
+  {
+    doc: "The team saved a new version of the project's site. A `preview` release can be opened at `previewUrl` (never indexed) and waits for the founder to publish it; a `held` one failed screening and the next round of work fixes it. Nothing is public yet, so it is not an outside result.",
+    consumers: ["stream", "composer"],
+  },
+);
+
+const sitePublished = declareEvent(
+  "site.published",
+  z.object({ siteId: Id, releaseId: Id, number: Count, slug: SiteSlug, url: z.url().max(2048) }),
+  {
+    doc: "A founder published a release of the project's site: from this moment anyone can open `url`. A real outside result, like `page.published` (the north star counts it). The founder did it themselves, so it is never narrated; apps/stream pushes it so the Site tab follows.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+const siteUnpublished = declareEvent(
+  "site.unpublished",
+  z.object({ siteId: Id, slug: SiteSlug, url: z.url().max(2048), by: z.enum(["founder", "platform"]) }),
+  {
+    doc: "The project's site stopped answering at `url`: the founder took it down (`founder`) or the platform did (`platform`, a takedown). The releases are kept. Never narrated.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
 // Team call (docs/TEAM_CALL.md §5): a spoken call between the founder and their team of agents, or one agent.
 const teamCallStarted = declareEvent(
   "team_call.started",
@@ -1877,6 +1925,8 @@ const mailSent = declareEvent(
     sessionId: Id.nullable().default(null),
     /** True when the mock ran (SendGrid not live on the gateway): nothing left Foundmill. */
     simulated: z.boolean(),
+    /** The founders' update to their followers this message belongs to (WP-08 T3); null for any other message. */
+    updateId: Id.nullable().default(null),
   }),
   {
     // North star (CLAUDE.md, founder 2026-11-11): a `mail.sent` with `simulated: false` is a real outcome of its week; a
@@ -1886,6 +1936,22 @@ const mailSent = declareEvent(
     narratable: false,
   },
 );
+
+// ---------------------------------------------------------------------------------------------------
+// The founders' update to their followers (WP-08 T3)
+// ---------------------------------------------------------------------------------------------------
+
+const updateDrafted = declareEvent("update.drafted", z.object({ updateId: Id, agentId: Id.nullable() }), {
+  doc: "A draft of an update to the project's followers was written: by an agent through `draft_follower_update` (`agentId`), or saved by a founder (`agentId` null). Nothing was sent. Carries ids only, never the words. Not a real outcome. Never narrated.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
+
+const updateSent = declareEvent("update.sent", z.object({ updateId: Id, sent: z.number().int().min(0), skipped: z.number().int().min(0), remaining: z.number().int().min(0) }), {
+  doc: "A founder pressed Send (or Send the rest) on an update to the project's followers: how many messages went out in total, how many followers were skipped and how many are left for a later press. Counts only. The real outcome is each `mail.sent` with `simulated: false`; this one is never counted on its own. Never narrated.",
+  consumers: ["stream", "metrics"],
+  narratable: false,
+});
 
 // ---------------------------------------------------------------------------------------------------
 // Email from Foundmill to a person (packages 1.5 and 5.1)
@@ -2320,6 +2386,9 @@ export const EVENTS = {
   "team_call.ended": teamCallEnded,
   "page.unpublished": pageUnpublished,
   "page.followed": pageFollowed,
+  "site.release_created": siteReleaseCreated,
+  "site.published": sitePublished,
+  "site.unpublished": siteUnpublished,
   "guidance.tour_completed": guidanceTourCompleted,
   "guidance.tour_skipped": guidanceTourSkipped,
   "guidance.explainer_dismissed": guidanceExplainerDismissed,
@@ -2327,6 +2396,8 @@ export const EVENTS = {
   "guidance.turned_off": guidanceTurnedOff,
   "push.sent": pushSent,
   "mail.sent": mailSent,
+  "update.drafted": updateDrafted,
+  "update.sent": updateSent,
   "notify.email_sent": notifyEmailSent,
   "founder.session_started": founderSessionStarted,
   "profile.published": profilePublished,

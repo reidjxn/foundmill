@@ -4,7 +4,8 @@
  * here writes; the notifier decides from these facts with pure rules (apps/orchestrator/src/notify/rules.ts).
  */
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
-import { campaigns, complianceEvents, events, filings, founderNotifications, inboxItems, milestones } from "../schema";
+import { accountAdmissions, campaigns, complianceEvents, events, filings, founderNotifications, founderPresence, founderProfiles, ideas, inboxItems, memberships, milestones } from "../schema";
+import { membershipNotEnded } from "./memberships";
 import type { Executor } from "./_shared";
 
 export interface NotifyItem {
@@ -121,5 +122,39 @@ export const notifyFactsRepo = {
       .where(and(eq(milestones.businessId, businessId), gte(milestones.achievedAt, since), isNull(milestones.archivedAt)))
       .orderBy(desc(milestones.achievedAt))
       .limit(20);
+  },
+
+  /** The latest visit of anyone in the project (`founder_presence`), or null. */
+  async projectLastSeen(db: Executor, businessId: string): Promise<Date | null> {
+    const [row] = await db.select({ at: sql<Date | null>`max(${founderPresence.lastSeenAt})` }).from(founderPresence).where(eq(founderPresence.businessId, businessId));
+    return row?.at ? new Date(row.at) : null;
+  },
+
+  /**
+   * People with a kept card and no project yet (WP-04 T12), across accounts, service role only: an admitted account
+   * with a profile, no membership that counts (not an example visit, not ended) and a card kept since `since` that is
+   * neither archived nor started. The newest card per person; at most `limit` people (5,000). `only` reads one person's
+   * newest card and answers it only when it is the card named (the gateway's check).
+   */
+  async cardHolders(db: Executor, since: Date, opts: { only?: { userId: string; ideaId: string }; limit?: number } = {}): Promise<{ userId: string; ideaId: string; title: string; keptAt: Date }[]> {
+    const rows = await db
+      .selectDistinctOn([ideas.ownerUserId], { userId: ideas.ownerUserId, ideaId: ideas.id, title: ideas.title, keptAt: ideas.createdAt })
+      .from(ideas)
+      .innerJoin(founderProfiles, and(eq(founderProfiles.userId, ideas.ownerUserId), isNull(founderProfiles.archivedAt)))
+      .innerJoin(accountAdmissions, eq(accountAdmissions.userId, ideas.ownerUserId))
+      .where(
+        and(
+          isNull(ideas.businessId),
+          isNull(ideas.committedAt),
+          isNull(ideas.archivedAt),
+          gte(ideas.createdAt, since),
+          opts.only ? eq(ideas.ownerUserId, opts.only.userId) : undefined,
+          sql`not exists (select 1 from ${memberships} where ${memberships.userId} = ${ideas.ownerUserId} and ${memberships.source} <> 'example' and ${membershipNotEnded})`,
+        ),
+      )
+      .orderBy(ideas.ownerUserId, desc(ideas.createdAt))
+      .limit(opts.limit ?? 5_000);
+    // The newest card per person; with `only`, that card must be the one asked about.
+    return opts.only ? rows.filter((r) => r.ideaId === opts.only!.ideaId) : rows;
   },
 };

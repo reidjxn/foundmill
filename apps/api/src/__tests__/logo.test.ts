@@ -190,7 +190,8 @@ describe("business.logo.generate (Opus, sanitised, metered, rate-limited)", () =
     const usage = await repos.usage.list(hz.db, businessId, { limit: 200 });
     const logoRows = usage.items.filter((u) => (u.details as { kind?: string }).kind === "logo");
     expect(logoRows).toHaveLength(2 * LIMITS.logoOptionsPerSet);
-    for (const row of logoRows) expect(row).toMatchObject({ kind: "tokens", modelKey: "opus", currency: "USD", details: { service: "api", route: "logoDesigner", label: "Estimate" } });
+    // The business is on the free plan, so the marks are drawn on Haiku 5.5 (WP-13).
+    for (const row of logoRows) expect(row).toMatchObject({ kind: "tokens", modelKey: "haiku", currency: "USD", details: { service: "api", route: "logoDesigner", label: "Estimate" } });
     expect(usage.items.filter((u) => (u.details as { purpose?: string }).purpose === "logo")).toHaveLength(0);
     const audit = await repos.audit.list(hz.db, businessId, { action: "business.logo.generate" });
     expect(audit.items[0]!.details).toMatchObject({ options: 4, costLabel: "Estimate", mode: "mock", round: 1 });
