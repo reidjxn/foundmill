@@ -2580,6 +2580,19 @@ describe("runAgentSession (live runner): a free business's session (WP-13 T4)", 
     expect(interrupts.length).toBeGreaterThan(0);
   });
 
+  it("does not start while the month's free-plan cap is held, and says why and what keeps the founder going (WP-13 T6)", async () => {
+    const held = createSessionActivities({ ...liveDeps, env: { ...liveDeps.env, FREE_PLAN_MONTHLY_CAP_CENTS: 0 } });
+    const { input, launch } = await start(held);
+    calls.length = 0;
+    const result = await held.runAgentSession(input, launch);
+    expect(result).toMatchObject({ outcome: "blocked", blockedReason: "budget", summary: expect.stringMatching(/^Foundmill's included AI is used up for this month! It is back on [A-Z][a-z]{2} 1\. To keep going now, connect your own Anthropic key\.$/) });
+    expect(calls).toHaveLength(0);
+    // A paid plan is never held.
+    await repos.businesses.update(t.db, t.businessId, { planTier: "pro" });
+    const paid = await start(held);
+    expect(paid.launch.freePlan).toBeUndefined();
+  });
+
   it("runs on Haiku 5.5 on the platform key by default, and refuses a switch to Opus", async () => {
     const { launch } = await start(acts);
     expect(launch).toMatchObject({ modelKey: "haiku", modelId: MODELS.haiku, freePlan: true });
