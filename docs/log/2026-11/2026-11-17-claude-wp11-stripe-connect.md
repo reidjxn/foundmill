@@ -67,6 +67,14 @@ got 200). The cause is the clock: the limiter counts per wall-clock minute, so t
 minute boundary and the over-limit one land in a fresh window. The test now pins the gateway's injected clock
 (`deps.now`) inside one minute. This is test-only, so the limiter is unchanged.
 
+The real-Postgres harness (`packages/db/src/testing/postgres.ts`, `dropTestDatabase`) failed #285's CI after every test
+had passed. `drop database … with (force)` refused with 42501 ("permission denied to terminate process") because a
+connection of a role the cleanup role may not end was still open. The cleanup now ends, one by one, the connections it
+may end (skipping the others), then drops. A 42501 that still comes back is logged with the connections left open
+("not dropped: …") and not thrown, so a real leak still shows in the log. Any other error is thrown, and a name that is
+not an `fm_rls_` test database is refused. `drop-test-database.test.ts` covers the three cases with a stub, since the
+container's local Postgres runs as a superuser and cannot produce the 42501.
+
 ## Not done
 - Archiving a project does not withdraw its Stripe sign-in at Stripe. The connection stays on Foundmill's platform until
   the founder removes it in Stripe, and the account is held until then. Left for the archive flow (WP-11 T16's closing
