@@ -40,6 +40,8 @@ import { meter, MODEL_PRICING, resolveModel, type ModelId, type RouteKey } from 
 import { assertNoLongLivedCredentials, capturePages, MockSandbox, MockSandboxProvider, RECORDINGS, redactCredentialValues, stableHash32, type Sandbox, type SandboxSpecInput } from "@foundmill/sandbox";
 import { CHANNEL_KEYS, CHANNEL_META, channelEngineMayRun, channelTeamRuns, isUuid, mockResultsAllowed, noChannelSentence, type AgentStatus, type BuildDestination, type ChannelKey, type DesignCheckResult, type DesignShotRef, type ModelKey, type TaskStatus } from "@foundmill/shared";
 import { channelAvailabilityFor } from "./channel-availability";
+import { buildSiteRelease, heldReleaseNote, isSiteProject, siteCheckout, siteTaskNote } from "./site-workspace";
+import { sitePreviewUrl, sitesDomain, siteUrl } from "@foundmill/shared/sites";
 import { currentTraceparent } from "@foundmill/shared/telemetry";
 import { Context } from "@temporalio/activity";
 import { ApplicationFailure } from "@temporalio/common";
@@ -1040,7 +1042,7 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       await archiveSessionRecording({ db, redis: deps.redis, log: deps.log }, input);
 
       let taskStatus: TaskStatus;
-      let landed: "saved_only" | null = null;
+      let landed: "saved_only" | "site" | null = null;
       const cost = { amountMinor: Math.round(result.costMinor), currency: CREDITS_CURRENCY }; // model cost: US cents (DECISIONS 2026-10-12)
       // How many sessions of this task in a row ended failed or blocked, this one included (it is ended above).
       const blockedStreak = Math.max(1, failureStreak(await repos.agents.recentOutcomes(db, input.businessId, { taskIds: [task.id], limit: 12 }), ["failed", "blocked"]).failures);
@@ -1069,6 +1071,23 @@ export function createSessionActivities(deps: OrchestratorDeps) {
           if (taskStatus === "review" && task.kind === "code" && !result.review && !(await repos.integrations.codeRepository(db, input.businessId))?.writeEnabled) {
             taskStatus = "done";
             landed = "saved_only";
+          }
+          // A site task (WP-07 T3): its changes become the site's next version. Changed the same file as a task that
+          // finished first, from the same version: handed back to start again from the newest one.
+          if (task.kind === "code" && (await isSiteProject(db, deps.env, input.businessId))) {
+            const built = await buildSiteRelease(db, deps.env, { businessId: input.businessId, taskId: task.id, sessionId: input.sessionId, agentId: agent.id, agentName: agent.name });
+            if (built.status === "conflict") {
+              const detail = `Another task changed ${built.paths.slice(0, 5).join(", ")}${built.paths.length > 5 ? ` and ${built.paths.length - 5} more` : ""} first. Start from the newest version of the site and make this change again.`;
+              const blockedEv = await emitEvent(db, { businessId: input.businessId, type: "task.blocked", actor: { kind: "agent", id: agent.id }, payload: { taskId: task.id, kind: task.kind, title: task.title, assigneeAgentId: agent.id, sessionId: input.sessionId, reason: "needs_update", detail, occurrence: blockedStreak } }, { idempotencyKey: `task.blocked:${input.sessionId}` });
+              eventIds.push(blockedEv.id);
+              taskStatus = "blocked";
+              break;
+            }
+            if (built.status === "release") {
+              taskStatus = "done";
+              landed = "site";
+              if (built.flags.length > 0) deps.log.info({ businessId: input.businessId, releaseId: built.release.id, note: heldReleaseNote(built.flags) }, "site release held by screening");
+            }
           }
           // The report this session saved on the task (WP-05 T3): the event names it, and for a task that is not code the
           // founder's note quotes it (its title, then the start of its body) instead of the run's count of tool calls.
@@ -1231,6 +1250,13 @@ export async function offerReadyToSellAfterTask(deps: OrchestratorDeps, business
   });
   if (!offered) return null;
   const ev = await emitEvent(db, { businessId, type: "inbox.item_created", actor: { kind: "agent", id: chief.id }, payload: { inboxItemId: offered.item.id, type: "decision", fromAgentId: chief.id, subject: offered.item.subject, blocksContinue: false, sourceEventIds: [], cost: null } });
+  // The demo (WP-07 T9): only where there is something to open, the project's site (live, else its newest preview).
+  // An agent with no browser cannot record a demo of a product nobody can open (A4-18).
+  const domain = sitesDomain(deps.env);
+  const site = domain ? await repos.sites.get(db, businessId) : null;
+  const preview = site ? await repos.sites.latestRelease(db, businessId) : null;
+  const address = !site || !domain ? null : site.status === "live" ? siteUrl(domain, site.slug) : preview ? sitePreviewUrl(domain, preview.previewToken) : null;
+  if (!address) return { inboxItemId: offered.item.id, eventId: ev.id, demoTaskId: null };
   // The demo: a research task for the Product Researcher (template key `product_researcher`), else the researcher.
   const assignee = agents.items.find((a) => a.agentType === "product_researcher" && !a.archivedAt) ?? agents.items.find((a) => a.agentType === "researcher" && !a.archivedAt) ?? null;
   const customers = (await repos.product.listBlocks(db, businessId, { section: "Customers" }))[0];
@@ -1240,7 +1266,7 @@ export async function offerReadyToSellAfterTask(deps: OrchestratorDeps, business
   const demo = await repos.tasks.create(db, businessId, {
     kind: "research",
     title: `Record a demo of ${item.title} for ${icp ?? "the first customers"}`.slice(0, 200),
-    goalMd: "Walk through what shipped as a first customer would, record the steps and what they see, and note what is missing before it is shown to anyone. Nothing is sent to anyone.",
+    goalMd: `Open ${address} and walk through it as a first customer would: record the steps and what they see, and note what is missing before it is shown to anyone. Nothing is sent to anyone.`,
     acceptance: ["The demo follows the steps a first customer takes", "What is missing before it is shown to anyone is listed", "Nothing was sent to anyone"],
     roadmapItemId: item.id,
     departmentId: product?.id ?? null,
@@ -1587,9 +1613,25 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   let checkoutMissing: string | null = null;
   /** That repository (`owner/name`): this session's save is kept but never pushed over it (no checkout, no push). */
   let checkoutMissingRepo: string | null = null;
+  /** WP-07 T3: this business's code tasks build its Foundmill site, and the base the session's save is measured against. */
+  const siteProject = policy.fileTools && (await isSiteProject(deps.db, deps.env, input.businessId));
+  let siteBase: CheckoutBase | null = null;
   let token: Awaited<ReturnType<typeof deps.gateway.mintSessionToken>>;
   try {
-    if (policy.fileTools) {
+    if (policy.fileTools && siteProject) {
+      // A site task (WP-07 T3): no repository, no checkout; the session starts from the site as it stands and its own
+      // saved changes (a task handed back starts from the newest release, its earlier changes on top).
+      const started = await siteCheckout(deps.db, input.businessId, cwd, deps.clock.now());
+      siteBase = started.base;
+      await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: started.note });
+      try {
+        restored = await restoreWorkspace(deps.db, input.businessId, task.id, cwd, undefined, undefined, { checkout: true });
+      } catch (err) {
+        restoreFailed = true;
+        restored = null;
+        deps.log.warn({ err: (err as Error).message, sessionId: input.sessionId }, "site workspace restore failed");
+      }
+    } else if (policy.fileTools) {
       // A branch handed back to be brought up to date (activities/merge.ts), or one the default branch has moved past
       // (checkout.ts `startsFromDefaultBranch`), starts from the default branch's newest files with the saved changes on top.
       const ids = { businessId: input.businessId, agentId: agent.id, sessionId: input.sessionId, taskId: task.id };
@@ -1659,7 +1701,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
       deps.log.warn({ err: (err as Error).message, sessionId: input.sessionId }, "could not read the session's earlier tool calls");
     }
   }
-  const taskPrompt = [`# Task: ${task.title}`, task.goalMd || "", acceptanceLines(task).length ? `## Acceptance criteria\n${acceptanceLines(task).map((a, i) => `${i + 1}. ${a}`).join("\n")}\n\n${ACCEPTANCE_BRIEF}` : Array.isArray(task.acceptance) && task.acceptance.length ? `## Acceptance criteria\n${task.acceptance.map((a) => `- ${typeof a === "string" ? a : JSON.stringify(a)}`).join("\n")}` : "", policy.fileTools ? codeTaskNote(launch.branch, buildDestinationOf(await repos.integrations.codeRepository(deps.db, input.businessId))) : "Keep every action inside the tools you were given; this task has no file access.", continuing, resumed, alreadyDone, notConnectedNote, "Keep every external action inside the tools you were given. If a tool you need is missing or not connected, call block_task in your first turn and name it; do not explore. When the work is finished, call complete_task with what you found or made. A session that ends without complete_task or block_task is not counted as done."].filter(Boolean).join("\n\n");
+  const taskPrompt = [`# Task: ${task.title}`, task.goalMd || "", acceptanceLines(task).length ? `## Acceptance criteria\n${acceptanceLines(task).map((a, i) => `${i + 1}. ${a}`).join("\n")}\n\n${ACCEPTANCE_BRIEF}` : Array.isArray(task.acceptance) && task.acceptance.length ? `## Acceptance criteria\n${task.acceptance.map((a) => `- ${typeof a === "string" ? a : JSON.stringify(a)}`).join("\n")}` : "", policy.fileTools ? (siteProject ? siteTaskNote() : codeTaskNote(launch.branch, buildDestinationOf(await repos.integrations.codeRepository(deps.db, input.businessId)))) : "Keep every action inside the tools you were given; this task has no file access.", continuing, resumed, alreadyDone, notConnectedNote, "Keep every external action inside the tools you were given. If a tool you need is missing or not connected, call block_task in your first turn and name it; do not explore. When the work is finished, call complete_task with what you found or made. A session that ends without complete_task or block_task is not counted as done."].filter(Boolean).join("\n\n");
 
   const waits = founderWaits(deps);
   /**
@@ -1874,7 +1916,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   // What the workspace held before the agent started (decision 3: a code session that changed nothing is not done).
   const startPrint = policy.fileTools ? await fingerprintWorkspace(cwd) : null;
   // The design check of the UI this session writes (item 13): screenshots, a separate reviewer, one fix turn.
-  const design = liveDesignCheck(deps, recorder, { input, task, agent, businessName: live.business.name, cwd, acquireSandbox: live.acquireSandbox, checkout: () => checkout, enabled: task.kind === "code" && policy.fileTools });
+  const design = liveDesignCheck(deps, recorder, { input, task, agent, businessName: live.business.name, cwd, acquireSandbox: live.acquireSandbox, checkout: () => checkout, enabled: task.kind === "code" && policy.fileTools && !siteProject });
   /** The checkout the session started from, once the branch the agent pushed was brought down in its place. */
   let baseBefore: CheckoutBase | null = null;
   /** The agent's pushes already brought down (or tried): a branch is fetched again only for pushes after them. */
@@ -1943,7 +1985,9 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     const nothingToTest = !named && scopePaths.length > 0 && scope.length === 0 && (scoped.loose.length === 0 || documentationOnly(scoped.loose));
     // Acceptance tests run inside a sandbox, never on the orchestrator host, on a copy of the agent's workspace. Not
     // for a task the agent blocked or a session that wrote nothing: neither can end done, so the sandbox is not paid for.
-    const acceptanceCommand = nothingToTest ? null : acceptanceCommandFor(task, scope, appTestPackages);
+    // A site task runs no acceptance command (WP-07 T3): its release is screened when the session ends, and no sandbox
+    // is started for it.
+    const acceptanceCommand = nothingToTest || siteProject ? null : acceptanceCommandFor(task, scope, appTestPackages);
     let acceptance: AcceptanceVerdict | null = null;
     if (acceptanceCommand && (agentBlock || nothingWritten)) {
       await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Acceptance tests not run: ${agentBlock ? `${agent.name} blocked the task` : "the session changed no files"}.` });
@@ -2221,7 +2265,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     // Keep the code whatever the outcome (done, stopped, failed, parked): the workspace itself is deleted next. Only a
     // session that finished (or waits on an approval) is pushed to GitHub.
     await design.close();
-    if (policy.fileTools) await keepWorkspace(deps, recorder, { businessId: input.businessId, taskId: task.id, sessionId: input.sessionId, agentId: agent.id, branch: launch.branch, agentName: agent.name, holdBack, checkout: checkout ? { commitSha: checkout.base.commitSha, at: checkout.base.checkedOutAt } : null, agentPushed: recorder.agentPushed }, cwd, { secrets: [key.apiKey, token.token], carryOver: restoreFailed, ...(checkout ? { base: checkout.base } : { withoutCheckoutOf: checkoutMissingRepo }) });
+    if (policy.fileTools) await keepWorkspace(deps, recorder, { businessId: input.businessId, taskId: task.id, sessionId: input.sessionId, agentId: agent.id, branch: launch.branch, agentName: agent.name, holdBack, checkout: checkout ? { commitSha: checkout.base.commitSha, at: checkout.base.checkedOutAt } : null, agentPushed: recorder.agentPushed }, cwd, { secrets: [key.apiKey, token.token], carryOver: restoreFailed, ...(checkout ? { base: checkout.base } : siteBase ? { base: siteBase } : { withoutCheckoutOf: checkoutMissingRepo }) });
     await disposeCheckout(checkout);
     try {
       await removeSessionWorkspace(cwd);

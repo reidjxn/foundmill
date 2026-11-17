@@ -383,9 +383,10 @@ const taskCompleted = declareEvent(
     simulated: z.boolean().default(false),
     /**
      * Where a code task's work stayed when it reached no repository (WP-05 T8): `saved_only` when the project had no
-     * repository to push to, or pushing was off. The work is kept with the task and no merge is offered for it.
+     * repository to push to, or pushing was off. The work is kept with the task and no merge is offered for it. `site`
+     * (WP-07 T3): the work became a new version of the project's Foundmill site.
      */
-    landed: z.enum(["saved_only"]).nullable().default(null),
+    landed: z.enum(["saved_only", "site"]).nullable().default(null),
   }),
   {
     doc: "A task passed its acceptance tests and review (or ended partially complete). The Update inbox item links the PR, preview and session replay.",

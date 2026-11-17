@@ -93,3 +93,22 @@ export function sitesDomainProblem(sitesDomainValue: string, appUrl: string): st
   if (related(d, appHost) || related(appHost, d)) return `SITES_DOMAIN must be a domain of its own, not ${appHost} or a subdomain or parent of it`;
   return null;
 }
+
+/**
+ * The Product lead's note in Needs you when the team finished a version of the site to look at (WP-07 T3/T5): the first
+ * preview, and again for the first preview after a publish. "Publish it" publishes the newest version (the same
+ * service as the tab's Publish); "Not yet" leaves it.
+ */
+export const SITE_READY_NOTE = {
+  key: "site.ready",
+  subject: "Your site is ready to look at",
+  options: { publish: "site_publish", later: "site_later" },
+  publishLabel: "Publish it",
+  laterLabel: "Not yet",
+  body: (agentName: string, previewUrl: string) => `${agentName} finished a version of your site. [Open the preview](${previewUrl}), and if you like it, publish it. Nothing is public until you do.`,
+} as const;
+
+/** Whether a note's decision block is the site note's (its `decision.key`). */
+export function isSiteReadyDecision(decision: unknown): boolean {
+  return !!decision && typeof decision === "object" && (decision as { key?: unknown }).key === SITE_READY_NOTE.key;
+}

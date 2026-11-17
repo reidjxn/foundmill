@@ -13,8 +13,8 @@ const github = PLANNER_CASES.find((c) => c.destination === "github")!;
 const task = (over: Partial<PlannedTask>): PlannedTask => ({ id: "t1", title: "t", goal: "g", kind: "research", acceptance_criteria: ["a"], test_expectations: [], file_scope_hints: [], depends_on: [], estimate_hours: 1, hard: false, roadmap_item_id: null, ...over });
 
 describe("planner eval", () => {
-  it("covers a project with nowhere to publish and one with a repository", () => {
-    expect(PLANNER_CASES.map((c) => c.destination).sort()).toEqual(["github", "none"]);
+  it("covers a project with nowhere to publish, one with a repository and one with a Foundmill site", () => {
+    expect(PLANNER_CASES.map((c) => c.destination).sort()).toEqual(["github", "none", "site"]);
   });
 
   it("the rubric passes a good plan and catches code with no destination, a missing note, and code with no file scope", () => {
@@ -27,7 +27,16 @@ describe("planner eval", () => {
     expect(plannerProblems(github, { tasks: [task({ kind: "code" })] }).join()).toMatch(/names no file scope/);
   });
 
-  it("the mock route passes both fixtures through the product's own request", async () => {
+  it("the rubric catches a site plan with work outside the site or no word on sign-in", () => {
+    const site = PLANNER_CASES.find((c) => c.destination === "site")!;
+    const good = task({ kind: "code", file_scope_hints: ["index.html"], goal: "Build the page. Sign-in is not possible on the site yet." });
+    expect(plannerProblems(site, { tasks: [good] })).toEqual([]);
+    expect(plannerProblems(site, { tasks: [good, task({ id: "t2", kind: "code", file_scope_hints: ["apps/api/src/"] })] }).join()).toMatch(/outside the site/);
+    expect(plannerProblems(site, { tasks: [task({ kind: "ops" }), good] }).join()).toMatch(/not code or research/);
+    expect(plannerProblems(site, { tasks: [task({ kind: "code", file_scope_hints: ["index.html"] })] }).join()).toMatch(/not possible yet/);
+  });
+
+  it("the mock route passes every fixture through the product's own request", async () => {
     const client = createModelClient({ mode: "mock", logger: silent });
     for (const c of PLANNER_CASES) {
       const r = await runPlannerCase(client, c);

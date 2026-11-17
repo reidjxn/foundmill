@@ -50,7 +50,7 @@ async function expectPublicPage(page: Page, pagePath: string, width: number, sho
   const follow = page.locator("form[data-project-follow]");
   await expect(follow).toHaveCount(1);
   await expect(follow.getByRole("heading", { level: 2 })).toHaveText(/^Follow Doorstep Bikes/);
-  for (const target of [follow.getByRole("button", { name: "Follow" }), follow.getByLabel("Your email"), follow.locator("label").filter({ has: page.getByRole("checkbox") })]) {
+  for (const target of [follow.getByRole("button", { name: "Follow" }), follow.getByLabel("Your email", { exact: true }), follow.locator("label").filter({ has: page.getByRole("checkbox") })]) {
     await expectTapTarget(target, "follow form tap target");
   }
   await expect(page.locator("textarea")).toHaveCount(0);
@@ -72,7 +72,13 @@ async function expectPublicPage(page: Page, pagePath: string, width: number, sho
   await expect(privacy).toHaveAttribute("target", "_blank");
   await expect(privacy).toHaveAttribute("rel", "noopener noreferrer");
   await expectTapTarget(privacy, "the Turnstile privacy link is a 44 px target");
-  await expect(article.getByRole("link")).toHaveCount(2);
+  // What happens to the address, under the consent box, before the button: the Privacy Policy's section on following.
+  const howUsed = follow.locator("[data-follow-privacy]").getByRole("link", { name: "How your email is used, in the Privacy Policy (opens in a new tab)" });
+  await expect(howUsed).toHaveText("How your email is used");
+  await expect(howUsed).toHaveAttribute("href", "/privacy#following");
+  await expect(howUsed).toHaveAttribute("target", "_blank");
+  await expectTapTarget(howUsed, "the How your email is used link is a 44 px target");
+  await expect(article.getByRole("link")).toHaveCount(3);
   const smallest = await article.evaluate((root) => Math.min(...[...root.querySelectorAll<HTMLElement>("p, h1, h2, span, a")].filter((e) => e.textContent?.trim()).map((e) => parseFloat(getComputedStyle(e).fontSize))));
   expect(smallest).toBeGreaterThanOrEqual(11);
   if (process.env.E2E_UX_AUDIT) {
@@ -187,11 +193,11 @@ test.describe("public page", () => {
       const widgetBox = form.locator("[data-follow-widget]");
       await expect(widgetBox).toHaveCount(1);
       await expect(widgetBox).toBeHidden();
-      await form.getByLabel("Your email").fill(follower);
+      await form.getByLabel("Your email", { exact: true }).fill(follower);
       // The box is required: without it nothing is sent and the form says why in plain words.
       await form.getByRole("button", { name: "Follow" }).click();
       await expect(form.getByRole("alert")).toHaveText("Tick the box to agree to get email about this project.", { timeout: LONG });
-      await expect(form.getByLabel("Your email")).toHaveValue(follower);
+      await expect(form.getByLabel("Your email", { exact: true })).toHaveValue(follower);
       await form.getByRole("checkbox", { name: /^I agree to get email from Doorstep Bikes [a-z0-9]+ about this project\. I can unsubscribe at any time\.$/ }).check();
       await form.getByRole("button", { name: "Follow" }).click();
       const done = fan.page.locator("[data-project-follow='done']");
@@ -206,7 +212,7 @@ test.describe("public page", () => {
       // The same address again: the same answer, nothing more.
       await fan.page.goto(pagePath);
       const again = fan.page.locator("form[data-project-follow]");
-      await again.getByLabel("Your email").fill(follower.toUpperCase());
+      await again.getByLabel("Your email", { exact: true }).fill(follower.toUpperCase());
       await again.getByRole("checkbox").check();
       await again.getByRole("button", { name: "Follow" }).click();
       await expect(fan.page.locator("[data-project-follow='done']").getByRole("status")).toHaveText(/^Check your email to confirm\. Doorstep Bikes [a-z0-9]+ will only write to you after you do\.$/, { timeout: LONG });
@@ -223,12 +229,12 @@ test.describe("public page", () => {
       const p = await plain.newPage();
       await p.goto(pagePath);
       const form = p.locator("form[data-project-follow]");
-      await form.getByLabel("Your email").fill(follower.replace("follower-", "plain-"));
+      await form.getByLabel("Your email", { exact: true }).fill(follower.replace("follower-", "plain-"));
       await form.getByRole("checkbox").check();
       await form.getByRole("button", { name: "Follow" }).click();
       const refused = p.locator("form[data-project-follow]");
       await expect(refused.getByRole("alert")).toHaveText("We could not check this browser, so you are not following yet. Reload the page and try again.", { timeout: LONG });
-      await expect(refused.getByLabel("Your email")).toHaveValue(follower.replace("follower-", "plain-"));
+      await expect(refused.getByLabel("Your email", { exact: true })).toHaveValue(follower.replace("follower-", "plain-"));
       await expect(p.locator("[data-project-follow='done']")).toHaveCount(0);
     } finally {
       await plain.close();
@@ -246,8 +252,9 @@ test.describe("public page", () => {
     const own = page.locator("[data-project-mark]");
     await expect(own).toHaveAttribute("data-project-mark", "member", { timeout: LONG });
     await expect(own).toHaveText("Built on Foundmill");
-    // No link but the bot check's disclosure, which every viewer of the Follow form gets.
-    await expect(page.locator("[data-project-page]").getByRole("link")).toHaveCount(1);
+    // No link but the two every viewer of the Follow form gets: how the email is used, and the bot check's disclosure.
+    await expect(page.locator("[data-project-page]").getByRole("link")).toHaveCount(2);
+    await expect(page.locator("[data-project-page] [data-follow-privacy]").getByRole("link")).toHaveCount(1);
     await expect(page.locator("[data-project-page] [data-follow-bot-check]").getByRole("link")).toHaveCount(1);
     await page.goto(`/b/${bid}/crm`);
     const grid = page.getByRole("grid", { name: "CRM records" });

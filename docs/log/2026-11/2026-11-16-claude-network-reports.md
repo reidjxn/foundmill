@@ -52,7 +52,8 @@ One account only: the founder's Foundmill account (UID `63d2dcc8-83a4-4ac7-bc72-
 Only the api reads `OPERATOR_USER_IDS` (`operatorProcedure`); the web page asks the api. The list is the only path: no role, owner standing, seed owner, `SEED_OWNER_EMAILS` or address makes an operator, and an unset, empty or malformed list means nobody (api `reports.test.ts`, shared `reports.test.ts`).
 
 ### Report on /u/<handle> is decided by the server's session
-CI showed a signed-out visitor the Report control: in development and test the browser's api client falls back to the development account when there is no session, so `report.canReportProfile` answered as the dev founder. The page now renders the control only when the request itself carries a session (`getServerAuth`), so a signed-out visitor never gets a control that needs an account; the spec waits for the network to settle before it counts.
+CI showed a signed-out visitor the Report control: in development and test the browser's api client falls back to the development account when there is no session, so `report.canReportProfile` answered as the dev founder.
+The page now renders the control only when the request itself carries a session (`getServerAuth`), so a signed-out visitor never gets a control that needs an account; the spec waits for the network to settle before it counts.
 
 ## Not done
 - The operator email alert (above). Removing access is still by hand in Supabase (DEPLOY lists the two statements).

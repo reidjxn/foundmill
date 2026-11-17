@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { FOLLOW_ERRORS, followWords, TURNSTILE_PRIVACY_URL } from "@foundmill/shared/project-page";
+import { FOLLOW_ERRORS, FOLLOW_PRIVACY_HREF, followWords, TURNSTILE_PRIVACY_URL } from "@foundmill/shared/project-page";
 import { FOLLOW_FIELDS, ProjectFollowForm } from "./ProjectFollowForm";
 
 const words = followWords("Northwind Skincare");
@@ -47,6 +47,29 @@ describe("ProjectFollowForm", () => {
     screen.getByRole("button", { name: "Follow" }).click();
     expect(seen).toEqual(["focus", "submit"]);
     expect(FOLLOW_FIELDS.turnstile).toBe("turnstile");
+  });
+
+  it("links what happens to the address (the Privacy Policy's section on following) under the box, before the button, in a new tab", () => {
+    render(<ProjectFollowForm name="Northwind Skincare" action="/follow" />);
+    const link = screen.getByRole("link", { name: words.privacyLinkLabel });
+    expect(link.textContent).toBe("How your email is used");
+    expect(link.getAttribute("href")).toBe(FOLLOW_PRIVACY_HREF);
+    expect(FOLLOW_PRIVACY_HREF).toBe("/privacy#following");
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.className).toContain("min-h-tap");
+    const line = link.closest("[data-follow-privacy]")!;
+    expect(line.closest("form")).toBeTruthy();
+    expect(line.previousElementSibling).toBe(screen.getByRole("checkbox").closest("label"));
+    // Read before the address is left: the line comes before the button.
+    expect(line.compareDocumentPosition(screen.getByRole("button", { name: "Follow" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("shows the privacy link in the founder's preview too, and not once the visitor has followed", () => {
+    const { unmount } = render(<ProjectFollowForm name="Northwind Skincare" preview />);
+    expect(screen.getByRole("link", { name: words.privacyLinkLabel })).toBeTruthy();
+    unmount();
+    render(<ProjectFollowForm name="Northwind Skincare" action="/follow" state={{ status: "done" }} />);
+    expect(screen.queryByRole("link", { name: words.privacyLinkLabel })).toBeNull();
   });
 
   it("says under the button, in small muted text, that Cloudflare Turnstile checks the form, with its privacy link in a new tab", () => {

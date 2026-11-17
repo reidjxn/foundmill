@@ -43,6 +43,15 @@ export const PLANNER_CASES: readonly PlannerCase[] = Object.freeze([
     sections: BAKERY_SPEC,
     workerTypes: ["chief_of_staff", "product_lead", "researcher", "backend_engineer", "frontend_engineer"],
   },
+  {
+    // WP-07 T9: the project's code lands on its Foundmill site; an idea that needs sign-in gets a question, not a task.
+    id: "pl03_site",
+    destination: "site",
+    goal: "Let customers order a celebration cake online, sign in to see their past orders, and pick a pickup day.",
+    roadmapItem: { id: "r1", title: "Online cake orders", description: "A customer orders a cake online; the baker sees the week's orders in one list." },
+    sections: BAKERY_SPEC,
+    workerTypes: ["chief_of_staff", "product_lead", "researcher", "frontend_engineer", "docs_writer"],
+  },
 ]);
 
 const BUILDING_LATER = /\bbuild(ing)?\b[^.]*\b(starts?|begins?)\b[^.]*\bplace to publish\b/i;
@@ -55,6 +64,10 @@ export function plannerProblems(c: PlannerCase, plan: TaskGraphOutput): string[]
   if (c.destination === "none") {
     if (code.length > 0) problems.push(`planned ${code.length} code task${code.length === 1 ? "" : "s"} with nowhere for code to go live`);
     if (!plan.tasks.some((t) => BUILDING_LATER.test(t.goal))) problems.push("no task says building starts once the project has a place to publish");
+  } else if (c.destination === "site") {
+    for (const t of plan.tasks) if (t.kind !== "code" && t.kind !== "research") problems.push(`task ${t.id} is of kind ${t.kind}, not code or research`);
+    for (const t of code) for (const h of t.file_scope_hints) if (h.trim() && !/\.(html|css|png|jpe?g|webp|gif|svg|ico|woff2|txt|webmanifest)$|^[\w-]+\/$/i.test(h.trim())) problems.push(`code task ${t.id} names ${h} outside the site`);
+    if (!plan.tasks.some((t) => /not possible[^.]*\b(yet|on the site)\b/i.test(t.goal))) problems.push("no task says the sign-in a static site cannot do is not possible yet");
   } else {
     if (code.length === 0) problems.push("planned no code task with a repository to push to");
     for (const t of code) if (t.file_scope_hints.filter((h) => h.trim()).length === 0) problems.push(`code task ${t.id} names no file scope`);
