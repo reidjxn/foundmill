@@ -4,7 +4,8 @@
  * it mounts (the hero keys it by the business, so choosing another one starts a fresh deck and a fresh cycle loop). The top bar is the product's own
  * parts (logo, runway, mode, Continue, Stop all agents) on the brand colours; under it the processing strip, then the
  * Inbox, the team orbit and the live feed. Pressing Continue runs a cycle: the strip shimmers, the feed speeds up, and
- * the cycle comes back with a decision (Continue turns into "Respond · 1") or a customer (gold). The first cycle runs
+ * the cycle comes back with a customer (gold) or a decision (Continue reads "1 thing needs you"). The first press ends in
+ * a win on every example (WP-14 T10; the outcomes' order is each example's own). The first cycle runs
  * on its own once the deck is on screen, unless the visitor prefers reduced motion.
  */
 import { useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";

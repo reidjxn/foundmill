@@ -8,7 +8,7 @@
  * given before (`fm_lp`, so a returning visitor sees one page), then the channel the link names (`utm_source`). Pure:
  * no cookie or request is read here. An experiment that splits traffic assigns `fm_lp` the same way.
  */
-export const LANDING_VARIANTS = ["first", "no-idea", "has-idea", "running", "builder"] as const;
+export const LANDING_VARIANTS = ["first", "no-idea", "has-idea", "running", "builder", "calls", "team"] as const;
 export type LandingVariant = (typeof LANDING_VARIANTS)[number];
 
 export const DEFAULT_LANDING_VARIANT: LandingVariant = "first";

@@ -70,6 +70,19 @@ export const VARIANT_WORDS: Record<LandingVariant, VariantWords> = {
     ideas: BUILDER_EXAMPLES,
     ways: ["sentence", "studio", "bring"],
   },
+  // Two more headlines for the first-timer, to be compared with the default once the site can measure (WP-14 T10).
+  calls: {
+    title: "You make the calls. Your team does the rest.",
+    lede: `Type your idea. A team of AI agents gives it a name, a pitch and ten honest ratings, ${FREE}.`,
+    label: "What do you want to make?",
+    ways: ["sentence", "studio", "bring"],
+  },
+  team: {
+    title: "The team you could never afford.",
+    lede: `A whole team of AI agents, working on your idea. Type it and they give it a name, a pitch and ten honest ratings, ${FREE}.`,
+    label: "What do you want to make?",
+    ways: ["sentence", "studio", "bring"],
+  },
 };
 
 export const LANDING_WORDS = {
@@ -191,6 +204,12 @@ export const LANDING_WORDS = {
     title: "You stay in charge",
     rules: "Your agents work inside house rules they cannot change. They never move money, sign anything, accept terms, file anything in your name, delete anything for good or change security settings.",
     yes: "Anything that reaches another person waits for your yes, unless you choose otherwise. One button stops every agent at once.",
+    /** WP-14 T10. The brief's line was "Every number we didn't measure says so."; this is the rule the product keeps today. */
+    honest: "Every number that is an estimate or a forecast is labeled as one.",
+  },
+  vacation: {
+    title: "Take a vacation.",
+    text: "Vacation mode: your Chief of Staff keeps things moving within the limits you set, and writes you a report for when you come back.",
   },
   cost: {
     title: "What it costs",

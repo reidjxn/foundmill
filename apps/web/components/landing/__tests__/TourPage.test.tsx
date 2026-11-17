@@ -7,7 +7,8 @@ import { GuidanceProvider, TooltipProvider } from "@foundmill/dugout";
 import { MONOGRAM_HEIGHT, MONOGRAM_WIDTH } from "@foundmill/dugout/brand";
 import { TourPage } from "../TourPage";
 import { CONTINUE_CALLOUT, DECK_CALLOUT, DECK_CYCLE_MS } from "../CycleDeck";
-import { INCLUDED_CREDITS_ASSURANCE } from "../Hero";
+import { HOUSE_RULES_WHY } from "../Control";
+import { RUN_A_BUSINESS, deckCaption } from "../Hero";
 import { FIRST_DAY_PANEL_TITLE, FIRST_DAY_SENTENCE, FIRST_DAY_SIGNOFFS } from "../HowItWorks";
 import { resetExampleCache } from "../examples";
 import { NORTHWIND } from "../examples/northwind";
@@ -68,8 +69,6 @@ describe("TourPage (signed-out /)", () => {
   it("assures a first-timer at the idea box (a free card, no sign-up, private) and keeps the key assurance for You decide (A13)", () => {
     renderPage();
     const hero = screen.getByRole("heading", { level: 1 }).closest("section")!;
-    // The figure is the free plan's included credits, from packages/config, in credits' own currency (said once the card lands).
-    expect(INCLUDED_CREDITS_ASSURANCE).toBe("Starts with $5.00 of included credits · no card");
     expect(within(hero).getByText("Shaping your first idea is free and needs no sign-up")).toBeTruthy();
     expect(within(hero).getByText("Your idea stays private until you choose to share it")).toBeTruthy();
     expect(within(hero).getByText("Nothing spends money or signs in your name without you")).toBeTruthy();
@@ -140,12 +139,13 @@ describe("TourPage (signed-out /)", () => {
     expect(screen.getAllByRole("img", { name: /Your team: you at the center/ })).toHaveLength(1);
   });
 
-  it("runs a cycle in the hero deck: a decision comes back, then a customer", async () => {
+  it("runs a cycle in the hero deck: the first press ends in a customer, the next brings a decision (WP-14 T10)", async () => {
     vi.useFakeTimers();
     renderPage();
     const deck = screen.getByTestId("cycle-deck");
     expect(deck.getAttribute("data-phase")).toBe("idle");
-    // The first cycle starts on its own once the deck is on screen.
+    expect(screen.getByText(deckCaption("Tutorlane")).textContent).toBe("Tutorlane is an example business. Press Continue and see what your team would do this week.");
+    // The first cycle starts on its own once the deck is on screen, and ends in a win: Continue turns gold.
     await act(async () => {
       vi.advanceTimersByTime(1500);
     });
@@ -153,21 +153,14 @@ describe("TourPage (signed-out /)", () => {
     await act(async () => {
       vi.advanceTimersByTime(DECK_CYCLE_MS);
     });
-    expect(deck.getAttribute("data-phase")).toBe("decision");
-    expect(within(deck).getByRole("button", { name: /1 thing needs you/ })).toBeTruthy();
-    const decision = screen.getByTestId("deck-decision");
-    expect(within(decision).getByText("Merge photo grading to production?")).toBeTruthy();
-    // The app's words for an open decision ("Needs your answer"), never the retired "needs you".
-    expect(within(deck).getByText("1 needs your answer")).toBeTruthy();
-    expect(within(deck).queryByText("1 needs you")).toBeNull();
-    fireEvent.click(within(decision).getByRole("button", { name: "Merge" }));
+    expect(deck.getAttribute("data-phase")).toBe("win");
+    const win = screen.getByTestId("deck-win");
+    // The same customer as the Customer Update the gold card opens.
+    expect(within(win).getByText("Okafor Math Tutoring")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Customer Update" })).getAllByText("Okafor Math Tutoring").length).toBeGreaterThan(0);
+    expect(within(deck).getByRole("button", { name: /Go to Journey/ })).toBeTruthy();
+    fireEvent.click(within(win).getByRole("button", { name: /See the Customer Update/ }));
     expect(deck.getAttribute("data-phase")).toBe("idle");
-    expect(within(deck).getByText("Photo grading merged")).toBeTruthy();
-    // The decision card is gone; keyboard focus moves to Continue, the next thing to press.
-    await act(async () => {
-      vi.advanceTimersByTime(10);
-    });
-    expect(document.activeElement).toBe(within(deck).getByRole("button", { name: "Continue" }));
     // The callout under Continue is the app's own single-step Callout (Dugout Coachmark) with the app's words, anchored
     // to the deck's Continue (its ring, no backdrop), until the visitor presses it.
     expect(CONTINUE_CALLOUT).toBe("This is how you move forward. One press and your team works until nothing is left to do. Anything that needs you shows in Needs you.");
@@ -180,7 +173,7 @@ describe("TourPage (signed-out /)", () => {
     // Nothing modal: no backdrop, the page is not made inert.
     expect(document.querySelector("[aria-hidden='true'][data-aria-hidden]")).toBeNull();
 
-    // The visitor presses Continue: the next cycle brings a customer, and Continue turns gold.
+    // The visitor presses Continue: the next cycle comes back with a decision, and Continue waits for the answer.
     fireEvent.click(within(deck).getByRole("button", { name: "Continue" }));
     expect(deck.getAttribute("data-phase")).toBe("processing");
     // The callout and its ring leave with the press (synchronously: waitFor never settles under fake timers).
@@ -189,14 +182,22 @@ describe("TourPage (signed-out /)", () => {
     await act(async () => {
       vi.advanceTimersByTime(DECK_CYCLE_MS);
     });
-    expect(deck.getAttribute("data-phase")).toBe("win");
-    const win = screen.getByTestId("deck-win");
-    // The same customer as the Customer Update the gold card opens.
-    expect(within(win).getByText("Okafor Math Tutoring")).toBeTruthy();
-    expect(within(screen.getByRole("region", { name: "Customer Update" })).getAllByText("Okafor Math Tutoring").length).toBeGreaterThan(0);
-    expect(within(deck).getByRole("button", { name: /Go to Journey/ })).toBeTruthy();
-    fireEvent.click(within(win).getByRole("button", { name: /See the Customer Update/ }));
+    expect(deck.getAttribute("data-phase")).toBe("decision");
+    expect(within(deck).getByRole("button", { name: /1 thing needs you/ })).toBeTruthy();
+    const decision = screen.getByTestId("deck-decision");
+    expect(within(decision).getByText("Merge photo grading to production?")).toBeTruthy();
+    // The app's words for an open decision ("Needs your answer"), never the retired "needs you" or "Respond".
+    expect(within(deck).getByText("1 needs your answer")).toBeTruthy();
+    expect(within(deck).queryByText("1 needs you")).toBeNull();
+    expect(deck.textContent).not.toMatch(/Respond · \d/);
+    fireEvent.click(within(decision).getByRole("button", { name: "Merge" }));
     expect(deck.getAttribute("data-phase")).toBe("idle");
+    expect(within(deck).getByText("Photo grading merged")).toBeTruthy();
+    // The decision card is gone; keyboard focus moves to Continue, the next thing to press.
+    await act(async () => {
+      vi.advanceTimersByTime(10);
+    });
+    expect(document.activeElement).toBe(within(deck).getByRole("button", { name: "Continue" }));
   });
 
   it("keeps the deck's Continue callout off when guidance is off: tutoring, not information", async () => {
@@ -215,16 +216,16 @@ describe("TourPage (signed-out /)", () => {
     await act(async () => {
       vi.advanceTimersByTime(DECK_CYCLE_MS);
     });
-    expect(deck.getAttribute("data-phase")).toBe("decision");
-    fireEvent.click(within(screen.getByTestId("deck-decision")).getByRole("button", { name: "Merge" }));
+    expect(deck.getAttribute("data-phase")).toBe("win");
+    fireEvent.click(within(screen.getByTestId("deck-win")).getByRole("button", { name: /See the Customer Update/ }));
     expect(deck.getAttribute("data-phase")).toBe("idle");
     await act(async () => {
       vi.advanceTimersByTime(50);
     });
     expect(screen.queryByRole("dialog", { name: DECK_CALLOUT.title })).toBeNull();
     expect(document.querySelector("[data-coachmark-ring]")).toBeNull();
-    // The deck itself, the decision it brought back and the Inbox stay: guidance off hides tutoring only.
-    expect(within(deck).getByText("Photo grading merged")).toBeTruthy();
+    // The deck itself, the win it brought back and the Inbox stay: guidance off hides tutoring only.
+    expect(within(deck).getByText("Won: Okafor Math Tutoring")).toBeTruthy();
   });
 
   it("shows each department lead with attribute ratings and the department's real screens", () => {
@@ -251,9 +252,27 @@ describe("TourPage (signed-out /)", () => {
     expect(screen.getByRole("button", { name: "Play the activity ticker" })).toBeTruthy();
   });
 
+  it("says what the founder does directly under the hero, and no longer calls itself desktop only (WP-14 T10)", () => {
+    renderPage();
+    const line = screen.getByTestId("run-a-business");
+    expect(line.textContent).toBe(RUN_A_BUSINESS);
+    const hero = screen.getByRole("heading", { level: 1 }).closest("section")!;
+    expect(hero.nextElementSibling).toBe(line);
+    expect(screen.getAllByText(RUN_A_BUSINESS)).toHaveLength(1);
+    const why = document.getElementById("why")!;
+    expect(why.textContent).toContain("gives you that team without asking you to become a manager of software.");
+    expect(within(why).getByRole("heading", { name: "A whole company, working while you work" })).toBeTruthy();
+    expect(why.textContent).toContain("Your team brings you the decision, the work behind it and its recommendation. Money, contracts, filings and anything irreversible wait for you.");
+    expect(document.body.textContent).not.toMatch(/Desktop only/);
+  });
+
   it("states the house rules and labels example data as such", () => {
     renderPage();
-    for (const rule of ["Never moves money", "Never signs anything or accepts terms", "Never changes security settings"]) expect(screen.getByText(rule)).toBeTruthy();
+    // The list leads with the signature (WP-14 T10), and says under it why the rules hold.
+    const rules = [...screen.getByTestId("house-rules").querySelectorAll("li")].map((li) => li.textContent);
+    expect(rules[0]).toBe("Never signs anything in your name");
+    for (const rule of ["Never moves money", "Never accepts terms for you", "Never changes security settings"]) expect(rules).toContain(rule);
+    expect(screen.getByTestId("house-rules-why").textContent).toBe(HOUSE_RULES_WHY);
     expect(screen.getByText("Recorded example, replayed")).toBeTruthy();
     expect(screen.getAllByText("Example business").length).toBeGreaterThanOrEqual(3);
     expect(screen.getByRole("region", { name: "Channel Board" })).toBeTruthy();

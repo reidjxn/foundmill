@@ -9,7 +9,7 @@ import { PLACEHOLDER_IDEAS } from "../components/landing/idea-box/typing";
  */
 test.use({ storageState: { cookies: [], origins: [] } });
 
-const SECTIONS = ["hero", "result", "ways", "studio", "people", "first-week", "control", "questions", "start"];
+const SECTIONS = ["hero", "result", "ways", "studio", "people", "first-week", "control", "vacation", "questions", "start"];
 const overflow = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 
 for (const [width, height] of [

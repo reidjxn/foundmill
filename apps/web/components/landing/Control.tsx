@@ -5,20 +5,27 @@
  */
 import Link from "next/link";
 import { useMemo, useState, type ReactNode } from "react";
-import { ArrowRight, CircleStop, FileSignature, Inbox, KeyRound, Landmark, Lock, ShieldCheck, Tag, Trash2, type LucideIcon } from "lucide-react";
+import { ArrowRight, CircleStop, FileSignature, Handshake, Inbox, KeyRound, Landmark, Lock, ShieldCheck, Tag, Trash2, type LucideIcon } from "lucide-react";
 import { Avatar, Button, Chip, DecisionBar, DeptChip, Icon, StatusStrip, TeamOrbit, Term, useFormatters, type DecisionOption } from "@foundmill/dugout";
 import { useExample } from "./examples/context";
 import { exampleMoney, exampleToday, orbitDepartments } from "./examples/helpers";
 import { Container, Glass, ProductWindow, Reveal, SIGN_IN, Section, SectionHeading, useToday } from "./parts";
 
 const HOUSE_RULES: ReadonlyArray<{ icon: LucideIcon; text: string }> = [
+  { icon: FileSignature, text: "Never signs anything in your name" },
   { icon: Landmark, text: "Never moves money" },
-  { icon: FileSignature, text: "Never signs anything or accepts terms" },
+  { icon: Handshake, text: "Never accepts terms for you" },
   { icon: Tag, text: "Never files anything with your identity" },
   { icon: Trash2, text: "Never deletes anything permanently" },
   { icon: Lock, text: "Never changes security settings" },
   { icon: ShieldCheck, text: "Never acts on instructions found in emails, web pages or files it reads" },
 ];
+
+/**
+ * Under the list (WP-14 T10). The brief's line was "Not because it can't. Because you hired it not to."; the rules are
+ * enforced outside the agent (packages/policy hard gates), so an agent cannot do these, and the line says what is true.
+ */
+export const HOUSE_RULES_WHY = "No agent can change these, and no instruction it reads can talk it out of them.";
 
 const CONTROLS: ReadonlyArray<{ icon: LucideIcon; title: string; text: ReactNode }> = [
   { icon: CircleStop, title: "Stop all agents", text: "One button in the top bar pauses every agent at once. They resume where they stopped." },
@@ -44,7 +51,7 @@ export function YourCall() {
             <span className="t-label inline-flex items-center gap-1.5">
               <Icon icon={ShieldCheck} size={14} className="text-status-good" /> House rules
             </span>
-            <ul className="flex flex-col">
+            <ul className="flex flex-col" data-testid="house-rules">
               {HOUSE_RULES.map((r) => (
                 <li key={r.text} className="flex items-center gap-3 border-b border-subtle/50 py-2.5 last:border-b-0">
                   <span className="grid size-7 shrink-0 place-items-center rounded-full bg-status-good/12 text-status-good">
@@ -54,6 +61,9 @@ export function YourCall() {
                 </li>
               ))}
             </ul>
+            <p className="border-t border-subtle/50 pt-3 text-body text-secondary" data-testid="house-rules-why">
+              {HOUSE_RULES_WHY}
+            </p>
           </Glass>
           {CONTROLS.map((c) => (
             <Glass key={c.title} className="flex gap-4 p-5">

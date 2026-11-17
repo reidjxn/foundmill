@@ -19,7 +19,7 @@ const renderPage = (switches: Partial<LandingSwitches> = {}) => render(<LandingP
 const text = () => document.body.textContent ?? "";
 
 /** The page's sections, in order (DESIGN §9a): daylight, the blue, then the night. */
-const ORDER = ["hero", "result", "ways", "studio", "people", "first-week", "control", "questions", "start"];
+const ORDER = ["hero", "result", "ways", "studio", "people", "first-week", "control", "vacation", "questions", "start"];
 
 describe("LandingPage (signed-out /, DIRECTION §3)", () => {
   it("has one h1, the first-timer's headline", () => {
@@ -129,6 +129,14 @@ describe("LandingPage (signed-out /, DIRECTION §3)", () => {
     expect(document.getElementById("cost")!.textContent).toContain(W.cost.allowance);
     expect(W.cost.allowance).toContain("$5.00");
     expect(document.querySelectorAll("#questions details").length).toBeGreaterThanOrEqual(W.questions.always.length);
+  });
+
+  it("offers a vacation, and says by the house rules that estimates are labeled (WP-14 T10)", () => {
+    renderPage();
+    const vacation = document.getElementById("vacation")!;
+    expect(within(vacation).getByRole("heading", { level: 2 }).textContent).toBe("Take a vacation.");
+    expect(vacation.textContent).toContain("Vacation mode: your Chief of Staff keeps things moving within the limits you set, and writes you a report for when you come back.");
+    expect(within(document.getElementById("control")!).getByTestId("control-honest").textContent).toBe(W.control.honest);
   });
 
   it("ends with a way back to the box and the paragraph an answer engine can quote", () => {

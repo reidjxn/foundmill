@@ -98,25 +98,13 @@ test.describe("the tour (/tour)", () => {
     await expect(page).toHaveURL(/\/login$/);
   });
 
-  test("the hero deck runs a cycle: a decision comes back, then a customer", async ({ page }) => {
+  test("the hero deck runs a cycle: the first press ends in a customer, the next brings a decision", async ({ page }) => {
     await page.goto("/tour");
     const deck = page.getByTestId("cycle-deck");
-    // The first cycle runs on its own and comes back with a decision; Continue waits for the founder.
-    await expect(deck).toHaveAttribute("data-phase", "decision", { timeout: 15_000 });
-    await expect(deck.getByRole("button", { name: /1 thing needs you/ })).toBeVisible();
-    await page.getByTestId("deck-decision").getByRole("button", { name: "Merge" }).click();
-    await expect(deck.getByText("Photo grading merged", { exact: true })).toBeVisible();
-    // The callout under Continue teaches the loop in the app's own words, until the visitor presses it. It is the
-    // design system's Callout: a popover portaled to <body>, anchored to the deck's Continue (data-coachmark-active).
-    const callout = page.locator("[data-coachmark][data-tour='deck-continue']");
-    await expect(callout).toContainText("One press and your team works until nothing is left to do. Anything that needs you shows in Needs you.");
-    await expect(page.locator("[data-testid='deck-continue'][data-coachmark-active]")).toHaveCount(1);
-
-    // Pressing Continue runs the next cycle, which brings a customer; the gold card opens the Journey.
-    await deck.getByRole("button", { name: "Continue" }).click();
-    await expect(deck).toHaveAttribute("data-phase", "processing");
-    await expect(callout).toHaveCount(0);
+    await expect(page.getByText("Tutorlane is an example business. Press Continue and see what your team would do this week.")).toBeVisible();
+    // The first cycle runs on its own and ends in a win (WP-14 T10): Continue turns gold and the gold card opens the Journey.
     await expect(page.getByTestId("deck-win")).toBeVisible({ timeout: 15_000 });
+    await expect(deck).toHaveAttribute("data-phase", "win");
     await expect(deck.getByRole("button", { name: /Go to Journey/ })).toBeVisible();
     await page.getByTestId("deck-win").getByRole("button", { name: /See the Customer Update/ }).click();
     await expect(page.locator("#journey")).toBeInViewport();
@@ -124,6 +112,22 @@ test.describe("the tour (/tour)", () => {
     await expect(deck).toHaveAttribute("data-phase", "idle");
     // The update it opens is about the same customer.
     await expect(page.getByRole("region", { name: "Customer Update" }).getByText("Okafor Math Tutoring").first()).toBeVisible();
+
+    // The callout under Continue teaches the loop in the app's own words, until the visitor presses it. It is the
+    // design system's Callout: a popover portaled to <body>, anchored to the deck's Continue (data-coachmark-active).
+    await deck.scrollIntoViewIfNeeded();
+    const callout = page.locator("[data-coachmark][data-tour='deck-continue']");
+    await expect(callout).toContainText("One press and your team works until nothing is left to do. Anything that needs you shows in Needs you.");
+    await expect(page.locator("[data-testid='deck-continue'][data-coachmark-active]")).toHaveCount(1);
+
+    // Pressing Continue runs the next cycle, which comes back with a decision; Continue waits for the founder.
+    await deck.getByRole("button", { name: "Continue" }).click();
+    await expect(deck).toHaveAttribute("data-phase", "processing");
+    await expect(callout).toHaveCount(0);
+    await expect(deck).toHaveAttribute("data-phase", "decision", { timeout: 15_000 });
+    await expect(deck.getByRole("button", { name: /1 thing needs you/ })).toBeVisible();
+    await page.getByTestId("deck-decision").getByRole("button", { name: "Merge" }).click();
+    await expect(deck.getByText("Photo grading merged", { exact: true })).toBeVisible();
   });
 
   test("the picker switches the whole page between the three example businesses", async ({ page }) => {
