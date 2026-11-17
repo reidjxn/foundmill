@@ -15,6 +15,7 @@ import { admitOrWait, assertConfirmedSignIn } from "./services/access";
 import { modelBillingAppError } from "./services/model-errors";
 import { writeEventRow } from "./services/events";
 import { ADMIN_ROLES, AppError, ConflictError, DEFAULT_AGENT_STYLE, NotFoundError, OWNER_ROLES, WRITE_ROLES, effectivePermission, isAgentStyle, type Actor, type AgentStyle, type BusinessEventType, type MembershipRole, type PermissionLevel, type Section } from "@foundmill/shared";
+import { parseOperatorIds } from "@foundmill/shared/reports";
 import type { Context } from "./context";
 
 export const Id = z.guid();
@@ -425,6 +426,15 @@ export const assertLiveOpen = (env: Pick<Context["env"], "LIVE_MODE">): void => 
 };
 export const liveGate = t.middleware(({ ctx, next }) => {
   assertLiveOpen(ctx.env);
+  return next();
+});
+
+/**
+ * The platform's operators (`OPERATOR_USER_IDS`): who reviews reports. Everyone else, a founder included, is answered
+ * NOT_FOUND, so the queue's existence is not announced. Never a database role: the api checks the list on each call.
+ */
+export const operatorProcedure = protectedProcedure.use(({ ctx, next }) => {
+  if (!parseOperatorIds(ctx.env.OPERATOR_USER_IDS).has(ctx.userId.toLowerCase())) throw new TRPCError({ code: "NOT_FOUND", message: "Not found" });
   return next();
 });
 

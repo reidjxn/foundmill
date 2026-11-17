@@ -117,7 +117,7 @@ test.describe("onboarding", () => {
     await expect(page).toHaveURL(/\/b\/[0-9a-f-]{36}\/today/, { timeout: LONG });
   });
 
-  test("WP-04 T1: a new account answers three questions at 390 and 1440 px and goes on to the kept card's Commit", async ({
+  test("WP-04 T1, WP-14 T2: a new account answers the first profile at 390 and 1440 px and goes on to the kept card's Commit", async ({
     browser,
   }) => {
     const commit = `/new/commit/${randomUUID()}`;
@@ -132,7 +132,7 @@ test.describe("onboarding", () => {
         await signInAs(page, randomUUID(), `/onboarding?next=${commit}`);
         await expect(page.getByTestId("first-profile")).toBeVisible({ timeout: LONG });
         await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
-        await expect(page.getByRole("heading", { level: 1 })).toHaveText("Three quick things about you");
+        await expect(page.getByRole("heading", { level: 1 })).toHaveText("Tell your team about you");
         // Building on my own is chosen; people are one answer among the others. (The name is prefilled from the
         // email, FirstProfile.test.tsx; a developer sign-in has none.)
         await expect(page.getByRole("radio", { name: "Building on my own" })).toHaveAttribute("aria-checked", "true");
@@ -140,15 +140,26 @@ test.describe("onboarding", () => {
         expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
         if (small) await expectTapTarget(page.getByTestId("first-profile-submit"), "Continue");
         await page.getByLabel(/What should your team call you/).fill("Three Questions");
-        await page.getByRole("button", { name: "Writing", exact: true }).click();
+        // The five suggestions are one for each skill (WP-14 T2); time and where you live are asked, neither required here.
+        await page.getByRole("button", { name: "Money and pricing", exact: true }).click();
+        await expect(page.getByRole("radiogroup", { name: "How much time can you give?" })).toBeVisible();
+        await page.getByRole("radio", { name: /^Evenings and weekends/ }).click();
+        await page.getByLabel("Where do you live?").fill("Canada");
         await page.getByRole("radio", { name: "Open to building with people" }).click();
         await confirmAdultOnForm(page);
         const created = page.waitForRequest((r) => r.method() === "POST" && r.url().includes("founder.profile.update"), { timeout: LONG });
         const answers = page.waitForRequest((r) => r.method() === "POST" && r.url().includes("founder.publicProfile.update"), { timeout: LONG });
         await page.getByTestId("first-profile-submit").click();
-        expect((await created).postData() ?? "").toContain('"confirmAdult":true');
+        const profile = (await created).postData() ?? "";
+        expect(profile).toContain('"confirmAdult":true');
+        // The picked tag is the strong rating and the rest modest; time, place and the place's currency ride on the same save.
+        expect(profile).toContain('"finance":14');
+        expect(profile).toContain('"engineering":7');
+        expect(profile).toContain('"timeCommitment":"evenings_weekends"');
+        expect(profile).toContain('"residence":"Canada"');
+        expect(profile).toContain('"currency":"CAD"');
         const sent = (await answers).postData() ?? "";
-        expect(sent).toContain('"strengths":["Writing"]');
+        expect(sent).toContain('"strengths":["Money and pricing"]');
         expect(sent).toContain('"lookingFor":"open_to_people"');
         // The kept card's thread: on to its Commit (still desktop-only on a phone until WP-04 T2).
         await expect(page).toHaveURL(new RegExp(`${commit}$`), { timeout: LONG });

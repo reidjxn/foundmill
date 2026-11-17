@@ -424,6 +424,8 @@ jobs:
       API_PORT: 4000
       # The LIVE pages (Network, Communities) and Go live are closed without it (apps/web/e2e/README.md).
       LIVE_MODE: 1
+      # The dev founder reviews reports (/operator/reports; apps/web/e2e/reports.spec.ts; playwright.config.ts STACK_ENV).
+      OPERATOR_USER_IDS: 0f0a0d00-0000-4000-8000-00000000f0a1
       # A project's Foundmill sending address, on its mock (apps/web/e2e/platform-mail.spec.ts; playwright.config.ts STACK_ENV).
       PLATFORM_MAIL_DOMAIN: mail.foundmill.test
       # The screens press Take charge and the other model-backed buttons far more often than one person does in an hour, and a

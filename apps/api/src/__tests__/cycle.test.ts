@@ -95,6 +95,9 @@ describe("business.continue without an orchestrator (BUILD §9.4 in-process cycl
     const cs = await owner.cycle.continueState({ businessId: hz.A.businessId });
     expect(cs).toMatchObject({ kind: "blocked", count: 1 });
     await expect(owner.business.continue({ businessId: hz.A.businessId })).rejects.toMatchObject({ code: "CONFLICT" });
+    // The refused press leaves one audit row, so the nightly numbers can tell it from a press that worked (WP-14 T12).
+    const refused = await repos.audit.list(hz.db, hz.A.businessId, { action: ["business.continue_refused"], limit: 5 });
+    expect(refused.items.map((r) => [r.actorId, r.details])).toEqual([[hz.A.ownerId, { reason: "blocked" }]]);
     await owner.inbox.archive({ businessId: hz.A.businessId, itemId: item.id });
     expect((await owner.cycle.continueState({ businessId: hz.A.businessId })).kind).toBe("idle");
   });

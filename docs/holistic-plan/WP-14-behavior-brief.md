@@ -73,6 +73,7 @@ Collides with: WP-13 T4 (a free session waits while the cap is held) and T6 (the
 Done when: a founder at zero sees the last task finished, a small amount left, the word Resting with a date, and one note with a way on.
 
 ### T2: Quick fit before the ideas, sharpen after            [M] [ships alone]
+Built on Nov 17, 2026 (`claude/vibrant-dirac-xkj04i`; log `2026-11-17-claude-vibrant-dirac-xkj04i`). What differs from the steps is in the log's Decisions.
 Brief: A5. Why: fit is "–" on ideas drafted before the profile, and re-rating after the profile was left out of WP-04 T1.
 Files: `apps/web/components/onboarding/FirstProfile.tsx`, `profile-form.ts`, `OnboardingScreen.tsx` (the long form, now editing only), the Ideation agent's fit input, config for the two ratings.
 Steps:
@@ -159,6 +160,7 @@ Done when: a new project commits with these defaults and a founder who changes t
 
 ### T12: Four measures            [S] [amends WP-02 T10's nightly numbers]
 Brief: B7, B6.9. Add to `platform_metric_days`: minutes from commit to the first plan and to the first approved outcome, for every new project; the share of new founders whose first Continue press succeeds; the share of projects that reach Resting and what they do next (top up, change plan, wait, leave), after T1; shares for each Customer Update, after T9. If the median time to the first plan passes ten minutes, raise a note to the operator to change T10's "within minutes" line.
+Built (Nov 17, 2026, `claude/wp14-t12-four-measures`): the first three measures read real records; Resting and the shares read the events named in `PENDING_SOURCES` (`packages/db/src/repos/metrics.ts`) and are zero until T1, T14 and T9 write them. The log entry has the definitions.
 
 ### T13: The plan document            [S] [docs only; one pull request]
 Brief: B1, B4, B7. `docs/foundmill-plan/foundmill-plan.md` is the seed for Foundmill's own project, not the roadmap sessions execute; edit it so the seed agrees with this package.

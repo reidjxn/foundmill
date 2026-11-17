@@ -307,6 +307,11 @@ const Env = z.object({
   SEED_ON_BOOT: z.string().optional(),
   /** Opens the LIVE surfaces (network, communities, Go live) on this deployment; closed unless 1/true/yes/on (`liveModeOpen`). */
   LIVE_MODE: z.string().optional(),
+  /**
+   * apps/api: the accounts that review reports (`operator.*`, /operator/reports), as comma-separated account ids. Unset
+   * means nobody: the queue answers not found to everyone (docs/DEPLOY.md "Reports: who checks and how often").
+   */
+  OPERATOR_USER_IDS: z.string().optional(),
   /** Seed data volume multiplier (1 = the full two years of history). */
   SEED_VOLUME_SCALE: z.coerce.number().positive().optional(),
   /**

@@ -41,7 +41,7 @@ describe.each([
   it("a freshly committed one-person project reads clean on Today, the visit view and every note", async () => {
     const userId = await hz.h.createUser("solo@test.local");
     const caller = hz.caller({ userId, email: "solo@test.local" });
-    await caller.founder.profile.update({ confirmAdult: true, displayName: "Sam", experience: "first-time", skills: { engineering: 14 }, targetMarkets: ["US"], riskAppetite: "medium", budgetMinor: 0 });
+    await caller.founder.profile.update({ confirmAdult: true, displayName: "Sam", timeCommitment: "full_time", residence: "United States", experience: "first-time", skills: { engineering: 14 }, targetMarkets: ["US"], riskAppetite: "medium", budgetMinor: 0 });
     const idea = (await caller.idea.generate({ prompt: "bookkeeping for freelancers" })).ideas[0]!;
     const { business, chiefOfStaffId } = await caller.idea.commit({ ideaId: idea.id, name: "Solo Guard Test", archetype: "b2b_saas", gameMode: "personal", kit: { primary: "#1B4FD8", secondary: "#F5C400" } });
     const businessId = business.id;
