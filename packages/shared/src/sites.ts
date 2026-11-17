@@ -37,6 +37,12 @@ export function siteFileType(path: string): string | null {
   return SITE_FILE_TYPES[path.slice(dot).toLowerCase()] ?? null;
 }
 
+/**
+ * The Product › Site tab. Not in `MODULE_TABS` (a project gets it only once the platform made it a site:
+ * `repos.sites.ensure` adds it), so it never appears where SITES_DOMAIN is unset.
+ */
+export const SITE_TAB = { slug: "site", title: "Site" } as const;
+
 /** Labels kept for the platform itself on the sites domain. */
 export const SITE_RESERVED_SLUGS: readonly string[] = ["www", "api", "app", "mail", "admin", "preview", "status", "report", "assets", "static"];
 

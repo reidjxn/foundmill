@@ -11,7 +11,10 @@
 import { createHash, randomBytes } from "node:crypto";
 import { and, count, desc, eq, gte, ne, sql } from "drizzle-orm";
 import { z } from "zod";
-import { siteReleases, sites, type Site, type SiteRelease, type SiteScreening } from "../schema";
+import { auditLog, siteReleases, sites, type Site, type SiteRelease, type SiteScreening } from "../schema";
+import { SITE_TAB } from "@foundmill/shared/sites";
+import { departmentsRepo } from "./departments";
+import { screensRepo } from "./screens";
 import { Id, maybeOne, parseInput, rowsOf, type Executor } from "./_shared";
 
 const ManifestEntry = z.object({
@@ -68,10 +71,27 @@ export const sitesRepo = {
   /** The business's site, created as a draft with this slug when it has none (an existing site keeps its slug). */
   async ensure(db: Executor, businessId: string, input: { slug: string }): Promise<Site> {
     const [created] = await db.insert(sites).values({ businessId, slug: input.slug }).onConflictDoNothing({ target: sites.businessId }).returning();
-    if (created) return created;
+    if (created) {
+      await sitesRepo.ensureTab(db, businessId);
+      return created;
+    }
     const existing = await sitesRepo.get(db, businessId);
     if (!existing) throw new Error("sites.ensure: no site after insert");
     return existing;
+  },
+
+  /**
+   * The Product › Site tab, added to the department that holds the Product module when the business's site is created
+   * (WP-07 T5). It is not in `MODULE_TABS`, so no business gets it at Commit: a project has the tab only once the
+   * platform made it a site, which happens only where SITES_DOMAIN is set. Idempotent; a business without a Product
+   * department gets no tab.
+   */
+  async ensureTab(db: Executor, businessId: string): Promise<void> {
+    const product = (await departmentsRepo.list(db, businessId)).find((d) => d.moduleKeys.includes("product"));
+    if (!product) return;
+    const tabs = await screensRepo.list(db, businessId, product.id);
+    if (tabs.some((t) => t.tabSlug === SITE_TAB.slug)) return;
+    await screensRepo.upsert(db, businessId, { departmentId: product.id, tabSlug: SITE_TAB.slug, title: SITE_TAB.title, layout: { widgets: [{ key: `module:product/${SITE_TAB.slug}`, x: 0, y: 0, w: 12, h: 60, settings: {} }] } });
   },
 
   /** The newest `preview` release, or null. */
@@ -166,6 +186,23 @@ export const sitesRepo = {
     return site;
   },
 
+  /** A new address for the site (owner or admin under RLS). Throws when the site is missing or taken down. */
+  async setSlug(tx: Executor, businessId: string, slug: string): Promise<Site> {
+    const [site] = await tx.update(sites).set({ slug }).where(and(eq(sites.businessId, businessId), ne(sites.status, "taken_down"))).returning();
+    if (!site) throw new Error("sites.setSlug: the site is missing, taken down or not yours to change");
+    return site;
+  },
+
+  /** One release of the business, or null (another business's id reads as null). */
+  async getRelease(db: Executor, businessId: string, releaseId: string): Promise<SiteRelease | null> {
+    return maybeOne(await db.select().from(siteReleases).where(and(eq(siteReleases.businessId, businessId), eq(siteReleases.id, releaseId))).limit(1));
+  },
+
+  /** Serializes the publishes of one business inside the caller's transaction (the daily limit counts under it). */
+  async lockPublishes(tx: Executor, businessId: string): Promise<void> {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext('site_publish'), hashtext(${businessId}))`);
+  },
+
   /** The business's releases, newest first. */
   async listReleases(db: Executor, businessId: string, limit = 20): Promise<SiteRelease[]> {
     const n = Math.min(Math.max(Math.trunc(limit), 1), 100);
@@ -198,6 +235,18 @@ export const sitesRepo = {
       .select({ n: count() })
       .from(siteReleases)
       .where(and(eq(siteReleases.businessId, businessId), gte(siteReleases.publishedAt, utcMidnight(options.now ?? new Date()))));
+    return Number(row?.n ?? 0);
+  },
+
+  /**
+   * Presses of Publish since UTC midnight (the `site.published` audit rows apps/api writes), republishing the same
+   * release included: what `SITE_LIMITS.publishesPerDay` counts.
+   */
+  async publishPressesToday(db: Executor, businessId: string, options: { now?: Date } = {}): Promise<number> {
+    const [row] = await db
+      .select({ n: count() })
+      .from(auditLog)
+      .where(and(eq(auditLog.businessId, businessId), eq(auditLog.action, "site.published"), gte(auditLog.createdAt, utcMidnight(options.now ?? new Date()))));
     return Number(row?.n ?? 0);
   },
 };

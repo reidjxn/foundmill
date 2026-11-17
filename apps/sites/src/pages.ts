@@ -59,14 +59,17 @@ export const NOT_FOUND_PAGE = platformPage("Not found", "<h1>Not found</h1><p>Th
  * `markHref` is the product's address when the project's plan shows the "Built on" mark, else null.
  */
 export function siteFooter(appName: string, markHref: string | null): string {
-  // Every property is !important: an inline !important declaration beats a site stylesheet's, so a site cannot hide it
-  // with CSS. Markup that swallows it (an unclosed comment, a raw-text element) is screening's to hold (T5).
-  const link = "display:inline!important;visibility:visible!important;color:inherit!important;text-decoration:underline!important;opacity:1!important";
+  // Fixed to the bottom of the window, last in the document, every property !important (an inline !important declaration
+  // beats a site stylesheet's): a site's CSS can neither hide it nor cover it with an overlay. Markup that would swallow
+  // it (an unclosed comment, a raw-text or template element) is held by screening (packages/agents site-screen.ts).
+  const link = "display:inline!important;visibility:visible!important;color:#24292f!important;text-decoration:underline!important;opacity:1!important;font:inherit!important";
   const box =
-    "display:block!important;visibility:visible!important;opacity:1!important;position:static!important;clip:auto!important;transform:none!important;" +
-    "font:12px/1.4 system-ui,sans-serif!important;text-align:center!important;padding:12px 16px!important;color:#57606a!important;background:#f6f8fa!important";
+    "display:block!important;visibility:visible!important;opacity:1!important;position:fixed!important;left:0!important;right:0!important;bottom:0!important;" +
+    "z-index:2147483647!important;clip-path:none!important;transform:none!important;filter:none!important;margin:0!important;" +
+    "font:12px/1.4 system-ui,sans-serif!important;text-align:center!important;padding:6px 16px!important;color:#57606a!important;background:#f6f8fa!important;border-top:1px solid #d0d7de!important";
   const mark = markHref ? ` · <a href="${escapeHtml(markHref)}" rel="noopener" style="${link}">Built on ${escapeHtml(appName)}</a>` : "";
-  return `<div data-fm-footer style="${box}"><a href="/_fm/report" rel="nofollow" style="${link}">Report this site</a>${mark}</div>`;
+  // The spacer keeps the end of the page clear of the fixed bar.
+  return `<div aria-hidden="true" style="height:40px!important;display:block!important"></div><div data-fm-footer style="${box}"><a href="/_fm/report" rel="nofollow" style="${link}">Report this site</a>${mark}</div>`;
 }
 
 /** `html` with the footer before its last `</body>`, or at the end when there is none. */
