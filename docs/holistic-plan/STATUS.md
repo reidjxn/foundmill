@@ -234,7 +234,7 @@ All by the coordinating session on the founder's word (reported by that session,
 | WP-14 | T12 | Four measures | not started | amends WP-02 T10; two of the four need T1 and T9; owner: a new session, "WP-14 T12: four measures"; the two measures that need T1 and T9 follow them (assigned Nov 17) |
 | WP-14 | T13 | The plan document | not started | docs only |
 | WP-14 | T14 | Plans, prices, companies and what each plan includes | not started | amends WP-09 T14 and T16 and WP-13 T7's server check; owner: the WP-09 session, after #251 (assigned Nov 17) |
-| WP-14 | T15 | The waitlist in batches, and invitations to give | not started | amends WP-03 T2, T6, T10 and WP-12; coordinate with the network session; owner: the landing idea-card session, with the network session told (assigned Nov 17) |
+| WP-14 | T15 | The waitlist in batches, and invitations to give | not started | amends WP-03 T2, T6, T10 and WP-12; coordinate with the network session; owner: the landing idea-card session, with the network session told (assigned Nov 17), except step 4 (three named invitations, no reward, docs/NETWORK.md), which the invitations session (session_01CJRTqPdPGy7AVuYv4eZNtd) takes at the founder's request of Nov 17: it wrote the invitation admission rules (#120) |
 
 ## Unknown, for the founder or the session that owns each
 
