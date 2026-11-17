@@ -189,7 +189,7 @@ export const TENANT_TABLES: TenantTableSpec[] = [
  * generic suite checks a collaborator reads none of their rows and everyone else reads them as before. 0110 adds
  * `task_reports`: what an agent found, which the event walls hide from a collaborator in `task.completed.summary`.
  */
-export const COLLABORATOR_CLOSED_TABLES: readonly string[] = ["accounts", "securities", "cap_table_entries", "usage_ledger", "credit_balances", "billing_checkouts", "credit_lots", "legal_entities", "incorporations", "integrations", "webhooks", "policies", "app_installations", "task_reports"];
+export const COLLABORATOR_CLOSED_TABLES: readonly string[] = ["customer_update_cards", "accounts", "securities", "cap_table_entries", "usage_ledger", "credit_balances", "billing_checkouts", "credit_lots", "legal_entities", "incorporations", "integrations", "webhooks", "policies", "app_installations", "task_reports"];
 /**
  * Admin- or service-written tables a collaborator still reads, each for a screen of theirs (0094's header gives the
  * reasons). Named so a change to the list is a decision.
@@ -273,6 +273,9 @@ export const NON_TENANT_TABLES = [
   // record (service role only, no policy); covered by rls/project-updates.test.ts.
   "project_updates",
   "project_update_deliveries",
+  // 0136: a Customer Update shared as a card (members read; only the service connection writes); covered by
+  // rls/update-cards.test.ts.
+  "customer_update_cards",
   // 0083: one person's rows in one business (presence, visit days, founder emails); covered by rls/founder-return.test.ts.
   "founder_presence",
   "founder_visit_days",
