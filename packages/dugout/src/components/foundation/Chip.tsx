@@ -103,7 +103,7 @@ export const Chip = forwardRef<HTMLSpanElement, ChipProps>(function Chip(
     );
   }
   return (
-    <span ref={ref} className={cn(base, onRemove && "pr-0.5")} data-tone={tone} data-chip="" {...rest}>
+    <span ref={ref} className={cn(base, onRemove && "min-h-target pr-0.5")} data-tone={tone} data-chip="" {...rest}>
       {content}
       {onRemove ? (
         <button

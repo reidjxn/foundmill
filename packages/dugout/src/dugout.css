@@ -1241,17 +1241,18 @@
   }
 }
 /* A small control whose pointer target reaches --target-size (WCAG 2.5.8) without growing its box: an invisible
-   24 px square centered on it catches the press (a chip's remove glyph). */
+   24 px square on its right edge, reaching inward, catches the press (a chip's remove glyph). It never reaches past the
+   control's right edge, so the chip around it does not overflow; the chip itself is at least 24 px tall. */
 @utility hit-target {
   position: relative;
   &::after {
     content: "";
     position: absolute;
     top: 50%;
-    left: 50%;
+    right: 0;
     width: var(--target-size);
     height: var(--target-size);
-    transform: translate(-50%, -50%);
+    transform: translateY(-50%);
   }
 }
 /* Forced colors (Windows High Contrast): shadows and tinted fills vanish, so panels, fields, pills and chips draw a 1 px

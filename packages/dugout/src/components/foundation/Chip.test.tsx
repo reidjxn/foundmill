@@ -79,6 +79,8 @@ describe("Chip", () => {
     );
     expect(screen.getByRole("button", { name: "This week" }).className).toContain("min-h-target");
     expect(screen.getByRole("button", { name: "Remove Nordics" }).className).toContain("hit-target");
+    // The chip holding a remove glyph is 24 px tall too, so the glyph's hit area stays inside it (no-clip).
+    expect(screen.getByRole("button", { name: "Remove Nordics" }).parentElement!.className).toContain("min-h-target");
   });
 });
 
