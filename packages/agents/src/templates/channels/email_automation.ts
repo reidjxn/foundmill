@@ -15,7 +15,7 @@ export const channelEmailAutomation = defineChannelTemplate({
     "Replies are drafted, never sent, until the sequence or playbook has approval for that step.",
   ],
   playbook: [
-    "Plan: map the lifecycle (signup → activation → payment → retention) and pick the one flow with the biggest measured gap.",
+    "Plan: I draft updates to the people who follow the project; the founders send them.",
     "Create: write the sequence with personalization from CRM fields only, segment rules and send windows in the recipient's local time.",
     "Approve: run suppression and consent checks on the segment; request policy approval for the sequence.",
     "Launch: schedule through the provider; verify the unsubscribe link and tracking on a seed address.",
@@ -30,6 +30,5 @@ export const channelEmailAutomation = defineChannelTemplate({
   ],
   craftSkills: ["copywriting", "personalisation", "segmentation", "deliverability", "reply_handling", "marketing_compliance"],
   spendCapMinor: 20_000,
-  triggers: ["signup.created", "activation.reached", "lead.replied", "channel.threshold_breached"],
   neverDoes: ["send without unsubscribe and sender identity", "contact suppressed or unconsented recipients", "send replies without approval", "continue after a spam-rate breach"],
 });

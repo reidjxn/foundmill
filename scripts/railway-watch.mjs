@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-export const SERVICES = ["api", "gateway", "orchestrator", "composer", "stream", "ingest"];
+export const SERVICES = ["api", "gateway", "orchestrator", "composer", "stream", "ingest", "sites"];
 /** What the Dockerfile copies and installs from, besides apps and packages. */
 const IMAGE_INPUTS = ["/patches/**", "/Dockerfile", "/package.json", "/pnpm-lock.yaml", "/pnpm-workspace.yaml", "/.npmrc"];
 /** The orchestrator's pre-deploy command builds the E2B template from infra/e2b. */

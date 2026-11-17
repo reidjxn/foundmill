@@ -13,7 +13,7 @@
  */
 import { useMemo, useState } from "react";
 import { ArrowLeftRight, Copy, Cpu, ExternalLink, UserRoundMinus, UserRoundPlus, Users } from "lucide-react";
-import { Button, DataTable, Explainer, FormCells, MODEL_LABELS, Panel, SQUAD_VIEWS, Term, formatRelative, squadColumns, useAgentPersona, useBuilderView, useGuided, type DataTableColumn, type RowAction, type SavedView, type SquadRow } from "@foundmill/dugout";
+import { Button, DataTable, Explainer, FormCells, MODEL_LABELS, Panel, RatingKey, SQUAD_VIEWS, Term, formatRelative, squadColumns, useAgentPersona, useBuilderView, useGuided, type DataTableColumn, type RowAction, type SavedView, type SquadRow } from "@foundmill/dugout";
 import { AGENT_STATUSES } from "@foundmill/shared/constants";
 import { teamCaption, teamTree, type TeamTree } from "@foundmill/shared/team-tiers";
 import { needsAttention } from "@foundmill/widgets/shared/health";
@@ -254,9 +254,11 @@ export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
             ) : null}
             {guided ? (
               <span data-testid="column-terms">
-                <Term id="rating">Rating</Term> is the 1–20 mean of the agent's skills. <Term id="model">Model</Term> is the AI it runs on.
+                <Term id="rating">Rating</Term> is the average of the agent's skills, from 1 to 20. New agents start on an estimate. <Term id="model">Model</Term> is the AI it runs on.
               </span>
             ) : null}
+            {/* The rating legend, once on the screen (WP-10 T9). */}
+            <RatingKey compact />
             <span>
               <Term id="wage">AI cost</Term> is this month's model, sandbox and tool spend so far, in US dollars (Estimate). Status updates arrive live.
             </span>

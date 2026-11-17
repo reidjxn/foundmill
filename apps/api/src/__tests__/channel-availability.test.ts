@@ -123,8 +123,8 @@ describe("turning on a channel that cannot run is refused", () => {
     const listed = await staging().distribution.channels.list({ businessId: hz.A.businessId });
     // Still not available (no publisher): it is on the board because of offline tracking alone.
     expect(listed.channels.find((c) => c.channelKey === "print")).toMatchObject({ enabled: true, kitMode: true, availability: { available: false, reason: "no_publisher" } });
-    // Broadcast has no row yet and is in offline tracking by default.
-    expect((await staging().distribution.channels.enable({ businessId: hz.A.businessId, channelKey: "broadcast" })).channel).toMatchObject({ enabled: true, kitMode: true });
+    // Broadcast has no row yet and no longer starts in offline tracking (WP-08 T9): with no publisher it is refused.
+    await expect(staging().distribution.channels.enable({ businessId: hz.A.businessId, channelKey: "broadcast" })).rejects.toThrow();
     // Taking any channel off the board is always allowed.
     expect((await staging().distribution.channels.disable({ businessId: hz.A.businessId, channelKey: "print" })).channel.enabled).toBe(false);
   });

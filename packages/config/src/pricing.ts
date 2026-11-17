@@ -82,6 +82,18 @@ export function creditsAreLow(spendableMinor: number, includedMinor: number): bo
 }
 
 /**
+ * The first round of work of a free project on Foundmill's credits (WP-09 T11, founder D6, Nov 16, 2026): its sessions
+ * run one at a time under this cap, in US cents, so round 1 fits the $5.00 allowance's first-session target ($1.50,
+ * D1) less what the first day spends outside sessions. An Estimate until the cost report's `firstDayPerProject` sets it.
+ */
+export const FIRST_CYCLE_SESSION_CAP_MINOR = 75;
+
+/** What cycle 1 starts with, wherever it starts (commit, an approval, Continue): a free project on credits is capped; others start as before. */
+export function firstCycleInput(input: { modelBilling: "credits" | "byok"; tier: TierKey }): { budgetCapMinor?: number; maxConcurrent?: number } {
+  return input.tier === "free" && input.modelBilling === "credits" ? { budgetCapMinor: FIRST_CYCLE_SESSION_CAP_MINOR, maxConcurrent: 1 } : {};
+}
+
+/**
  * How a new business on `tier` pays for model calls: on credits (its included credits) unless the tier requires the
  * founder's own key. Storing a key moves a business to `byok` (apps/api keys).
  */
