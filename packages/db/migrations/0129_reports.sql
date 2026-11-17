@@ -1,4 +1,4 @@
--- 0127 — reports of a person, a profile or a message, and the platform's review queue (docs/NETWORK.md F21, §3.2
+-- 0129 — reports of a person, a profile or a message, and the platform's review queue (docs/NETWORK.md F21, §3.2
 -- layer 7; WP-12 T4). The people layer is open (LIVE_MODE=1 since Nov 15, 2026), so anyone who meets a stranger can
 -- report them, and an operator reviews every report within REPORT_RESPONSE_TARGET_HOURS (@foundmill/shared/reports).
 --

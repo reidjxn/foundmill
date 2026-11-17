@@ -80,7 +80,7 @@ describe("repos.metrics.snapshot", () => {
     });
   });
 
-  it("safety: open reports and those past the review target (0127)", () => {
+  it("safety: open reports and those past the review target (0129)", () => {
     expect(m.safety).toEqual({ reports_open: 0, reports_overdue: 0 });
   });
 

@@ -319,7 +319,7 @@ export interface IdeaBoxKeepInput {
 }
 
 /** The draft to keep for `userId`, in order: the cookie's, the link's, the one their waitlist entry holds. */
-async function findKeepable(db: IdeaBoxDeps["db"], userId: string, input: IdeaBoxKeepInput, now: Date): Promise<{ row: IdeaDraftRow; by: "token" | "claim" | "id"; hash: string; source: IdeaBoxSource } | null> {
+async function findKeepable(db: IdeaBoxDeps["db"], userId: string, input: IdeaBoxKeepInput, now: Date): Promise<{ row: IdeaDraftRow; by: "token" | "claim" | "id"; hash: string; source: IdeaBoxSource; then?: "studio" | null } | null> {
   if (input.token && IdeaToken.safeParse(input.token).success) {
     const hash = ideaTokenHash(input.token);
     const row = await repos.ideaDrafts.liveByToken(db, hash, now);
@@ -333,18 +333,20 @@ async function findKeepable(db: IdeaBoxDeps["db"], userId: string, input: IdeaBo
   const entry = await repos.waitlist.get(db, userId);
   if (entry?.ideaDraftId) {
     const row = await repos.ideaDrafts.liveById(db, entry.ideaDraftId, now);
-    if (row) return { row, by: "id", hash: row.id, source: "waitlist" };
+    if (row) return { row, by: "id", hash: row.id, source: "waitlist", then: entry.cardThen ?? null };
   }
   return null;
 }
 
 /**
  * What /new/card/keep shows before anything is claimed (security review 2026-11-13, P2-1 and P3-3): the card, the
- * visitor's words, and where it was found. Claiming is a separate press of "Keep this card".
+ * visitor's words, and where it was found. Claiming is a separate press of "Keep this card". `then`: where the card goes
+ * once kept, as the person chose before they met the waitlist (0127; the waitlist's card only, a browser's or a link's
+ * carries its choice in the address).
  */
-export async function previewIdeaBoxDraft(db: IdeaBoxDeps["db"], userId: string, input: IdeaBoxKeepInput, now = new Date()): Promise<{ card: IdeaBoxCard; prompt: string; interest: string | null; sample: boolean; source: IdeaBoxSource } | null> {
+export async function previewIdeaBoxDraft(db: IdeaBoxDeps["db"], userId: string, input: IdeaBoxKeepInput, now = new Date()): Promise<{ card: IdeaBoxCard; prompt: string; interest: string | null; sample: boolean; source: IdeaBoxSource; then: "studio" | null } | null> {
   const found = await findKeepable(db, userId, input, now);
-  return found ? { card: boxCard(found.row.card), prompt: found.row.prompt, interest: found.row.interest, sample: found.row.modelMode === "mock", source: found.source } : null;
+  return found ? { card: boxCard(found.row.card), prompt: found.row.prompt, interest: found.row.interest, sample: found.row.modelMode === "mock", source: found.source, then: found.then ?? null } : null;
 }
 
 /**

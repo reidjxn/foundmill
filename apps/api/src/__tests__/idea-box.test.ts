@@ -318,11 +318,12 @@ describe("ideaBox.claim and the waitlist", () => {
     const outsider = hz.caller({ userId: hz.B.ownerId, email: "outsider@test.local", emailConfirmed: true });
     await expect(outsider.ideaBox.claim({ token: first.token })).rejects.toThrow();
     const shareUrl = expect.stringMatching(/^http:\/\/localhost:3000\/\?via=w\.[a-z2-7]{10}$/);
-    expect(await outsider.waitlist.join({ token: first.token })).toEqual({ joined: true, cardKept: true, shareUrl });
+    // They chose "Shape it in the Ideation Studio" (0127): the choice is kept with the card.
+    expect(await outsider.waitlist.join({ token: first.token, then: "studio" })).toEqual({ joined: true, cardKept: true, shareUrl });
     expect(await outsider.waitlist.status()).toEqual({ joined: true, cardKept: true, shareUrl });
     // Admitted later, on any browser (no cookie, no link): the waitlist's card is the one to keep.
     hz.deps.env.SIGNUP_ALLOWLIST = "outsider@test.local";
-    expect(await outsider.ideaBox.preview({})).toMatchObject({ source: "waitlist", prompt: idea.prompt });
+    expect(await outsider.ideaBox.preview({})).toMatchObject({ source: "waitlist", prompt: idea.prompt, then: "studio" });
     const kept = await outsider.ideaBox.claim({});
     expect(kept).toMatchObject({ again: false });
     // The kept card is in the deck the Ideation Studio lists (`idea.list`), so the person can shape it there at once.
@@ -331,6 +332,26 @@ describe("ideaBox.claim and the waitlist", () => {
     const [draftRow] = await hz.db.select().from(s.ideaDrafts);
     expect(draftRow!.heldUntil!.getTime() - Date.now()).toBeGreaterThan(80 * 24 * 60 * 60_000);
     await expect(hz.caller({ userId: hz.B.ownerId, email: "outsider@test.local", emailConfirmed: false }).waitlist.join({})).rejects.toThrow(/Confirm/);
+  });
+
+  it("the Studio choice goes with the waitlist's card: none without it, kept by a join with no card, cleared by a new card (0127)", async () => {
+    const { hz, app } = await setup({ SIGNUP_ALLOWLIST: "someone-else@test.local" });
+    const first = await draft(app, idea);
+    const person = hz.caller({ userId: hz.B.ownerId, email: "chooser@test.local", emailConfirmed: true });
+    await person.waitlist.join({ token: first.token, then: "studio" });
+    // A join with no card (the page again, another browser) keeps the choice with the card already held.
+    await person.waitlist.join({});
+    hz.deps.env.SIGNUP_ALLOWLIST = "chooser@test.local";
+    expect(await person.ideaBox.preview({})).toMatchObject({ source: "waitlist", then: "studio" });
+    hz.deps.env.SIGNUP_ALLOWLIST = "someone-else@test.local";
+    // A new card held without the choice replaces both.
+    const second = await draft(app, { ...idea, prompt: "Bike repair at the office" }, { address: "203.0.113.90" });
+    await person.waitlist.join({ token: second.token });
+    hz.deps.env.SIGNUP_ALLOWLIST = "chooser@test.local";
+    expect(await person.ideaBox.preview({})).toMatchObject({ source: "waitlist", prompt: "Bike repair at the office", then: null });
+    // A browser's own card carries its choice in the address, never from here.
+    expect(await person.ideaBox.preview({ token: second.token })).toMatchObject({ source: "browser", then: null });
+    await expect(person.waitlist.join({ then: "elsewhere" as "studio" })).rejects.toThrow();
   });
 
   it("a person who joins through someone's waitlist link is recorded as brought by them, once (WP-03 T10)", async () => {

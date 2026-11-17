@@ -11,6 +11,8 @@ As AI spreads, most people move from being employed to building something of the
 
 **North star (founder, 2026-11-11):** weekly active projects with at least one real outcome that week (a real outside action or result: a page live, an email sent, a post published, a payment taken, a customer's reply), whatever the number of people. Simulated results never count.
 
+**Foundmill runs on Foundmill (founder, 2026-11-17).** Once the product works end to end, the founder runs Foundmill itself from inside Foundmill, on their own account: every product update and change, Foundmill's finances and its go-to-market, done by the agents of that project, with the founder approving as any founder does. The build is heading there. So keep every decision, its reason and the project's history in files an agent can read (docs/log, the package guides, the agent skills), never only in a session's conversation. When the founder says it is time, the handover is onboarding, not a plan document: each agent on the founder's project is given its role, the skills for it and the whole project history, so the team can run Foundmill completely.
+
 **Subtext, never text.** Nothing a user can read says or implies "do this instead of getting a job". No copy, prompt, seed or mock output names jobs, employment, unemployment, careers or AI taking work as the reason to be here. Say ownership ("something that is yours") and capability ("what you can do now"), and, as an offer, company ("people to build it with, if you want them"). The ordinary words stay (an agent's job, a job title on a contact, hiring). `node scripts/banned-terms.mjs` enforces the phrases.
 
 ## Product vocabulary
@@ -70,6 +72,7 @@ Internal identifiers may keep old names until a rename is worth its churn: packa
 - Label every non-real number "Forecast" or "Estimate".
 - A simulated tool result is never reported as an action. A mock connector's result carries `simulated` and a notice; agents, the Composer and service copy say it was simulated and not done.
 - People are free on every plan: no limit on cofounders or collaborators, and cofounders' included credits pool on a shared project (founder, 2026-11-11). Plans differ by agent work only. One exception, and only this one (founder, 2026-11-12): the small "Built on Foundmill" mark that a free project's visitors see is removed completely on a paid plan (`tierShowsBuiltOnMark`). It is not a precedent: nothing else may differ by plan outside agent work.
+- One operator (founder, 2026-11-17): only the founder's own Foundmill account holds operator privileges (`OPERATOR_USER_IDS` on the api, one id). No role, email domain, seed setting or plan grants them, and an empty list means nobody is an operator.
 - Write US English with US dates and times in everything a user can read (see the 2026-10-10 rule above). English only: no translation layer or string catalog (founder, 2026-11-11).
 - 18 or older for the whole product, confirmed once at sign-up (founder, 2026-11-11).
 - Foundmill hosts every project's public page at a Foundmill address for free, and gives a project an address to send email from, with a daily cap per project and the founder's approval for outside contact (founder, 2026-11-11).

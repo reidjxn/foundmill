@@ -64,13 +64,14 @@ const waitlistShareUrl = (appUrl: string, code: string | null | undefined): stri
 
 export const waitlistRouter = router({
   join: confirmedProcedure
-    .input(z.strictObject({ token: IdeaToken.nullish(), via: z.string().max(VIA_MAX_LENGTH).nullish() }))
+    // `then: "studio"`: the visitor chose "Shape it in the Ideation Studio"; kept with the card (0127) so admission opens it.
+    .input(z.strictObject({ token: IdeaToken.nullish(), via: z.string().max(VIA_MAX_LENGTH).nullish(), then: z.enum(["studio"]).nullish() }))
     .mutation(async ({ ctx, input }) => {
       const now = new Date();
       const held = input.token ? await repos.ideaDrafts.hold(ctx.db, ideaTokenHash(input.token), new Date(now.getTime() + IDEA_DRAFT_HOLD_MS), now) : null;
       const ref = parseVia(input.via);
       const referrerCode = ref?.kind === "waitlist" ? ref.ref : null;
-      const entry = await repos.waitlist.join(ctx.db, { userId: ctx.userId, email: ctx.email, ideaDraftId: held?.id ?? null, referrerCode, now });
+      const entry = await repos.waitlist.join(ctx.db, { userId: ctx.userId, email: ctx.email, ideaDraftId: held?.id ?? null, referrerCode, cardThen: input.then ?? null, now });
       return { joined: true as const, cardKept: !!held, shareUrl: waitlistShareUrl(ctx.env.APP_URL, entry.code) };
     }),
   status: confirmedProcedure.query(async ({ ctx }) => {

@@ -12,6 +12,8 @@ import { ideas } from "./accounts";
 
 /** Which model client drafted the card (a mock card is sample prose and says so). */
 export const IDEA_DRAFT_MODEL_MODES = ["live", "mock"] as const;
+/** 0127 — where a waitlisted person's kept card goes once they are let in: the Ideation Studio, opened on it. */
+export const WAITLIST_CARD_THEN = ["studio"] as const;
 
 export const ideaDrafts = pgTable(
   "idea_drafts",
@@ -63,6 +65,11 @@ export const waitlistEntries = pgTable(
     code: text("code").unique("waitlist_entries_code_key"),
     /** Whose link the person joined through (0113), set once when the entry is made; null when they came on their own. */
     referredByEntryId: uuid("referred_by_entry_id").references((): AnyPgColumn => waitlistEntries.id, { onDelete: "set null" }),
+    /**
+     * 0127 — "Shape it in the Ideation Studio" (founder, 2026-11-16): set with the held card at join, so the first sign-in
+     * after admission opens the Studio on it. Null: the card's own page.
+     */
+    cardThen: text("card_then", { enum: WAITLIST_CARD_THEN }),
     ...timestamps(),
   },
   (t) => [

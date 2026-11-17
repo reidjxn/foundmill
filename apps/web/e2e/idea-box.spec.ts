@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { LONG } from "./helpers";
+import { LONG, answerFirstProfile } from "./helpers";
 
 /**
  * The landing page's idea box (founder, 2026-11-13; docs/IDEA_BOX.md) against the local stack (mock models, the mock
@@ -78,7 +78,7 @@ test("a visitor types an idea, watches the card arrive, keeps it by signing in a
   }
 });
 
-test("Shape it in the Ideation Studio keeps the card through sign-in and opens the Studio with it in the deck", async ({ browser }) => {
+test("Shape it in the Ideation Studio keeps the card through sign-in and opens the Studio on it, highlighted and focused", async ({ browser }) => {
   const { page, close } = await visitor(browser, 1440, 900);
   try {
     const address = `198.51.100.${1 + Math.floor(Math.random() * 250)}`;
@@ -94,8 +94,69 @@ test("Shape it in the Ideation Studio keeps the card through sign-in and opens t
     // The same keep step (kept only with a press), then the Studio instead of the card's page.
     await expect(page).toHaveURL(/\/new\/card\/keep\?.*then=studio/, { timeout: LONG });
     await page.getByTestId("card-keep").click();
-    await expect(page).toHaveURL(/\/new\/ideate$/, { timeout: LONG });
-    await expect(page.getByText(name, { exact: true }).first()).toBeVisible({ timeout: LONG });
+    await expect(page).toHaveURL(/\/new\/ideate\/[0-9a-f-]{36}$/, { timeout: LONG });
+    await expectStudioOnCard(page, name);
+  } finally {
+    await close();
+  }
+});
+
+/** The Studio opened on the kept card: it wears the just-landed highlight, is in view, and focus is inside it. */
+async function expectStudioOnCard(page: Page, name: string) {
+  const ideaId = new URL(page.url()).pathname.split("/").pop()!;
+  const card = page.locator(`#concept-${ideaId}`);
+  await expect(card).toBeVisible({ timeout: LONG });
+  await expect(card).toHaveAttribute("data-fresh", "true");
+  await expect(card).toContainText(name);
+  await expect(card).toBeInViewport();
+  await expect.poll(() => card.evaluate((el) => el.contains(document.activeElement)), { timeout: LONG }).toBe(true);
+}
+
+/**
+ * A new account that chose "Shape it in the Ideation Studio" (founder, 2026-11-16): the same keep step with `then=studio`
+ * that the first sign-in after admission reaches. The waitlist's own half (`waitlist.join` keeping the choice with the
+ * card, and `ideaBox.preview` returning it on admission) is the api test "the Studio choice goes with the waitlist's
+ * card…"; it cannot run here, as the stack's developer accounts have no confirmed address and the join refuses them.
+ */
+async function newAccountChoosesStudio(page: Page) {
+  const address = `198.51.100.${1 + Math.floor(Math.random() * 250)}`;
+  await page.route("**/idea-box/draft", (route) => route.continue({ headers: { ...route.request().headers(), "x-forwarded-for": address } }));
+  await page.goto("/");
+  await page.getByTestId("idea-input").fill("Plant care visits for busy offices");
+  await page.getByTestId("idea-generate").click();
+  await expect(page.getByTestId("idea-keep")).toBeVisible({ timeout: LONG });
+  const name = (await page.locator("#hero [data-idea-box] [data-idea-name]").textContent())!.trim();
+  await page.getByTestId("idea-open-studio").click();
+  await expect(page).toHaveURL(/\/login\?next=%2Fstart%3Fclaim%3D[^&]+%26then%3Dstudio/);
+  const next = new URL(page.url()).searchParams.get("next")!;
+  await page.goto(`/auth/dev?as=${randomUUID()}&next=${encodeURIComponent(next)}`);
+  await expect(page).toHaveURL(/\/new\/card\/keep\?.*then=studio/, { timeout: LONG });
+  await page.getByTestId("card-keep").click();
+  // A new account answers the three questions first; they go on to the Studio, opened on the card.
+  await expect(page).toHaveURL(/\/onboarding\?next=%2Fnew%2Fideate%2F[0-9a-f-]{36}$/, { timeout: LONG });
+  await answerFirstProfile(page, "Studio Founder");
+  await expect(page).toHaveURL(/\/new\/ideate\/[0-9a-f-]{36}$/, { timeout: LONG });
+  return name;
+}
+
+test("a new account that chose the Studio answers three questions and lands in the Studio on the card", async ({ browser }) => {
+  const { page, close } = await visitor(browser, 1440, 900);
+  try {
+    const name = await newAccountChoosesStudio(page);
+    await expectStudioOnCard(page, name);
+  } finally {
+    await close();
+  }
+});
+
+test("on a phone, the Studio choice ends at the Studio's own page: it opens on a computer and offers the link", async ({ browser }) => {
+  const { page, close } = await visitor(browser, 390, 844);
+  try {
+    await newAccountChoosesStudio(page);
+    // The Studio is desktop-only: the page says so and offers a link to this card's Studio page, never a dead end.
+    await expect(page.getByTestId("needs-larger-window")).toBeVisible({ timeout: LONG });
+    await expect(page.getByRole("button", { name: "Email me a link" })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
   } finally {
     await close();
   }

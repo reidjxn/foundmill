@@ -181,6 +181,8 @@ export function createSitesApp(deps: SitesDeps): Hono {
     const type = siteFileType(served);
     if (!type) return plain(c, 404, NOT_FOUND_PAGE, site.kind);
     const isHtml = type.startsWith("text/html");
+    // An SVG opened as a page would carry no footer (no report link): it is served only as an image.
+    if (type.startsWith("image/svg") && ["document", "iframe", "frame", "object", "embed"].includes(c.req.header("sec-fetch-dest") ?? "")) return plain(c, 404, NOT_FOUND_PAGE, site.kind);
     const headers: Record<string, string> = { ...siteHeaders({ kind: site.kind, production, appOrigin }), "Content-Type": type };
     if (site.kind === "live") Object.assign(headers, liveCacheHeaders(isHtml, file.sha256));
     if (isHtml) {

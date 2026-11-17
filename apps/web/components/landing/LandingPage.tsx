@@ -353,9 +353,9 @@ function FirstWeekSection({ platformMail }: { platformMail: boolean }) {
   );
 }
 
-/** The questions, the door's only while sign-up is closed, the limits line by whether platform mail is on. */
+/** The questions, the door's only while sign-up is closed. */
 function questions(switches: LandingSwitches): QuestionItem[] {
   const q = W.questions;
-  const limits = [q.limitsBase, switches.platformMail ? null : q.limitsMail, q.limitsEnd].filter(Boolean).join(" ");
+  const limits = q.limitsEnd;
   return [...(switches.signupOpen ? [] : [q.getIn]), ...q.always, { ...q.limits, answer: limits }, q.adults];
 }
