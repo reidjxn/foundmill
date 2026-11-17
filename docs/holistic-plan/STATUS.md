@@ -18,6 +18,7 @@ Recorded in docs/log/2026-11/ (find them with `node scripts/decisions-index.mjs 
 - **WP-03** (Nov 15, `wp03-founder-decisions`): index once sign-up opens, indexing follows `SIGNUP_OPEN`; training crawlers allowed on Foundmill's own pages and kept off `/p/` and `/u/`; the Terms sentence and date were approved on Nov 16 (WP-03 T6). **WP-05** (Nov 16, `wp05-founder-decisions`) D1 to D4. **WP-11** (Nov 16, `wp11-decisions`): the items accepted for now, with what reopens each.
 - **One operator** (Nov 17, `foundmill-runs-on-foundmill`): only the founder's own account has operator privileges (`OPERATOR_USER_IDS`); the reports queue is #208 (WP-12 T4). The goal once the product works end to end is to run Foundmill itself on Foundmill; agents are onboarded from docs/log, the package guides and the skills.
 - **CI** (Nov 16): the Actions budget was raised and the minutes rules are in CLAUDE.md; one push per pull request.
+- **The behavior brief** (Nov 17, `wp14-behavior-brief`): created WP-14. It amends WP-09 T13 (Resting, and the last task finishes: WP-14 T1), WP-09 T16 (cancel and pause in one action), WP-10 T9 and T12 (one style for estimates: WP-14 T7) and WP-02 T10 (four measures: WP-14 T12). Its D1 to D12 are open: the brief's plans and prices disagree with #273 and #274 of the same day, so WP-09 T14 and T16 wait on D1 as well.
 - **WP-08 D1 to D6** (Nov 16) are recorded in pull request #244, which is open, so they are not on main yet.
 
 ## Production changes since Nov 15
@@ -219,6 +220,20 @@ All by the coordinating session on the founder's word (reported by that session,
 | WP-13 | T9 | The privacy policy names Z.ai | merged (#260) | the DPA and SCCs are the founder's (Z3) |
 | WP-13 | T11 | The api and composer use a founder's own Anthropic key | not started | T3 (merged) |
 | WP-13 | T10 | Switch it on | not started | T4 to T9, T11; setup Z2 |
+| WP-14 | T1 | Resting, and the last task always finishes | not started | amends WP-09 T13: the session that takes T13 takes this; the own-key sentence waits on D3 |
+| WP-14 | T2 | Quick fit before the ideas, sharpen after | not started |  |
+| WP-14 | T3 | Team budget, outcomes first, on Billing | not started | WP-09 T1 and T2 (#251) |
+| WP-14 | T4 | Outcomes first on Today | not started |  |
+| WP-14 | T5 | Show the work | not started |  |
+| WP-14 | T6 | Named agents on by default for first-time founders | not started |  |
+| WP-14 | T7 | One style for estimates, one legend | not started | amends WP-10 T9 and T12; changes docs/DESIGN.md §10 |
+| WP-14 | T8 | The chapter report | not started |  |
+| WP-14 | T9 | Share a Customer Update as a card | not started | #244; "Customer #1" waits on D11 |
+| WP-14 | T10 | The tour and landing copy | not started | the landing session (Desktop), told on Nov 17 |
+| WP-14 | T11 | Commit's last two lines | not started |  |
+| WP-14 | T12 | Four measures | not started | amends WP-02 T10; two of the four need T1 and T9 |
+| WP-14 | T13 | The plan document | not started | docs only; pricing, go-to-market, the phone and the first user wait on D1, D2, D7 to D10 |
+| WP-14 | D1 to D12 | Decisions for the founder | waiting | Founder: the brief against recorded decisions, listed in the package file |
 
 ## Unknown, for the founder or the session that owns each
 
