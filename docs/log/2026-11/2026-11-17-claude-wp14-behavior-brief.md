@@ -12,6 +12,8 @@ supersedes:
   - "The spend line starts at $0 (WP-04 D4, 2026-11-16), as a default"
   - "The overnight shift is on by default (WP-09 D7), as a default"
   - "The charge that empties a balance pauses the team (2026-10-12)"
+  - "Test users convert to the paid $5 monthly plan on the day of the switch (wp09-entry-plan-answers, answer 4)"
+  - "Businesses are unlimited on every plan (2026-10-16)"
 ---
 ## What changed
 Added docs/holistic-plan/WP-14-behavior-brief.md and its rows in docs/holistic-plan/STATUS.md, and changed two lines
@@ -19,7 +21,7 @@ of CLAUDE.md. The founder handed over a change brief on Nov 17, 2026, written fr
 copy of the repository. Three read-only checks compared every item with main at 5b6541d6 and found twelve points where
 it disagreed with a recorded decision. The founder answered eleven the same afternoon, in the Desktop session that
 wrote this package. The package lists what main already does, fifteen tasks, the amendments to other packages' tasks,
-the eleven answers and five open points. No code changed.
+the founder's fifteen answers and two open points. No code changed.
 
 ## Decisions
 ### The founder's answers of Nov 17, 2026 (afternoon), which win over #273 and #274 where they differ
@@ -34,6 +36,13 @@ the eleven answers and five open points. No code changed.
   inviting earns no reward; the waitlist page is public and indexable now.
 - Leaderboards stay removed. The mobile web view, the day-job description of the first user and "Customer #1" on
   shared cards are deleted from the brief.
+
+### The founder's further answers, evening of Nov 17, 2026
+- People invited while sign-up is invite-only never pay the Founder plan's monthly fee; credit packages as normal.
+- Studio's test prices are $50 with Founder at $15 and $100 with Founder at $25.
+- Plans limit companies, not people: Try 1, Founder up to 5, Studio any number; a deleted company does not count.
+- Founder carries $10.00 of budget a month in both price sets, Studio $50.00, Try $5.00. Founder and Studio reach
+  Opus and Sonnet without a credit pack. Try is limited to Haiku 5.5 and GLM-5.3 Flash, or the founder's own key.
 
 ### The brief's reversals that clash with nothing newer are taken as the founder's word
 "The last task always finishes" replaces pausing on the charge that empties a balance, and one style for estimates
@@ -50,7 +59,7 @@ A task that changes another package's task is marked "amends" and travels with t
 was sent to the Desktop landing session directly; the cloud sessions learn of the rest from STATUS.md.
 
 ## Not done
-- O1 to O5 in the package: the never-list, invited people at opening, Studio's test prices, seats, and budgets and
-  models for each plan.
+- O1 and O2 in the package: the four never-list lines, and whether a credit pack still unlocks Opus and Sonnet on
+  Try (#274) now that the founder said Try "has to bring their own Anthropic key".
 - docs/NETWORK.md, docs/DESIGN.md §10 and docs/foundmill-plan are changed by the tasks that own them (T15, T7, T13).
 - STATUS.md's WP-04 rows are behind main and were not rebuilt.
