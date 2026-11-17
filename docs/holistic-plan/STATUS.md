@@ -223,7 +223,7 @@ All by the coordinating session on the founder's word (reported by that session,
 | WP-14 | T1 | Resting, and the last task always finishes | not started | amends WP-09 T13: the session that takes T13 takes this; the own key stays offered; owner: the WP-09 session, as the next pull request after #251 (assigned Nov 17) |
 | WP-14 | T2 | Quick fit before the ideas, sharpen after; time and where you live before take charge | not started | changes WP-04 T1's first profile |
 | WP-14 | T3 | Team budget, outcomes first, on Billing | not started | WP-09 T1 and T2 (#251); owner: the WP-09 session, after T14 (assigned Nov 17) |
-| WP-14 | T4 | Outcomes first on Today | not started |  |
+| WP-14 | T4 | Outcomes first on Today | pull request open | `claude/wp14-t4-outcomes-today`; the line says "real outcomes", not "approved" (see the log entry) |
 | WP-14 | T5 | Show the work | not started |  |
 | WP-14 | T6 | Named agents on by default for first-time founders | not started |  |
 | WP-14 | T7 | One style for estimates, one legend | not started | amends WP-10 T9 and T12; changes docs/DESIGN.md §10; owner: the WP-10 session (assigned Nov 17) |

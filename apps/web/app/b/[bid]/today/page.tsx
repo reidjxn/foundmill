@@ -17,7 +17,7 @@ export default async function TodayPage({ params }: { params: Promise<{ bid: str
 
 /**
  * Today's two reads start on the server and are handed over still pending: the goal (`goal.current`) and Needs you,
- * the week and the spend (`today.get`). Both are business procedures any member may read, so neither rejects for a
+ * the week and the outcomes headline (`today.get`). Both are business procedures any member may read, so neither rejects for a
  * member; anything that fails here is simply fetched by the browser as before.
  */
 async function TodayData({ businessId, children }: { businessId: string; children: ReactNode }) {

@@ -6,7 +6,7 @@
  *
  *   - `cycle.status` and the status Continue's controls answer with (`business.pauseCycle`): no `lastCost`;
  *     `cycle.history` carries no cost; the vacation's condition on Continue loses its figures;
- *   - Today: no spend, and the Needs you subjects masked;
+ *   - Today: the Needs you subjects masked (Today carries no cost figure for anyone, WP-14 T4);
  *   - the Team's agent health still explains a status, read from the event with its budget cut;
  *   - goals: `goal.approve` answers a revenue goal without its money, as `goal.current` shows it;
  *   - approvals: `team.approvals.resolve` answers without the amount, its currency or the call's arguments;
@@ -96,13 +96,11 @@ describe("rounds of work and Continue", () => {
 });
 
 describe("Today", () => {
-  it("no spend for a collaborator, and the Needs you subjects masked; the owner sees both", async () => {
+  it("the Needs you subjects masked for a collaborator; the owner reads them", async () => {
     await repos.inbox.createItem(hz.db, bid, note(hz.A.agentId, "Approve €2,000 for the launch ads"));
     const ours = await owner.today.get({ businessId: bid });
-    expect(ours.spend).not.toBeNull();
     expect(ours.needsYou?.items.map((i) => i.subject)).toContain("Approve €2,000 for the launch ads");
     const theirs = await collaborator.today.get({ businessId: bid });
-    expect(theirs.spend).toBeNull();
     expect(JSON.stringify(theirs.needsYou)).not.toContain("2,000");
     expect(theirs.needsYou?.items.some((i) => i.subject.includes("(amount hidden)"))).toBe(true);
   });

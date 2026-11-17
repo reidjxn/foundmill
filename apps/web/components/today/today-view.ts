@@ -94,14 +94,14 @@ export interface SinceLastVisitLike {
   milestones: readonly string[];
   /** Accounts that arrived through the project's page since the previous visit (absent or 0: no line). */
   arrived?: number;
-  spend: { amountMinor: number; currency: string } | null;
 }
 
 /**
  * "Since you were last here" in plain lines (retention plan, 2026-11-11): the work, the wins, the new decisions with a
- * link to answer them, the milestones, and spend marked Estimate. Lines with nothing to say are left out.
+ * link to answer them and the milestones. No cost line: Today carries no cost figure (WP-14 T4). Lines with nothing to
+ * say are left out.
  */
-export function sinceLastVisitLines(view: SinceLastVisitLike, businessId: string, money: (m: { amountMinor: number; currency: string }) => string): SinceLastVisitLine[] {
+export function sinceLastVisitLines(view: SinceLastVisitLike, businessId: string): SinceLastVisitLine[] {
   const lines: SinceLastVisitLine[] = [];
   if (view.rounds > 0 || view.tasksDone > 0) lines.push({ id: "work", text: `${countOf(view.rounds, "round")} of work, ${countOf(view.tasksDone, "task")} done.` });
   if (view.wins > 0) lines.push({ id: "wins", text: `${countOf(view.wins, "customer")} won.`, tone: "gold", link: { href: routes.inbox(businessId), label: "Open" } });
@@ -109,7 +109,6 @@ export function sinceLastVisitLines(view: SinceLastVisitLike, businessId: string
   view.milestones.forEach((m, i) => lines.push({ id: `milestone-${i}`, text: `Milestone: ${m}.`, tone: "gold", link: { href: `/b/${businessId}/milestones`, label: "See" } }));
   // A count and nothing else: no name, no link, nothing public (docs/NETWORK.md §14 answer 4).
   if ((view.arrived ?? 0) > 0) lines.push({ id: "arrived", text: `${view.arrived === 1 ? "1 person" : `${view.arrived} people`} arrived through your page.` });
-  if (view.spend) lines.push({ id: "spend", text: `Team spend ${money(view.spend)} (Estimate).` });
   return lines;
 }
 
