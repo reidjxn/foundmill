@@ -92,7 +92,7 @@ describe("dev.simulate (SEC-2)", () => {
 
   it("an admin may simulate too; the token is for the business in the input, never another", async () => {
     seen.length = 0;
-    await callerIn("staging", { userId: hz.A.adminId }).dev.simulate({ businessId: hz.A.businessId, eventName: "signup.created" });
+    await callerIn("development", { userId: hz.A.adminId }).dev.simulate({ businessId: hz.A.businessId, eventName: "signup.created" });
     expect(seen).toHaveLength(1);
     expect(seen[0]!.url).toBe("http://ingest.test/simulate/signup.created");
     const { payload } = await verifyToken(seen[0]!.authorization!.slice("Bearer ".length));
@@ -118,6 +118,8 @@ describe("dev.simulate (SEC-2)", () => {
     const input = { businessId: hz.A.businessId, eventName: "payment.received" };
     expect(await code(hz.caller({ userId: hz.A.ownerId }).dev.simulate(input))).toBe("NOT_FOUND");
     expect(await code(callerIn("production", { userId: hz.A.ownerId }).dev.simulate(input))).toBe("NOT_FOUND");
+    // Production runs APP_ENV=staging: an owner there can never fire a mock event into a real project.
+    expect(await code(callerIn("staging", { userId: hz.A.ownerId }).dev.simulate(input))).toBe("NOT_FOUND");
     expect(seen).toHaveLength(0);
   });
 

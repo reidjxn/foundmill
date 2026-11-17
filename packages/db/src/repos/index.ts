@@ -28,6 +28,8 @@ import { positioningRepo } from "./positioning";
 import { personProfilesRepo } from "./person-profiles";
 import { mailRepo } from "./mail";
 import { postalAddressRepo } from "./postal-address";
+import { repliesRepo } from "./replies";
+import { updatesRepo } from "./updates";
 import { followersRepo } from "./followers";
 import { notifyEmailRepo } from "./notify-email";
 import { holidaysRepo } from "./holidays";
@@ -56,6 +58,7 @@ import { workspacesRepo } from "./workspaces";
 import { conversationsRepo } from "./conversations";
 import { emailPrefsRepo, preferencesRepo } from "./preferences";
 import { devicesRepo } from "./devices";
+import { dayOneNotesRepo } from "./day-one-notes";
 import { accountEventsRepo } from "./account-events";
 import { portabilityRepo } from "./portability";
 import { tableViewsRepo } from "./table-views";
@@ -77,6 +80,8 @@ import { founderCancelLinksRepo, founderDeparturesRepo } from "./founder-departu
 import { metricsRepo } from "./metrics";
 import { taskReportsRepo } from "./task-reports";
 import { sitesRepo } from "./sites";
+export { AddPayLinkInput } from "./pay-links";
+import { payLinksRepo } from "./pay-links";
 
 export const repos = {
   businesses: businessesRepo,
@@ -95,6 +100,8 @@ export const repos = {
   personProfiles: personProfilesRepo,
   projectMail: mailRepo,
   postalAddress: postalAddressRepo,
+  replies: repliesRepo,
+  updates: updatesRepo,
   followers: followersRepo,
   notifyEmail: notifyEmailRepo,
   departments: departmentsRepo,
@@ -142,6 +149,7 @@ export const repos = {
   notifications: notificationsRepo,
   emailPrefs: emailPrefsRepo,
   notifyFacts: notifyFactsRepo,
+  dayOneNotes: dayOneNotesRepo,
   accountEvents: accountEventsRepo,
   attributions: attributionsRepo,
   teamPosts: teamPostsRepo,
@@ -157,6 +165,7 @@ export const repos = {
   metrics: metricsRepo,
   taskReports: taskReportsRepo,
   sites: sitesRepo,
+  payLinks: payLinksRepo,
 } as const;
 export type Repos = typeof repos;
 export type RepoArea = keyof Repos;
@@ -166,6 +175,8 @@ export { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, encodeCursor, decodeCursor, decodeTim
 
 export * from "./agents";
 export * from "./positioning";
+export * from "./replies";
+export * from "./updates";
 export * from "./approvals";
 export * from "./audit";
 export { formerFounderSince, type FounderDepartureView } from "./founder-departures";

@@ -169,4 +169,9 @@ describe("sidebar items", () => {
     expect(activeSidebarId(`/profiles/founder/${BID}`, BID, LEDGERLY)).toBe("network");
     expect(activeSidebarId("/networking", BID, LEDGERLY)).toBeUndefined();
   });
+  it("Settings opens on Basics with Builder view off and on Business with it on (WP-10 T11)", () => {
+    const settings = (builder: boolean) => buildSidebarItems({ businessId: BID, departments: LEDGERLY, live: false, builder }).find((i) => i.id === "settings")!.href;
+    expect(settings(false)).toBe(`/b/${BID}/settings/basics`);
+    expect(settings(true)).toBe(`/b/${BID}/settings/business`);
+  });
 });

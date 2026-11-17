@@ -147,7 +147,7 @@ function DocumentLinks({ links, className }: { links: readonly LegalPageLink[]; 
 export function LegalPage({ document: doc, links, homeHref = "/", className, ...rest }: LegalPageProps) {
   const summary = (doc.summary ?? []).filter((s) => (typeof s === "string" ? s.trim() : true));
   return (
-    <article data-legal-page="" className={cn("@container relative flex min-h-dvh flex-col bg-canvas text-primary", className)} {...rest}>
+    <div data-legal-page="" className={cn("@container relative flex min-h-dvh flex-col bg-canvas text-primary", className)} {...rest}>
       <div aria-hidden className="h-1 w-full shrink-0 bg-accent" data-brand-line="" />
       <nav aria-label={LEGAL_PAGE_WORDS.documents} className="border-b border-line">
         <div className="mx-auto flex w-full max-w-reading flex-wrap items-center justify-between gap-x-5 px-gutter">
@@ -157,7 +157,7 @@ export function LegalPage({ document: doc, links, homeHref = "/", className, ...
           <DocumentLinks links={links} />
         </div>
       </nav>
-      <div className="mx-auto flex w-full max-w-reading min-w-0 flex-1 flex-col gap-8 px-gutter py-10 @page-wide:gap-10 @page-wide:py-16">
+      <main className="mx-auto flex w-full max-w-reading min-w-0 flex-1 flex-col gap-8 px-gutter py-10 @page-wide:gap-10 @page-wide:py-16">
         <header className="flex min-w-0 flex-col gap-2">
           <h1 className="t-display-lg min-w-0 text-balance break-words text-primary @page-wide:t-display-xl">{doc.title}</h1>
           <p className="t-body text-secondary" data-legal-updated="">
@@ -205,7 +205,7 @@ export function LegalPage({ document: doc, links, homeHref = "/", className, ...
             ))}
           </section>
         ))}
-      </div>
+      </main>
       <footer className="border-t border-line">
         <div className="mx-auto flex w-full max-w-reading flex-wrap items-center justify-between gap-x-5 px-gutter">
           <a href={homeHref} className="t-action inline-flex min-h-tap items-center rounded-sm text-secondary transition-colors duration-hover hover:text-primary focus-ring">
@@ -214,6 +214,6 @@ export function LegalPage({ document: doc, links, homeHref = "/", className, ...
           <DocumentLinks links={links} />
         </div>
       </footer>
-    </article>
+    </div>
   );
 }

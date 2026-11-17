@@ -10,11 +10,12 @@
  * and answered with a plain "try again".
  */
 import { CREDITS_CURRENCY } from "@foundmill/config";
-import { AppError, ConflictError, NotFoundError, filingWindow, positioningFromInput, renderPositioning, uuid, type TaskStatus } from "@foundmill/shared";
+import { AppError, ConflictError, NotFoundError, filingWindow, positioningFromInput, renderPositioning, updateProblems, uuid, type TaskStatus } from "@foundmill/shared";
 import { attachAddedSkills, repos, resolveLibrarySkill, resolveSkillFile, skillLibraryEntries, type Agent, type Db, type Executor, type ResolvedSkill, type Task } from "@foundmill/db";
 import { acceptanceLines, acceptanceRefusal, PlatformToolError, type PlatformCaller, type PlatformHost, type TaskSummaryT } from "@foundmill/connectors";
 import { writeGatewayEvent } from "./events";
 import { hashRecipient } from "./recipients";
+import { recipientBasis } from "./recipient-basis";
 import type { GatewayLogger } from "./pipeline";
 import { AUDIT_ACTION_TOOL_CALL, safeError } from "./pipeline";
 
@@ -76,6 +77,11 @@ export interface DbPlatformHostOptions {
   repository?: () => RepositoryFiles | null;
 }
 
+/** An email address (written out or spelled "at … dot") or a run of 8 or more digits; ISO dates do not count. */
+const hasContactDetail = (text: string): boolean =>
+  /[@＠]/.test(text) || /\bat\b.*\bdot\b/i.test(text) || (text.replace(/\b\d{4}-\d{2}-\d{2}\b/g, "").match(/\+?\d[\d\s().-]{6,}\d/g) ?? []).some((p) => p.replace(/\D/g, "").length >= 8);
+const SIMULATED_NOTICE = "Simulated: this session's sources were simulated, so this record is marked simulated and is not a real company.";
+
 export function createDbPlatformHost({ db, log, now = () => new Date(), repository = () => null }: DbPlatformHostOptions): PlatformHost {
   const notFound = (what: string, id: string) => new PlatformToolError("not_found", `${what} ${id} is not part of this business`);
   const taskOf = async (caller: PlatformCaller, taskId: string): Promise<Task> => {
@@ -135,6 +141,12 @@ export function createDbPlatformHost({ db, log, now = () => new Date(), reposito
       repos.audit.latestMatching(db, caller.businessId, AUDIT_ACTION_REPORT_READ, { sessionId: caller.sessionId, simulated: true }, since),
     ]);
     return mocked !== null || readSimulated !== null;
+  };
+  /** An invented company would otherwise get a real-looking address: with simulated sources, no email address or phone number goes in a record. */
+  const simulatedRecord = async (caller: PlatformCaller, text: string): Promise<boolean> => {
+    const simulated = await sessionSimulated(caller);
+    if (simulated && hasContactDetail(text)) throw new PlatformToolError("invalid_state", "this session's sources were simulated, so no email address or phone number can be recorded; record the name and the page only");
+    return simulated;
   };
   const saveReport = async (caller: PlatformCaller, t: Task, input: { title: string; bodyMd: string; sources: { url: string; title: string }[] }, simulated: boolean, tx: Executor = db) =>
     repos.taskReports.save(tx, caller.businessId, { taskId: t.id, sessionId: caller.sessionId, agentId: caller.agentId, ...input, simulated });
@@ -299,6 +311,48 @@ export function createDbPlatformHost({ db, log, now = () => new Date(), reposito
       const result = await repos.entities.search(db, caller.businessId, { q: query, limit });
       return { items: result.hits.map((h) => ({ id: h.entity.id, kind: h.entity.kind, name: h.entity.displayName })) };
     },
+    async createEntity(caller, { kind, name, role, sourceUrl, note }) {
+      const displayName = name.trim().replace(/\s+/g, " ");
+      const simulated = await simulatedRecord(caller, [displayName, note ?? "", sourceUrl].join(" "));
+      // One transaction under a lock on the name, so two calls at once make one record. The same name and kind (case
+      // ignored) is the same record: it is returned, with the role added if it lacked it, not duplicated.
+      return db.transaction(async (tx) => {
+        await repos.entities.lockName(tx, caller.businessId, kind, displayName);
+        const near = await repos.entities.search(tx, caller.businessId, { q: displayName, kinds: [kind], limit: 10 });
+        const same = near.hits.find((h) => h.entity.displayName.toLowerCase() === displayName.toLowerCase());
+        if (same) {
+          if (!same.roles.some((r) => r.role === role)) await repos.entities.addRole(tx, caller.businessId, same.entity.id, { role, ownerRef: { kind: "agent", id: caller.agentId } });
+          return { entityId: same.entity.id, created: false, ...(simulated ? { simulated: true as const, notice: SIMULATED_NOTICE } : {}) };
+        }
+        const e = await repos.entities.create(tx, caller.businessId, { kind, displayName, identifiers: { sourceUrl, ...(note ? { note } : {}), ...(simulated ? { simulated: "true" } : {}) }, source: simulated ? "agent research (simulated)" : "agent research", agentId: caller.agentId });
+        await repos.entities.addRole(tx, caller.businessId, e.id, { role, ownerRef: { kind: "agent", id: caller.agentId } });
+        await repos.audit.append(tx, caller.businessId, { actorKind: "agent", actorId: caller.agentId, action: "platform.entity.created", target: { kind: "entity", id: e.id }, details: { sessionId: caller.sessionId, kind, name: displayName, role, sourceUrl, noted: Boolean(note), simulated } });
+        return { entityId: e.id, created: true, ...(simulated ? { simulated: true as const, notice: SIMULATED_NOTICE } : {}) };
+      });
+    },
+    async logInteraction(caller, { entityId, summary, sourceUrl }) {
+      // Another business's record, or an archived one, reads as not found, like every platform id.
+      let entity;
+      try {
+        entity = await repos.entities.get(db, caller.businessId, entityId);
+      } catch (e) {
+        if (e instanceof NotFoundError) throw new PlatformToolError("not_found", `record ${entityId} is not in this business's records`);
+        throw e;
+      }
+      if (entity.archivedAt) throw new PlatformToolError("not_found", `record ${entityId} is not in this business's records`);
+      const simulated = await simulatedRecord(caller, [summary, sourceUrl ?? ""].join(" "));
+      const text = sourceUrl ? `${summary} (${sourceUrl})` : summary;
+      return db.transaction(async (tx) => {
+        const i = await repos.entities.createInteraction(tx, caller.businessId, { kind: "note", entityIds: [entityId], summary: text.slice(0, 4000), agentId: caller.agentId, direction: "internal" });
+        await repos.audit.append(tx, caller.businessId, { actorKind: "agent", actorId: caller.agentId, action: "platform.interaction.logged", target: { kind: "interaction", id: i.id }, details: { sessionId: caller.sessionId, entityId, ...(sourceUrl ? { sourceUrl } : {}), simulated } });
+        return { interactionId: i.id, ...(simulated ? { simulated: true as const, notice: SIMULATED_NOTICE } : {}) };
+      });
+    },
+    async listPayLinks(caller) {
+      // Never a simulated link (a mock connector's): it is not on the site. Never the URL either: the site's button is /_fm/pay/<key>.
+      const links = await repos.payLinks.list(db, caller.businessId);
+      return { items: links.filter((l) => !l.simulated).map((l) => ({ key: l.key, label: l.label, priceMinor: l.priceMinor, currency: l.currency })) };
+    },
     async listApprovals(caller, { limit }) {
       const pending = await repos.approvals.pending(db, caller.businessId, limit);
       return { items: pending.map((a) => ({ id: a.id, agentId: a.agentId, connectorKey: a.connectorKey, tool: a.tool, reasons: a.reasons, requestedAt: a.requestedAt.toISOString() })) };
@@ -309,7 +363,9 @@ export function createDbPlatformHost({ db, log, now = () => new Date(), reposito
     },
     async checkContact(caller, { email }) {
       const suppressed = await repos.channels.isSuppressed(db, caller.businessId, { emailHash: hashRecipient("email", email) });
-      return { email, contactable: !suppressed };
+      // The same basis the gateway checks at send time (WP-08 T10): nobody is contactable without one.
+      const basis = await recipientBasis(db, caller.businessId, email, new Date());
+      return { email, contactable: !suppressed && basis !== "none", basis };
     },
     async readProduct(caller, { maxChars }) {
       const [blocks, roadmap, sources] = await Promise.all([repos.product.listBlocks(db, caller.businessId), repos.product.listRoadmap(db, caller.businessId), repos.product.listSources(db, caller.businessId, { limit: 50 })]);
@@ -477,6 +533,17 @@ export function createDbPlatformHost({ db, log, now = () => new Date(), reposito
         return written;
       });
       return { draftVersion: out.written ? (copies.approved?.version ?? 0) + 1 : 0 };
+    },
+    async draftFollowerUpdate(caller, { subject, body }) {
+      const problem = updateProblems(subject, body);
+      if (problem) throw new PlatformToolError("invalid_state", problem);
+      const row = await db.transaction(async (tx) => {
+        const draft = await repos.updates.draftByAgent(tx, caller.businessId, { subject, body, agentId: caller.agentId });
+        await repos.audit.append(tx, caller.businessId, { actorKind: "agent", actorId: caller.agentId, action: "updates.drafted", target: { kind: "project_update", id: draft.id }, details: { sessionId: caller.sessionId } });
+        await writeGatewayEvent(tx, { businessId: caller.businessId, type: "update.drafted", actor: { kind: "agent", id: caller.agentId }, payload: { updateId: draft.id, agentId: caller.agentId } });
+        return draft;
+      });
+      return { updateId: row.id, followers: await repos.followers.count(db, caller.businessId) };
     },
   };
 

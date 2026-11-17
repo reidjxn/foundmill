@@ -65,6 +65,9 @@ export function departmentTabs(dept: Pick<DepartmentSeed, "moduleKeys" | "tabSlu
 /** Utilities every business runs; they are hired into Team so the squad table shows them, but they belong to no department screen. */
 export const UTILITY_TEMPLATE_KEYS: readonly string[] = Object.freeze(["entity_linker", "classifier", "categoriser", "triage", "moderation"]);
 
+// The starting team (WP-04 T4): defined in @foundmill/shared so Commit and Team › Agents read the same list.
+export { STARTING_TEAM_TEMPLATE_KEYS, startingTeam } from "@foundmill/shared";
+
 const CODING_CORE = ["planner", "backend_engineer", "frontend_engineer", "qa_engineer", "review_agent", "integration_agent"];
 
 interface DeptSpec {
@@ -163,6 +166,12 @@ export function firstCycleTasksFor(seed: Pick<ArchetypeSeed, "firstCycleTasks">,
   if (founder.hasBudget) return seed.firstCycleTasks;
   return seed.firstCycleTasks.filter((t) => t.kind !== "finance" && t.kind !== "legal");
 }
+
+/**
+ * The first build of a project whose code lands on its Foundmill site (WP-07 T9), whatever the archetype: one offer
+ * page a stranger can open, sign up on or pay from.
+ */
+export const SITE_FIRST_BUILD = { title: "Build the offer page", goal: "One page that says what this is, who it is for and what it costs, with a way to sign up or pay.", acceptance: ["The page reads well on a phone", "The sign-up form is on the page", "A price is shown, or the page says how to ask for one"] } as const;
 
 /** The Planner's fallback goal once the founder has signed off and Now is empty (`ArchetypeSeed.firstBuild`). */
 const FIRST_BUILD = (title: string, goal: string, acceptance: string[]): FirstBuild => ({ title, goal, acceptance });
@@ -460,8 +469,8 @@ const dtcPhysical = ArchetypeSeed.parse({
     OPEN_QUESTIONS_TASK,
     SPECIALIST_TASK(
       "Supplier long list and RFQ pack",
-      "Build a qualified long list of contract manufacturers and send an identical RFQ pack so quotes are comparable; every quote is read through the quarantined reader.",
-      ["At least 20 suppliers recorded as CRM entities", "RFQ pack complete and identical for every supplier", "No purchase order or deposit; the founder decides"],
+      "Build a qualified long list of contract manufacturers and draft an identical RFQ pack, in the report, for the founder to send so quotes are comparable; every quote is read through the quarantined reader.",
+      ["At least 10 suppliers recorded in Customers, each with the page it was found on", "RFQ pack drafted in the report, identical for every supplier; nothing is sent", "No purchase order or deposit is made; the founder decides"],
       "sourcing_manufacturing",
     ),
     SPECIALIST_TASK(

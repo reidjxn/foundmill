@@ -37,6 +37,12 @@ export function siteFileType(path: string): string | null {
   return SITE_FILE_TYPES[path.slice(dot).toLowerCase()] ?? null;
 }
 
+/**
+ * The Product › Site tab. Not in `MODULE_TABS` (a project gets it only once the platform made it a site:
+ * `repos.sites.ensure` adds it), so it never appears where SITES_DOMAIN is unset.
+ */
+export const SITE_TAB = { slug: "site", title: "Site" } as const;
+
 /** Labels kept for the platform itself on the sites domain. */
 export const SITE_RESERVED_SLUGS: readonly string[] = ["www", "api", "app", "mail", "admin", "preview", "status", "report", "assets", "static"];
 
@@ -86,4 +92,23 @@ export function sitesDomainProblem(sitesDomainValue: string, appUrl: string): st
   const related = (a: string, b: string): boolean => a === b || a.endsWith(`.${b}`);
   if (related(d, appHost) || related(appHost, d)) return `SITES_DOMAIN must be a domain of its own, not ${appHost} or a subdomain or parent of it`;
   return null;
+}
+
+/**
+ * The Product lead's note in Needs you when the team finished a version of the site to look at (WP-07 T3/T5): the first
+ * preview, and again for the first preview after a publish. "Publish it" publishes the newest version (the same
+ * service as the tab's Publish); "Not yet" leaves it.
+ */
+export const SITE_READY_NOTE = {
+  key: "site.ready",
+  subject: "Your site is ready to look at",
+  options: { publish: "site_publish", later: "site_later" },
+  publishLabel: "Publish it",
+  laterLabel: "Not yet",
+  body: (agentName: string, previewUrl: string) => `${agentName} finished a version of your site. [Open the preview](${previewUrl}), and if you like it, publish it. Nothing is public until you do.`,
+} as const;
+
+/** Whether a note's decision block is the site note's (its `decision.key`). */
+export function isSiteReadyDecision(decision: unknown): boolean {
+  return !!decision && typeof decision === "object" && (decision as { key?: unknown }).key === SITE_READY_NOTE.key;
 }

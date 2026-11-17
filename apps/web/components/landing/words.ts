@@ -9,6 +9,7 @@
 import { APP_NAME, CREDITS_CURRENCY, includedCreditsMinor } from "@foundmill/config";
 import { formatMoney } from "@foundmill/dugout";
 import type { LandingVariant } from "@/lib/landing-variant";
+import { BUILDER_EXAMPLES, NO_IDEA_EXAMPLES, RUNNING_EXAMPLES } from "./variant-examples";
 
 export const INCLUDED = formatMoney({ amountMinor: includedCreditsMinor("free"), currency: CREDITS_CURRENCY }, { locale: "en-US" });
 
@@ -45,7 +46,7 @@ export const VARIANT_WORDS: Record<LandingVariant, VariantWords> = {
     title: "No idea yet? Start from something you like.",
     lede: `Pick an interest and your team drafts an idea around it, rated honestly, ${FREE}.`,
     label: "What are you into?",
-    ideas: ["I fix up old bikes on weekends", "I am good at explaining math", "I know every thrift store in town", "I bake for my whole building", "I edit videos for my friends", "I grow more tomatoes than I can eat"],
+    ideas: NO_IDEA_EXAMPLES,
     surpriseOpen: true,
     ways: ["studio", "sentence", "bring"],
   },
@@ -59,14 +60,14 @@ export const VARIANT_WORDS: Record<LandingVariant, VariantWords> = {
     title: "Already running something? Give it a team of AI agents.",
     lede: `Say what you run in one sentence and see how a team of AI agents rates it, ${FREE}.`,
     label: "What do you run?",
-    ideas: ["A two-person bakery with a waiting list", "An online shop selling hand-dyed yarn", "A tutoring business with twelve students", "A newsletter with 800 readers", "A mobile bike repair van"],
+    ideas: RUNNING_EXAMPLES,
     ways: ["bring", "sentence", "studio"],
   },
   builder: {
     title: "Build your app with a team of AI agents.",
     lede: `Describe it in one sentence and get an honest rating, ${FREE}. Inside, your team builds it in your own GitHub account.`,
     label: "What do you want to build?",
-    ideas: ["An app that splits rent and bills for roommates", "A booking tool for independent barbers", "A browser extension that sums up long threads", "A training log for climbers", "A tool that turns receipts into a spreadsheet"],
+    ideas: BUILDER_EXAMPLES,
     ways: ["sentence", "studio", "bring"],
   },
 };
@@ -84,6 +85,11 @@ export const LANDING_WORDS = {
     /** The default page's headline; a variant's own is in `VARIANT_WORDS`. */
     title: VARIANT_WORDS.first.title,
     landedTitle: (name: string) => `${name} is yours to keep.`,
+    /**
+     * The line over the rated examples beside the box (founder, 2026-11-17, their words exactly). "companies" is the one
+     * exception to the project/business rule (CLAUDE.md "the words for people"); use it nowhere else.
+     */
+    exampleLabel: "Example companies you can create",
     /** [switch: signupOpen off] */
     ledeClosed: "Keep it, and once your place opens the team drafts a page for it and plans what comes next.",
     /** [switch: signupOpen on] */
@@ -213,10 +219,7 @@ export const LANDING_WORDS = {
       { id: "together", question: "Can I build it with someone?", answer: "Yes. Invite as many cofounders and collaborators as you like, free on every plan." },
     ],
     limits: { id: "limits", question: "What can it not do yet?" },
-    limitsBase: "Take a payment or check facts on the live web.",
-    /** [switch: platformMail off] */
-    limitsMail: "Send email for your project.",
-    limitsEnd: "Building an app needs your own GitHub account. Your team says so when a step needs one of these.",
+    limitsEnd: "Building an app needs your own GitHub account. Your team says so when a step needs it.",
     adults: { id: "adults", question: `Who can use ${APP_NAME}?`, answer: "Anyone 18 or older." },
   },
   start: {

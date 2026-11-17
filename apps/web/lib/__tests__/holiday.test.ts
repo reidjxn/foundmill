@@ -27,4 +27,12 @@ describe("toStartHolidayInput", () => {
     expect(toStartHolidayInput({ until: { kind: "condition", condition: "MRR > 10k" }, authority: [], budgetCeiling: null, wakeEvents: [] }, "GBP")).toMatchObject({ until: { kind: "condition", condition: "MRR > 10k" }, budgetCeilingMinor: null, currency: "GBP", wakeEvents: [] });
     expect(toStartHolidayInput({ until: { kind: "return" }, authority: [], budgetCeiling: null, wakeEvents: ["legal_deadline"] }, "USD").until).toEqual({ kind: "return" });
   });
+
+  it("carries the payment powers chosen in the dialog, and leaves them alone when the dialog says nothing", () => {
+    const base = { until: { kind: "return" as const }, authority: [], budgetCeiling: null, wakeEvents: [] };
+    expect(toStartHolidayInput({ ...base, inboundPayments: true }, "GBP").paymentPowers).toEqual(["inbound"]);
+    expect(toStartHolidayInput({ ...base, inboundPayments: false }, "GBP").paymentPowers).toEqual([]);
+    expect(toStartHolidayInput(base, "GBP")).not.toHaveProperty("paymentPowers");
+  });
 });
+

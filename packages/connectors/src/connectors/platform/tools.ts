@@ -7,7 +7,7 @@
  */
 import { z } from "zod";
 import { AGENT_MESSAGE_TYPES } from "@foundmill/events";
-import { AppError, PositioningNotesInput, TASK_KINDS, TASK_STATUSES } from "@foundmill/shared";
+import { AppError, PositioningNotesInput, RECIPIENT_BASES, TASK_KINDS, TASK_STATUSES } from "@foundmill/shared";
 import { defineTool } from "../../define";
 import { AcceptanceResult } from "./acceptance";
 
@@ -185,6 +185,29 @@ export const platformTools = [
     annotations: { readOnlyHint: true },
   }),
   defineTool({
+    name: "create_entity",
+    description:
+      "Record a supplier, lab or contact you found in the business's records (Customers), with the page it was found on. A record with the same name and kind is returned, not duplicated. It writes inside the project only: it contacts no one. Put no email address or phone number in the name.",
+    input: z.object({ kind: z.enum(["person", "organisation"]), name: Text(120).regex(/^[^[\]|<>@]+$/, "a name has no brackets, bars, angle brackets or @"), role: z.enum(["supplier", "lab", "contact"]), sourceUrl: z.url({ protocol: /^https?$/ }), note: z.string().trim().max(500).optional() }),
+    output: z.object({ entityId: z.string(), created: z.boolean(), simulated: z.literal(true).optional(), notice: z.string().optional() }),
+    hints: {},
+  }),
+  defineTool({
+    name: "log_interaction",
+    description: "Add a short note to a record's history in Customers (what you found or learned about it), optionally with the page it came from. It writes inside the project only: it contacts no one.",
+    input: z.object({ entityId: Id, summary: Text(1000), sourceUrl: z.url({ protocol: /^https?$/ }).optional() }),
+    output: z.object({ interactionId: z.string(), simulated: z.literal(true).optional(), notice: z.string().optional() }),
+    hints: {},
+  }),
+  defineTool({
+    name: "list_pay_links",
+    description: "The project's payment links, for pay buttons on its site: each key, name and price. A pay button is <a href=\"/_fm/pay/<key>\">; the site never holds the payment address itself. A simulated link is not listed.",
+    input: z.object({}),
+    output: z.object({ items: z.array(z.object({ key: z.string(), label: z.string(), priceMinor: z.number().nullable(), currency: z.string().nullable() })) }),
+    hints: {},
+    annotations: { readOnlyHint: true },
+  }),
+  defineTool({
     name: "list_approvals",
     description: "Approvals waiting for the founder: what each one is for and since when.",
     input: z.object({ limit: z.number().int().min(1).max(100).default(20) }),
@@ -202,9 +225,9 @@ export const platformTools = [
   }),
   defineTool({
     name: "check_contact",
-    description: "Whether an address may be contacted at all: false when it is on the business's suppression list (opted out, bounced, complained).",
+    description: "Whether an address may be emailed, and on what basis: it agreed, it wrote or paid, the founder added it, or none. Not contactable when it opted out, bounced or complained, or when there is no basis.",
     input: z.object({ email: z.email() }),
-    output: z.object({ email: z.string(), contactable: z.boolean() }),
+    output: z.object({ email: z.string(), contactable: z.boolean(), basis: z.enum(RECIPIENT_BASES) }),
     hints: {},
     annotations: { readOnlyHint: true },
   }),
@@ -345,6 +368,14 @@ export const platformTools = [
     output: z.object({ draftVersion: z.number() }),
     hints: {},
   }),
+  defineTool({
+    name: "draft_follower_update",
+    description:
+      "Draft an update to the people who follow the project (WP-08 T3): a subject and plain text, using only facts from the positioning notes and the project's page, with one ask. It is saved as a draft for the founders, who check it and press Send themselves; this tool never sends anything and never sees an address. followers is how many people would get it.",
+    input: z.object({ subject: Text(200), body: Text(10000) }),
+    output: z.object({ updateId: z.string(), followers: z.number() }),
+    hints: {},
+  }),
 ] as const;
 
 type ToolIo<N extends (typeof platformTools)[number]["name"]> = Extract<(typeof platformTools)[number], { name: N }>;
@@ -380,6 +411,9 @@ export interface PlatformHost {
   listMessages(caller: PlatformCaller, args: PlatformArgs<"list_messages">): Promise<PlatformResult<"list_messages">>;
   readBusiness(caller: PlatformCaller): Promise<PlatformResult<"read_business">>;
   searchEntities(caller: PlatformCaller, args: PlatformArgs<"search_entities">): Promise<PlatformResult<"search_entities">>;
+  createEntity(caller: PlatformCaller, args: PlatformArgs<"create_entity">): Promise<PlatformResult<"create_entity">>;
+  logInteraction(caller: PlatformCaller, args: PlatformArgs<"log_interaction">): Promise<PlatformResult<"log_interaction">>;
+  listPayLinks(caller: PlatformCaller): Promise<PlatformResult<"list_pay_links">>;
   listApprovals(caller: PlatformCaller, args: PlatformArgs<"list_approvals">): Promise<PlatformResult<"list_approvals">>;
   listSessions(caller: PlatformCaller, args: PlatformArgs<"list_sessions">): Promise<PlatformResult<"list_sessions">>;
   checkContact(caller: PlatformCaller, args: PlatformArgs<"check_contact">): Promise<PlatformResult<"check_contact">>;
@@ -395,6 +429,7 @@ export interface PlatformHost {
   removeSkill(caller: PlatformCaller, args: PlatformArgs<"remove_skill">): Promise<PlatformResult<"remove_skill">>;
   readPositioning(caller: PlatformCaller): Promise<PlatformResult<"read_positioning">>;
   proposePositioningChange(caller: PlatformCaller, args: PlatformArgs<"propose_positioning_change">): Promise<PlatformResult<"propose_positioning_change">>;
+  draftFollowerUpdate(caller: PlatformCaller, args: PlatformArgs<"draft_follower_update">): Promise<PlatformResult<"draft_follower_update">>;
 }
 
 /** A platform tool refused for a reason the agent can act on: `not_found`, `not_yours` (someone else's task) or `invalid_state`. */

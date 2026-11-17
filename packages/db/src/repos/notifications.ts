@@ -6,8 +6,11 @@
  *
  * The sender claims a notification before it sends it: `claim` inserts the row with its dedupe key and answers null
  * when the key exists, so two passes (two replicas, a retried call) never send the same thing twice.
+ *
+ * `businessId` null (0132) is the email about a kept card to a person with no project (kind `getting_started`): the
+ * same calls take null and then match only the person's rows with no business.
  */
-import { LIMITED_EMAIL_KINDS, type FounderNotificationChannel, type FounderNotificationKind } from "@foundmill/shared";
+import { LIFECYCLE_EMAIL_KINDS, LIMITED_EMAIL_KINDS, type FounderNotificationChannel, type FounderNotificationKind, type LifecycleSent } from "@foundmill/shared";
 import { and, desc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 import { founderNotifications, type FounderNotification } from "../schema";
 import { maybeOne, type Executor } from "./_shared";
@@ -41,9 +44,12 @@ export interface NotificationView {
 
 const LIMITED_KINDS = [...LIMITED_EMAIL_KINDS];
 
+/** The rows of one business, or (null) the person's rows that belong to no business. */
+const inScope = (businessId: string | null) => (businessId === null ? isNull(founderNotifications.businessId) : eq(founderNotifications.businessId, businessId));
+
 export const notificationsRepo = {
   /** Inserts the notification as queued; null when one with the same dedupe key exists for this founder. */
-  async claim(db: Executor, businessId: string, input: ClaimNotificationInput): Promise<FounderNotification | null> {
+  async claim(db: Executor, businessId: string | null, input: ClaimNotificationInput): Promise<FounderNotification | null> {
     const rows = await db
       .insert(founderNotifications)
       .values({
@@ -68,7 +74,7 @@ export const notificationsRepo = {
   },
 
   /** Records a decision not to send (the row is still claimed, so the same thing is not reconsidered). */
-  async skip(db: Executor, businessId: string, input: { userId: string; kind: FounderNotificationKind; dedupeKey: string; reason: string; subject?: string }): Promise<boolean> {
+  async skip(db: Executor, businessId: string | null, input: { userId: string; kind: FounderNotificationKind; dedupeKey: string; reason: string; subject?: string }): Promise<boolean> {
     const rows = await db
       .insert(founderNotifications)
       .values({ businessId, userId: input.userId, kind: input.kind, dedupeKey: input.dedupeKey, status: "skipped", skipReason: input.reason, subject: input.subject ?? "" })
@@ -78,20 +84,37 @@ export const notificationsRepo = {
   },
 
   /** Whether a dedupe key was already decided on (sent, skipped or failed). */
-  async exists(db: Executor, businessId: string, userId: string, dedupeKey: string): Promise<boolean> {
-    const row = maybeOne(await db.select({ id: founderNotifications.id }).from(founderNotifications).where(and(eq(founderNotifications.businessId, businessId), eq(founderNotifications.userId, userId), eq(founderNotifications.dedupeKey, dedupeKey))).limit(1));
+  async exists(db: Executor, businessId: string | null, userId: string, dedupeKey: string): Promise<boolean> {
+    const row = maybeOne(await db.select({ id: founderNotifications.id }).from(founderNotifications).where(and(inScope(businessId), eq(founderNotifications.userId, userId), eq(founderNotifications.dedupeKey, dedupeKey))).limit(1));
     return row !== null;
   },
 
-  async markSent(db: Executor, businessId: string, id: string, result: { mode: "mock" | "live"; providerMessageId: string | null; at?: Date }): Promise<void> {
+  async markSent(db: Executor, businessId: string | null, id: string, result: { mode: "mock" | "live"; providerMessageId: string | null; at?: Date }): Promise<void> {
     await db
       .update(founderNotifications)
       .set({ status: "sent", mode: result.mode, providerMessageId: result.providerMessageId, sentAt: result.at ?? new Date() })
-      .where(and(eq(founderNotifications.businessId, businessId), eq(founderNotifications.id, id)));
+      .where(and(inScope(businessId), eq(founderNotifications.id, id)));
   },
 
-  async markFailed(db: Executor, businessId: string, id: string, reason: string): Promise<void> {
-    await db.update(founderNotifications).set({ status: "failed", skipReason: reason.slice(0, 200) }).where(and(eq(founderNotifications.businessId, businessId), eq(founderNotifications.id, id)));
+  async markFailed(db: Executor, businessId: string | null, id: string, reason: string): Promise<void> {
+    await db.update(founderNotifications).set({ status: "failed", skipReason: reason.slice(0, 200) }).where(and(inScope(businessId), eq(founderNotifications.id, id)));
+  },
+
+  /**
+   * The lifecycle emails (`getting_started`, `checkin`) decided on for these people in this business, or (null) with no
+   * business, any age, newest first, by person: what `dueLifecycle` and `dueCardEmail` read (WP-04 T11, T12, T16).
+   */
+  async lifecycleHistory(db: Executor, businessId: string | null, userIds: readonly string[]): Promise<Map<string, LifecycleSent[]>> {
+    const out = new Map<string, LifecycleSent[]>(userIds.map((u) => [u, []]));
+    if (userIds.length === 0) return out;
+    const rows = await db
+      .select({ userId: founderNotifications.userId, dedupeKey: founderNotifications.dedupeKey, status: founderNotifications.status, sentAt: founderNotifications.sentAt, openedAt: founderNotifications.openedAt })
+      .from(founderNotifications)
+      .where(and(inScope(businessId), inArray(founderNotifications.userId, [...userIds]), inArray(founderNotifications.kind, [...LIFECYCLE_EMAIL_KINDS])))
+      .orderBy(desc(founderNotifications.createdAt))
+      .limit(200 * userIds.length);
+    for (const r of rows) out.get(r.userId)?.push({ dedupeKey: r.dedupeKey, status: r.status, sentAt: r.sentAt, openedAt: r.openedAt });
+    return out;
   },
 
   /** The founder came back through one of its links (first time only). True when this call set it. */

@@ -13,12 +13,13 @@
  */
 import { useMemo, useState } from "react";
 import { ArrowLeftRight, Copy, Cpu, ExternalLink, UserRoundMinus, UserRoundPlus, Users } from "lucide-react";
-import { Button, DataTable, Explainer, FormCells, MODEL_LABELS, Panel, SQUAD_VIEWS, Term, formatRelative, squadColumns, useAgentPersona, useBuilderView, useGuided, type DataTableColumn, type RowAction, type SavedView, type SquadRow } from "@foundmill/dugout";
+import { Button, DataTable, Explainer, FormCells, MODEL_LABELS, Panel, RatingKey, SQUAD_VIEWS, Term, formatRelative, squadColumns, useAgentPersona, useBuilderView, useGuided, type DataTableColumn, type RowAction, type SavedView, type SquadRow } from "@foundmill/dugout";
 import { AGENT_STATUSES } from "@foundmill/shared/constants";
+import { startingTeam } from "@foundmill/shared/starting-team";
 import { teamCaption, teamTree, type TeamTree } from "@foundmill/shared/team-tiers";
 import { needsAttention } from "@foundmill/widgets/shared/health";
 import { moduleTabHref, useDepartments } from "@foundmill/widgets/shared/departments";
-import { useWidgetData } from "@foundmill/widgets/data";
+import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import { usePinToHomeMenu } from "@foundmill/widgets/shared/pin";
 import { useModuleEnv } from "../env";
@@ -117,6 +118,26 @@ export function squadTreeRows(tree: TeamTree<AgentRow>, currency: string, nameOf
   return tree.groups.map((g) => ({ ...row(g.agent), reports: g.specialists.length ? g.specialists.map(row) : undefined }));
 }
 
+/** What the first-week view reads from `today.get`: `firstWeek` is not null only in a project's first days. */
+interface TodayFirstWeek {
+  firstWeek?: unknown | null;
+}
+
+/**
+ * The first week's rows (WP-04 T4; founder decision 2: everyone is hired, the starting team is shown): the starting
+ * agents (`STARTING_TEAM_TEMPLATE_KEYS`, by agent type) and any agent with a current task, in the list's own order.
+ */
+export function firstWeekAgents(agents: readonly AgentRow[]): AgentRow[] {
+  const { starting } = startingTeam(agents.map((a) => ({ templateKey: a.agentType ?? "", agent: a })));
+  const shown = new Set(starting.map((s) => s.agent.id));
+  return agents.filter((a) => shown.has(a.id) || Boolean(a.currentTask));
+}
+
+export const FIRST_WEEK_WORDS = {
+  caption: "Showing who is working this week",
+  showAll: (n: number) => `Show all ${n}`,
+} as const;
+
 /** The Chief of Staff's row stays first whatever the sort. */
 const isChiefRow = (r: SquadRow) => r.tier === "chief";
 /** The CSV is flat; this column keeps the shape the table shows. */
@@ -138,7 +159,14 @@ export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
   const persona = useAgentPersona();
   // Leads first: the tiers and reporting lines from what is stored (packages/shared team-tiers).
   const tree = useMemo(() => teamTree(agents, departments.data), [agents, departments.data]);
-  const rows = useMemo(() => squadTreeRows(tree, currency, (a) => persona.labelFor(a)), [tree, currency, persona]);
+  // The first week (WP-04 T4): the starting team and whoever has work, until "Show all". A reader without Today, or a
+  // read still loading, sees everyone.
+  const today = useWidgetQuery<TodayFirstWeek>("today.get", {});
+  const [showAll, setShowAll] = useState(false);
+  const firstWeekRows = useMemo(() => firstWeekAgents(tree.visible), [tree.visible]);
+  const narrowed = !showAll && today.data?.firstWeek != null && firstWeekRows.length < tree.visible.length;
+  const shownTree = useMemo(() => (narrowed ? teamTree([...firstWeekRows, ...tree.background], departments.data) : tree), [narrowed, firstWeekRows, tree, departments.data]);
+  const rows = useMemo(() => squadTreeRows(shownTree, currency, (a) => persona.labelFor(a)), [shownTree, currency, persona]);
   // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance
   // is on (UX plan §7.10); a view the person left open still wins.
   const defaultViewId = guided ? SIMPLE_VIEW_ID : "general";
@@ -254,9 +282,11 @@ export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
             ) : null}
             {guided ? (
               <span data-testid="column-terms">
-                <Term id="rating">Rating</Term> is the 1–20 mean of the agent's skills. <Term id="model">Model</Term> is the AI it runs on.
+                <Term id="rating">Rating</Term> is the average of the agent's skills, from 1 to 20. New agents start on an estimate. <Term id="model">Model</Term> is the AI it runs on.
               </span>
             ) : null}
+            {/* The rating legend, once on the screen (WP-10 T9). */}
+            <RatingKey compact />
             <span>
               <Term id="wage">AI cost</Term> is this month's model, sandbox and tool spend so far, in US dollars (Estimate). Status updates arrive live.
             </span>
@@ -274,6 +304,14 @@ export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
         <div className="px-panel-pad pt-panel-pad empty:hidden">
           <Explainer {...TEAM_AGENTS_EXPLAINER} />
         </div>
+        {narrowed ? (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-panel-pad pt-panel-pad" data-testid="squad-first-week">
+            <span className="text-small text-secondary">{FIRST_WEEK_WORDS.caption}</span>
+            <Button size="sm" variant="ghost" onClick={() => setShowAll(true)} data-testid="squad-show-all">
+              {FIRST_WEEK_WORDS.showAll(tree.visible.length)}
+            </Button>
+          </div>
+        ) : null}
         <div className="min-w-0">
           <DataTable<SquadRow>
             aria-label="Agents"

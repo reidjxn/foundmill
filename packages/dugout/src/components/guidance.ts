@@ -16,4 +16,5 @@ export * from "./guidance/ConsequenceLine";
 export * from "./guidance/ReassuranceLine";
 export * from "./guidance/PlainFigure";
 export * from "./guidance/ScaleLabel";
+export * from "./guidance/RatingKey";
 export { FIXTURE_TERMS } from "./guidance/fixtures";

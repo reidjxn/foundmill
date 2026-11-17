@@ -312,8 +312,8 @@ export class MockModelClient implements ModelClient {
     if (failure) throw failure;
     const results = mockSearchResults(req.query, req.limit);
     const usage: TokenUsage = { inputTokens: estimateTokens(req.query), outputTokens: estimateTokens(JSON.stringify(results)), cacheCreationInputTokens: 0, cacheReadInputTokens: 0 };
-    const cost = meterWebSearch(usage, resolveModel(route).modelId, 1);
-    await this.emitUsage({ route, scope: req.scope, attribution: req.attribution }, usage, cost, 0, 0);
+    const cost = meterWebSearch(usage, resolveModel(route, undefined, { freePlan: req.freePlan }).modelId, 1);
+    await this.emitUsage({ route, scope: req.scope, attribution: req.attribution, freePlan: req.freePlan }, usage, cost, 0, 0);
     return { results, usage, cost, mode: "mock" };
   }
 

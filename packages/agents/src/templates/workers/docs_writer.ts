@@ -41,7 +41,7 @@ export const docsWriter = defineTemplate({
       },
     ],
   },
-  tools: [grant("platform", PLATFORM_BASE_TOOLS), grant("sandbox", SANDBOX_TOOLS), grant("github", ["repos.read", "pulls.create", "pulls.read"]), grant("notion", ["pages.search", "pages.read", "pages.write"]), grant("google_drive", ["files.list", "files.read", "files.write"])],
+  tools: [grant("platform", [...PLATFORM_BASE_TOOLS, "payments.links.read"]), grant("sandbox", SANDBOX_TOOLS), grant("github", ["repos.read", "pulls.create", "pulls.read"]), grant("notion", ["pages.search", "pages.read", "pages.write"]), grant("google_drive", ["files.list", "files.read", "files.write"])],
   skills: withCoreSkills(["technical_writing", "information_architecture", "example_quality"]),
   autonomy: AUTONOMY_INHERIT,
   neverDoes: ["Document unverified behavior", "Include secrets or internal URLs", "Publish without review", "Push to main"],

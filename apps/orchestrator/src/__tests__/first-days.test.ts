@@ -208,16 +208,29 @@ describe("Ready to start selling?", () => {
     expect(note.bodyMd).toContain("Bank feed import shipped: its 2 tasks are done.");
     expect((note.decision as { options: { id: string }[] }).options.map((o) => o.id)).toEqual(["start", "not_yet"]);
     expect((await repos.productSignoffs.latest(t.db, w.id)).readyToSell).toMatchObject({ status: "pending", snapshot: { roadmapItemId: item.id, title: "Bank feed import" } });
-    const demo = await repos.tasks.get(t.db, w.id, offered!.demoTaskId!);
-    expect(demo).toMatchObject({ kind: "research", status: "ready", assigneeAgentId: researcher.id, roadmapItemId: item.id });
-    expect(demo.title).toBe("Record a demo of Bank feed import for Independent accountants in the Nordics with 20 to 200 clients.");
-    expect(demo.goalMd).toContain("Nothing is sent to anyone.");
+    // Nothing anyone can open (no site): no demo task (WP-07 T9, A4-18).
+    expect(offered!.demoTaskId).toBeNull();
+    expect(researcher.id).toBeTruthy();
     // Once per business.
     expect(await offerReadyToSellAfterTask(t.deps, w.id, second)).toBeNull();
     // A business that already sells is never asked.
     const sellingItem = await repos.product.upsertRoadmapItem(t.db, t.businessId, { title: "Shipped slice", horizon: "now" });
     const done = await repos.tasks.create(t.db, t.businessId, { kind: "code", title: "Done work", roadmapItemId: sellingItem.id, status: "done" });
     expect(await offerReadyToSellAfterTask(t.deps, t.businessId, done)).toBeNull();
+  });
+
+  it("asks for a demo of the project's site, at its address, when it has one (WP-07 T9)", async () => {
+    const w = await waitingBusiness("Site Co");
+    const researcher = await repos.agents.create(t.db, w.id, { name: "Rhea", agentType: "researcher", layer: "worker", status: "idle" });
+    const item = await repos.product.upsertRoadmapItem(t.db, w.id, { title: "Offer page", horizon: "now" });
+    const done = await repos.tasks.create(t.db, w.id, { kind: "code", title: "Build the offer page", roadmapItemId: item.id, status: "done" });
+    await repos.sites.ensure(t.db, w.id, { slug: `site-co-${Date.now().toString(36)}` });
+    const release = await repos.sites.saveRelease(t.db, w.id, { files: [{ path: "index.html", sha256: "a".repeat(64), size: 1 }], state: "preview" });
+    const offered = await offerReadyToSellAfterTask({ ...t.deps, env: { ...t.deps.env, SITES_DOMAIN: "sites.localhost" } }, w.id, done);
+    const demo = await repos.tasks.get(t.db, w.id, offered!.demoTaskId!);
+    expect(demo).toMatchObject({ kind: "research", status: "ready", assigneeAgentId: researcher.id, roadmapItemId: item.id });
+    expect(demo.goalMd).toContain(`http://p-${release.previewToken}.sites.localhost/`);
+    expect(demo.goalMd).toContain("Nothing is sent to anyone.");
   });
 
   it("on staging the note names only channels that can run, and says what opens first when none can (founder, 2026-11-11)", async () => {

@@ -30,7 +30,7 @@ export { postDraftMedia } from "./postDraftMedia";
 export type { PostDraftMediaResult } from "./postDraftMedia";
 export { importBusiness } from "./importBusiness";
 export type { ImportBusinessResult } from "./importBusiness";
-export { businessFoundations, FOUNDATIONS_DRAFT_FAILED, FOUNDATIONS_PAGE_PATCH, FOUNDATIONS_SAVE_FAILED, FOUNDATIONS_SECOND_READ_PATCH, FOUNDATIONS_STAGED_PATCH } from "./businessFoundations";
+export { businessFoundations, FOUNDATIONS_DRAFT_FAILED, FOUNDATIONS_PAGE_PATCH, FOUNDATIONS_POSITIONING_PATCH, FOUNDATIONS_SAVE_FAILED, FOUNDATIONS_SECOND_READ_PATCH, FOUNDATIONS_STAGED_PATCH } from "./businessFoundations";
 export {
   journeyDailyRefresh,
   journeyMatviewRefresh,
@@ -47,6 +47,7 @@ export {
   businessDeletionSweep,
   founderNotifications,
   waitlistAdmissions,
+  pageCatchUp,
 } from "./schedules";
 export type { BusinessDeletionResult, EngineReconcileResult } from "./schedules";
 export { sourceWatch, sourceWatchSweep, SOURCE_WATCH_FAILED_REASON } from "./sourceWatch";

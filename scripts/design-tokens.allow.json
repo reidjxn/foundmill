@@ -1,0 +1,134 @@
+{
+  "apps/web/app/layout.tsx": {
+    "count": 1,
+    "reason": "The viewport themeColor is metadata, read by the browser before any CSS loads."
+  },
+  "apps/web/app/login/SignInCode.tsx": {
+    "count": 1,
+    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
+  },
+  "apps/web/components/agents/CustomSkillsPanel.tsx": {
+    "count": 1,
+    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
+  },
+  "apps/web/components/agents/LogsTab.tsx": {
+    "count": 1,
+    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
+  },
+  "apps/web/components/landing/examples/glitchwick.ts": {
+    "count": 2,
+    "reason": "Example businesses: their brand colors are data, not design tokens."
+  },
+  "apps/web/components/landing/examples/identity.ts": {
+    "count": 6,
+    "reason": "Example businesses: their brand colors are data, not design tokens."
+  },
+  "apps/web/components/landing/examples/sessions/glitchwick.ts": {
+    "count": 3,
+    "reason": "Example businesses: their brand colors are data, not design tokens."
+  },
+  "apps/web/components/landing/examples/sessions/tutorlane.ts": {
+    "count": 2,
+    "reason": "Example businesses: their brand colors are data, not design tokens."
+  },
+  "apps/web/components/landing/examples/tutorlane.ts": {
+    "count": 1,
+    "reason": "Example businesses: their brand colors are data, not design tokens."
+  },
+  "apps/web/components/landing/first-timer-examples.ts": {
+    "count": 2,
+    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
+  },
+  "apps/web/components/landing/parts.tsx": {
+    "count": 1,
+    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
+  },
+  "apps/web/components/live/MessagesPanel.tsx": {
+    "count": 1,
+    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
+  },
+  "apps/web/components/new/commit/LogoColoursEditor.tsx": {
+    "count": 1,
+    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
+  },
+  "apps/web/components/new/commit/naming.ts": {
+    "count": 4,
+    "reason": "Suggested brand colors offered to the founder: data, not design tokens."
+  },
+  "apps/web/components/new/ideate/IdeationStudio.tsx": {
+    "count": 1,
+    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
+  },
+  "apps/web/components/new/import/ImportScreen.tsx": {
+    "count": 1,
+    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
+  },
+  "apps/web/components/shell/ShellSkeleton.tsx": {
+    "count": 1,
+    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
+  },
+  "apps/web/components/spec/spec-user.tsx": {
+    "count": 8,
+    "reason": "The spec page mirrors token values for a reader of the spec."
+  },
+  "packages/dugout/src/components/agents/MonacoDiff.tsx": {
+    "count": 20,
+    "reason": "Monaco and xterm take literal colors; each reads the token at runtime and keeps the hex only as its fallback."
+  },
+  "packages/dugout/src/components/agents/TerminalView.tsx": {
+    "count": 13,
+    "reason": "Monaco and xterm take literal colors; each reads the token at runtime and keeps the hex only as its fallback."
+  },
+  "packages/dugout/src/components/agents/TileFrame.tsx": {
+    "count": 11,
+    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
+  },
+  "packages/dugout/src/components/agents/replay.ts": {
+    "count": 17,
+    "reason": "Recorded session data: colors in replayed terminal output."
+  },
+  "packages/dugout/src/components/foundation/GoogleSignInButton.tsx": {
+    "count": 4,
+    "reason": "Google sign-in branding requires its own colors."
+  },
+  "packages/dugout/src/components/foundation/logo-samples.ts": {
+    "count": 12,
+    "reason": "Sample logos: brand colors are data, not design tokens."
+  },
+  "packages/dugout/src/components/journey/ribbon/JourneyRibbon.tsx": {
+    "count": 4,
+    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
+  },
+  "packages/dugout/src/components/journey/stage/JourneyStage.tsx": {
+    "count": 3,
+    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
+  },
+  "packages/dugout/src/components/share/ShowcaseConsent.tsx": {
+    "count": 1,
+    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
+  },
+  "packages/dugout/src/components/shell/AreaLine.tsx": {
+    "count": 1,
+    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
+  },
+  "packages/dugout/src/components/shell/BusinessSwitcher.tsx": {
+    "count": 1,
+    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
+  },
+  "packages/dugout/src/lib/colour.ts": {
+    "count": 2,
+    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
+  },
+  "packages/modules/src/product/research/ResearchPlanPanel.tsx": {
+    "count": 1,
+    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
+  },
+  "packages/modules/src/product/roadmap/Timeline.tsx": {
+    "count": 1,
+    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
+  },
+  "packages/modules/src/team/skills.tsx": {
+    "count": 1,
+    "reason": "Owed when the file is next changed (WP-10 T13 baseline)."
+  }
+}

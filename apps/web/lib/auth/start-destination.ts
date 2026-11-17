@@ -14,6 +14,8 @@
  *  3. Otherwise the person's home, /home (docs/THESIS_REVIEW.md 2.4).
  */
 import { routes } from "@foundmill/widgets/shared/routes";
+import { IDEA_CLAIM_PARAM } from "@foundmill/shared";
+import { KEEP_THEN_PARAM, KEEP_THEN_STUDIO } from "./constants";
 import { pickCurrentBusiness } from "./current-business";
 
 export interface StartInput {
@@ -33,4 +35,19 @@ export function startDestination(input: StartInput): string {
   const current = pickCurrentBusiness(input.lastBusinessId, input.businesses);
   if (current) return routes.today(current.id);
   return "/home";
+}
+
+/**
+ * Where to keep a waiting card (`/new/card/keep`), or null when there is none: with the sign-in link's claim token when
+ * the card came by the link, and `then=studio` when the person chose "Shape it in the Ideation Studio", from the address
+ * (`studio`) or, for the waitlist's card, as the waitlist kept it (`card.then`, 0127): a person let in from the waitlist
+ * who chose the Studio is taken there on their first sign-in after, on any browser.
+ */
+export function keepCardPathFor(card: { source: "browser" | "link" | "waitlist"; then: "studio" | null } | null, input: { claim: string | null; studio: boolean }): string | null {
+  if (!card) return null;
+  const query = new URLSearchParams();
+  if (input.claim && card.source === "link") query.set(IDEA_CLAIM_PARAM, input.claim);
+  if (input.studio || card.then === KEEP_THEN_STUDIO) query.set(KEEP_THEN_PARAM, KEEP_THEN_STUDIO);
+  const search = query.toString();
+  return search ? `/new/card/keep?${search}` : "/new/card/keep";
 }

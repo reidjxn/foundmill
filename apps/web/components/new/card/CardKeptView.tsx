@@ -3,15 +3,13 @@
  * The kept card's page (app/new/card/[ideaId]): "<name> is yours", the card, and one next step. Works from 390 px.
  *
  * The next step is the three questions about the person when the profile is missing (`/onboarding?next=` this card's
- * Commit, so the card keeps its thread; WP-04 T1), else Commit. The three questions work on a phone. Commit and "See
- * more directions" are still desktop-only, so on a small screen Commit is offered by email (`NextStepOnComputer`,
- * WP-03 T3) and the studio is not linked; WP-04 T2 makes Commit work at any width.
+ * Commit, so the card keeps its thread; WP-04 T1), else Commit. Both work on a phone (Commit since WP-04 T2). "See
+ * more directions" opens the studio, which is still desktop-only, so a small screen is not offered it.
  */
 import Link from "next/link";
 import { ArrowRight, Columns2 } from "lucide-react";
 import { Button, IdeaCard, isViewportTooSmall, useViewportWidth, type IdeaCardData } from "@foundmill/dugout";
 import { StudioFrame } from "@/components/new/StudioFrame";
-import { NextStepOnComputer } from "@/components/providers/ContinueLater";
 
 export interface CardKeptViewProps {
   ideaId: string;
@@ -31,7 +29,7 @@ export const CARD_KEPT_WORDS = {
 export function CardKeptView({ ideaId, card, viewer, profileComplete }: CardKeptViewProps) {
   const build = `/new/commit/${ideaId}`;
   const next = profileComplete ? build : `/onboarding?next=${build}`;
-  // No link from a phone into a desktop-only page (WP-03 T3): Commit until WP-04 T2, and the studio.
+  // No link from a phone into a desktop-only page (WP-03 T3): the studio.
   const small = isViewportTooSmall(useViewportWidth());
   return (
     <StudioFrame smallScreen title={<>{card.name} is yours</>} lede={CARD_KEPT_WORDS.lede} viewer={viewer} width="measure">
@@ -39,15 +37,11 @@ export function CardKeptView({ ideaId, card, viewer, profileComplete }: CardKept
         <IdeaCard card={card} founderFitKnown={false} className="shrink-0" />
         <div className="flex w-full min-w-0 flex-col gap-4 @page-wide:pt-2">
           {!profileComplete ? <p className="t-reading text-prose">{CARD_KEPT_WORDS.profileWhy}</p> : null}
-          {small && profileComplete ? (
-            <NextStepOnComputer path={next} />
-          ) : (
-            <Button asChild variant="glass" size="lg" iconRight={ArrowRight} className="min-h-tap w-full @page-wide:w-auto @page-wide:self-start">
-              <Link href={next} data-testid="card-kept-next">
-                {profileComplete ? CARD_KEPT_WORDS.build : CARD_KEPT_WORDS.profileNext}
-              </Link>
-            </Button>
-          )}
+          <Button asChild variant="glass" size="lg" iconRight={ArrowRight} className="min-h-tap w-full @page-wide:w-auto @page-wide:self-start">
+            <Link href={next} data-testid="card-kept-next">
+              {profileComplete ? CARD_KEPT_WORDS.build : CARD_KEPT_WORDS.profileNext}
+            </Link>
+          </Button>
           {small ? null : (
             <Button asChild variant="ghost" icon={Columns2} className="min-h-tap self-start">
               <Link href="/new/ideate">{CARD_KEPT_WORDS.more}</Link>

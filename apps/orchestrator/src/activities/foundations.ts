@@ -28,7 +28,9 @@ import {
   foundationsSignoffNotes,
   planRoadmapHref,
   PROJECT_PAGE_ROUTE,
+  POSITIONING_USAGE_KIND,
   PROJECT_PAGE_USAGE_KIND,
+  runPositioningDraft,
   progressEventPayload,
   readFoundationsProgress,
   readyEventPayload,
@@ -53,7 +55,7 @@ import { CREDITS_CURRENCY } from "@foundmill/config";
 import { repos, type Executor } from "@foundmill/db";
 import type { OrchestratorDeps } from "../deps";
 import { agentActor, emitEvent, systemActor } from "../events";
-import type { BusinessFoundationsInput, FoundationsDrafted, FoundationsPlanned, FoundationsStepDone, ProjectPageStepDone } from "./types";
+import type { BusinessFoundationsInput, FoundationsDrafted, FoundationsPlanned, FoundationsStepDone, ProjectPageStepDone, ScheduleResult } from "./types";
 
 /** Errors a retry cannot fix: the key was refused, the model declined, or the model account cannot pay (until someone adds credit). */
 const NON_RETRYABLE_CODES = new Set(["auth", "refusal", "request", "billing"]);
@@ -101,7 +103,7 @@ export const PROJECT_PAGE_DRAFT_ERROR = "ProjectPageDraftError";
  * Where the page step writes (package 1.2): `repos.pages.writeTeamDraft`, the call the api's in-process run makes too,
  * with the note's `inbox.item_created` event through the outbox in the same transaction.
  */
-export function projectPageStore(db: Executor, businessId: string, authorAgentId: string | null): ProjectPageStore {
+export function projectPageStore(db: Executor, businessId: string, authorAgentId: string | null, options: { catchUp?: boolean } = {}): ProjectPageStore {
   return {
     needed: () => repos.pages.teamDraftNeeded(db, businessId),
     async write({ draft, source, reason, note, usage }) {
@@ -114,6 +116,7 @@ export function projectPageStore(db: Executor, businessId: string, authorAgentId
         reason,
         model: { route: PROJECT_PAGE_ROUTE, model: usage.model, mode: usage.mode, costMinor: usage.costMinor, costLabel: "Estimate", runner: "temporal" },
         note,
+        catchUp: options.catchUp,
         onInboxItem: (tx, item) =>
           emitEvent(tx, {
             businessId,
@@ -126,6 +129,9 @@ export function projectPageStore(db: Executor, businessId: string, authorAgentId
     },
   };
 }
+
+/** A project committed more recently than this is left to its own first session, which drafts the page itself. */
+export const PAGE_CATCH_UP_MIN_AGE_MS = 60 * 60 * 1000;
 
 export function createFoundationsActivities(deps: OrchestratorDeps) {
   /**
@@ -205,7 +211,7 @@ export function createFoundationsActivities(deps: OrchestratorDeps) {
         if (!row || row.status !== "drafting" || row.attempt !== input.attempt) return skipped;
         const inputs = await repos.foundations.inputs(deps.db, input.businessId);
         const done = await runProjectPageStep(
-          { models: deps.models, inputs, signal: ctx?.cancellationSignal, scope: `foundations:${input.businessId}`, attribution: { businessId: input.businessId, agentId: inputs.authorAgentId ?? undefined, kind: PROJECT_PAGE_USAGE_KIND }, log: deps.log },
+          { models: deps.models, inputs, positioning: await repos.positioning.approvedText(deps.db, input.businessId), signal: ctx?.cancellationSignal, scope: `foundations:${input.businessId}`, attribution: { businessId: input.businessId, agentId: inputs.authorAgentId ?? undefined, kind: PROJECT_PAGE_USAGE_KIND }, log: deps.log },
           projectPageStore(deps.db, input.businessId, inputs.authorAgentId),
         );
         return { current: true, written: done.written, source: done.source, inboxItemId: done.inboxItemId, usage: usageModel(done.usage) };
@@ -215,6 +221,68 @@ export function createFoundationsActivities(deps: OrchestratorDeps) {
       } finally {
         if (beat) clearInterval(beat);
       }
+    },
+
+    /**
+     * The page catch-up (WP-12 T1): a draft page and the Product lead's note for each real project older than public
+     * pages that has no page row, oldest first, at most `limit` (default 25). Calls `runProjectPageStep` directly, as
+     * `draftProjectPage` does for a first session, but without the foundations row. Never published; the note carries
+     * `catch_up` so no email goes out about it unless PAGE_CATCH_UP_EMAIL allows it. One project failing is logged and
+     * the loop goes on; a project with a row is never written over (`teamDraftNeeded`).
+     */
+    async draftMissingProjectPages(input: { businessIds?: string[]; limit?: number; at?: string } = {}): Promise<ScheduleResult> {
+      const now = input.at ? new Date(input.at) : new Date();
+      const limit = input.limit ?? 25;
+      const ctx = activityContext();
+      const candidates = await repos.pages.listMissingTeamDraft(deps.db, { committedBefore: new Date(now.getTime() - PAGE_CATCH_UP_MIN_AGE_MS), limit: input.businessIds ? 10_000 : limit });
+      const only = input.businessIds ? new Set(input.businessIds) : null;
+      const ids = candidates.filter((id) => !only || only.has(id)).slice(0, limit);
+      const result: ScheduleResult = { businesses: ids.length, touched: 0, eventIds: [], notes: [] };
+      for (const businessId of ids) {
+        ctx?.heartbeat({ businessId, step: "page-catch-up" });
+        try {
+          const inputs = await repos.foundations.inputs(deps.db, businessId);
+          const done = await runProjectPageStep(
+            { models: deps.models, inputs, signal: ctx?.cancellationSignal, scope: `foundations:${businessId}`, attribution: { businessId, agentId: inputs.authorAgentId ?? undefined, kind: PROJECT_PAGE_USAGE_KIND }, log: deps.log },
+            projectPageStore(deps.db, businessId, inputs.authorAgentId, { catchUp: true }),
+          );
+          if (done.written) result.touched += 1;
+        } catch (err) {
+          deps.log.warn({ businessId, err: (err as Error)?.message }, "page catch-up: the draft could not be written");
+          result.notes.push(`${businessId}: not written`);
+        }
+      }
+      return result;
+    },
+
+    /**
+     * After the page (WP-08 T1): the Product lead's first positioning notes, from the founder's own words, written as the
+     * copy waiting for the founder with one note. Nothing is asked of the model when the project already has a copy, so
+     * a retry or a second run writes nothing. The starter (the one line only) is written when the call fails. Never
+     * approved here: approving is the founder's act.
+     */
+    async draftPositioning(input: BusinessFoundationsInput): Promise<{ written: boolean; source: "model" | "starter" | null }> {
+      const row = await repos.foundations.get(deps.db, input.businessId);
+      if (!row || row.status !== "drafting" || row.attempt !== input.attempt) return { written: false, source: null };
+      const copies = await repos.positioning.get(deps.db, input.businessId);
+      if (copies.approved || copies.draft) return { written: false, source: null };
+      const inputs = await repos.foundations.inputs(deps.db, input.businessId);
+      const ctx = activityContext();
+      const drafted = await runPositioningDraft(deps.models, inputs, { attribution: { businessId: input.businessId, agentId: inputs.authorAgentId ?? undefined, kind: POSITIONING_USAGE_KIND }, signal: ctx?.cancellationSignal, scope: `foundations:${input.businessId}` });
+      const out = await repos.positioning.writeDraft(deps.db, input.businessId, {
+        notes: drafted.notes,
+        agentId: inputs.authorAgentId,
+        note: true,
+        onlyIfEmpty: true,
+        onInboxItem: (tx, item) =>
+          emitEvent(tx, {
+            businessId: input.businessId,
+            type: "inbox.item_created",
+            actor: agentActor(item.fromAgentId!),
+            payload: { inboxItemId: item.id, type: item.type, fromAgentId: item.fromAgentId, subject: item.subject, blocksContinue: item.blocksContinue, sourceEventIds: [], cost: { amountMinor: drafted.costMinor, currency: CREDITS_CURRENCY } },
+          }),
+      });
+      return { written: out.written, source: drafted.source };
     },
 
     /** Step 1: start or resume the progress, then the plan (the vision first). Returns the section batches still to write. */

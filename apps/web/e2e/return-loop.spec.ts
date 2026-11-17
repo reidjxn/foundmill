@@ -20,7 +20,10 @@ test.describe("the return loop", () => {
     const screen = await openSettings(page, "preferences");
     const panel = screen.getByTestId("email-notifications-panel");
     await expect(panel).toBeVisible({ timeout: LONG });
-    for (const kind of ["decision-waiting", "win", "milestone", "run-finished", "credits", "daily-brief", "weekly-review"]) await expect(panel.getByTestId(`email-${kind}-switch`)).toBeVisible();
+    for (const kind of ["decision-waiting", "win", "milestone", "run-finished", "credits", "daily-brief", "weekly-review", "getting-started", "checkin"]) await expect(panel.getByTestId(`email-${kind}-switch`)).toBeVisible();
+    // The lifecycle emails' switches (WP-04 T11), each with its label.
+    await expect(panel.getByText("Help while you set up", { exact: true })).toBeVisible();
+    await expect(panel.getByText("When your project has been quiet", { exact: true })).toBeVisible();
     const brief = panel.getByTestId("email-daily-brief-switch");
     await expect(brief).toHaveAttribute("aria-checked", "true", { timeout: LONG });
     await brief.click();
@@ -76,6 +79,15 @@ test.describe("the return loop", () => {
     await context.close();
   });
 
+  test("on a phone, the link every lifecycle email opens (Today, with via=email) shows Today and no larger-window ask (WP-04 T11)", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openBusiness(page, "today");
+    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/today?via=email&n=00000000-0000-4000-8000-000000000001`);
+    await expect(page.getByTestId("today-screen")).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("needs-larger-window")).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+  });
+
   test("on a phone, the one-click answer is a 44 px button, and a failed answer says so with Try again (WP-04 T14)", async ({ browser }) => {
     const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
     const page = await context.newPage();
@@ -102,15 +114,19 @@ test.describe("the return loop", () => {
     await context.close();
   });
 
-  test("Today shows the founder's streak, today counted once they are in", async ({ page }) => {
+  test("Today shows the founder's streak quietly, low on the page, today counted once they are in (WP-04 D5)", async ({ page }) => {
     await openBusiness(page, "today");
     const strip = page.getByTestId("streak-strip");
     await expect(strip).toBeVisible({ timeout: LONG });
     await expect(strip.getByTestId("streak-headline")).toHaveText(/\d+ days? in a row|Start a streak today/);
-    await expect(strip.getByRole("list", { name: "The last seven days" }).locator("li")).toHaveCount(7);
-    // The ping on open counts today: a reload says so.
+    // Only the days the founder came, and never a warning that the streak is about to end.
+    await expect(strip).not.toContainText(/Not opened|Open your business today/);
+    // The ping on open counts today: a reload draws at least today's dot.
     await page.reload();
-    await expect(page.getByTestId("streak-strip").locator('li[data-state]').last()).toHaveAttribute("data-state", "visited", { timeout: LONG });
+    await expect(page.getByTestId("streak-strip").getByRole("list", { name: "Days you opened it this week" }).locator("li").last()).toBeAttached({ timeout: LONG });
+    // It sits under the week plan, after the goal.
+    const order = await page.locator("[data-testid=today-screen] [data-order]").getAttribute("data-order");
+    expect(order!.split(" ").indexOf("streak")).toBeGreaterThan(order!.split(" ").indexOf("week"));
   });
 
   test("the presence ping records the founder in the business", async ({ page, playwright }) => {

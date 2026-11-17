@@ -58,6 +58,12 @@ const TABLE: Row[] = [
   { name: "permanent deletion (hard gate)", tool: TOOLS.deleteForever, expect: { augmented: "deny", assisted: "deny", automated: "deny" }, policy: "hard-gate" },
   { name: "suppressed recipient", tool: TOOLS.sendEmail, ctx: { suppressed: true, recipient: "a@example.com" }, expect: { augmented: "deny", assisted: "deny", automated: "deny" }, policy: "suppressed-recipient" },
   { name: "recipient first seen in untrusted content", tool: TOOLS.sendEmail, ctx: { recipientFirstSeenInUntrusted: true, recipient: "b@example.com" }, expect: { augmented: "deny", assisted: "deny", automated: "deny" }, policy: "untrusted-recipient" },
+  // No email without a basis (WP-08 T10): the gateway sets `recipientBasis` for the mail-sending tools only.
+  { name: "email to an address with no basis", tool: TOOLS.sendEmail, ctx: { recipientBasis: "none", recipient: "c@example.com" }, expect: { augmented: "deny", assisted: "deny", automated: "deny" }, policy: "mail-needs-basis" },
+  { name: "email to a person the founder added", tool: TOOLS.sendEmail, ctx: { recipientBasis: "recorded", recipient: "d@example.com" }, expect: { augmented: "ask", assisted: "ask", automated: "ask" }, policy: "mail-recorded-basis-asks" },
+  { name: "email to a person who agreed", tool: TOOLS.sendEmail, ctx: { recipientBasis: "consent" }, expect: { augmented: "ask", assisted: "allow", automated: "allow" } },
+  { name: "email to a person who wrote or paid", tool: TOOLS.sendEmail, ctx: { recipientBasis: "relationship" }, expect: { augmented: "ask", assisted: "allow", automated: "allow" } },
+  { name: "no basis, but the tool contacts nobody", tool: TOOLS.internalDraft, ctx: { recipientBasis: "none" }, expect: { augmented: "allow", assisted: "allow", automated: "allow" } },
   { name: "suppressed but tool does not contact anyone", tool: TOOLS.internalDraft, ctx: { suppressed: true, recipientFirstSeenInUntrusted: true }, expect: { augmented: "allow", assisted: "allow", automated: "allow" } },
   { name: "finance read-only tool", tool: TOOLS.financeReconcile, expect: { augmented: "allow", assisted: "allow", automated: "allow" } },
   { name: "finance tool that would pay out (AC-11.8.5)", tool: TOOLS.financePayout, ctx: { amountMinor: 1 }, expect: { augmented: "deny", assisted: "deny", automated: "deny" }, policy: "finance-never-spends" },

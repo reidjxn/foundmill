@@ -27,6 +27,13 @@ import type { TaskKind } from "@foundmill/shared";
 
 /** The one credential the SDK host process has to hold. */
 export const SDK_MODEL_KEY_NAME = "ANTHROPIC_API_KEY";
+/** The same credential as a bearer token, for another provider's Anthropic-compatible endpoint (WP-13: Z.ai). */
+export const SDK_BEARER_KEY_NAME = "ANTHROPIC_AUTH_TOKEN";
+/**
+ * Every model slot Claude Code reads. A session on another provider sets each to its model, so no call (a subagent, a
+ * background summary) leaves under an Anthropic id: Z.ai answers an unknown id with some GLM model, unpriced (WP-13 T1).
+ */
+export const SDK_MODEL_SLOT_NAMES = ["ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_SMALL_FAST_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL"] as const;
 /** Environment variable carrying the short-lived gateway session token (a JWT that expires with the session). */
 export const SDK_SESSION_TOKEN_NAME = "FM_GATEWAY_SESSION_TOKEN";
 
@@ -54,6 +61,11 @@ export interface SdkEnvInput {
   sandboxEnv: Record<string, string>;
   /** Host environment to copy `SDK_HOST_PASSTHROUGH` from. Defaults to `process.env`. */
   host?: Record<string, string | undefined>;
+  /**
+   * Another provider's Anthropic-compatible endpoint and the one model every slot uses (WP-13: a free session on GLM
+   * through Z.ai). The key is then sent as a bearer token and the host's `ANTHROPIC_BASE_URL` is not used.
+   */
+  endpoint?: { baseURL: string; modelId: string };
 }
 
 function assertNoProxyCredentials(name: string, value: string): void {
@@ -90,10 +102,18 @@ export function sdkEnvFor(input: SdkEnvInput): Record<string, string> {
   env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1";
   env.DISABLE_AUTOUPDATER = "1";
   for (const [k, v] of Object.entries(input.sandboxEnv)) {
-    if (k === SDK_MODEL_KEY_NAME || k === SDK_SESSION_TOKEN_NAME || k === "HOME" || k === "PATH") throw new Error(`sandbox env may not set ${k}`);
+    if (k === SDK_MODEL_KEY_NAME || k === SDK_BEARER_KEY_NAME || k === SDK_SESSION_TOKEN_NAME || k === "HOME" || k === "PATH" || k === "ANTHROPIC_BASE_URL") throw new Error(`sandbox env may not set ${k}`);
     env[k] = v;
   }
   env[SDK_SESSION_TOKEN_NAME] = input.sessionToken;
+  if (input.endpoint) {
+    for (const k of SDK_MODEL_SLOT_NAMES) if (k in input.sandboxEnv) throw new Error(`sandbox env may not set ${k}`);
+    env.ANTHROPIC_BASE_URL = input.endpoint.baseURL;
+    env[SDK_BEARER_KEY_NAME] = input.apiKey;
+    for (const k of SDK_MODEL_SLOT_NAMES) env[k] = input.endpoint.modelId;
+    assertNoLongLivedCredentials(env, { allowNames: [SDK_BEARER_KEY_NAME], allowValues: [SDK_BEARER_KEY_NAME] });
+    return env;
+  }
   env[SDK_MODEL_KEY_NAME] = input.apiKey;
   assertNoLongLivedCredentials(env, { allowNames: [SDK_MODEL_KEY_NAME], allowValues: [SDK_MODEL_KEY_NAME] });
   return env;

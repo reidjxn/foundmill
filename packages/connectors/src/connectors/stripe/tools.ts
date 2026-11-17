@@ -77,7 +77,8 @@ export const stripeTools = [
     description: "Create and finalize an invoice for a customer (collection by email, due in N days). Nothing is sent until send_invoice.",
     input: z.object({ customerId: StripeId("cus"), currency: Currency, lines: z.array(LineItem).min(1).max(50), daysUntilDue: z.number().int().min(1).max(90).default(14), memo: z.string().max(2000).optional() }),
     output: Invoice,
-    hints: {},
+    // Finalized on Stripe and kept there for good (a void is all that undoes it): asks first (founder, Nov 16, 2026).
+    hints: { irreversible: true },
   }),
   defineTool({ name: "send_invoice", description: "Email a finalized invoice to the customer (external message on behalf of the business; BUILD §2.3).", input: z.object({ invoiceId: StripeId("in") }), output: Invoice, hints: { contactsThirdParty: true, irreversible: true } }),
   defineTool({
@@ -85,7 +86,8 @@ export const stripeTools = [
     description: "Hosted checkout link for a one-off payment or a subscription. The customer pays; the business spends nothing.",
     input: z.object({ mode: z.enum(["payment", "subscription"]), priceId: StripeId("price").optional(), lines: z.array(LineItem.extend({ currency: Currency })).max(20).default([]), successUrl: z.url(), cancelUrl: z.url(), customerEmail: z.email().optional(), customerId: StripeId("cus").optional(), metadata: z.record(z.string().max(40), z.string().max(500)).default({}) }).refine((a) => a.priceId || a.lines.length > 0, { message: "priceId or lines required" }),
     output: CheckoutSession,
-    hints: {},
+    // A payment page a customer can see and pay: asks first (founder, Nov 16, 2026).
+    hints: { irreversible: true },
   }),
   defineTool({ name: "list_charges", description: "Payments taken, newest first, with how much of each was refunded; filter by customer.", input: z.object({ customerId: StripeId("cus").optional(), limit: z.number().int().min(1).max(100).default(25) }), output: z.object({ items: z.array(Charge), hasMore: z.boolean() }), hints: {}, untrusted: "api", untrustedRef: (a) => `charges:${a.customerId ?? "all"}`, annotations: { readOnlyHint: true } }),
   defineTool({ name: "list_payouts", description: "Recent payouts to the bank account.", input: z.object({ limit: z.number().int().min(1).max(100).default(10) }), output: z.object({ items: z.array(Payout) }), hints: {}, annotations: { readOnlyHint: true } }),

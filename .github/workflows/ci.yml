@@ -81,6 +81,12 @@ jobs:
       - name: Focus rings (no outline-none beside a focus outline width or color, which Tailwind v4 would draw as nothing)
         if: ${{ !cancelled() }}
         run: node scripts/focus-visible.mjs
+      - name: Design tokens self-test
+        if: ${{ !cancelled() }}
+        run: node --test scripts/design-tokens.test.mjs
+      - name: Design tokens (no new hex colors or arbitrary Tailwind values outside tokens.css; allowlist in scripts/design-tokens.allow.json)
+        if: ${{ !cancelled() }}
+        run: node scripts/design-tokens.mjs
       - name: Upload the vocabulary sweep
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
@@ -240,7 +246,7 @@ jobs:
           - { name: "orchestrator", pkgs: "@foundmill/orchestrator", run: "pnpm --filter @foundmill/orchestrator exec vitest run --maxWorkers=2" }
           - { name: "dugout", pkgs: "@foundmill/dugout", run: "pnpm --filter @foundmill/dugout exec vitest run --maxWorkers=2" }
           - { name: "modules, widgets", pkgs: "@foundmill/modules @foundmill/widgets", run: "pnpm exec turbo run test --continue --concurrency=1 --output-logs=new-only --filter=@foundmill/modules --filter=@foundmill/widgets -- --maxWorkers=2" }
-          - { name: "services", pkgs: "@foundmill/ingest @foundmill/sites @foundmill/composer @foundmill/stream @foundmill/collab @foundmill/social", run: "pnpm exec turbo run test --continue --concurrency=1 --output-logs=new-only --filter=@foundmill/ingest --filter=@foundmill/sites --filter=@foundmill/composer --filter=@foundmill/stream --filter=@foundmill/collab --filter=@foundmill/social -- --maxWorkers=2" }
+          - { name: "services", pkgs: "@foundmill/ingest @foundmill/sites @foundmill/composer @foundmill/stream @foundmill/collab", run: "pnpm exec turbo run test --continue --concurrency=1 --output-logs=new-only --filter=@foundmill/ingest --filter=@foundmill/sites --filter=@foundmill/composer --filter=@foundmill/stream --filter=@foundmill/collab -- --maxWorkers=2" }
           - { name: "libraries", pkgs: "@foundmill/connectors @foundmill/evals @foundmill/agents @foundmill/events @foundmill/shared @foundmill/journey @foundmill/models @foundmill/policy @foundmill/entity-linker @foundmill/sandbox @foundmill/config", run: "pnpm exec turbo run test --continue --concurrency=2 --output-logs=new-only --filter=@foundmill/connectors --filter=@foundmill/evals --filter=@foundmill/agents --filter=@foundmill/events --filter=@foundmill/shared --filter=@foundmill/journey --filter=@foundmill/models --filter=@foundmill/policy --filter=@foundmill/entity-linker --filter=@foundmill/sandbox --filter=@foundmill/config -- --maxWorkers=2" }
     steps:
       - name: Does the change affect this entry's packages
@@ -375,7 +381,7 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.stories == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -385,6 +391,13 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @foundmill/dugout storybook:build
+      # Every story through axe (WCAG 2.2 AA; packages/dugout/a11y): the stories' a11y panel is set to fail, but a build
+      # alone never ran it. A violation not in a11y/baseline.json fails, and so does a baseline entry that was fixed.
+      # The job keeps its name so a required check on "Storybook build" still matches.
+      - name: Install Chromium
+        run: pnpm --filter @foundmill/dugout exec playwright install --with-deps chromium
+      - name: Accessibility of every story (axe)
+        run: pnpm --filter @foundmill/dugout test:a11y
 
   e2e-shard:
     # The screens take about 75 minutes one after another, so they run as eight shards at once, each on its own runner with

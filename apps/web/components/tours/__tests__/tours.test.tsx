@@ -15,6 +15,7 @@ import { DepartmentTour } from "@/components/screen/DepartmentTour";
 import { HomeTour } from "@/components/home/HomeTour";
 import { InboxTour } from "@/components/inbox/InboxTour";
 import { HOME_TOUR } from "../definitions";
+import { LazyTour } from "../LazyTour";
 import { tourWanted } from "../LazyTour";
 import { applyCoachmarkStamps, removeCoachmarkStamps } from "../stamps";
 
@@ -194,6 +195,50 @@ describe("InboxTour", () => {
     await screen.findByRole("dialog", { name: "Ask the agent" });
     expect(document.querySelector("[data-coachmark='decision-ask'][data-coachmark-active]")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Done" })).toBeTruthy();
+  });
+});
+
+describe("Today's tour (WP-04 T7)", () => {
+  it("rings Needs you, the first week and Continue, stamping the first two; ending it marks Home done too", async () => {
+    const markTourDone = vi.fn();
+    render(
+      <GuidanceProvider actions={{ markTourDone }}>
+        <section data-testid="needs-you">Needs you</section>
+        <section data-testid="first-week-timeline">Your first week</section>
+        <button type="button" data-coachmark="continue">
+          Continue
+        </button>
+        <LazyTour id="today" />
+      </GuidanceProvider>,
+    );
+    const card = await screen.findByRole("dialog", { name: "What needs you" });
+    expect(card.getAttribute("data-tour")).toBe("today");
+    expect(screen.getByText("1 of 3")).toBeTruthy();
+    expect(screen.getByTestId("needs-you").getAttribute("data-coachmark")).toBe("needs-you");
+    click("Next");
+    await screen.findByRole("dialog", { name: "Your first week" });
+    expect(screen.getByTestId("first-week-timeline").getAttribute("data-coachmark-active")).not.toBeNull();
+    click("Next");
+    await screen.findByRole("dialog", { name: "Continue: one round of work" });
+    click("Done");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(markTourDone).toHaveBeenCalledWith("today");
+    expect(markTourDone).toHaveBeenCalledWith("home");
+  });
+
+  it("an older project with no first week skips that step", async () => {
+    render(
+      <GuidanceProvider>
+        <section data-testid="needs-you">Needs you</section>
+        <button type="button" data-coachmark="continue">
+          Continue
+        </button>
+        <LazyTour id="today" />
+      </GuidanceProvider>,
+    );
+    await screen.findByRole("dialog", { name: "What needs you" });
+    click("Next");
+    await screen.findByRole("dialog", { name: "Continue: one round of work" });
   });
 });
 

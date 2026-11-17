@@ -645,10 +645,11 @@
 
 /* The "Built on" mark at the foot of a project's public page, as a visitor meets it (DESIGN §9b): it comes up from
    dim to full as the foot of the page scrolls into view, and rests there. Opacity only, never a glow on text. Without
-   scroll timelines, and with reduced motion, it simply rests at full. */
+   scroll timelines, and with reduced motion, it simply rests at full. It never starts below 0.7: text-secondary on the
+   canvas is 5.0:1 there (0.55 was 3.5:1, under AA, while the mark came in; axe color-contrast). */
 @keyframes dugout-mark-arrive {
   from {
-    opacity: 0.55;
+    opacity: 0.7;
   }
   to {
     opacity: 1;
@@ -1237,6 +1238,35 @@
       inset 0 0 0 1px color-mix(in oklab, var(--accent) 70%, transparent),
       0 0 0 4px color-mix(in oklab, var(--accent) 14%, transparent),
       var(--well-inset);
+  }
+}
+/* A small control whose pointer target reaches --target-size (WCAG 2.5.8) without growing its box: an invisible
+   24 px square on its right edge, reaching inward, catches the press (a chip's remove glyph). It never reaches past the
+   control's right edge, so the chip around it does not overflow; the chip itself is at least 24 px tall. */
+@utility hit-target {
+  position: relative;
+  &::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    right: 0;
+    width: var(--target-size);
+    height: var(--target-size);
+    transform: translateY(-50%);
+  }
+}
+/* Forced colors (Windows High Contrast): shadows and tinted fills vanish, so panels, fields, pills and chips draw a 1 px
+   system-color border; the brand slab keeps its own colors. */
+@media (forced-colors: active) {
+  .surface-panel,
+  .field-well,
+  .chip-tone,
+  .chip-plate,
+  [data-chip] {
+    border: 1px solid CanvasText;
+  }
+  .glass {
+    forced-color-adjust: none;
   }
 }
 /* Outer type (DESIGN §4): the root of a page read on a phone. Larger body, labels and inputs (16 px, so iOS does not

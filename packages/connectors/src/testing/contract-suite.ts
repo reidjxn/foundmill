@@ -94,8 +94,6 @@ export const INTERNAL_WRITE_TOOLS: ReadonlyMap<string, string> = new Map([
   ["sendgrid:create_campaign", "a draft single send; nothing is sent until schedule_campaign, which asks"],
   ["shopify:create_draft_order", "a draft order in the founder's store; nobody is charged or emailed"],
   ["stripe:create_customer", "a customer record in the founder's Stripe; no email is sent"],
-  ["stripe:create_invoice", "an invoice in the founder's Stripe, finalized but not sent until send_invoice, which asks; a finalized invoice can only be voided"],
-  ["stripe:create_checkout_session", "a payment page that charges nobody until a customer pays on it"],
 ]);
 
 export interface ContractSuiteOptions {

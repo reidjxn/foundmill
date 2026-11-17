@@ -26,6 +26,7 @@ import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
 import { AddRoleDialog, DeleteRequestDialog, EditEntityDialog, ExportDialog, MergeDialog, useCrmInvalidate } from "./dialogs";
 import { AMOUNTS_HIDDEN, ENTITY_TABS, KIND_WORD, LAWFUL_BASIS_LABEL, STAGE_TONE, VISIBILITY_WORD, activityItems, commercialSummary, documentItems, introPaths, isCustomerWin, leadScore, mergeBanner, moneyHidden, primaryRole, relationshipStrength, containerWord, roleWord, sourceWord, stageWord, strengthRating, type EntityGet, type EntityTab, type OwnerRef } from "./logic";
 import { RelationshipGraph } from "./RelationshipGraph";
+import { ReplyThread } from "./ReplyThread";
 
 export interface EntityScreenProps {
   entityId: string;
@@ -255,6 +256,7 @@ export function EntityScreen({ entityId, tab }: EntityScreenProps) {
                   </ul>
                 </Panel>
               ) : null}
+              <ReplyThread businessId={businessId} entityId={entity.id} />
             </>
           ) : null}
 

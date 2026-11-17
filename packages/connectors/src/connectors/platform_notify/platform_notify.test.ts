@@ -48,6 +48,25 @@ describe("platform_notify", () => {
     expect(body.categories).toEqual(["foundmill-notify"]);
   });
 
+  it("a letter (WP-04 D6) carries the Reply-To it was given, and nothing else changes", async () => {
+    const seen: Record<string, unknown>[] = [];
+    const connector = createPlatformNotifyConnector({
+      secrets: { sendgridApiKey: "SG.platform-test-key" },
+      fetch: routedFetch({
+        "POST https://api.sendgrid.com/v3/mail/send": async (req) => {
+          seen.push((await req.json()) as Record<string, unknown>);
+          return new Response(null, { status: 202, headers: { "x-message-id": "sg-notify-2" } });
+        },
+      }),
+    });
+    const r = await connector.callTool("send_notification", { ...mail, from: { ...mail.from, name: "The Foundmill team" }, replyTo: { email: "hey@foundmill.com" } }, makeToolContext(connector, { mode: "live" }));
+    expect(r.ok).toBe(true);
+    const body = seen[0] as { from: { name: string }; reply_to: unknown; headers: Record<string, string> };
+    expect(body.reply_to).toEqual({ email: "hey@foundmill.com" });
+    expect(body.from.name).toBe("The Foundmill team");
+    expect(body.headers["List-Unsubscribe"]).toBe(`<${offUrl}>`);
+  });
+
   it("an account-safety notice: no unsubscribe link or header, its own category; exactly one of the two is given", async () => {
     const mock = createPlatformNotifyMock();
     const ctx = makeToolContext(mock);

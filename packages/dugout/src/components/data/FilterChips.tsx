@@ -320,8 +320,8 @@ export function FilterChips({
           <span
             data-filter-chip={chip.id}
             className={cn(
-              "chip-plate inline-flex min-h-chip max-w-full items-center gap-1 rounded-sm border py-px pl-2 pr-2",
-              !readOnly && "pr-0.5",
+              "chip-plate inline-flex max-w-full items-center gap-1 rounded-sm border py-px pl-2 pr-2",
+              readOnly ? "min-h-chip" : "min-h-target pr-0.5",
             )}
           >
             {readOnly ? (

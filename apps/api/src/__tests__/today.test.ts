@@ -4,7 +4,7 @@
  * sentences from data, and the week's spend in each currency, never added together. Each part follows the reader's
  * section access.
  */
-import { APPROVAL_OPTIONS, openApprovalItem, repos, signoffDecisionBlock, type ComposerItem } from "@foundmill/db";
+import { APPROVAL_OPTIONS, openApprovalItem, planDecisionBlock, repos, signoffDecisionBlock, type ComposerItem } from "@foundmill/db";
 import { GOAL_OPTION_IDS, WEEK_PRESS_CONTINUE, founderJargonHits } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -167,7 +167,7 @@ describe("today.get › firstWeek", () => {
 
   it("reads Day 1 from the page and the sign-offs (package 1.3): both sign-offs leave the page to publish", async () => {
     const b = await business("Today First Week Facts");
-    expect((await b.owner.today.get({ businessId: b.id })).firstWeek!.steps[0]).toMatchObject({ team: "Your team drafts your page, your specification and your roadmap.", asks: "You are asked to publish your page and approve your plan." });
+    expect((await b.owner.today.get({ businessId: b.id })).firstWeek!.steps[0]).toMatchObject({ team: "Your team drafts your page first, then your plan.", asks: "You are asked to publish your page and approve your plan." });
     await repos.productSignoffs.seedApproved(hz.db, b.id, { spec: { at: new Date() }, roadmap: { at: new Date() }, decidedBy: b.ownerId });
     const signed = await b.owner.today.get({ businessId: b.id });
     expect(signed.firstWeek!.steps.map((s) => s.state)).toEqual(["now", "next", "next"]);
@@ -179,6 +179,19 @@ describe("today.get › firstWeek", () => {
     expect(view.firstWeek!.steps[0]!.when).toMatch(/^Done [A-Z][a-z]{2} \d{1,2}$/);
   });
 
+  it("says which day of the project it is: 1 on the day it was created (WP-04 T7)", async () => {
+    const b = await business("Today Project Day");
+    expect(await b.owner.today.get({ businessId: b.id })).toMatchObject({ projectDay: 1, firstDay: true });
+    await hz.db.execute(sql`update businesses set created_at = now() - interval '1 day' where id = ${b.id}`);
+    expect(await b.viewer.today.get({ businessId: b.id })).toMatchObject({ projectDay: 2, firstDay: false });
+    await hz.db.execute(sql`update businesses set created_at = now() - interval '30 days' where id = ${b.id}`);
+    expect((await b.owner.today.get({ businessId: b.id })).projectDay).toBe(31);
+    // A project created today that is already selling is past its first day.
+    const selling = await business("Today Project Day Selling");
+    await repos.businesses.startDistribution(hz.db, selling.id, { at: new Date() });
+    expect(await selling.owner.today.get({ businessId: selling.id })).toMatchObject({ projectDay: 1, firstDay: false });
+  });
+
   it("is away for a business past its first days and for one that is already selling", async () => {
     const old = await business("Today First Week Old");
     expect((await old.owner.today.get({ businessId: old.id })).firstWeek).not.toBeNull();
@@ -188,5 +201,79 @@ describe("today.get › firstWeek", () => {
     const selling = await business("Today First Week Selling");
     await repos.businesses.startDistribution(hz.db, selling.id, { at: new Date() });
     expect((await selling.owner.today.get({ businessId: selling.id })).firstWeek).toBeNull();
+  });
+
+  it("the followers' update line (WP-08 T3): nothing without followers; the invitation with followers; a waiting draft; nothing once one went out", async () => {
+    const b = await business("Today Followers");
+    expect((await b.owner.today.get({ businessId: b.id })).followersUpdate).toBeNull();
+    const entity = await repos.entities.create(hz.db, b.id, { kind: "person", displayName: "Follower", identifiers: { email: "f@example.com" } });
+    await hz.db.execute(sql`insert into contact_consents (business_id, entity_id, purpose, source, source_ref, consent_text, confirmed_at) values (${b.id}, ${entity.id}, 'email', 'page', 'today-page', 'I agree.', now())`);
+    expect((await b.owner.today.get({ businessId: b.id })).followersUpdate).toEqual({ kind: "invite", followers: 1 });
+    const draft = await repos.updates.draftByAgent(hz.db, b.id, { subject: "News", body: "Hi", agentId: b.chief.id });
+    expect((await b.owner.today.get({ businessId: b.id })).followersUpdate).toEqual({ kind: "draft", updateId: draft.id });
+    await repos.updates.startSend(hz.db, b.id, draft.id, { userId: b.ownerId, at: new Date() });
+    expect((await b.owner.today.get({ businessId: b.id })).followersUpdate).toBeNull();
+  });
+});
+
+describe("today.get › founderTask (WP-04 T9)", () => {
+  const content = { pitch: "Candles that smell like a walk in the woods", about: "Small batches.", forWhom: "", stage: "idea" as const, showFounders: false };
+  const uuid = () => crypto.randomUUID();
+  const follow = (b: { id: string }, actor: { kind: "system" | "user"; id: string }) => repos.events.write(hz.db, b.id, { type: "page.followed", actor, payload: { pageId: null, entityId: uuid(), consentId: uuid() } });
+
+  it("goes publish, share, approve the plan, ask five, and is null once a real follow came in", async () => {
+    const b = await business("Today Task");
+    await repos.productSignoffs.open(hz.db, b.id, { kind: "spec", item: note(b.chief.id, "Your plan is ready", planDecisionBlock()) });
+    const first = (await b.owner.today.get({ businessId: b.id })).founderTask!;
+    expect(first).toMatchObject({ id: "publish_page", title: "Check your page and publish it", action: { kind: "open_page" }, doneToday: false });
+    // No overnight shift on this project: the line without it.
+    expect(first.tomorrow).toBe("Come back when you have heard from someone, or press Continue for a round of work.");
+
+    const slug = `today-task-${b.id.slice(0, 8)}`;
+    await repos.pages.publish(hz.db, b.id, { content, slug, userId: b.ownerId });
+    const share = (await b.owner.today.get({ businessId: b.id })).founderTask!;
+    // Published today: one a day, so it is done for today and names the share for tomorrow.
+    expect(share).toMatchObject({ id: "share_page", action: { kind: "share" }, doneToday: true });
+    expect(share.action.text).toMatch(new RegExp(`^I'm starting Today Task \\d+\\. Candles that smell like a walk in the woods\\. Would you use this\\?\\n\\nhttps?://[^\\s]+/p/${slug}\\?via=`));
+
+    await b.owner.share.opened({ businessId: b.id, kind: "page", network: null, target: "copy" });
+    expect((await b.owner.today.get({ businessId: b.id })).founderTask).toMatchObject({ id: "approve_plan", action: { kind: "open_note" } });
+
+    const signoffs = await repos.productSignoffs.latest(hz.db, b.id);
+    await repos.productSignoffs.decide(hz.db, b.id, signoffs.spec!.id, { status: "approved", decidedBy: b.ownerId });
+    expect((await b.owner.today.get({ businessId: b.id })).founderTask).toMatchObject({ id: "ask_five", title: "Ask five people the question on your page", action: { kind: "copy" } });
+
+    // A simulated or hand-written follow never counts; one the public page wrote does.
+    await follow(b, { kind: "system", id: "simulate" });
+    await follow(b, { kind: "user", id: b.ownerId });
+    expect((await b.owner.today.get({ businessId: b.id })).founderTask?.id).toBe("ask_five");
+    await follow(b, { kind: "system", id: "public-page" });
+    expect((await b.owner.today.get({ businessId: b.id })).founderTask).toBeNull();
+  });
+
+  it("a share of a milestone is not a share of the page; a page taken down asks to publish again", async () => {
+    const b = await business("Today Task Shares");
+    await repos.pages.publish(hz.db, b.id, { content, slug: `today-shares-${b.id.slice(0, 8)}`, userId: b.ownerId });
+    await repos.events.write(hz.db, b.id, { type: "share.opened", actor: { kind: "user", id: b.ownerId }, payload: { network: null, kind: "draft", refId: null, target: "device" } });
+    expect((await b.owner.today.get({ businessId: b.id })).founderTask?.id).toBe("share_page");
+    await repos.pages.unpublish(hz.db, b.id, { userId: b.ownerId });
+    expect((await b.owner.today.get({ businessId: b.id })).founderTask?.id).toBe("publish_page");
+  });
+
+  it("names tomorrow morning when the overnight shift is on, and not once it is paused", async () => {
+    const b = await business("Today Task Overnight");
+    await repos.autopilot.set(hz.db, b.id, { enabled: true, cadence: "daily", dailyHour: 2 });
+    expect((await b.owner.today.get({ businessId: b.id })).founderTask!.tomorrow).toBe("Tomorrow morning: what your team found overnight, and one thing to do.");
+    await hz.db.execute(sql`update businesses set autopilot_paused_reason = 'credits_exhausted' where id = ${b.id}`);
+    expect((await b.owner.today.get({ businessId: b.id })).founderTask!.tomorrow).toMatch(/^Come back when/);
+  });
+
+  it("is null for a sample business and for a reader without Product read", async () => {
+    const b = await business("Today Task Walls");
+    expect((await b.viewer.today.get({ businessId: b.id })).founderTask?.id).toBe("publish_page");
+    await repos.memberships.setSectionPermissions(hz.db, b.id, b.memberId, { product: "none" });
+    expect((await b.member.today.get({ businessId: b.id })).founderTask).toBeNull();
+    await hz.db.execute(sql`update businesses set is_demo = true where id = ${b.id}`);
+    expect((await b.owner.today.get({ businessId: b.id })).founderTask).toBeNull();
   });
 });

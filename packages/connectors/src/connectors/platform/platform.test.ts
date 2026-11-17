@@ -17,7 +17,8 @@ describeConnectorContract("platform (mock)", {
   calls: [
     { tool: "list_tasks", args: { scope: "team" }, check: (r) => expect((r.data as { items: unknown[] }).items).toHaveLength(3) },
     { tool: "read_business", args: {}, check: (r) => expect(r.data).toMatchObject({ name: "Northwind Skincare", vacation: null }) },
-    { tool: "check_contact", args: { email: "unsubscribed@example.com" }, check: (r) => expect(r.data).toEqual({ email: "unsubscribed@example.com", contactable: false }) },
+    { tool: "list_pay_links", args: {}, check: (r) => expect(r.data).toEqual({ items: [{ key: "starter-kit", label: "Starter kit", priceMinor: 1900, currency: "USD" }] }) },
+    { tool: "check_contact", args: { email: "unsubscribed@example.com" }, check: (r) => expect(r.data).toEqual({ email: "unsubscribed@example.com", contactable: false, basis: "none" }) },
     { tool: "get_task", args: { taskId: uuidFromSeed("nowhere", "task") }, expectOk: false, check: (r) => expect(r.error).toMatchObject({ code: "not_found", status: 404 }) },
   ],
 });
@@ -87,6 +88,30 @@ describe("platform task board", () => {
     const r = await as(A, WORKER)("request_human_action", { title: "Pay the supplier deposit", instructions: "Pay invoice 1042 from the business account." });
     expect(r).toMatchObject({ ok: false, error: { code: "hard_gate" }, data: { connector: "platform", tool: "request_human_action", title: "Pay the supplier deposit" } });
     expect(connector.policyHints.request_human_action).toMatchObject({ hardGate: true, irreversible: true });
+  });
+});
+
+describe("platform CRM records", () => {
+  const connector = createPlatformMock(createMemoryPlatformHost());
+  const as = (businessId: string) => (tool: string, args: unknown) => connector.callTool(tool, args, makeToolContext(connector, { businessId, agentId: WORKER }));
+  const supplier = { kind: "organisation", name: "Hallbergs Packaging AB", role: "supplier", sourceUrl: "https://example.com/hallbergs" };
+
+  it("records a supplier once, then logs an interaction on it", async () => {
+    const first = ok<{ entityId: string; created: boolean }>(await as(A)("create_entity", supplier));
+    expect(first.created).toBe(true);
+    const again = ok<{ entityId: string; created: boolean }>(await as(A)("create_entity", { ...supplier, name: "hallbergs packaging ab" }));
+    expect(again).toEqual({ entityId: first.entityId, created: false });
+    expect(ok<{ interactionId: string }>(await as(A)("log_interaction", { entityId: first.entityId, summary: "Price list received, MOQ 500." })).interactionId).toBeTruthy();
+  });
+
+  it("validates the input and keeps one business's records from another", async () => {
+    expect((await as(A)("create_entity", { ...supplier, role: "customer" })).error).toMatchObject({ code: "invalid_args" });
+    expect((await as(A)("create_entity", { ...supplier, sourceUrl: "not a url" })).error).toMatchObject({ code: "invalid_args" });
+    expect((await as(A)("create_entity", { ...supplier, name: "Evil [[ent:x|Co]]" })).error).toMatchObject({ code: "invalid_args" });
+    const { entityId } = ok<{ entityId: string }>(await as(A)("create_entity", supplier));
+    expect((await as(B)("log_interaction", { entityId, summary: "Not yours." })).error).toMatchObject({ code: "not_found" });
+    expect(connector.policyHints.create_entity).toEqual({});
+    expect(connector.policyHints.log_interaction).toEqual({});
   });
 });
 

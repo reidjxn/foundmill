@@ -24,7 +24,7 @@ import { STALE_BUSINESS_PARAM, lastBusinessHome } from "./last-business";
  * `/i/<token>` (an invitation to a project) is opened by people who may have no account yet: the page says "Sign in"
  * itself and comes back with `next`.
  */
-const PUBLIC_PREFIXES = ["/login", "/auth/", "/_next/", "/brand/", "/favicon", "/icon", "/apple-icon", "/opengraph-image", "/robots.txt", "/sitemap.xml", "/llms.txt", "/health", "/examples/", "/p/", "/u/", "/m/", "/a/", "/email/pause", "/email/unsubscribe", "/terms", "/privacy", "/i/", "/tour", "/lp/"];
+const PUBLIC_PREFIXES = ["/login", "/auth/", "/_next/", "/brand/", "/favicon", "/icon", "/apple-icon", "/opengraph-image", "/robots.txt", "/sitemap.xml", "/llms.txt", "/health", "/examples/", "/p/", "/u/", "/m/", "/a/", "/email/pause", "/email/unsubscribe", "/terms", "/privacy", "/i/", "/tour", "/lp/", "/.well-known/"];
 
 /** The signed-in index (app/start/page.tsx): a signed-in `/` the proxy cannot answer itself is rewritten here. */
 export const SIGNED_IN_INDEX = "/start";
@@ -76,15 +76,16 @@ export function safeNextPath(next: string | null | undefined, fallback = "/"): s
 }
 
 /**
- * The only places the three questions go on to (WP-04 T1): a kept card's Commit, or the kept card itself; and the
- * Ideation Studio, for a card kept with "Shape it in the Ideation Studio" (the landing page's idea box).
+ * The only places the three questions go on to (WP-04 T1): a kept card's Commit, the kept card itself, or the Ideation
+ * Studio opened on that card (`/new/ideate/<uuid>`); and the Studio itself, for a card kept with "Shape it in the
+ * Ideation Studio" (the landing page's idea box).
  */
-const ONBOARDING_NEXT = /^(\/new\/(commit|card)\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\/new\/ideate)$/i;
+const ONBOARDING_NEXT = /^(\/new\/(commit|card|ideate)\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\/new\/ideate)$/i;
 
 /**
  * `/onboarding?next=`: the path the profile's first save goes on to, or null for anything but `/new/commit/<uuid>`,
- * `/new/card/<uuid>` and `/new/ideate` (the card a person kept from the idea box keeps its thread through the three questions). The
- * path is clamped by `safeNextPath` first, then must be exactly one of the three.
+ * `/new/card/<uuid>`, `/new/ideate/<uuid>` and `/new/ideate` (the card a person kept from the idea box keeps its thread
+ * through the three questions). The path is clamped by `safeNextPath` first, then must be exactly one of these.
  */
 export function onboardingNext(raw: string | null | undefined): string | null {
   const path = safeNextPath(raw, "");

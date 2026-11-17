@@ -20,7 +20,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Palmtree, ShieldCheck } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Button, Chip, ConsequenceLine, Field, HolidayDialog, Icon, KeyValueList, MoneyInput, RadioCard, RadioGroup, RadioOption, ShellLink, Skeleton, StatusPill, Term, useFormatters, type HolidaySettings } from "@foundmill/dugout";
+import { Button, Chip, ConsequenceLine, Field, HolidayDialog, Icon, KeyValueList, Label, MoneyInput, RadioCard, RadioGroup, RadioOption, ShellLink, Skeleton, StatusPill, Switch, Term, useFormatters, type HolidaySettings } from "@foundmill/dugout";
 import type { BusinessMode, DecisionType } from "@foundmill/shared/constants";
 import { vacationUntilLabel } from "@foundmill/shared";
 import { LOOP_STOPS_INTRO, LOOP_STOPS_TITLE, loopStops } from "@foundmill/shared/loop-stops";
@@ -228,6 +228,7 @@ export function TeamCanDoTab() {
   const [holidayOpen, setHolidayOpen] = useState(false);
   const setBusinessMode = useMutation(trpc.business.setBusinessMode.mutationOptions({ onSuccess: () => (void invalidate(["business"]), t.saved("Saved", "The top bar says what the team can do now.")), onError: (e) => t.failed(e) }));
   const startHoliday = useMutation(trpc.business.startHoliday.mutationOptions({ onSuccess: (r) => (void invalidate(["business", "inbox"]), setHolidayOpen(false), t.saved("Vacation started", r.workflow.queued ? "The Chief of Staff is in charge." : `Recorded; the workflow is not running: ${r.workflow.reason ?? "orchestrator unavailable"}.`)), onError: (e) => t.failed(e) }));
+  const setPaymentPowers = useMutation(trpc.business.setPaymentPowers.mutationOptions({ onSuccess: () => (void invalidate(["business"]), t.saved("Saved")), onError: (e) => t.failed(e) }));
   const endHoliday = useMutation(trpc.business.endHoliday.mutationOptions({ onSuccess: () => (void invalidate(["business", "inbox"]), t.saved("Welcome back")), onError: (e) => t.failed(e) }));
 
   const holiday = data.holiday;
@@ -273,6 +274,18 @@ export function TeamCanDoTab() {
             );
           })}
         </RadioGroup>
+        {b.businessMode === "automated" ? (
+          // Payment powers (founder, Nov 16, 2026): chosen when the team decides on its own; off, invoices wait for you.
+          <div className="flex items-start gap-2" data-testid="payment-powers">
+            <Switch id="inbound-payments" checked={(b.paymentPowers ?? []).includes("inbound")} disabled={setPaymentPowers.isPending} onCheckedChange={(on) => setPaymentPowers.mutate({ businessId, paymentPowers: on ? ["inbound"] : [] })} aria-describedby="inbound-payments-help" data-testid="inbound-payments-switch" />
+            <div>
+              <Label htmlFor="inbound-payments">Agents may create invoices and payment links without asking</Label>
+              <p id="inbound-payments-help" className="text-small text-secondary">
+                Off, each one waits in Needs you. Money only comes in this way: nothing is ever paid out, refunded or transferred without you.
+              </p>
+            </div>
+          </div>
+        ) : null}
         {holiday ? (
           // On vacation agents that follow the business decide on their own (BUILD §9.6); the answer above comes back.
           <p className="flex items-center gap-2 text-body text-secondary" data-testid="mode-in-force">
@@ -331,7 +344,7 @@ export function TeamCanDoTab() {
             </div>
           </div>
         )}
-        <HolidayDialog open={holidayOpen} onOpenChange={setHolidayOpen} currency={currency} onSubmit={(settings: HolidaySettings) => startHoliday.mutateAsync({ businessId, ...toStartHolidayInput(settings, currency) }).then(() => undefined)} />
+        <HolidayDialog open={holidayOpen} onOpenChange={setHolidayOpen} currency={currency} initial={{ inboundPayments: (b.paymentPowers ?? []).includes("inbound") }} onSubmit={(settings: HolidaySettings) => startHoliday.mutateAsync({ businessId, ...toStartHolidayInput(settings, currency) }).then(() => undefined)} />
       </SettingsSection>
     </AdminOnly>
   );

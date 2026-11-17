@@ -26,7 +26,6 @@ const Env = z.object({
   STREAM_PORT: z.coerce.number().default(4003),
   COLLAB_PORT: z.coerce.number().default(4004),
   INGEST_PORT: z.coerce.number().default(4005),
-  SOCIAL_PORT: z.coerce.number().default(4006),
   GATEWAY_URL: z.string().default("http://localhost:4001"),
   COMPOSER_URL: z.string().default("http://localhost:4002"),
   /** apps/api and apps/orchestrator: how long a composer call (refresh, narrate) may take; unset = LIMITS.composerClientTimeoutMs. Keep it above the composer's deadline. */
@@ -51,8 +50,16 @@ const Env = z.object({
   ANTHROPIC_API_KEY: z.string().optional(),
   /** Foundmill's Z.ai key: GLM-5.3 Flash for every account not on a paid plan (WP-13). Unset: free calls are refused. */
   ZAI_API_KEY: z.string().optional(),
-  /** The month's ceiling on the platform's Z.ai spend, in US cents (founder, Nov 16, 2026: $600). Read by WP-13 T6. */
-  ZAI_MONTHLY_CAP_CENTS: z.coerce.number().int().min(0).max(10_000_000).default(60_000),
+  /**
+   * The month's ceiling on what the free plan costs Foundmill, in US cents: Haiku 5.5 and GLM-5.3 Flash together, web
+   * search included (founder, Nov 16, 2026: $600). Free work slows at 80% and is held at 100% (WP-13 T6).
+   */
+  FREE_PLAN_MONTHLY_CAP_CENTS: z.coerce.number().int().min(0).max(10_000_000).default(60_000),
+  /**
+   * The model a free business's agent sessions run on unless the agent is set to one of the two (WP-13; founder,
+   * Nov 16, 2026): GLM-5.3 Flash once a measured session costs about $0.019 or less (T8), Haiku 5.5 until then.
+   */
+  FREE_SESSION_MODEL: z.enum(["haiku", "glm"]).default("haiku"),
   VOYAGE_API_KEY: z.string().optional(),
   /** apps/gateway: the platform key behind the `openai_images` connector (AI-generated faces of anthropomorphic agents). */
   OPENAI_API_KEY: z.string().optional(),
@@ -82,6 +89,11 @@ const Env = z.object({
   SESSION_TOKEN_SECRET: z.string().optional(),
   /** The api's own service-token secret for its calls to the gateway (WP-11 T12, N4); 32+ characters. Unset: the shared one. */
   API_SERVICE_TOKEN_SECRET: z.string().optional(),
+  /**
+   * The composer's own secret for the gateway's own-key model route (WP-13 T11), on the composer and the gateway only.
+   * Unset: the composer runs an own-key business's calls as its plan says, on Foundmill's key.
+   */
+  COMPOSER_SERVICE_TOKEN_SECRET: z.string().optional(),
   /** "1" while the switch to API_SERVICE_TOKEN_SECRET is in progress: the gateway still accepts the api signed with the shared secret. */
   API_SERVICE_TOKEN_LEGACY: z.string().optional(),
   STRIPE_SECRET_KEY: z.string().optional(),
@@ -133,6 +145,13 @@ const Env = z.object({
     .optional()
     .transform((v) => v?.trim().toLowerCase() || undefined)
     .refine((v) => v === undefined || /^(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(v), { message: "SITES_DOMAIN must be a domain name such as example-sites.app" }),
+  /** apps/sites: the api it calls for a site's sign-up form (WP-07 T6; `publicPage.siteConsent`, `publicPage.follow`). Unset: `http://localhost:4000` on development and test; elsewhere sign-ups are closed. */
+  SITES_API_URL: z.string().optional(),
+  /**
+   * apps/sites: Cloudflare Turnstile's site key for a site's sign-up form (a public value; the widget's hostnames must
+   * include SITES_DOMAIN). Empty uses the mock token, which the api accepts on development and test stacks only.
+   */
+  SITES_TURNSTILE_SITE_KEY: z.string().optional(),
   /** Messages one project may send from its Foundmill address per UTC day (gateway; the api shows it). An operator raises one project's cap in `project_mail.daily_cap`. */
   PLATFORM_MAIL_DAILY_CAP: z.coerce.number().int().min(1).max(10_000).default(50),
   /** Messages every project together may send from the platform domain per UTC day: protects the domain's reputation (gateway). */
@@ -188,6 +207,15 @@ const Env = z.object({
    * 5.1). On unless "off" (or "0"/"false"); it sends only where PLATFORM_MAIL_DOMAIN is set.
    */
   NOTIFY_EMAIL: z
+    .string()
+    .optional()
+    .transform((v): "on" | "off" => (/^(off|0|false|no)$/i.test((v ?? "").trim()) ? "off" : "on")),
+  /**
+   * apps/api: may the notify pass email about the "page is ready" note the page catch-up writes for projects that began
+   * before public pages (WP-12 T1)? On unless "off" (or "0"/"false"/"no") (founder decision D6, Nov 16, 2026: yes); "off"
+   * keeps the note in the Inbox and on Today without an email.
+   */
+  PAGE_CATCH_UP_EMAIL: z
     .string()
     .optional()
     .transform((v): "on" | "off" => (/^(off|0|false|no)$/i.test((v ?? "").trim()) ? "off" : "on")),
@@ -368,4 +396,4 @@ export const waitlistEmails = (env: Partial<Pick<Env, "WAITLIST_EMAILS" | "INTEG
 export const isMockModels = (env = loadEnv()) => env.MODEL_MODE === "mock";
 /** ALLOW_MOCK_PAYMENTS, or by default only in development and test: may a top-up be paid by simulation here? */
 export const allowMockPayments = (env: Pick<Env, "APP_ENV" | "ALLOW_MOCK_PAYMENTS">): boolean => env.ALLOW_MOCK_PAYMENTS ?? (env.APP_ENV === "development" || env.APP_ENV === "test");
-export const servicePort = (env: Env, named: "API_PORT" | "GATEWAY_PORT" | "COMPOSER_PORT" | "STREAM_PORT" | "COLLAB_PORT" | "INGEST_PORT" | "SOCIAL_PORT"): number => env.PORT ?? env[named];
+export const servicePort = (env: Env, named: "API_PORT" | "GATEWAY_PORT" | "COMPOSER_PORT" | "STREAM_PORT" | "COLLAB_PORT" | "INGEST_PORT"): number => env.PORT ?? env[named];

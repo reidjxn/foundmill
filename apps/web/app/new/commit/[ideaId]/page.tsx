@@ -1,4 +1,4 @@
-/** /new/commit/[ideaId] — the Commit screen: name, logo and brand colours, modes, archetype, "Take charge" (BUILD §11.1, AC-11.1.6/7). */
+/** /new/commit/[ideaId] — the Commit screen: the name and "Start my project", the rest under More options (BUILD §11.1, AC-11.1.6/7; WP-04 T2). */
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { DEFAULT_BUSINESS_CURRENCY } from "@foundmill/shared/constants";
@@ -7,7 +7,7 @@ import { CommitScreen } from "@/components/new/commit/CommitScreen";
 import { loadStudioViewer } from "@/components/new/viewer.server";
 import { ApiErrorPage } from "@/components/shell/ApiErrorPage";
 
-export const metadata: Metadata = { title: "Commit" };
+export const metadata: Metadata = { title: "Start your project" };
 export const dynamic = "force-dynamic";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

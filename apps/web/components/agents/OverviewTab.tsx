@@ -145,7 +145,7 @@ export function OverviewTab({ businessId, profile, currency }: TabProps) {
         data-testid="skills-panel"
       >
         <div className="p-panel-pad">
-          <SkillGrid skills={skills} showPotential />
+          <SkillGrid skills={skills} showPotential legend />
         </div>
       </Panel>
 
