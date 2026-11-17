@@ -51,10 +51,10 @@ test.describe("import", () => {
     // Import's own trail (no Ideate or Compare), and the report's archetype is the one preselected.
     await expect(page.locator("[data-step-item]")).toHaveCount(4);
     await expect(page.locator('[data-step-item="ideate"]')).toHaveCount(0);
-    // "How it runs" is collapsed for a guided founder (plan A3): the summary chip names the archetype, and
-    // "Change" opens the cards with the report's one preselected.
+    // "How it runs" sits under More options (WP-04 T2): its summary names the archetype over the cards, the report's
+    // one preselected.
+    await page.getByTestId("commit-more").click();
     await expect(page.locator('[data-summary="archetype"]')).toHaveText("B2B SaaS");
-    await page.getByTestId("how-it-runs-change").click();
     await expect(page.locator('[data-option="b2b_saas"]')).toHaveAttribute("data-selected", "true");
   });
 

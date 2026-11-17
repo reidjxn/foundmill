@@ -205,4 +205,37 @@ test.describe("tours", () => {
     await expect(page.locator("[data-coachmark-ring]")).toHaveCount(0);
     await api.dispose();
   });
+
+  test("Today's tour (WP-04 T7): Needs you, then Continue on a project past its first week; Done marks Home done too; never on a phone", async ({ page, playwright }) => {
+    test.setTimeout(240_000);
+    const api = await devApi(playwright);
+    await resetTours(api);
+
+    // A phone never gets it.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openBusiness(page, "today");
+    await expect(page.getByTestId("today-screen")).toBeVisible({ timeout: LONG });
+    await page.waitForLoadState("networkidle", { timeout: LONG });
+    await expect(page.locator("[data-coachmark][data-tour='today']")).toHaveCount(0);
+
+    // A computer: Northwind is long past its first day, so this is not the sitting that started it.
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/today`);
+    await expect(page.getByTestId("today-screen")).toBeVisible({ timeout: LONG });
+    await settled(page);
+    const today = page.locator("[data-coachmark][data-tour='today']");
+    await pastFirstContinue(page, today);
+    await expect(today).toHaveAttribute("data-step", "1");
+    await expect(today).toContainText("Notes waiting for your answer land here");
+    await expect(today.locator("[data-coachmark-count]")).toHaveText("1 of 3");
+    await expect(page.locator("[data-testid='needs-you'][data-coachmark='needs-you'][data-coachmark-active]")).toHaveCount(1);
+    // No first week on an older project: that step is skipped, Continue is next.
+    await today.getByRole("button", { name: "Next" }).click();
+    await expect(today).toHaveAttribute("data-step", "3");
+    await expect(page.locator("[data-coachmark='continue'][data-coachmark-active]")).toHaveCount(1);
+    await today.getByRole("button", { name: "Done" }).click();
+    await expect(today).toHaveCount(0);
+    await expect.poll(async () => { const g = await readGuidance(api); return g.toursDone.today === true && g.toursDone.home === true; }, { timeout: LONG }).toBe(true);
+    await api.dispose();
+  });
 });

@@ -102,15 +102,19 @@ test.describe("the return loop", () => {
     await context.close();
   });
 
-  test("Today shows the founder's streak, today counted once they are in", async ({ page }) => {
+  test("Today shows the founder's streak quietly, low on the page, today counted once they are in (WP-04 D5)", async ({ page }) => {
     await openBusiness(page, "today");
     const strip = page.getByTestId("streak-strip");
     await expect(strip).toBeVisible({ timeout: LONG });
     await expect(strip.getByTestId("streak-headline")).toHaveText(/\d+ days? in a row|Start a streak today/);
-    await expect(strip.getByRole("list", { name: "The last seven days" }).locator("li")).toHaveCount(7);
-    // The ping on open counts today: a reload says so.
+    // Only the days the founder came, and never a warning that the streak is about to end.
+    await expect(strip).not.toContainText(/Not opened|Open your business today/);
+    // The ping on open counts today: a reload draws at least today's dot.
     await page.reload();
-    await expect(page.getByTestId("streak-strip").locator('li[data-state]').last()).toHaveAttribute("data-state", "visited", { timeout: LONG });
+    await expect(page.getByTestId("streak-strip").getByRole("list", { name: "Days you opened it this week" }).locator("li").last()).toBeAttached({ timeout: LONG });
+    // It sits under the week plan, after the goal.
+    const order = await page.locator("[data-testid=today-screen] [data-order]").getAttribute("data-order");
+    expect(order!.split(" ").indexOf("streak")).toBeGreaterThan(order!.split(" ").indexOf("week"));
   });
 
   test("the presence ping records the founder in the business", async ({ page, playwright }) => {

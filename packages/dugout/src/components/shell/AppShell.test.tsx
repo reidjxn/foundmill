@@ -1,8 +1,9 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AppShell, KIT_VARIABLES, PROCESSING_LINE_MIN_PX, processingLineText, sidebarItemForTarget, withSidebarKeys, type AppShellProps } from "./AppShell";
 import { GuidanceProvider } from "../guidance/GuidanceProvider";
+import { Explainer } from "../guidance/Explainer";
 import { SAMPLE_LOGOS } from "../foundation/logo-samples";
 import { kitBarGradient, kitStyle } from "./KitBar";
 import { kitRamp } from "../../lib/colour";
@@ -64,6 +65,24 @@ describe("AppShell", () => {
       // Continue and Stop all agents stay reachable, each a finger's size.
       expect(screen.getByRole("button", { name: /Continue/ }).className).toContain("min-h-tap");
       expect(screen.getByTestId("stop-all-trigger").className).toContain("min-h-tap");
+    });
+
+    it("draws Explain this page in the phone title row only with `phoneExplain` (WP-04 T7, Today)", () => {
+      const page = <Explainer screenId="today" purpose="Today is the front door." action="Answer Needs you." watchFor="Continue runs the team." />;
+      const { unmount } = render(
+        <GuidanceProvider value={{ guidance: "on", loaded: true }}>
+          <AppShell {...shellProps({ viewportWidth: 390, phone: true, phoneExplain: true, children: page })} />
+        </GuidanceProvider>,
+      );
+      const row = screen.getByTestId("phone-title-row");
+      expect(within(row).getByRole("button", { name: /Explain this page/ })).toBeTruthy();
+      unmount();
+      render(
+        <GuidanceProvider value={{ guidance: "on", loaded: true }}>
+          <AppShell {...shellProps({ viewportWidth: 390, phone: true, children: page })} />
+        </GuidanceProvider>,
+      );
+      expect(within(screen.getByTestId("phone-title-row")).queryByRole("button", { name: /Explain this page/ })).toBeNull();
     });
 
     it("leaves out the right rail on a phone", () => {

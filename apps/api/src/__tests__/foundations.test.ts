@@ -270,8 +270,8 @@ describe("product.foundations — Door B (Import)", () => {
     }
 
     // The first note is the Chief of Staff's welcome; the import's first decisions arrive when the build starts.
-    expect(result.firstItem.subject).toBe("Your team is drafting your page and your plan");
-    expect(result.firstItem.bodyMd).toContain("from the Import report");
+    expect(result.firstItem.subject).toBe(`${report.suggestedName} has started`);
+    expect(result.firstItem.bodyMd).toContain("is drafting its public page from what you imported.");
 
     await f.caller.product.foundations.ensure({ businessId: bid });
     await settleFoundationRuns();

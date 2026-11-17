@@ -65,6 +65,9 @@ export function departmentTabs(dept: Pick<DepartmentSeed, "moduleKeys" | "tabSlu
 /** Utilities every business runs; they are hired into Team so the squad table shows them, but they belong to no department screen. */
 export const UTILITY_TEMPLATE_KEYS: readonly string[] = Object.freeze(["entity_linker", "classifier", "categoriser", "triage", "moderation"]);
 
+// The starting team (WP-04 T4): defined in @foundmill/shared so Commit and Team › Agents read the same list.
+export { STARTING_TEAM_TEMPLATE_KEYS, startingTeam } from "@foundmill/shared";
+
 const CODING_CORE = ["planner", "backend_engineer", "frontend_engineer", "qa_engineer", "review_agent", "integration_agent"];
 
 interface DeptSpec {
