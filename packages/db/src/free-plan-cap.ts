@@ -36,9 +36,12 @@ export function freeCapState(spentMicro: number, capCents: number): FreeCapState
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-/** What a free account reads when the month's cap is reached (founder D2; US date, CLAUDE.md). */
+/**
+ * What a free account reads when Foundmill's platform-wide cap is reached (founder, Nov 17, 2026; US date, CLAUDE.md).
+ * A person's own credits running out has its own sentence (WP-09 T13), never this one.
+ */
 export function freeCapHeldMessage(resetsAt: Date): string {
-  return `Free AI is busy for the rest of the month. It is back on ${MONTHS[resetsAt.getUTCMonth()]} ${resetsAt.getUTCDate()}. To keep going now, connect your own Anthropic key.`;
+  return `Foundmill's included AI is used up for this month! It is back on ${MONTHS[resetsAt.getUTCMonth()]} ${resetsAt.getUTCDate()}. To keep going now, connect your own Anthropic key.`;
 }
 
 export interface FreeCap {

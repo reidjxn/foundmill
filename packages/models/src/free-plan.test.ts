@@ -45,7 +45,7 @@ describe("the month's free-plan cap (WP-13 T6)", () => {
     let asked = 0;
     const freeCap = async () => {
       asked += 1;
-      return { state: "held" as const, heldMessage: "Free AI is busy for the rest of the month. It is back on Dec 1. To keep going now, connect your own Anthropic key." };
+      return { state: "held" as const, heldMessage: "Foundmill's included AI is used up for this month! It is back on Dec 1. To keep going now, connect your own Anthropic key." };
     };
     const client = enforceModelFunding(new MockModelClient({ onUsage: (e) => void events.push(e) }), fundingBy({ free: "free_plan", pro: "paid_plan" }), { freeCap });
     await expect(client.complete(ask("free"))).rejects.toMatchObject({ code: "not_funded", reason: "free_cap", message: expect.stringContaining("back on Dec 1") });

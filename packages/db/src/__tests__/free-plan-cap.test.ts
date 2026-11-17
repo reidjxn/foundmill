@@ -45,7 +45,7 @@ describe("the free plan's monthly cap (WP-13 T6)", () => {
 
   it("says when free AI is back, as a US date", () => {
     expect(capMonth(NOW).resetsAt.toISOString()).toBe("2026-12-01T00:00:00.000Z");
-    expect(freeCapHeldMessage(capMonth(NOW).resetsAt)).toBe("Free AI is busy for the rest of the month. It is back on Dec 1. To keep going now, connect your own Anthropic key.");
+    expect(freeCapHeldMessage(capMonth(NOW).resetsAt)).toBe("Foundmill's included AI is used up for this month! It is back on Dec 1. To keep going now, connect your own Anthropic key.");
   });
 
   it("caches the state for its TTL", async () => {

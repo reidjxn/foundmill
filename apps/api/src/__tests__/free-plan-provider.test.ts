@@ -53,7 +53,7 @@ describe("the month's free-plan cap (WP-13 T6)", () => {
     await repos.businesses.update(hz.db, hz.A.businessId, { planTier: "free", modelBilling: "credits" });
     await repos.businesses.update(hz.db, hz.B.businessId, { planTier: "pro", modelBilling: "credits" });
     const held = await ask(hz.A.businessId).catch((err: unknown) => err);
-    expect(toTRPCError(held)).toMatchObject({ code: "TOO_MANY_REQUESTS", message: expect.stringMatching(/^Free AI is busy for the rest of the month\. It is back on [A-Z][a-z]{2} 1\. To keep going now, connect your own Anthropic key\.$/) });
+    expect(toTRPCError(held)).toMatchObject({ code: "TOO_MANY_REQUESTS", message: expect.stringMatching(/^Foundmill's included AI is used up for this month! It is back on [A-Z][a-z]{2} 1\. To keep going now, connect your own Anthropic key\.$/) });
     await ask(hz.B.businessId);
     expect(events.map((e) => e.model)).toEqual([MODELS.opus]);
   });
