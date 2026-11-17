@@ -17,6 +17,8 @@ import { openSessionRow, setupOrchestratorHarness, type OrchestratorTestHarness 
 let t: OrchestratorTestHarness;
 beforeAll(async () => {
   t = await setupOrchestratorHarness({ prefix: "low-credits" });
+  // These tests cover a paid plan's sessions; a free business runs every session on the free plan's model (WP-13 T4).
+  await repos.businesses.update(t.db, t.businessId, { planTier: "pro" });
 });
 afterAll(async () => {
   await t?.close();
