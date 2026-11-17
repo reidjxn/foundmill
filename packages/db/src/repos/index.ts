@@ -72,7 +72,7 @@ import { attributionsRepo } from "./attributions";
 import { teamPostsRepo } from "./team-posts";
 import { postMediaRepo } from "./post-media";
 import { postAttributionsRepo, postLinksRepo } from "./post-attributions";
-import { ideaDraftsRepo, waitlistRepo } from "./idea-drafts";
+import { ideaDraftsRepo, waitlistBatchesRepo, waitlistRepo } from "./idea-drafts";
 import { admissionsRepo, invitationsRepo } from "./people";
 import { showcaseRepo } from "./showcase";
 import { adultsRepo } from "./adults";
@@ -91,6 +91,7 @@ export const repos = {
   ideas: ideasRepo,
   ideaDrafts: ideaDraftsRepo,
   waitlist: waitlistRepo,
+  waitlistBatches: waitlistBatchesRepo,
   product: productRepo,
   productSignoffs: productSignoffsRepo,
   goals: goalsRepo,

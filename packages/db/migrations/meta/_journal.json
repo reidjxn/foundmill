@@ -785,6 +785,13 @@
       "when": 1796245240000,
       "tag": "0134_project_updates",
       "breakpoints": true
+    },
+    {
+      "idx": 112,
+      "version": "7",
+      "when": 1796245840000,
+      "tag": "0136_waitlist_batches",
+      "breakpoints": true
     }
   ]
 }

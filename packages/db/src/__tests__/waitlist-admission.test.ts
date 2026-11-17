@@ -254,3 +254,47 @@ describe("the waitlist emails (repos.waitlist)", () => {
     expect(await repos.waitlist.forEmail(h.db, "00000000-0000-0000-0000-000000000000", now)).toBeNull();
   });
 });
+
+/** docs/DEPLOY.md §4 "Set the next batch", the statement the operator runs (0136; WP-14 T15). */
+const setBatch = (number: number, opensAt: string, places: number) =>
+  `insert into waitlist_batches (number, opens_at, places) values (${number}, '${opensAt}', ${places}) on conflict (number) do update set opens_at = excluded.opens_at, places = excluded.places, updated_at = now() where waitlist_batches.admitted_at is null;`;
+
+describe("the waitlist's batches (0136, WP-14 T15)", () => {
+  it("shows the next batch not yet opened, by day; none when none is set; the operator's statement sets and moves one", async () => {
+    await h.db.delete(s.waitlistBatches);
+    expect(await repos.waitlistBatches.next(h.db)).toBeNull();
+    await h.pg.exec(setBatch(2, "2026-12-08T17:00:00Z", 40));
+    await h.pg.exec(setBatch(1, "2026-12-01T17:00:00Z", 25));
+    expect(await repos.waitlistBatches.next(h.db)).toEqual({ number: 1, opensAt: new Date("2026-12-01T17:00:00Z"), places: 25 });
+    // The operator moves batch 1 a day later and makes it larger: the same row, still not opened.
+    await h.pg.exec(setBatch(1, "2026-12-02T17:00:00Z", 30));
+    expect(await repos.waitlistBatches.next(h.db)).toEqual({ number: 1, opensAt: new Date("2026-12-02T17:00:00Z"), places: 30 });
+    // Rejected: no places, or more than the table allows.
+    await expect(h.pg.exec(setBatch(3, "2026-12-09T17:00:00Z", 0))).rejects.toThrow();
+  });
+
+  it("a due batch is found once, closed once, and its people carry its number", async () => {
+    await h.db.delete(s.waitlistBatches);
+    await onlyThese();
+    const t0 = new Date("2026-12-01T17:00:00Z");
+    const a = await waiting(new Date("2026-11-20T10:00:00Z"));
+    const b = await waiting(new Date("2026-11-21T10:00:00Z"));
+    const c = await waiting(new Date("2026-11-22T10:00:00Z"));
+    await h.pg.exec(setBatch(1, t0.toISOString(), 2));
+    // Not before its day.
+    expect(await repos.waitlistBatches.due(h.db, new Date(t0.getTime() - 1))).toBeNull();
+    const due = await repos.waitlistBatches.due(h.db, t0);
+    expect(due).toMatchObject({ number: 1, places: 2, admittedAt: null });
+    const admitted = await repos.waitlist.admitNext(h.db, { limit: due!.places, now: t0, batchNumber: due!.number });
+    expect(admitted.map((r) => r.id)).toEqual([a.id, b.id]);
+    expect(admitted.every((r) => r.batchNumber === 1)).toBe(true);
+    expect(await repos.waitlistBatches.close(h.db, due!.id, { admittedCount: admitted.length, now: t0 })).toMatchObject({ admittedCount: 2 });
+    // Closed once: not due again, not shown, a second close is nothing; the third person still waits.
+    expect(await repos.waitlistBatches.close(h.db, due!.id, { admittedCount: 9, now: t0 })).toBeNull();
+    expect(await repos.waitlistBatches.due(h.db, new Date(t0.getTime() + 86_400_000))).toBeNull();
+    expect(await repos.waitlistBatches.next(h.db)).toBeNull();
+    const [still] = await h.db.select().from(s.waitlistEntries).where(eq(s.waitlistEntries.id, c.id));
+    expect(still!.admittedAt).toBeNull();
+    expect(still!.batchNumber).toBeNull();
+  });
+});

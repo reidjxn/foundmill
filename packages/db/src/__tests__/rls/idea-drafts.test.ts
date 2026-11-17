@@ -40,8 +40,14 @@ describe("idea_drafts and waitlist_entries", () => {
       await expect(role().run((tx) => tx.select({ code: s.waitlistEntries.code, referredBy: s.waitlistEntries.referredByEntryId }).from(s.waitlistEntries))).rejects.toThrow(/permission denied/);
       await expect(role().run((tx) => tx.update(s.waitlistEntries).set({ referredByEntryId: null }))).rejects.toThrow(/permission denied/);
     }
+    // 0136: the batches, and who a batch let in or got a personal note, are the services' alone too.
+    for (const role of [() => h.anon(), () => h.asUser(ada)]) {
+      await expect(role().run((tx) => tx.select().from(s.waitlistBatches))).rejects.toThrow(/permission denied/);
+      await expect(role().run((tx) => tx.insert(s.waitlistBatches).values({ number: 99, opensAt: new Date(), places: 1 }))).rejects.toThrow(/permission denied/);
+      await expect(role().run((tx) => tx.select({ batch: s.waitlistEntries.batchNumber, note: s.waitlistEntries.personalNoteAt }).from(s.waitlistEntries))).rejects.toThrow(/permission denied/);
+    }
     // Closed by having no policy at all: a policy added later fails here.
-    const policies = await h.pg.query<{ n: number }>("select count(*)::int as n from pg_policies where tablename in ('idea_drafts', 'waitlist_entries')");
+    const policies = await h.pg.query<{ n: number }>("select count(*)::int as n from pg_policies where tablename in ('idea_drafts', 'waitlist_entries', 'waitlist_batches')");
     expect(policies.rows[0]!.n).toBe(0);
   });
 

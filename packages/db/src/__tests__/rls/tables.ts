@@ -233,6 +233,9 @@ export const NON_TENANT_TABLES = [
   // role, RLS on, no policy); covered by rls/idea-drafts.test.ts.
   "idea_drafts",
   "waitlist_entries",
+  // 0136 the waitlist's batches (WP-14 T15): the services' alone (no client role, RLS on, no policy); covered by
+  // rls/idea-drafts.test.ts.
+  "waitlist_batches",
   "ideas",
   "idea_versions",
   "idea_comparisons",

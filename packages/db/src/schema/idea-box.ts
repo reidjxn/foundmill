@@ -4,7 +4,7 @@
  * sign in and claim it into their deck; and the waitlist that keeps it for someone not yet admitted. The api's alone:
  * RLS on, no policy, no client grant.
  */
-import { bigint, index, jsonb, pgTable, text, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { bigint, index, integer, jsonb, pgTable, text, unique, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
 import { sql } from "drizzle-orm";
 import { id, timestamps, tstz } from "./_common";
@@ -70,6 +70,10 @@ export const waitlistEntries = pgTable(
      * after admission opens the Studio on it. Null: the card's own page.
      */
     cardThen: text("card_then", { enum: WAITLIST_CARD_THEN }),
+    /** 0136 — the batch that let the person in (`waitlist_batches.number`); null for the daily number or by hand. */
+    batchNumber: integer("batch_number"),
+    /** 0136 — when the founder sent this person a personal note (only that it was sent; the note is the founder's own). */
+    personalNoteAt: tstz("personal_note_at"),
     ...timestamps(),
   },
   (t) => [
@@ -86,3 +90,23 @@ export const waitlistEntries = pgTable(
   ],
 );
 export type WaitlistEntryRow = typeof waitlistEntries.$inferSelect;
+
+/**
+ * 0136 — the waitlist's batches (WP-14 T15; founder answer A7, Nov 17, 2026). The operator sets a batch's day and size;
+ * on that day the `waitlist-admissions` sweep lets in the next `places` people and closes it (`admitted_at`,
+ * `admitted_count`). The public waitlist page shows the next batch not yet opened. The services' alone.
+ */
+export const waitlistBatches = pgTable(
+  "waitlist_batches",
+  {
+    id: id(),
+    number: integer("number").notNull(),
+    opensAt: tstz("opens_at").notNull(),
+    places: integer("places").notNull(),
+    admittedAt: tstz("admitted_at"),
+    admittedCount: integer("admitted_count"),
+    ...timestamps(),
+  },
+  (t) => [unique("waitlist_batches_number_key").on(t.number), index("waitlist_batches_due_idx").on(t.opensAt).where(sql`${t.admittedAt} is null`)],
+);
+export type WaitlistBatchRow = typeof waitlistBatches.$inferSelect;

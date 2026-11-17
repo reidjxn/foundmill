@@ -9,7 +9,7 @@
  * (a claimed card lives on as the idea).
  */
 import { and, count, eq, gt, gte, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
-import { accountAdmissions, ideaDrafts, waitlistEntries, type IdeaDraftRow, type WaitlistEntryRow } from "../schema";
+import { accountAdmissions, ideaDrafts, waitlistBatches, waitlistEntries, type IdeaDraftRow, type WaitlistBatchRow, type WaitlistEntryRow } from "../schema";
 import { ideasRepo, type CreateIdeaInput } from "./ideas";
 import { admissionsRepo } from "./people";
 import { newPostCode } from "./post-attributions";
@@ -298,9 +298,10 @@ export const waitlistRepo = {
    * admission is recorded as `waitlist` (`repos.admissions.record`) and `admitted_at` is set. An account that already
    * had an admission keeps it (`newAdmission` false): its entry is closed as told (`notified_at` set), so it gets no
    * "Your place is open" email and takes none of the day's number (`admittedSince` counts new admissions only). Run it
-   * inside the transaction that holds `lockOpenCount`.
+   * inside the transaction that holds `lockOpenCount`. `batchNumber` (0136): the batch letting them in, stamped on each
+   * entry.
    */
-  async admitNext(tx: Executor, input: { limit: number; now?: Date }): Promise<WaitlistAdmitted[]> {
+  async admitNext(tx: Executor, input: { limit: number; now?: Date; batchNumber?: number }): Promise<WaitlistAdmitted[]> {
     const limit = Math.max(0, Math.min(Math.floor(input.limit), 1_000));
     if (limit === 0) return [];
     const now = input.now ?? new Date();
@@ -316,7 +317,7 @@ export const waitlistRepo = {
       const recorded = await admissionsRepo.record(tx, { userId: entry.userId!, how: "waitlist", at: now });
       const [row] = await tx
         .update(waitlistEntries)
-        .set({ admittedAt: now, updatedAt: now, ...(recorded === null ? { notifiedAt: now } : {}) })
+        .set({ admittedAt: now, updatedAt: now, ...(input.batchNumber !== undefined ? { batchNumber: input.batchNumber } : {}), ...(recorded === null ? { notifiedAt: now } : {}) })
         .where(and(eq(waitlistEntries.id, entry.id), isNull(waitlistEntries.admittedAt)))
         .returning();
       if (row) out.push({ ...row, newAdmission: recorded !== null });
@@ -397,6 +398,59 @@ export const WAITLIST_ORDER = sql`exists (select 1 from waitlist_entries brought
 
 /** An entry `admitNext` admitted; `newAdmission` is false when the account already had an admission row. */
 export type WaitlistAdmitted = WaitlistEntryRow & { newAdmission: boolean };
+
+/** What the public waitlist page shows of a batch (WP-14 T15): its number, its day and its size. Nothing else. */
+export interface WaitlistBatchView {
+  number: number;
+  opensAt: Date;
+  places: number;
+}
+
+/**
+ * The waitlist's batches (0136; WP-14 T15). Set by the operator (docs/DEPLOY.md §4 until the operator screen exists),
+ * read by the public page (`next`) and opened by the orchestrator's sweep (`due`, then `close`).
+ */
+export const waitlistBatchesRepo = {
+  /** The next batch not yet opened, earliest day first (the lower number on a tie), or null when none is set. */
+  async next(db: Executor): Promise<WaitlistBatchView | null> {
+    return maybeOne(
+      await db
+        .select({ number: waitlistBatches.number, opensAt: waitlistBatches.opensAt, places: waitlistBatches.places })
+        .from(waitlistBatches)
+        .where(isNull(waitlistBatches.admittedAt))
+        .orderBy(waitlistBatches.opensAt, waitlistBatches.number)
+        .limit(1),
+    );
+  },
+
+  /**
+   * The earliest batch whose day has come and that is not yet opened, locked (`for update skip locked`, so two sweeps
+   * never open the same batch), or null. Run it inside the transaction that opens it.
+   */
+  async due(tx: Executor, now: Date = new Date()): Promise<WaitlistBatchRow | null> {
+    return maybeOne(
+      await tx
+        .select()
+        .from(waitlistBatches)
+        .where(and(isNull(waitlistBatches.admittedAt), lt(waitlistBatches.opensAt, new Date(now.getTime() + 1))))
+        .orderBy(waitlistBatches.opensAt, waitlistBatches.number)
+        .limit(1)
+        .for("update", { skipLocked: true }),
+    );
+  },
+
+  /** Closes a batch: when it opened and how many new accounts it let in. Null when it was already closed. */
+  async close(tx: Executor, batchId: string, input: { admittedCount: number; now?: Date }): Promise<WaitlistBatchRow | null> {
+    const now = input.now ?? new Date();
+    return maybeOne(
+      await tx
+        .update(waitlistBatches)
+        .set({ admittedAt: now, admittedCount: Math.max(0, Math.floor(input.admittedCount)), updatedAt: now })
+        .where(and(eq(waitlistBatches.id, batchId), isNull(waitlistBatches.admittedAt)))
+        .returning(),
+    );
+  },
+};
 
 export interface WaitlistEntryForEmail {
   id: string;
