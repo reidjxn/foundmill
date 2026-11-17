@@ -148,9 +148,8 @@ describe("a founder's own Stripe account in staging (WP-11 T20)", () => {
 });
 
 describe("Simulate in staging", () => {
-  it("still fabricates a payment behind the service token", async () => {
+  it("is refused even behind the service token: production runs APP_ENV=staging (Nov 17, 2026)", async () => {
     const res = await staging.app.request("/simulate/payment.received", { method: "POST", headers: { authorization: `Bearer ${simulateToken(hz.A.businessId)}`, "content-type": "application/json" }, body: JSON.stringify({ businessId: hz.A.businessId, seed: "staging-sim" }) });
-    expect(res.status).toBe(200);
-    expect(await json(res)).toMatchObject({ ok: true, written: 1, label: "Simulated" });
+    expect(res.status).toBe(404);
   });
 });
