@@ -77,7 +77,7 @@ export async function main(): Promise<void> {
   watchdog = watchPoolOrExit({ db, url: env.DATABASE_URL, log, service: "composer" });
   const platform = createModelClient({ mode: effectiveModelMode(env.MODEL_MODE, env.ANTHROPIC_API_KEY, log), apiKey: env.ANTHROPIC_API_KEY, logger: log, onUsage: createUsageSink(db, log) });
   // The platform key's ceiling (usage.ts `creditsGate`), and the free plan's model for a business not on a paid plan.
-  const models = composerModelClient(platform, db);
+  const models = composerModelClient(platform, db, env.FREE_PLAN_MONTHLY_CAP_CENTS);
   service = createComposerService({ db, models, log });
   const app = createApp(service, { env, log });
   const port = servicePort(env, "COMPOSER_PORT");

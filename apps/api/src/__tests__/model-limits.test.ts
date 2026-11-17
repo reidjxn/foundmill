@@ -177,6 +177,13 @@ describe("refunds and conditions", () => {
     expect(await refusal(as(hz.A.ownerId).inbox.decide({ businessId: hz.A.businessId, itemId: (await item()).id, freeText: "Do outbound but cap it at $200" }))).toMatchObject({ code: "TOO_MANY_REQUESTS", message: expect.stringMatching(/^Planning limit reached/) });
   });
 
+  it("past 80% of the month's free-plan cap a free request gets a quarter of its allowance (WP-13 T6)", async () => {
+    const slowly = createCaller({ ...hz.deps, models, freePlanSlow: async () => true }, { userId: hz.A.ownerId, email: null });
+    const quarter = Math.round(MODEL_LIMITS.planner.user[0]!.limit / 4);
+    for (let i = 0; i < quarter; i++) expect(await refusal(slowly.dev.tasks.plan({ businessId: hz.A.businessId, goal: "Ship the pricing page" }))).toBeNull();
+    expect(await refusal(slowly.dev.tasks.plan({ businessId: hz.A.businessId, goal: "Ship the pricing page" }))).toMatchObject({ code: "TOO_MANY_REQUESTS", message: expect.stringMatching(/^Task planning limit reached/) });
+  });
+
   it("plan.preview needs Inbox write: a viewer cannot loop it on the platform key", async () => {
     expect((await refusal(as(hz.A.viewerId).plan.preview({ businessId: hz.A.businessId, text: "Pause ads" })))?.code).toBe("FORBIDDEN");
     expect(models.history).toHaveLength(0);

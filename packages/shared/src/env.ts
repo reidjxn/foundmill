@@ -51,8 +51,11 @@ const Env = z.object({
   ANTHROPIC_API_KEY: z.string().optional(),
   /** Foundmill's Z.ai key: GLM-5.3 Flash for every account not on a paid plan (WP-13). Unset: free calls are refused. */
   ZAI_API_KEY: z.string().optional(),
-  /** The month's ceiling on the platform's Z.ai spend, in US cents (founder, Nov 16, 2026: $600). Read by WP-13 T6. */
-  ZAI_MONTHLY_CAP_CENTS: z.coerce.number().int().min(0).max(10_000_000).default(60_000),
+  /**
+   * The month's ceiling on what the free plan costs Foundmill, in US cents: Haiku 5.5 and GLM-5.3 Flash together, web
+   * search included (founder, Nov 16, 2026: $600). Free work slows at 80% and is held at 100% (WP-13 T6).
+   */
+  FREE_PLAN_MONTHLY_CAP_CENTS: z.coerce.number().int().min(0).max(10_000_000).default(60_000),
   VOYAGE_API_KEY: z.string().optional(),
   /** apps/gateway: the platform key behind the `openai_images` connector (AI-generated faces of anthropomorphic agents). */
   OPENAI_API_KEY: z.string().optional(),

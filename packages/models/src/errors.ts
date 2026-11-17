@@ -126,7 +126,7 @@ export class ModelAbortedError extends ModelError {
 export class ModelNotFundedError extends ModelError {
   constructor(
     message: string,
-    readonly reason: "own_key_route",
+    readonly reason: "own_key_route" | "free_cap",
   ) {
     super("not_funded", message, false, { reason });
     this.name = "ModelNotFundedError";

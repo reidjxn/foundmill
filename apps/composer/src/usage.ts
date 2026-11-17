@@ -9,7 +9,7 @@
  * credits for the month are used up is refused before the request leaves (`credits_exhausted`, 402, which the api
  * passes through), whatever the business's model billing; a pre-written note from the buffer still serves Refresh.
  */
-import { assertPlatformCredits, bookUsage, cachedModelFundingOf, type Db } from "@foundmill/db";
+import { assertPlatformCredits, bookUsage, cachedModelFundingOf, freeCapCheck, type Db } from "@foundmill/db";
 import { enforceModelFunding, gateModelClient, type ModelCallGate, type ModelClient, type ModelLogger, type UsageEvent, type UsageSink } from "@foundmill/models";
 
 /** The composer's check before every model call: the business's credits must allow it (`live`: simulated credits do not count). */
@@ -27,8 +27,9 @@ export function creditsGate(db: Db, live: boolean): ModelCallGate {
  * a paid plan runs on Haiku 5.5). The composer cannot use a business's own key, so an own-key business runs as its plan
  * says until WP-13 T11 routes these calls through the gateway on that key.
  */
-export function composerModelClient(platform: ModelClient, db: Db): ModelClient {
-  return enforceModelFunding(gateModelClient(platform, creditsGate(db, platform.mode === "live")), cachedModelFundingOf(db, { ownKeyServed: false }));
+export function composerModelClient(platform: ModelClient, db: Db, freeCapCents?: number): ModelClient {
+  const freeCap = freeCapCents === undefined ? undefined : freeCapCheck(db, freeCapCents);
+  return enforceModelFunding(gateModelClient(platform, creditsGate(db, platform.mode === "live")), cachedModelFundingOf(db, { ownKeyServed: false }), { freeCap });
 }
 
 export interface UsageSinkOptions {

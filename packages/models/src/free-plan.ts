@@ -27,11 +27,19 @@ export type FundingOf = (attribution: UsageAttribution | undefined) => Promise<M
 
 const OWN_KEY_ROUTE = "This call is for a business on its own Anthropic key and must run on that key.";
 
-export function enforceModelFunding(client: ModelClient, fundingOf: FundingOf): ModelClient {
-  return gateModelClient(client, async ({ route, attribution }) => {
+/**
+ * The month's cap on what the free plan costs Foundmill (WP-13 T6; packages/db `cachedFreeCap`): while it is `held`,
+ * every free call, web search included, is refused with its message before anything is spent. A paid plan never asks.
+ */
+export type FreeCapCheck = () => Promise<{ state: "open" | "slow" | "held"; heldMessage: string }>;
+
+export function enforceModelFunding(client: ModelClient, fundingOf: FundingOf, options: { freeCap?: FreeCapCheck } = {}): ModelClient {
+  return gateModelClient(client, async ({ attribution }) => {
     const funding = await fundingOf(attribution);
     if (funding === "paid_plan") return;
     if (funding === "own_key") throw new ModelNotFundedError(OWN_KEY_ROUTE, "own_key_route");
+    const cap = options.freeCap ? await options.freeCap() : null;
+    if (cap?.state === "held") throw new ModelNotFundedError(cap.heldMessage, "free_cap");
     return { freePlan: true };
   });
 }
