@@ -33,7 +33,7 @@ for (const [width, height] of [
     await expect(button).toBeInViewport();
     expect((await button.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await expect(page.locator("header .idea-gen-filled, header button")).toHaveCount(0);
-    for (const a of ["Shaping your first idea is free and needs no sign-up", "Your idea stays private until you choose to share it", "Nothing spends money or signs in your name without you"]) {
+    for (const a of ["Your idea stays private until you choose to share it", "Nothing spends, signs or files without you", "Built for a big screen and your full attention"]) {
       await expect(page.getByText(a, { exact: true })).toBeVisible();
     }
 

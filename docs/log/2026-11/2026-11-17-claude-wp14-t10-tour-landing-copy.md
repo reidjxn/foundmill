@@ -10,6 +10,9 @@ supersedes: []
 - `/tour`: "You do not manage prompts. You run a business…" sits directly under the hero (`RunABusiness`) and leaves How it works; the thesis ends on "…without asking you to become a manager of software."; pillar 1 is "A whole company, working while you work"; the "You stay in charge" pillar has the brief's body.
 - `/tour`: the house rules lead with "Never signs anything in your name", with a line under them (`HOUSE_RULES_WHY`); the footer's "Desktop only" line and the unrendered `INCLUDED_CREDITS_ASSURANCE` are gone.
 - `/`: a `vacation` section ("Take a vacation."), one line by the control rules about estimates, and two more headline variants on the `fm_lp` seam, `calls` and `team` (`?lp=calls`, `?lp=team`).
+- `/` hero, after the founder's answers of the afternoon (WP-14 A1, A6): the lines under the idea box are "Free to start · no card" while sign-up is by invitation, the privacy line, "Nothing spends, signs or files without you" and "Built for a big screen and your full attention". `IdeaBox` takes `assurances`; the tour keeps its own three.
+- The small-screen wall's title is "Foundmill is built for a big screen." (`NEEDS_LARGER_WINDOW_WORDS`); its body and the page's actions ("Email me a link", the way back) are unchanged, so no page lost its way on.
+- `/` no longer says "the free plan does not expire" (`cost.free`): the entry plan becomes paid when sign-up opens.
 - Tests: `TourPage.test.tsx`, `cycle.test.ts`, `examples.test.ts`, `LandingPage.test.tsx` and the three Playwright specs updated; the web landing suites, eslint and the three copy linters pass locally. Playwright runs in CI.
 
 ## Decisions
@@ -34,7 +37,19 @@ Its win is the chain's opening order, so the decision on that chain's terms move
 ### The two new variants share the default page's lede shape
 Only the headline differs in substance, so a later comparison reads the headline.
 
+### The free line reads sign-up's stage from the page's switches
+"Free to start · no card" shows while `SIGNUP_OPEN` is off, the same switch the api reads (flags.ts `signupOpen`). Once it is on, the line is "Shaping your first idea is free and needs no sign-up", which is true of the idea box at any price. No config value names the entry plan's price yet (WP-14 T14), so the stage is the switch.
+
+### The privacy line stays
+The brief lists three hero lines. "Your idea stays private until you choose to share it" was not asked to go and answers a first-timer's fear, so the hero has four.
+
+### "card" in one line
+`/` calls the rated result an idea (Nov 16). "Free to start · no card" is the founder's line and means a payment card; the test that bans the word on `/` allows that one string.
+
+### removed-claims.test.tsx is unchanged
+Neither new line matches a removed claim ("Desktop only", "1280 px wide or more" stay removed).
+
 ## Not done
-- Nothing waiting on a founder decision in WP-14: no "Free to start · no card" (D1), no "big screen" line (D6), no "First company?" pill, no batch or places wording (D7).
-- `/` still says "the free plan does not expire" (words.ts `cost.free`); the paid entry plan answers of Nov 17 (#273, #274) say nothing may promise the product stays free. That line belongs to D1 and was left for it.
+- The not-invited page (WP-14 T15 owns its wording) and the pill "First company? The team comes with it." (a removed claim).
+- Plan names and prices on `/`: "What it costs" still says "The free plan includes …"; the names Try, Founder, Studio and Partner arrive with WP-14 T14.
 - Measuring the two headlines waits for analytics on the site.

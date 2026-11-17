@@ -107,6 +107,21 @@ export const LANDING_WORDS = {
     ledeClosed: "Keep it, and once your place opens the team drafts a page for it and plans what comes next.",
     /** [switch: signupOpen on] */
     ledeOpen: "Keep it, and the team drafts a page for it and plans what comes next.",
+    /**
+     * The lines under the idea box on `/` (WP-14 T10; founder's answers A1 and A6, Nov 17). `freeInvite` shows while
+     * sign-up is by invitation, when the entry plan costs nothing; on the day sign-up opens that plan becomes paid and
+     * `freeOpen` (true of the idea box at any stage) takes its place. No dollar figure here, and nothing that promises
+     * the product stays free. "card" in `freeInvite` is a payment card, the one place the page uses the word.
+     */
+    assure: {
+      /** [switch: signupOpen off] */
+      freeInvite: "Free to start · no card",
+      /** [switch: signupOpen on] */
+      freeOpen: "Shaping your first idea is free and needs no sign-up",
+      private: "Your idea stays private until you choose to share it",
+      safe: "Nothing spends, signs or files without you",
+      bigScreen: "Built for a big screen and your full attention",
+    },
     /** [switch: signupOpen off] */
     door: `${APP_NAME} lets new people in a few at a time. Signing in puts you on the list and keeps your idea for 90 days.`,
   },
@@ -213,7 +228,7 @@ export const LANDING_WORDS = {
   },
   cost: {
     title: "What it costs",
-    free: "Starting is free, the free plan does not expire, and you never enter payment details.",
+    free: "Starting is free and asks for no payment details.",
     allowance: `The free plan includes ${INCLUDED} of agent work a month for one project. If it runs out, your team pauses until the next month starts. Your page stays live and nothing you made is lost.`,
     people: `Your page's ${APP_NAME} address and every person you add are free on every plan.`,
   },

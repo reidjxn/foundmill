@@ -5,7 +5,8 @@
  * visitor's own idea lands the h1 becomes "<name> is yours to keep." and the page is told (`data-landed` on the
  * landing root), so the example steps aside for it.
  */
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Lock, Medal, Monitor, ShieldCheck } from "lucide-react";
 import { cn } from "@foundmill/dugout";
 import { IdeaBox, type IdeaBoxLanded } from "./idea-box/IdeaBox";
 import { LANDING_WORDS, type VariantWords } from "./words";
@@ -21,6 +22,16 @@ export interface LandingHeroProps {
 
 export function LandingHero({ signupOpen, words, example }: LandingHeroProps) {
   const [landed, setLanded] = useState<IdeaBoxLanded | null>(null);
+  // The free line follows the stage sign-up is in (the same SIGNUP_OPEN the api reads, through the page's switches).
+  const assurances = useMemo(
+    () => [
+      { icon: Medal, text: signupOpen ? W.assure.freeOpen : W.assure.freeInvite },
+      { icon: Lock, text: W.assure.private },
+      { icon: ShieldCheck, text: W.assure.safe },
+      { icon: Monitor, text: W.assure.bigScreen },
+    ],
+    [signupOpen],
+  );
   useEffect(() => {
     document.querySelector("[data-landing]")?.toggleAttribute("data-landed", landed !== null);
   }, [landed]);
@@ -40,7 +51,7 @@ export function LandingHero({ signupOpen, words, example }: LandingHeroProps) {
             ) : null}
           </div>
           <div className={cn("w-full motion-safe:animate-rise-in", !landed && "landing-measure")}>
-            <IdeaBox onLanded={setLanded} label={words.label} ideas={words.ideas} surpriseOpen={words.surpriseOpen} align="start" />
+            <IdeaBox onLanded={setLanded} label={words.label} ideas={words.ideas} surpriseOpen={words.surpriseOpen} assurances={assurances} align="start" />
           </div>
           {!signupOpen ? (
             <p className="t-landing-small landing-measure text-secondary" data-testid="hero-door">
