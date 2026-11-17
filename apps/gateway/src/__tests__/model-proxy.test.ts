@@ -18,6 +18,7 @@ import { signServiceToken } from "../tokens";
 import { TEST_SECRET } from "./harness";
 
 const KEY = "sk-ant-api03-founder-own-key-for-models-0123456789";
+const COMPOSER_SECRET = "composer-own-secret-0123456789-abcdefgh";
 let h: TestHarness;
 let db: Db;
 let vault: LocalVault;
@@ -51,13 +52,27 @@ function setup() {
   const line = (...args: unknown[]) => void logs.push(JSON.stringify(args));
   const log: GatewayLogger = { debug: line, info: line, warn: line, error: line, child: () => log };
   const deps: GatewayDeps = { db, registry: createDefaultRegistry({ secrets: {} }), vault, mode: "live", rateLimits: new MemoryRateLimitStore(), recipients: new UntrustedRecipientRegistry(), log, anthropicFetch };
-  return { app: createGatewayApp(deps, { sessionTokenSecret: TEST_SECRET }), upstream, logs };
+  return { app: createGatewayApp(deps, { sessionTokenSecret: TEST_SECRET, composerServiceTokenSecret: COMPOSER_SECRET }), upstream, logs };
 }
 
-async function send(app: ReturnType<typeof setup>["app"], businessId: string, opts: { svc?: string | null; model?: string; search?: string } = {}) {
+interface SendOptions {
+  svc?: string | null;
+  /** The secret the token is signed with: the composer's own for `svc: composer` unless a test says otherwise. */
+  secret?: string;
+  /** The business the token names (default: the one in the path). */
+  tokenBusiness?: string | null;
+  model?: string;
+  search?: string;
+  beta?: string;
+  extra?: Record<string, unknown>;
+}
+
+async function send(app: ReturnType<typeof setup>["app"], businessId: string, opts: SendOptions = {}) {
   const headers: Record<string, string> = { "content-type": "application/json", "anthropic-version": "2023-06-01", "x-api-key": "own-key-at-gateway" };
-  if (opts.svc !== null) headers.authorization = `Bearer ${await signServiceToken(TEST_SECRET, opts.svc ?? "api")}`;
-  const res = await app.request(`/v1/models/anthropic/${businessId}/v1/messages${opts.search ?? ""}`, { method: "POST", headers, body: JSON.stringify({ model: opts.model ?? MODELS.sonnet, max_tokens: 64, messages: [{ role: "user", content: "Hi" }] }) });
+  const svc = opts.svc === undefined ? "api" : opts.svc;
+  if (svc !== null) headers.authorization = `Bearer ${await signServiceToken(opts.secret ?? (svc === "composer" ? COMPOSER_SECRET : TEST_SECRET), svc, 60, opts.tokenBusiness === null ? undefined : (opts.tokenBusiness ?? businessId))}`;
+  if (opts.beta) headers["anthropic-beta"] = opts.beta;
+  const res = await app.request(`/v1/models/anthropic/${businessId}/v1/messages${opts.search ?? ""}`, { method: "POST", headers, body: JSON.stringify({ model: opts.model ?? MODELS.sonnet, max_tokens: 64, messages: [{ role: "user", content: "Hi" }], ...opts.extra }) });
   return { status: res.status, headers: res.headers, text: await res.text() };
 }
 
@@ -99,5 +114,26 @@ describe("the own-key model route (WP-13 T11)", () => {
     expect((await send(app, ownKeyId, { model: "claude-made-up-1" })).status).toBe(400);
     expect((await send(app, ownKeyId, { model: MODELS.glm })).status).toBe(400);
     expect(upstream).toHaveLength(0);
+  });
+
+  it("refuses a composer token signed with the shared secret, and a token for another business (security review)", async () => {
+    const { app, upstream } = setup();
+    // Every service holds the shared secret: claiming to be the composer with it is not enough.
+    expect((await send(app, ownKeyId, { svc: "composer", secret: TEST_SECRET })).status).toBe(403);
+    // A token minted for one business cannot spend another's key, nor a token that names none.
+    expect((await send(app, ownKeyId, { tokenBusiness: creditsId })).status).toBe(403);
+    expect((await send(app, ownKeyId, { tokenBusiness: null })).status).toBe(403);
+    expect(upstream).toHaveLength(0);
+  });
+
+  it("refuses MCP servers, containers, server tools and other betas on the founder's account, and forwards only the parsed body", async () => {
+    const { app, upstream } = setup();
+    expect((await send(app, ownKeyId, { extra: { mcp_servers: [{ type: "url", url: "https://example.test/mcp", name: "x" }] } })).status).toBe(400);
+    expect((await send(app, ownKeyId, { extra: { container: "c1" } })).status).toBe(400);
+    expect((await send(app, ownKeyId, { extra: { tools: [{ type: "web_fetch_20250910", name: "web_fetch" }] } })).status).toBe(400);
+    expect((await send(app, ownKeyId, { beta: "code-execution-2025-08-25" })).status).toBe(400);
+    expect(upstream).toHaveLength(0);
+    expect((await send(app, ownKeyId, { extra: { tools: [{ name: "report", input_schema: { type: "object" } }] } })).status).toBe(200);
+    expect(JSON.parse(upstream[0]!.body)).toMatchObject({ model: MODELS.sonnet, tools: [{ name: "report" }] });
   });
 });

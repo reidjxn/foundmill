@@ -33,7 +33,7 @@ import { APP_NAME } from "@foundmill/config";
 import { AppError, UnauthorizedError } from "@foundmill/shared";
 import { repos } from "@foundmill/db";
 import { cedarVersion, getPolicyEngine } from "@foundmill/policy";
-import { apiServiceTokenMode, bearerToken, mintSessionToken, sessionKey, verifyServiceTokenFor, verifySessionToken, type ServiceToken, type SessionToken } from "./tokens";
+import { apiServiceTokenMode, bearerToken, mintSessionToken, sessionKey, verifyServiceToken, verifyServiceTokenFor, verifySessionToken, type ServiceToken, type SessionToken } from "./tokens";
 import { GatewayError, safeError, type GatewayDeps } from "./pipeline";
 import { connectIntegration, integrationHealth } from "./integrations";
 import { KEYS_VALIDATE_ROUTE, ValidateKeyRequest, validateFounderKey } from "./keys";
@@ -67,6 +67,8 @@ export interface GatewayAppOptions {
   /** API_SERVICE_TOKEN_SECRET and API_SERVICE_TOKEN_LEGACY (WP-11 T12); absent in tests that do not need them. */
   apiServiceTokenSecret?: string | null;
   apiServiceTokenLegacy?: boolean;
+  /** COMPOSER_SERVICE_TOKEN_SECRET (WP-13 T11): the only key a composer token on the own-key model route may be signed with. */
+  composerServiceTokenSecret?: string | null;
   sessionTokenTtlSeconds?: number;
   sessionTokenMaxTtlSeconds?: number;
   /** For `/health`: the rate-limit store in use (a function reads it per request; memory while a Redis store falls back). */
@@ -192,10 +194,23 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     return c.json(await validateFounderKey(deps, parsed.data, c.var.service.svc, deps.validateModelKey));
   });
   app.post(REGISTRY_LOOKUP_ROUTE, async (c) => c.json(await lookupRegistry(deps, RegistryLookupRequest.parse(await c.req.json()), c.var.service.svc)));
-  // A founder's own Anthropic key for the api's and the composer's model calls (model-proxy.ts, WP-13 T11).
-  app.use(OWN_KEY_MODELS_ROUTE, requireService);
+  // A founder's own Anthropic key for the api's and the composer's model calls (model-proxy.ts, WP-13 T11). The shared
+  // secret is held by every service, so a composer token here must be signed with the composer's own secret, an api token
+  // passes the api's rule, and either must name the business in the path.
+  app.use(OWN_KEY_MODELS_ROUTE, async (c, next) => {
+    const token = bearerToken(c.req.header("authorization"));
+    if (!token) throw new UnauthorizedError("A service Bearer token is required");
+    const composerSecret = options.composerServiceTokenSecret ?? null;
+    const composer = composerSecret ? await verifyServiceToken(composerSecret, token).catch(() => null) : null;
+    if (composer && composer.svc !== "composer") throw new UnauthorizedError("A token signed with the composer's secret must be the composer's");
+    const service = composer ?? (await verifyServiceTokenFor(serviceSecrets, token));
+    if (service.svc !== "api" && !composer) throw new GatewayError("forbidden_service", "Only the api, and the composer with its own secret, call models on a founder's key", 403);
+    if (service.businessId !== c.req.param("businessId")) throw new GatewayError("forbidden_business", "This token is for another business", 403);
+    c.set("service", service);
+    await next();
+  });
   app.post(OWN_KEY_MODELS_ROUTE, async (c) =>
-    proxyOwnKeyMessage(deps, { businessId: c.req.param("businessId"), body: await c.req.text(), search: new URL(c.req.url).search, anthropicVersion: c.req.header("anthropic-version"), anthropicBeta: c.req.header("anthropic-beta"), service: c.var.service.svc }, deps.anthropicFetch),
+    proxyOwnKeyMessage(deps, { businessId: c.req.param("businessId"), body: await c.req.text(), search: new URL(c.req.url).search, anthropicVersion: c.req.header("anthropic-version"), anthropicBeta: c.req.header("anthropic-beta"), service: c.var.service.svc, signal: c.req.raw.signal }, deps.anthropicFetch),
   );
 
   // Domain availability for the Commit screen: the api asks for a signed-in founder; the gateway reaches the registries.

@@ -25,8 +25,8 @@ export const OWN_KEY_GATEWAY_PATH = "/v1/models/anthropic";
 
 export interface OwnKeyViaGatewayOptions {
   gatewayUrl: string;
-  /** A fresh service token for the gateway (`svc: api` or `svc: composer`). */
-  serviceToken: () => Promise<string>;
+  /** A fresh service token for the gateway (`svc: api` or `svc: composer`) naming the business it acts for. */
+  serviceToken: (businessId: string) => Promise<string>;
   onUsage?: UsageSink;
   logger?: ModelLogger;
   /** Injectable fetch (tests). */
@@ -37,16 +37,19 @@ export interface OwnKeyViaGatewayOptions {
 export function ownKeyViaGateway(opts: OwnKeyViaGatewayOptions): (businessId: string) => ModelClient {
   const base = opts.gatewayUrl.replace(/\/+$/, "");
   const fetchImpl = opts.fetch ?? globalThis.fetch;
-  const signed: typeof globalThis.fetch = async (input, init) => {
-    const headers = new Headers(init?.headers);
-    headers.set("authorization", `Bearer ${await opts.serviceToken()}`);
-    headers.delete("x-api-key");
-    return fetchImpl(input, { ...init, headers });
-  };
+  const signedFor =
+    (businessId: string): typeof globalThis.fetch =>
+    async (input, init) => {
+      const headers = new Headers(init?.headers);
+      headers.set("authorization", `Bearer ${await opts.serviceToken(businessId)}`);
+      headers.delete("x-api-key");
+      return fetchImpl(input, { ...init, headers });
+    };
   const clients = new Map<string, ModelClient>();
   return (businessId) => {
     let client = clients.get(businessId);
     if (!client) {
+      const signed = signedFor(businessId);
       client = createModelClient({
         mode: "live",
         apiKey: "own-key-at-gateway",
@@ -63,11 +66,15 @@ export function ownKeyViaGateway(opts: OwnKeyViaGatewayOptions): (businessId: st
   };
 }
 
-/** A refused or missing key reads as one of the sentences above; a billing refusal on the founder's account passes as is. */
+/**
+ * A refused or missing key reads as one of the sentences above; a billing refusal on the founder's account passes as is.
+ * Only Anthropic's own refusals (`authentication_error`, `permission_error`) blame the key: the gateway's own 401 or 403
+ * (a service-token fault of Foundmill's) has no Anthropic error type and stays a plain error.
+ */
 function ownKeyError(err: unknown): unknown {
   if (err instanceof ModelBillingError || !(err instanceof ModelRequestError)) return err;
-  if (err.status === 401 || err.status === 403) return new ModelRequestError(OWN_KEY_REFUSED, err.status, "own_key_refused", undefined, "auth");
-  if (err.status === 409) return new ModelRequestError(OWN_KEY_MISSING, 409, "own_key_missing", undefined, "auth");
+  if (err.apiErrorType === "authentication_error" || err.apiErrorType === "permission_error") return new ModelRequestError(OWN_KEY_REFUSED, err.status, "own_key_refused", undefined, "auth");
+  if (err.apiErrorType === "own_key_missing") return new ModelRequestError(OWN_KEY_MISSING, 409, "own_key_missing", undefined, "auth");
   return err;
 }
 

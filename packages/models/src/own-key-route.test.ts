@@ -32,7 +32,7 @@ describe("routeOwnKeyCalls with ownKeyViaGateway (WP-13 T11)", () => {
     const gw = gateway(answer);
     const usage: UsageEvent[] = [];
     const platform = new MockModelClient();
-    const clientFor = ownKeyViaGateway({ gatewayUrl: "http://gateway.test/", serviceToken: async () => "svc-token", fetch: gw.fetch, onUsage: (e) => void usage.push(e) });
+    const clientFor = ownKeyViaGateway({ gatewayUrl: "http://gateway.test/", serviceToken: async (businessId) => `svc-token-${businessId.slice(0, 4)}`, fetch: gw.fetch, onUsage: (e) => void usage.push(e) });
     const client = routeOwnKeyCalls(platform, { ownKey: async (a) => a?.businessId === OWN, clientFor });
     return { gw, usage, platform, client };
   };
@@ -44,7 +44,7 @@ describe("routeOwnKeyCalls with ownKeyViaGateway (WP-13 T11)", () => {
     expect(result.text).toBe("On your key.");
     expect(gw.calls).toHaveLength(1);
     expect(gw.calls[0]!.url).toBe(`http://gateway.test/v1/models/anthropic/${OWN}/v1/messages`);
-    expect(gw.calls[0]!.headers.authorization).toBe("Bearer svc-token");
+    expect(gw.calls[0]!.headers.authorization).toBe("Bearer svc-token-1111");
     expect(gw.calls[0]!.headers["x-api-key"]).toBeUndefined();
     expect(usage.map((e) => [e.billedTo, e.attribution?.businessId])).toEqual([["byok", OWN]]);
     expect(platform.history).toHaveLength(0);
@@ -63,6 +63,10 @@ describe("routeOwnKeyCalls with ownKeyViaGateway (WP-13 T11)", () => {
     await expect(ask(refused.client, OWN)).rejects.toMatchObject({ code: "auth", message: OWN_KEY_REFUSED });
     const missing = setup(() => refusal(409, "no key"));
     await expect(ask(missing.client, OWN)).rejects.toMatchObject({ code: "auth", message: OWN_KEY_MISSING });
+    // The gateway's own refusal (a token fault of Foundmill's) never blames the founder's key.
+    const ours = setup(() => new Response(JSON.stringify({ error: { code: "unauthorized", message: "Token has expired" } }), { status: 401, headers: { "content-type": "application/json" } }));
+    const err = await ask(ours.client, OWN).catch((e: unknown) => e);
+    expect((err as Error).message).not.toBe(OWN_KEY_REFUSED);
     expect(refused.platform.history).toHaveLength(0);
     expect(missing.platform.history).toHaveLength(0);
   });

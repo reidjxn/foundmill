@@ -217,7 +217,7 @@ All by the coordinating session on the founder's word (reported by that session,
 | WP-13 | T7 | The model dialog shows GLM, and Anthropic models offer an upgrade | not started | T2 (merged); at opening its copy says "buy a credit pack" (Nov 17) |
 | WP-13 | T8 | Evals on GLM-5.3 Flash | partly merged | the session cost run (#283: $0.0068 a GLM session); the platform suites on Haiku 5.5 and GLM: not started |
 | WP-13 | T9 | The privacy policy names Z.ai | merged (#260) | the DPA and SCCs are the founder's (Z3) |
-| WP-13 | T11 | The api and composer use a founder's own Anthropic key | pull request open | the composer needs `GATEWAY_URL` and `SESSION_TOKEN_SECRET` on Railway |
+| WP-13 | T11 | The api and composer use a founder's own Anthropic key | pull request open | the composer needs `COMPOSER_SERVICE_TOKEN_SECRET` (composer and gateway) and `GATEWAY_URL` on Railway |
 | WP-13 | T10 | Switch it on | not started | T4 to T9, T11; setup Z2 |
 
 ## Unknown, for the founder or the session that owns each

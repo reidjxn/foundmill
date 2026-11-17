@@ -77,8 +77,10 @@ export async function main(): Promise<void> {
   watchdog = watchPoolOrExit({ db, url: env.DATABASE_URL, log, service: "composer" });
   const platform = createModelClient({ mode: effectiveModelMode(env.MODEL_MODE, env.ANTHROPIC_API_KEY, log), apiKey: env.ANTHROPIC_API_KEY, logger: log, onUsage: createUsageSink(db, log) });
   // The platform key's ceiling (usage.ts `creditsGate`), and the free plan's model for a business not on a paid plan.
-  // A founder's own key reaches the composer's calls through the gateway (WP-13 T11), signed with the shared secret.
-  const ownKey = env.SESSION_TOKEN_SECRET && env.SESSION_TOKEN_SECRET.length >= 16 ? { gatewayUrl: env.GATEWAY_URL, secret: env.SESSION_TOKEN_SECRET, onUsage: createUsageSink(db, log), logger: log } : undefined;
+  // A founder's own key reaches the composer's calls through the gateway (WP-13 T11), signed with the composer's own
+  // secret (the shared one is held by every service). Unset: an own-key business's calls run as its plan says.
+  const composerSecret = env.COMPOSER_SERVICE_TOKEN_SECRET?.trim();
+  const ownKey = composerSecret && composerSecret.length >= 32 ? { gatewayUrl: env.GATEWAY_URL, secret: composerSecret, onUsage: createUsageSink(db, log), logger: log } : undefined;
   const models = composerModelClient(platform, db, env.FREE_PLAN_MONTHLY_CAP_CENTS, ownKey);
   service = createComposerService({ db, models, log });
   const app = createApp(service, { env, log });

@@ -26,7 +26,7 @@ describe("composerModelClient (WP-13)", () => {
 });
 
 describe("composerModelClient on a founder's own key (WP-13 T11)", () => {
-  const SECRET = "composer-test-secret-0123456789";
+  const SECRET = "composer-test-secret-0123456789-abcdef";
   it("writes an own-key business's note through the gateway's route on its key, booked byok, and keeps others on the platform", async () => {
     const calls: { url: string; auth: string | null }[] = [];
     const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -53,10 +53,10 @@ describe("composerModelClient on a founder's own key (WP-13 T11)", () => {
   });
 
   it("signs the gateway's service token as the gateway checks it: HS256, svc composer, 60 seconds", async () => {
-    const token = await composerServiceToken(SECRET, 1_800_000_000_000);
+    const token = await composerServiceToken(SECRET, hz.A.businessId, 1_800_000_000_000);
     const [head, body, signature] = token.split(".");
     expect(JSON.parse(Buffer.from(head!, "base64url").toString())).toEqual({ alg: "HS256", typ: "JWT" });
-    expect(JSON.parse(Buffer.from(body!, "base64url").toString())).toMatchObject({ svc: "composer", iss: "foundmill-gateway", aud: "foundmill-gateway/service", iat: 1_800_000_000, exp: 1_800_000_060 });
+    expect(JSON.parse(Buffer.from(body!, "base64url").toString())).toMatchObject({ svc: "composer", businessId: hz.A.businessId, iss: "foundmill-gateway", aud: "foundmill-gateway/service", iat: 1_800_000_000, exp: 1_800_000_060 });
     expect(signature).toBe(createHmac("sha256", SECRET).update(`${head}.${body}`).digest("base64url"));
   });
 });

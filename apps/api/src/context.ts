@@ -174,7 +174,7 @@ export function createApiDeps(options: CreateApiDepsOptions = {}): ApiDeps {
   // Calls made for a business are booked to its usage ledger through the client (services/models.ts).
   // A founder's own key reaches the api's calls through the gateway (WP-13 T11), signed as the api's other gateway calls.
   const gatewaySecret = env.API_SERVICE_TOKEN_SECRET?.trim() || env.SESSION_TOKEN_SECRET?.trim() || null;
-  const models = createApiModelClient(env, log, { db, ...(gatewaySecret && gatewaySecret.length >= 16 ? { ownKeyGateway: { url: env.GATEWAY_URL, serviceToken: () => signApiServiceToken(gatewaySecret) } } : {}) });
+  const models = createApiModelClient(env, log, { db, ...(gatewaySecret && gatewaySecret.length >= 16 ? { ownKeyGateway: { url: env.GATEWAY_URL, serviceToken: (businessId: string) => signApiServiceToken(gatewaySecret, businessId) } } : {}) });
   const freePlanSlow = freePlanSlowCheck(db, env.FREE_PLAN_MONTHLY_CAP_CENTS);
   const composer = createComposerClient({ url: env.COMPOSER_URL, db, models, log, timeoutMs: env.COMPOSER_TIMEOUT_MS, allowFallback: env.APP_ENV === "development" || env.APP_ENV === "test" });
 

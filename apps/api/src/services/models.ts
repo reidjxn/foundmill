@@ -35,7 +35,7 @@ export interface ApiModelClientOptions {
    * The gateway, for a business on its own Anthropic key (WP-13 T11): its calls run on that key through the gateway's
    * model route, booked `byok`. Absent (tests, no secret): they run as the business's plan says, on Foundmill's key.
    */
-  ownKeyGateway?: { url: string; serviceToken: () => Promise<string> };
+  ownKeyGateway?: { url: string; serviceToken: (businessId: string) => Promise<string> };
   /** Injectable fetch for the gateway route (tests). */
   gatewayFetch?: typeof globalThis.fetch;
 }
