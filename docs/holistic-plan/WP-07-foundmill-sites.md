@@ -230,7 +230,7 @@ Before (`archetypes.ts:455`): "At least 20 suppliers recorded as CRM entities". 
 
 ### T7: The pay button, with a link the founder pastes   [M] [ships alone] [needs go-ahead A; needs no Stripe setup]
 
-- [ ] done
+- [x] done (pull request "Pay buttons", with the 30-day address hold)
 
 **Why:** AR-04 (`audits/a3a-agent-runtime.md`: no agent path to a payment link), §1.5 "Payments: Missing", §8 item 7. The smallest thing that puts a working button on a site is a link the founder made in their own Stripe account.
 

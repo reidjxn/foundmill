@@ -24,6 +24,7 @@ import { legalRouter } from "./routers/legal";
 import { liveRouter } from "./routers/live";
 import { pageRouter, publicPageRouter } from "./routers/page";
 import { siteRouter } from "./routers/site";
+import { payLinkRouter } from "./routers/pay-link";
 import { pageQuizRouter, publicQuizRouter } from "./routers/page-quiz";
 import { positioningRouter } from "./routers/positioning";
 import { productRouter } from "./routers/product";
@@ -55,6 +56,7 @@ export const appRouter = router({
   goal: goalRouter,
   page: pageRouter,
   site: siteRouter,
+  payLink: payLinkRouter,
   publicPage: publicPageRouter,
   // The optional quiz on a public page (0105): the console's review, approve and on/off, and the signed-out read and count.
   pageQuiz: pageQuizRouter,

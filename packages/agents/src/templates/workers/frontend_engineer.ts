@@ -42,7 +42,7 @@ export const frontendEngineer = defineTemplate({
       },
     ],
   },
-  tools: [grant("platform", PLATFORM_BASE_TOOLS), grant("sandbox", SANDBOX_TOOLS), grant("github", ["repos.read", "pulls.create", "pulls.read", "checks.read"])],
+  tools: [grant("platform", [...PLATFORM_BASE_TOOLS, "payments.links.read"]), grant("sandbox", SANDBOX_TOOLS), grant("github", ["repos.read", "pulls.create", "pulls.read", "checks.read"])],
   skills: withCoreSkills(["component_craft", "design_fidelity", "accessibility", "state_management", "testing", "design_principles"]),
   autonomy: AUTONOMY_INHERIT,
   neverDoes: ["Style outside design tokens", "Push to main", "Fetch from components directly"],
