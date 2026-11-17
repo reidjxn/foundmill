@@ -60,6 +60,8 @@ const Env = z.object({
    * Nov 16, 2026): GLM-5.3 Flash once a measured session costs about $0.019 or less (T8), Haiku 5.5 until then.
    */
   FREE_SESSION_MODEL: z.enum(["haiku", "glm"]).default("haiku"),
+  /** evals only: "1" runs every live eval route as the free plan does, on Haiku 5.5 (WP-13 T8); the grader keeps its model. */
+  EVAL_FREE_PLAN: z.enum(["1"]).optional(),
   VOYAGE_API_KEY: z.string().optional(),
   /** apps/gateway: the platform key behind the `openai_images` connector (AI-generated faces of anthropomorphic agents). */
   OPENAI_API_KEY: z.string().optional(),
@@ -307,6 +309,11 @@ const Env = z.object({
   SEED_ON_BOOT: z.string().optional(),
   /** Opens the LIVE surfaces (network, communities, Go live) on this deployment; closed unless 1/true/yes/on (`liveModeOpen`). */
   LIVE_MODE: z.string().optional(),
+  /**
+   * apps/api: the accounts that review reports (`operator.*`, /operator/reports), as comma-separated account ids. Unset
+   * means nobody: the queue answers not found to everyone (docs/DEPLOY.md "Reports: who checks and how often").
+   */
+  OPERATOR_USER_IDS: z.string().optional(),
   /** Seed data volume multiplier (1 = the full two years of history). */
   SEED_VOLUME_SCALE: z.coerce.number().positive().optional(),
   /**

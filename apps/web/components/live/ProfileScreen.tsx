@@ -7,8 +7,9 @@
  * is shown instead of the button.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Building2, Check, Clock, MessageSquare, UserRoundPlus, UsersRound } from "lucide-react";
+import { ArrowLeft, Building2, Check, Clock, Flag, MessageSquare, UserRoundPlus, UsersRound } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { APP_NAME } from "@foundmill/config";
 import { Avatar, Button, EmptyState, Panel, ProfileHeader, StatusPill, useFormatters, useToast, type ProfileChip, type ProfileFact } from "@foundmill/dugout";
 import { plainWords } from "@/lib/format";
@@ -17,6 +18,7 @@ import { errorMessage, trpcErrorCode, trpcPathPrefix, type RouterOutputs } from 
 import { useTRPC } from "@/lib/trpc-react";
 import { useOptionalBusiness } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
+import { ReportPersonDialog, type ReportTarget } from "@/components/safety/ReportPersonDialog";
 import { BusinessLogo, PersonalNotice } from "./shared";
 
 type Profile = RouterOutputs["live"]["people"]["profile"];
@@ -37,6 +39,7 @@ export function ProfileScreen({ kind, id }: { kind: "business" | "founder"; id: 
   const { formatDate } = useFormatters();
   const ctx = useOptionalBusiness();
   const businessId = ctx?.businessId;
+  const [reporting, setReporting] = useState<ReportTarget | null>(null);
   const q = useQuery(trpc.live.people.profile.queryOptions({ kind, id }, { staleTime: 30_000, retry: false }));
   const profile = q.data?.profile;
   useShellChrome({ title: profile ? profile.name : "Profile", breadcrumbs: [{ label: "Network", href: "/network" }, { label: profile?.name ?? "Profile" }] }, [profile?.name]);
@@ -101,9 +104,24 @@ export function ProfileScreen({ kind, id }: { kind: "business" | "founder"; id: 
     }
   }
 
+  // Report (and block in the same step) is there for every founder who is not the viewer, connected or not (NETWORK F21).
+  const reportUserId = profile.kind === "founder" && !isSelf ? profile.userId : null;
+  const actions =
+    action || reportUserId ? (
+      <div className="flex flex-wrap items-center gap-2">
+        {action}
+        {reportUserId ? (
+          <Button size="sm" className="min-h-tap @page-wide:min-h-0" variant="ghost" icon={Flag} onClick={() => setReporting({ kind: "person", userId: reportUserId })} data-testid="profile-report-open">
+            Report
+          </Button>
+        ) : null}
+      </div>
+    ) : null;
+
   return (
     <div className="@container flex min-h-0 flex-1 flex-col" data-testid="profile-screen" data-kind={profile.kind}>
-      <ProfileHeader avatar={profile.kind === "business" ? cardLogo(profile, 48) : <Avatar size={64} name={profile.name} />} name={profile.name} chips={chips} status={<StatusPill tone="info">On {APP_NAME}</StatusPill>} facts={facts} actions={action} />
+      <ProfileHeader avatar={profile.kind === "business" ? cardLogo(profile, 48) : <Avatar size={64} name={profile.name} />} name={profile.name} chips={chips} status={<StatusPill tone="info">On {APP_NAME}</StatusPill>} facts={facts} actions={actions} />
+      <ReportPersonDialog target={reporting} name={profile.name} onOpenChange={(o) => !o && setReporting(null)} />
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="grid grid-cols-1 gap-gutter p-gutter @page-wide:grid-cols-12 [&_button]:min-h-tap @page-wide:[&_button]:min-h-0">
           <PersonalNotice className="@page-wide:col-span-12" />

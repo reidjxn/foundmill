@@ -1,6 +1,6 @@
 /**
  * Today, the business's front door (founder, 2026-11-07): what needs the founder, the week in plain sentences and the
- * week's spend, in one read (`today.get`). The goal itself is `goal.current` / `goal.ensure` (services/goals.ts); the
+ * week's real outcomes, in one read (`today.get`). The goal itself is `goal.current` / `goal.ensure` (services/goals.ts); the
  * cash, runway and customers figures are the ones every other screen reads (`finance.overview`, `journey.ribbon`).
  *
  * - **Needs you**: the first three notes of the Inbox's Needs you tab, as this reader may read them (the same walls as
@@ -10,9 +10,13 @@
  *   Public page). Everything else opens in the Inbox.
  * - **This week and next**: the sentences of packages/shared today-words.ts from tasks, the roadmap, the round of work
  *   and Autopilot (no model call). Without Development read there are none.
- * - **Spend**: never added across currencies (founder, 2026-11-07). AI usage this week in US dollars (the usage ledger's
- *   USD rows, an Estimate) and channel spend this week in the business's own currency (channel metrics, an Estimate).
- *   Finance read only.
+ * - **Outcomes** (WP-14 T4): the headline. The last 7 days' real outcomes as one count with what they were (packages/shared
+ *   week-outcomes.ts over `realOutcomes`), each kind behind its own wall; never for a sample business, never anything
+ *   simulated. A week with none has no count: it says what the team is working toward. Today carries no cost figure
+ *   (the brief of Nov 17, 2026, A11): spend is on Details, Finance and Billing.
+ * - **Working now** (WP-14 T5): `workingNow`, one line for each agent with a piece of work in hand right now (the tasks
+ *   that are running, by their founder-facing titles), for a reader of Development. Empty when nobody is working, and
+ *   while the founder has stopped the agents.
  * - **Public page**: `pageReady` while a project (never a sample business) has no public page live, for a reader with
  *   Product read, and the Product lead's "Your project's page is ready" note is not open (package 1.3: the note while it
  *   is open, in Needs you with its one tap "Check it and publish"; the line otherwise). Today shows one quiet line to
@@ -27,13 +31,14 @@
  *   reader without Product read; no further round trip, table, event or model call.
  */
 import { APPROVAL_OPTIONS, approvalSection, buildDestinationOf, repos, type DbTx, type InboxItem, type Task } from "@foundmill/db";
-import { CREDITS_CURRENCY, FLAGS } from "@foundmill/config";
-import { GOAL_OPTION_IDS, daysBetweenDays, founderTaskOf, isRealOutcome, type FounderTask, type FounderTaskId, PAGE_READY_NOTE, POSTAL_ADDRESS_NOTE, WRITE_ROLES, addDaysToDay, dailyStreak, dayKeyIn, firstWeekTimeline, firstWeekVisible, hasSectionAccess, isPageReadyDecision, isPostalAddressDecision, vacationDayKeys, weekPlanWords, type FirstWeekWords, type Streak, type WeekFacts, type WeekPlanWords } from "@foundmill/shared";
+import { FLAGS } from "@foundmill/config";
+import { GOAL_OPTION_IDS, REAL_OUTCOME_EVENT_TYPES, daysBetweenDays, founderTaskOf, isRealOutcome, realOutcomes, weekOutcomesWords, type WeekOutcomesWords, type FounderTask, type FounderTaskId, PAGE_READY_NOTE, POSTAL_ADDRESS_NOTE, WRITE_ROLES, addDaysToDay, dailyStreak, dayKeyIn, firstWeekTimeline, firstWeekVisible, hasSectionAccess, isPageReadyDecision, isPostalAddressDecision, vacationDayKeys, weekPlanWords, type FirstWeekWords, type Streak, type WeekFacts, type WeekPlanWords } from "@foundmill/shared";
 import { pagePostDraft } from "@foundmill/shared/share-drafts";
 import { channelRowsFor } from "./channel-availability";
 import type { BusinessContext } from "../trpc";
 import { autopilotStatus } from "./autopilot";
 import { cycleStatus, type CycleStatus } from "./cycle";
+import { goalAsSeenBy } from "./goals";
 import { isProjectFounder } from "./postal-address";
 import { idsOfItem, inboxWalls, loadRedactionSource, redactInboxItem } from "./inbox-redaction";
 
@@ -55,16 +60,6 @@ export interface NeedsYouItem {
   quickOption: { id: string; label: string } | null;
 }
 
-export interface TodaySpend {
-  /** AI usage this week, US dollars (minor units), an Estimate. */
-  aiUsage: { amountMinor: number; currency: typeof CREDITS_CURRENCY };
-  /**
-   * Channel spend this week in the business's own currency (minor units), an Estimate. A channel kept in another
-   * currency is listed under `otherCurrencies`, never added in.
-   */
-  channel: { amountMinor: number; currency: string; otherCurrencies: { currency: string; amountMinor: number }[] };
-}
-
 export interface TodayView {
   /** The business's day ("2026-11-07"). */
   today: string;
@@ -82,8 +77,14 @@ export interface TodayView {
   needsYou: { items: NeedsYouItem[]; total: number } | null;
   /** Null without Development read. */
   week: WeekPlanWords | null;
-  /** Null without Finance read. */
-  spend: TodaySpend | null;
+  /** The headline (WP-14 T4): the week's real outcomes as a count, or what the team is working toward. Never a cost. */
+  outcomes: WeekOutcomesWords;
+  /**
+   * Who is working right now and on what (WP-14 T5): one entry for each agent with a running task, oldest work first,
+   * with what the web needs to name the agent under the reader's preference. Empty when nobody is. Null without
+   * Development read.
+   */
+  workingNow: WorkingNowLine[] | null;
   /** The business's Chief of Staff by its stored name (the goal's proposer). */
   chiefOfStaff: { id: string; name: string } | null;
   /** "Your first week": null once the business is past it (packages/shared first-week.ts), so an older business reads nothing extra. */
@@ -112,6 +113,15 @@ export interface TodayView {
    */
   followersUpdate: { kind: "draft"; updateId: string } | { kind: "invite"; followers: number } | null;
 }
+
+export interface WorkingNowLine {
+  agent: { id: string; name: string; role: string | null; personaKey: string | null; layer: string | null };
+  /** What it is doing, in the founder's words: the task's founder-facing title. */
+  doing: string;
+}
+
+/** At most this many agents are listed on Today's strip. */
+export const WORKING_NOW_MAX = 6;
 
 interface DecisionOption {
   id: string;
@@ -212,22 +222,32 @@ export async function weekFactsFor(tx: DbTx, ctx: BusinessContext, options: { no
   };
 }
 
-/** The week's spend, never added across currencies. */
-export async function spendFor(tx: DbTx, ctx: BusinessContext, now: Date = new Date()): Promise<TodaySpend> {
-  const today = dayKeyIn(now, ctx.business.timeZone);
-  const [usage, rows] = await Promise.all([repos.usage.totals(tx, ctx.businessId, { from: new Date(now.getTime() - 7 * 86_400_000), to: now }), repos.channels.metricsRange(tx, ctx.businessId, { from: addDaysToDay(today, -6), to: today })]);
-  const own = ctx.business.currency;
-  let channelMinor = 0;
-  const other = new Map<string, number>();
-  for (const r of rows) {
-    const currency = r.currency ?? own;
-    if (currency === own) channelMinor += Number(r.spendMinor);
-    else if (r.spendMinor) other.set(currency, (other.get(currency) ?? 0) + Number(r.spendMinor));
-  }
-  return {
-    aiUsage: { amountMinor: usage.costMinor, currency: CREDITS_CURRENCY },
-    channel: { amountMinor: channelMinor, currency: own, otherCurrencies: [...other].map(([currency, amountMinor]) => ({ currency, amountMinor })).sort((a, b) => a.currency.localeCompare(b.currency)) },
-  };
+/**
+ * Today's "Working now" strip (WP-14 T5): the running tasks that have an agent, one line an agent (its oldest running
+ * task), oldest first. Nothing while the agents are stopped: a task left "running" by a stop is not work in hand.
+ */
+export async function workingNowFor(tx: DbTx, ctx: BusinessContext): Promise<WorkingNowLine[]> {
+  if (ctx.business.agentsStoppedAt) return [];
+  const running = (await repos.tasks.list(tx, ctx.businessId, { status: "running", limit: 20 })).items.filter((t) => t.assigneeAgentId).sort((a, b) => (a.startedAt ?? a.createdAt).getTime() - (b.startedAt ?? b.createdAt).getTime());
+  const first = new Map<string, (typeof running)[number]>();
+  for (const t of running) if (!first.has(t.assigneeAgentId!)) first.set(t.assigneeAgentId!, t);
+  const agents = new Map((await repos.agents.byIds(tx, ctx.businessId, [...first.keys()])).map((a) => [a.id, a]));
+  return [...first.values()]
+    .flatMap((t) => {
+      const a = agents.get(t.assigneeAgentId!);
+      return a && !a.archivedAt ? [{ agent: { id: a.id, name: a.name, role: a.role || null, personaKey: a.personaKey ?? null, layer: a.layer ?? null }, doing: titleOf(t) }] : [];
+    })
+    .slice(0, WORKING_NOW_MAX);
+}
+
+/**
+ * The week's real outcomes (WP-14 T4): the events of the last 7 days that pass the north star's rule. A sample business
+ * has none: its seeded history is an example, not something that happened.
+ */
+export async function weekOutcomesFor(tx: DbTx, ctx: BusinessContext, now: Date = new Date()) {
+  if (ctx.business.isDemo) return [];
+  const since = new Date(now.getTime() - 7 * 86_400_000);
+  return realOutcomes(await repos.notifyFacts.eventsSince(tx, ctx.businessId, REAL_OUTCOME_EVENT_TYPES, since, 2000), since, now);
 }
 
 /**
@@ -339,17 +359,19 @@ export async function todayView(ctx: BusinessContext, now: Date = new Date()): P
   const week = hasSectionAccess(m, "development", "read");
   const autopilotNextOn = week ? await autopilotNextDay(ctx) : null;
   return ctx.rls(async (tx) => {
-    const [needsYou, words, spend, chief, firstWeek, pageReady, postsReady, founderTask, followersUpdate] = await Promise.all([
+    const [needsYou, facts, workingNow, real, goals, chief, firstWeek, page, postsReady, founderTask, followersUpdate] = await Promise.all([
       hasSectionAccess(m, "inbox", "read") ? needsYouFor(tx, ctx) : Promise.resolve(null),
-      week ? weekFactsFor(tx, ctx, { now, autopilotNextOn }).then(weekPlanWords) : Promise.resolve(null),
-      hasSectionAccess(m, "finance", "read") ? spendFor(tx, ctx, now) : Promise.resolve(null),
+      week ? weekFactsFor(tx, ctx, { now, autopilotNextOn }) : Promise.resolve(null),
+      week ? workingNowFor(tx, ctx) : Promise.resolve(null),
+      weekOutcomesFor(tx, ctx, now),
+      repos.goals.current(tx, ctx.businessId),
       repos.agents.chiefOfStaff(tx, ctx.businessId),
       firstWeekFor(tx, ctx, now),
       // The quiet "public page" line: never for a sample business, never for a reader walled from Product, and not while
       // the Product lead's "Your project's page is ready" note is open (Needs you shows the note instead: one or the other).
       !ctx.business.isDemo && hasSectionAccess(m, "product", "read")
-        ? Promise.all([repos.pages.isUnpublished(tx, ctx.businessId), repos.pages.openReadyNote(tx, ctx.businessId)]).then(([unpublished, note]) => unpublished && note === null)
-        : Promise.resolve(false),
+        ? Promise.all([repos.pages.isUnpublished(tx, ctx.businessId), repos.pages.openReadyNote(tx, ctx.businessId)]).then(([unpublished, note]) => ({ unpublished, ready: unpublished && note === null }))
+        : Promise.resolve({ unpublished: false, ready: false }),
       // The quiet "a post is ready to share" line: the team's drafts that wait, for a reader of Distribution.
       !ctx.business.isDemo && hasSectionAccess(m, "distribution", "read")
         ? repos.teamPosts.waiting(tx, ctx.businessId).then((rows) => (rows[0] ? { count: rows.length, assetId: rows[0].id } : null))
@@ -360,7 +382,8 @@ export async function todayView(ctx: BusinessContext, now: Date = new Date()): P
     const today = dayKeyIn(now, ctx.business.timeZone);
     const projectDay = daysBetweenDays(dayKeyIn(ctx.business.createdAt, ctx.business.timeZone), today) + 1;
     const firstDay = projectDay <= 1 && !ctx.business.isDemo && !ctx.business.distributionStartedAt;
-    return { today, projectDay, firstDay, needsYou, week: words, spend, chiefOfStaff: chief ? { id: chief.id, name: chief.name } : null, firstWeek, pageReady, postsReady, founderTask, followersUpdate };
+    const outcomes = weekOutcomesWords(real, (section) => hasSectionAccess(m, section, "read"), { goal: goalAsSeenBy(goals.active, ctx)?.sentence ?? null, pageNotLive: page.unpublished, work: facts?.running?.title ?? facts?.next?.title ?? null });
+    return { today, projectDay, firstDay, needsYou, week: facts ? weekPlanWords(facts) : null, workingNow, outcomes, chiefOfStaff: chief ? { id: chief.id, name: chief.name } : null, firstWeek, pageReady: page.ready, postsReady, founderTask, followersUpdate };
   });
 }
 
@@ -368,7 +391,7 @@ export async function todayView(ctx: BusinessContext, now: Date = new Date()): P
  * "Since you were last here" (retention plan, 2026-11-11): what happened in the business between the end of the
  * founder's previous session (founder_presence.previous_seen_at, kept by the presence ping) and now. Null on a first
  * session, or when nothing happened. Each part follows the reader's section access: the work (development), wins
- * (crm), decisions (inbox), milestones (inbox) and spend (finance, an Estimate).
+ * (crm), decisions (inbox) and milestones (inbox). No cost figure (WP-14 T4).
  */
 export interface SinceLastVisit {
   since: string;
@@ -379,8 +402,6 @@ export interface SinceLastVisit {
   milestones: string[];
   /** Accounts that arrived through this project's page, credited to the reader, since the previous visit (0 when `FLAGS.referralLine` is off). */
   arrived: number;
-  /** Model cost of the rounds, an Estimate (null when the reader cannot read Finance). */
-  spend: { amountMinor: number; currency: string } | null;
 }
 
 export async function sinceLastVisitFor(ctx: BusinessContext, now: Date = new Date()): Promise<SinceLastVisit | null> {
@@ -395,24 +416,21 @@ async function sinceVisit(ctx: BusinessContext, presence: { previousSeenAt: stri
   const can = (s: Parameters<typeof hasSectionAccess>[1]) => hasSectionAccess(ctx.membership, s, "read");
   const itemTypes = [...(can("crm") ? ["customer_won"] : []), ...(can("inbox") ? ["decision"] : [])];
   const [events, items, milestones, arrived] = await Promise.all([
-    can("development") || can("finance") ? repos.notifyFacts.eventsSince(ctx.db, ctx.businessId, ["cycle.completed"], since) : Promise.resolve([]),
+    can("development") ? repos.notifyFacts.eventsSince(ctx.db, ctx.businessId, ["cycle.completed"], since) : Promise.resolve([]),
     itemTypes.length ? repos.notifyFacts.itemsSince(ctx.db, ctx.businessId, itemTypes, since) : Promise.resolve([]),
     can("inbox") ? repos.notifyFacts.milestonesSince(ctx.db, ctx.businessId, since) : Promise.resolve([]),
     // Only the person credited for the page reads this, and only a count (D1, Nov 16, 2026).
     (options.referralLine ?? FLAGS.referralLine) ? repos.attributions.countArrivedSince(ctx.db, { referrerUserId: ctx.userId, businessId: ctx.businessId, since }) : Promise.resolve(0),
   ]);
   const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
-  const cost = events.reduce((n, e) => n + num((e.payload.cost as { amountMinor?: unknown } | undefined)?.amountMinor), 0);
-  const currency = (events.find((e) => (e.payload.cost as { currency?: unknown } | undefined)?.currency)?.payload.cost as { currency: string } | undefined)?.currency ?? "USD";
   const view: SinceLastVisit = {
     since: since.toISOString(),
-    rounds: can("development") ? events.length : 0,
-    tasksDone: can("development") ? events.reduce((n, e) => n + num(e.payload.tasksCompleted), 0) : 0,
+    rounds: events.length,
+    tasksDone: events.reduce((n, e) => n + num(e.payload.tasksCompleted), 0),
     wins: items.filter((i) => i.type === "customer_won").length,
     newDecisions: items.filter((i) => i.type === "decision" && (i.state === "unread" || i.state === "read")).length,
     milestones: milestones.map((m) => m.label).slice(0, 3),
     arrived,
-    spend: can("finance") && cost > 0 ? { amountMinor: cost, currency } : null,
   };
   const nothing = view.rounds === 0 && view.tasksDone === 0 && view.wins === 0 && view.newDecisions === 0 && view.milestones.length === 0 && view.arrived === 0;
   return nothing ? null : view;

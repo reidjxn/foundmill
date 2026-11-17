@@ -14,6 +14,7 @@ import { createModelClient, QuarantinedReaderOutput, type ModelClient, type Mode
 import { AppError } from "@foundmill/shared";
 import type { Vault } from "@foundmill/shared/crypto";
 import { createDbPlatformHost, type RepositoryFiles } from "./platform-host";
+import { createSkillReader } from "./skill-reader";
 import { safeError, type GatewayLogger } from "./pipeline";
 
 /**
@@ -133,5 +134,7 @@ export interface GatewayBuiltinsDeps extends QuarantinedReaderDeps {
 /** The built-in connectors, wired to this gateway's database and model client. */
 export function createGatewayBuiltins(deps: GatewayBuiltinsDeps): Connector[] {
   const searchWeb = deps.live?.searchWeb ?? platformSearchWeb(deps.models);
-  return createBuiltinConnectors({ ...deps.live, platform: createDbPlatformHost({ db: deps.db, log: deps.log, ...(deps.repository ? { repository: deps.repository } : {}) }), quarantinedReader: createQuarantinedReader(deps), ...(searchWeb ? { searchWeb } : {}) });
+  // read_skill comes from its own module (./skill-reader), next to the rest of the platform host.
+  const platform = { ...createDbPlatformHost({ db: deps.db, log: deps.log, ...(deps.repository ? { repository: deps.repository } : {}) }), readSkill: createSkillReader({ db: deps.db, log: deps.log }) };
+  return createBuiltinConnectors({ ...deps.live, platform, quarantinedReader: createQuarantinedReader(deps), ...(searchWeb ? { searchWeb } : {}) });
 }

@@ -79,6 +79,7 @@ import { adultsRepo } from "./adults";
 import { founderCancelLinksRepo, founderDeparturesRepo } from "./founder-departures";
 import { metricsRepo } from "./metrics";
 import { taskReportsRepo } from "./task-reports";
+import { reportsRepo } from "./reports";
 import { sitesRepo } from "./sites";
 export { AddPayLinkInput } from "./pay-links";
 import { payLinksRepo } from "./pay-links";
@@ -164,6 +165,7 @@ export const repos = {
   founderCancelLinks: founderCancelLinksRepo,
   metrics: metricsRepo,
   taskReports: taskReportsRepo,
+  reports: reportsRepo,
   sites: sitesRepo,
   payLinks: payLinksRepo,
 } as const;
@@ -244,4 +246,5 @@ export * from "./post-media";
 export * from "./people";
 export * from "./showcase";
 export { SaveTaskReportInput, TASK_REPORT_LIMITS } from "./task-reports";
+export { reportsRepo, type FileReportInput, type OpenReport } from "./reports";
 export { SaveSiteReleaseInput, SITE_REPORT_REASONS, siteContentHash, type SiteFile, type SiteHost, type SiteReportReason, type SiteReportResult } from "./sites";

@@ -204,7 +204,7 @@ describe("CommitForm: name and go (WP-04 T2)", () => {
     renderForm(vi.fn(), {}, { collapsed: true });
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Start Ledgerly");
     expect(screen.getByText(COMMIT_WORDS.lede)).toBeTruthy();
-    expect(COMMIT_WORDS.lede).toBe("Check the name and start. Your team drafts your public page first, from your own words.");
+    expect(COMMIT_WORDS.lede).toBe("Name your project. We've set everything else to the careful option, and you can change any of it later.");
     expect(screen.getByTestId("reassure-name").textContent).toBe("You can change the name, the logo and how your team works any time.");
     fireEvent.change(screen.getByLabelText(/Business name/), { target: { value: "" } });
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Start your project");
@@ -286,9 +286,9 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     expect(chips()).toEqual([
       ["game-mode", "Personal"],
       ["business-mode", "Assisted"],
-      ["spend-cap", "Asks you above €250.00"],
+      ["spend-cap", "Asks you above €5.00"],
       ["archetype", "B2B SaaS"],
-      ["autopilot", "Overnight shift on"],
+      ["autopilot", "Autopilot off"],
     ]);
     for (const label of ["Where it runs", "Who decides", "Kind of business", "On a schedule"]) expect(summary.textContent).toContain(label);
     // The chips that have a definition are Terms: the dotted word opens its definition card.
@@ -313,7 +313,7 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
       ["business-mode", "Automated"],
       ["spend-cap", "No spend cap"],
       ["archetype", "B2B SaaS"],
-      ["autopilot", "Autopilot off"],
+      ["autopilot", "Overnight shift on"],
     ]);
     // Closing More options keeps the choices.
     fireEvent.click(screen.getByTestId("commit-more"));
@@ -336,7 +336,10 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     expect(document.querySelector('[data-option="personal"]')?.getAttribute("data-selected")).toBe("true");
     expect(document.querySelector('[data-option="b2b_saas"]')?.getAttribute("data-selected")).toBe("true");
     expect((screen.getByLabelText(/Business name/) as HTMLInputElement).value).toBe("Ledgerly");
-    expect((screen.getByLabelText(/Spend cap per action/) as HTMLInputElement).value).toBe("250");
+    // The careful defaults (WP-14 T11, A4): a 5.00 cap for each action, the overnight shift off, the initials mark.
+    expect((screen.getByLabelText(/Spend cap per action/) as HTMLInputElement).value).toBe("5");
+    expect(screen.getByRole("switch", { name: "Overnight shift" }).getAttribute("aria-checked")).toBe("false");
+    expect(screen.getByTestId("autopilot-choice").textContent).toContain("Off unless you turn it on.");
     expect(screen.getByTestId("trademark-caveat").textContent).toMatch(/Screen, not legal clearance/);
     expect(screen.getByTestId("kit-contrast").dataset.passes).toBe("true");
   });
@@ -372,7 +375,7 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     }
   });
 
-  it("says what happens next in the real order, with the included credits and no card (A4, A10)", () => {
+  it("says what happens next in the real order, with the included credits line and no dollar figure (A4, A10; WP-14 T11)", () => {
     renderForm();
     const next = screen.getByTestId("what-happens-next");
     // The steps are the shared first-day promise itself, not a copy of it (WP-02 T6), and the welcome note repeats it (WP-04 T7).
@@ -381,8 +384,10 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     expect(next.textContent).not.toMatch(/specification|roadmap|two notes|sign them off/i);
     for (const step of WHAT_HAPPENS_NEXT) expect(next.textContent).toContain(step);
     expect(next.textContent).not.toMatch(/Board|three decisions|first cycle/);
-    expect(includedCreditsLine()).toBe("Starts with $5.00 of included credits this month. No card.");
-    expect(screen.getByTestId("commit-credits-line").textContent).toBe("Starts with $5.00 of included credits this month. No card.");
+    // No dollar figure and no word about a card (WP-14 T11): true while the entry plan is free and after it is paid.
+    expect(includedCreditsLine()).toBe("Your team starts with this month's included credits.");
+    expect(includedCreditsLine()).not.toMatch(/[$€£]|\d|card|free/i);
+    expect(screen.getByTestId("commit-credits-line").textContent).toBe("Your team starts with this month's included credits.");
     cleanup();
     // When this month's pool already went elsewhere, the paused notice speaks instead; the credits line never contradicts it.
     renderForm(vi.fn(), { creditsNotice: "This month's included credits ($5.00) already went to another business you took charge of." });
@@ -417,47 +422,57 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     for (const id of ["reassure-name", "reassure-logo", "reassure-how-it-runs", "reassure-archetype", "reassure-mode"]) expect(screen.queryByTestId(id)).toBeNull();
     // Information stays: the credits line, the chips and the example lines are not tutoring.
     expect(screen.getByTestId("commit-credits-line")).toBeTruthy();
-    expect(screen.getByTestId("how-it-runs-summary").textContent).toContain("Asks you above €250.00");
+    expect(screen.getByTestId("how-it-runs-summary").textContent).toContain("Asks you above €5.00");
     expect(document.querySelectorAll("[data-mode-example]")).toHaveLength(3);
     // Panel titles carry the defined words as plain text when guidance is off, never a broken underline.
     expect(screen.getByTestId("archetype-panel").querySelector('[data-term="archetype"]')?.getAttribute("data-guided")).toBe("off");
   });
-  it("changes the default spend cap with the business mode until the founder edits it", () => {
+  it("keeps the careful cap when the mode changes, drops to 0 for Augmented, and never overwrites what the founder typed", () => {
     renderForm();
+    const cap = () => (screen.getByLabelText(/Spend cap per action/) as HTMLInputElement).value;
     fireEvent.click(screen.getByLabelText(/Automated/));
-    expect((screen.getByLabelText(/Spend cap per action/) as HTMLInputElement).value).toBe("1,000");
+    expect(cap()).toBe("5");
+    fireEvent.click(screen.getByLabelText(/Augmented/));
+    expect(cap()).toBe("0");
+    fireEvent.click(screen.getByLabelText(/Assisted/));
+    expect(cap()).toBe("5");
     fireEvent.change(screen.getByLabelText(/Spend cap per action/), { target: { value: "75" } });
     fireEvent.click(screen.getByLabelText(/Augmented/));
-    expect((screen.getByLabelText(/Spend cap per action/) as HTMLInputElement).value).toBe("75");
+    expect(cap()).toBe("75");
   });
 
-  it("starts the spend line at 0 for a founder with no budget, in every mode, so every spend asks first (WP-04 T3)", async () => {
-    const onCommit = renderForm(vi.fn(), { hasBudget: false });
-    expect((screen.getByLabelText(/Spend cap per action/) as HTMLInputElement).value).toBe("0");
-    expect(screen.getByTestId("how-it-runs-summary").querySelector('[data-summary="spend-cap"]')?.textContent).toBe("Asks you above €0.00");
-    fireEvent.click(screen.getByLabelText(/Automated/));
-    expect((screen.getByLabelText(/Spend cap per action/) as HTMLInputElement).value).toBe("0");
+  it("commits with the careful defaults in one press, and a founder who changes two of them gets what they chose (WP-14 T11)", async () => {
+    const onCommit = renderForm();
     await act(async () => {
       fireEvent.click(screen.getByTestId("take-charge"));
     });
-    expect(onCommit).toHaveBeenCalledWith(expect.objectContaining({ spendCapMinor: 0 }));
+    expect(onCommit.mock.calls[0]![0]).toMatchObject({ businessMode: "assisted", gameMode: "personal", spendCapMinor: 500, currency: "EUR", autopilot: false, logo: null });
+    expect(onCommit.mock.calls[0]![0]).not.toHaveProperty("overnight");
+    // Change two: the cap and the overnight shift.
+    fireEvent.change(screen.getByLabelText(/Spend cap per action/), { target: { value: "40" } });
+    fireEvent.click(screen.getByRole("switch", { name: "Overnight shift" }));
+    expect(screen.getByTestId("how-it-runs-summary").querySelector('[data-summary="spend-cap"]')?.textContent).toBe("Asks you above €40.00");
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("take-charge"));
+    });
+    expect(onCommit.mock.calls[1]![0]).toMatchObject({ spendCapMinor: 4_000, autopilot: true, overnight: { timeZone: expect.any(String) } });
   });
 
-  it("offers the overnight shift, on by default, and sends the choice with idea.commit", async () => {
+  it("offers the overnight shift, off when the page opens (A4), and sends the choice with idea.commit", async () => {
     const onCommit = renderForm();
     const toggle = screen.getByRole("switch", { name: "Overnight shift" });
-    expect(toggle.getAttribute("aria-checked")).toBe("true");
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("take-charge"));
-    });
-    expect(onCommit.mock.calls[0]![0]).toMatchObject({ autopilot: true, overnight: { timeZone: expect.any(String) } });
-    fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-checked")).toBe("false");
     await act(async () => {
       fireEvent.click(screen.getByTestId("take-charge"));
     });
-    expect(onCommit.mock.calls[1]![0]).toMatchObject({ autopilot: false });
-    expect(onCommit.mock.calls[1]![0]).not.toHaveProperty("overnight");
+    expect(onCommit.mock.calls[0]![0]).toMatchObject({ autopilot: false });
+    expect(onCommit.mock.calls[0]![0]).not.toHaveProperty("overnight");
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("take-charge"));
+    });
+    expect(onCommit.mock.calls[1]![0]).toMatchObject({ autopilot: true, overnight: { timeZone: expect.any(String) } });
   });
 
   it("offers Give agents names and faces, starting from the account preference, sends the choice with idea.commit and keeps the five chips", async () => {
@@ -560,7 +575,7 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
       fireEvent.click(screen.getByTestId("take-charge-bottom"));
     });
     expect(onCommit).toHaveBeenCalledTimes(1);
-    expect(onCommit.mock.calls[0]![0]).toMatchObject({ ideaId: IDEA_ID, name: suggested, gameMode: "live", confirmAdult: true, archetype: "b2b_saas", businessMode: "assisted", currency: "EUR", spendCapMinor: 25_000, kit: { primary: "#1b4fd8" } });
+    expect(onCommit.mock.calls[0]![0]).toMatchObject({ ideaId: IDEA_ID, name: suggested, gameMode: "live", confirmAdult: true, archetype: "b2b_saas", businessMode: "assisted", currency: "EUR", spendCapMinor: 500, kit: { primary: "#1b4fd8" } });
   });
 
   it("does not ask again for a LIVE start once the founder's 18+ confirmation is on record, and never for Personal", async () => {

@@ -8,7 +8,7 @@
  * gateway-token-contract.test.ts) must accept every ref.
  */
 import { describe, expect, it } from "vitest";
-import { ALL_TEMPLATES, PLATFORM_CONNECTOR_KEYS, THIRD_PARTY_CONNECTOR_KEYS } from "@foundmill/agents";
+import { ALL_TEMPLATES, PLATFORM_CONNECTOR_KEYS, THIRD_PARTY_CONNECTOR_KEYS, getLibrarySkill } from "@foundmill/agents";
 import { GATEWAY_TOOL_NAMES, isServiceOnlyConnector, NOT_YET_SERVED, resolveGrants, SDK_BUILTIN_CAPABILITIES, servedGrants, SESSION_MANAGED_CAPABILITIES } from "@foundmill/connectors";
 import { ToolRef } from "../../../gateway/src/tokens";
 import { mcpToolNames, toolRefs } from "../activities/session";
@@ -94,5 +94,21 @@ describe("agent template grants resolve to real gateway tools", () => {
     for (const t of withBoard) expect(toolRefs(t.tools), `${t.key} lacks platform:read_product`).toContain("platform:read_product");
     const backend = ALL_TEMPLATES.find((t) => t.agentType === "backend_engineer")!;
     expect(mcpToolNames(backend.tools)).toContain("mcp__platform__read_product");
+  });
+
+  it("every agent with the base platform grant can read its own skills' text (WP-06 T4: skills.read → read_skill)", () => {
+    expect(resolveGrants([{ connectorKey: "platform", tools: ["skills.read"] }]).toolRefs).toEqual(["platform:read_skill"]);
+    const withBoard = ALL_TEMPLATES.filter((t) => t.tools.some((g) => g.connectorKey === "platform" && g.tools.includes("tasks.list")));
+    for (const t of withBoard) expect(toolRefs(t.tools), `${t.key} lacks platform:read_skill`).toContain("platform:read_skill");
+    expect(mcpToolNames(ALL_TEMPLATES.find((t) => t.agentType === "backend_engineer")!.tools)).toContain("mcp__platform__read_skill");
+  });
+
+  it("every role the cold email skill is for can run the suppression check it asks for (WP-06 T4 tool review)", () => {
+    const roles = getLibrarySkill("cold_email")!.roles;
+    expect(roles.length).toBeGreaterThan(0);
+    for (const key of roles) {
+      const t = ALL_TEMPLATES.find((x) => x.key === key)!;
+      expect(toolRefs(t.tools), `${key} lacks platform:check_contact`).toContain("platform:check_contact");
+    }
   });
 });

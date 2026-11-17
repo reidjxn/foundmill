@@ -19,7 +19,7 @@ import {
   runDeterministicChecks,
   allChecksPassed,
 } from "@foundmill/agents";
-import { type ChatMessage, type ModelClient, ModelOutputError, type RouteKey, SkillGradeOutput, createModelClient } from "@foundmill/models";
+import { type ChatMessage, type ModelClient, ModelOutputError, type RouteKey, SkillGradeOutput, createModelClient, gateModelClient } from "@foundmill/models";
 import type { TypedReadInjectionCase } from "./injection/typed-reads";
 import { ActionPlanOutput, type GoldenTask, type GoldenTaskResult, type InjectionCase, type InjectionCaseResult, OUTPUT_SCHEMAS } from "./types";
 
@@ -53,11 +53,17 @@ export function isLiveEvalEnabled(): boolean {
   return env.MODEL_MODE === "live" && typeof env.ANTHROPIC_API_KEY === "string" && env.ANTHROPIC_API_KEY.length > 0;
 }
 
-/** A live client for evals. Throws when evals are not enabled; callers skip before reaching this. */
+/**
+ * A live client for evals. Throws when evals are not enabled; callers skip before reaching this. With `EVAL_FREE_PLAN=1`
+ * every route runs as it does for an account not on a paid plan, on Haiku 5.5 (WP-13 T8), and the grader keeps its own
+ * model so the scores compare with a paid plan's run.
+ */
 export function createEvalClient(): ModelClient {
   const env = loadEnv();
   if (!isLiveEvalEnabled()) throw new Error("Evals run with MODEL_MODE=live and ANTHROPIC_API_KEY set; both are required.");
-  return createModelClient({ mode: "live", apiKey: env.ANTHROPIC_API_KEY! });
+  const client = createModelClient({ mode: "live", apiKey: env.ANTHROPIC_API_KEY! });
+  if (env.EVAL_FREE_PLAN !== "1") return client;
+  return gateModelClient(client, async ({ route }) => (route === "skillGrader" ? undefined : { freePlan: true }));
 }
 
 export interface HarnessOptions {

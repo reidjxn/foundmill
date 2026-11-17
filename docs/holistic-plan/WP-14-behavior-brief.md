@@ -150,6 +150,7 @@ Not here: the pill "First company? The team comes with it." on `/` unless `remov
 Done when: `LandingPage.test.tsx`, `TourPage.test.tsx`, `removed-claims.test.tsx` and `e2e/landing.spec.ts` pass with the new strings.
 
 ### T11: Commit's defaults and its credits line            [S] [ships alone]
+Built on Nov 17, 2026 (`claude/wp14-t11-commit-defaults`; log `2026-11-17-claude-wp14-t11-commit-defaults`). What differs from the steps is in the log's Decisions.
 Brief: A4. Founder's answer A4.
 Steps:
 1. What is selected when Commit opens, inside "More options": mode Assisted, Personal, a spend cap for each action of 5.00 in the project's currency ($5 for a USD project), Autopilot off, the first generated logo and its colors. Every one can be changed there and later in Settings. Above the form: "Name your business. We've set everything else to the careful option, and you can change any of it later." (use "project" where the stage rule asks for it). verify: the Commit spec reads each default and changes two of them.
@@ -160,6 +161,7 @@ Done when: a new project commits with these defaults and a founder who changes t
 
 ### T12: Four measures            [S] [amends WP-02 T10's nightly numbers]
 Brief: B7, B6.9. Add to `platform_metric_days`: minutes from commit to the first plan and to the first approved outcome, for every new project; the share of new founders whose first Continue press succeeds; the share of projects that reach Resting and what they do next (top up, change plan, wait, leave), after T1; shares for each Customer Update, after T9. If the median time to the first plan passes ten minutes, raise a note to the operator to change T10's "within minutes" line.
+Built (Nov 17, 2026, `claude/wp14-t12-four-measures`): the first three measures read real records; Resting and the shares read the events named in `PENDING_SOURCES` (`packages/db/src/repos/metrics.ts`) and are zero until T1, T14 and T9 write them. The log entry has the definitions.
 
 ### T13: The plan document            [S] [docs only; one pull request]
 Brief: B1, B4, B7. `docs/foundmill-plan/foundmill-plan.md` is the seed for Foundmill's own project, not the roadmap sessions execute; edit it so the seed agrees with this package.

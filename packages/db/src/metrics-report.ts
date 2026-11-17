@@ -37,7 +37,19 @@ function printFacts(m: MetricFacts): void {
   print(`Agent work: sessions ${a.sessions_ended} (${pairs(a.sessions)}), blocked share ${pct(a.blocked_share)}`);
   print(`  task.blocked ${a.events.task_blocked}, task.completed ${a.events.task_completed}; approval.requested ${a.events.approval_requested_total} (${pairs(a.events.approval_requested)}); approval.resolved ${a.events.approval_resolved_total} (${pairs(a.events.approval_resolved)})`);
   print(`  approvals open ${a.approvals_open} (over 9 days ${a.approvals_open_over_9d}); stopped for a missing tool ${a.tool_missing_stopped}; notes in a project's first 24 hours: max ${a.notes_day_one.max}, median ${a.notes_day_one.median ?? "n/a"}`);
+  // A row recorded before WP-14 T12 has none of these three blocks.
+  if (m.first_session) {
+    const f = m.first_session;
+    const mins = (t: { projects: number; median_min: number | null; p90_min: number | null }) => `median ${t.median_min ?? "n/a"} min, 90th percentile ${t.p90_min ?? "n/a"} min, ${t.projects} of ${f.projects} projects`;
+    print(`First session, 14 days: commit to first plan ${mins(f.to_first_plan)}; commit to first approval ${mins(f.to_first_approval)}`);
+    print(`  first press of Continue worked for ${f.first_continue.succeeded} of ${f.first_continue.founders} founders (${pct(f.first_continue.share)})`);
+    if (f.note) print(`  NOTE FOR THE OPERATOR: ${f.note}`);
+    print(`Resting (waits for WP-14 T1): ${m.resting.rested} of ${m.resting.projects} projects (${pct(m.resting.share)}); next ${pairs(m.resting.next)}`);
+    print(`Customer Updates, 14 days (shares wait for WP-14 T9): ${m.customer_updates.updates} updates, ${m.customer_updates.shares} shares, ${m.customer_updates.updates_shared} updates shared, shares per update ${m.customer_updates.shares_per_update ?? "n/a"}`);
+  }
   print(`Honesty: fabricated left ${pairs(m.honesty.fabricated_left)}; simulated outcomes left out of the north star ${m.honesty.simulated_outcomes_excluded}`);
+  // Days recorded before 0136 carry no safety block.
+  if (m.safety) print(`Safety: reports open ${m.safety.reports_open}, past the review target ${m.safety.reports_overdue}`);
 }
 
 async function main(): Promise<void> {

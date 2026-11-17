@@ -98,6 +98,8 @@ export interface BriefExtras {
   timeZone: string | null;
   agentNames?: Record<string, string>;
   recipientUserId?: string | null;
+  /** The window's effort sentence (WP-14 T5, effort.ts); null when nothing was counted or Development is walled. */
+  effort?: string | null;
 }
 
 export type RetentionEmailPlan =
@@ -138,6 +140,7 @@ export function briefInputOf(plan: BriefPlan, now: Date, opts: { hideAmounts?: b
     next: x?.next ?? null,
     ...(x?.agentNames ? { agentNames: x.agentNames } : {}),
     recipientUserId: x?.recipientUserId ?? null,
+    effort: x?.effort ?? null,
     hideAmounts: opts.hideAmounts === true,
   };
 }

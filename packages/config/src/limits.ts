@@ -80,6 +80,8 @@ export const LIMITS = {
   trpcMaxLogoBodyBytes: 6 * 1024 * 1024,
   /** Largest skill file a founder may upload for an agent (UTF-8 bytes); checked in the browser and again by the api. */
   skillFileMaxBytes: 64 * 1024,
+  /** Library and file skills one agent may carry (WP-06 T4): the api refuses more, the picker counts down to it. */
+  skillsPerAgentMax: 40,
   /** Largest plan file a founder may import on Product › Vision (UTF-8 bytes); checked in the browser and again by the api. */
   planFileMaxBytes: 256 * 1024,
   /** Largest body of one specification section in an imported plan file (UTF-8 bytes). */

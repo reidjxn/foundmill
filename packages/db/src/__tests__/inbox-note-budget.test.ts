@@ -80,6 +80,33 @@ describe("the first week's note budget", () => {
     expect(open.length).toBeLessThanOrEqual(LIMITS.firstWeekNotesPerDay + before);
   });
 
+  it("the digest shows the work: effort counts that match the day's records, a zero left out, and the steps behind a long result (WP-14 T5)", async () => {
+    const { businessId, agent2Id } = r.A;
+    const task = await repos.tasks.create(r.db, businessId, { kind: "code", title: "booking-form", founderTitle: "Booking form", status: "ready" });
+    const write = (type: string, payload: Record<string, unknown>, actor = { kind: "agent", id: agent2Id }, occurredAt?: Date) => repos.events.write(r.db, businessId, { type, actor, payload, occurredAt } as never);
+    await write("task.design_checked", { taskId: task.id, result: { status: "reviewed" } });
+    await write("task.design_checked", { taskId: task.id, result: { status: "reviewed" } });
+    await write("task.progressed", { taskId: task.id, planStepsDone: 4, planSteps: 4, reviewPassed: true, merged: false });
+    await write("task.completed", { taskId: task.id, title: "booking-form", durationMs: 12 * 60_000, acceptanceTestsPassing: 6, acceptanceTests: 6, simulated: false });
+    // Not counted: a simulated check, a check that never saw the pages, a simulated result, and yesterday's merge.
+    await write("task.design_checked", { taskId: task.id, result: { status: "simulated" } });
+    await write("task.design_checked", { taskId: task.id, result: { status: "not_seen" } });
+    await write("task.completed", { taskId: task.id, title: "booking-form", durationMs: 30 * 60_000, simulated: true });
+    await write("pr.merged", { prNumber: 7 }, { kind: "agent", id: agent2Id }, new Date(Date.now() - 3 * 24 * 60 * 60 * 1000));
+
+    await repos.inbox.createItem(r.db, businessId, note(agent2Id, { subject: "Finished the booking form" }));
+    const digest = (await openNotes(businessId)).find((n) => n.subject === DIGEST_SUBJECT)!;
+    const recorded = await repos.events.list(r.db, businessId, { type: ["task.design_checked", "task.completed"], limit: 100 });
+    const reviewed = recorded.items.filter((e) => e.type === "task.design_checked" && (e.payload as { result: { status: string } }).result.status === "reviewed").length;
+    const finished = recorded.items.filter((e) => e.type === "task.completed" && (e.payload as { simulated?: boolean }).simulated !== true).length;
+    expect([reviewed, finished]).toEqual([2, 1]);
+    expect(digest.bodyMd).toContain(`Your team ran ${reviewed} quality checks and finished ${finished} piece of work.`);
+    expect(digest.bodyMd).not.toMatch(/\b0 (quality|source|post|piece|change|release)/);
+    expect(digest.bodyMd).not.toMatch(/added \d+ change|shipped/);
+    expect(digest.bodyMd).toContain("- “Booking form” took 12 minutes: 4 of 4 plan steps, 6 of 6 checks passed, reviewed.");
+    expect(digest.bodyMd).toContain("Finished the booking form");
+  });
+
   it("delivers warnings and the Chief of Staff's own updates", async () => {
     const { businessId, agentId: chiefId, agent2Id } = r.A;
     const warning = await repos.inbox.createItem(r.db, businessId, note(agent2Id, { type: "warning", subject: "The build failed" }));

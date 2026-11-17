@@ -163,7 +163,7 @@ Solo guard: with the layer open, a one-person Personal project's sidebar, Today 
 Done when: Done-when 5.
 
 ### T7: Bring the mobile session's branch onto main and keep the pack true            [M] [ships alone; needs D5]
-- [ ] merged
+- [x] merged
 
 Why: A9-P1-7; THESIS_REVIEW 5.5 and 5.6. `docs/mobile/skills/foundmill-backend/SKILL.md` on main names none of `invitation.*`, `founder.adult.*`, `adult_unconfirmed`, `on_waitlist`, `publicPage.storyBySlug`, `publicPerson.byHandle`, `share.opened`; the branch adds `today.sinceLastVisit` and `founder.presence.ping` and a wording fix main lacks.
 Files: merge of `origin/claude/zealous-rubin-8q52gr` (9 files: `docs/mobile/{BACKEND_CHANGES,PROMPTS}.md`, `docs/mobile/skills/foundmill-backend/SKILL.md`, `packages/shared/src/autopilot.ts`, `apps/api/src/__tests__/cycle.test.ts`, `apps/web/components/shell/__tests__/business-shell.test.ts`, `apps/web/e2e/home.spec.ts`, `docs/DECISIONS.md`, `docs/PROGRESS.md`). Create `apps/api/src/__tests__/mobile-contract.test.ts`. Modify `.claude/skills/ship-change/SKILL.md`.

@@ -39,6 +39,7 @@ export * from "./channel-creative";
 export * from "./custom-skills";
 export * from "./skill-library";
 export * from "./skill-files";
+export * from "./skill-select";
 export * as prompts from "./prompts";
 export {
   type PromptTemplate,
