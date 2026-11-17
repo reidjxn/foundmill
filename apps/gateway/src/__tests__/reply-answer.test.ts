@@ -52,8 +52,8 @@ describe("answer a reply (mock)", () => {
   });
 
   it("only the api may ask, and a malformed request echoes nothing", async () => {
-    expect((await ask(g, { businessId: g.businessId, interactionId: randomUUID(), userId: USER, text: "Hi" }, null)).status).toBe(401);
-    expect((await ask(g, { businessId: g.businessId, interactionId: randomUUID(), userId: USER, text: "Hi" }, "orchestrator")).status).toBe(403);
+    expect((await ask(g, { businessId: g.businessId, interactionId: randomUUID(), userId: USER, text: "Hi", requestId: randomUUID() }, null)).status).toBe(401);
+    expect((await ask(g, { businessId: g.businessId, interactionId: randomUUID(), userId: USER, text: "Hi", requestId: randomUUID() }, "orchestrator")).status).toBe(403);
     const bad = await ask(g, { businessId: g.businessId, interactionId: randomUUID(), userId: USER, text: "secret words", to: "x@example.com" });
     expect(bad.status).toBe(400);
     expect(bad.text).not.toContain("secret words");
@@ -62,7 +62,7 @@ describe("answer a reply (mock)", () => {
   it("sends one message to the address on the record, as a reply with no postal address needed, and records nothing when simulated", async () => {
     const r = await keptReply(g, "reader@example.com");
     const before = mock.sentFor(g.businessId).length;
-    const res = await ask(g, { businessId: g.businessId, interactionId: r.interactionId, userId: USER, text: "Yes, we ship everywhere in the US." });
+    const res = await ask(g, { businessId: g.businessId, interactionId: r.interactionId, userId: USER, text: "Yes, we ship everywhere in the US.", requestId: randomUUID() });
     expect(res).toMatchObject({ status: 200, body: { sent: true, simulated: true } });
     // The answer names no address.
     expect(res.text).not.toContain("reader@example.com");
@@ -79,29 +79,31 @@ describe("answer a reply (mock)", () => {
 
   it("refuses when the person last wrote more than 30 days ago, an unknown id and an unknown business", async () => {
     const old = await keptReply(g, "old@example.com", new Date(Date.now() - (REPLY_ANSWER_WINDOW_DAYS + 1) * DAY_MS));
-    expect((await ask(g, { businessId: g.businessId, interactionId: old.interactionId, userId: USER, text: "Hello again" })).body).toEqual({ sent: false, reason: "not_recent" });
-    expect((await ask(g, { businessId: g.businessId, interactionId: randomUUID(), userId: USER, text: "Hello" })).body).toEqual({ sent: false, reason: "not_found" });
+    expect((await ask(g, { businessId: g.businessId, interactionId: old.interactionId, userId: USER, text: "Hello again", requestId: randomUUID() })).body).toEqual({ sent: false, reason: "not_recent" });
+    expect((await ask(g, { businessId: g.businessId, interactionId: randomUUID(), userId: USER, text: "Hello", requestId: randomUUID() })).body).toEqual({ sent: false, reason: "not_found" });
     // A business that does not exist (another business's reply is not found either: repos.replies.forAnswer's test).
     const r = await keptReply(g, "mine@example.com");
-    expect((await ask(g, { businessId: randomUUID(), interactionId: r.interactionId, userId: USER, text: "Hello" })).body).toEqual({ sent: false, reason: "not_found" });
+    expect((await ask(g, { businessId: randomUUID(), interactionId: r.interactionId, userId: USER, text: "Hello", requestId: randomUUID() })).body).toEqual({ sent: false, reason: "not_found" });
   });
 
   it("refuses a suppressed address and a person's project on production in mock mode, and with mail off", async () => {
     const r = await keptReply(g, "stopped@example.com");
     await repos.channels.addSuppression(g.db, g.businessId, { emailHash: suppressionHashOfEmail("stopped@example.com"), reason: "test", scope: "business", source: "test" });
-    expect((await ask(g, { businessId: g.businessId, interactionId: r.interactionId, userId: USER, text: "Hi" })).body).toEqual({ sent: false, reason: "suppressed" });
+    expect((await ask(g, { businessId: g.businessId, interactionId: r.interactionId, userId: USER, text: "Hi", requestId: randomUUID() })).body).toEqual({ sent: false, reason: "suppressed" });
     const ok = await keptReply(g, "prod@example.com");
     g.deps.appEnv = "production";
-    expect((await ask(g, { businessId: g.businessId, interactionId: ok.interactionId, userId: USER, text: "Hi" })).body).toMatchObject({ sent: false });
+    expect((await ask(g, { businessId: g.businessId, interactionId: ok.interactionId, userId: USER, text: "Hi", requestId: randomUUID() })).body).toMatchObject({ sent: false });
     g.deps.appEnv = "test";
     g.deps.platformMail = undefined;
-    expect((await ask(g, { businessId: g.businessId, interactionId: ok.interactionId, userId: USER, text: "Hi" })).body).toEqual({ sent: false, reason: "off" });
+    expect((await ask(g, { businessId: g.businessId, interactionId: ok.interactionId, userId: USER, text: "Hi", requestId: randomUUID() })).body).toEqual({ sent: false, reason: "off" });
   });
 });
 
 describe("answer a reply (live)", () => {
   const SECRET = "live-platform-mail-signing-secret-0123456789";
   const posted: Record<string, unknown>[] = [];
+  let attempts = 0;
+  let timeout = false;
   let g: GatewayFixture;
   const counts = new Map<string, number>();
   const redis: RedisCounter = { incr: async (k) => (counts.set(k, (counts.get(k) ?? 0) + 1), counts.get(k)!), pexpire: async () => 1, decr: async (k) => (counts.set(k, (counts.get(k) ?? 0) - 1), counts.get(k)!) };
@@ -111,6 +113,8 @@ describe("answer a reply (live)", () => {
       secrets: { sendgridApiKey: "SG.platform-key-test" },
       fetch: routedFetch({
         "POST https://api.sendgrid.com/v3/mail/send": async (req) => {
+          attempts += 1;
+          if (timeout) throw Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" });
           posted.push((await req.json()) as Record<string, unknown>);
           return new Response(null, { status: 202, headers: { "x-message-id": `sg-${posted.length}` } });
         },
@@ -125,7 +129,7 @@ describe("answer a reply (live)", () => {
 
   it("sends for real, writes mail.sent as the member and the answer on the record", async () => {
     const r = await keptReply(g, "buyer@example.com");
-    const res = await ask(g, { businessId: g.businessId, interactionId: r.interactionId, userId: USER, text: "Thanks, here is the link." });
+    const res = await ask(g, { businessId: g.businessId, interactionId: r.interactionId, userId: USER, text: "Thanks, here is the link.", requestId: randomUUID() });
     expect(res).toMatchObject({ status: 200, body: { sent: true, simulated: false } });
     expect(posted).toHaveLength(1);
     const [event] = (await repos.events.list(g.db, g.businessId, { type: "mail.sent" })).items;
@@ -134,5 +138,20 @@ describe("answer a reply (live)", () => {
     const thread = await repos.replies.list(g.db, g.businessId, { entityId: r.entityId, limit: 50 });
     expect(thread.map((m) => [m.direction, m.answered])).toEqual([["outbound", false], ["inbound", true]]);
     expect(thread[0]!.text).toBe("Thanks, here is the link.");
+  });
+
+  it("an answer that timed out and is pressed again goes out once; a sent one pressed again is not sent twice", async () => {
+    const r = await keptReply(g, "slow@example.com");
+    const requestId = randomUUID();
+    timeout = true;
+    const before = attempts;
+    expect((await ask(g, { businessId: g.businessId, interactionId: r.interactionId, userId: USER, text: "Hello", requestId })).body).toEqual({ sent: false, reason: "vendor" });
+    timeout = false;
+    expect((await ask(g, { businessId: g.businessId, interactionId: r.interactionId, userId: USER, text: "Hello", requestId })).body).toEqual({ sent: false, reason: "duplicate" });
+    expect(attempts - before).toBe(1);
+    const again = randomUUID();
+    expect((await ask(g, { businessId: g.businessId, interactionId: r.interactionId, userId: USER, text: "Hello again", requestId: again })).body).toMatchObject({ sent: true });
+    expect((await ask(g, { businessId: g.businessId, interactionId: r.interactionId, userId: USER, text: "Hello again", requestId: again })).body).toEqual({ sent: false, reason: "duplicate" });
+    expect(attempts - before).toBe(2);
   });
 });

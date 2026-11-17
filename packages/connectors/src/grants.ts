@@ -255,6 +255,8 @@ export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, r
     // The project's positioning notes (WP-08 T1): every marketing role reads them; two leads may propose a new version.
     "positioning.read": ["read_positioning"],
     "positioning.propose": ["propose_positioning_change"],
+    // A draft update to the project's followers (WP-08 T3): the founders check it and press Send; the tool never sends.
+    "updates.draft": ["draft_follower_update"],
   },
   web: { search: ["search_web"], fetch: ["fetch_page"] },
   quarantine: { read_untrusted: ["read_untrusted"] },

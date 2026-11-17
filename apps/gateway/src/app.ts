@@ -18,6 +18,7 @@
  *   POST /v1/turnstile/verify              service JWT (api) → the idea box's bot check (turnstile.ts)
  *   POST /v1/platform-mail/confirm-follow  service JWT (api) → the one email asking a page signup to confirm (follow-confirm.ts)
  *   POST /v1/platform-mail/answer-reply    service JWT (api) → a founder's answer to a reply the project received (reply-answer.ts)
+ *   POST /v1/platform-mail/send-update     service JWT (api) → the founders' update to their followers, one press (follower-update.ts)
  *   POST /v1/notify/email          service JWT (api, orchestrator) → one email from Foundmill to one of its users about their own project (notify-email.ts; an invitation: notify-address-email.ts; a founder notice: notify-founder-notice.ts; the waitlist's place is open: notify-account-email.ts)
  *   POST /v1/call                  session JWT → the pipeline (allow / ask / deny / rate_limited)
  *   POST /v1/github/archive        session JWT → the Code-tab repository's tarball for a code session's checkout (archive.ts)
@@ -43,6 +44,7 @@ import { sendPush, SendPushRequest } from "./push";
 import { MAX_TRANSCRIBE_BODY_BYTES, SPEECH_STREAM_ROUTE, SPEECH_SYNTHESIZE_ROUTE, SPEECH_TRANSCRIBE_ROUTE, streamSpeech, SynthesizeSpeechRequest, synthesizeSpeech, TranscribeSpeechRequest, transcribeSpeech } from "./speech";
 import { CONFIRM_FOLLOW_ROUTE, ConfirmFollowRequest, sendFollowConfirmation } from "./follow-confirm";
 import { ANSWER_REPLY_ROUTE, AnswerReplyRequest, answerReply } from "./reply-answer";
+import { SEND_UPDATE_ROUTE, SendUpdateRequest, sendFollowerUpdate } from "./follower-update";
 import { TURNSTILE_ROUTE, TurnstileVerifyRequest, verifyTurnstile } from "./turnstile";
 import { NOTIFY_EMAIL_ROUTE, NotifyEmailRequest, sendNotifyEmail } from "./notify-email";
 import { AddressEmailRequest, isAddressEmailKind, sendAddressEmail } from "./notify-address-email";
@@ -121,6 +123,7 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   app.use(SPEECH_TRANSCRIBE_ROUTE, limit(MAX_TRANSCRIBE_BODY_BYTES));
   app.use(CONFIRM_FOLLOW_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
   app.use(ANSWER_REPLY_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
+  app.use(SEND_UPDATE_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
   app.use(NOTIFY_EMAIL_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
   app.use(KEYS_VALIDATE_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
   app.use(REGISTRY_LOOKUP_ROUTE, limit(MAX_SERVICE_BODY_BYTES));
@@ -271,6 +274,18 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     const parsed = AnswerReplyRequest.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) throw new GatewayError("validation", "Send a business id, the reply's id, the member's id and the answer (1 to 5,000 characters)", 400);
     return c.json(await answerReply(deps, parsed.data, c.var.service.svc));
+  });
+
+  // The founders' update to their followers (WP-08 T3): only the api asks, after a founder pressed Send (follower-update.ts).
+  app.use(SEND_UPDATE_ROUTE, requireService);
+  app.use(SEND_UPDATE_ROUTE, async (c, next) => {
+    if (c.var.service.svc !== "api") throw new GatewayError("forbidden_service", "Only the api asks to send an update to followers", 403);
+    await next();
+  });
+  app.post(SEND_UPDATE_ROUTE, async (c) => {
+    const parsed = SendUpdateRequest.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) throw new GatewayError("validation", "Send a business id, the update's id and the member's id", 400);
+    return c.json(await sendFollowerUpdate(deps, parsed.data, c.var.service.svc));
   });
 
   // Foundmill's own email to one of its users (packages 1.5 and 5.1), the one sender of every kind: the api's notify

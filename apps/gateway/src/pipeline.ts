@@ -15,6 +15,7 @@
  *
  * `/v1/call` and `/mcp/:connector` both run this function; nothing reaches a vendor any other way.
  */
+import type { RecipientBasisCheck } from "./follower-update";
 import { createHash } from "node:crypto";
 import { LIMITS } from "@foundmill/config";
 import type { TurnstileConfig } from "./turnstile";
@@ -106,6 +107,8 @@ export interface GatewayDeps {
   validateModelKey?: (apiKey: string) => Promise<KeyValidation>;
   /** A project's Foundmill sending address (platform-mail.ts); absent or with no domain, `platform_mail` refuses every send. */
   platformMail?: PlatformMailConfig;
+  /** Replaces WP-08 T10's recipient basis check in the follower update (follower-update.ts); for tests. */
+  recipientBasis?: RecipientBasisCheck;
   /** The idea box's bot check (turnstile.ts); no secret: mock on a development stack, refused elsewhere. */
   turnstile?: TurnstileConfig;
 }

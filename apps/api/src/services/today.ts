@@ -105,6 +105,12 @@ export interface TodayView {
    * plan, ask five people. Null once all are done, for a sample business and for a reader without Product read.
    */
   founderTask: FounderTask | null;
+  /**
+   * The followers' update line (WP-08 T3), for a reader of Distribution: a draft waits to be checked (`draft`), or the
+   * project has followers and has never written to them (`invite`, with how many). Null otherwise; always null for a
+   * sample business. An offer, one quiet line to Product › Public page, never a count in Needs you.
+   */
+  followersUpdate: { kind: "draft"; updateId: string } | { kind: "invite"; followers: number } | null;
 }
 
 interface DecisionOption {
@@ -318,12 +324,22 @@ export async function founderTaskFor(tx: DbTx, ctx: BusinessContext, now: Date =
 }
 
 /** Everything `today.get` returns, as this reader may see it. */
+/** Today's followers' update line: a waiting draft first; else the invitation while the project never wrote to them. */
+async function followersUpdateFor(tx: DbTx, businessId: string): Promise<TodayView["followersUpdate"]> {
+  const updates = await repos.updates.list(tx, businessId, 20);
+  const draft = updates.find((u) => u.status === "draft");
+  if (draft) return { kind: "draft", updateId: draft.id };
+  if (updates.some((u) => u.status === "sending" || u.status === "sent")) return null;
+  const followers = await repos.followers.count(tx, businessId);
+  return followers > 0 ? { kind: "invite", followers } : null;
+}
+
 export async function todayView(ctx: BusinessContext, now: Date = new Date()): Promise<TodayView> {
   const m = ctx.membership;
   const week = hasSectionAccess(m, "development", "read");
   const autopilotNextOn = week ? await autopilotNextDay(ctx) : null;
   return ctx.rls(async (tx) => {
-    const [needsYou, words, spend, chief, firstWeek, pageReady, postsReady, founderTask] = await Promise.all([
+    const [needsYou, words, spend, chief, firstWeek, pageReady, postsReady, founderTask, followersUpdate] = await Promise.all([
       hasSectionAccess(m, "inbox", "read") ? needsYouFor(tx, ctx) : Promise.resolve(null),
       week ? weekFactsFor(tx, ctx, { now, autopilotNextOn }).then(weekPlanWords) : Promise.resolve(null),
       hasSectionAccess(m, "finance", "read") ? spendFor(tx, ctx, now) : Promise.resolve(null),
@@ -339,11 +355,12 @@ export async function todayView(ctx: BusinessContext, now: Date = new Date()): P
         ? repos.teamPosts.waiting(tx, ctx.businessId).then((rows) => (rows[0] ? { count: rows.length, assetId: rows[0].id } : null))
         : Promise.resolve(null),
       founderTaskFor(tx, ctx, now),
+      !ctx.business.isDemo && hasSectionAccess(m, "distribution", "read") ? followersUpdateFor(tx, ctx.businessId) : Promise.resolve(null),
     ]);
     const today = dayKeyIn(now, ctx.business.timeZone);
     const projectDay = daysBetweenDays(dayKeyIn(ctx.business.createdAt, ctx.business.timeZone), today) + 1;
     const firstDay = projectDay <= 1 && !ctx.business.isDemo && !ctx.business.distributionStartedAt;
-    return { today, projectDay, firstDay, needsYou, week: words, spend, chiefOfStaff: chief ? { id: chief.id, name: chief.name } : null, firstWeek, pageReady, postsReady, founderTask };
+    return { today, projectDay, firstDay, needsYou, week: words, spend, chiefOfStaff: chief ? { id: chief.id, name: chief.name } : null, firstWeek, pageReady, postsReady, founderTask, followersUpdate };
   });
 }
 

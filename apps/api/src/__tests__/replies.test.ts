@@ -47,20 +47,20 @@ describe("crm.replies", () => {
 
   it("an answer asks the gateway with ids and words only, and says what happened", async () => {
     const b = await project();
-    const sent = await b.owner.crm.replies.answer({ businessId: b.id, interactionId: b.interactionId, text: "Yes, everywhere." });
+    const sent = await b.owner.crm.replies.answer({ businessId: b.id, interactionId: b.interactionId, text: "Yes, everywhere.", requestId: randomUUID() });
     expect(sent).toEqual({ sent: true, simulated: false, message: REPLY_WORDS.sent });
     expect(asked).toHaveLength(1);
-    expect(Object.keys(asked[0]!).sort()).toEqual(["businessId", "interactionId", "text", "userId"]);
+    expect(Object.keys(asked[0]!).sort()).toEqual(["businessId", "interactionId", "requestId", "text", "userId"]);
     answer = { sent: true, simulated: true };
-    expect(await b.owner.crm.replies.answer({ businessId: b.id, interactionId: b.interactionId, text: "Again" })).toEqual({ sent: true, simulated: true, message: REPLY_WORDS.simulated });
+    expect(await b.owner.crm.replies.answer({ businessId: b.id, interactionId: b.interactionId, text: "Again", requestId: randomUUID() })).toEqual({ sent: true, simulated: true, message: REPLY_WORDS.simulated });
     answer = { sent: false, reason: "not_recent" };
-    expect(await b.owner.crm.replies.answer({ businessId: b.id, interactionId: b.interactionId, text: "Again" })).toEqual({ sent: false, reason: "not_recent", message: REPLY_WORDS.notSent.not_recent });
+    expect(await b.owner.crm.replies.answer({ businessId: b.id, interactionId: b.interactionId, text: "Again", requestId: randomUUID() })).toEqual({ sent: false, reason: "not_recent", message: REPLY_WORDS.notSent.not_recent });
   });
 
   it("another business's reply is not found, and nothing is asked", async () => {
     const a = await project();
     const b = await project();
-    expect(await a.owner.crm.replies.answer({ businessId: a.id, interactionId: b.interactionId, text: "Hi" })).toMatchObject({ sent: false, reason: "not_found" });
+    expect(await a.owner.crm.replies.answer({ businessId: a.id, interactionId: b.interactionId, text: "Hi", requestId: randomUUID() })).toMatchObject({ sent: false, reason: "not_found" });
     expect(await a.owner.crm.replies.list({ businessId: a.id, entityId: b.entityId, limit: 20 })).toEqual([]);
     expect(asked).toHaveLength(0);
   });
@@ -68,7 +68,7 @@ describe("crm.replies", () => {
   it("a member without access to Customers reads and answers nothing", async () => {
     const b = await project();
     expect(await code(b.walled.crm.replies.list({ businessId: b.id, limit: 20 }))).toBe("FORBIDDEN");
-    expect(await code(b.walled.crm.replies.answer({ businessId: b.id, interactionId: b.interactionId, text: "Hi" }))).toBe("FORBIDDEN");
+    expect(await code(b.walled.crm.replies.answer({ businessId: b.id, interactionId: b.interactionId, text: "Hi", requestId: randomUUID() }))).toBe("FORBIDDEN");
     expect(asked).toHaveLength(0);
   });
 });

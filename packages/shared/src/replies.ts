@@ -31,7 +31,7 @@ export function answerSubject(original: string): string {
 }
 
 /** Why an answer did not go out, as the gateway says it. */
-export const REPLY_NOT_SENT = ["off", "unconfigured", "simulated", "not_found", "not_recent", "suppressed", "paused", "own_sender", "content", "daily_cap", "ceiling", "store", "vendor"] as const;
+export const REPLY_NOT_SENT = ["off", "unconfigured", "simulated", "not_found", "not_recent", "suppressed", "paused", "own_sender", "content", "daily_cap", "ceiling", "store", "vendor", "duplicate"] as const;
 export type ReplyNotSent = (typeof REPLY_NOT_SENT)[number];
 
 /** Every word the screen and the note show. US English, plain. */
@@ -62,5 +62,6 @@ export const REPLY_WORDS = {
     ceiling: "Email from every project together has reached today's limit. Try again tomorrow.",
     store: "Email is not available for a moment. Try again in a few minutes.",
     vendor: "The email service did not take the message. Try again in a few minutes.",
+    duplicate: "This answer already went out, or may have. Check the thread before you send it again.",
   } satisfies Record<ReplyNotSent, string>,
 } as const;

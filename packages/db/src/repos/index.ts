@@ -29,6 +29,7 @@ import { personProfilesRepo } from "./person-profiles";
 import { mailRepo } from "./mail";
 import { postalAddressRepo } from "./postal-address";
 import { repliesRepo } from "./replies";
+import { updatesRepo } from "./updates";
 import { followersRepo } from "./followers";
 import { notifyEmailRepo } from "./notify-email";
 import { holidaysRepo } from "./holidays";
@@ -100,6 +101,7 @@ export const repos = {
   projectMail: mailRepo,
   postalAddress: postalAddressRepo,
   replies: repliesRepo,
+  updates: updatesRepo,
   followers: followersRepo,
   notifyEmail: notifyEmailRepo,
   departments: departmentsRepo,
@@ -174,6 +176,7 @@ export { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, encodeCursor, decodeCursor, decodeTim
 export * from "./agents";
 export * from "./positioning";
 export * from "./replies";
+export * from "./updates";
 export * from "./approvals";
 export * from "./audit";
 export { formerFounderSince, type FounderDepartureView } from "./founder-departures";

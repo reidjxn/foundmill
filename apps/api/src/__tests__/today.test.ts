@@ -202,6 +202,18 @@ describe("today.get › firstWeek", () => {
     await repos.businesses.startDistribution(hz.db, selling.id, { at: new Date() });
     expect((await selling.owner.today.get({ businessId: selling.id })).firstWeek).toBeNull();
   });
+
+  it("the followers' update line (WP-08 T3): nothing without followers; the invitation with followers; a waiting draft; nothing once one went out", async () => {
+    const b = await business("Today Followers");
+    expect((await b.owner.today.get({ businessId: b.id })).followersUpdate).toBeNull();
+    const entity = await repos.entities.create(hz.db, b.id, { kind: "person", displayName: "Follower", identifiers: { email: "f@example.com" } });
+    await hz.db.execute(sql`insert into contact_consents (business_id, entity_id, purpose, source, source_ref, consent_text, confirmed_at) values (${b.id}, ${entity.id}, 'email', 'page', 'today-page', 'I agree.', now())`);
+    expect((await b.owner.today.get({ businessId: b.id })).followersUpdate).toEqual({ kind: "invite", followers: 1 });
+    const draft = await repos.updates.draftByAgent(hz.db, b.id, { subject: "News", body: "Hi", agentId: b.chief.id });
+    expect((await b.owner.today.get({ businessId: b.id })).followersUpdate).toEqual({ kind: "draft", updateId: draft.id });
+    await repos.updates.startSend(hz.db, b.id, draft.id, { userId: b.ownerId, at: new Date() });
+    expect((await b.owner.today.get({ businessId: b.id })).followersUpdate).toBeNull();
+  });
 });
 
 describe("today.get › founderTask (WP-04 T9)", () => {
