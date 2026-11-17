@@ -46,6 +46,7 @@ export * from "./indexnow";
 export * from "./notify-email";
 export * from "./empty-why";
 export * from "./first-week";
+export * from "./solo-guard";
 export * from "./goals";
 export * from "./note-budget";
 export * from "./today-words";
