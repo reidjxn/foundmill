@@ -163,7 +163,7 @@ export function PersonHome({ viewer, displayName, liveMode }: PersonHomeProps) {
           icon={Users}
           kicker="If you want company"
           title="Find a project or people"
-          lede="Find people by what they are good at, and meet others who are building. Only if you want to: you can do all of it on your own."
+          lede="Find people by what they are good at, and see what others are building. Only if you want to: you can do all of it on your own."
           action={
             <LinkButton
               variant="default"

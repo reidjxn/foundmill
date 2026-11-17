@@ -18,7 +18,7 @@ import { ForbiddenError, NotFoundError, PERSON_LOOKING_FOR, ValidationError, VIS
 import { z } from "zod";
 import type { Context } from "../context";
 import { messageRecipients, screenText, signalPeople, takeLive } from "../services/live";
-import { takeConnectionRequest, takeMessage, takePost } from "../services/live-limits";
+import { takeConnectionRequest, takeMessage, takePeopleSearch, takePost } from "../services/live-limits";
 import { Id, effectivePermission, liveGate, pgErrorCode, protectedProcedure as anyProtectedProcedure, router, sectionWrite as anySectionWrite, type Section } from "../trpc";
 
 // Every LIVE procedure is closed while LIVE is (FLAGS.liveMode / LIVE_MODE, audit VLS2-X1).
@@ -500,6 +500,7 @@ export const liveRouter = router({
      * made their name public). Only public-profile fields leave here; the viewer's own row and blocked people do not turn up.
      */
     search: protectedProcedure.input(z.object({ q: z.string().trim().min(2).max(120), limit: z.number().int().min(1).max(20).default(10) })).query(async ({ ctx, input }) => {
+      await takePeopleSearch(ctx.limits, ctx.userId);
       // People who published /u/<handle> first, then the older cards; a person with both turns up once, as their page.
       const [people, rows] = await Promise.all([repos.personProfiles.public.find(ctx.db, ctx.userId, { q: input.q, limit: input.limit }), repos.social.searchPublicFor(ctx.db, ctx.userId, input.q, { limit: input.limit })]);
       const published = new Set(people.items.map((p) => p.userId));
@@ -512,6 +513,7 @@ export const liveRouter = router({
      * like any other (the solo guard, §10). The viewer and anyone blocked either way never turn up.
      */
     find: protectedProcedure.input(FindPeopleInput.optional()).query(async ({ ctx, input }) => {
+      await takePeopleSearch(ctx.limits, ctx.userId);
       const page = await repos.personProfiles.public.find(ctx.db, ctx.userId, input ?? {});
       return { items: page.items.map((p) => ({ userId: p.userId, name: p.displayName, ...personFields(p) })), nextCursor: page.nextCursor };
     }),
@@ -520,6 +522,8 @@ export const liveRouter = router({
       const [listed, published] = await Promise.all([repos.social.publicProfileOf(ctx.db, input.kind, input.id), input.kind === "founder" ? repos.personProfiles.public.byUserId(ctx.db, input.id) : Promise.resolve(null)]);
       // One identity: a person who published /u/<handle> is found here too, with what their page says.
       if (!listed && !published) throw new NotFoundError("profile", input.id);
+      // A block either way reads as no profile at all (a block is never announced).
+      if (input.kind === "founder" && input.id !== ctx.userId && (await repos.social.blockedWith(ctx.db, ctx.userId, [input.id])).has(input.id)) throw new NotFoundError("profile", input.id);
       const card = published ? personCard({ ...published, userId: input.id }) : publicCard(listed!.profile);
       let connection: { id: string; status: "requested" | "accepted" | "blocked"; direction: "incoming" | "outgoing" } | null = null;
       const founderId = card.kind === "founder" ? card.userId : null;

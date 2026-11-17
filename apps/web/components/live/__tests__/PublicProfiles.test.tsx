@@ -168,13 +168,14 @@ describe("/profiles/[kind]/[id]", () => {
     expect(screen.getByTestId("profile-connect-note").textContent).toMatch(/live business/);
   });
 
-  it("with no project the Connect button and its note are not drawn, and no notice names a business", async () => {
+  it("with no project there is no Connect button, the screen says honestly why, and no notice names a business", async () => {
     ctx.noBusiness = true;
     api.handlers["live.people.profile"] = () => founderProfile();
     mount(<ProfileScreen kind="founder" id={ids.ana} />);
     await screen.findByTestId("profile-screen");
     expect(screen.queryByTestId("profile-connect")).toBeNull();
     expect(screen.queryByTestId("profile-connect-note")).toBeNull();
+    expect(screen.getByTestId("profile-connect-no-project").textContent).toMatch(/works from a project on the network for now/);
     expect(screen.queryByTestId("personal-notice")).toBeNull();
   });
 

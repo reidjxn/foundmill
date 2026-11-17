@@ -31,6 +31,12 @@ The person page carries Connect and Report and the link to their page; /u/<handl
 ### Connecting still needs a Live business
 `live.connections.request` is unchanged (`sectionWrite("live")`). A person with no project can find and read people, report and block, but not yet send a request: requests from people without a project are F17's, which needs its own security review (DECISIONS Nov 12, 2026). The /home card now says only what can be done ("Find people by what they are good at, and meet others who are building").
 
+### With the layer open to every invited account (founder, Nov 17, 2026)
+`LIVE_MODE` was found set to 1 in production, and the founder kept it so. This change covers the dead ends that leaves: search and Find people read the published pages; a published /u/<handle> is found; a person with no project sees why they cannot ask to connect yet (`profile-connect-no-project`); `/home`'s find card says "see what others are building", not "meet".
+From the security review of `live.*` as open to every account, this change takes the three that sit in its own code: a shared-store limit of 30 people searches a minute (`takePeopleSearch`, for both `find` and `search`),
+the old name search's prefix escaped and its block check done in one query, and a person page that reads as not found when either side has blocked the other.
+The rest (community report holds, owners restoring their own held posts, `communities.update` model calls, blocks inside communities, the in-process limits, request floods) is the next change, before sign-up opens.
+
 ## Not done
 - Projects in Find people (by kind, stage, what they need) wait for open roles (F15).
 - Five today, Say hi and the matcher (F16's suggestions) are not built: suggestions need density and evals.

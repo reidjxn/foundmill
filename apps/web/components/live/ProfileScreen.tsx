@@ -131,6 +131,11 @@ export function ProfileScreen({ kind, id }: { kind: "business" | "founder"; id: 
               Switch to a live business to ask {profile.name} to connect: a Personal business is not on the network.
             </p>
           ) : null}
+          {profile.kind === "founder" && !isSelf && !connection && !hasBusiness ? (
+            <p className="text-small @page-wide:col-span-12 text-secondary" data-testid="profile-connect-no-project">
+              Asking someone to connect works from a project on the network for now. You can still read {profile.name}'s page, and report or block from here.
+            </p>
+          ) : null}
           {person ? <PersonPanel person={person} className="@page-wide:col-span-8" /> : null}
           {profile.kind === "founder" && person && businesses.length === 0 ? null : profile.kind === "founder" ? (
             <Panel title="Businesses" className="@page-wide:col-span-8" empty={businesses.length === 0 ? { icon: Building2, children: "No live business is listed." } : undefined} data-testid="profile-businesses">

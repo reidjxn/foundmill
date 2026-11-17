@@ -125,6 +125,37 @@ describe("find people (layer open)", () => {
     ).toEqual(["cai-coder"]);
   });
 
+  it("a block either way: not found by search or Find people, and the person page reads as no profile", async () => {
+    const me = hz.caller({ userId: ana });
+    await repos.social.blockPerson(hz.db, ben, ana);
+    expect((await me.live.people.find()).items.map((p) => p.handle)).not.toContain("ben-baker");
+    expect(
+      (await me.live.people.search({ q: "Ben Baker" })).hits.filter((h) => h.userId === ben),
+    ).toEqual([]);
+    await expect(me.live.people.profile({ kind: "founder", id: ben })).rejects.toThrow(
+      /not found/i,
+    );
+    const [row] = await repos.social.listConnections(hz.db, ben, { status: "blocked" });
+    await repos.social.removeConnection(hz.db, ben, row!.id);
+    expect((await me.live.people.profile({ kind: "founder", id: ben })).person?.handle).toBe(
+      "ben-baker",
+    );
+  });
+
+  it("searches are limited per person in the shared store; wildcards in a name search are literal", async () => {
+    hz.limits.reset();
+    const me = hz.caller({ userId: cai });
+    expect((await me.live.people.search({ q: "%%" })).hits).toEqual([]);
+    let last = "OK";
+    for (let i = 0; i < 31; i++)
+      last = await me.live.people.find().then(
+        () => "OK",
+        (e: TRPCError) => e.code,
+      );
+    expect(last).toBe("TOO_MANY_REQUESTS");
+    hz.limits.reset();
+  });
+
   it("a person taken down is not found and has no page", async () => {
     await repos.personProfiles.unpublish(hz.db, cai);
     const me = hz.caller({ userId: ana });
