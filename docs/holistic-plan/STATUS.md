@@ -220,7 +220,7 @@ All by the coordinating session on the founder's word (reported by that session,
 | WP-13 | T9 | The privacy policy names Z.ai | merged (#260) | the DPA and SCCs are the founder's (Z3) |
 | WP-13 | T11 | The api and composer use a founder's own Anthropic key | pull request open | the composer needs `COMPOSER_SERVICE_TOKEN_SECRET` (composer and gateway) and `GATEWAY_URL` on Railway |
 | WP-13 | T10 | Switch it on | not started | T4 to T9, T11; setup Z2 |
-| WP-14 | T1 | Resting, and the last task always finishes | not started | amends WP-09 T13: the session that takes T13 takes this; the own key stays offered; owner: the WP-09 session (with T13, on #251 or right after it) (assigned Nov 17) |
+| WP-14 | T1 | Resting, and the last task always finishes | not started | amends WP-09 T13: the session that takes T13 takes this; the own key stays offered; owner: the WP-09 session, as the next pull request after #251 (assigned Nov 17) |
 | WP-14 | T2 | Quick fit before the ideas, sharpen after; time and where you live before take charge | not started | changes WP-04 T1's first profile |
 | WP-14 | T3 | Team budget, outcomes first, on Billing | not started | WP-09 T1 and T2 (#251); owner: the WP-09 session, after T14 (assigned Nov 17) |
 | WP-14 | T4 | Outcomes first on Today | not started |  |
@@ -231,7 +231,7 @@ All by the coordinating session on the founder's word (reported by that session,
 | WP-14 | T9 | Share a Customer Update as a card | not started | #244 |
 | WP-14 | T10 | The tour and landing copy | not started | the landing session (Desktop), told on Nov 17 |
 | WP-14 | T11 | Commit's defaults and its credits line | not started | replaces WP-04 D4 and WP-09 D7 as defaults |
-| WP-14 | T12 | Four measures | not started | amends WP-02 T10; two of the four need T1 and T9; owner: the WP-04 lifecycle email session; the two measures that need T1 and T9 follow them (assigned Nov 17) |
+| WP-14 | T12 | Four measures | not started | amends WP-02 T10; two of the four need T1 and T9; owner: a new session, "WP-14 T12: four measures"; the two measures that need T1 and T9 follow them (assigned Nov 17) |
 | WP-14 | T13 | The plan document | not started | docs only |
 | WP-14 | T14 | Plans, prices, companies and what each plan includes | not started | amends WP-09 T14 and T16 and WP-13 T7's server check; owner: the WP-09 session, after #251 (assigned Nov 17) |
 | WP-14 | T15 | The waitlist in batches, and invitations to give | not started | amends WP-03 T2, T6, T10 and WP-12; coordinate with the network session; owner: the landing idea-card session, with the network session told (assigned Nov 17) |

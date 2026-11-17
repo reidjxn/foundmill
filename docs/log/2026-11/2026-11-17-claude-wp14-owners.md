@@ -10,11 +10,13 @@ T1, T3, T7, T12, T14 and T15. The coordinating session told each owner by messag
 
 ## Decisions
 - T1 (Resting), T14 (plans, prices, companies) and T3 (team budget on Billing) go to the WP-09 session. T1 amends its T13
-  and T14 amends its T14 and T16; T3 edits the same Billing tab as T14, so one session avoids a conflict. Order: #251
-  (with T1 folded in if it stays reviewable, else T1 next), then T14, then T3.
+  and T14 amends its T14 and T16; T3 edits the same Billing tab as T14, so one session avoids a conflict. Order: #251,
+  then T1 as the next pull request (the session judged #251 too large to carry it: six tasks and three migrations already),
+  then T14, then T3. Until T1 merges, main keeps the existing line for a session that stops when credits run out.
 - T7 (one style for estimates) goes to the WP-10 session, which built T9 and T12 (#265).
-- T12 (four measures) goes to the WP-04 lifecycle email session: the session that built WP-02 T10 (#173) is gone, and this
-  one knows the path from commit to the first plan. It builds the two measures that need nothing else now.
+- T12 (four measures) goes to a new session, "WP-14 T12: four measures": the session that built WP-02 T10 (#173) is gone,
+  and the WP-04 lifecycle email session, asked first, takes new work only from its own owner. It builds the two measures
+  that need nothing else now.
 - T15 (waitlist in batches, three named invitations) goes to the landing idea-card session, which built the waitlist card.
   The network session is told and its #208 and #217 merge first; T15 does not edit their files before that.
 - The WP-13 session is told that the own key is always offered and that T7's server check follows WP-14 T14.
