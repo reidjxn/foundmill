@@ -230,7 +230,7 @@ All by the coordinating session on the founder's word (reported by that session,
 | WP-14 | T8 | The chapter report | not started |  |
 | WP-14 | T9 | Share a Customer Update as a card | not started | #244 |
 | WP-14 | T10 | The tour and landing copy | not started | the landing session (Desktop), told on Nov 17 |
-| WP-14 | T11 | Commit's defaults and its credits line | not started | replaces WP-04 D4 and WP-09 D7 as defaults |
+| WP-14 | T11 | Commit's defaults and its credits line | pull request open (`claude/wp14-t11-commit-defaults`, on top of T2's #299) | replaces WP-04 D4 and WP-09 D7 as defaults; flagged: a 5.00 cap lets an action of 5.00 or less run without asking in Assisted mode |
 | WP-14 | T12 | Four measures | not started | amends WP-02 T10; two of the four need T1 and T9; owner: the session "WP-14 estimates style and measures"; the two measures that need T1 and T9 follow them (founder, Nov 17) |
 | WP-14 | T13 | The plan document | not started | docs only |
 | WP-14 | T14 | Plans, prices, companies and what each plan includes | not started | amends WP-09 T14 and T16 and WP-13 T7's server check; owner: the session "WP-14 money: plans, Resting, team budget", after #251 (founder, Nov 17) |

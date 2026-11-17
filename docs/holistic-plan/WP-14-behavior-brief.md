@@ -149,6 +149,7 @@ Not here: the pill "First company? The team comes with it." on `/` unless `remov
 Done when: `LandingPage.test.tsx`, `TourPage.test.tsx`, `removed-claims.test.tsx` and `e2e/landing.spec.ts` pass with the new strings.
 
 ### T11: Commit's defaults and its credits line            [S] [ships alone]
+Built on Nov 17, 2026 (`claude/wp14-t11-commit-defaults`; log `2026-11-17-claude-wp14-t11-commit-defaults`). What differs from the steps is in the log's Decisions.
 Brief: A4. Founder's answer A4.
 Steps:
 1. What is selected when Commit opens, inside "More options": mode Assisted, Personal, a spend cap for each action of 5.00 in the project's currency ($5 for a USD project), Autopilot off, the first generated logo and its colors. Every one can be changed there and later in Settings. Above the form: "Name your business. We've set everything else to the careful option, and you can change any of it later." (use "project" where the stage rule asks for it). verify: the Commit spec reads each default and changes two of them.
