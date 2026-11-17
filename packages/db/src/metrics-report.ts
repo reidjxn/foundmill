@@ -48,6 +48,8 @@ function printFacts(m: MetricFacts): void {
     print(`Customer Updates, 14 days (shares wait for WP-14 T9): ${m.customer_updates.updates} updates, ${m.customer_updates.shares} shares, ${m.customer_updates.updates_shared} updates shared, shares per update ${m.customer_updates.shares_per_update ?? "n/a"}`);
   }
   print(`Honesty: fabricated left ${pairs(m.honesty.fabricated_left)}; simulated outcomes left out of the north star ${m.honesty.simulated_outcomes_excluded}`);
+  // Days recorded before 0136 carry no safety block.
+  if (m.safety) print(`Safety: reports open ${m.safety.reports_open}, past the review target ${m.safety.reports_overdue}`);
 }
 
 async function main(): Promise<void> {

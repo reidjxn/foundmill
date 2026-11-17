@@ -124,6 +124,23 @@ describe("/profiles/[kind]/[id]", () => {
     expect(screen.queryByTestId("profile-connect")).toBeNull();
   });
 
+  it("Report (and block in the same step) on another founder's profile; never on one's own (NETWORK F21)", async () => {
+    api.handlers["live.people.profile"] = () => founderProfile();
+    api.handlers["report.create"] = () => ({ reported: true, blocked: true });
+    mount(<ProfileScreen kind="founder" id={ids.ana} />);
+    fireEvent.click(await screen.findByTestId("profile-report-open"));
+    const dialog = await screen.findByTestId("report-person-dialog");
+    fireEvent.click(within(dialog).getByTestId("report-person-block"));
+    fireEvent.click(within(dialog).getByTestId("report-person-send"));
+    await waitFor(() => expect(callsTo(api, "report.create")).toEqual([{ target: { kind: "person", userId: FOUNDER_HIT.userId }, reason: "spam", note: undefined, block: true }]));
+    cleanup();
+
+    api.handlers["live.people.profile"] = () => founderProfile(null, true);
+    mount(<ProfileScreen kind="founder" id={ids.ana} />);
+    await screen.findByTestId("profile-screen");
+    expect(screen.queryByTestId("profile-report-open")).toBeNull();
+  });
+
   it("a Personal business explains why Connect is off", async () => {
     ctx.gameMode = "personal";
     api.handlers["live.people.profile"] = () => founderProfile();
