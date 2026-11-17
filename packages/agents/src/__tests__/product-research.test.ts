@@ -63,7 +63,8 @@ describe("the Product Researcher template (BUILD §11.10)", () => {
     expect(t.module).toBe("product");
     expect(t.taskKinds).toEqual(["research"]);
     for (const k of ["discovery_interviewing", "survey_design", "demo_scripting", "experiment_design", "evidence_synthesis"]) expect(t.skills).toContain(k);
-    expect(t.schedule?.triggers).toEqual(["spec.version_published", "task.completed", "pr.merged"]);
+    // Nothing runs a template schedule, so none is shown or stored (WP-08 T11).
+    expect(t.schedule).toBeUndefined();
     for (const a of ARCHETYPES) {
       const product = getArchetypeSeed(a).departments.find((d) => d.moduleKeys.includes("product"))!;
       expect(product.memberTemplateKeys, a).toContain("product_researcher");

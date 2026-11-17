@@ -7,24 +7,24 @@
  *
  * - No suggestions of people anywhere on this screen: a person who has not asked for people never sees any, and the
  *   find card is an offer to go and look, not a list of anyone.
- * - The people layer (LIVE) may be closed on a deployment (`liveMode` false): the find card then says it opens soon,
- *   with no link, and nothing waiting is read.
+ * - The people layer (LIVE) may be closed on a deployment (`liveMode` false): the find card is then left out (WP-04
+ *   T15: no "Opening soon" promise), Start something is the one card, and nothing waiting is read.
  * - Works from 390 px (CLAUDE.md "Small screens", DESIGN §6): one column inside the frame's container, two from
  *   `page-wide`; every link a finger presses is at least `tap-target` high.
- * - On a small screen nothing here links into a desktop-only page (the studio, Commit): "Start something" and each
- *   concept's Continue offer the link by email instead (`NextStepOnComputer`, `EmailMeALink`; WP-03 T3). A stopgap:
- *   WP-04 removes it when it makes the studio's first steps work on a phone.
+ * - On a small screen "Start something" goes to `/new/write` (WP-04 T15: a working name and the idea, then Commit),
+ *   on a wide one to `/new` (the doors). Each concept's Continue still offers the link by email on a small screen
+ *   (`EmailMeALink`; WP-03 T3).
  */
 import { ArrowRight, Inbox, Lightbulb, Users } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { Chip, Icon, Panel, isViewportTooSmall, useViewportWidth, type IconComponent } from "@foundmill/dugout";
+import { Icon, Panel, isViewportTooSmall, useViewportWidth, type IconComponent } from "@foundmill/dugout";
 import { plural } from "@/lib/format";
 import { useTRPC } from "@/lib/trpc-react";
 import { LinkButton } from "@/components/new/LinkButton";
 import { StudioFrame } from "@/components/new/StudioFrame";
 import { commitHref, toConcept } from "@/components/new/ideate/concepts";
-import { CONTINUE_LATER_WORDS, EmailMeALink, NextStepOnComputer } from "@/components/providers/ContinueLater";
+import { CONTINUE_LATER_WORDS, EmailMeALink } from "@/components/providers/ContinueLater";
 
 export interface PersonHomeProps {
   viewer: { email: string | null };
@@ -125,8 +125,9 @@ export function PersonHome({ viewer, displayName, liveMode }: PersonHomeProps) {
   );
   const ideas = ideasQ.data?.items ?? [];
   const waiting = liveMode ? waitingLines(summaryQ.data) : [];
-  // WP-03 T3 stopgap (WP-04 deletes it): no link from a phone into the studio or Commit, which are desktop-only.
+  // A phone starts from one sentence (WP-04 T15); the studio's doors are desktop-only.
   const small = isViewportTooSmall(useViewportWidth());
+  const startHref = small ? "/new/write" : "/new";
   return (
     <StudioFrame
       title={homeTitle(displayName)}
@@ -135,7 +136,7 @@ export function PersonHome({ viewer, displayName, liveMode }: PersonHomeProps) {
       width="measure"
       smallScreen
     >
-      <div className="grid grid-cols-1 gap-gutter @page-wide:grid-cols-2" data-testid="person-home">
+      <div className={liveMode ? "grid grid-cols-1 gap-gutter @page-wide:grid-cols-2" : "grid grid-cols-1 gap-gutter"} data-testid="person-home">
         <HomeCard
           id="start"
           primary
@@ -144,47 +145,37 @@ export function PersonHome({ viewer, displayName, liveMode }: PersonHomeProps) {
           title="Start something"
           lede="Bring an idea, or none yet, or something you already run. Your team shapes it with you and starts on the work."
           action={
-            small ? (
-              <NextStepOnComputer path="/new" />
-            ) : (
             <LinkButton
               variant="primary"
-              href="/new"
+              href={startHref}
               iconRight={ArrowRight}
-              className="min-h-tap"
+              className="min-h-tap w-full @page-wide:w-auto"
               data-testid="home-start-link"
             >
               Start something
             </LinkButton>
-            )
           }
         />
+        {liveMode ? (
         <HomeCard
           id="find"
           icon={Users}
           kicker="If you want company"
           title="Find a project or people"
-          lede={
-            liveMode
-              ? "Join someone's project, or meet people to build yours with. Only if you want to: you can do all of it on your own."
-              : "Joining other projects and meeting people to build with opens here soon. You can do all of it on your own meanwhile."
-          }
+          lede="Join someone's project, or meet people to build yours with. Only if you want to: you can do all of it on your own."
           action={
-            liveMode ? (
-              <LinkButton
-                variant="default"
-                href="/network"
-                iconRight={ArrowRight}
-                className="min-h-tap"
-                data-testid="home-find-link"
-              >
-                Find a project or people
-              </LinkButton>
-            ) : (
-              <Chip data-testid="home-find-soon">Opening soon</Chip>
-            )
+            <LinkButton
+              variant="default"
+              href="/network"
+              iconRight={ArrowRight}
+              className="min-h-tap"
+              data-testid="home-find-link"
+            >
+              Find a project or people
+            </LinkButton>
           }
         />
+        ) : null}
       </div>
 
       {waiting.length > 0 ? (

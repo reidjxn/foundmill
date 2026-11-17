@@ -10,7 +10,7 @@ export { JsonElementScanner, getAtPath, arrayAtPath, elementPathKeys, type Scann
 export { streamStructured, runStructuredStream, StreamInterruptedError, elementIndexOf, DEFAULT_PARTIAL_THROTTLE_MS, MAX_STREAM_INTERRUPTIONS, type StreamCallArgs, type StreamCallResult, type StructuredStreamDeps } from "./structured-stream";
 export * from "./rate-limit";
 export { gateModelClient, type ModelCallGate, type ModelCallVerdict } from "./gate";
-export { enforceModelFunding, type FundingOf, type ModelFunding } from "./free-plan";
+export { enforceModelFunding, type FreeCapCheck, type FundingOf, type ModelFunding } from "./free-plan";
 export * from "./schemas";
 export * from "./planParams";
 // Team call (docs/TEAM_CALL.md §4): not through ./schemas, which this module imports `PlanAction` from.

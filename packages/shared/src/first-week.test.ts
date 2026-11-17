@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FIRST_DAY_PROMISE, FIRST_WEEK_DAYS, PLAN_READY_NOTE, isPlanReadyDecision, dayRangeWords, firstWeekTimeline, firstWeekVisible, type FirstWeekFacts } from "./first-week";
+import { FIRST_DAY_PROMISE, FIRST_DAY_TOAST, FIRST_WEEK_DAYS, OLD_FIRST_DAY_WORDS, PLAN_READY_NOTE, isPlanReadyDecision, dayRangeWords, firstWeekTimeline, firstWeekVisible, type FirstWeekFacts } from "./first-week";
 
 const fresh: FirstWeekFacts = { today: "2026-10-07", createdOn: "2026-10-07", specSignedOffOn: null, roadmapSignedOffOn: null, firstRoundOn: null, goalApprovedOn: null, distributionStartedOn: null, stopped: false };
 const steps = (f: FirstWeekFacts) => firstWeekTimeline(f)!.steps;
@@ -19,7 +19,7 @@ describe("firstWeekTimeline", () => {
     expect(steps(fresh).map((s) => [s.label, s.state])).toEqual([["Day 1", "now"], ["Days 2–3", "next"], ["Week 1", "next"]]);
     expect(steps(fresh).map((s) => s.when)).toEqual(["Oct 7 (Estimate)", "Oct 8 – 9 (Estimate)", "Oct 10 – 13 (Estimate)"]);
     expect(steps(fresh)[0]!.asks).toBe("You are asked to publish your page and approve your plan.");
-    expect(steps(fresh)[0]!.team).toBe("Your team drafts your page, your specification and your roadmap.");
+    expect(steps(fresh)[0]!.team).toBe("Your team drafts your page first, then your plan.");
     expect(steps(fresh)[2]!.asks).toContain("“Ready to start selling?”");
     expect(t.paused).toBeNull();
   });
@@ -40,7 +40,7 @@ describe("firstWeekTimeline", () => {
     expect(s[0]!.when).toBe("Done Oct 8");
     expect(s[1]!.when).toBe("Done Oct 9");
     expect(s[2]!.when).toBe("Oct 10 – 13 (Estimate)");
-    expect(s[0]!.team).toBe("Drafted your page, your specification and your roadmap.");
+    expect(s[0]!.team).toBe("Drafted your page and your plan.");
     expect(s[0]!.asks).toBe("You published your page and approved your plan.");
   });
 
@@ -83,12 +83,21 @@ describe("firstWeekTimeline", () => {
   });
 });
 
-describe("FIRST_DAY_PROMISE (WP-02 T6)", () => {
-  it("tells the first day page first, then the plan", () => {
-    expect(FIRST_DAY_PROMISE.steps[1]).toBe("Your public page is drafted first: check it and put it live");
-    // One plan note (WP-04 T5).
-    expect(FIRST_DAY_PROMISE.steps[2]).toBe("Then your plan arrives as one note to approve");
-    expect(FIRST_DAY_PROMISE.sentence).toBe("Your team is drafting your public page first, then your plan. You check the page and put it live; then one note asks you to approve your plan.");
+describe("FIRST_DAY_PROMISE (WP-02 T6, WP-04 T7)", () => {
+  it("tells the first day page first, then one plan note, in four lines", () => {
+    expect(FIRST_DAY_PROMISE).toEqual([
+      "Your page is drafted first, from your own words. About a minute.",
+      "You check it and publish it. Then you have a link to send.",
+      "Your plan arrives as one note to approve.",
+      "Nothing costs money or goes out in your name unless you say so.",
+    ]);
+    expect(Object.isFrozen(FIRST_DAY_PROMISE)).toBe(true);
+    expect(FIRST_DAY_TOAST).toBe("Your page is being drafted now. You will check it first.");
+  });
+
+  it("no first-day line keeps the old two-documents story", () => {
+    for (const line of [...FIRST_DAY_PROMISE, FIRST_DAY_TOAST, ...steps(fresh).map((s) => s.team)]) expect(line).not.toMatch(OLD_FIRST_DAY_WORDS);
+    expect("two notes will ask you to sign them off").toMatch(OLD_FIRST_DAY_WORDS);
   });
 });
 

@@ -1,9 +1,11 @@
 /** crm.search/entity.list/get/update/merge/unmerge/create/requestDeletion/notes/roles (BUILD §11.12; AC-11.12.2 via RLS, AC-11.12.3 merge/unmerge). */
 import { INPUT_LIMITS } from "@foundmill/config";
 import { AddRoleInput, EntityListFilter, STRONG_IDENTIFIERS, SearchInput, UpdateEntityInput, repos } from "@foundmill/db";
-import { AppError, boundedRecord, hasSectionAccess } from "@foundmill/shared";
+import { AppError, boundedRecord, hasSectionAccess, REPLY_ANSWER_MAX } from "@foundmill/shared";
 import { z } from "zod";
 import { Id, audit, router, sectionRead, sectionWrite } from "../trpc";
+import { answerReply, listReplies } from "../services/replies";
+import { modelLimited } from "../services/model-limits";
 
 const read = sectionRead("crm");
 /** Deletion requests complete no earlier than this (matches Settings › Danger zone). */
@@ -153,6 +155,16 @@ export const crmRouter = router({
         return interaction;
       }),
     ),
+  }),
+
+  /**
+   * Email that reached the project's Foundmill address, kept as plain text (WP-08 T2; founder D3), and the founders'
+   * answers. The text is a stranger's: the screen shows it as plain text only. `answer` sends through the gateway as a
+   * reply (transactional) and is refused for someone who has not written in the last 30 days.
+   */
+  replies: router({
+    list: read.input(z.object({ entityId: Id.optional(), limit: z.number().int().min(1).max(50).default(20) })).query(({ ctx, input }) => listReplies(ctx, input)),
+    answer: write.input(z.object({ interactionId: Id, text: z.string().trim().min(1).max(REPLY_ANSWER_MAX), requestId: Id })).use(modelLimited("replyAnswer")).mutation(({ ctx, input }) => answerReply(ctx, input)),
   }),
 
   roles: router({

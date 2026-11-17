@@ -10,7 +10,7 @@
  */
 import { serve } from "@hono/node-server";
 import { createServiceDb, closeDb, keepPoolWarm, watchPoolOrExit, type PoolWarmer, type PoolWatchdog } from "@foundmill/db";
-import { createModelClient, effectiveModelMode, gateModelClient } from "@foundmill/models";
+import { createModelClient, effectiveModelMode } from "@foundmill/models";
 import { loadEnv, servicePort } from "@foundmill/shared";
 import { createLogger } from "@foundmill/shared/logger";
 import { drainHttpServer, onShutdown } from "@foundmill/shared/shutdown";
@@ -18,7 +18,7 @@ import { installTelemetry } from "@foundmill/shared/telemetry";
 import { createApp } from "./app";
 import { prepareDb } from "./db-boot";
 import { createComposerService } from "./service";
-import { createUsageSink, creditsGate } from "./usage";
+import { composerModelClient, createUsageSink } from "./usage";
 
 export { createApp, NarrateBody, RefreshBody, CommentaryBody, ChapterTitleBody, FounderTitlesBody, type ComposerApp } from "./app";
 export { composeFounderTitles, titleFallback, vocabularyLines, bannedWordsLine, FOUNDER_TITLES_BATCH, type FounderTitlesResult } from "./founder-titles";
@@ -76,8 +76,8 @@ export async function main(): Promise<void> {
   // A pool that stops answering while the database is fine exits the process; the platform restarts it (DECISIONS 2026-10-19).
   watchdog = watchPoolOrExit({ db, url: env.DATABASE_URL, log, service: "composer" });
   const platform = createModelClient({ mode: effectiveModelMode(env.MODEL_MODE, env.ANTHROPIC_API_KEY, log), apiKey: env.ANTHROPIC_API_KEY, logger: log, onUsage: createUsageSink(db, log) });
-  // The platform key's ceiling: no call for a business whose credits are used up (usage.ts `creditsGate`).
-  const models = gateModelClient(platform, creditsGate(db, platform.mode === "live"));
+  // The platform key's ceiling (usage.ts `creditsGate`), and the free plan's model for a business not on a paid plan.
+  const models = composerModelClient(platform, db, env.FREE_PLAN_MONTHLY_CAP_CENTS);
   service = createComposerService({ db, models, log });
   const app = createApp(service, { env, log });
   const port = servicePort(env, "COMPOSER_PORT");

@@ -8,6 +8,7 @@ import { projectPageReadyNote } from "@foundmill/agents";
 import { repos } from "@foundmill/db";
 import { soloGuardViolations, starterPageDraft } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { LIVE_CLOSED_MESSAGE } from "../trpc";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 /** Every string in a value, so a new field added to a view is read without this test changing. */
@@ -17,6 +18,15 @@ function strings(value: unknown, out: string[] = []): string[] {
   else if (value && typeof value === "object") for (const v of Object.values(value)) strings(v, out);
   return out;
 }
+
+/** Today as the one-person project reads it, ids and dates taken out, by whether the people layer was open. */
+const todayWhen: Record<string, string> = {};
+const plain = (value: unknown) =>
+  JSON.stringify(value)
+    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, "<id>")
+    .replace(/\d{4}-\d{2}-\d{2}(T[\d:.]+Z)?/g, "<date>")
+    // The Chief of Staff's persona is drawn at random for each new project.
+    .replace(/"personaKey":"[a-z_-]+"/g, '"personaKey":"<persona>"');
 
 describe.each([
   ["LIVE_MODE unset", {}],
@@ -48,7 +58,24 @@ describe.each([
     const inbox = await caller.inbox.list({ businessId, limit: 50 });
     expect(inbox.items.length).toBeGreaterThan(1);
 
+    // The private "someone arrived" line shows only when someone did: never a count of zero (WP-12 T3).
+    expect(JSON.stringify(visit)).not.toMatch(/arrived through/);
+    expect(visit.sinceLastVisit?.arrived ?? 0).toBe(0);
+
+    // The closed layer (WP-12 T6): the profile says so and `live.*` is refused; Today reads the same either way.
+    const open = _label === "LIVE_MODE=1";
+    expect((await caller.founder.profile.get()).features.liveMode).toBe(open);
+    if (!open) await expect(caller.live.summary()).rejects.toThrow(LIVE_CLOSED_MESSAGE);
+    todayWhen[_label] = plain(today);
+
     const read = [...strings(today), ...strings(visit), ...inbox.items.flatMap((i) => [i.subject, i.bodyMd])];
     expect(read.flatMap((s) => soloGuardViolations(s).map((hit) => `${hit} in "${s.slice(0, 80)}"`))).toEqual([]);
+  });
+});
+
+describe("solo guard: the people layer changes nothing for one person (WP-12 T6)", () => {
+  it("Today for a one-person project reads the same with the layer closed and open", () => {
+    expect(todayWhen["LIVE_MODE unset"]).toBeTruthy();
+    expect(todayWhen["LIVE_MODE=1"]).toBe(todayWhen["LIVE_MODE unset"]);
   });
 });

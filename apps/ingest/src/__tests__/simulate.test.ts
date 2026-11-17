@@ -35,15 +35,15 @@ const asJson = async <T = Record<string, unknown>>(res: Response): Promise<T> =>
 const secondsAfterMockNow = (s: number) => () => new Date(MOCK_NOW.getTime() + s * 1000);
 
 describe("gating", () => {
-  it("is on in development and staging when the flag is set, never in test or production", () => {
+  it("is on in development when the flag is set, never in staging, test or production", () => {
     expect(simulateEnabledFor("development", true)).toBe(true);
-    expect(simulateEnabledFor("staging", true)).toBe(true);
+    expect(simulateEnabledFor("staging", true)).toBe(false);
     expect(simulateEnabledFor("test", true)).toBe(false);
     expect(simulateEnabledFor("production", true)).toBe(false);
     expect(simulateEnabledFor("development", false)).toBe(false);
     // Forcing the routes on cannot override production.
     expect(simulateRoutesMounted({ env: { APP_ENV: "production" }, simulateEnabled: true })).toBe(false);
-    expect(simulateRoutesMounted({ env: { APP_ENV: "staging" }, simulateEnabled: true })).toBe(true);
+    expect(simulateRoutesMounted({ env: { APP_ENV: "staging" }, simulateEnabled: true })).toBe(false);
   });
 
   it("the routes do not exist when disabled (production) and /health says so", async () => {
@@ -82,11 +82,10 @@ describe("gating", () => {
     expect(byName["credential.expiry"]!.length).toBeGreaterThan(0);
   });
 
-  it("staging honours the token too (the flag is on there), test does not", async () => {
+  it("staging and test refuse even a valid token (production runs APP_ENV=staging)", async () => {
     const staging = hz.build({ env: { APP_ENV: "staging", INTEGRATIONS_MODE: "mock", MODEL_MODE: "mock" } as BuiltIngest["env"], simulateEnabled: undefined });
-    expect(staging.deps.simulateEnabled).toBe(true);
-    expect((await staging.app.request("/simulate")).status).toBe(401);
-    expect((await staging.app.request("/simulate", { headers: { authorization: `Bearer ${simulateToken(hz.A.businessId)}` } })).status).toBe(200);
+    expect(staging.deps.simulateEnabled).toBe(false);
+    expect((await staging.app.request("/simulate", { headers: { authorization: `Bearer ${simulateToken(hz.A.businessId)}` } })).status).toBe(404);
     const test = hz.build({ env: { APP_ENV: "test", INTEGRATIONS_MODE: "mock", MODEL_MODE: "mock" } as BuiltIngest["env"], simulateEnabled: undefined });
     expect(test.deps.simulateEnabled).toBe(false);
     expect((await test.app.request("/simulate", { headers: { authorization: `Bearer ${simulateToken(hz.A.businessId)}` } })).status).toBe(404);

@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { useState } from "react";
 import type { DateFormatPrefs } from "../../lib/date-preferences";
-import { DateFormatPicker } from "./DateFormatPicker";
+import { DateFormatPicker, exampleLine } from "./DateFormatPicker";
 import { DateFormatProvider, useDateFormat, useFormatters } from "./DateFormatProvider";
 
 const at = new Date(2026, 9, 7, 15, 45);
@@ -114,5 +114,13 @@ describe("DateFormatPicker", () => {
     expect(screen.getByTestId("time-format-24h").textContent).toContain("7 Oct 2026, 15:45");
     expect(screen.getByRole("radiogroup", { name: "Date format" })).toBeTruthy();
     expect(screen.getByRole("radiogroup", { name: "Time format" })).toBeTruthy();
+  });
+
+  it("at the widest time, 12:59 PM, the 12-hour examples may wrap but never split the time from PM", () => {
+    render(<DateFormatPicker value={{ date: "us", time: "12h" }} onChange={() => undefined} now={new Date(2026, 8, 30, 12, 59)} />);
+    const lines = [...screen.getByTestId("time-format-12h").querySelectorAll("[data-example-line]")];
+    expect(lines.map((l) => l.textContent)).toEqual(["12:59\u00a0PM", "Sep 30, 2026, 12:59\u00a0PM"]);
+    for (const l of lines) expect(l.className).not.toContain("whitespace-nowrap");
+    expect(exampleLine("Oct 7, 2026, 10:06 AM")).toBe("Oct 7, 2026, 10:06\u00a0AM");
   });
 });

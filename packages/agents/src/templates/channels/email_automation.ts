@@ -7,6 +7,8 @@ export const channelEmailAutomation = defineChannelTemplate({
   work: ["lifecycle flows (onboarding, activation, dunning, win-back)", "cohort broadcasts", "1:1 customer emails", "outbound sequences", "reply drafting"],
   // The founder's own SendGrid or Resend when connected; otherwise the project's Foundmill sending address (package 1.5).
   connectors: [grant("sendgrid", ["mail.send", "campaigns.create", "campaigns.schedule", "stats.read", "suppressions.read"]), grant("platform_mail", ["mail.send"]), grant("resend", ["mail.send"])],
+  // A draft update to the project's followers for the founders to check and send (WP-08 T3); never a send.
+  platformTools: ["updates.draft"],
   guardrails: [
     "Send only from the business's sending subdomain with SPF, DKIM and DMARC verified, or from the project's own address (platform_mail) when the founder has not connected their own; warm up new domains; never send from the founder's personal address.",
     "The project's own address sends one message to one person at a time, within a daily limit; a refusal (limit reached, unsubscribed, not switched on) means nothing was sent: say so, never retry around it.",
@@ -15,7 +17,7 @@ export const channelEmailAutomation = defineChannelTemplate({
     "Replies are drafted, never sent, until the sequence or playbook has approval for that step.",
   ],
   playbook: [
-    "Plan: map the lifecycle (signup → activation → payment → retention) and pick the one flow with the biggest measured gap.",
+    "Plan: I draft updates to the people who follow the project; the founders send them.",
     "Create: write the sequence with personalization from CRM fields only, segment rules and send windows in the recipient's local time.",
     "Approve: run suppression and consent checks on the segment; request policy approval for the sequence.",
     "Launch: schedule through the provider; verify the unsubscribe link and tracking on a seed address.",
@@ -30,6 +32,5 @@ export const channelEmailAutomation = defineChannelTemplate({
   ],
   craftSkills: ["copywriting", "personalisation", "segmentation", "deliverability", "reply_handling", "marketing_compliance"],
   spendCapMinor: 20_000,
-  triggers: ["signup.created", "activation.reached", "lead.replied", "channel.threshold_breached"],
   neverDoes: ["send without unsubscribe and sender identity", "contact suppressed or unconsented recipients", "send replies without approval", "continue after a spam-rate breach"],
 });

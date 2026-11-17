@@ -10,7 +10,7 @@
 import { createHmac, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { open, unlink } from "node:fs/promises";
-import { AppError, type EmailNotificationKind } from "@foundmill/shared";
+import { AppError, type EmailNotificationKind, type LifecycleStage } from "@foundmill/shared";
 import { isUntrusted, mockIntegrationRecord, type ToolContext } from "@foundmill/connectors";
 import { createGithubMock } from "@foundmill/connectors/connectors/github/mock";
 
@@ -83,8 +83,9 @@ export type ArchiveResponse =
 export interface NotifyEmailRequest {
   userId: string;
   kind: EmailNotificationKind;
-  businessId: string;
-  data: { inboxItemId?: string; milestoneId?: string; runId?: string; day?: string };
+  /** Null only for the email about a kept card to a person with no project (`getting_started` with `ideaId`, WP-04 T12). */
+  businessId: string | null;
+  data: { inboxItemId?: string; milestoneId?: string; runId?: string; day?: string; stage?: LifecycleStage; ideaId?: string };
 }
 /** One email to an account about the account itself (WP-03 T2: the waitlist's place is open); ids only. */
 export interface AccountEmailRequest {

@@ -286,3 +286,36 @@ describe("with the domain unset", () => {
     expect((await at("/mail/unsubscribe?t=x")).status).toBe(404);
   });
 });
+
+describe("POST /mail/inbound keeps the reply (WP-08 T2)", () => {
+  const interactionsOf = async (businessId: string) => (await repos.entities.listInteractions(hz.db, businessId, { limit: 200 })).items;
+
+  it("writes one interaction under the event's interactionId with the reply's own words, on a new masked person, and one note", async () => {
+    const text = "Count me in. See [[ent:6b0b3a7e-1c2d-4e5f-8a9b-0c1d2e3f4a5b|Boss]] and [click](https://evil.example)\n\nOn Wed, Nov 11, 2026 at 3:45 PM Project A wrote:\n> Hi, thanks for joining";
+    const r = await reply({ to: `${localA}@${DOMAIN}`, from: "Kept Reader <kept.reader@customer.example>", subject: "Re: Our first update", text, headers: "Message-ID: <kept-1@customer.example>" });
+    expect(r.body).toMatchObject({ ok: true, written: 1, kept: 1 });
+    const event = (await replies(hz.A.businessId)).find((e) => (e.payload as { summary: string }).summary.includes("kept.reader@customer.example"));
+    const interactionId = (event?.payload as { interactionId: string }).interactionId;
+    const [row] = (await interactionsOf(hz.A.businessId)).filter((i) => i.id === interactionId);
+    expect(row).toMatchObject({ kind: "email", direction: "inbound", summary: "Re: Our first update" });
+    // Kept as written (markup and all), without the quoted original.
+    expect(row!.bodyUntrusted).toBe("Count me in. See [[ent:6b0b3a7e-1c2d-4e5f-8a9b-0c1d2e3f4a5b|Boss]] and [click](https://evil.example)");
+    const person = await repos.entities.get(hz.db, hz.A.businessId, row!.entityIds[0]!);
+    expect(person).toMatchObject({ displayName: "Contact (ke***@customer.example)", source: "reply", lawfulBasis: null });
+    // Nothing of the text goes into the event or the founders' note.
+    expect(JSON.stringify(event?.payload)).not.toContain("Count me in");
+    const notes = (await repos.inbox.list(hz.db, hz.A.businessId, { limit: 200 })).items.filter((i) => i.subject === "Contact (ke***@customer.example) replied");
+    const chief = await repos.agents.chiefOfStaff(hz.db, hz.A.businessId);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatchObject({ type: "update", blocksContinue: false, fromAgentId: chief!.id, entityIds: [person.id] });
+    expect(notes[0]!.bodyMd).not.toContain("Count me in");
+  });
+
+  it("an unverified sender, spam and an unknown address keep nothing", async () => {
+    const before = (await interactionsOf(hz.A.businessId)).length;
+    await reply({ to: `${localA}@${DOMAIN}`, from: "forged@customer.example", dkim: "{@other.example : pass}", SPF: "fail" });
+    await reply({ to: `${localA}@${DOMAIN}`, spam_score: "9.9" });
+    await reply({ to: `nobody-here@${DOMAIN}` });
+    expect((await interactionsOf(hz.A.businessId)).length).toBe(before);
+  });
+});

@@ -136,7 +136,7 @@ export const SERVER_SAFE_FILES = [
   "components/landing/DayList.tsx",
   "components/landing/AssuranceList.tsx",
   "components/landing/QuestionList.tsx",
-  // The streak (retention plan, 2026-11-11): plain markup inside a Panel.
+  // The streak (retention plan, 2026-11-11): one line of plain markup (WP-04 D5).
   "components/today/StreakStrip.tsx",
 ];
 

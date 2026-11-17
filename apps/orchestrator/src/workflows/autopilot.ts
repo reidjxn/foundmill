@@ -22,7 +22,7 @@ import { ParentClosePolicy, allHandlersFinished, condition, continueAsNew, patch
 import type { ContinueRunEndReason } from "@foundmill/shared";
 import type { Activities } from "../activities";
 import { businessCycle } from "./businessCycle";
-import { autopilotRefreshSignal, continueRunEndSignal, continueRunSignal, stopSignal } from "./signals";
+import { autopilotRefreshSignal, continueRunEndSignal, continueRunSignal, stopSignal, type ContinueRunPayload } from "./signals";
 
 const acts = proxyActivities<Activities>({ startToCloseTimeout: "5 minutes", retry: { maximumAttempts: 3, initialInterval: "2 seconds" } });
 
@@ -44,6 +44,8 @@ export interface AutopilotRun {
   startedAt: number;
   /** The press's own cycle, not started yet; null once started (or when a cycle was already open). */
   pendingCycleNumber: number | null;
+  /** The press's own cycle's extra input (WP-09 T11). */
+  pendingCycleInput: NonNullable<ContinueRunPayload["cycleInput"]>;
   /** Rounds of this run that failed before writing a cycle. */
   unrecordedFailures: number;
 }
@@ -101,7 +103,7 @@ export async function autopilot(input: AutopilotInput): Promise<AutopilotResult>
   if (runs) {
     setHandler(continueRunSignal, (p) => {
       if (run?.id === p.runId) return;
-      run = { id: p.runId, startedAt: Date.now(), pendingCycleNumber: p.cycleNumber ?? null, unrecordedFailures: 0 };
+      run = { id: p.runId, startedAt: Date.now(), pendingCycleNumber: p.cycleNumber ?? null, pendingCycleInput: p.cycleInput ?? {}, unrecordedFailures: 0 };
       endRequest = null;
       refresh = true;
     });
@@ -126,10 +128,17 @@ export async function autopilot(input: AutopilotInput): Promise<AutopilotResult>
   };
 
   /** Start cycle `cycleNumber` as a child and wait for it; false when nothing started (a collision or a failed start). */
-  const runCycle = async (cycleNumber: number, trigger: "continue" | "autopilot", cadence: Parameters<Activities["autopilotCycleStarted"]>[0]["cadence"] | null, cyclesToday: number, budgetCapMinor: number | null = null): Promise<boolean> => {
+  const runCycle = async (
+    cycleNumber: number,
+    trigger: "continue" | "autopilot",
+    cadence: Parameters<Activities["autopilotCycleStarted"]>[0]["cadence"] | null,
+    cyclesToday: number,
+    budgetCapMinor: number | null = null,
+    cycleInput: ContinueRunPayload["cycleInput"] = {},
+  ): Promise<boolean> => {
     const workflowId = `cycle:${businessId}:${cycleNumber}`;
     try {
-      child = await startChild(businessCycle, { workflowId, args: [{ businessId, cycleNumber, trigger, ...(budgetCapMinor !== null ? { budgetCapMinor } : {}) }], parentClosePolicy: ParentClosePolicy.ABANDON });
+      child = await startChild(businessCycle, { workflowId, args: [{ businessId, cycleNumber, trigger, ...cycleInput, ...(budgetCapMinor !== null ? { budgetCapMinor } : {}) }], parentClosePolicy: ParentClosePolicy.ABANDON });
     } catch (err) {
       // A founder's Continue got there first (same cycle number): look again once that cycle has run.
       if ((err as Error).name === "WorkflowExecutionAlreadyStartedError") {
@@ -175,8 +184,9 @@ export async function autopilot(input: AutopilotInput): Promise<AutopilotResult>
     // The press's own cycle starts at once, with the number the API reserved (trigger `continue`: the founder's retry rule).
     if (run && run.pendingCycleNumber !== null) {
       const cycleNumber = run.pendingCycleNumber;
+      const cycleInput = run.pendingCycleInput;
       run.pendingCycleNumber = null;
-      if (cycleNumber > lastStartedNumber) await runCycle(cycleNumber, "continue", null, 0);
+      if (cycleNumber > lastStartedNumber) await runCycle(cycleNumber, "continue", null, 0, null, cycleInput);
       continue;
     }
 

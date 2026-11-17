@@ -233,7 +233,7 @@ export const ideaRouter = router({
       schema: Verdict,
       system: `Compare the concept cards attribute by attribute and give an agent verdict with a ranking. ${HOUSE_STYLE}`,
       messages: [{ role: "user", content: "```json\n" + JSON.stringify({ concepts: ideas.map((i) => ({ id: i.id, title: i.title, pitch: i.pitch, attributes: i.current?.attributes ?? {} })) }) + "\n```" }],
-      attribution: { kind: "ideation_compare" },
+      attribution: { kind: "ideation_compare", userId: ctx.userId },
     });
     const versionIds = ideas.map((i) => i.current?.id).filter((v): v is string => Boolean(v));
     const comparison = await repos.ideas.compare(ctx.db, ctx.userId, { ideaVersionIds: versionIds, verdictMd: result.json.verdict_md });
@@ -368,7 +368,8 @@ export const ideaRouter = router({
       else await requireAdult(ctx.db, ctx.userId, input.confirmAdult);
       // A logo is an upload check like any other (the SVG check is CPU work).
       if (input.logo) await takeLogoCheck(ctx.limits, ctx.userId);
-      // A profile with no budget starts no cycle and no finance or legal task at commit (WP-04 T3).
-      return commitIdea(ctx.db, ctx.temporal, ctx.userId, { ...input, hasBudget: (profile.budgetMinor ?? 0) > 0 }, () => importJobKey(ctx.env), { log: ctx.log, env: ctx.env });
+      // A profile with no budget starts no cycle and no finance or legal task at commit (WP-04 T3). The welcome note
+      // greets the founder by the profile's name (WP-04 T7).
+      return commitIdea(ctx.db, ctx.temporal, ctx.userId, { ...input, hasBudget: (profile.budgetMinor ?? 0) > 0, displayName: profile.displayName ?? null }, () => importJobKey(ctx.env), { log: ctx.log, env: ctx.env });
     }),
 });

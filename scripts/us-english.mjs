@@ -54,17 +54,17 @@ const EXTRA_ROOTS = [
   "apps/gateway/src",
   "apps/stream/src",
   "apps/ingest/src",
+  "apps/sites/src",
   // Connector tool descriptions and errors reach the Tools tab and agent logs; event docs describe what the founder did.
   "packages/connectors/src",
   "packages/events/src",
   // Repo validation errors reach the founder as toasts; mock session recordings play in Live sessions; the linker and
-  // policy prompts are agent prose; collab and social messages reach the editor and the network screens.
+  // policy prompts are agent prose; collab messages reach the editor.
   "packages/db/src/repos",
   "packages/entity-linker/src",
   "packages/sandbox/src",
   "packages/policy/src",
   "apps/collab/src",
-  "apps/social/src",
   "evals",
 ];
 const SPELLING_ROOTS = [...new Set([...VOCAB_CODE_ROOTS, ...EXTRA_ROOTS])];

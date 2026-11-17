@@ -64,11 +64,12 @@ import {
   type PageStage,
   type ProjectPageContent,
 } from "@foundmill/shared/project-page";
-import { SHARE_OPEN_WORDS, pagePostDraft, type PagePostInput } from "@foundmill/shared/share-drafts";
+import { SHARE_OPEN_WORDS, pageAskText, pagePostDraft, type PagePostInput } from "@foundmill/shared/share-drafts";
 import { postTextWithLink, type PostDraft } from "@foundmill/shared/post-draft";
 import type { ShareOpened } from "@foundmill/shared/share-targets";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
 import type { ModuleScreenProps } from "../registry";
+import { FollowerUpdatePanel } from "./FollowerUpdatePanel";
 import { PageQuizPanel } from "./PageQuizPanel";
 import { Screen, errorMessage } from "./shared";
 
@@ -166,11 +167,7 @@ export function publishConsequence(content: ProjectPageContent, names: readonly 
  * since they send it themselves; the link and the picture are the page draft's (`pagePostDraft`).
  */
 export function pageAskDraft(input: PagePostInput): PostDraft {
-  const post = pagePostDraft(input);
-  const name = input.projectName.replace(/\s+/g, " ").trim();
-  const pitch = input.pitch.replace(/\s+/g, " ").trim();
-  const said = !pitch || pitch.toLowerCase() === name.toLowerCase() ? "" : ` ${/[.!?…]$/.test(pitch) ? pitch : `${pitch}.`}`;
-  return { ...post, text: `I'm starting ${name}.${said} Would you use this?` };
+  return { ...pagePostDraft(input), text: pageAskText(input.projectName, input.pitch) };
 }
 
 const count = (n: number, max: number) => `${n.toLocaleString("en-US")} / ${max.toLocaleString("en-US")}`;
@@ -519,6 +516,9 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
           </p>
         ) : null}
       </Panel>
+
+      {/* Write to the people who follow the project (WP-08 T3): a sample business has no real followers. */}
+      {data && !data.isSample && data.saved ? <FollowerUpdatePanel projectName={data.preview.name} /> : null}
 
       {/* The optional "Which one is for you?" quiz on the page (0105): off until the founder turns it on. */}
       {data && !data.isSample && data.saved ? <PageQuizPanel /> : null}

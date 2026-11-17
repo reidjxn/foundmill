@@ -261,7 +261,7 @@ test.describe("shell", () => {
   });
 
   test("the Simulate panel is development-only: absent from Settings › Integrations on the test stack, and nothing calls ingest from the browser (SEC-2)", async ({ page }) => {
-    // `simulatePanelAvailable` (lib/env.ts) is true in development and staging only, and apps/api answers `dev.simulate`
+    // `simulatePanelAvailable` (lib/env.ts) is true in development only (never staging), and apps/api answers `dev.simulate`
     // with 404 under APP_ENV=test, so the panel must not render here. SimulatePanel's own path through the API is
     // covered by components/settings/__tests__/IntegrationsTab.test.tsx.
     const ingestRequests: string[] = [];

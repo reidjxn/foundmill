@@ -79,18 +79,21 @@ describe("the Board", () => {
     expect(within(board).getByRole("button", { name: /^Email automation/ }).getAttribute("aria-pressed")).toBe("true");
     expect(within(board).getByRole("group", { name: /^Off the board: 4 channels can run now/ })).toBeTruthy();
     expect(screen.getByText("2 of 4 running")).toBeTruthy();
-    expect(screen.queryByTestId("channels-not-available")).toBeNull();
-    expect(screen.queryByText(/Not available yet/)).toBeNull();
+    // WP-08 T9: "Not now" is shown to everyone, collapsed, with the week-one reason.
+    const notNow = screen.getByTestId("channels-not-available");
+    expect(within(notNow).getByText("Not now")).toBeTruthy();
+    expect(within(notNow).getByText("Show 11 channels for later")).toBeTruthy();
+    expect((notNow.querySelector('[data-channel-unavailable="paid_ads"]') as HTMLElement).textContent).toContain("Paid ads start when there is a budget and a page that sells.");
     expect(screen.queryByText(/of 15/)).toBeNull();
   });
 
-  it("Builder view: the rest are listed under Not available yet, each with its reason in plain words", () => {
+  it("Builder view: the rest are listed under Not now, each with its reason in plain words", () => {
     const fake = createFakeSource({ businessId: BID, responses: responses(listWith(["email_automation"])) });
     renderScreen(fake, <FormationScreen {...props} />);
     const board = screen.getByRole("region", { name: "Channel Board" });
     expect(within(board).queryByRole("button", { name: /^Paid advertising/ })).toBeNull();
     const panel = screen.getByTestId("channels-not-available");
-    expect(within(panel).getByText("Not available yet")).toBeTruthy();
+    expect(within(panel).getByText("Not now")).toBeTruthy();
     expect(within(panel).getByText("13 channels")).toBeTruthy();
     expect(within(panel).getByText(NOT_AVAILABLE_INTRO)).toBeTruthy();
     const rows = within(panel).getAllByRole("listitem");
@@ -143,7 +146,7 @@ describe("the Board", () => {
     expect(screen.queryByRole("button", { name: /Get recommendation|Score again/ })).toBeNull();
     expect(screen.queryByTestId("board-caption")).toBeNull();
     expect(screen.queryByText(/of 15|of 0/)).toBeNull();
-    expect(screen.queryByTestId("channels-not-available")).toBeNull();
+    expect(within(screen.getByTestId("channels-not-available")).getAllByRole("listitem")).toHaveLength(15);
   });
 
   it("no channel can run, Builder view: the empty state and all fifteen under Not available yet", () => {
@@ -170,7 +173,7 @@ describe("the Board", () => {
 });
 
 describe("the Channels table", () => {
-  it("default view: rows only for channels that can run; Builder view adds the Not available yet list", () => {
+  it("rows only for channels that can run; the Not now list in every view", () => {
     const list = listWith(["email_automation", "seo"]);
     const founder = createFakeSource({ businessId: BID, responses: responses(list) });
     const first = renderScreen(founder, <ChannelsScreen {...props} />, { builder: false });
@@ -178,7 +181,7 @@ describe("the Channels table", () => {
     expect(within(table).getAllByRole("row")).toHaveLength(4); // header + email, SEO, print (offline tracking)
     expect(within(table).queryByText("Paid advertising")).toBeNull();
     expect(screen.getByText(/2 on the board · 3 of 3 scored/)).toBeTruthy();
-    expect(screen.queryByTestId("channels-not-available")).toBeNull();
+    expect(within(screen.getByTestId("channels-not-available")).getAllByRole("listitem")).toHaveLength(12);
     first.unmount();
 
     const builder = createFakeSource({ businessId: BID, responses: responses(list) });

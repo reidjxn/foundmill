@@ -32,6 +32,7 @@ export function generatePlanner(ctx: MockContext): TaskGraphOutput {
   const sources: RoadmapItemIn[] = items.length > 0 ? items : [{ id: null, title: goal ?? firstLine(ctx.lastUser) ?? "Deliver the next roadmap step" }];
   const tasks: PlannedTask[] = [];
   const noDestination = ctx.getString("destination") === "none";
+  const onSite = ctx.getString("destination") === "site";
 
   sources.forEach((item, idx) => {
     const base = `${idx + 1}`;
@@ -98,6 +99,24 @@ export function generatePlanner(ctx: MockContext): TaskGraphOutput {
         roadmap_item_id: item.id,
       };
       tasks.push(design, ...kept.map((t) => ({ ...t, depends_on: [design.id] })), writePlan);
+      return;
+    }
+    if (onSite) {
+      // The project's Foundmill site (WP-07 T9): pages of a static site only; what needs a server is named, not planned.
+      const page: PlannedTask = {
+        id: `t${base}.2`,
+        title: truncate(`Build the ${item.title} page`, 80),
+        goal: `Write the page of the site for ${item.title}: what it is, who it is for and how to sign up. Anything that needs sign-in, a server or a database is not possible on the site yet.`,
+        kind: "code",
+        acceptance_criteria: ["The page reads well on a phone", "The sign-up form is on the page"],
+        test_expectations: ["The release passes the platform's screening"],
+        file_scope_hints: ["index.html", "styles.css"],
+        depends_on: [design.id],
+        estimate_hours: 2,
+        hard: false,
+        roadmap_item_id: item.id,
+      };
+      tasks.push(design, page);
       return;
     }
     tasks.push(design, implement, verify);

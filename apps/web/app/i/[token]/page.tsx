@@ -12,6 +12,7 @@
  * The invitation survives sign-up without any change to sign-in: "Sign in to accept" goes to /login with `next` back
  * here, the sign-in callback returns here, and the signed-in page offers Accept.
  */
+import { PublicAppPrompt } from "@/components/shell/PublicAppPrompt";
 import type { Metadata } from "next";
 import { InvitationScreen } from "@/components/people/InvitationScreen";
 import { getServerAuth } from "@/lib/auth/server";
@@ -22,5 +23,10 @@ export const dynamic = "force-dynamic";
 export default async function InvitationPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
   const auth = await getServerAuth();
-  return <InvitationScreen token={token.slice(0, 100)} signedIn={auth !== null} />;
+  return (
+    <>
+      <InvitationScreen token={token.slice(0, 100)} signedIn={auth !== null} />
+      <PublicAppPrompt />
+    </>
+  );
 }

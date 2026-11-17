@@ -1,7 +1,7 @@
 "use client";
 /**
- * The rated examples beside the idea box (founder, 2026-11-16): a row of examples just under the Example line, Northwind
- * Skincare first, then Sole Revival, Tutorlane and Glitchwick, and the chosen one's real `IdeaCard` under it. A radio
+ * The rated examples beside the idea box (founder, 2026-11-16): a row of examples just under the "Example companies you
+ * can create" line, Northwind Skincare first, then Tutorlane, Sole Revival and Glitchwick (founder, 2026-11-17), and the chosen one's real `IdeaCard` under it. A radio
  * group: one tab stop, arrow keys and Home/End move and choose. Small pills, so the four fit on one line in the hero's
  * example column on a desktop (founder, 2026-11-16): 28 px tall from 1280 px, 44 px tap targets below.
  */

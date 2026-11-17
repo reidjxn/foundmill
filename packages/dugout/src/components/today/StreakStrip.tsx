@@ -1,62 +1,51 @@
 /**
  * StreakStrip (Today; retention plan, founder 2026-11-11: "daily streak"): how many days in a row the founder has opened
- * the business, the last seven days as dots, and one line on what keeps it going. The number and the words come from
- * data (packages/shared streak.ts, `today.streak`); vacation days show as a frozen dot and never break it. Gold marks a
- * milestone day only (DESIGN: gold is for customers and milestones).
+ * the business, and a dot for each day of the last seven they opened it. The number and the words come from data
+ * (packages/shared streak.ts, `today.visit`). Gold marks a milestone day only (DESIGN: gold is for customers and
+ * milestones).
+ *
+ * Quiet by the founder's decision (WP-04 D5, 2026-11-16): "Hide on day one, the streak appears from the second day. Also
+ * make the streak less prominent on the page in general." So it is one small line, not a panel; it shows only the days
+ * the founder came (never a day missed) and never warns that the streak is about to end. Today draws it from the
+ * project's second day, under the goal, the week and Since you were last here.
  */
 import { Flame } from "lucide-react";
 import { cn } from "../../lib/cn";
 import { Icon } from "../foundation/Icon";
-import { Panel } from "../shell/Panel";
+import { spanClass } from "../shell/PageGrid";
 import type { GridSpan } from "../shell/types";
-
-export type StreakDotState = "visited" | "vacation" | "missed" | "today";
 
 export interface StreakStripProps {
   headline: string;
   line: string;
-  /** The last seven days, oldest first, each with a short label ("Mon"). */
-  week: readonly { day: string; label: string; state: StreakDotState }[];
+  /** The days of the last seven the founder opened the business, oldest first, each with a short label ("Mon"). */
+  opened: readonly { day: string; label: string }[];
   /** A milestone reached today: the number shows in gold. */
   milestone?: boolean;
-  /** The streak ends today unless the founder comes back. */
-  atRisk?: boolean;
   span?: GridSpan;
   className?: string;
 }
 
-export const STREAK_WORDS = { title: "Your streak", vacation: "On vacation: the streak is frozen", visited: "Opened", missed: "Not opened", today: "Today" } as const;
+export const STREAK_WORDS = { title: "Your streak", opened: "Days you opened it this week" } as const;
 
-const DOT: Record<StreakDotState, string> = {
-  visited: "bg-accent border-accent",
-  vacation: "bg-transparent border-info border-dashed",
-  missed: "bg-transparent border-line-strong",
-  today: "bg-transparent border-accent",
-};
-
-export function StreakStrip({ headline, line, week, milestone, atRisk, span, className }: StreakStripProps) {
+export function StreakStrip({ headline, line, opened, milestone, span = 12, className }: StreakStripProps) {
   return (
-    <Panel title={STREAK_WORDS.title} span={span} className={className} data-testid="streak-strip" data-at-risk={atRisk ? "true" : "false"}>
-      <div className="flex flex-wrap items-center justify-between gap-gutter">
-        <div className="flex min-w-0 items-center gap-3">
-          <Icon icon={Flame} size="lg" className={milestone ? "text-gold" : atRisk ? "text-warn" : "text-accent"} />
-          <div className="flex min-w-0 flex-col gap-0.5">
-            <span className={cn("t-body-strong", milestone ? "text-gold" : "text-primary")} data-testid="streak-headline">
-              {headline}
-            </span>
-            <span className="t-small text-pretty text-secondary">{line}</span>
-          </div>
-        </div>
-        <ol className="m-0 flex list-none items-end gap-2 p-0" aria-label="The last seven days">
-          {week.map((d) => (
-            <li key={d.day} className="flex flex-col items-center gap-1" data-state={d.state} title={`${d.label}: ${STREAK_WORDS[d.state === "vacation" ? "vacation" : d.state]}`}>
-              <span aria-hidden className={cn("block size-3 rounded-full border", DOT[d.state])} />
-              <span className="t-data text-tertiary">{d.label}</span>
-              <span className="sr-only">{STREAK_WORDS[d.state === "vacation" ? "vacation" : d.state]}</span>
+    <section aria-label={STREAK_WORDS.title} className={cn("flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 px-panel-pad py-1 text-tertiary", spanClass(span), className)} data-testid="streak-strip">
+      <Icon icon={Flame} size="inline" className={milestone ? "text-gold" : "text-tertiary"} />
+      <span className={cn("t-small", milestone ? "text-gold" : "text-secondary")} data-testid="streak-headline">
+        {headline}
+      </span>
+      <span className="t-small min-w-0 text-pretty">{line}</span>
+      {opened.length ? (
+        <ol className="m-0 flex list-none items-center gap-1.5 p-0" aria-label={STREAK_WORDS.opened}>
+          {opened.map((d) => (
+            <li key={d.day} className="flex items-center" data-day={d.day} title={d.label}>
+              <span aria-hidden className="block size-2 rounded-full bg-accent" />
+              <span className="sr-only">{d.label}</span>
             </li>
           ))}
         </ol>
-      </div>
-    </Panel>
+      ) : null}
+    </section>
   );
 }

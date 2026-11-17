@@ -60,8 +60,8 @@ class GatedModelClient implements ModelClient {
   /** The web search asks the gate too (route `webSearch`), so a search is refused before its request like any call. */
   async searchWeb(req: WebSearchRequest): Promise<WebSearchResult> {
     if (!this.inner.searchWeb) throw new Error("this model client has no web search");
-    await this.gate({ route: "webSearch", attribution: req.attribution });
-    return this.inner.searchWeb(req);
+    const verdict = await this.gate({ route: "webSearch", attribution: req.attribution });
+    return this.inner.searchWeb(shaped(req, verdict));
   }
 }
 

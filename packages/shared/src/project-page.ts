@@ -343,8 +343,18 @@ export function followWords(name: string) {
     botCheck: "Protected by Cloudflare Turnstile",
     botCheckLink: "privacy",
     botCheckLinkLabel: "Cloudflare Turnstile privacy policy (opens in a new tab)",
+    /** The link to what happens to a follower's address (`FOLLOW_PRIVACY_HREF`), above the bot check's line. */
+    privacyLink: "How your email is used",
+    privacyLinkLabel: "How your email is used, in the Privacy Policy (opens in a new tab)",
   } as const;
 }
+
+/**
+ * The Privacy Policy's section on following a project (apps/web `content/legal/privacy.ts`, section `following`). The
+ * form links it so a visitor can read what happens to their address before they leave it; apps/web's
+ * `legal-content.test.ts` fails if the section is renamed or the policy moves.
+ */
+export const FOLLOW_PRIVACY_HREF = "/privacy#following";
 
 /** Cloudflare's Turnstile Privacy Addendum, which a site using Turnstile in Invisible mode must link. */
 export const TURNSTILE_PRIVACY_URL = "https://www.cloudflare.com/turnstile-privacy-policy/";
@@ -391,15 +401,15 @@ export const FOLLOW_PENDING_LINE = "Not confirmed yet";
 /**
  * The name a new follower's contact gets: "Follower" and the address masked ("Follower (ma***@example.com)"), so the
  * whole address lives only in the contact's identifier and never in a name that agents and screens repeat. At most 200
- * characters (the CRM's name limit).
+ * characters (the CRM's name limit). `label` names someone who is not a follower (a reply's sender: "Contact").
  */
-export function followerDisplayName(email: string): string {
+export function followerDisplayName(email: string, label = "Follower"): string {
   const e = email.trim().toLowerCase();
   const at = e.lastIndexOf("@");
-  if (at <= 0) return "Follower";
+  if (at <= 0) return label;
   const local = e.slice(0, at);
   const shown = local.length <= 2 ? local.slice(0, 1) : local.slice(0, 2);
-  const name = `Follower (${shown}***@${e.slice(at + 1)})`;
+  const name = `${label} (${shown}***@${e.slice(at + 1)})`;
   return name.length <= 200 ? name : `${name.slice(0, 198)}…)`;
 }
 

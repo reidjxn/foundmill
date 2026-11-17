@@ -48,7 +48,7 @@ export const SimulateInput = z.object({
   params: boundedRecord(INPUT_LIMITS.jsonObjectKeys, z.record(z.string(), z.unknown())).optional(),
 });
 
-/** Whether `dev.simulate` exists here: the flag and development/staging; production and test never (404). */
+/** Whether `dev.simulate` exists here: the flag and development; staging, test and production never (404). */
 export const simulateAvailable = (appEnv: string, flag: boolean = FLAGS.devSimulatePanel): boolean => flag && isSimulateEnv(appEnv);
 
 const SHOUT_PRESETS = ["Focus on tests", "Simplify", "Ask before schema changes", "Match the design system", "Hurry up"] as const;

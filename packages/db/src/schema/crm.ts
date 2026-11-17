@@ -95,9 +95,15 @@ export const interactions = pgTable(
     occurredAt: tstz("occurred_at").notNull().defaultNow(),
     entityIds: uuid("entity_ids").array().notNull().default(emptyArray),
     agentId: uuid("agent_id").references((): AnyPgColumn => agents.id, { onDelete: "set null" }),
-    /** Pointer to the encrypted body (never the body itself). */
+    /** A reference to where a body lives elsewhere (no encrypted store exists yet; WP-08 corrections, item 7). */
     contentRef: text("content_ref"),
     summary: text("summary").notNull().default(""),
+    /**
+     * 0125: an email's own words as plain text (≤ 20,000 characters): a reply a stranger wrote, or the founder's answer.
+     * Shown as plain text only; no agent tool returns it (`repos.replies`; founder D3, Nov 16, 2026). The subject is on
+     * `summary`, which agents read only as untrusted content.
+     */
+    bodyUntrusted: text("body_untrusted"),
     direction: text("direction", { enum: INTERACTION_DIRECTIONS }),
     ...timestampsWithArchive(),
   },

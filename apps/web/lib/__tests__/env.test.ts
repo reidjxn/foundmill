@@ -22,7 +22,9 @@ describe("public env", () => {
     expect(isDevLike({ appEnv: "test" })).toBe(true);
     expect(isDevLike({ appEnv: "staging" })).toBe(false);
     expect(isDevLike({ appEnv: "production" })).toBe(false);
-    expect(simulatePanelAvailable({ appEnv: "staging" })).toBe(true);
+    // Production runs APP_ENV=staging: never there.
+    expect(simulatePanelAvailable({ appEnv: "staging" })).toBe(false);
+    expect(simulatePanelAvailable({ appEnv: "development" })).toBe(true);
     expect(simulatePanelAvailable({ appEnv: "test" })).toBe(false);
     expect(simulatePanelAvailable({ appEnv: "production" })).toBe(false);
   });

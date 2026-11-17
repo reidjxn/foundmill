@@ -66,11 +66,13 @@ reads it too). Only the token's SHA-256 (lowercase hex) is stored.
   drafted from. Only "Keep this card" (a Server Action) claims it (`ideaBox.claim`), then `/new/card/<ideaId>`; "Not
   mine" leaves it. Both clear the cookie (security review 2026-11-13).
 - The box offers two ways on (founder, 2026-11-16), both through sign-in and this same keep step: "Start building it
-  now" (`/login?next=/start?claim=…`, then `/new/card/<ideaId>` and Commit) and "Shape it in the Ideation Studio"
-  (the same with `then=studio`: `/start` passes it to `/new/card/keep`, whose `keepCard` then opens `/new/ideate`,
-  where the kept card leads the deck; with no profile yet, the three questions go on to the Studio). A waitlisted
-  person's intent is not kept across admission: on admission they keep the card as above, and the Studio is one link
-  away on `/new/card/<ideaId>` ("See more directions").
+  now" (`/login?next=/start?claim=…`, then `/new/card/<ideaId>` and Commit) and "Shape it in the Ideation Studio" (the
+  same with `then=studio`: `/start` passes it to `/new/card/keep`, whose `keepCard` then opens `/new/ideate/<ideaId>`,
+  the Studio with that card highlighted, in view and focused; with no profile yet, the three questions first, which go
+  on to it). On a phone that page says the Studio opens on a computer and offers to email its link.
+- A visitor who chose the Studio and met the waitlist: the waitlist page's join sends `then: "studio"`, kept with the
+  card (`waitlist_entries.card_then`, 0127), and `ideaBox.preview` returns it, so the first sign-in after admission, on
+  any browser, goes the same way. A later join that holds another card replaces the choice with that card's.
 - `claimIdeaDraft(tx, userId, tokenHash)`: in one transaction, the draft is unclaimed and live (not past `expires_at`
   unless `held_until` is later): create the idea in the person's deck (`repos.ideas.create`, `ideaFromCard` with the
   provenance `{ brief, idea_box: true }`), mark the draft claimed (`claimed_by`, `claimed_at`, `idea_id`). Claiming

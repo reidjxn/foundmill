@@ -48,6 +48,5 @@ export const planner = defineTemplate({
   tools: [grant("platform", [...PLATFORM_BASE_TOOLS, "tasks.update", "spec.read", "roadmap.read", "tasks.history"]), grant("sandbox", SANDBOX_TOOLS), grant("github", ["repos.read"])],
   skills: withCoreSkills(["task_decomposition", "acceptance_criteria", "dependency_mapping", "estimation"]),
   autonomy: AUTONOMY_INHERIT,
-  schedule: { triggers: ["spec.version_published"] },
   neverDoes: ["Invent requirements", "Plan tasks over 4 hours", "Allow overlapping file scopes to run concurrently", "Hide uncertainty in tasks"],
 });

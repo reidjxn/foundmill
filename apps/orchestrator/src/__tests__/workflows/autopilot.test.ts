@@ -388,6 +388,25 @@ describe("Continue runs until done (Nov 7, 2026)", () => {
     expect(result).toMatchObject({ outcome: "run_ended", cyclesStarted: 2 });
   });
 
+  it("the press's own cycle starts with the input the API sent (WP-09 T11: round 1 capped), and later rounds without it", async () => {
+    const w = world({ enabled: false, tasksFor: (n) => (n <= 1 ? 1 : 0) });
+    const inputOf = async (client: Client, workflowId: string) => {
+      const history = await client.workflow.getHandle(workflowId).fetchHistory();
+      const data = history.events?.[0]?.workflowExecutionStartedEventAttributes?.input?.payloads?.[0]?.data;
+      return JSON.parse(Buffer.from(data!).toString("utf8")) as Record<string, unknown>;
+    };
+    const inputs = await rig.run(mocks(w), async (client, taskQueue) => {
+      w.runBaseline.set(id(560), w.recent.length);
+      const handle = await client.workflow.signalWithStart(autopilot, { workflowId: `autopilot:${B}:first-round`, taskQueue, args: [{ businessId: B }], signal: continueRunSignal, signalArgs: [{ runId: id(560), cycleNumber: 1, by: "founder", cycleInput: { budgetCapMinor: 75, maxConcurrent: 1 } }] });
+      await handle.result();
+      return [await inputOf(client, `cycle:${B}:1`), await inputOf(client, `cycle:${B}:2`)];
+    });
+    expect(inputs[0]).toMatchObject({ cycleNumber: 1, trigger: "continue", budgetCapMinor: 75, maxConcurrent: 1 });
+    expect(inputs[1]).toMatchObject({ cycleNumber: 2, trigger: "autopilot" });
+    expect(inputs[1]).not.toHaveProperty("budgetCapMinor");
+    expect(inputs[1]).not.toHaveProperty("maxConcurrent");
+  });
+
   it("the day's cycle cap ends the run (Continue's rounds count toward it)", async () => {
     const w = world({ enabled: false, settings: { ...AUTOPILOT_DEFAULT_SETTINGS, maxCyclesPerDay: 2 } });
     const result = await rig.run(mocks(w), (client, taskQueue) => press(w, client, taskQueue, `autopilot:${B}:run-cap`, id(502), 1));

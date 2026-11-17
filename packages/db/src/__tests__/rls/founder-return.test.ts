@@ -67,6 +67,20 @@ describe("founder_notifications", () => {
     await expect(h.asUser(A.ownerId).run((tx) => tx.select({ html: s.founderNotifications.bodyHtml }).from(s.founderNotifications))).rejects.toThrow(/permission denied/);
   });
 
+  it("a row with no business (0132: a kept card's email) is read by its person alone, and only a getting_started row may have none", async () => {
+    await h.service().run((tx) => tx.insert(s.founderNotifications).values({ userId: A.memberId, businessId: null, kind: "getting_started", dedupeKey: "getting_started:card_saved:x", subject: "Your card for Tutorlane is saved" }));
+    expect((await h.asUser(A.memberId).run((tx) => tx.select(cols).from(s.founderNotifications))).map((r) => r.subject)).toEqual(["Your card for Tutorlane is saved"]);
+    // Another person, even an owner of a business the person belongs to, never reads it.
+    for (const other of [A.ownerId, B.ownerId, B.memberId]) {
+      expect((await h.asUser(other).run((tx) => tx.select(cols).from(s.founderNotifications))).map((r) => r.subject), other).not.toContain("Your card for Tutorlane is saved");
+    }
+    await expect(h.anon().run((tx) => tx.select(cols).from(s.founderNotifications))).rejects.toThrow(/permission denied/);
+    await expect(h.service().run((tx) => tx.insert(s.founderNotifications).values({ userId: A.memberId, businessId: null, kind: "win", dedupeKey: "win:none" }))).rejects.toThrow(/founder_notifications_business_or_card/);
+    // The member of A still reads nothing of B's; the service reads every row, as before.
+    expect((await h.asUser(A.memberId).run((tx) => tx.select(cols).from(s.founderNotifications))).every((r) => r.userId === A.memberId)).toBe(true);
+    expect((await h.service().run((tx) => tx.select(cols).from(s.founderNotifications))).map((r) => r.subject)).toEqual(expect.arrayContaining(["Your morning brief", "A customer was won", "Your card for Tutorlane is saved"]));
+  });
+
   it("app roles write nothing: notifications come from the service", async () => {
     await expect(h.asUser(A.ownerId).run((tx) => tx.insert(s.founderNotifications).values({ userId: A.ownerId, businessId: A.businessId, kind: "win", dedupeKey: "spoof" }))).rejects.toThrow(/permission denied/);
     await expect(h.asUser(A.ownerId).run((tx) => tx.update(s.founderNotifications).set({ subject: "x" }).where(eq(s.founderNotifications.userId, A.ownerId)))).rejects.toThrow(/permission denied/);

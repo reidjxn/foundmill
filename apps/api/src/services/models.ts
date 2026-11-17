@@ -14,9 +14,14 @@
  * credits from a simulated payment are left. A call that passes is noted on the request (services/model-calls.ts), so
  * its allowance is never given back. While the credits are low, a call that passes runs with `lowCredits` (the credit
  * saver): a routine route moves to its lower-cost model (packages/models routing.ts), a founder-facing one keeps its own.
+ *
+ * Who pays decides the model (WP-13; founder, Nov 16, 2026): every call for an account not on a paid plan (a free
+ * business, a person before commit, the signed-out idea box) runs on Haiku 5.5 (`enforceModelFunding`). The api cannot
+ * use a business's own key (above), so an own-key business runs as its plan says until WP-13 T11 sends these calls
+ * through the gateway on that key.
  */
-import { assertPlatformCredits, bookUsage, type Db } from "@foundmill/db";
-import { createModelClient, gateModelClient, type ModelCallGate, type ModelClient, type UsageEvent, type UsageSink } from "@foundmill/models";
+import { assertPlatformCredits, bookUsage, cachedFreeCap, cachedModelFundingOf, freeCapCheck, type Db } from "@foundmill/db";
+import { createModelClient, enforceModelFunding, gateModelClient, type ModelCallGate, type ModelClient, type UsageEvent, type UsageSink } from "@foundmill/models";
 import type { Env } from "@foundmill/shared";
 import type { ApiLogger } from "./log";
 import { markNotesCalls, noteModelCall } from "./model-calls";
@@ -88,7 +93,7 @@ export function apiCreditsGate(db: Db, live: boolean): ModelCallGate {
   };
 }
 
-export function createApiModelClient(env: Pick<Env, "MODEL_MODE" | "ANTHROPIC_API_KEY">, log: ApiLogger, opts: ApiModelClientOptions = {}): ModelClient {
+export function createApiModelClient(env: Pick<Env, "MODEL_MODE" | "ANTHROPIC_API_KEY"> & Partial<Pick<Env, "FREE_PLAN_MONTHLY_CAP_CENTS">>, log: ApiLogger, opts: ApiModelClientOptions = {}): ModelClient {
   const book = opts.db ? apiUsageSink(opts.db, log) : null;
   const usage = async (e: UsageEvent) => {
     log.debug({ route: e.route, model: e.model, costMinor: e.cost.costMinorInt, attribution: e.attribution }, "model usage (Estimate)");
@@ -100,5 +105,26 @@ export function createApiModelClient(env: Pick<Env, "MODEL_MODE" | "ANTHROPIC_AP
     log.error({}, "MODEL_MODE=live but ANTHROPIC_API_KEY is missing; falling back to the mock model client");
     client = createModelClient({ mode: "mock", onUsage: usage, logger: log });
   } else client = createModelClient({ mode: env.MODEL_MODE, apiKey: env.ANTHROPIC_API_KEY, onUsage: usage, logger: log });
-  return markNotesCalls(gateModelClient(client, opts.db ? apiCreditsGate(opts.db, client.mode === "live") : async () => noteModelCall()));
+  const gated = gateModelClient(client, opts.db ? apiCreditsGate(opts.db, client.mode === "live") : async () => noteModelCall());
+  // The month's free-plan cap (WP-13 T6): at the cap a free call is refused with the date free AI is back.
+  const freeCap = opts.db && env.FREE_PLAN_MONTHLY_CAP_CENTS !== undefined ? freeCapCheck(opts.db, env.FREE_PLAN_MONTHLY_CAP_CENTS) : undefined;
+  return markNotesCalls(opts.db ? enforceModelFunding(gated, cachedModelFundingOf(opts.db, { ownKeyServed: false }), { freeCap }) : gated);
+}
+
+/**
+ * Whether a request runs on the free plan while the month's free-plan spend is in its slow band (WP-13 T6): from 80% of
+ * the cap a free request gets a quarter of its usual allowances (services/model-limits.ts). A paid plan or a founder's
+ * own key is never slowed, and an unreadable spend slows nobody (the cap itself still holds at 100%).
+ */
+export function freePlanSlowCheck(db: Db, capCents: number): (scope: { userId: string; businessId?: string | null }) => Promise<boolean> {
+  const cap = cachedFreeCap(db, { capCents });
+  const fundingOf = cachedModelFundingOf(db, { ownKeyServed: false });
+  return async (scope) => {
+    try {
+      if ((await cap()).state !== "slow") return false;
+      return (await fundingOf({ userId: scope.userId, businessId: scope.businessId ?? undefined })) === "free_plan";
+    } catch {
+      return false;
+    }
+  };
 }

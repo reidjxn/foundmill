@@ -344,10 +344,13 @@ export class LiveModelClient implements ModelClient {
   async searchWeb(req: WebSearchRequest): Promise<WebSearchResult> {
     const started = Date.now();
     const route = "webSearch" as const;
-    const plan = this.plan({ route, maxTokens: WEB_SEARCH_MAX_TOKENS });
+    const plan = this.plan({ route, maxTokens: WEB_SEARCH_MAX_TOKENS, freePlan: req.freePlan });
+    // One search whose results are listed as they come: on the free plan's Haiku 5.5 the search is called directly
+    // (`allowed_callers: ["direct"]`), so no code execution runs to filter what is only listed (WP-13).
+    const direct = plan.resolution.modelKey === "haiku";
     const params: Anthropic.MessageCreateParamsNonStreaming = {
       ...plan.base,
-      tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 1 }],
+      tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 1, ...(direct ? { allowed_callers: ["direct"] } : {}) } as Anthropic.WebSearchTool20260209],
       messages: [{ role: "user", content: `Search the web for: ${req.query}\nList what the search returns; do not add anything.` }],
     };
     const call = { route, signal: req.signal, scope: req.scope, attribution: req.attribution };
