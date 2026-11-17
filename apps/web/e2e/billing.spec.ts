@@ -95,6 +95,27 @@ test.describe("billing", () => {
     await expect(screen).not.toContainText(/Used up|team paused/);
   });
 
+  test("Billing leads with the team budget and invents no outcome count where there is no pace to read (WP-14 T3)", async ({ page }) => {
+    // Northwind is a sample project: its outcomes are examples, so the budget shows in dollars alone.
+    const screen = await openSettings(page, "billing");
+    const budget = screen.getByTestId("team-budget");
+    await expect(budget).toBeVisible({ timeout: LONG });
+    await expect(budget.getByTestId("team-budget-line")).toHaveText("This month's team budget");
+    await expect(budget).toHaveAttribute("data-estimate", "none");
+    await expect(budget.getByTestId("credits-balance")).toContainText(/\$[\d,]+\.\d{2} left of \$/);
+    await expect(budget.getByTestId("cost-per-outcome")).toHaveCount(0);
+    await expect(screen).not.toContainText(/enough for about|an outcome so far/);
+    // It is the first thing in the Plan section, above the plan's name and the plans.
+    const order = await screen.evaluate((root) => {
+      const first = root.querySelector('[data-testid="team-budget"]');
+      const plan = root.querySelector('[data-testid="current-plan"]');
+      const plans = root.querySelector('[data-testid="plans"]');
+      const before = (a: Element | null, b: Element | null) => !!a && !!b && (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+      return before(first, plan) && before(first, plans);
+    });
+    expect(order).toBe(true);
+  });
+
   test("Top up opens a mock checkout; completing it adds the credits once, labeled", async ({ page }) => {
     const screen = await openSettings(page, "billing");
     const topUp = screen.getByTestId("top-up");
