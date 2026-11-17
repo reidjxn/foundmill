@@ -3,8 +3,8 @@
  * Settings › Integrations (BUILD §11.15, §13): the connector catalogue with connect / disconnect / health, scopes
  * and status pills, plus the dev-only Simulate panel (BUILD §13.3). The panel calls `dev.simulate` on apps/api
  * (owner/admin only), which mints the service token and proxies to apps/ingest over the private network
- * (docs/SECURITY_REVIEW.md SEC-2); the browser never talks to ingest. The procedure exists in development and
- * staging only.
+ * (docs/SECURITY_REVIEW.md SEC-2); the browser never talks to ingest. The procedure exists in development only
+ * (never staging: production runs APP_ENV=staging).
  */
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Activity, ExternalLink, FlaskConical, FolderGit2, KeyRound, MapPin, Plug, RefreshCw, Unplug } from "lucide-react";

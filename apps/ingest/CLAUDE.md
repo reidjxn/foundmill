@@ -7,7 +7,7 @@ Webhook receivers (Stripe, SendGrid, GitHub, Shopify, ...): verify, normalize to
 - Normalized events are declared in `packages/events` with Zod and written through the outbox, one transaction per event, idempotent on (connector, external id). Conversions, the customer's CRM link and milestones are written in the same transaction as the event.
 - Mock webhooks verify against secrets committed in `fixtures/`, so they mount in development and test only (`registry.mountableWebhooks`); in staging and production a webhook mounts only for a connector running live, and a delivery is written only for a business whose integration for it is connected.
 - Per-business webhook secrets are read from the vault and decrypted in memory (`src/secrets.ts`); never log them.
-- The Simulate routes exist only in development or staging with the flag on, and require the service token the api mints for an owner or admin; elsewhere they are 404, so production cannot fabricate events.
+- The Simulate routes exist only in development with the flag on (never staging: production runs APP_ENV=staging), and require the service token the api mints for an owner or admin; elsewhere they are 404, so production cannot fabricate events.
 - The `/mail/*` endpoints are 404 while `PLATFORM_MAIL_DOMAIN` is unset, and check their own tokens and signatures (`src/platform-mail.ts`).
 - A live credit top-up is paid out only by `POST /billing/stripe`, signed with `STRIPE_BILLING_WEBHOOK_SECRET`.
 - Simulated results never count as real outcomes. Database through `repos` only (`fm/no-raw-db`); env through `loadEnv()`.
