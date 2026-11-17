@@ -77,6 +77,8 @@ beforeEach(() => {
 });
 afterEach(() => cleanup());
 
+const NEUTRAL = { engineering: 10, sales: 10, design: 10, finance: 10, domain: 10 };
+
 describe("FirstProfile", () => {
   it("asks three things, with the name prefilled from the email and Building on my own chosen", () => {
     renderFirst();
@@ -109,14 +111,14 @@ describe("FirstProfile", () => {
     await pressContinue();
     await waitFor(() => expect(push).toHaveBeenCalledWith("/new"));
     expect(update).toHaveBeenCalledTimes(1);
-    expect(update.mock.calls[0]![0]).toEqual({ displayName: "Reid", confirmAdult: true });
+    expect(update.mock.calls[0]![0]).toEqual({ displayName: "Reid", skills: NEUTRAL, confirmAdult: true });
     // Nothing optional was answered: no second save.
     expect(publicUpdate).not.toHaveBeenCalled();
   });
 
   it("saves what they are good at and what they are here for through the public profile, then goes on to next", async () => {
     renderFirst({ via: "p.maple-bakes", next: COMMIT });
-    fireEvent.click(screen.getByRole("button", { name: "Design" }));
+    fireEvent.click(screen.getByRole("button", { name: "Product and brand" }));
     const tags = screen.getByLabelText(FIRST_PROFILE_WORDS.strengths);
     fireEvent.change(tags, { target: { value: "Baking" } });
     fireEvent.keyDown(tags, { key: "Enter" });
@@ -124,18 +126,18 @@ describe("FirstProfile", () => {
     fireEvent.click(box());
     await pressContinue();
     await waitFor(() => expect(push).toHaveBeenCalledWith(COMMIT));
-    expect(update.mock.calls[0]![0]).toEqual({ displayName: "Reid Jackson", confirmAdult: true, via: "p.maple-bakes" });
+    expect(update.mock.calls[0]![0]).toEqual({ displayName: "Reid Jackson", skills: { engineering: 7, sales: 7, design: 14, finance: 7, domain: 7 }, confirmAdult: true, via: "p.maple-bakes" });
     expect(forgetVia).toHaveBeenCalledTimes(1);
     expect(publicUpdate).toHaveBeenCalledTimes(1);
     expect(publicUpdate.mock.calls[0]![0]).toEqual({
-      content: { headline: "", about: "", strengths: ["Design", "Baking"], wantsToLearn: [], lookingFor: "looking_for_cofounder", place: "" },
+      content: { headline: "", about: "", strengths: ["Product and brand", "Baking"], wantsToLearn: [], lookingFor: "looking_for_cofounder", place: "" },
     });
   });
 
   it("a failed second save never holds the person up", async () => {
     publicUpdate.mockRejectedValueOnce(new Error("The server took too long to answer."));
     renderFirst({ next: COMMIT });
-    fireEvent.click(screen.getByRole("button", { name: "Teaching" }));
+    fireEvent.click(screen.getByRole("button", { name: "Money and pricing" }));
     fireEvent.click(box());
     await pressContinue();
     await waitFor(() => expect(push).toHaveBeenCalledWith(COMMIT));
@@ -158,7 +160,7 @@ describe("FirstProfile", () => {
     expect(screen.queryByRole("checkbox", { name: "I am 18 or older" })).toBeNull();
     await pressContinue();
     await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
-    expect(update.mock.calls[0]![0]).toEqual({ displayName: "Reid Jackson" });
+    expect(update.mock.calls[0]![0]).toEqual({ displayName: "Reid Jackson", skills: NEUTRAL });
   });
 
   it("a save the api refuses with adult_unconfirmed shows the box", async () => {
@@ -188,5 +190,31 @@ describe("FirstProfile", () => {
     expect(publicUpdate.mock.calls[0]![0]).toEqual({
       content: { headline: "Baker", about: "I bake.", strengths: ["Writing"], wantsToLearn: ["Selling"], lookingFor: "on_my_own", place: "Leeds" },
     });
+  });
+  it("asks time and where you live, saves both with the currency of the place, and neither is required (WP-14 T2)", async () => {
+    renderFirst({ adultConfirmed: true });
+    expect(screen.getByText(FIRST_PROFILE_TITLE)).toBeTruthy();
+    expect(FIRST_PROFILE_TITLE).toBe("Tell your team about you");
+    fireEvent.click(screen.getByRole("radio", { name: /Evenings and weekends/ }));
+    fireEvent.change(screen.getByLabelText(FIRST_PROFILE_WORDS.place), { target: { value: "United" } });
+    await pressContinue();
+    // A country picked only part of the way is not saved.
+    expect(update).not.toHaveBeenCalled();
+    expect(screen.getByText(/Finish picking the country/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(FIRST_PROFILE_WORDS.place), { target: { value: "United Kingdom" } });
+    await pressContinue();
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
+    expect(update.mock.calls[0]![0]).toEqual({ displayName: "Reid Jackson", skills: NEUTRAL, timeCommitment: "evenings_weekends", residence: "United Kingdom", currency: "GBP" });
+  });
+
+  it("an edit keeps the ratings a person set in the long profile, and an untouched quick profile's too", async () => {
+    publicGet.mockResolvedValue({ content: { headline: "", about: "", strengths: ["Building software"], wantsToLearn: [], lookingFor: "on_my_own", place: "" } });
+    renderFirst({ adultConfirmed: true, profile: { displayName: "Reid J", experience: "first_time", timeCommitment: "full_time", residence: "Canada" } });
+    await waitFor(() => expect(screen.getByRole("list", { name: `${FIRST_PROFILE_WORDS.strengths} chosen` })).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Money and pricing" }));
+    await pressContinue();
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
+    // Sharpened already: the tags never rewrite the ratings; time and place go back as they were.
+    expect(update.mock.calls[0]![0]).toEqual({ displayName: "Reid J", timeCommitment: "full_time", residence: "Canada" });
   });
 });

@@ -172,7 +172,7 @@ describe("departments: reset, create, merge and split keep tabs honest", () => {
   beforeAll(async () => {
     userId = await hz.h.createUser("home-depts@test.local");
     const caller = hz.caller({ userId, email: "home-depts@test.local" });
-    await caller.founder.profile.update({ confirmAdult: true, displayName: "Reid", experience: "first-time", skills: { engineering: 14 }, targetMarkets: ["EU"], riskAppetite: "medium" });
+    await caller.founder.profile.update({ confirmAdult: true, displayName: "Reid", timeCommitment: "full_time", residence: "United States", experience: "first-time", skills: { engineering: 14 }, targetMarkets: ["EU"], riskAppetite: "medium" });
     const idea = (await caller.idea.generate({ prompt: "bookkeeping for freelancers in the EU" })).ideas[0]!;
     const committed = await caller.idea.commit({ ideaId: idea.id, name: "Dept Test", archetype: "b2b_saas", gameMode: "personal", kit: { primary: "#1B4FD8", secondary: "#F5C400" } });
     businessId = committed.business.id;
@@ -232,7 +232,7 @@ describe("departments: reset, create, merge and split keep tabs honest", () => {
   it("a hardware business, with seven departments, gets a card for each on its first Home", async () => {
     const hw = await hz.h.createUser("home-hardware@test.local");
     const caller = hz.caller({ userId: hw, email: "home-hardware@test.local" });
-    await caller.founder.profile.update({ confirmAdult: true, displayName: "Hal", experience: "first-time", skills: { engineering: 14 }, targetMarkets: ["EU"], riskAppetite: "medium" });
+    await caller.founder.profile.update({ confirmAdult: true, displayName: "Hal", timeCommitment: "full_time", residence: "United States", experience: "first-time", skills: { engineering: 14 }, targetMarkets: ["EU"], riskAppetite: "medium" });
     const idea = (await caller.idea.generate({ prompt: "a smart bike lock" })).ideas[0]!;
     const committed = await caller.idea.commit({ ideaId: idea.id, name: "Lockworks", archetype: "hardware", gameMode: "personal", kit: { primary: "#1B4FD8", secondary: "#F5C400" } });
     const seeded = getArchetypeSeed("hardware").departments.length;

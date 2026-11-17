@@ -86,7 +86,7 @@ describe("idea.edit", () => {
   it("the committed card's founder words and brief reach the foundations' inputs", async () => {
     const mock = new MockModelClient();
     const { userId, caller } = await callerFor(mock, "edit-c@test.local");
-    await caller.founder.profile.update({ confirmAdult: true, displayName: "Maya", experience: "first-time", skills: { engineering: 13, sales: 3 }, targetMarkets: ["UK"], riskAppetite: "medium", budgetMinor: 150_000, currency: "GBP" });
+    await caller.founder.profile.update({ confirmAdult: true, displayName: "Maya", timeCommitment: "full_time", residence: "United States", experience: "first-time", skills: { engineering: 13, sales: 3 }, targetMarkets: ["UK"], riskAppetite: "medium", budgetMinor: 150_000, currency: "GBP" });
     const written = await caller.idea.write({ title: "ShiftMate", pitch: WORDS, archetype: "marketplace" });
     const result = await caller.idea.commit({ ideaId: written.idea.id, name: "ShiftMate", archetype: "marketplace", gameMode: "personal" });
     const inputs = await repos.foundations.inputs(hz.db, result.business.id);

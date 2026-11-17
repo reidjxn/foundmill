@@ -17,7 +17,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ArrowRight, Check, ChevronDown, ChevronUp, Globe, Lock, Rocket, RotateCw, Scale, SearchX } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
-import { CREDITS_CURRENCY, includedCreditsMinor } from "@foundmill/config";
+import { CREDITS_CURRENCY, includedCreditsMinor, takeChargeMissing, type TakeChargeNeed } from "@foundmill/config";
 import { ARCHETYPES, ARCHETYPE_LABELS, FIRST_DAY_PROMISE, FIRST_DAY_TOAST, startingTeam, type Archetype, type BusinessMode, type DeptColourToken, type GameMode } from "@foundmill/shared";
 import { DEFAULT_AGENT_STYLE, type AgentStyle } from "@foundmill/shared/personas";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -34,6 +34,7 @@ import { conceptErrorMessage, isConceptGone } from "../ideate/concept-errors";
 import { readMeta, toConcept, type IdeaLike } from "../ideate/concepts";
 import type { GeneratedLogoSet, LogoActions, LogoProgress } from "@/components/logo/LogoPicker";
 import { readLogoStream } from "@/components/logo/logo-stream";
+import { AboutYou, EMPTY_ABOUT_YOU, aboutYouErrors, aboutYouInput, type AboutYouValues } from "./AboutYou";
 import { creditsNoticeOf } from "./credits-notice";
 import { LogoColoursEditor } from "./LogoColoursEditor";
 import {
@@ -150,6 +151,10 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
     </LinkButton>
   );
 
+  // Asked only once the profile is read: a profile still loading never flashes two questions it has answers to.
+  const aboutProfile = featuresQ.data?.profile;
+  const aboutMissing = useMemo(() => (featuresQ.data ? takeChargeMissing(aboutProfile) : []), [featuresQ.data, aboutProfile]);
+
   if (ideaQ.isLoading) {
     return (
       <StudioFrame step="commit" steps={steps} title={COMMIT_WORDS.untitled} viewer={viewer} actions={back} smallScreen width="measure">
@@ -216,6 +221,7 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
       agentStyleDefault={agentStyleOf(guidancePrefs.prefs)}
       liveOpen={featuresQ.data?.features.liveMode ?? false}
       hasBudget={featuresQ.data ? (featuresQ.data.profile?.budgetMinor ?? 0) > 0 : true}
+      aboutMissing={aboutMissing}
       onCommit={onCommit}
       logoApi={logoApi}
       domainApi={domainApi}
@@ -292,7 +298,9 @@ export interface CommitFormProps {
   liveOpen?: boolean;
   /** Whether the founder's profile names a budget; without one the spend line starts at 0, so every spend asks first (WP-04 T3). Default true. */
   hasBudget?: boolean;
-  onCommit: (input: ReturnType<typeof commitInput>) => void;
+  /** Which of time and where they live the profile lacks (`takeChargeMissing`): asked on this screen before Start. Default none. */
+  aboutMissing?: readonly TakeChargeNeed[];
+  onCommit: (input: ReturnType<typeof commitInput> & ReturnType<typeof aboutYouInput>) => void;
   /** Upload checks and logo generation (idea.logo.*). */
   logoApi: CommitLogoApi;
   /** Domain availability (idea.domainCheck). */
@@ -396,7 +404,9 @@ export function upgradeHrefOf(err: unknown): string | null {
 
 const DEBOUNCE_MS = 350;
 
-export function CommitForm({ idea, viewer, currency, initialName, suggestedArchetype, steps, preview, previewLoading, onArchetypeChange, committing, error, upgradeHref, creditsNotice, adultConfirmed = false, anthropomorphicDefault = false, agentStyleDefault = DEFAULT_AGENT_STYLE, liveOpen = true, hasBudget = true, onCommit, logoApi, domainApi, back }: CommitFormProps) {
+const NO_ABOUT_MISSING: readonly TakeChargeNeed[] = [];
+
+export function CommitForm({ idea, viewer, currency, initialName, suggestedArchetype, steps, preview, previewLoading, onArchetypeChange, committing, error, upgradeHref, creditsNotice, adultConfirmed = false, anthropomorphicDefault = false, agentStyleDefault = DEFAULT_AGENT_STYLE, liveOpen = true, hasBudget = true, aboutMissing = NO_ABOUT_MISSING, onCommit, logoApi, domainApi, back }: CommitFormProps) {
   const concept = useMemo(() => toConcept(idea), [idea]);
   // "More options" (WP-04 T2): the name checks, the logo, How it runs and the team, closed for everyone until pressed.
   const [moreOpen, setMoreOpen] = useState(false);
@@ -527,11 +537,15 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
     setForm((f) => ({ ...f, businessMode: mode, spendCap: capTouched ? f.spendCap : String(defaultSpendCapMinor(mode, { hasBudget }) / 100) }));
   }
 
+  // Time and where the person lives, asked here when the profile lacks them (A5): Start waits for both.
+  const [about, setAbout] = useState<AboutYouValues>(EMPTY_ABOUT_YOU);
+  const aboutProblems = Object.keys(aboutYouErrors(aboutMissing, about)).length;
+
   function submit(e?: FormEvent) {
     e?.preventDefault();
     setTouched(true);
-    if (!valid || committing) return;
-    onCommit(commitInput(idea.id, form, browserTimeZone()));
+    if (!valid || aboutProblems > 0 || committing) return;
+    onCommit({ ...commitInput(idea.id, form, browserTimeZone()), ...aboutYouInput(aboutMissing, about) });
   }
 
   const show = (key: keyof CommitFormValues) => (touched ? errors[key] : undefined);
@@ -579,6 +593,8 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
           </div>
         </Panel>
 
+        <AboutYou missing={aboutMissing} values={about} onChange={setAbout} touched={touched} />
+
         <Panel title="What happens next" data-testid="what-happens-next">
           <div className="flex flex-col">
               <ol className="flex flex-col gap-1.5 text-body">
@@ -613,9 +629,9 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
                 {SETTING_UP}
               </p>
             ) : null}
-            {touched && !valid ? (
+            {touched && (!valid || aboutProblems > 0) ? (
               <StatusPill tone="warn" role="alert" className="mt-2 self-start">
-                {Object.keys(errors).length} thing{Object.keys(errors).length === 1 ? "" : "s"} to fix first
+                {Object.keys(errors).length + aboutProblems} thing{Object.keys(errors).length + aboutProblems === 1 ? "" : "s"} to fix first
               </StatusPill>
             ) : null}
           </div>

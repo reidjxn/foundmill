@@ -221,7 +221,7 @@ All by the coordinating session on the founder's word (reported by that session,
 | WP-13 | T11 | The api and composer use a founder's own Anthropic key | pull request open | the composer needs `COMPOSER_SERVICE_TOKEN_SECRET` (composer and gateway) and `GATEWAY_URL` on Railway |
 | WP-13 | T10 | Switch it on | not started | T4 to T9, T11; setup Z2 |
 | WP-14 | T1 | Resting, and the last task always finishes | not started | amends WP-09 T13: the session that takes T13 takes this; the own key stays offered; owner: the session "WP-14 money: plans, Resting, team budget", after #251 (founder, Nov 17) |
-| WP-14 | T2 | Quick fit before the ideas, sharpen after; time and where you live before take charge | not started | changes WP-04 T1's first profile |
+| WP-14 | T2 | Quick fit before the ideas, sharpen after; time and where you live before take charge | pull request open (`claude/vibrant-dirac-xkj04i`) | changes WP-04 T1's first profile; the ratings 14 and 7 are flagged for the founder |
 | WP-14 | T3 | Team budget, outcomes first, on Billing | not started | WP-09 T1 and T2 (#251); owner: the session "WP-14 money: plans, Resting, team budget", after T14 (founder, Nov 17) |
 | WP-14 | T4 | Outcomes first on Today | not started |  |
 | WP-14 | T5 | Show the work | not started |  |
@@ -232,7 +232,7 @@ All by the coordinating session on the founder's word (reported by that session,
 | WP-14 | T10 | The tour and landing copy | not started | the landing session (Desktop), told on Nov 17 |
 | WP-14 | T11 | Commit's defaults and its credits line | not started | replaces WP-04 D4 and WP-09 D7 as defaults |
 | WP-14 | T12 | Four measures | pull request open | amends WP-02 T10; owner: the session "WP-14 estimates style and measures"; Resting and the shares read zero until T1, T14 and T9 write the events named in `PENDING_SOURCES` (founder, Nov 17) |
-| WP-14 | T13 | The plan document | not started | docs only |
+| WP-14 | T13 | The plan document | pull request open (#288) | docs only; the experiments' stop rules are proposals for the founder |
 | WP-14 | T14 | Plans, prices, companies and what each plan includes | not started | amends WP-09 T14 and T16 and WP-13 T7's server check; owner: the session "WP-14 money: plans, Resting, team budget", after #251 (founder, Nov 17) |
 | WP-14 | T15 | The waitlist in batches, and invitations to give | not started | amends WP-03 T2, T6, T10 and WP-12; coordinate with the network session; owner: the landing idea-card session, with the network session told (assigned Nov 17), except step 4 (three named invitations, no reward, docs/NETWORK.md), which the invitations session (session_01CJRTqPdPGy7AVuYv4eZNtd) takes at the founder's request of Nov 17: it wrote the invitation admission rules (#120) |
 

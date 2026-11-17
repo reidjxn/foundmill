@@ -15,7 +15,8 @@
  * Import's single card (`single`) is one card call on the same prefix.
  */
 import { recordFirstIdeas } from "./funnel-facts";
-import { buildFounderCardRequest, buildIdeationCardRequest, buildIdeationSlateRequest, buildSingleConceptRequest, IDEATION_AGENT_NAME, IDEATION_MAX_CONCEPTS, IDEATION_MIN_CONCEPTS, type IdeationBrief } from "@foundmill/agents";
+import { buildFounderCardRequest, buildIdeationCardRequest, buildIdeationSlateRequest, buildSingleConceptRequest, FULL_SKILLS_BASIS, IDEATION_AGENT_NAME, IDEATION_MAX_CONCEPTS, IDEATION_MIN_CONCEPTS, QUICK_SKILLS_BASIS, type IdeationBrief } from "@foundmill/agents";
+import { fitBasisOf } from "@foundmill/config";
 import { repos, type CreateIdeaInput, type IdeaWithVersion } from "@foundmill/db";
 import { isModelBillingError, ModelAbortedError, ModelOutputError, streamStructured, type ConceptCard, type IdeationSlateItem, type ModelClient, type ModelMode } from "@foundmill/models";
 import { AppError, type Archetype } from "@foundmill/shared";
@@ -156,11 +157,14 @@ export interface DraftResult {
   failed: number;
 }
 
-/** The founder profile as the Ideation agent reads it (null when they skipped it). */
+/**
+ * The founder profile as the Ideation agent reads it (null when they skipped it). `skills_basis` says what the skill
+ * ratings rest on (WP-14 T2): the first profile's quick answers, or the ratings the person set in the long profile.
+ */
 export async function founderBrief(db: Parameters<typeof repos.founders.get>[0], userId: string): Promise<Record<string, unknown> | null> {
   const profile = await repos.founders.get(db, userId);
   return profile
-    ? { experience: profile.experience, skills: profile.skills, time_commitment: profile.timeCommitment, budget_minor: profile.budgetMinor, citizenship: profile.citizenship, residence: profile.residence, target_markets: profile.targetMarkets, constraints: profile.constraints, risk_appetite: profile.riskAppetite }
+    ? { experience: profile.experience, skills: profile.skills, skills_basis: fitBasisOf(profile) === "quick" ? QUICK_SKILLS_BASIS : FULL_SKILLS_BASIS, time_commitment: profile.timeCommitment, budget_minor: profile.budgetMinor, citizenship: profile.citizenship, residence: profile.residence, target_markets: profile.targetMarkets, constraints: profile.constraints, risk_appetite: profile.riskAppetite }
     : null;
 }
 

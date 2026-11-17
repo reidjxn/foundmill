@@ -390,7 +390,9 @@ describe("businessCycle workflow", () => {
     const expensive = mockActivities({ budgetMinor: 1_500 });
     expensive.acts.runAgentSession = async (input) => {
       await new Promise((r) => setTimeout(r, 100));
-      return { ...done(), costMinor: input.taskId === id(1) ? 1_400 : 5 };
+      // The other two cost exactly their 500 reserve, so the order the three finish in cannot leave room for task 2 (when
+      // they cost less and finished before task 1, the 90 they gave back let task 2 start on a slow runner).
+      return { ...done(), costMinor: input.taskId === id(1) ? 1_400 : 500 };
     };
     const result = await rig.run(expensive.acts, (client, taskQueue) => client.workflow.execute(businessCycle, { workflowId: `cycle:${B}:72`, taskQueue, args: [{ businessId: B, cycleNumber: 72, trigger: "continue" }] }));
     // Task 1 spent 1,400 against a 500 reserve: nothing is left for task 2, which was waiting behind it.

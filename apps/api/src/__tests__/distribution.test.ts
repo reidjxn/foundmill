@@ -22,7 +22,7 @@ describe("distribution scores", () => {
   it("a new business's channels are unscored until the Strategist scores them (audit #162)", async () => {
     const userId = await hz.h.createUser("scores@test.local");
     const caller = hz.caller({ userId, email: "scores@test.local" });
-    await caller.founder.profile.update({ confirmAdult: true, displayName: "Sam", experience: "first-time", skills: { engineering: 10, sales: 10 }, targetMarkets: ["EU"], riskAppetite: "medium" });
+    await caller.founder.profile.update({ confirmAdult: true, displayName: "Sam", timeCommitment: "full_time", residence: "United States", experience: "first-time", skills: { engineering: 10, sales: 10 }, targetMarkets: ["EU"], riskAppetite: "medium" });
     const idea = (await caller.idea.generate({ prompt: "booking software for dog groomers" })).ideas[0]!;
     const { business } = await caller.idea.commit({ ideaId: idea.id, name: "Groom Ledger", archetype: "b2b_saas", gameMode: "personal" });
     const before = await caller.distribution.channels.list({ businessId: business.id });

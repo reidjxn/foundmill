@@ -33,11 +33,11 @@ function setWidth(width: number) {
   });
 }
 
-function renderKept(profileComplete: boolean) {
+function renderKept(profileComplete: boolean, extra: Partial<React.ComponentProps<typeof CardKeptView>> = {}) {
   const client = new QueryClient();
   return render(
     <QueryClientProvider client={client}>
-      <CardKeptView ideaId={ID} card={{ name: "Tutorlane" }} viewer={{ email: "maya@example.com" }} profileComplete={profileComplete} />
+      <CardKeptView ideaId={ID} card={{ name: "Tutorlane" }} viewer={{ email: "maya@example.com" }} profileComplete={profileComplete} {...extra} />
     </QueryClientProvider>,
   );
 }
@@ -79,5 +79,24 @@ describe("CardKeptView on a computer", () => {
     renderKept(false);
     expect(screen.getByTestId("card-kept-next").getAttribute("href")).toBe(ONBOARDING_NEXT);
     expect(screen.getByText(CARD_KEPT_WORDS.profileWhy)).toBeTruthy();
+  });
+});
+
+describe("Founder fit on the kept card (WP-14 T2)", () => {
+  const KEYS = ["market_pull", "market_size", "competition", "speed_to_first_customer", "capital_intensity", "agent_executability", "founder_fit", "defensibility", "regulatory_load", "distribution_clarity"];
+  const card = { name: "Tutorlane", pitch: "Tutors for exam years.", attributes: KEYS.map((key) => ({ key, value: key === "founder_fit" ? 15 : 10, evidence: "Unverified." })) };
+  const fitRow = (c: HTMLElement) => c.querySelector("[data-idea-rating=founder_fit]")!;
+
+  it("is unmeasured before the profile, a number with its basis after the quick profile, and the number alone once sharpened", () => {
+    const before = renderKept(false, { card, fitBasis: "quick" });
+    expect(fitRow(before.container).hasAttribute("data-unmeasured")).toBe(true);
+    before.unmount();
+    const quick = renderKept(true, { card, fitBasis: "quick" });
+    expect(fitRow(quick.container).hasAttribute("data-unmeasured")).toBe(false);
+    expect(fitRow(quick.container).querySelector("[data-idea-fit-basis]")!.textContent).toBe("Fit: 15 (quick profile)");
+    quick.unmount();
+    const full = renderKept(true, { card, fitBasis: "full" });
+    expect(fitRow(full.container).hasAttribute("data-unmeasured")).toBe(false);
+    expect(fitRow(full.container).querySelector("[data-idea-fit-basis]")).toBeNull();
   });
 });

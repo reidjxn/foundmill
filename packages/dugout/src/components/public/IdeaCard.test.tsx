@@ -58,4 +58,14 @@ describe("IdeaCard with a logo of its own", () => {
     expect(header.querySelector("img")?.getAttribute("src")).toBe(SAMPLE_LOGOS.orbit);
     expect(header.textContent).not.toContain("SR");
   });
+
+  it("says what a known Founder fit rests on until the long profile is saved (WP-14 T2)", () => {
+    const { rerender } = render(<IdeaCard card={full} founderFitKnown fitBasis="quick" />);
+    expect(document.querySelector("[data-idea-rating=founder_fit] [data-idea-fit-basis=quick]")!.textContent).toBe("Fit: 1 (quick profile)");
+    rerender(<IdeaCard card={full} founderFitKnown fitBasis="full" />);
+    expect(document.querySelector("[data-idea-fit-basis]")).toBeNull();
+    // Unknown fit says nothing about a basis, whatever is passed.
+    rerender(<IdeaCard card={full} fitBasis="quick" />);
+    expect(document.querySelector("[data-idea-fit-basis]")).toBeNull();
+  });
 });
