@@ -63,12 +63,19 @@ describe("Needs you on Today", () => {
 
 describe("Today's order (WP-04 T7)", () => {
   it("on a phone Needs you leads, then the page line, the first week, the goal, the week, Since you were last here, the streak and health", () => {
-    expect(todaySections({ phone: true, pageFirst: false, firstDay: false })).toEqual(["needs-you", "public-page", "post-ready", "first-week", "goal", "week", "since", "streak", "health"]);
+    expect(todaySections({ phone: true, pageFirst: false, firstDay: false })).toEqual(["needs-you", "founder-task", "public-page", "post-ready", "first-week", "goal", "week", "since", "streak", "health"]);
   });
 
   it("on a computer Needs you leads only while the page waits to be checked; otherwise the first week and the goal come first", () => {
-    expect(todaySections({ phone: false, pageFirst: true, firstDay: true }).slice(0, 5)).toEqual(["needs-you", "public-page", "post-ready", "first-week", "goal"]);
-    expect(todaySections({ phone: false, pageFirst: false, firstDay: false })).toEqual(["first-week", "goal", "needs-you", "public-page", "post-ready", "week", "since", "streak", "health"]);
+    expect(todaySections({ phone: false, pageFirst: true, firstDay: true }).slice(0, 6)).toEqual(["needs-you", "founder-task", "public-page", "post-ready", "first-week", "goal"]);
+    expect(todaySections({ phone: false, pageFirst: false, firstDay: false })).toEqual(["first-week", "goal", "needs-you", "founder-task", "public-page", "post-ready", "week", "since", "streak", "health"]);
+  });
+
+  it("puts the founder's one thing right after Needs you in every order (WP-04 T9)", () => {
+    for (const phone of [true, false]) for (const pageFirst of [true, false]) {
+      const order = todaySections({ phone, pageFirst, firstDay: true });
+      expect(order.indexOf("founder-task")).toBe(order.indexOf("needs-you") + 1);
+    }
   });
 
   it("hides the streak and the health figures on the project's first day, and until it is known (WP-04 D5)", () => {

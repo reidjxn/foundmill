@@ -15,6 +15,9 @@
  * 3b. A post to share (`today.get` › `postsReady`): one quiet line to the post on Customers › Creative while a post the
  *     team wrote for the founder to share by tap waits (never for a sample business). It goes when the post is shared
  *     or set aside. An offer, never a chore: it is not in Needs you.
+ * 2a. Your one thing today (`today.get` › `founderTask`, WP-04 T9): right after Needs you, 12 columns at every width. Its
+ *     button opens the Public page tab or the plan note, or shares or copies the page's message (a share that was opened
+ *     is recorded as `share.opened`, kind `page`, and moves the task on; it is never an outcome).
  * 4. Health: Cash, Runway and Customers this week are the status strip's own tiles over the same reads
  *    (`finance.overview`, `journey.ribbon`), so they always match Details; then the week's spend, never added across
  *    currencies (AI usage in US dollars, channel spend in the business's currency; one figure for a dollar business).
@@ -27,12 +30,13 @@
  * The tab bar is Today | Details. `goal.ensure` runs once per visit (lead.tsx).
  */
 import { emptyWhy } from "@foundmill/shared/empty-why";
+import type { FounderTask } from "@foundmill/shared/founder-task";
 import { PAGE_READY_NOTE } from "@foundmill/shared/project-page";
 import { POSTAL_ADDRESS_NOTE } from "@foundmill/shared/platform-mail";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { Fragment, useCallback, useMemo, useState, type ReactNode } from "react";
-import { Explainer, FirstWeekTimeline, GoalPanel, NeedsYouList, PageGrid, Panel, PostReadyNote, PublicPageNote, SinceLastVisit, StatusStrip, StreakStrip, Term, WeekPlan, formatDateTime, isViewportTooSmall, useAgentPersona, useDateFormat, useToast, useViewportWidth, type MetricTileProps, type NeedsYouRow } from "@foundmill/dugout";
+import { Explainer, FirstWeekTimeline, FounderTaskPanel, GoalPanel, NeedsYouList, PageGrid, Panel, PostReadyNote, PublicPageNote, SinceLastVisit, StatusStrip, StreakStrip, Term, WeekPlan, formatDateTime, isViewportTooSmall, useAgentPersona, useDateFormat, useToast, useViewportWidth, type MetricTileProps, type NeedsYouRow } from "@foundmill/dugout";
 import { cashTile, customersWeekTile, moduleHref, moduleTabHref, routes, runwayTile, spendWeekTiles, unavailableTile, type StatusTile } from "@foundmill/widgets";
 import type { FinanceOverview, RibbonResponse } from "@foundmill/widgets/shared/types";
 import { useGlossary, useToday } from "@foundmill/widgets/data";
@@ -58,6 +62,8 @@ export const TODAY_WORDS = {
   health: "Health",
   noInbox: "Members who can read the Inbox see what needs them here.",
   noWeek: "Members who can read Development see the week here.",
+  messageCopied: "Message copied. Paste it to the people you have in mind.",
+  copyFailed: "The message could not be copied. Open your page and copy it from there.",
 } as const;
 
 /** "Explain this page" on Today (WP-04 T7): what Today is, what Needs you is, what Continue does. */
@@ -153,6 +159,51 @@ export function TodayScreen() {
   const roster = useMemo(() => departments.flatMap((d) => [...(d.lead ? [d.lead] : []), ...d.squad]), [departments]);
   const rows = useMemo(() => (needsYou ? toNeedsYouRows(businessId, needsYou.items, { labelFor: persona.labelFor, withNames: persona.withNames, roster }) : []), [businessId, needsYou, persona, roster]);
 
+  // --- your one thing today (WP-04 T9) -------------------------------------------------------------------------------
+  const shareOpened = useMutation(trpc.share.opened.mutationOptions({ onSuccess: () => refresh() }));
+  const [taskStatus, setTaskStatus] = useState<string | null>(null);
+  const [taskPending, setTaskPending] = useState(false);
+  const onFounderTask = useCallback(
+    async (task: FounderTask) => {
+      setTaskStatus(null);
+      if (task.action.kind === "open_page") return router.push(moduleTabHref(businessId, departments, "product", "public-page"));
+      if (task.action.kind === "open_note") {
+        // The plan note when it is among Needs you's rows (a sign-off), else the Needs you tab where it waits.
+        const plan = needsYou?.items.find((i) => i.kind === "signoff");
+        return router.push(plan ? (rows.find((r) => r.id === plan.id)?.href ?? needsYouHref(businessId)) : needsYouHref(businessId));
+      }
+      const text = task.action.text ?? "";
+      setTaskPending(true);
+      try {
+        // The device's own share sheet where there is one (a phone), else a copy. Either is a share that was opened, never one that was sent.
+        if (task.action.kind === "share" && typeof navigator.share === "function") {
+          try {
+            await navigator.share({ text });
+          } catch (err) {
+            if ((err as { name?: string }).name === "AbortError") return;
+            throw err;
+          }
+          shareOpened.mutate({ businessId, kind: "page", network: null, target: "device" });
+          return;
+        }
+        try {
+          await navigator.clipboard.writeText(text);
+        } catch {
+          setTaskStatus(TODAY_WORDS.copyFailed);
+          return;
+        }
+        setTaskStatus(TODAY_WORDS.messageCopied);
+        shareOpened.mutate({ businessId, kind: "page", network: null, target: "copy" });
+      } catch (err) {
+        toast({ title: "That did not go through", description: errorMessage(err), tone: "bad" });
+      } finally {
+        setTaskPending(false);
+      }
+    },
+    [router, businessId, departments, needsYou, rows, shareOpened, toast],
+  );
+  const founderTask = todayQ.data?.founderTask ?? null;
+
   // --- health -----------------------------------------------------------------------------------------------------------
   const currency = business.business.currency;
   const tiles = useMemo<MetricTileProps[]>(() => {
@@ -246,6 +297,7 @@ export function TodayScreen() {
         onRetry={() => void todayQ.refetch()}
       />
     ),
+    "founder-task": founderTask ? <FounderTaskPanel span={12} task={founderTask} onAction={(t) => void onFounderTask(t)} pending={taskPending} status={taskStatus} /> : null,
     "public-page": pageReady ? <PublicPageNote span={12} href={moduleTabHref(businessId, departments, "product", "public-page")} /> : null,
     "post-ready": todayQ.data?.postsReady ? <PostReadyNote span={12} waiting={todayQ.data.postsReady.count} href={`${moduleTabHref(businessId, departments, "distribution", "creative")}?asset=${todayQ.data.postsReady.assetId}`} /> : null,
     week: (

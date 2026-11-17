@@ -32,7 +32,7 @@
 - [x] T6 Check, publish and share the page on any screen (M)
 - [ ] T7 One first-day story; guidance on Today (M)
 - [x] T8 Note budget and the day's digest (M)
-- [ ] T9 The founder's own task and tomorrow's reason (M)
+- [x] T9 The founder's own task and tomorrow's reason (M)
 - [x] T10 Chief of Staff as mentor, with founder context (M)
 - [ ] T11 Lifecycle email for a started project (M, needs setup)
 - [ ] T12 Email for a person with a card and no project (M, needs setup)
@@ -223,7 +223,7 @@ Order: T1, T2, T3 first (the path), then T6, T5, T4, T7, T8; T9 to T16 in any or
 **Done when:** a project left alone on day one holds the welcome or digest note, the page note and the plan note, and nothing else unarchived.
 **Risk:** an update a founder wanted is one click further away. The digest links each line to its note.
 
-### T9: The founder's own task and tomorrow's reason   [M] [ships after T7]
+### [x] T9: The founder's own task and tomorrow's reason   [M] [ships after T7]
 
 **Why:** s2 §5.1 (the session's end), §6.4 ("One thing to do today … Not built"), THESIS R7; onboarding skill: one goal per session, end on a positive note.
 

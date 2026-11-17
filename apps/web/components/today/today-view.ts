@@ -131,17 +131,18 @@ export function streakStripProps(s: StreakLike): { headline: string; line: strin
 }
 
 /** Today's sections, by the test id each one draws. */
-export type TodaySection = "needs-you" | "public-page" | "post-ready" | "first-week" | "goal" | "week" | "since" | "streak" | "health";
+export type TodaySection = "needs-you" | "founder-task" | "public-page" | "post-ready" | "first-week" | "goal" | "week" | "since" | "streak" | "health";
 
 /**
  * Today's reading order (WP-04 T7): one thing to do first. On a phone, and on a computer while the page waits to be
  * checked and published, Needs you leads, then the page line, the first week and the goal; otherwise the first week,
  * the goal beside Needs you. The week plan, Since you were last here, the streak and the health figures always come
  * after, in that order, and the streak and health only after the project's first day (`today.get` › `firstDay`, WP-04
- * D5; s1 §3.8: four empty figures on day one). Not known yet (`null`): not yet.
+ * D5; s1 §3.8: four empty figures on day one). Not known yet (`null`): not yet. The founder's one thing today (WP-04
+ * T9) comes right after Needs you in both orders, so it never pushes Needs you down.
  */
 export function todaySections(f: { phone: boolean; pageFirst: boolean; firstDay: boolean | null }): TodaySection[] {
-  const lead: TodaySection[] = f.phone || f.pageFirst ? ["needs-you", "public-page", "post-ready", "first-week", "goal"] : ["first-week", "goal", "needs-you", "public-page", "post-ready"];
+  const lead: TodaySection[] = f.phone || f.pageFirst ? ["needs-you", "founder-task", "public-page", "post-ready", "first-week", "goal"] : ["first-week", "goal", "needs-you", "founder-task", "public-page", "post-ready"];
   const later: TodaySection[] = f.firstDay === false ? ["week", "since", "streak", "health"] : ["week", "since"];
   return [...lead, ...later];
 }

@@ -15,7 +15,7 @@ const tileText = async (page: Page, strip: string, label: RegExp): Promise<strin
 
 /** The sections of Today that are on the page, by test id, in DOM order (WP-04 T7: Today's order). */
 async function todayOrder(page: Page): Promise<string[]> {
-  const ids = ["needs-you", "public-page-note", "first-week-timeline", "goal-panel", "week-plan", "since-last-visit", "streak-strip", "today-health"];
+  const ids = ["needs-you", "founder-task", "public-page-note", "first-week-timeline", "goal-panel", "week-plan", "since-last-visit", "streak-strip", "today-health"];
   return page.evaluate((list) => {
     const found = list.flatMap((id) => {
       const el = document.querySelector(`[data-testid="today-screen"] [data-testid="${id}"]`);
@@ -51,6 +51,8 @@ test.describe("today", () => {
 
     // A long-running business is past its first week: no timeline (it shows only in a business's first days).
     await expect(page.getByTestId("first-week-timeline")).toHaveCount(0);
+    // A sample business has no founder task (WP-04 T9): nothing of it is the reader's to publish or share.
+    await expect(page.getByTestId("founder-task")).toHaveCount(0);
 
     // 1. Your goal: the seeded active goal, its progress bar and the pace sentence.
     const goal = page.getByTestId("goal-panel");
@@ -145,7 +147,18 @@ test.describe("today", () => {
     await expect(page.getByTestId("week-plan")).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("streak-strip")).toHaveCount(0);
     await expect(page.getByTestId("today-health")).toHaveCount(0);
-    await expect.poll(async () => (await todayOrder(page)).filter((id) => id !== "public-page-note"), { timeout: LONG }).toEqual(["needs-you", "first-week-timeline", "goal-panel", "week-plan"]);
+    await expect.poll(async () => (await todayOrder(page)).filter((id) => id !== "public-page-note"), { timeout: LONG }).toEqual(["needs-you", "founder-task", "first-week-timeline", "goal-panel", "week-plan"]);
+    // Your one thing today (WP-04 T9), right after Needs you: the page first, and what happens next under a rule.
+    const task = page.getByTestId("founder-task");
+    await expect(task).toHaveAttribute("data-task", "publish_page");
+    await expect(task.getByTestId("founder-task-title")).toHaveText("Check your page and publish it");
+    await expect(task.getByRole("button", { name: "Check my page" })).toBeVisible();
+    await expect(task.getByTestId("founder-task-tomorrow")).toHaveText(/^(Tomorrow morning: what your team found overnight, and one thing to do\.|Come back when you have heard from someone, or press Continue for a round of work\.)$/);
+    // At 390 px it stays right under Needs you.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect.poll(async () => (await todayOrder(page)).filter((id) => id !== "public-page-note").slice(0, 2), { timeout: LONG }).toEqual(["needs-you", "founder-task"]);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await expect(page.locator("nav[aria-label=Primary]")).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("needs-you")).toContainText(/Your page is being drafted and will show here in about a minute|Check it and publish|Approve the plan/);
     await expect(timeline.locator("[data-first-week-step=day1]")).toHaveAttribute("data-state", "now");
     await expect(timeline.locator("[data-first-week-step=days2to3]")).toHaveAttribute("data-state", "next");
@@ -203,6 +216,10 @@ test.describe("today", () => {
     });
     await expect(timeline.locator("[data-first-week-step=day1] [data-first-week-when]")).toHaveText(/^Done [A-Z][a-z]{2} \d{1,2}$/);
     await expect(timeline.locator("[data-first-week-step=days2to3]")).toHaveAttribute("data-state", "now");
+    // One a day (WP-04 T9): the page published today, so the panel says so and names the share for tomorrow.
+    await expect(task.getByTestId("founder-task-done")).toHaveText("Done for today.");
+    await expect(task.getByTestId("founder-task-next")).toHaveText("Tomorrow: Send your page to three people");
+    await expect(task.getByRole("button")).toHaveCount(0);
 
     // A round of work after the roadmap's approval (one press of Continue: an in-process cycle step without Temporal).
     const idle = page.getByRole("button", { name: /^Continue$/ });
