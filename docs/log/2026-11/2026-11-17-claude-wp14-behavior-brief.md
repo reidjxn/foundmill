@@ -21,7 +21,7 @@ of CLAUDE.md. The founder handed over a change brief on Nov 17, 2026, written fr
 copy of the repository. Three read-only checks compared every item with main at 5b6541d6 and found twelve points where
 it disagreed with a recorded decision. The founder answered eleven the same afternoon, in the Desktop session that
 wrote this package. The package lists what main already does, fifteen tasks, the amendments to other packages' tasks,
-the founder's fifteen answers and two open points. No code changed.
+and the founder's seventeen answers. No code changed.
 
 ## Decisions
 ### The founder's answers of Nov 17, 2026 (afternoon), which win over #273 and #274 where they differ
@@ -44,6 +44,10 @@ the founder's fifteen answers and two open points. No code changed.
 - Founder carries $10.00 of budget a month in both price sets, Studio $50.00, Try $5.00. Founder and Studio reach
   Opus and Sonnet without a credit pack. Try is limited to Haiku 5.5 and GLM-5.3 Flash, or the founder's own key.
 
+### A credit pack on Try, and the never-list (founder, evening of Nov 17, 2026)
+On Try a founder can also buy credit packs on top of the month's allowance; #274's rule that a pack of $20 or more
+unlocks Opus and Sonnet stands. Four lines were added to CLAUDE.md's Never section on the founder's word.
+
 ### The brief's reversals that clash with nothing newer are taken as the founder's word
 "The last task always finishes" replaces pausing on the charge that empties a balance, and one style for estimates
 with one legend replaces DESIGN §10's chip beside every figure (T1, T7).
@@ -59,7 +63,5 @@ A task that changes another package's task is marked "amends" and travels with t
 was sent to the Desktop landing session directly; the cloud sessions learn of the rest from STATUS.md.
 
 ## Not done
-- O1 and O2 in the package: the four never-list lines, and whether a credit pack still unlocks Opus and Sonnet on
-  Try (#274) now that the founder said Try "has to bring their own Anthropic key".
 - docs/NETWORK.md, docs/DESIGN.md §10 and docs/foundmill-plan are changed by the tasks that own them (T15, T7, T13).
 - STATUS.md's WP-04 rows are behind main and were not rebuilt.

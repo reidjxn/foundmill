@@ -4,7 +4,7 @@
 
 **Why:** On Nov 17, 2026 the founder handed over a change brief ("Foundmill: behavioral-science change brief") written from an outside report. It was written against an older copy of the repository. Checked against main at `5b6541d6` the same day, about a third of it is already true, a third still applies, and a third disagrees with a founder decision or a CLAUDE.md rule, several of them from the same day. The founder answered eleven of the twelve disagreements the same afternoon. This file is the brief as it stands against the code and those answers: what to build, who builds it, and the little that still waits.
 
-**Done when:** every task below is merged or recorded as waiting, and every item under "Still open" has an answer in docs/log.
+**Done when:** every task below is merged or recorded as waiting, 
 
 ## Rules for this package
 
@@ -13,7 +13,6 @@
 - The vocabulary rule of 2026-10-08, US English and plain language apply to every string here. The away mode is "vacation".
 - The wording given below is the proposal. If a line fails a check or is untrue of the product as built, fix the line and say so in the pull request.
 - A task marked **amends** changes a task of another package. The session that holds that task takes the amendment with it; nobody else starts it.
-- Nothing under "Still open" is built on a guess.
 
 ## Already true on main (build nothing)
 
@@ -51,10 +50,12 @@ These are later than #273 and #274 of the same morning and win where they differ
 - **A14. Companies, not seats.** Plans differ by the number of companies an owner has: Try 1, Founder up to 5, Studio any number. A deleted company does not count toward the limit. There are no seats and no limit on people on any plan. This replaces "businesses are unlimited on every plan" (2026-10-16).
 - **A15. Budgets and models.** Founder carries $10.00 of team budget a month whether the test shows $15 or $25; Studio $50.00; Try $5.00. Founder and Studio reach Opus and Sonnet without a credit pack. Try is the limited plan: Haiku 5.5 and GLM-5.3 Flash on Foundmill's keys, and Opus and Sonnet on the founder's own Anthropic key.
 
+- **A16. A credit pack on Try.** On Try a founder can also buy credit packs on top of the month's allowance, as #274 has it: a pack of $20 or more adds credits and unlocks Opus and Sonnet. The own key is the other route.
+- **A17. The never-list.** Four lines are added to CLAUDE.md's Never section in this pull request: never stop a team mid-task because a balance ran out; never make canceling harder than subscribing; never put a dollar figure for included credits in the hero; never turn the cycle into a continuous stream.
+
 ## Still open
 
-- **O1. The never-list.** Four additions to CLAUDE.md's Never section are proposed and wait for the founder's yes: never stop a team mid-task because a balance ran out; never make canceling harder than subscribing; never put a dollar figure for included credits in the hero; never turn the cycle into a continuous stream. The fifth (never offer the own key to a founder out of budget) is withdrawn by A3.
-- **O2. A credit pack on Try.** #274 lets a credit pack of $20 or more unlock Opus and Sonnet on the $5 plan. A15 says Try "has to bring their own Anthropic key". T14 keeps #274's pack rule until the founder says the key is the only route on Try.
+Nothing from the founder. The numbers left to the sessions to propose and flag are named in T1 and T2.
 
 ## Tasks
 
@@ -165,7 +166,7 @@ Brief: B1, B4, B7. `docs/foundmill-plan/foundmill-plan.md` is the seed for Found
 - Customers › First: one goal, a first paying customer; Development and Distribution get depth first, Finance and Legal stay competent and quiet. Put the same sentence in Risks item 6 (Scope) as its mitigation. The description of the person stays as it is (A10).
 - Retention loops: add the chapter report (T8) and the "Working now" strip (T5); Vacation mode becomes a named headline feature.
 - Supporting metrics: T12's measures.
-- Pricing: rewrite to T14 (Try free today and $5 a month at opening; Founder tested at $15 and $25; Studio; Partner at $250 by application; what each plan includes; credit packages carry most of the model revenue and the subscription price is set by what the plan is worth and tested; never "Price to be announced" in public). Leave O2 out.
+- Pricing: rewrite to T14 (Try free today and $5 a month at opening; Founder tested at $15 and $25; Studio; Partner at $250 by application; what each plan includes; credit packages carry most of the model revenue and the subscription price is set by what the plan is worth and tested; never "Price to be announced" in public). 
 - Go-to-market order: the brief's eight steps, with batches, the places count, personal notes for the first hundred, Foundmill's own project in public, shared cards, three named invitations with no reward, the gallery, paid acquisition last.
 - A section of experiments, each with a stop rule: the brief's B6.1 to B6.9, with the price test as in T14. Those that need analytics say so.
 Not here: leaderboards (A8), the phone (A9).
@@ -179,7 +180,7 @@ Steps:
 4. The Founder price test: two paired sets as config behind a switch that is off, Founder $15 with Studio $50 and Founder $25 with Studio $100 (A13), Partner $250 in both, credit packages the same in both. Shown only as figures marked "Indicative" on the waitlist page (T15), half of visitors seeing each; a visitor keeps the set first given, stored with the waitlist entry. Nobody is charged. When charging opens nobody pays more than the figures they were shown, and the first Founder or Studio price a person pays is stored for that owner and kept for as long as they stay subscribed. Tests now, with charging off: a stored price survives a price change in config.
 5. Partner: "by application". The plan adds a monthly review of the project by "experienced venture-backed founders and venture capital investors" (this wording; name no person). The only action is "Join the Partner waitlist", which records the owner, the project and consent. The price shows, nothing is charged, and the copy says reviews begin once the plan opens and promises no date.
 6. What each plan includes, as one table in config that the product reads: Try has the team and everything not listed here; Founder adds Vacation mode, card sharing (T9 and milestone cards), named agents (T6) and the phone Inbox; Studio adds more agents at once. Companies an owner may have (A14): Try 1, Founder up to 5, Studio any number, counted over companies that are not deleted, checked when a new one is committed; an owner over the limit keeps what they have and is told which plan allows another. No seats and no limit on people. The founder's own Anthropic key works on every plan (A3). Checks take effect on `open`; while `invite_only` everyone has everything, so no invited tester loses what they use today. Flag this reading in the pull request.
-7. Included team budget as config: Try $5.00, Founder $10.00 in both price sets, Studio $50.00 (A15). "Monthly credits to be announced" goes. Founder and Studio may choose Opus and Sonnet without a credit pack; Try as in A15 and O2. `tierIsPaid` and WP-13 T7's server check follow this.
+7. Included team budget as config: Try $5.00, Founder $10.00 in both price sets, Studio $50.00 (A15). "Monthly credits to be announced" goes. Founder and Studio may choose Opus and Sonnet without a credit pack; Try as in A15 and A16. `tierIsPaid` and WP-13 T7's server check follow this.
 9. Invited people (A12): a marker on each owner who joined while `invite_only`, with the join date. When charging opens these owners are on Founder and are never billed its monthly fee; credit packages are bought as normal. Beneath the plans while `invite_only`: "Free while in early access. Founders invited now keep it free for good." Test now, with charging off: such an owner is never charged a subscription.
 8. CLAUDE.md is already changed for A2 in this package's own pull request; `tierShowsBuiltOnMark` is untouched.
 Not here: any limit on people; a live subscription checkout or live Stripe prices before sign-up opens.
@@ -210,5 +211,5 @@ Done when: the page shows a real batch or none, an operator can admit a batch, a
 ## Starting prompt
 
 ```
-You are taking tasks from docs/holistic-plan/WP-14-behavior-brief.md in reidjxn/foundmill. Read CLAUDE.md, docs/holistic-plan/README.md, STATUS.md and the whole of WP-14 first. Take only the tasks STATUS.md gives to you or leaves unowned; a task marked "amends" belongs to the session holding the task it amends. Build nothing under "Still open". One task, one pull request, pushed once when ready. Re-find every file and string in the code as it is now: if a step no longer applies, say what changed and make the smallest change that meets "Done when".
+You are taking tasks from docs/holistic-plan/WP-14-behavior-brief.md in reidjxn/foundmill. Read CLAUDE.md, docs/holistic-plan/README.md, STATUS.md and the whole of WP-14 first. Take only the tasks STATUS.md gives to you or leaves unowned; a task marked "amends" belongs to the session holding the task it amends.  One task, one pull request, pushed once when ready. Re-find every file and string in the code as it is now: if a step no longer applies, say what changed and make the smallest change that meets "Done when".
 ```
