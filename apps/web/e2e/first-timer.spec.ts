@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { PLACEHOLDER_IDEAS } from "../components/landing/idea-box/typing";
 
 /**
  * The first-timer's page at `/` (DESIGN §9a; docs/holistic-plan/landing/DIRECTION.md): one page for every width from
@@ -60,9 +61,9 @@ test("under reduced motion the placeholder shows its first idea, still", async (
   const context = await browser.newContext({ reducedMotion: "reduce", viewport: { width: 390, height: 844 }, storageState: { cookies: [], origins: [] } });
   const page = await context.newPage();
   await page.goto("/");
-  await expect(page.getByTestId("idea-placeholder")).toHaveText("Sneaker cleaning for people at my school");
+  await expect(page.getByTestId("idea-placeholder")).toHaveText(PLACEHOLDER_IDEAS[0]);
   await page.waitForTimeout(1500);
-  await expect(page.getByTestId("idea-placeholder")).toHaveText("Sneaker cleaning for people at my school");
+  await expect(page.getByTestId("idea-placeholder")).toHaveText(PLACEHOLDER_IDEAS[0]);
   await context.close();
 });
 

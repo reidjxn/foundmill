@@ -10,7 +10,7 @@ import { IDEA_NEXT_WORDS, TooltipProvider } from "@foundmill/dugout";
 import { IDEA_BOX_DEADLINE_MS, IDEA_BOX_ERRORS, IDEA_BOX_INTERESTS, type IdeaBoxEvent } from "@foundmill/shared";
 import { IdeaBox, IDEA_BOX_WORDS, keepHref } from "../IdeaBox";
 import { streamIdeaDraft } from "../client";
-import { PLACEHOLDER_IDEAS, TYPING } from "../typing";
+import { PLACEHOLDER_IDEA_MAX, PLACEHOLDER_IDEAS, TYPING } from "../typing";
 
 const CLAIM = "c".repeat(43);
 const KEYS = ["market_pull", "market_size", "competition", "speed_to_first_customer", "capital_intensity", "agent_executability", "founder_fit", "defensibility", "regulatory_load", "distribution_clarity"];
@@ -58,6 +58,16 @@ describe("IdeaBox", () => {
     expect(screen.getByTestId("idea-placeholder").textContent).toBe(PLACEHOLDER_IDEAS[0].slice(0, 5));
     fireEvent.focus(screen.getByTestId("idea-input"));
     expect(screen.queryByTestId("idea-placeholder")).toBeNull();
+  });
+
+  it("every example fits the field at its narrowest: no longer than the limit, plain words, never about jobs", () => {
+    expect(PLACEHOLDER_IDEAS.length).toBeGreaterThanOrEqual(6);
+    for (const idea of PLACEHOLDER_IDEAS) {
+      expect(idea.length, idea).toBeLessThanOrEqual(PLACEHOLDER_IDEA_MAX);
+      expect(idea, idea).not.toMatch(/\b(jobs?|career|employ|hire|hiring|boss|side hustle)\b/i);
+      expect(idea, idea).not.toMatch(/[!—]/);
+    }
+    expect(new Set(PLACEHOLDER_IDEAS).size).toBe(PLACEHOLDER_IDEAS.length);
   });
 
   it("Surprise me opens the interests", () => {

@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Browser, type Page } from "@playwright/test";
 import { LONG, answerFirstProfile } from "./helpers";
+import { PLACEHOLDER_IDEAS } from "../components/landing/idea-box/typing";
 
 /**
  * The landing page's idea box (founder, 2026-11-13; docs/IDEA_BOX.md) against the local stack (mock models, the mock
@@ -265,3 +266,53 @@ test("on a phone at 390 px the same page works: Surprise me drafts from an inter
     await close();
   }
 });
+
+/**
+ * The field at rest (founder, 2026-11-17: "the example text should never come out of the text box"): at every width
+ * from 390 px, each example the placeholder types fits inside the field whole, the "Shape my idea" button is whole,
+ * beside the field or under it and never over it, and the page never scrolls sideways. Each example is set into the
+ * typing overlay directly, so the longest is measured without waiting for the animation to reach it.
+ */
+for (const [width, height] of [
+  [390, 844],
+  [768, 1024],
+  [1024, 768],
+  [1080, 800],
+  [1280, 800],
+  [1440, 900],
+] as const) {
+  test(`at ${width} px the examples stay inside the field and the button is whole`, async ({ browser }) => {
+    const { page, close } = await visitor(browser, width, height);
+    try {
+      await page.goto("/");
+      await expect(page.getByTestId("idea-placeholder")).toBeVisible({ timeout: LONG });
+      const report = await page.evaluate((ideas) => {
+        const overlay = document.querySelector<HTMLElement>("[data-testid=idea-placeholder]")!;
+        const text = overlay.firstElementChild as HTMLElement;
+        const input = document.querySelector<HTMLElement>("[data-testid=idea-input]")!.getBoundingClientRect();
+        const field = document.querySelector<HTMLElement>("[data-testid=idea-field]")!.getBoundingClientRect();
+        const button = document.querySelector<HTMLElement>("[data-testid=idea-generate]")!;
+        const b = button.getBoundingClientRect();
+        const problems: string[] = [];
+        for (const idea of ideas) {
+          text.textContent = idea;
+          const o = overlay.getBoundingClientRect();
+          const t = text.getBoundingClientRect();
+          if (t.right > input.right + 0.5 || o.right > input.right + 0.5) problems.push(`"${idea}" runs past the field (${Math.round(Math.max(t.right, o.right))} > ${Math.round(input.right)})`);
+          if (text.scrollWidth > text.clientWidth + 0.5) problems.push(`"${idea}" is cut short (${text.scrollWidth} > ${text.clientWidth})`);
+        }
+        if (b.right > window.innerWidth + 0.5 || b.left < -0.5) problems.push(`the button leaves the view (${Math.round(b.left)}–${Math.round(b.right)} of ${window.innerWidth})`);
+        if (button.scrollWidth > button.clientWidth + 0.5) problems.push("the button's label is cut short");
+        const beside = b.left >= field.right - 0.5;
+        const under = b.top >= field.bottom - 0.5;
+        if (!beside && !under) problems.push("the button overlaps the field");
+        if (document.documentElement.scrollWidth > document.documentElement.clientWidth) problems.push("the page scrolls sideways");
+        return problems;
+      }, [...PLACEHOLDER_IDEAS]);
+      expect(report, report.join("\n")).toEqual([]);
+    } finally {
+      await close();
+    }
+  });
+}
+
