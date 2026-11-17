@@ -189,7 +189,7 @@ export const TENANT_TABLES: TenantTableSpec[] = [
  * generic suite checks a collaborator reads none of their rows and everyone else reads them as before. 0110 adds
  * `task_reports`: what an agent found, which the event walls hide from a collaborator in `task.completed.summary`.
  */
-export const COLLABORATOR_CLOSED_TABLES: readonly string[] = ["customer_update_cards", "accounts", "securities", "cap_table_entries", "usage_ledger", "credit_balances", "billing_checkouts", "credit_lots", "legal_entities", "incorporations", "integrations", "webhooks", "policies", "app_installations", "task_reports"];
+export const COLLABORATOR_CLOSED_TABLES: readonly string[] = ["accounts", "securities", "cap_table_entries", "usage_ledger", "credit_balances", "billing_checkouts", "credit_lots", "legal_entities", "incorporations", "integrations", "webhooks", "policies", "app_installations", "task_reports"];
 /**
  * Admin- or service-written tables a collaborator still reads, each for a screen of theirs (0094's header gives the
  * reasons). Named so a change to the list is a decision.
