@@ -21,14 +21,14 @@ import { LONG_LIVED_NAME_PATTERNS, parseSandboxSpec, type Sandbox, type SandboxP
 import { buildAad, createVault, encryptJson, generateMasterKey } from "@foundmill/shared/crypto";
 import { MockActivityEnvironment } from "@temporalio/testing";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { grant, initialVersionFromTemplate, listTemplates, PLATFORM_BASE_TOOLS, WEB_TOOLS } from "@foundmill/agents";
+import { attachedSkills, getLibrarySkill, grant, initialVersionFromTemplate, listTemplates, LOADED_SKILLS_HEADER, NO_TOOL_LOOP_PRELOAD_BODIES, PLATFORM_BASE_TOOLS, SESSION_PRELOAD_BODIES, SKILLS_HEADER, SKILLS_LOADED_ONLY_SENTENCE, SKILLS_READ_SENTENCE, WEB_TOOLS } from "@foundmill/agents";
 import { isUntrusted } from "@foundmill/connectors";
 import { createGithubMock } from "@foundmill/connectors/connectors/github/mock";
 import { makeToolContext } from "@foundmill/connectors/testing/contract-suite";
 import { MIN_SESSION_CAP_MINOR } from "../cycle-contract";
 import { UNDER_FLOOR_SUMMARY } from "../activities/session-budget";
 import { openAgentSession } from "../activities/dispatch";
-import { ACCEPTANCE_BRIEF, ACCEPTANCE_EGRESS, ACCEPTANCE_FALLBACK_COMMAND, ACCEPTANCE_UNMET_REASON, ACCEPTANCE_RUN_LOG, classifyTurnEnd, createSessionActivities, FREE_PLAN_SWITCH_NOTE, freeSessionModel, lastAttemptNote, NO_CHANGES_REASON, NOT_VERIFIED_NOTE, SANDBOX_TTL_MINUTES } from "../activities/session";
+import { ACCEPTANCE_BRIEF, ACCEPTANCE_EGRESS, ACCEPTANCE_FALLBACK_COMMAND, ACCEPTANCE_UNMET_REASON, ACCEPTANCE_RUN_LOG, classifyTurnEnd, createSessionActivities, FREE_PLAN_SWITCH_NOTE, freeSessionModel, lastAttemptNote, NO_CHANGES_REASON, NOT_VERIFIED_NOTE, SANDBOX_TTL_MINUTES, sessionSystemPrompt } from "../activities/session";
 import { SessionDrain } from "../drain";
 import { emitEvent } from "../events";
 import type { SessionResult } from "../activities/types";
@@ -659,26 +659,63 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
     await repos.tasks.setStatus(t.db, t.businessId, researchTaskId, "ready", { force: true });
   });
 
-  it("the agent's skills from the library or files reach its system prompt in their own section after the house rules and instructions", async () => {
+  it("the agent's skills from the library or files reach its system prompt as an index after the house rules and instructions; with read_skill granted, a body the task does not match is read on demand (WP-06 T4)", async () => {
     const worker = await repos.agents.get(t.db, t.businessId, t.workerId);
     await repos.skills.upsertAddedDefinition(t.db, t.businessId, { agentType: worker.agentType, skillKey: "library_meeting_notes", name: "Meeting notes", description: "Notes and action items.", group: "execution", source: "library", instructionsMd: "# Meeting notes\n\nDecisions first, then action items with owners." });
     await repos.skills.upsertForAgent(t.db, t.businessId, t.workerId, [{ skillKey: "library_meeting_notes", group: "execution", tested: null, displayed: 8, potential: 8 }]);
     try {
       const { sessionId, input, launch } = await start();
+      expect(launch.allowedTools).toContain("platform:read_skill");
       script = success(sessionId);
       expect((await acts.runAgentSession(input, launch)).outcome).toBe("done");
       const system = String(calls.at(-1)!.options.systemPrompt);
       expect(system.startsWith("## House rules")).toBe(true);
-      const section = system.indexOf("## Skills");
+      const section = system.indexOf(SKILLS_HEADER);
       expect(section).toBeGreaterThan(system.indexOf("## Your instructions"));
-      expect(system.indexOf("Decisions first, then action items with owners.")).toBeGreaterThan(section);
-      expect(system).toContain('<skill name="Meeting notes" source="library">');
+      // The index line carries the key read_skill takes and the catalog's whenToUse (the library follows the catalog).
+      expect(system).toContain(`- Meeting notes [library_meeting_notes]: ${getLibrarySkill("meeting_notes")!.whenToUse}`);
+      expect(system).toContain(SKILLS_READ_SENTENCE);
+      // "Shortlist three suppliers" matches no word of the skill: its body is not loaded, and the stored text never is.
+      expect(system).not.toContain(LOADED_SKILLS_HEADER);
+      expect(system).not.toContain("Decisions first, then action items with owners.");
       // A skill changes nothing else: the tools the session may call are the same with or without it.
       expect((calls.at(-1)!.options.allowedTools as string[]).every((x) => x.startsWith("mcp__"))).toBe(true);
     } finally {
       await repos.skills.removeFromAgent(t.db, t.businessId, t.workerId, "library_meeting_notes");
       await repos.tasks.setStatus(t.db, t.businessId, researchTaskId, "ready", { force: true });
     }
+  });
+
+  it("sessionSystemPrompt: index mode when the read_skill grant is present, the loaded-bodies form when it is not (WP-06 T4)", () => {
+    const template = listTemplates()[0]!;
+    const skills = attachedSkills([], [
+      { skillKey: "library_meeting_notes", name: "Meeting notes", source: "library", description: "Notes and action items.", instructionsMd: "stored" },
+      { skillKey: "upload_call_recap_aaaaaaaa", name: "Call recap", source: "upload", description: "Use after a call with a customer to write the recap.", instructionsMd: "# Call recap\n\nOpen with what the customer asked for." },
+      { skillKey: "upload_pricing_page_bbbbbbbb", name: "Pricing page", source: "upload", description: "Use when writing a pricing page.", instructionsMd: "# Pricing page\n\nThree tiers at most." },
+    ]);
+    const task = { kind: "research" as const, title: "Notes from the customer call", goalMd: "Write the meeting notes and the call recap." };
+    const prompt = (toolRefs: string[]) => sessionSystemPrompt({ business: { name: "Acme", glossary: {} }, instructions: template.instructions, description: template.description, briefText: "Brief.", skills, task, toolRefs });
+    const reader = prompt(["platform:read_product", "platform:read_skill"]);
+    const noReader = prompt(["platform:read_product"]);
+    for (const p of [reader, noReader]) {
+      for (const s of skills) expect(p).toContain(`- ${s.name} [${s.key}]: `);
+      // The body chosen for the task goes after the brief, outside the cached prefix.
+      expect(p.indexOf(LOADED_SKILLS_HEADER)).toBeGreaterThan(p.indexOf("## Business brief"));
+      expect(p).not.toContain("Three tiers at most.");
+    }
+    // With read_skill: the index says to read a skill, and one body (SESSION_PRELOAD_BODIES) is loaded up front.
+    expect(reader).toContain(SKILLS_READ_SENTENCE);
+    expect(reader.slice(reader.indexOf(LOADED_SKILLS_HEADER)).match(/<skill /g)).toHaveLength(SESSION_PRELOAD_BODIES);
+    // Without it: only what is loaded is there, and two bodies (NO_TOOL_LOOP_PRELOAD_BODIES) are.
+    expect(noReader).toContain(SKILLS_LOADED_ONLY_SENTENCE);
+    expect(noReader).not.toContain(SKILLS_READ_SENTENCE);
+    expect(noReader.slice(noReader.indexOf(LOADED_SKILLS_HEADER)).match(/<skill /g)).toHaveLength(NO_TOOL_LOOP_PRELOAD_BODIES);
+    expect(noReader).toContain("Open with what the customer asked for.");
+    // The platform wildcard holds read_skill too, and the prefix through the Skills index is the same in both forms but
+    // for the one sentence.
+    expect(prompt(["platform:*"])).toContain(SKILLS_READ_SENTENCE);
+    const prefix = (p: string) => p.slice(0, p.indexOf("## Glossary") > 0 ? p.indexOf("## Glossary") : p.indexOf("## Business brief"));
+    expect(prefix(reader).replace(SKILLS_READ_SENTENCE, "")).toBe(prefix(noReader).replace(SKILLS_LOADED_ONLY_SENTENCE, ""));
   });
 
   it("a session started without the round of work's brief (Start, a plan, a playbook) still knows what the project is and can read the product notes (WP-05 T4)", async () => {
@@ -2593,11 +2630,17 @@ describe("runAgentSession (live runner): a free business's session (WP-13 T4)", 
     expect(paid.launch.freePlan).toBeUndefined();
   });
 
-  it("runs on Haiku 5.5 on the platform key by default, and refuses a switch to Opus", async () => {
+  it("runs on the agent's own model on the platform key by default (WP-13 T8), Haiku 5.5 or GLM only when chosen, and refuses a switch to Opus", async () => {
     const { launch } = await start(acts);
-    expect(launch).toMatchObject({ modelKey: "haiku", modelId: MODELS.haiku, freePlan: true });
-    expect(freeSessionModel("worker", "opus", { FREE_SESSION_MODEL: "glm" }).modelKey).toBe("haiku");
-    expect(freeSessionModel("worker", "glm", { FREE_SESSION_MODEL: "haiku", ZAI_API_KEY: "k" }).modelKey).toBe("glm");
+    const agent = await repos.agents.get(t.db, t.businessId, t.workerId);
+    expect(launch).toMatchObject({ modelKey: agent.modelKey, freePlan: true });
+    expect(launch.modelKey).not.toBe("haiku");
+    expect(freeSessionModel("worker", "opus", { FREE_SESSION_MODEL: "routed" }).modelKey).toBe("opus");
+    expect(freeSessionModel("worker", "opus", { FREE_SESSION_MODEL: "haiku" }).modelKey).toBe("haiku");
+    // GLM without Foundmill's Z.ai key falls back to the agent's own model, never to Haiku 5.5.
+    expect(freeSessionModel("worker", "opus", { FREE_SESSION_MODEL: "glm" }).modelKey).toBe("opus");
+    expect(freeSessionModel("worker", "glm", { FREE_SESSION_MODEL: "routed", ZAI_API_KEY: "k" }).modelKey).toBe("glm");
+    expect(freeSessionModel("worker", "haiku", { FREE_SESSION_MODEL: "routed" }).modelKey).toBe("haiku");
     expect(freeSessionModel("worker", "opus", { FREE_SESSION_MODEL: "glm", ZAI_API_KEY: "k" }).modelKey).toBe("glm");
     expect(FREE_PLAN_SWITCH_NOTE).toMatch(/paid plan/);
   });

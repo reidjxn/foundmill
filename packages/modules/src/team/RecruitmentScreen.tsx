@@ -194,9 +194,10 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
         meta: { numeric: true, csv: (r) => r.wageCapMinor / 100 },
         cell: ({ row }) => (
           <span className="inline-flex items-center gap-1.5 whitespace-nowrap tabular-nums">
-            {formatMoney({ amountMinor: row.original.wageCapMinor, currency: CREDITS_CURRENCY })}
-            <span className="t-unit">/mo</span>
-            <ProvenanceChip kind="estimate" />
+            <ProvenanceChip kind="estimate">
+              {formatMoney({ amountMinor: row.original.wageCapMinor, currency: CREDITS_CURRENCY })}
+              <span className="t-unit">/mo</span>
+            </ProvenanceChip>
           </span>
         ),
       },

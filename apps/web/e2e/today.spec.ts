@@ -1,10 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, dismissCoachmarks, ensureDeck, inboxRow, settled, signIn, takeChargeToToday } from "./helpers";
+import { LEDGERLY_BUSINESS_ID, LONG, NORTHWIND_BUSINESS_ID, dismissCoachmarks, ensureDeck, inboxRow, settled, signIn, takeChargeToToday } from "./helpers";
 
 /**
  * Today, the business's front door (founder, 2026-11-07; DESIGN §9 "Today"): `/b/<id>` lands here; the goal with its
  * progress bar, what needs the founder (one tap where no plan compiler is needed, Open for the rest), the week in
- * sentences and four health figures that match Details. On a fresh business the goal waits for the Chief of Staff, who
+ * sentences and the health figures that match Details. The headline is the week's real outcomes as one count, with no
+ * cost figure anywhere on Today and no count line for a week with none (WP-14 T4). On a fresh business the goal waits for the Chief of Staff, who
  * proposes it after both sign-offs and a round of work; Change it rewrites it from the founder's words and one tap
  * approves it. Stack and commands: e2e/README.md.
  */
@@ -79,10 +80,14 @@ test.describe("today", () => {
       expect(n).toBeLessThanOrEqual(5);
     }).toPass({ timeout: LONG });
 
-    // 4. Health: Cash, Runway, Customers this week, and the week's spend (an Estimate), never added across currencies.
+    // 4. Health: Cash, Runway and Customers this week. No cost figure on Today (WP-14 T4): no spend tile, no spend line.
     const health = page.getByTestId("today-health");
-    for (const label of [/^Cash/, /^Runway/, /^Customers this week/, /(Spent|AI usage) this week/]) await expect(health.locator("[role=listitem]").filter({ hasText: label }).first()).toBeVisible({ timeout: LONG });
-    await expect(health.locator("[role=listitem]").filter({ hasText: /(Spent|AI usage) this week/ }).first()).toContainText("Estimate");
+    for (const label of [/^Cash/, /^Runway/, /^Customers this week/]) await expect(health.locator("[role=listitem]").filter({ hasText: label }).first()).toBeVisible({ timeout: LONG });
+    await expect(health.locator("[role=listitem]")).toHaveCount(3);
+    await expect(screen).not.toContainText(/Spent this week|AI usage this week|Channel spend|Team spend/);
+    // A sample business's seeded history is an example, never a real outcome: no count line, and no zero as a score.
+    await expect(page.getByTestId("week-outcomes-headline")).toHaveCount(0);
+    await expect(screen).not.toContainText(/\b0 real outcomes/);
     await expect(health.locator("[role=listitem]").filter({ hasText: /^Runway/ }).first()).not.toContainText("…", { timeout: LONG });
     const runwayToday = await tileText(page, "[data-testid=today-health]", /^Runway/);
 
@@ -130,6 +135,31 @@ test.describe("today", () => {
     await expect(screen).toBeVisible({ timeout: LONG });
   });
 
+  test("WP-14 T5: while agents have work in hand, Today shows a quiet Working now strip with one line for each of them", async ({ page }) => {
+    await signIn(page);
+    await page.goto(`/b/${LEDGERLY_BUSINESS_ID}/today`);
+    await expect(page.getByTestId("today-screen")).toBeVisible({ timeout: LONG });
+    // The sample business's seed has agents part-way through their work.
+    const strip = page.getByTestId("working-now");
+    await expect(strip).toBeVisible({ timeout: LONG });
+    await expect(strip.getByRole("heading", { name: "Working now" })).toBeVisible();
+    const lines = strip.locator("[data-working-now-line]");
+    expect(await lines.count()).toBeGreaterThanOrEqual(1);
+    // Each line is "<agent>: <what it is doing>", with no cost and no progress figure.
+    for (const text of await lines.allInnerTexts()) expect(text).toMatch(/^[^:]+: \S.+$/);
+    await expect(strip).not.toContainText(/\$|%|Estimate/);
+    // At 390 px it is still there, with no sideways scroll.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(strip).toBeVisible({ timeout: LONG });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await expect(page.locator("nav[aria-label=Primary]")).toBeVisible({ timeout: LONG });
+    // The link opens the Working now tab.
+    await dismissCoachmarks(page);
+    await strip.getByRole("link", { name: "See the work" }).click();
+    await expect(page).toHaveURL(/\/training-ground/, { timeout: LONG });
+  });
+
   test("a fresh business: the goal waits, one tap approves both sign-offs, the Chief of Staff proposes, Change it rewrites it, one tap approves it", async ({ page }) => {
     test.setTimeout(420_000);
     await signIn(page);
@@ -147,6 +177,14 @@ test.describe("today", () => {
     await expect(page.getByTestId("week-plan")).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("streak-strip")).toHaveCount(0);
     await expect(page.getByTestId("today-health")).toHaveCount(0);
+    // Nobody is working yet (WP-14 T5): the Working now strip is absent, not empty.
+    await expect(page.getByTestId("working-now")).toHaveCount(0);
+    // The headline (WP-14 T4): nothing real has happened outside the project yet, so no count line and no zero, only
+    // what the team is working toward.
+    const outcomes = page.getByTestId("week-outcomes");
+    await expect(outcomes).toHaveAttribute("data-state", "toward", { timeout: LONG });
+    await expect(outcomes).toHaveText("Working toward: your public page, live");
+    await expect(page.getByTestId("week-outcomes-headline")).toHaveCount(0);
     await expect.poll(async () => (await todayOrder(page)).filter((id) => id !== "public-page-note"), { timeout: LONG }).toEqual(["needs-you", "founder-task", "first-week-timeline", "goal-panel", "week-plan"]);
     // Your one thing today (WP-04 T9), right after Needs you: the page first, and what happens next under a rule.
     const task = page.getByTestId("founder-task");
@@ -216,6 +254,11 @@ test.describe("today", () => {
     });
     await expect(timeline.locator("[data-first-week-step=day1] [data-first-week-when]")).toHaveText(/^Done [A-Z][a-z]{2} \d{1,2}$/);
     await expect(timeline.locator("[data-first-week-step=days2to3]")).toHaveAttribute("data-state", "now");
+    // The founder published the page themselves: the week's first real outcome, and Today leads with the count.
+    await expect(outcomes).toHaveAttribute("data-state", "count");
+    await expect(page.getByTestId("week-outcomes-headline")).toHaveText("This week: 1 real outcome");
+    await expect(page.getByTestId("week-outcomes-detail")).toHaveText("Your page went live");
+    await expect(page.getByTestId("today-screen")).not.toContainText(/Spent this week|AI usage this week|Team spend/);
     // One a day (WP-04 T9): the page published today, so the panel says so and names the share for tomorrow.
     await expect(task.getByTestId("founder-task-done")).toHaveText("Done for today.");
     await expect(task.getByTestId("founder-task-next")).toHaveText("Tomorrow: Send your page to three people");

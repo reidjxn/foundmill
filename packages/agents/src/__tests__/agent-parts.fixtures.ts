@@ -15,7 +15,7 @@ export function agentParts(template: Pick<AgentTemplate, "instructions" | "descr
   return {
     instructions: { ...template.instructions, rules: [...template.instructions.rules, AGENT_RULE] },
     description: template.description,
-    skills: [{ name: "Customer words", source: "library", instructionsMd: AGENT_SKILL_LINE }],
+    skills: [{ key: "library_customer_words", name: "Customer words", source: "library", whenToUse: "Use when writing to customers.", instructionsMd: AGENT_SKILL_LINE }],
   };
 }
 

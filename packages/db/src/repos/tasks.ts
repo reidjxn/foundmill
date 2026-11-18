@@ -320,7 +320,7 @@ export const tasksRepo = {
     if (fromTask === toTask) throw new ValidationError("A task cannot depend on itself", { fromTask });
     const owned = await db.select({ id: tasks.id }).from(tasks).where(and(eq(tasks.businessId, businessId), inArray(tasks.id, [fromTask, toTask])));
     if (owned.length !== 2) throw new ValidationError("Both tasks must belong to the business", { fromTask, toTask });
-    if (await tasksRepo.reaches(db, businessId, toTask, fromTask)) throw new ValidationError("Edge would create a cycle", { fromTask, toTask });
+    if (await tasksRepo.reaches(db, businessId, toTask, fromTask)) throw new ValidationError("Edge would create a round of work", { fromTask, toTask });
     return one(
       await db.insert(taskEdges).values({ businessId, fromTask, toTask }).onConflictDoUpdate({ target: [taskEdges.fromTask, taskEdges.toTask], set: { businessId } }).returning(),
       "task edge",

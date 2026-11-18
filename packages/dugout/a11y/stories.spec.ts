@@ -9,7 +9,8 @@ import { AXE_TAGS } from "../.storybook/a11y-rules";
  * Accessibility over every story (founder's legal checklist, Nov 15, 2026: items 13–15, alt text, color contrast and
  * keyboard). One test per story: open it alone (`iframe.html`), wait until Storybook says it rendered, run axe-core on
  * `#storybook-root` with the rules the Storybook panel uses, honoring a story's own `parameters.a11y` (`test: "off"`
- * skips it, `options` and `context` narrow it).
+ * skips it, `options` and `context` narrow it). Before axe, every estimate in the story is checked for its word
+ * (WP-14 T7), whatever the story's a11y parameters say.
  *
  * `baseline.json` holds the violations that were there when this run started (story id → axe rule ids), each reviewed
  * and owed a fix. It can only shrink: a violation not listed fails, and a listed one that no longer occurs fails too,
@@ -60,6 +61,15 @@ for (const story of stories) {
     // Fonts and the first frame of any entrance motion: axe reads computed colors and sizes.
     await page.evaluate(() => document.fonts.ready);
     await page.waitForTimeout(150);
+
+    // WP-14 T7: an estimate is drawn as a style, so its word must still be read. Every estimate or forecast in every
+    // story (the styled figure, or the word alone) carries "Estimate" or "Forecast" in its accessible name.
+    const unnamed = await page.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>("[data-provenance='estimate'], [data-provenance='forecast']")]
+        .filter((el) => !/\b(Estimate|Forecast)\b/.test(el.getAttribute("aria-label") ?? el.textContent ?? ""))
+        .map((el) => el.outerHTML.slice(0, 160)),
+    );
+    expect(unnamed, `estimates a screen reader would read as plain figures in ${story.id}`).toEqual([]);
 
     const params = await page.evaluate(() => {
       const story = (window as unknown as { __STORYBOOK_PREVIEW__: { currentRender: { story: { parameters: { a11y?: unknown } } } } }).__STORYBOOK_PREVIEW__.currentRender.story;

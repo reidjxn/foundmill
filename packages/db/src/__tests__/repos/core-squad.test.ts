@@ -465,7 +465,7 @@ describe("agent sessions", () => {
 });
 
 describe("tasks, playbooks, holidays", () => {
-  it("task graph: dependencies, cycle refusal, transitions, dispatchable set", async () => {
+  it("task graph: dependencies, round of work refusal, transitions, dispatchable set", async () => {
     const A = r.A.businessId;
     const t1 = await repos.tasks.create(r.db, A, { kind: "code", title: "Schema", assigneeAgentId: r.A.agent2Id, status: "ready" });
     const t2 = await repos.tasks.create(r.db, A, { kind: "code", title: "API", dependsOn: [t1.id], status: "ready" });

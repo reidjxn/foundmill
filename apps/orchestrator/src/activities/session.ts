@@ -31,7 +31,7 @@
 import { promises as fs, type Dirent } from "node:fs";
 import path from "node:path";
 import type { Query } from "@anthropic-ai/claude-agent-sdk";
-import { AgentInstructions, buildSystemPrompt, docText, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, restoredWorkspaceNote, roleSkillsFor, ToolGrant, type AgentSkillPrompt, type AgentTemplate } from "@foundmill/agents";
+import { AgentInstructions, attachedSkills, buildSystemPrompt, docText, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, NO_TOOL_LOOP_PRELOAD_BODIES, restoredWorkspaceNote, selectSkills, SESSION_PRELOAD_BODIES, ToolGrant, type AgentTemplate, type AttachedSkill } from "@foundmill/agents";
 import { APP_NAME, CREDITS_CURRENCY, modelFundingFor, sandboxCostMicroMinor } from "@foundmill/config";
 import { AcceptanceResult, acceptanceLines, ALWAYS_LIVE_CONNECTORS, BUILTIN_CONNECTOR_FACTORIES, channelAvailabilityFacts, CONNECTOR_FACTORIES, firstChannelToOpen, resolveGrants, toolKeys, unmetAcceptanceLines, unusableConnectors, type AcceptanceResultT, type ToolUse } from "@foundmill/connectors";
 import { bookUsage, buildDestinationOf, checkPlatformCredits, closeApprovalItem, freeCapCheck, loadByokApiKey, MICRO_PER_MINOR, repos, signoffDecisionBlock, type Agent, type AgentVersion, type Approval, type Business, type Task } from "@foundmill/db";
@@ -264,11 +264,15 @@ export const FREE_PLAN_SWITCH_NOTE = "On the free plan this session stays on its
 /**
  * The model a free business's session runs on (WP-13; founder, Nov 16, 2026): the agent's own choice when it is one of
  * the free plan's two (Haiku 5.5 or GLM-5.3 Flash), else `FREE_SESSION_MODEL`. GLM needs Foundmill's Z.ai key; without it
- * the session runs on Haiku 5.5.
+ * the session runs on the agent's own model.
  */
-export function freeSessionModel(route: RouteKey, agentModel: RoutedModelKey, env: { FREE_SESSION_MODEL: "haiku" | "glm"; ZAI_API_KEY?: string }) {
+export function freeSessionModel(route: RouteKey, agentModel: RoutedModelKey, env: { FREE_SESSION_MODEL: "routed" | "haiku" | "glm"; ZAI_API_KEY?: string }) {
   const chosen = agentModel === "glm" || agentModel === "haiku" ? agentModel : env.FREE_SESSION_MODEL;
-  return chosen === "glm" && env.ZAI_API_KEY ? resolveModel(route, "glm") : resolveModel(route, undefined, { freePlan: true });
+  if (chosen === "glm" && env.ZAI_API_KEY) return resolveModel(route, "glm");
+  if (chosen === "haiku") return resolveModel(route, "haiku");
+  // `routed` (the default since WP-13 T8, Nov 17, 2026): the agent's own model, as a paid plan runs it. Haiku 5.5 leaked
+  // half of the planted instructions in the injection suites, so a free session no longer drops to it by default.
+  return resolveModel(route, agentModel);
 }
 
 const MODEL_KEY_OF_ID = new Map<string, RoutedModelKey>((Object.entries(MODELS) as [RoutedModelKey, string][]).map(([key, id]) => [id, key]));
@@ -806,10 +810,10 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       repos.agents.getSession(db, input.businessId, input.sessionId),
     ]);
     const [version, added] = await Promise.all([agent.currentVersionId ? repos.agents.getVersion(db, input.businessId, agent.currentVersionId) : null, repos.skills.listAddedForAgent(db, input.businessId, agent.id, agent.agentType)]);
-    // Skills the founder added from the library or files: their instructions follow the house rules and instructions.
-    // Skills that come with the role go first (the code agents' Design principles, item 13), then the founder's.
+    // The skills the agent carries (WP-06 T4): the role's first (the code agents' Design principles, item 13), then the
+    // founder's from the library or files, with library text from the catalog and stored uploads screened again.
     const template = templateForAgent(agent);
-    const skills: AgentSkillPrompt[] = [...roleSkillsFor(template.skills), ...added.filter((a) => a.instructionsMd.trim()).map((a) => ({ name: a.name, source: a.source, instructionsMd: a.instructionsMd }))];
+    const skills = attachedSkills(template.skills, added);
     return { agent, task, business, session, version, template, skills };
   }
 
@@ -1453,12 +1457,25 @@ async function runMockSession(deps: OrchestratorDeps, recorder: SessionRecorder,
 // Live runner (Claude Agent SDK)
 // ---------------------------------------------------------------------------------------------------------------------
 
+const READ_SKILL_REF = "platform:read_skill";
+
+/**
+ * A live session's system prompt (WP-06 T4). Every skill gets an index line; a session that holds `read_skill` (its
+ * resolved tool refs) loads one body up front and is told to read the rest, and one without it loads two and is told
+ * only those are loaded. The prefix through the Skills index does not depend on the task (`buildSystemPrompt`).
+ */
+export function sessionSystemPrompt(input: { business: { name: string; glossary: Record<string, string> }; instructions: AgentInstructions; description: string; briefText: string | null; skills: readonly AttachedSkill[]; task: Pick<Task, "kind" | "title" | "goalMd">; toolRefs: readonly string[] }): string {
+  const canRead = input.toolRefs.includes(READ_SKILL_REF) || input.toolRefs.includes("platform:*");
+  const skills = selectSkills({ skills: input.skills, task: { kind: input.task.kind, title: input.task.title, goal: input.task.goalMd ?? "" }, maxBodies: canRead ? SESSION_PRELOAD_BODIES : NO_TOOL_LOOP_PRELOAD_BODIES });
+  return buildSystemPrompt({ businessName: input.business.name, appName: APP_NAME, template: { instructions: input.instructions, description: input.description }, brief: input.briefText ?? undefined, glossary: input.business.glossary, skills, skillsCanRead: canRead });
+}
+
 interface LiveContext {
   business: { id: string; name: string; glossary: Record<string, string>; modelBilling: "byok" | "credits"; planTier: Business["planTier"]; isDemo: boolean };
   version: AgentVersion | null;
   template: AgentTemplate;
-  /** The agent's skills from the library or files (`buildSystemPrompt` renders them after the instructions). */
-  skills: AgentSkillPrompt[];
+  /** Every skill the agent carries, with its body (`sessionSystemPrompt` indexes them all and loads a few). */
+  skills: AttachedSkill[];
   briefText: string | null;
   resolveApiKey: (businessId: string, billing: "byok" | "credits", modelKey?: ModelKey) => Promise<{ apiKey: string | null; source: "byok" | "platform" | "none" }>;
   /** The sandbox's short-lived identifiers (`buildSandboxEnv`); the SDK process receives the same and nothing from the host. */
@@ -1627,7 +1644,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   // A share of a capped cycle under the floor pays for nothing that finishes (WP-05 T15): it does not start.
   if (typeof input.spendCapMinor === "number" && input.spendCapMinor < MIN_SESSION_CAP_MINOR) return { outcome: "blocked", reason: "model budget exhausted: what is left of Autopilot's own spend for today is too little for a session", blockedReason: "budget", approvalId: null, summary: UNDER_FLOOR_SUMMARY, providerSessionId: null };
   // Everything that can fail without a workspace runs before one exists (no restored code left on disk, no token).
-  const systemPrompt = buildSystemPrompt({ businessName: live.business.name, appName: APP_NAME, template: { instructions: instructionsFor(live.version, live.template), description: live.template.description }, brief: live.briefText ?? undefined, glossary: live.business.glossary, skills: live.skills });
+  const systemPrompt = sessionSystemPrompt({ business: live.business, instructions: instructionsFor(live.version, live.template), description: live.template.description, briefText: live.briefText, skills: live.skills, task, toolRefs: grants.toolRefs });
   if (!hasClubRulesPrefix(systemPrompt)) throw new Error("house rules missing from the system prompt");
   const policy = sdkToolPolicyFor(task.kind, grants.mcpTools);
   const sdk = await import("@anthropic-ai/claude-agent-sdk");

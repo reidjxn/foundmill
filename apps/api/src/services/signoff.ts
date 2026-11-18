@@ -375,7 +375,7 @@ export async function decidePlanNote(ctx: BusinessContext, item: InboxItem, inpu
  */
 export function changesRequestedBody(voiceName: string, words: { the: string; tab: string }, notes: string, revision: SignoffResult["revision"]): string {
   const quoted = `Noted: “${clipWords(notes, 40)}”.`;
-  const now = revision?.started ? `${voiceName} is revising ${words.the} now; you are asked to sign off the new version when it is ready, and nothing else is built until you approve it.` : `${voiceName} revises ${words.the} first thing next cycle${revision?.reason ? ` (it could not start right away: ${revision.reason.replace(/\.$/, "")})` : ""}; press Continue to start it now. You are asked to sign off the new version when it is ready, and nothing else is built until you approve it.`;
+  const now = revision?.started ? `${voiceName} is revising ${words.the} now; you are asked to sign off the new version when it is ready, and nothing else is built until you approve it.` : `${voiceName} revises ${words.the} first thing next round of work${revision?.reason ? ` (it could not start right away: ${revision.reason.replace(/\.$/, "")})` : ""}; press Continue to start it now. You are asked to sign off the new version when it is ready, and nothing else is built until you approve it.`;
   return `${quoted} ${now} You can also edit it yourself on the ${words.tab} tab and approve it there.`;
 }
 

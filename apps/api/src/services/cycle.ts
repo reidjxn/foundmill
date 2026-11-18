@@ -27,7 +27,7 @@ import { audit, emit } from "../trpc";
 import { maskFinance } from "./inbox-redaction";
 import { alreadyRunningSummary, orchestratorUnreachableSummary, resumedSummary, startedSummary, type ContinueSummary } from "./continue-summary";
 import { redispatchPlans } from "./plans";
-import { assertAgentsRunning } from "./stop-guard";
+import { AgentsStoppedError, assertAgentsRunning } from "./stop-guard";
 import { SIGNALS, WORKFLOWS, workflowIds, type TemporalResult } from "./temporal";
 
 export const CYCLE_OUTCOMES = ["completed", "time_box", "waiting", "stopped", "failed"] as const;
@@ -87,6 +87,8 @@ export const PAUSE_ACTION = "business.pause_cycle";
 export const RESUME_ACTION = "business.resume_cycle";
 /** Audit actions that record a cycle workflow being started on Temporal: the founder's press, and the first cycle at Commit. */
 export const CONTINUE_ACTION = "business.continue";
+/** A press of Continue that was refused (WP-14 T12): the nightly numbers read it to see whether a first press worked. */
+export const CONTINUE_REFUSED_ACTION = "business.continue_refused";
 export const QUEUE_ACTION = "cycle.queue";
 /** A run started for a cycle already open (a resume, a press while one runs) and a run's end written here. */
 export const RUN_START_ACTION = "cycle.run_start";
@@ -290,6 +292,16 @@ export class ContinueBlockedError extends AppError {
 }
 
 /**
+ * The record of a refused press (WP-14 T12): one audit row, so `repos.metrics` can tell a first press that worked from
+ * one that did not. It never changes the refusal: a failed write is logged and the press is refused as before.
+ */
+async function noteRefusedPress(ctx: BusinessContext, reason: "stopped" | "vacation" | "blocked"): Promise<void> {
+  await ctx
+    .rls((tx) => audit(tx, ctx, { action: CONTINUE_REFUSED_ACTION, target: { kind: "business", id: ctx.businessId }, details: { reason } }))
+    .catch((err: unknown) => ctx.log.warn({ err: (err as Error).message }, "refused press not recorded"));
+}
+
+/**
  * One press of Continue. Refuses while the team is stopped (Stop all agents, a revoked key, used-up credits: no cycle,
  * and no Chief of Staff plan to pay for, until an owner or admin resumes it), blocked or on vacation; resumes a paused
  * cycle; otherwise starts the next one. A cycle that is already queued or planning answers `already_running` (no second
@@ -304,11 +316,20 @@ export async function startCycle(ctx: BusinessContext): Promise<StartCycleResult
   // the status was read three times, one after another). A stopped team is still refused first.
   const first = cycleStatus(ctx);
   const [stop, ready] = await Promise.allSettled([assertAgentsRunning(ctx, "the next round of work"), Promise.all([continueStateFor(ctx, first), first])]);
-  if (stop.status === "rejected") throw stop.reason;
+  if (stop.status === "rejected") {
+    if (stop.reason instanceof AgentsStoppedError) await noteRefusedPress(ctx, "stopped");
+    throw stop.reason;
+  }
   if (ready.status === "rejected") throw ready.reason;
   const [before, read] = ready.value;
-  if (before.kind === "holiday") throw new ContinueBlockedError("The Chief of Staff is running the business while you are away. End the vacation to take over.", { continueState: before });
-  if (before.kind === "blocked") throw new ContinueBlockedError(`${before.count} thing${before.count === 1 ? " needs" : "s need"} you before the team can work: open the Inbox's Needs you tab.`, { continueState: before });
+  if (before.kind === "holiday") {
+    await noteRefusedPress(ctx, "vacation");
+    throw new ContinueBlockedError("The Chief of Staff is running the business while you are away. End the vacation to take over.", { continueState: before });
+  }
+  if (before.kind === "blocked") {
+    await noteRefusedPress(ctx, "blocked");
+    throw new ContinueBlockedError(`${before.count} thing${before.count === 1 ? " needs" : "s need"} you before the team can work: open the Inbox's Needs you tab.`, { continueState: before });
+  }
   // Neither a vacation nor a hard stop comes after this point: the cycle's own state.
   const continueStateAfter = (s: CycleStatus): ContinueState => cycleContinueState(s);
 

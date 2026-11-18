@@ -13,13 +13,13 @@ import { describe, expect, it } from "vitest";
 type Why = "person" | "signed_out" | "service_written" | "mixed";
 
 export const SERVICE_CONNECTION_ROUTERS: Readonly<Record<string, { lines: number; why: Why; note: string }>> = {
-  "live.ts": { lines: 61, why: "person", note: "live social: a person's own posts, follows and messages across projects; no business procedure" },
-  "idea.ts": { lines: 26, why: "person", note: "ideas before they become a project, owned by the person" },
-  "founder.ts": { lines: 15, why: "mixed", note: "mostly the person's own profile and preferences; two public procedures" },
+  "live.ts": { lines: 63, why: "person", note: "live social: a person's own posts, follows and messages across projects, Find people and the person page; no business procedure" },
+  "idea.ts": { lines: 27, why: "person", note: "ideas before they become a project, owned by the person; idea.commit saves the person's own time and place to their profile (WP-14 T2)" },
+  "founder.ts": { lines: 16, why: "mixed", note: "mostly the person's own profile and preferences; two public procedures; a profile save re-rates Founder fit on the person's own ideas (WP-14 T2)" },
   "email.ts": { lines: 15, why: "signed_out", note: "one-click answers and cancel links from an email: the hashed token is the credential" },
   "business.ts": { lines: 14, why: "mixed", note: "creating and listing projects (person), the example project, vacation and the journey refresh" },
   "agent.ts": { lines: 14, why: "mixed", note: "agent and skill reads and transactions after the procedure's membership check" },
-  "integrations.ts": { lines: 10, why: "mixed", note: "connect and health go through the gateway; credentials are service-only" },
+  "integrations.ts": { lines: 11, why: "mixed", note: "connect and health go through the gateway; credentials are service-only; connect reads the connection it replaces before the gateway rewrites it" },
   "import.ts": { lines: 9, why: "mixed", note: "imports run as protected procedures before and after a project exists" },
   "product.ts": { lines: 5, why: "mixed", note: "not classified line by line" },
   "distribution.ts": { lines: 5, why: "mixed", note: "not classified line by line" },
@@ -32,6 +32,7 @@ export const SERVICE_CONNECTION_ROUTERS: Readonly<Record<string, { lines: number
   "dev.ts": { lines: 1, why: "mixed", note: "development and test only" },
   "team-call.ts": { lines: 1, why: "mixed", note: "not classified line by line" },
   "people.ts": { lines: 1, why: "signed_out", note: "public person pages; public procedures only" },
+  "report.ts": { lines: 4, why: "person", note: "reports (service-role-only table) filed by a person, the operators' queue, and whether /u/<handle> shows Report" },
 };
 
 describe("the service connection in apps/api/src/routers", () => {

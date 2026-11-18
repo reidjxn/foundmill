@@ -180,12 +180,18 @@ export function toast(page: Page, title: string | RegExp): Locator {
 }
 
 /**
- * Answers the three questions a new account meets on /onboarding (WP-04 T1): the name, the "I am 18 or older" box when
- * it is asked, Continue. The caller waits for where it goes (`next`, else /new).
+ * Answers the first profile a new account meets on /onboarding (WP-04 T1; WP-14 T2): the name, how much time and
+ * where they live (both needed before a project starts; `about: false` leaves them unanswered, for the spec that
+ * checks Commit asks), the "I am 18 or older" box when it is asked, Continue. The caller waits for where it goes
+ * (`next`, else /new). The place is the United States so the profile keeps US dollars, as before these were asked.
  */
-export async function answerFirstProfile(page: Page, name: string): Promise<void> {
+export async function answerFirstProfile(page: Page, name: string, opts: { about?: boolean } = {}): Promise<void> {
   await expect(page.getByTestId("first-profile")).toBeVisible({ timeout: LONG });
   await page.getByLabel(/What should your team call you/).fill(name);
+  if (opts.about !== false) {
+    await page.getByTestId("first-profile").getByRole("radio", { name: /^Full time/ }).check();
+    await page.getByLabel(/Where do you live/).fill("United States");
+  }
   await confirmAdultOnForm(page);
   await page.getByTestId("first-profile-submit").click();
 }
@@ -215,6 +221,11 @@ export async function completeProfile(page: Page): Promise<void> {
   await page.getByTestId("profile-submit-bottom").click();
   await expect(page).toHaveURL(/\/new$/, { timeout: LONG });
   await expect(page.getByTestId("doors")).toBeVisible();
+  // A first-time founder's new profile starts with named agents on (WP-14 T6). The dev founder is shared by every
+  // spec, and they read agents by role: the switch goes back off here, once, as global-setup does for the tours.
+  // anthropomorphic-agents.spec.ts turns it on for its own checks and restores it.
+  const off = await page.request.post(`${API_URL}/trpc/founder.preferences.update`, { headers: { authorization: "Bearer dev" }, data: { json: { anthropomorphicAgents: false } } });
+  expect(off.ok(), `founder.preferences.update answered ${off.status()}`).toBe(true);
 }
 
 /**

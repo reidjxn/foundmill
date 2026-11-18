@@ -11,6 +11,7 @@ The design system: `tokens.css`, `fonts.css`, `dugout.css`, every UI component, 
 - Client boundaries: a module that needs the browser opens with `"use client"`, file by file, never on a barrel; server-safe files are listed in `SERVER_SAFE_FILES` (`src/clientBoundaries.test.ts`).
 - Dates through `useFormatters()` / `bindFormatters(prefs)` (ARCHITECTURE §20); never spell a day-first, ISO or 24-hour pattern outside `src/lib/date-preferences.ts`. A component whose dates follow the choice gets a test in a second format and keeps its US story.
 - Copy is US English, plain words, no football terms; entity mentions render through `<EntityLink>`.
+- **Estimates (founder, Nov 17, 2026; DESIGN §8 and §10):** a number that was not measured is passed as the children of `<ProvenanceChip kind="estimate" | "forecast">`, which draws it in the one estimate style and names the word for hover, focus and screen readers. `<ProvenanceChip kind />` with no children shows the word, for a chart, a panel or a sentence. `AppShell` shows the legend line (`EstimateLegend`) under any screen that holds one; a screen outside the shell renders `<EstimateLegend />` once. Never draw a second label beside a styled figure.
 - No third-party game's names, art, skins, fonts or icons (the brands listed in the root CLAUDE.md "Never"): reproduce the layout grammar only.
 
 ## Read when needed

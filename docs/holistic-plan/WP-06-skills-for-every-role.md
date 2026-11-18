@@ -200,7 +200,7 @@ export interface LibrarySkill {
 
 **Tests and evals:** step 1 and 5; `evals/src/skills/cases.ts` gains one placement case for a moved skill (`skills.prompt.library_project_page_copy`, Product Lead, must contain "The button says what the reader gets"). **Done when:** Done-when 1 and 2 for all 83. **Does not cover:** that a skill helps (T8); skills in use (T4, T6).
 
-### T4: Skill index, `selectSkills`, `read_skill`; new limits   [L] [ships alone, after WP-05's open session.ts task]
+### [x] T4: Skill index, `selectSkills`, `read_skill`; new limits   [L] [ships alone, after WP-05's open session.ts task]
 
 **Why:** AR-10 (design A), a3b §6c, TS-11 (the accidental update), TS-19, planner's decision 2.
 
@@ -507,6 +507,16 @@ To the same authoring spec (`packages/agents/skills/README.md`), each with `impr
 - **A cap on `read_skill` calls per session**: the tool is read-only and the session's turn limit bounds it.
 - **A model-backed agent builder and a wired Coach** (TS-08, BUILD §11.13, §12.6): T12 makes the copy true; the feature waits for evidence that founders hire beyond the starting team.
 - **TS-16 items, TS-18, TS-20, TS-21**: unused schedules and platform catalog drift (WP-11 hygiene), the "I want to…" catalog view (WP-10), stage in every brief and the house rules' reasons (WP-05, WP-04).
+
+### T13: Coding agents start with Ponytail and Caveman   [M] [ships alone; after T6]
+Why: founder, Nov 18, 2026: every coding agent in Foundmill comes with these two skills, to lower token use.
+Files: `packages/agents/skills/engineering/` (two new skills and `THIRD_PARTY_NOTICES.md` there), the default-skills list T6 builds, one eval.
+Steps:
+1. Add `ponytail` and `caveman` to the library under engineering, adapted to the authoring spec, with their licenses recorded (MIT; Apache-2.0 and MIT). Sources: `.claude/skills/ponytail`, `.claude/skills/caveman`.
+2. Every agent whose role writes code gets both by default at hire, at commit and by backfill (T6's mechanism; no second one).
+3. Caveman applies to an agent's working turns only. Anything a founder or an outside person reads (notes, reports, pull request text, commit messages, email, the public page) stays in plain full sentences: state this in the skill's body and check it in the eval.
+4. Eval: the same coding task with and without the two skills. Record output tokens and the acceptance result for each. Default-on ships only if tokens fall and acceptance does not; otherwise report the numbers and stop.
+Done when: a newly hired coding agent lists both skills, the eval shows the saving with acceptance unchanged, and no founder-facing text is compressed.
 
 ## Corrections to the audits
 

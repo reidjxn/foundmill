@@ -210,7 +210,7 @@ test.describe("agent profile", () => {
     const craft = skills.locator("[data-skill=component_craft]");
     const releaseNotes = skills.locator("[data-skill=library_release_notes]");
     await expect(craft).toBeVisible({ timeout: LONG });
-    await expect(releaseNotes).toContainText("Untested");
+    await expect(releaseNotes).toContainText("Not tested yet");
     const before = Number((await craft.locator("[data-rating-figure]").first().textContent())?.trim());
     expect(before, "the seed rates the skill at the template's baseline").toBeGreaterThan(0);
 
@@ -223,7 +223,7 @@ test.describe("agent profile", () => {
       await expect(results).toBeVisible({ timeout: LONG });
       const untested = results.locator("[data-skill=library_release_notes]");
       await expect(untested).toContainText("Release notes");
-      await expect(untested).toContainText("No tests yet");
+      await expect(untested).toContainText("Not tested yet");
       await expect(results.locator("[data-skill=component_craft]")).toContainText("up 3");
       expect(await results.innerText(), "skills read as words, never keys").not.toMatch(/library_|_craft/);
       await results.getByRole("button", { name: /^Promote v\d+$/ }).click();
@@ -236,7 +236,7 @@ test.describe("agent profile", () => {
     await expect(craft).toBeVisible({ timeout: LONG });
     await expect(craft.locator("[data-rating-figure]").first()).toHaveText(String(before + 3), { timeout: LONG });
     await expect(craft.locator("[data-skill-delta]")).toContainText("3");
-    await expect(releaseNotes).toContainText("Untested");
+    await expect(releaseNotes).toContainText("Not tested yet");
     await expect(releaseNotes.locator("[data-rating-figure]").first()).toHaveText(String(before));
   });
 
@@ -405,5 +405,28 @@ test.describe("agent profile", () => {
     const first = grid.locator("[data-skill]").first();
     await expect(first.locator("[data-rating-figure]")).toHaveText(/^\d{1,2}$/);
     await expect(first.locator("[data-skill-band]")).toHaveAttribute("data-skill-band", /^(Poor|Average|Good|Excellent)$/);
+  });
+  test("from Overview, a library skill is added in at most three presses (WP-10 T8)", async ({ page }) => {
+    await openSquadAgent(page);
+    const added = page.getByTestId("added-skills");
+    await expect(added).toContainText(/Skills .+ has learned/, { timeout: LONG });
+    const before = await added.locator("[data-chosen-skill]").count();
+    // 1: Add a skill.
+    await added.getByTestId("add-library-skill").click();
+    const library = page.getByTestId("skill-library-dialog");
+    await expect(library.locator("[data-skill-count]")).toHaveText(/^\d+ skills?$/, { timeout: LONG });
+    // 2: tick one that can be added.
+    const box = library.locator("[data-skill-card][data-state=available] [role=checkbox]").first();
+    const key = await box.locator("xpath=ancestor::*[@data-skill-card][1]").getAttribute("data-skill-card");
+    await box.click();
+    // 3: Add 1 skill.
+    await library.getByTestId("skill-library-add").click();
+    await expect(library).toBeHidden({ timeout: LONG });
+    await expect(added.locator("[data-chosen-skill]")).toHaveCount(before + 1, { timeout: LONG });
+    await expect(page.getByText(/will use it from the next task\. Not tested yet\./).first()).toBeVisible();
+    // Put it back, so the seeded agent stays as the other tests expect.
+    const row = added.locator(`[data-chosen-skill="library_${key}"]`);
+    await row.getByRole("button", { name: /^Remove / }).click();
+    await expect(added.locator("[data-chosen-skill]")).toHaveCount(before, { timeout: LONG });
   });
 });

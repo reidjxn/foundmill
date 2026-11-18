@@ -2,7 +2,7 @@ import { buildMockConnector } from "../../define";
 import { MOCK_NOW, mockHealth, mockIntegrationRecord, perBusiness, stableHash } from "../../mock-utils";
 import { makeWebhookRequest, ReplayGuard } from "../../webhooks";
 import { MOCK_NOW_UNIX, MOCK_STRIPE_ACCOUNT_ID, MOCK_STRIPE_WEBHOOK_SECRET, ST_ACCOUNT, ST_CHECKOUT_PAID, ST_CUSTOMERS, ST_INVOICES, ST_PAYOUTS, ST_TRIAL_SUBSCRIPTION } from "./fixtures/stripe";
-import { mapAccount, mapBalance, mapCharge, mapCheckoutSession, mapCustomer, mapInvoice, mapPayout, STRIPE_KEY, STRIPE_RATE_LIMITS, stripeTools, type StCharge, type StCheckoutSession, type StCustomer, type StEvent, type StInvoice } from "./tools";
+import { mapAccount, mapBalance, mapCharge, mapCheckoutSession, mapCustomer, mapInvoice, mapPayout, STRIPE_AUTH, STRIPE_KEY, STRIPE_RATE_LIMITS, stripeTools, type StCharge, type StCheckoutSession, type StCustomer, type StEvent, type StInvoice } from "./tools";
 import { createStripeWebhook, normaliseStripeEvent, STRIPE_SIGNATURE_HEADER, stripeSignatureHeader } from "./webhooks";
 
 const notFound = (what: string) => Object.assign(new Error(`No such ${what}`), { status: 404 });
@@ -36,7 +36,7 @@ export function createStripeMock() {
     key: STRIPE_KEY,
     displayName: "Stripe",
     phase: 2,
-    auth: { kind: "oauth", scopes: ["read_write"], platformKey: true },
+    auth: STRIPE_AUTH,
     tools: stripeTools,
     rateLimits: STRIPE_RATE_LIMITS,
     now: () => MOCK_NOW,

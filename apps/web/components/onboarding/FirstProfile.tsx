@@ -1,33 +1,39 @@
 "use client";
 /**
- * The three questions (WP-04 T1): what a new account answers after keeping a card, on any screen from 390 px. What
- * the team should call you (prefilled from the email), what you are good at or enjoy (optional tags), and what you are
- * here for (`LOOKING_FOR_QUESTION`; "Building on my own" by default, people one answer among the others), then the one
- * "I am 18 or older" box. Two required inputs: the name and the box.
+ * The first profile (WP-04 T1; WP-14 T2): what a new account answers after keeping a card, on any screen from 390 px.
+ * What the team should call you (prefilled from the email), what you are good at or enjoy (optional tags; the five
+ * suggestions set the quick skill ratings, `quickSkillRatings`), how much time you can give and where you live (both
+ * optional here and required before a person starts a project: Commit asks whoever has not answered; founder's answer
+ * A5, 2026-11-17), and what you are here for (`LOOKING_FOR_QUESTION`; "Building on my own" by default, people one
+ * answer among the others), then the one "I am 18 or older" box. Two required inputs: the name and the box.
  *
- * Continue creates the profile with `founder.profile.update({ displayName, confirmAdult?, via? })` (the create branch
- * fills the rest). When the person gave either optional answer, `founder.publicProfile.update` saves those two (the
- * public profile stays private) with the rest of its content as it was; a failure there is logged and never holds the
- * person up. Then on to `next` (`onboardingNext`: the kept card's Commit), else /new (an edit: `/`). No toast: the
- * next screen is the answer.
+ * Continue creates the profile with `founder.profile.update({ displayName, skills, timeCommitment?, residence?,
+ * currency?, confirmAdult?, via? })` (the create branch fills the rest). The quick ratings are the person's stated
+ * answers at lower precision; they are sent only while the long profile has not been saved (`fitBasisOf`), so they
+ * never replace ratings the person set one by one. The currency follows where they live on the save that creates the
+ * profile only. When the person gave tags or an answer to "here for", `founder.publicProfile.update` saves those two
+ * (the public profile stays private) with the rest of its content as it was; a failure there is logged and never
+ * holds the person up. Then on to `next` (`onboardingNext`: the kept card's Commit), else /new (an edit: `/`). No
+ * toast: the next screen is the answer.
  *
- * Also the profile on a phone for an account that has one (`profile`): the three questions prefilled, from the
+ * Also the profile on a phone for an account that has one (`profile`): the same questions prefilled, from the
  * profile and the public profile; the long form stays for a computer.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { FIRST_PROFILE_STRENGTHS, FirstProfileForm, SkeletonText, useToast, type FirstProfileValues } from "@foundmill/dugout";
+import { fitBasisOf, quickSkillRatings } from "@foundmill/config";
 import { LOOKING_FOR_OPTIONS, LOOKING_FOR_QUESTION, PERSON_TAGS_MAX, PERSON_TAG_MAX, type PersonLookingFor, type PersonProfileContent } from "@foundmill/shared/person-profile";
 import { StudioFrame } from "@/components/new/StudioFrame";
 import { forgetVia } from "@/app/onboarding/actions";
 import { isAdultUnconfirmed } from "@/lib/adult";
 import { errorMessage, trpcPathPrefix, validationIssues } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
-import { displayNameFromEmail, profileSaveMessage } from "./profile-form";
+import { COUNTRIES, TIME_OPTIONS, currencyForCountry, displayNameFromEmail, partialCountry, partialCountryMessage, profileSaveMessage } from "./profile-form";
 
 export { FIRST_PROFILE_STRENGTHS };
-export const FIRST_PROFILE_TITLE = "Three quick things about you";
+export const FIRST_PROFILE_TITLE = "Tell your team about you";
 export const FIRST_PROFILE_LEDE = "So your team works the way you do. You can change any of it later.";
 
 /** How long the first save waits for the attribution cookie to be cleared before it moves on without that. */
@@ -44,8 +50,8 @@ export interface FirstProfileProps {
   next?: string | null;
   /** Whether "I am 18 or older" is on record; the box is shown when it is not. */
   adultConfirmed: boolean;
-  /** An account that has a profile (editing on a phone): its name prefills the first question. */
-  profile?: { displayName: string } | null;
+  /** An account that has a profile (editing on a phone): its answers prefill the questions. */
+  profile?: { displayName: string; timeCommitment?: string | null; residence?: string | null; experience?: string | null } | null;
 }
 
 /** The two optional answers merged into the public profile's content, or null when neither changed from `base`. */
@@ -64,7 +70,7 @@ export function FirstProfile({ email, via = null, next = null, adultConfirmed, p
   const current = useQuery({ ...trpc.founder.publicProfile.get.queryOptions(undefined, { staleTime: 5_000 }), enabled: editing });
   /** What the public profile holds now: nothing for a new account; null while (or if) an edit could not read it. */
   const base: PersonProfileContent | null = editing ? (current.data?.content ?? null) : EMPTY_CONTENT;
-  const [values, setValues] = useState<FirstProfileValues>(() => ({ name: profile?.displayName ?? (email ? displayNameFromEmail(email) : ""), strengths: [], lookingFor: "on_my_own" }));
+  const [values, setValues] = useState<FirstProfileValues>(() => ({ name: profile?.displayName ?? (email ? displayNameFromEmail(email) : ""), strengths: [], lookingFor: "on_my_own", time: profile?.timeCommitment ?? "", place: profile?.residence ?? "" }));
   const [prefilled, setPrefilled] = useState(false);
   useEffect(() => {
     if (!editing || prefilled || !current.data) return;
@@ -80,11 +86,28 @@ export function FirstProfile({ email, via = null, next = null, adultConfirmed, p
   const saveProfile = useMutation(trpc.founder.profile.update.mutationOptions());
   const savePublic = useMutation(trpc.founder.publicProfile.update.mutationOptions());
 
+  const partialPlace = partialCountry(values.place);
+  const placeError = partialPlace.length ? partialCountryMessage(partialPlace) : undefined;
+
   async function submit(v: FirstProfileValues & { confirmAdult: boolean }) {
     setBusy(true);
     setError(null);
+    // The currency follows where the person lives when the profile is created; a later edit leaves it as they set it.
+    const currency = editing ? null : currencyForCountry(v.place);
+    // An edit sends them only when the tags changed, so an untouched answer never rewrites the ratings.
+    const tagsChanged = !base || v.strengths.length !== base.strengths.length || v.strengths.some((t, i) => t !== base.strengths[i]);
+    const quickRatings = fitBasisOf(profile) === "quick" && (!editing || tagsChanged);
     try {
-      await saveProfile.mutateAsync({ displayName: v.name, ...(v.confirmAdult ? { confirmAdult: true as const } : {}), ...(handOver ? { via: handOver } : {}) });
+      await saveProfile.mutateAsync({
+        displayName: v.name,
+        // The quick ratings stand until the long profile is saved; after that the person's own ratings are kept.
+        ...(quickRatings ? { skills: quickSkillRatings(v.strengths) } : {}),
+        ...(v.time ? { timeCommitment: v.time } : {}),
+        ...(v.place ? { residence: v.place } : {}),
+        ...(currency ? { currency } : {}),
+        ...(v.confirmAdult ? { confirmAdult: true as const } : {}),
+        ...(handOver ? { via: handOver } : {}),
+      });
     } catch (err) {
       if (isAdultUnconfirmed(err)) setServerAsked(true);
       const message = profileSaveMessage(validationIssues(err), errorMessage(err));
@@ -121,6 +144,9 @@ export function FirstProfile({ email, via = null, next = null, adultConfirmed, p
           strengthSuggestions={FIRST_PROFILE_STRENGTHS}
           lookingForQuestion={LOOKING_FOR_QUESTION}
           lookingForOptions={LOOKING_FOR_OPTIONS}
+          timeOptions={TIME_OPTIONS}
+          placeSuggestions={COUNTRIES}
+          placeError={placeError}
           maxTags={PERSON_TAGS_MAX}
           maxTagLength={PERSON_TAG_MAX}
           askAdult={askAdult}

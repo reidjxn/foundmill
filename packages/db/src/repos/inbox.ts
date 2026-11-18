@@ -8,7 +8,7 @@
  * options here, the one place every composed and templated note passes through.
  */
 import { LIMITS } from "@foundmill/config";
-import { DIGEST_SUBJECT, ENTITY_MARKUP_RE, EXHIBIT_KINDS, INBOX_ITEM_TYPES, INBOX_STATES, OptionAction, ValidationError, applyGlossary, dayKeyIn, digestBody, noteVerdict, type InboxItemType, type InboxState } from "@foundmill/shared";
+import { DIGEST_SUBJECT, EFFORT_EVENT_TYPES, EFFORT_STEP_EVENT_TYPES, ENTITY_MARKUP_RE, EXHIBIT_KINDS, INBOX_ITEM_TYPES, INBOX_STATES, OptionAction, ValidationError, applyGlossary, dayKeyIn, digestBody, effortCounts, effortSentence, noteVerdict, resultStepsLines, type InboxItemType, type InboxState } from "@foundmill/shared";
 import { and, asc, desc, eq, getTableColumns, gte, inArray, isNotNull, isNull, ne, notInArray, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { agents, businesses, composerBuffer, DECIDED_BY_KINDS, decisions, entities, events, inboxItemReads, inboxItems, memberships, plans, tasks, type ComposerBufferRow, type Decision, type InboxItem } from "../schema";
@@ -285,6 +285,9 @@ async function foldOf(db: Executor, businessId: string, v: ParsedComposerItem, b
  * (newest first). It is a Chief of Staff update, so it replaces the earlier digest and the welcome note
  * (`supersedeUpdates`). In the first week every archived plain update or report from another agent was folded: none
  * reaches the Inbox to be archived by hand or superseded.
+ *
+ * It shows the work too (WP-14 T5): the day's effort as counts of the events the services wrote (packages/shared
+ * effort.ts: nothing simulated, a zero left out), and the steps behind a result that took minutes.
  */
 async function writeDigest(db: Executor, businessId: string, fold: Fold): Promise<void> {
   const since = new Date(Math.max(fold.committedAt.getTime(), fold.now.getTime() - 26 * 60 * 60 * 1000));
@@ -308,7 +311,19 @@ async function writeDigest(db: Executor, businessId: string, fold: Fold): Promis
   const today = dayKeyIn(fold.now, fold.timeZone);
   const lines = rows.filter((n) => dayKeyIn(n.createdAt, fold.timeZone) === today);
   if (lines.length === 0) return;
-  await inboxRepo.createItem(db, businessId, { type: "update", from_agent_id: fold.chiefId, subject: DIGEST_SUBJECT, body_md: digestBody(lines), status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: null, blocks_continue: false, source_event_ids: [], entity_ids: [] });
+  const work = (
+    await db
+      .select({ type: events.type, occurredAt: events.occurredAt, actor: events.actor, payload: events.payload })
+      .from(events)
+      .where(and(eq(events.businessId, businessId), inArray(events.type, [...EFFORT_EVENT_TYPES, ...EFFORT_STEP_EVENT_TYPES]), gte(events.occurredAt, since)))
+      .orderBy(asc(events.occurredAt))
+      .limit(2000)
+  ).filter((e) => dayKeyIn(e.occurredAt, fold.timeZone) === today);
+  const doneIds = [...new Set(work.filter((e) => e.type === "task.completed").map((e) => String((e.payload as { taskId?: unknown }).taskId ?? "")))].filter((id) => /^[0-9a-f-]{36}$/i.test(id));
+  const titled = doneIds.length ? await db.select({ id: tasks.id, founderTitle: tasks.founderTitle }).from(tasks).where(and(eq(tasks.businessId, businessId), inArray(tasks.id, doneIds))) : [];
+  const titles = new Map(titled.flatMap((t) => (t.founderTitle?.trim() ? [[t.id, t.founderTitle.trim()] as const] : [])));
+  const digestWork = { effort: effortSentence(effortCounts(work, since, fold.now)), steps: resultStepsLines(work, since, fold.now, titles) };
+  await inboxRepo.createItem(db, businessId, { type: "update", from_agent_id: fold.chiefId, subject: DIGEST_SUBJECT, body_md: digestBody(lines, digestWork), status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: null, blocks_continue: false, source_event_ids: [], entity_ids: [] });
 }
 
 export const inboxRepo = {

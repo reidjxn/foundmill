@@ -387,7 +387,8 @@ export function autopilotView(d: AutopilotDecision): AutopilotView {
 }
 
 /**
- * The overnight shift (retention plan, founder 2026-11-11: "on by default with a small cap"): Commit turns Autopilot on
+ * The overnight shift (retention plan, founder 2026-11-11; off when Commit opens since 2026-11-17, founder's answer A4,
+ * WP-14 T11): when the founder turns it on, Commit turns Autopilot on
  * with the daily cadence at about 2 AM in the founder's time zone, so there is news every morning. The cap is one round
  * of work a night with a budget of $0.15 (an Estimate; about $4.50 a month, inside the free tier's $5): Autopilot's own limits (one cycle a day, its own spend ceiling,
  * which is also that cycle's budget), apart from Continue's (founder, 2026-11-12); every Autopilot guard rail still holds (used-up credits,

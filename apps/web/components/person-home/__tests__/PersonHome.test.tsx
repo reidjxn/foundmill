@@ -107,6 +107,8 @@ describe("PersonHome (package 2.4)", () => {
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Welcome, Maya");
     expect(screen.getByTestId("home-start-link").getAttribute("href")).toBe("/new");
     expect(screen.getByTestId("home-find-link").getAttribute("href")).toBe("/network");
+    // The person's own page is one link away from home (a9: it had none).
+    expect(screen.getByTestId("home-public-profile-link").getAttribute("href")).toBe("/public-profile");
     // Solo is complete: the offer says so, and nothing reads as a missing person.
     expect(screen.getByTestId("home-find").textContent).toMatch(
       /Only if you want to: you can do all of it on your own/,

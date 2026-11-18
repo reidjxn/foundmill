@@ -1,0 +1,53 @@
+# The platform suites as an account that is not on a paid plan runs them: every route on Haiku 5.5 (WP-13 T8,
+# EVAL_FREE_PLAN=1 in evals/src/harness.ts), the grader on its own model so the scores compare with a paid run.
+# It calls the Anthropic API on the repository secret ANTHROPIC_API_KEY and costs real money (Estimate: a few dollars a
+# run), so it runs only by hand, once per decision the founder asks for. Each suite is its own step, so one failure
+# shows which and the rest still run.
+name: Free-plan evals on Haiku 5.5 (live)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: evals-free-plan
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  free-plan-evals:
+    name: Platform suites on Haiku 5.5 (live model)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CI: true
+      APP_ENV: test
+      INTEGRATIONS_MODE: mock
+      MODEL_MODE: live
+      EVAL_FREE_PLAN: "1"
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      TURBO_TELEMETRY_DISABLED: 1
+      DO_NOT_TRACK: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Fail if the model key is missing (the suites would otherwise skip and look green)
+        run: test -n "$ANTHROPIC_API_KEY" || { echo "ANTHROPIC_API_KEY is not set for this repository"; exit 1; }
+      - name: Injection suites (gate 100%)
+        if: ${{ !cancelled() }}
+        run: pnpm --filter @foundmill/evals exec vitest run src/__tests__/injection.eval.test.ts src/__tests__/typed-reads.eval.test.ts --reporter=verbose
+      - name: Moderation
+        if: ${{ !cancelled() }}
+        run: pnpm --filter @foundmill/evals exec vitest run src/__tests__/moderation.eval.test.ts --reporter=verbose
+      - name: Ideation, foundations, logo and second read
+        if: ${{ !cancelled() }}
+        run: pnpm --filter @foundmill/evals exec vitest run src/__tests__/ideation.eval.test.ts src/__tests__/foundations.eval.test.ts src/__tests__/logo.eval.test.ts src/__tests__/second-read.eval.test.ts --reporter=verbose
+      - name: Conversation, goal proposal and the Inbox notes
+        if: ${{ !cancelled() }}
+        run: pnpm --filter @foundmill/evals exec vitest run src/__tests__/conversation.eval.test.ts src/__tests__/goal-proposal.eval.test.ts src/__tests__/composer.eval.test.ts --reporter=verbose

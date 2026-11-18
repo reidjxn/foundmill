@@ -1,15 +1,19 @@
 "use client";
 /**
- * FirstProfileForm: the three questions a new account answers after keeping a card (WP-04 T1), then the one "I am 18
- * or older" box and Continue. One column, from 390 px: every control is at least 44 px tall on a phone.
+ * FirstProfileForm: what a new account answers after keeping a card (WP-04 T1; WP-14 T2), then the one "I am 18 or
+ * older" box and Continue. One column, from 390 px: every control is at least 44 px tall on a phone.
  *
  *   1. What should your team call you? Required (the caller prefills it).
- *   2. What are you good at, or enjoy? Optional tags: type one and press Enter, or pick a suggestion.
- *   3. The "what are you here for" question with its answers (the caller passes them; the first is the default).
+ *   2. What are you good at, or enjoy? Optional tags: type one and press Enter, or pick a suggestion. The suggestions
+ *      set the quick skill ratings (the caller maps them); picking none starts neutral, and the hint says so.
+ *   3. How much time can you give? and Where do you live? Optional here; both are asked again, and required, before a
+ *      person starts a project (founder's answer A5, 2026-11-17).
+ *   4. The "what are you here for" question with its answers (the caller passes them; the first is the default).
  *
  * Pure: values in, `onChange` and `onSubmit` out; the screen saves. Continue checks the two required inputs (the name,
  * and the box when `askAdult`) and says what is missing under each instead of saving.
  */
+import { QUICK_PROFILE_TAGS } from "@foundmill/config";
 import { ArrowRight, Plus } from "lucide-react";
 import { useId, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { cn } from "../../lib/cn";
@@ -27,21 +31,29 @@ export const FIRST_PROFILE_WORDS = {
   namePlaceholder: "Your name",
   nameNeeded: "Tell the team what to call you.",
   strengths: "What are you good at, or enjoy?",
-  strengthsHint: "Optional. Pick any below, or type your own and press Enter.",
+  strengthsHint: "Optional. Pick any below, or type your own and press Enter. Pick none and your team starts from a neutral rating for each skill.",
   strengthsPlaceholder: "Add your own",
+  time: "How much time can you give?",
+  place: "Where do you live?",
+  placePlaceholder: "Country",
+  laterHint: "Your team needs this before you start a project. Answer now, or then.",
   adultHint: "You confirm this once.",
   adultNeeded: "Confirm that you are 18 or older to continue.",
   submit: "Continue",
 } as const;
 
-/** The six suggestions under "What are you good at, or enjoy?" (WP-04 T1). */
-export const FIRST_PROFILE_STRENGTHS = ["Design", "Writing", "Selling", "Organizing", "Building things", "Teaching"] as const;
+/** The five suggestions under "What are you good at, or enjoy?": one for each skill the profile rates (WP-14 T2). */
+export const FIRST_PROFILE_STRENGTHS: readonly string[] = QUICK_PROFILE_TAGS.map((t) => t.tag);
 
 export interface FirstProfileValues {
   name: string;
   strengths: string[];
   /** One of `lookingForOptions`' values. */
   lookingFor: string;
+  /** One of `timeOptions`' values; "" while unanswered. */
+  time: string;
+  /** Where the person lives, as typed; "" while unanswered. */
+  place: string;
 }
 
 export interface FirstProfileFormProps {
@@ -52,6 +64,12 @@ export interface FirstProfileFormProps {
   /** The third question and its answers. */
   lookingForQuestion: string;
   lookingForOptions: readonly { value: string; label: string }[];
+  /** The answers to "How much time can you give?". */
+  timeOptions: readonly { value: string; label: string; description?: string }[];
+  /** Countries offered as the person types where they live (free text is accepted too). */
+  placeSuggestions?: readonly string[];
+  /** What is wrong with the place as typed (a country picked only part of the way); Continue waits while it is set. */
+  placeError?: string;
   /** The most tags, and the longest a tag can be. */
   maxTags: number;
   maxTagLength: number;
@@ -79,6 +97,9 @@ export function FirstProfileForm({
   strengthSuggestions,
   lookingForQuestion,
   lookingForOptions,
+  timeOptions,
+  placeSuggestions = [],
+  placeError,
   maxTags,
   maxTagLength,
   askAdult,
@@ -115,8 +136,8 @@ export function FirstProfileForm({
   function submit(e: FormEvent) {
     e.preventDefault();
     setTouched(true);
-    if (!values.name.trim() || (askAdult && !adult)) return;
-    onSubmit({ ...values, name: values.name.trim(), confirmAdult: askAdult && adult });
+    if (!values.name.trim() || (askAdult && !adult) || placeError) return;
+    onSubmit({ ...values, name: values.name.trim(), place: values.place.trim(), confirmAdult: askAdult && adult });
   }
 
   return (
@@ -166,6 +187,33 @@ export function FirstProfileForm({
             </div>
           ) : null}
         </div>
+      </Field>
+
+      <Field htmlFor={`${id}-time`} label={FIRST_PROFILE_WORDS.time} hint={FIRST_PROFILE_WORDS.laterHint}>
+        <RadioGroup id={`${id}-time`} value={values.time} onValueChange={(v) => set("time", v)} aria-label={FIRST_PROFILE_WORDS.time} className="grid-cols-1 @page-wide:grid-cols-2">
+          {timeOptions.map((o) => (
+            <RadioCard key={o.value} id={`${id}-time-${o.value}`} value={o.value} label={o.label} description={o.description} className="min-h-tap" />
+          ))}
+        </RadioGroup>
+      </Field>
+
+      <Field htmlFor={`${id}-place`} label={FIRST_PROFILE_WORDS.place} hint={FIRST_PROFILE_WORDS.laterHint} error={touched ? placeError : undefined}>
+        <Input
+          id={`${id}-place`}
+          controlSize="xl"
+          value={values.place}
+          onChange={(e) => set("place", e.target.value)}
+          maxLength={80}
+          autoComplete="country-name"
+          list={`${id}-places`}
+          placeholder={FIRST_PROFILE_WORDS.placePlaceholder}
+          invalid={touched && Boolean(placeError)}
+        />
+        <datalist id={`${id}-places`}>
+          {placeSuggestions.map((c) => (
+            <option key={c} value={c} />
+          ))}
+        </datalist>
       </Field>
 
       <Field htmlFor={`${id}-looking`} label={lookingForQuestion}>

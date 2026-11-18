@@ -7,8 +7,8 @@ describe("the kept card (WP-02 T6, WP-04 T1)", () => {
     expect(CARD_KEPT_WORDS.lede).not.toMatch(/real sources|checks/);
   });
 
-  it("names the next step as the three questions, and says why in a sentence a first-timer can use", () => {
-    expect(CARD_KEPT_WORDS.profileNext).toBe("Three quick things about you");
+  it("names the next step as the first profile, and says why in a sentence a first-timer can use", () => {
+    expect(CARD_KEPT_WORDS.profileNext).toBe("Tell your team about you");
     expect(CARD_KEPT_WORDS.profileWhy).toBe("So your team knows what to call you and what you like doing. It takes under a minute.");
   });
 });

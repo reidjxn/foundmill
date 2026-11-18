@@ -221,7 +221,7 @@ test("WP-04 T1: a new account on a phone keeps a card, answers three questions a
     const ideaId = new URL(page.url()).pathname.split("/").pop()!;
     // The card's next step is the three questions, a link on a phone, with the card's Commit as where they go on to.
     const step = page.getByTestId("card-kept-next");
-    await expect(step).toHaveText("Three quick things about you");
+    await expect(step).toHaveText("Tell your team about you");
     await expect(step).toHaveAttribute("href", `/onboarding?next=/new/commit/${ideaId}`);
     await step.click();
     await expect(page.getByTestId("first-profile")).toBeVisible({ timeout: LONG });

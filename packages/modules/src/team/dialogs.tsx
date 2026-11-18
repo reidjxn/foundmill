@@ -129,7 +129,7 @@ export function HireDialog({ template, onOpenChange, departments, defaultDepartm
                   label: <Term id="wage_cap">Wage cap (USD)</Term>,
                   value: (
                     <span className="inline-flex items-center gap-1.5 tabular-nums">
-                      {formatMoney({ amountMinor: template.wageCapMinor, currency })}/mo <ProvenanceChip kind="estimate" />
+                      <ProvenanceChip kind="estimate">{formatMoney({ amountMinor: template.wageCapMinor, currency })}/mo</ProvenanceChip>
                     </span>
                   ),
                 },

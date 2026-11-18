@@ -24,7 +24,7 @@ export const FIRST_DAY_SENTENCE = "The team drafts; you sign off; then they buil
 export function HowItWorks() {
   return (
     <Section id="how">
-      <SectionHeading id="how" eyebrow="How it works" title="From an idea to a running business, one round of work at a time." lede="You do not manage prompts. You run a business: set the direction, approve what matters, and let the team carry the rest." />
+      <SectionHeading id="how" eyebrow="How it works" title="From an idea to a running business, one round of work at a time." />
       {/* Two by two: each step's product part keeps the width it has in the app (a concept card, the brand picker). */}
       <ol className="grid grid-cols-2 gap-10">
         <Step n="01" icon={Lightbulb} title="Shape the idea" text={
@@ -216,7 +216,7 @@ function FirstDay() {
             <p className="flex items-start gap-2 text-small text-secondary">
               <AvatarStack size={20} className="mt-px shrink-0" items={[{ name: product.name, agent: { seed: product.seed, dept } }, { name: chief.name, agent: { seed: chief.seed, dept: chief.dept } }]} />
               <span>
-                {product.name}, {product.role}, writes it from your idea and your profile. {chief.name}, Chief of Staff, plans the first round of work from the roadmap.
+                {product.name}, {product.role}, writes it from your idea and your profile. {chief.name}, Chief of Staff, plans the first cycle from the roadmap.
               </span>
             </p>
           </div>

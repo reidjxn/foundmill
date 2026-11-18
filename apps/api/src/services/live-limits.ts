@@ -15,9 +15,13 @@ export const LIVE_LIMITS = {
   requests: { limit: LIMITS.liveRequestsPerUserPerHour, windowMs: HOUR },
   requestsToOne: { limit: LIMITS.liveRequestsPerPairPerDay, windowMs: DAY },
   messages: { limit: LIMITS.liveMessagesPerUserPerMinute, windowMs: MINUTE },
+  messagesPerHour: { limit: LIMITS.liveMessagesPerUserPerHour, windowMs: HOUR },
   messagesInThread: { limit: LIMITS.liveMessagesPerThreadPerMinute, windowMs: MINUTE },
   postsPerMinute: { limit: LIMITS.livePostsPerUserPerMinute, windowMs: MINUTE },
   postsPerHour: { limit: LIMITS.livePostsPerUserPerHour, windowMs: HOUR },
+  communities: { limit: LIMITS.liveCommunitiesPerUserPerDay, windowMs: DAY },
+  invites: { limit: LIMITS.liveInvitesPerUserPerDay, windowMs: DAY },
+  reports: { limit: LIMITS.liveReportsPerUserPerHour, windowMs: HOUR },
 } as const;
 
 /** Spends one connection request from the person and from the pair, or throws TOO_MANY_REQUESTS. */
@@ -29,10 +33,19 @@ export async function takeConnectionRequest(limits: RateLimitStore, userId: stri
   await takeOrThrow(limits, "Connection request", entries);
 }
 
+/** People searches (Find people, the name search) a person may run in a minute: each one reads every public profile. */
+export const PEOPLE_SEARCHES_PER_MINUTE = 30;
+
+/** Spends one people search from the person (shared store, every api replica). */
+export async function takePeopleSearch(limits: RateLimitStore, userId: string): Promise<void> {
+  await takeOrThrow(limits, "Search", [{ key: `live:people-search:${userId}`, rule: { limit: PEOPLE_SEARCHES_PER_MINUTE, windowMs: MINUTE } }]);
+}
+
 /** Spends one message from the person and from the thread (or, for a first message, from the recipients). */
 export async function takeMessage(limits: RateLimitStore, userId: string, target: string): Promise<void> {
   const entries: LimitEntry[] = [
     { key: `live:message:${userId}`, rule: LIVE_LIMITS.messages },
+    { key: `live:message:${userId}:hour`, rule: LIVE_LIMITS.messagesPerHour },
     { key: `live:message:${userId}:${target}`, rule: LIVE_LIMITS.messagesInThread },
   ];
   await takeOrThrow(limits, "Message", entries);
@@ -45,4 +58,19 @@ export async function takePost(limits: RateLimitStore, userId: string): Promise<
     { key: `live:post:${userId}:hour`, rule: LIVE_LIMITS.postsPerHour },
   ];
   await takeOrThrow(limits, "Post", entries);
+}
+
+/** Spends one new community from the person's day. */
+export async function takeCommunity(limits: RateLimitStore, userId: string): Promise<void> {
+  await takeOrThrow(limits, "New community", [{ key: `live:community:${userId}`, rule: LIVE_LIMITS.communities }]);
+}
+
+/** Spends one community invitation from the person's day. */
+export async function takeCommunityInvite(limits: RateLimitStore, userId: string): Promise<void> {
+  await takeOrThrow(limits, "Invitation", [{ key: `live:invite:${userId}`, rule: LIVE_LIMITS.invites }]);
+}
+
+/** Spends one post report from the person's hour. */
+export async function takePostReport(limits: RateLimitStore, userId: string): Promise<void> {
+  await takeOrThrow(limits, "Report", [{ key: `live:report:${userId}`, rule: LIVE_LIMITS.reports }]);
 }

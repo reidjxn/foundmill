@@ -34,6 +34,19 @@ function shellProps(over: Partial<AppShellProps> = {}): AppShellProps {
 }
 
 describe("AppShell", () => {
+  it("carries the one estimate legend, under the content and outside it, hidden until the page holds an estimate (WP-14 T7)", () => {
+    render(<AppShell {...shellProps()} />);
+    const legends = document.querySelectorAll("[data-estimate-legend]");
+    expect(legends).toHaveLength(1);
+    const legend = legends[0] as HTMLElement;
+    expect(legend.textContent).toBe("Numbers in this style are your team's estimates. Everything else is measured.");
+    // In a footer landmark that CSS shows only while the page holds an estimate.
+    expect(legend.parentElement?.tagName).toBe("FOOTER");
+    expect(legend.parentElement?.className).toContain("est-legend-auto");
+    // Not inside the scrolling content, so it never changes a screen's own layout.
+    expect(screen.getByTestId("shell-content").contains(legend)).toBe(false);
+  });
+
   it("renders NeedsLargerWindow only, below 640 px", () => {
     render(<AppShell {...shellProps({ viewportWidth: 639 })} />);
     expect(screen.getByTestId("needs-larger-window")).toBeTruthy();

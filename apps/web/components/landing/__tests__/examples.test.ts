@@ -131,12 +131,12 @@ describe.each(EXAMPLE_IDS)("example business %s", (id) => {
     expect(orbitDepartments(business).map((d) => d.name)).toEqual(business.departments.map((d) => d.label));
   });
 
-  it("runs the hero deck: a decision first, then the customer the Customer Update is about", async () => {
+  it("runs the hero deck: first the customer the Customer Update is about (a win, WP-14 T10), then a decision", async () => {
     await load();
     const [first, second] = business.deck.outcomes;
-    expect(first?.kind).toBe("decision");
-    expect(second?.kind).toBe("win");
-    if (second?.kind === "win") expect(second.customer).toBe(business.customerUpdate.customer.name);
+    expect(first?.kind).toBe("win");
+    expect(second?.kind).toBe("decision");
+    if (first?.kind === "win") expect(first.customer).toBe(business.customerUpdate.customer.name);
     for (const o of business.deck.outcomes) {
       if (o.kind !== "decision") continue;
       expect(o.options.length).toBeGreaterThanOrEqual(2);

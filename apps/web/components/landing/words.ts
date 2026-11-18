@@ -70,6 +70,19 @@ export const VARIANT_WORDS: Record<LandingVariant, VariantWords> = {
     ideas: BUILDER_EXAMPLES,
     ways: ["sentence", "studio", "bring"],
   },
+  // Two more headlines for the first-timer, to be compared with the default once the site can measure (WP-14 T10).
+  calls: {
+    title: "You make the calls. Your team does the rest.",
+    lede: `Type your idea. A team of AI agents gives it a name, a pitch and ten honest ratings, ${FREE}.`,
+    label: "What do you want to make?",
+    ways: ["sentence", "studio", "bring"],
+  },
+  team: {
+    title: "The team you could never afford.",
+    lede: `A whole team of AI agents, working on your idea. Type it and they give it a name, a pitch and ten honest ratings, ${FREE}.`,
+    label: "What do you want to make?",
+    ways: ["sentence", "studio", "bring"],
+  },
 };
 
 export const LANDING_WORDS = {
@@ -94,6 +107,21 @@ export const LANDING_WORDS = {
     ledeClosed: "Keep it, and once your place opens the team drafts a page for it and plans what comes next.",
     /** [switch: signupOpen on] */
     ledeOpen: "Keep it, and the team drafts a page for it and plans what comes next.",
+    /**
+     * The lines under the idea box on `/` (WP-14 T10; founder's answers A1 and A6, Nov 17). `freeInvite` shows while
+     * sign-up is by invitation, when the entry plan costs nothing; on the day sign-up opens that plan becomes paid and
+     * `freeOpen` (true of the idea box at any stage) takes its place. No dollar figure here, and nothing that promises
+     * the product stays free. "card" in `freeInvite` is a payment card, the one place the page uses the word.
+     */
+    assure: {
+      /** [switch: signupOpen off] */
+      freeInvite: "Free to start · no card",
+      /** [switch: signupOpen on] */
+      freeOpen: "Shaping your first idea is free and needs no sign-up",
+      private: "Your idea stays private until you choose to share it",
+      safe: "Nothing spends, signs or files without you",
+      bigScreen: "Built for a big screen and your full attention",
+    },
     /** [switch: signupOpen off] */
     door: `${APP_NAME} lets new people in a few at a time. Signing in puts you on the list and keeps your idea for 90 days.`,
   },
@@ -191,10 +219,16 @@ export const LANDING_WORDS = {
     title: "You stay in charge",
     rules: "Your agents work inside house rules they cannot change. They never move money, sign anything, accept terms, file anything in your name, delete anything for good or change security settings.",
     yes: "Anything that reaches another person waits for your yes, unless you choose otherwise. One button stops every agent at once.",
+    /** WP-14 T10. The brief's line was "Every number we didn't measure says so."; this is the rule the product keeps today. */
+    honest: "Every number that is an estimate or a forecast is labeled as one.",
+  },
+  vacation: {
+    title: "Take a vacation.",
+    text: "Vacation mode: your Chief of Staff keeps things moving within the limits you set, and writes you a report for when you come back.",
   },
   cost: {
     title: "What it costs",
-    free: "Starting is free, the free plan does not expire, and you never enter payment details.",
+    free: "Starting is free and asks for no payment details.",
     allowance: `The free plan includes ${INCLUDED} of agent work a month for one project. If it runs out, your team pauses until the next month starts. Your page stays live and nothing you made is lost.`,
     people: `Your page's ${APP_NAME} address and every person you add are free on every plan.`,
   },

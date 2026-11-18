@@ -23,10 +23,14 @@ export const SKILL_DESCRIPTION_MIN = 20;
 export const SKILL_DESCRIPTION_MAX = 1024;
 /** A skill's instructions (about 5,000 words): long enough for a real skill, short enough to sit in every prompt. */
 export const SKILL_INSTRUCTIONS_MAX_CHARS = 20_000;
-/** Library and uploaded skills one agent may carry. */
-export const MAX_ADDED_SKILLS_PER_AGENT = 8;
-/** All of one agent's added skills together, so the Skills section stays a bounded part of every prompt. */
-export const ADDED_SKILLS_MAX_TOTAL_CHARS = 60_000;
+/**
+ * Library and uploaded skills one agent may carry (WP-06 T4; replaces the 2026-10-16 limit of 8). Each is one index
+ * line in every prompt and its body loads on demand (`read_skill`), so the bound is the index, not the bodies.
+ */
+export const MAX_SKILLS_PER_AGENT = LIMITS.skillsPerAgentMax;
+/** The skills index of one agent (`renderSkillIndex`), so the Skills section stays a bounded part of every prompt. */
+export const SKILL_INDEX_MAX_CHARS = 8_000;
+// SKILL_PRELOAD_MAX_CHARS (bodies loaded up front) lives in ./club-rules, which renders them; this file imports that one.
 /** Lines of the instructions shown in the preview before adding. */
 export const SKILL_PREVIEW_LINES = 8;
 
@@ -211,7 +215,7 @@ const HIDDEN_CHARS = /[\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEF
 const CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
 
 /** The section headers the runtime writes around an agent's instructions; a skill may not imitate them. */
-const RESERVED_HEADERS = /^#{1,6}\s*(house rules|your instructions|what you do|glossary|business brief|skills|training)\s*:?$/i;
+const RESERVED_HEADERS = /^#{1,6}\s*(house rules|your instructions|what you do|glossary|business brief|skills|skills loaded for this call|training)\s*:?$/i;
 
 /**
  * Prompt-injection phrasing: overrides, identity and delimiter spoofing, exfiltration and attempts to widen authority.

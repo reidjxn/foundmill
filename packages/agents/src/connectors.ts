@@ -99,6 +99,8 @@ export const PLATFORM_BASE_TOOLS: [string, ...string[]] = [
   "memory.search",
   // The team's documents in the code repository (default branch), so research and planning read the handover too.
   "docs.read",
+  // WP-06 T4: the agent's own skills, read in full on demand (the prompt carries their index).
+  "skills.read",
 ];
 
 /** Extra platform tools for leads: they create tasks and assign them (BUILD §9.9 "Leads assign; workers report"). */

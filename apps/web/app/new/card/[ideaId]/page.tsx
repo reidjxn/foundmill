@@ -1,9 +1,10 @@
 /**
  * /new/card/<ideaId> — the card a person kept from the landing page's idea box (founder, 2026-11-13; docs/IDEA_BOX.md):
  * where /start sends them right after sign-in, on any screen from 390 px. The card as it is in their deck; then the
- * next step: the three questions about them when the profile is missing (Founder fit is measured after), else building
+ * next step: the first profile's questions when the profile is missing (Founder fit is rated from them after), else building
  * it (Commit). Sharing a card publicly is the network work (`ideaShare.publish`); the page leaves it a slot until then.
  */
+import { fitBasisOf } from "@foundmill/config";
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { CardKeptView } from "@/components/new/card/CardKeptView";
@@ -36,6 +37,7 @@ export default async function KeptCardPage({ params }: Props) {
       ideaId={idea.id}
       viewer={{ email: result.viewer.email }}
       profileComplete={result.viewer.complete}
+      fitBasis={fitBasisOf(result.viewer.profile)}
       card={{
         name: idea.title,
         pitch: idea.pitch,
