@@ -31,7 +31,7 @@ vi.mock("@/components/shell/business-context", () => ({ useBusiness: () => ({ bu
 vi.mock("../shared", async (importOriginal) => ({ ...(await importOriginal<typeof SharedModule>()), useSettingsToast: () => ({ saved: vi.fn(), failed: vi.fn(), info: vi.fn() }) }));
 vi.mock("../SettingsScreen", () => ({ useInvalidateRouters: () => vi.fn(async () => undefined) }));
 
-import { IntegrationsTab, authWordFor, offersSignInAndKey } from "../IntegrationsTab";
+import { IntegrationsTab, authWordFor, connectedAccountLine, connectedTitle, offersSignInAndKey } from "../IntegrationsTab";
 
 const FIELDS = [{ name: "apiKey", label: "Restricted key", secret: true, required: true }, { name: "webhookSecret", label: "Payment signing secret", secret: true, required: false }];
 const stripe = (integ: unknown, live = true) => ({ key: "stripe", displayName: "Stripe", phase: 2, auth: { kind: "oauth", scopes: ["read_write"], platformKey: true, authorizationCode: true }, connectFields: FIELDS, tools: [{}, {}], simulations: [], live, available: true, integration: integ });
@@ -103,3 +103,30 @@ describe("Stripe: Sign in with Stripe, or an API key", () => {
     expect(connect).not.toHaveBeenCalled();
   });
 });
+
+describe("Stripe's own box, above the other connectors (founder, Nov 18, 2026)", () => {
+  it("shows Stripe once, in 'Accept payments with Stripe' above the Connectors list", async () => {
+    catalogue = [stripe(null), { key: "sendgrid", displayName: "SendGrid", phase: 1, auth: { kind: "api_key" }, connectFields: FIELDS.slice(0, 1), tools: [{}], simulations: [], live: true, available: true, integration: null }];
+    renderTab();
+    await row("stripe");
+    const box = document.querySelector('[data-testid="stripe-payments"]') as HTMLElement;
+    expect(box.textContent).toContain("Accept payments with Stripe");
+    expect(box.querySelector('[data-connector="stripe"]')).toBeTruthy();
+    expect(document.querySelectorAll('[data-connector="stripe"]')).toHaveLength(1);
+    const list = document.querySelector('[data-testid="connector-list"]') as HTMLElement;
+    expect(list.querySelector('[data-connector="stripe"]')).toBeNull();
+    expect(list.querySelector('[data-connector="sendgrid"]')).toBeTruthy();
+    expect(box.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
+describe("the toast after connecting names the vendor and the project", () => {
+  it("reads 'Connected Stripe to Foundmill', and drops an account line that only repeats the project's name", () => {
+    expect(connectedTitle("Stripe", "Foundmill")).toBe("Connected Stripe to Foundmill");
+    expect(connectedTitle("Notion", null)).toBe("Connected Notion");
+    expect(connectedAccountLine("foundmill", "Foundmill")).toBeUndefined();
+    expect(connectedAccountLine("Northwind HQ", "Foundmill")).toBe("Northwind HQ");
+    expect(connectedAccountLine(null, "Foundmill")).toBeUndefined();
+  });
+});
+
