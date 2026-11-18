@@ -15,6 +15,7 @@ import { useTRPC } from "@/lib/trpc-react";
 import { playSpeechOnce } from "@/components/calls/play-once";
 import { useBusiness, useBusinessCurrency } from "@/components/shell/business-context";
 import type { TabProps } from "./AgentProfileScreen";
+import { AddedSkillsPanel } from "./AddedSkillsPanel";
 import { autonomyFromAgent, currentVersion, departmentColour, developmentSeries, latestPromotedRun, parseInstructions, positionFits, toSkillRows, traitsFor, trainingSessionMarks, wageLabel, whatIDo } from "./logic";
 
 /** What the Skills panel is about, for its "About Skills" tip (InfoTip through Panel `help`; hidden with guidance off). */
@@ -64,7 +65,7 @@ export function AccentPanel({ businessId, agentId, released }: { businessId: str
   );
 }
 
-export function OverviewTab({ businessId, profile, currency }: TabProps) {
+export function OverviewTab({ businessId, profile, currency, refetch }: TabProps) {
   const { prefs: datePrefs } = useFormatters();
   const guided = useGuided();
   const business = useBusiness();
@@ -148,6 +149,7 @@ export function OverviewTab({ businessId, profile, currency }: TabProps) {
           <SkillGrid skills={skills} showPotential legend />
         </div>
       </Panel>
+      <AddedSkillsPanel businessId={businessId} profile={profile} onChanged={refetch} />
 
       <Panel title={<Term id="position_map">{POSITION_MAP_TITLE}</Term>} span={6} loading={catalogueQ.isLoading && !catalogueQ.data} empty={!catalogueQ.isLoading && roles.length === 0 ? { children: "The roles this agent could take appear once the template catalog loads." } : undefined} footer={POSITION_MAP_BASIS} data-testid="position-map">
         <PositionMap roles={roles} currentRoleId={agent.agentType} columns={2} />

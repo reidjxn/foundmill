@@ -132,36 +132,40 @@ export function SkillLibraryDialog({ open, onOpenChange, unavailable, remaining 
       <DialogContent size="lg" aria-describedby={`${id}-desc`} data-testid="skill-library-dialog">
         <DialogHeader>
           <DialogTitle>{agentName ? `Add skills to ${agentName}` : "Add skills from the library"}</DialogTitle>
-          <DialogDescription id={`${id}-desc`}>Each skill gives the agent how-to instructions for a kind of work, which it reads when a task calls for it. Skills never change its tools, how much it may do without asking you, or its spend caps.</DialogDescription>
+          <DialogDescription id={`${id}-desc`}>A skill is a short how-to your agent follows for one kind of work. Pick one to read it before you add it. Skills never change an agent&apos;s tools, spend limits or approvals.</DialogDescription>
         </DialogHeader>
-        <DialogBody className="flex max-h-[60vh] flex-col overflow-y-auto">
+        <DialogBody className="flex h-[60vh] min-h-0 flex-col">
           {library.isLoading && !library.data ? <p className="text-small text-secondary">Loading the library…</p> : null}
           <InlineError error={library.error} />
-          {/* The list stays mounted under the text, so the search and the choice are where they were on Back. */}
           {rows.length ? (
-            <div hidden={!!readingRow} className="flex min-h-0 flex-col">
-              <SkillLibraryList skills={rows} selected={selected} onToggle={(k) => setSelected((s) => (s.includes(k) ? s.filter((x) => x !== k) : [...s, k]))} unavailable={unavailable} max={Math.max(0, remaining)} onRead={setReading} />
-            </div>
-          ) : null}
-          {readingRow ? (
-            <SkillReader
-              name={readingRow.name}
-              instructionsMd={text.data?.key === readingRow.key ? text.data.instructionsMd : null}
-              version={readingRow.version}
-              attribution={readingRow.attribution}
-              requires={readingRow.requires}
-              notYetOnFoundmill={readingRow.notYetOnFoundmill}
-              loading={text.isLoading}
-              error={text.error ? "The skill's text did not load. Go back and try again." : null}
-              onBack={() => {
-                const key = readingRow.key;
-                setReading(null);
-                // Back where the person was: on the row's "Read the skill" button.
-                requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-read-skill="${key}"]`)?.focus());
-              }}
+            <SkillLibraryList
+              className="flex-1"
+              skills={rows}
+              selected={selected}
+              onToggle={(k) => setSelected((s) => (s.includes(k) ? s.filter((x) => x !== k) : [...s, k]))}
+              unavailable={unavailable}
+              max={Math.max(0, remaining)}
+              previewKey={reading}
+              onPreview={(k) => setReading((r) => (r === k ? null : k))}
+              preview={() =>
+                readingRow ? (
+                  <SkillReader
+                    name={readingRow.name}
+                    instructionsMd={text.data?.key === readingRow.key ? text.data.instructionsMd : null}
+                    version={readingRow.version}
+                    attribution={readingRow.attribution}
+                    requires={readingRow.requires}
+                    notYetOnFoundmill={readingRow.notYetOnFoundmill}
+                    attribute={readingRow.attribute}
+                    agentName={agentName}
+                    loading={text.isLoading}
+                    error={text.error ? "The skill's text did not load. Pick it again to retry." : null}
+                  />
+                ) : null
+              }
             />
           ) : null}
-          {remaining <= 0 ? <p className="mt-2 text-small text-status-warn">This agent already has {MAX_ADDED_SKILLS} skills from the library or files. Remove one to add another.</p> : null}
+          {remaining <= 0 ? <p className="mt-2 text-small text-status-warn">{`${agentName ?? "This agent"} has ${MAX_ADDED_SKILLS} skills. Remove one to add another.`}</p> : null}
           <InlineError error={error} className="mt-2" />
         </DialogBody>
         <DialogFooter>

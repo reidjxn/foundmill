@@ -101,21 +101,27 @@ describe("the hire dialog's Skills step", () => {
     const suggested = within(library).getByRole("region", { name: /Suggested for this agent/ });
     expect(within(suggested).getByText("Newsletter writing")).toBeTruthy();
     expect(within(suggested).getByText("Fits this role")).toBeTruthy();
-    expect(within(library).getByText("Better with Stripe, not connected")).toBeTruthy();
 
-    // Choose one, read another, come back: the choice is kept.
+    // It opens on the suggested skills (WP-10 T8); "All" shows the rest.
+    expect(within(library).getByRole("button", { name: /^Suggested/ }).getAttribute("aria-pressed")).toBe("true");
     await user.click(within(library).getByRole("checkbox", { name: /Newsletter writing/ }));
+    await user.click(within(library).getByRole("button", { name: /^All/ }));
+    expect(within(library).getByText("Better with Stripe, not connected")).toBeTruthy();
+    // Choosing a row shows what the skill says, beside the list: the choice and the list stay as they were.
     await user.click(within(library).getByRole("button", { name: "Read the skill: Pricing analysis" }));
     const reader = await within(library).findByRole("region", { name: "Pricing analysis" });
     expect(fake.inputs.get("team.skills.get")?.at(-1)).toEqual({ key: "pricing_analysis" });
     expect(await within(reader).findByRole("heading", { name: "Steps" })).toBeTruthy();
     expect(within(reader).getByText("margin").tagName).toBe("STRONG");
     expect(reader.querySelector("b")).toBeNull();
+    expect(within(reader).getByText(/^Adds to /)).toBeTruthy();
+    expect(within(reader).getByText("It never changes tools, spend limits or approvals.")).toBeTruthy();
     expect(within(reader).getByText("Adapted from marketing-skills:pricing under the MIT license.")).toBeTruthy();
-    await user.click(within(reader).getByRole("button", { name: "Back to the library" }));
-    expect(within(library).queryByRole("region", { name: "Pricing analysis" })).toBeNull();
-    await waitFor(() => expect(document.activeElement).toBe(within(library).getByRole("button", { name: "Read the skill: Pricing analysis" })));
+    expect(within(library).getByRole("checkbox", { name: /Pricing analysis/ })).toBeTruthy();
     expect((within(library).getByRole("checkbox", { name: /Newsletter writing/ }) as HTMLButtonElement).getAttribute("data-state")).toBe("checked");
+    // Pressing Read again closes the text.
+    await user.click(within(library).getByRole("button", { name: "Read the skill: Pricing analysis" }));
+    await waitFor(() => expect(within(library).queryByRole("region", { name: "Pricing analysis" })).toBeNull());
     expect(within(library).getByTestId("skill-library-add").textContent).toBe("Add 1 skill");
   });
 

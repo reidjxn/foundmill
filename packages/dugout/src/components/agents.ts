@@ -32,3 +32,4 @@ export * from "./agents/HierarchyChart";
 export * from "./agents/useLiveMockSessions";
 export * from "./agents/TeamOrbit";
 export * from "./agents/SkillPicker";
+export { SkillCard, NOT_TESTED_YET, type SkillCardProps, type SkillCardState } from "./agents/SkillCard";
