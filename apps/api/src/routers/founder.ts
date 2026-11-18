@@ -25,7 +25,7 @@
  */
 import { freeDisplayName, liveModeOpen } from "@foundmill/config";
 import { AccountPreferencesPatch, EmailPrefsPatch, RegisterDeviceInput, UnregisterDeviceInput, repos, withRls, FounderProfileInput, FounderProfilePatch, SaveTableViewsInput, TableViewsScope, type AccountPreferencesView, type Db, type DbTx, type GuidancePrefs, type NotificationPreferences } from "@foundmill/db";
-import { CONTINUE_PATH_MAX, FOUNDER_RETURN_VIA, GUIDANCE_OFF_SOURCES, isContinuePath, PAGE_SLUG_MAX, PERSON_ABOUT_MAX, PERSON_HEADLINE_MAX, PERSON_LOOKING_FOR, PERSON_PLACE_MAX, PERSON_TAGS_MAX, PERSON_TAG_MAX } from "@foundmill/shared";
+import { CONTINUE_PATH_MAX, FOUNDER_RETURN_VIA, GUIDANCE_OFF_SOURCES, founderExperienceFrom, isContinuePath, PAGE_SLUG_MAX, PERSON_ABOUT_MAX, PERSON_HEADLINE_MAX, PERSON_LOOKING_FOR, PERSON_PLACE_MAX, PERSON_TAGS_MAX, PERSON_TAG_MAX } from "@foundmill/shared";
 import { VIA_MAX_LENGTH } from "@foundmill/shared/via";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
@@ -67,6 +67,18 @@ export const EXPERIENCED_FOUNDER_EXPERIENCES: readonly string[] = ["exited", "op
 
 export function guidanceOffByDefault(experience: string | null | undefined): boolean {
   return typeof experience === "string" && EXPERIENCED_FOUNDER_EXPERIENCES.includes(experience.trim().toLowerCase());
+}
+
+/**
+ * Named agents ("Anthropomorphic agents", 0067) start on for a first-time founder (WP-14 T6; the brief's A9): the team
+ * reads as "Malik (Chief of Staff)", a first name with the position always beside it, from the first screen. Anyone
+ * whose profile says they have done this before (Exited, Operator, Domain expert) starts with it off, as everyone did
+ * before. A profile with no experience answer reads as a first-time founder, as everywhere else
+ * (`founderExperienceFrom`). Decided once, on the save that creates the profile; the switch is the person's after that
+ * (Settings › Preferences, Commit's More options), and accounts that existed before keep what they had.
+ */
+export function namedAgentsOnByDefault(experience: string | null | undefined): boolean {
+  return founderExperienceFrom(experience) === "first_time";
 }
 
 /** The guided layer's part of the preferences row, the anthropomorphic agents switch and its style, and Builder view (what founder.preferences.guidance answers). */
@@ -195,7 +207,8 @@ export const founderRouter = router({
      * the profile with an Exited or Operator experience: guidance was set off then, once, and the client says so
      * ("Guidance is off for experienced founders. Turn it on any time in Settings › Preferences."). The same save turns
      * Builder view on (0073; founder, Nov 8, 2026): they see how the platform runs the team from the start; and the
-     * single-key shortcuts on (0114, WP-04 T13), which everyone else starts with off. A later edit never touches any of
+     * single-key shortcuts on (0114, WP-04 T13), which everyone else starts with off. The save that creates a first-time
+     * founder's profile turns named agents on (`namedAgentsOnByDefault`, WP-14 T6). A later edit never touches any of
      * these switches, whatever the experience becomes.
      * A new display name the public can read (the public profile is public, or a published project page names the
      * person as a founder) is screened first, like the profile's own text, and refused with its sentence when held
@@ -221,7 +234,8 @@ export const founderRouter = router({
       const guidanceTurnedOff = guidanceOffByDefault(profile.experience);
       if (guidanceTurnedOff) await asUser(ctx, (tx) => repos.preferences.update(tx, ctx.userId, { guidance: "off", builderView: true, keyboardShortcuts: true }));
       // A guided first-timer starts on comfortable text (WP-10 T5, DESIGN §4); existing accounts keep their setting.
-      else await asUser(ctx, (tx) => repos.preferences.update(tx, ctx.userId, { textSize: "comfortable" }));
+      // A first-time founder also starts with named agents on (WP-14 T6); a domain expert keeps them off.
+      else await asUser(ctx, (tx) => repos.preferences.update(tx, ctx.userId, { textSize: "comfortable", ...(namedAgentsOnByDefault(profile.experience) ? { anthropomorphicAgents: true } : {}) }));
       // A card kept before the profile existed (the landing page's idea box) gets its Founder fit from these answers.
       await rerateFit(ctx, null, profile);
       await onPersonCreated(ctx, ctx.userId, { via, ideaDraftToken, confirmAdult, client: ctx.clientKind });
