@@ -13,12 +13,15 @@ Where one of these skills disagrees with CLAUDE.md, docs/DESIGN.md or docs/DECIS
 | `design-taste-frontend` | github.com/Leonxlnx/taste-skill (2.5.1; SKILL.md and references only) | f6b76575f949707b4e3c37cd86cb44b0b98643e8 | MIT, Copyright (c) 2026 Leonxlnx |
 | `copywriting`, `copy-editing`, `cro`, `onboarding`, `signup`, `product-marketing`, `emails`, `pricing`, `launch`, `ai-seo`, `schema` | github.com/coreyhaines31/marketingskills (plugin `marketing-skills` 2.14.12) | 1f837447b20bb6f0e72d87b80ece1c221c362c7d | MIT, Copyright (c) 2025 Corey Haines |
 | `seo-technical`, `seo-schema`, `seo-geo`, `seo-agentic`, `seo-page` | github.com/AgriciDaniel/claude-seo (2.6.2) | 468ed5b0d9e3249394783710e54abb02837e326b | MIT, Copyright (c) 2026 agricidaniel |
+| `ponytail` (added Nov 18, 2026, founder's request) | github.com/dietrichgebert/ponytail (`skills/ponytail`) | 96608e078b2d5ea607c5c3b8b5a54d1c1fba6846 | MIT, Copyright (c) 2026 DietrichGebert |
+| `caveman`, `ultracave`, `megacave` (added Nov 18, 2026, founder's request) | github.com/JuliusBrussee/caveman (`skills/`, SKILL.md only) | a192894723a8f47e7f504c7b5041967ff1f18e55 | Apache-2.0, Copyright 2026 Julius Brussee (see `caveman/LICENSE`) |
 
 Notes for a session using them:
 
 - Inside a plugin these skills are named `superpowers:executing-plans`, `marketing-skills:copywriting` and so on. Here they have plain names (`executing-plans`, `copywriting`). Where a skill's text refers to a sibling by its plugin name, use the plain name.
 - The SEO skills refer to Python scripts and sub-agents that live in the plugin, not in this folder. Use their written checks and thresholds and do the checks by hand.
 - The marketing skills look for a product-marketing context file under `.agents/`. For Foundmill's own marketing, the equivalent is docs/foundmill-plan/foundmill-plan.md.
+- `caveman` mentions a hook that tracks its mode, which is not installed here: `/caveman status` then reports `(not tracked by this host)`, as the skill says. Caveman's own rule keeps code, commits, docs and pull requests in plain prose; the repo's writing rules (US English, plain words) still apply to them.
 - The rest of the founder's plugins (the full marketing, SEO and social sets, ui-ux-pro-max, impeccable, hyperframes, last30days and others) are not copied. docs/HOLISTIC_PLAN.md says how a cloud environment's setup script can install them.
 
 ## MIT License (applies to the folders marked MIT above, each under its own copyright line)
