@@ -44,6 +44,9 @@ request, what it is better with.
 ## Decisions
 - The preview pane shows WP-06's whole text (`SkillReader`), not T8's "first 12 lines": the founder asked on Nov 16,
   2026 that a person can read a skill's text in the product, and T7 built that. T8's three lines are added to it.
+- A search looks through the whole library, whichever chip is chosen: on the Suggested chip a search for a skill that is
+  not suggested said "No skill matches" while All had two (found by `agent-skills.spec.ts`). Chips filter the list only
+  while the search is empty.
 - Read is a toggle in the pane instead of a Back button: the list never leaves, so there is nothing to go back to.
 - The visible button label is "Read" (the accessible name stays "Read the skill: <name>") so a row fits half the `lg`
   dialog.
