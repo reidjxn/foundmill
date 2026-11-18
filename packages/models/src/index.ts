@@ -2,6 +2,7 @@
 export * from "./routing";
 export * from "./pricing";
 export * from "./types";
+export * from "./batch";
 export * from "./errors";
 export { platformBillingRefusal, clearPlatformBillingRefusal, notePlatformBillingRefusal, type PlatformBillingRefusal } from "./billing-state";
 export { canonicalJson, stableHash, seededRng, uuidFromSeed, isUuidLike, UUID_RE, type Rng } from "./hash";

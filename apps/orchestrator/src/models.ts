@@ -138,6 +138,9 @@ export function createBusinessModelClient(platformKey: ModelClient, opts: Busine
     return { client: entry.client, lowCredits };
   }
 
+  /** Which client submitted a batch (a worker restart loses it; collect then picks the business's key again). */
+  const batchClients = new Map<string, ModelClient>();
+
   async function complete<T>(req: CompleteRequest<T> & { schema: z.ZodType<T> }): Promise<CompleteResultWithJson<T>>;
   async function complete(req: CompleteRequest<unknown> & { schema?: undefined }): Promise<CompleteResult<unknown>>;
   async function complete(req: CompleteRequest<unknown>): Promise<CompleteResult<unknown>> {
@@ -152,6 +155,28 @@ export function createBusinessModelClient(platformKey: ModelClient, opts: Busine
       const { client, lowCredits } = await pick(req.attribution?.businessId);
       if (!client.streamStructured) throw new ModelRequestError("this model client cannot stream structured output", undefined, "unsupported");
       return client.streamStructured(lowCredits ? { ...req, lowCredits } : req);
+    },
+    /**
+     * A batch runs on the key that pays for its business (WP-09 T8): one business per batch (batch.ts), the credits are
+     * checked once at submit, and the batch id is remembered with that key so the batch is read and collected there.
+     */
+    async submitBatch(items) {
+      const businessId = items[0]?.request.attribution?.businessId;
+      const { client, lowCredits } = await pick(businessId);
+      if (!client.submitBatch) throw new ModelRequestError("this model client cannot run batches", undefined, "unsupported");
+      const submitted = await client.submitBatch(lowCredits ? items.map((i) => ({ ...i, request: { ...i.request, lowCredits } })) : items);
+      batchClients.set(submitted.batchId, client);
+      return submitted;
+    },
+    async batchEnded(batchId, businessId) {
+      const client = batchClients.get(batchId) ?? (await pick(businessId)).client;
+      if (!client.batchEnded) throw new ModelRequestError("this model client cannot run batches", undefined, "unsupported");
+      return client.batchEnded(batchId);
+    },
+    async collectBatch(batchId, items) {
+      const client = batchClients.get(batchId) ?? (await pick(items[0]?.request.attribution?.businessId)).client;
+      if (!client.collectBatch) throw new ModelRequestError("this model client cannot run batches", undefined, "unsupported");
+      return client.collectBatch(batchId, items);
     },
     async routeFor(businessId) {
       if (!businessId) return platformRoute;

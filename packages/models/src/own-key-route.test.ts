@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { MockModelClient } from "./mock";
 import { OWN_KEY_MISSING, OWN_KEY_REFUSED, ownKeyViaGateway, routeOwnKeyCalls } from "./own-key-route";
-import { MODELS } from "./routing";
+import { MODELS, SERVER_FALLBACK_BETA } from "./routing";
 import type { UsageEvent } from "./types";
 
 const OWN = "11111111-1111-4111-8111-111111111111";
@@ -43,7 +43,8 @@ describe("routeOwnKeyCalls with ownKeyViaGateway (WP-13 T11)", () => {
     const result = await ask(client, OWN);
     expect(result.text).toBe("On your key.");
     expect(gw.calls).toHaveLength(1);
-    expect(gw.calls[0]!.url).toBe(`http://gateway.test/v1/models/anthropic/${OWN}/v1/messages`);
+    expect(gw.calls[0]!.url).toBe(`http://gateway.test/v1/models/anthropic/${OWN}/v1/messages?beta=true`);
+    expect(gw.calls[0]!.headers["anthropic-beta"]).toBe(SERVER_FALLBACK_BETA);
     expect(gw.calls[0]!.headers.authorization).toBe("Bearer svc-token-1111");
     expect(gw.calls[0]!.headers["x-api-key"]).toBeUndefined();
     expect(usage.map((e) => [e.billedTo, e.attribution?.businessId])).toEqual([["byok", OWN]]);
@@ -95,7 +96,7 @@ describe("streaming through the gateway's route (WP-13 T11)", () => {
     const r = await client.streamStructured!({ route: "ideation", messages: [{ role: "user", content: "go" }], schema: Cards, elementPath: "concepts", elementSchema: Card, attribution: { businessId: OWN }, onElement: (e) => void seen.push(e.value.name) });
     expect(seen).toEqual(["First", "Second"]);
     expect(r.json).toEqual({ concepts: [{ name: "First" }, { name: "Second" }] });
-    expect(gw.calls[0]!.url).toBe(`http://gateway.test/v1/models/anthropic/${OWN}/v1/messages`);
+    expect(gw.calls[0]!.url).toBe(`http://gateway.test/v1/models/anthropic/${OWN}/v1/messages?beta=true`);
     expect(gw.calls[0]!.body.stream).toBe(true);
     expect(usage.map((e) => e.billedTo)).toEqual(["byok"]);
   });
