@@ -158,7 +158,7 @@ export interface DefaultSkillsBackfillResult {
 
 /**
  * The defaults an agent hired before a release must not get from the backfill: one the founder or the Chief of Staff
- * took off it before (an `agent.skills.remove` audit row, which also covers removals before 0143), one whose name it
+ * took off it before (an `agent.skills.remove` audit row, which also covers removals before 0141), one whose name it
  * already carries, and any that would take it past `MAX_SKILLS_PER_AGENT` or the index past `SKILL_INDEX_MAX_CHARS`
  * (the founder could otherwise add nothing until they removed one; security review M1, L4).
  */

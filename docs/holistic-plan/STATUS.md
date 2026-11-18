@@ -126,6 +126,7 @@ All by the coordinating session on the founder's word (reported by that session,
 | WP-06 | T10 | The scoped per-agent check | not started |  |
 | WP-06 | T11 | Make an edit live without a run | not started |  |
 | WP-06 | T12 | Two honesty fixes in Recruitment and Training copy | merged (#247) |  |
+| WP-06 | T13 | Coding agents start with Ponytail and Caveman | not started | T6; founder, Nov 18 |
 | WP-07 | T1 | Specialists can record a supplier and an interaction | pull request open (#234) |  |
 | WP-07 | T2 | Site tables, the switch and the events | merged (#240) | with T4 |
 | WP-07 | T3 | A site session starts from the latest release and ends in a release | pull request open (#271) |  |

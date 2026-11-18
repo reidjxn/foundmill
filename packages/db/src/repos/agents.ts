@@ -267,7 +267,7 @@ export const agentsRepo = {
     return one(await tx.select().from(agents).where(scoped(businessId, agentId)).limit(1).for("update"), "agent", agentId);
   },
 
-  /** Records the release of role defaults these agents were given (0143); never lowers it. */
+  /** Records the release of role defaults these agents were given (0141); never lowers it. */
   async setDefaultSkillsVersion(db: Executor, businessId: string, agentIds: readonly string[], version: number): Promise<void> {
     if (agentIds.length === 0) return;
     await db
@@ -276,7 +276,7 @@ export const agentsRepo = {
       .where(and(eq(agents.businessId, businessId), inArray(agents.id, [...agentIds]), sql`${agents.defaultSkillsVersion} < ${version}`));
   },
 
-  /** Businesses with a live agent on an older release of role defaults than `version` (the boot backfill, 0143). */
+  /** Businesses with a live agent on an older release of role defaults than `version` (the boot backfill, 0141). */
   async businessesBehindOnDefaults(db: Executor, version: number): Promise<string[]> {
     const rows = await db
       .selectDistinct({ businessId: agents.businessId })
@@ -286,7 +286,7 @@ export const agentsRepo = {
     return rows.map((r) => r.businessId);
   },
 
-  /** Locks and returns the business's live agents on an older release of role defaults than `version` (0143). */
+  /** Locks and returns the business's live agents on an older release of role defaults than `version` (0141). */
   async lockBehindOnDefaults(tx: Executor, businessId: string, version: number): Promise<Pick<Agent, "id" | "agentType" | "defaultSkillsVersion">[]> {
     // A boot job: never wait long on a lock another transaction holds (that business is tried again next boot).
     await tx.execute(sql`set local lock_timeout = '5s'`);

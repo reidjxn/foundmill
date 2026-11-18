@@ -199,7 +199,7 @@ export function ShipmentList({ shipments }: { shipments: readonly Shipment[] }) 
             <span className="text-right text-secondary tabular-nums">{sh.etaAt ? `ETA ${formatDate(sh.etaAt)}` : ""}</span>
             {sh.cost ? (
               <span className="col-span-2 inline-flex items-center gap-1 tabular-nums">
-                {formatMoney(sh.cost)} landed <ProvenanceChip kind="estimate" />
+                <ProvenanceChip kind="estimate">{formatMoney(sh.cost)}</ProvenanceChip> landed
               </span>
             ) : null}
           </li>

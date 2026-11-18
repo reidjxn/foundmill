@@ -8,6 +8,8 @@
  *   POST /v1/integrations/connect  service JWT (api) → connect a business's integration: App installations verified, a vendor's secret sealed here (integrations.ts)
  *   POST /v1/integrations/health   service JWT (api) → that integration's health check (integrations.ts)
  *   POST /v1/models/anthropic/:businessId/v1/messages  service JWT (api, composer) → the call on the business's own Anthropic key (model-proxy.ts)
+ *   POST /v1/integrations/disconnect service JWT (api) → withdraw the vendor-side access before the api disconnects (a Stripe sign-in)
+ *   POST /v1/integrations/release  service JWT (api) → after a sign-in was replaced, withdraw the previous account (no project holds it)
  *   POST /v1/keys/validate         service JWT (api) → a founder's own Anthropic key checked with Anthropic, never logged or echoed (keys.ts)
  *   POST /v1/registry/lookup       service JWT (api) → an allow-listed company-registry lookup for Legal › Import (registry-lookup.ts)
  *   POST /v1/billing/checkout-sessions  service JWT (api) → a Stripe Checkout session on the platform account (billing.ts)
@@ -35,7 +37,7 @@ import { repos } from "@foundmill/db";
 import { cedarVersion, getPolicyEngine } from "@foundmill/policy";
 import { apiServiceTokenMode, bearerToken, mintSessionToken, sessionKey, verifyServiceToken, verifyServiceTokenFor, verifySessionToken, type ServiceToken, type SessionToken } from "./tokens";
 import { GatewayError, safeError, type GatewayDeps } from "./pipeline";
-import { connectIntegration, integrationHealth } from "./integrations";
+import { connectIntegration, integrationHealth, releaseAccount, releaseIntegration } from "./integrations";
 import { KEYS_VALIDATE_ROUTE, ValidateKeyRequest, validateFounderKey } from "./keys";
 import { MAX_OWN_KEY_MODELS_BODY_BYTES, OWN_KEY_MODELS_ROUTE, proxyOwnKeyMessage } from "./model-proxy";
 import { lookupRegistry, REGISTRY_LOOKUP_ROUTE, RegistryLookupRequest } from "./registry-lookup";
@@ -59,7 +61,7 @@ import { checkRepository, REPOSITORY_CHECK_ROUTE, RepositoryCheckRequest } from 
 import { callerTrace, tracedToolCall } from "./tracing";
 import { toCandidates } from "./recipients";
 import { STATE_ERROR_CODES, stateDenial } from "./state";
-import { CallRequest, ConnectIntegrationRequest, IntegrationHealthRequest, MintSessionTokenRequest, type GatewayErrorBody, type HealthResponse, type MintSessionTokenResponse } from "./types";
+import { CallRequest, ConnectIntegrationRequest, IntegrationHealthRequest, MintSessionTokenRequest, ReleaseAccountRequest, type GatewayErrorBody, type HealthResponse, type MintSessionTokenResponse } from "./types";
 import { DEFAULT_SESSION_TTL_SECONDS, MAX_SESSION_TTL_SECONDS } from "./config";
 
 export interface GatewayAppOptions {
@@ -424,6 +426,8 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   });
 
   app.post("/v1/integrations/health", async (c) => c.json(await integrationHealth(deps, IntegrationHealthRequest.parse(await c.req.json()), c.var.service.svc)));
+  app.post("/v1/integrations/disconnect", async (c) => c.json(await releaseIntegration(deps, IntegrationHealthRequest.parse(await c.req.json()), c.var.service.svc)));
+  app.post("/v1/integrations/release", async (c) => c.json(await releaseAccount(deps, ReleaseAccountRequest.parse(await c.req.json()), c.var.service.svc)));
 
   // --- session auth -------------------------------------------------------------------------------------------
   const requireSession = async (c: { req: { header(name: string): string | undefined }; set(key: "session", value: SessionToken): void }, next: () => Promise<void>) => {

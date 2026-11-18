@@ -70,13 +70,14 @@ test.describe("agent skills from the library and files", () => {
     await library.getByRole("textbox", { name: "Search skills" }).fill("newsletter");
     await expect(library.getByText("Shows as Craft · Newsletter writing")).toBeVisible({ timeout: LONG });
     await library.getByRole("checkbox", { name: /Newsletter writing/ }).click();
-    // Its whole text, in the product (founder, Nov 16, 2026: D6): rendered, then back with the choice and search kept.
+    // Its whole text, in the product (founder, Nov 16, 2026: D6), beside the list (WP-10 T8): the choice and search stay.
     await library.getByRole("button", { name: "Read the skill: Newsletter writing" }).click();
     const reader = library.getByRole("region", { name: "Newsletter writing" });
     await expect(reader.getByRole("heading", { name: "Newsletter writing" })).toBeVisible({ timeout: LONG });
     await expect(reader.locator("[data-skill-text] li").first()).toContainText("One main story per issue");
     await expect(reader).toContainText("Version 1");
-    await reader.getByRole("button", { name: "Back to the library" }).click();
+    await expect(reader).toContainText("It never changes tools, spend limits or approvals.");
+    await library.getByRole("button", { name: "Read the skill: Newsletter writing" }).click();
     await expect(reader).toBeHidden();
     await expect(library.getByRole("textbox", { name: "Search skills" })).toHaveValue("newsletter");
     await expect(library.getByRole("checkbox", { name: /Newsletter writing/ })).toBeChecked();
@@ -113,17 +114,17 @@ test.describe("agent skills from the library and files", () => {
     const skills = page.getByTestId("skills-panel");
     const newsletter = skills.locator("[data-skill=library_newsletter_writing]");
     await expect(newsletter).toContainText("Newsletter writing", { timeout: LONG });
-    await expect(newsletter).toContainText("Untested");
+    await expect(newsletter).toContainText("Not tested yet");
     const digest = skills.locator("[data-skill^=upload_changelog_digest_]");
     await expect(digest).toContainText("Changelog digest");
-    await expect(digest).toContainText("Untested");
+    await expect(digest).toContainText("Not tested yet");
     // Keys never show: the attributes read as words.
     expect(await skills.innerText()).not.toMatch(/library_|upload_/);
 
-    // Training tab: the same two under "Skills from the library or files", next to the skills its role came with
-    // (WP-06 T6: marked, removable), and one comes off again.
-    await page.getByRole("tab", { name: "Training" }).click();
+    // Overview, under the Skills panel (WP-10 T8): the same two under "Skills <name> has learned", next to the skills
+    // its role came with (WP-06 T6: marked, removable), and one comes off again.
     const added = page.getByTestId("added-skills");
+    await expect(added).toContainText(`Skills ${name} has learned`, { timeout: LONG });
     const chosenItems = added.getByRole("list", { name: "Chosen skills" }).getByRole("listitem");
     await expect(chosenItems.filter({ hasText: "Came with the role" }).first()).toBeVisible({ timeout: LONG });
     const founderAdded = chosenItems.filter({ hasNotText: "Came with the role" });

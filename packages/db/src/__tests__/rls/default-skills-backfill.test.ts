@@ -1,5 +1,5 @@
 /**
- * 0143 — the boot backfill of default skills per role (WP-06 T6; founder, Nov 16, 2026: D3). It runs on real
+ * 0141 — the boot backfill of default skills per role (WP-06 T6; founder, Nov 16, 2026: D3). It runs on real
  * projects' agents, so it runs here on PGlite and, in CI's Real Postgres job, on a real server: it gives each live
  * agent hired before a release of defaults the ones it lacks, once; it never re-adds a default the founder removed; a
  * later release adds only its new default; and one business's run never writes another business's rows.
@@ -28,19 +28,19 @@ const expected = (templateKey: string) => defaultSkillKeysFor(templateKey).map(l
 const defaults = async (businessId: string, agentId: string, agentType: string) =>
   (await repos.skills.listAddedForAgent(h.db, businessId, agentId, agentType)).filter((s) => s.addedBy === "template").map((s) => s.skillKey).sort();
 
-/** An agent as it was before 0143: no default skills, release 0. */
-async function hiredBefore0143(businessId: string, templateKey: string) {
+/** An agent as it was before 0141: no default skills, release 0. */
+async function hiredBefore0141(businessId: string, templateKey: string) {
   const hired = await hireFromTemplate(h.db, businessId, templateKey);
   for (const key of expected(templateKey)) await repos.skills.removeFromAgent(h.db, businessId, hired.agent.id, key);
   await h.db.execute(sql`update agents set default_skills_version = 0 where id = ${hired.agent.id}::uuid`);
   return hired.agent;
 }
 
-describe("default skills backfill (0143)", () => {
+describe("default skills backfill (0141)", () => {
   it("gives older agents their defaults once, never re-adds one the founder removed, and keeps each business to its own rows", async () => {
-    const qa = await hiredBefore0143(A.businessId, "qa_engineer");
-    const writer = await hiredBefore0143(B.businessId, "docs_writer");
-    const released = await hiredBefore0143(A.businessId, "planner");
+    const qa = await hiredBefore0141(A.businessId, "qa_engineer");
+    const writer = await hiredBefore0141(B.businessId, "docs_writer");
+    const released = await hiredBefore0141(A.businessId, "planner");
     await repos.agents.release(h.db, A.businessId, released.id);
 
     const first = await backfillDefaultSkills(h.db);
@@ -77,9 +77,9 @@ describe("default skills backfill (0143)", () => {
     expect((await backfillDefaultSkills(h.db, { library, version: 2 })).attached).toBe(0);
   });
 
-  it("never gives back a skill removed before 0143, and records what it gave in the audit log", async () => {
-    const qa = await hiredBefore0143(B.businessId, "qa_engineer");
-    // As the founder's removal of one, before 0143, left it: an agent.skills.remove audit row.
+  it("never gives back a skill removed before 0141, and records what it gave in the audit log", async () => {
+    const qa = await hiredBefore0141(B.businessId, "qa_engineer");
+    // As the founder's removal of one, before 0141, left it: an agent.skills.remove audit row.
     const removed = expected("qa_engineer")[1]!;
     await repos.audit.append(h.db, B.businessId, { actorKind: "user", actorId: B.ownerId, action: "agent.skills.remove", target: { kind: "skill_definition", id: B.agentId }, details: { agentId: qa.id, skillKey: removed, source: "library" } });
     expect((await backfillDefaultSkills(h.db)).failed).toEqual([]);
@@ -92,7 +92,7 @@ describe("default skills backfill (0143)", () => {
   });
 
   it("refuses to give defaults to another business's agent", async () => {
-    const theirs = await hiredBefore0143(B.businessId, "planner");
+    const theirs = await hiredBefore0141(B.businessId, "planner");
     await expect(h.db.transaction((tx) => attachDefaultSkills(tx, A.businessId, [{ id: theirs.id, agentType: theirs.agentType, templateKey: "planner" }]))).rejects.toThrow(/own agents/);
     expect(await defaults(B.businessId, theirs.id, theirs.agentType)).toEqual([]);
     await backfillDefaultSkills(h.db);

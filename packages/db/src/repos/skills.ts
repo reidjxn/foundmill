@@ -35,7 +35,7 @@ export const UpsertAgentSkillInput = z.object({
   nLive: z.number().int().min(0).default(0),
   displayed: z.number().int().min(1).max(20).default(1),
   potential: z.number().int().min(1).max(20).default(1),
-  /** Who added a library or uploaded skill (0143); written when the row is created, never changed by a later upsert. */
+  /** Who added a library or uploaded skill (0141); written when the row is created, never changed by a later upsert. */
   addedBy: z.enum(SKILL_ADDED_BY).nullable().optional(),
 });
 export type UpsertAgentSkillInput = z.input<typeof UpsertAgentSkillInput>;
@@ -71,7 +71,7 @@ export interface AddedAgentSkill {
   tested: string | null;
   displayed: number;
   potential: number;
-  /** 0143: "template" when it came with the role; null for skills added before 0143. */
+  /** 0141: "template" when it came with the role; null for skills added before 0141. */
   addedBy: SkillAddedBy | null;
   addedAt: Date;
 }
@@ -287,7 +287,7 @@ export const skillsRepo = {
   },
 
   /**
-   * Adds skills that came with the role (0143 `added_by = 'template'`), untested, in one statement. A skill the agent
+   * Adds skills that came with the role (0141 `added_by = 'template'`), untested, in one statement. A skill the agent
    * already carries keeps its row as it is (whoever added it). Returns the rows written. The caller checks the agents
    * are the business's own (`attachDefaultSkills`).
    */

@@ -36,17 +36,14 @@ export interface BuildSystemPromptInput {
  * A skill as the prompt carries it: one from the library or a file, or one that comes with the agent's role (`role`:
  * the Design principles of the code agents, packages/agents/src/design-check.ts). Every skill has a line in the index;
  * `instructionsMd` is present only when its body is loaded into this prompt.
- *
- * `key` and `whenToUse` are optional only while apps/orchestrator `session.ts` still builds its skills by hand (a
- * reserved file, WP-06 T4 follow-up); `selectSkills` always sets both. A skill without a key gets a name-only line.
  */
 export interface AgentSkillPrompt {
   /** The key `read_skill` takes: `library_<key>`, `upload_<name>_<hash8>`, or the role skill's key. */
-  key?: string;
+  key: string;
   name: string;
   source: "library" | "upload" | "role";
   /** One line: the library's `whenToUse`, an upload's description cut to 160 characters, a role skill's fixed text. */
-  whenToUse?: string;
+  whenToUse: string;
   instructionsMd?: string;
 }
 
@@ -116,7 +113,7 @@ export function renderSkillBlock(skill: { name: string; source: AgentSkillPrompt
   return `<skill name="${attributeValue(skill.name)}" source="${SKILL_SOURCE_LABEL[skill.source]}">\n${neutralizeSkillTags(skill.instructionsMd.trim())}\n</skill>`;
 }
 
-/** One skill's index line: `- <name> [<key>]: <whenToUse>` (just the name for a skill built without a key). */
+/** One skill's index line: `- <name> [<key>]: <whenToUse>`. */
 export function skillIndexLine(skill: Pick<AgentSkillPrompt, "key" | "name" | "whenToUse">): string {
   const key = skill.key ? ` [${indexText(skill.key)}]` : "";
   const when = skill.whenToUse ? `: ${indexText(skill.whenToUse)}` : "";

@@ -51,7 +51,7 @@ export const agents = pgTable(
      * sets it (trigger `fm_agents_speech_accent_guard`).
      */
     speechAccent: text("speech_accent"),
-    /** 0143 — the release of role defaults the agent was given (`DEFAULT_SKILLS_VERSION`, packages/agents); 0 before. */
+    /** 0141 — the release of role defaults the agent was given (`DEFAULT_SKILLS_VERSION`, packages/agents); 0 before. */
     defaultSkillsVersion: integer("default_skills_version").notNull().default(0),
     ...timestampsWithArchive(),
   },
@@ -248,7 +248,7 @@ export const agentSkills = pgTable(
     nLive: integer("n_live").notNull().default(0),
     displayed: integer("displayed").notNull().default(1),
     potential: integer("potential").notNull().default(1),
-    /** 0143 — who added a library or uploaded skill (`template`: came with the role); null for a rated template skill. */
+    /** 0141 — who added a library or uploaded skill (`template`: came with the role); null for a rated template skill. */
     addedBy: text("added_by", { enum: SKILL_ADDED_BY }),
     ...timestamps(),
   },

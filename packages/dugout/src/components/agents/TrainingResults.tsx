@@ -162,7 +162,7 @@ export function TrainingResults({ results, coachExplanation, candidateVersion, l
                         </td>
                         <td className="px-2">
                           <span className="inline-flex items-center gap-1.5">
-                            {r.noTests ? <Chip tone="neutral">No tests yet</Chip> : <DeltaWord delta={d} />}
+                            {r.noTests ? <Chip tone="neutral">Not tested yet</Chip> : <DeltaWord delta={d} />}
                             {big ? <Chip tone="bad">Drop</Chip> : null}
                           </span>
                         </td>
@@ -194,7 +194,7 @@ export function TrainingResults({ results, coachExplanation, candidateVersion, l
               <div>
                 <dt className="t-data">Session cost</dt>
                 <dd className="inline-flex items-center gap-1 tabular-nums">
-                  {formatMoney(cost)} <ProvenanceChip kind="estimate" />
+                  <ProvenanceChip kind="estimate">{formatMoney(cost)}</ProvenanceChip>
                 </dd>
               </div>
             ) : null}

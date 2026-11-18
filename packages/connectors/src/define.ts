@@ -132,6 +132,7 @@ export interface ConnectorSpec<S extends readonly AnyToolSpec[]> {
   webhooks?: ConnectorWebhook[];
   connect(businessId: string, input: unknown): Promise<IntegrationRecord>;
   healthcheck(integration: IntegrationRecord, credential?: DecryptedCredential): Promise<HealthResult>;
+  disconnect?: Connector["disconnect"];
   /** Mock side only: named simulations for the dev Simulate panel and tests. */
   simulations?: Record<string, (params: SimulateParams) => Promise<PlatformEvent[]> | PlatformEvent[]>;
   now?: () => Date;
@@ -272,6 +273,7 @@ function assemble<S extends readonly AnyToolSpec[]>(spec: ConnectorSpec<S>, mode
     return spec.costModel ? spec.costModel(name, parsed.data) : null;
   };
   if (spec.webhooks) base.webhooks = spec.webhooks;
+  if (spec.disconnect) base.disconnect = spec.disconnect;
   return base;
 }
 

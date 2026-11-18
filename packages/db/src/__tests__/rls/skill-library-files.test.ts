@@ -84,7 +84,7 @@ describe("skill_definitions added from the library or a file (0061)", () => {
     await expect(insert({ businessId: A.businessId, source: "other" as never, instructionsMd: "Body" })).rejects.toThrow(/skill_definitions_source_check/);
   });
 
-  it("0143: who added a skill and an agent's release of defaults are as private as the rows, and app roles change neither", async () => {
+  it("0141: who added a skill and an agent's release of defaults are as private as the rows, and app roles change neither", async () => {
     await repos.skills.addTemplateDefaults(h.db, A.businessId, [{ agentId: A.agentId, skillKey: "library_meeting_notes", group: "execution", displayed: 8 }]);
     await repos.agents.setDefaultSkillsVersion(h.db, A.businessId, [A.agentId], 1);
     const mine = await h.asUser(A.memberId).run((tx) => tx.select({ addedBy: s.agentSkills.addedBy }).from(s.agentSkills).where(eq(s.agentSkills.agentId, A.agentId)));

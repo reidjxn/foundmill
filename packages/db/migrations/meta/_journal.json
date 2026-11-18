@@ -804,7 +804,14 @@
       "idx": 114,
       "version": "7",
       "when": 1796245420000,
-      "tag": "0143_skill_defaults",
+      "tag": "0137_stripe_connect_account",
+      "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "7",
+      "when": 1796245480000,
+      "tag": "0141_skill_defaults",
       "breakpoints": true
     }
   ]

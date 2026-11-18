@@ -1,9 +1,10 @@
 "use client";
 /**
- * The explanation behind an Estimate / Forecast chip (finding D3: it was a native `title`). A real Tooltip with the
- * one-sentence meaning, or the definition card when the definitions map holds `estimate` / `forecast` (so "Learn
- * more" can point at connecting a bank). Always shown: provenance is information, not tutoring. ProvenanceChip
- * (foundation/Chip, server-safe) renders the chip and hands it here.
+ * The explanation behind an estimate or a forecast (finding D3: it was a native `title`). A real Tooltip that opens on
+ * the word and its one-sentence meaning, or the definition card when the definitions map holds `estimate` /
+ * `forecast` (so "Learn more" can point at connecting a bank). Always shown: provenance is information, not tutoring.
+ * ProvenanceChip (foundation/Chip, server-safe) renders the figure in the estimate style, or the word, and hands it
+ * here: since Nov 17, 2026 this is where a sighted reader finds the word for a styled figure.
  *
  * Focus opens it only after a key that moves focus (keyboardFocus.ts). The chip is often the first focusable inside a
  * dialog, and Radix's auto-focus would otherwise open the tooltip with the dialog, so that the next Escape closed the
@@ -20,7 +21,7 @@ export interface ProvenanceTipProps {
   kind: ProvenanceKind;
   /** The sentence shown when the map has no definition. */
   sentence: string;
-  /** The chip (a focusable element). */
+  /** The figure in the estimate style, or the word (a focusable element). */
   children: ReactElement<{ onFocus?: (e: FocusEvent<HTMLElement>) => void }>;
 }
 

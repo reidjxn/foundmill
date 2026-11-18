@@ -186,8 +186,7 @@ export function channelColumns(sizes: Record<ChannelColumnId, number> = fitColum
 export function MetricCount({ value, estimate }: { value: number; estimate: boolean }) {
   return (
     <span className="inline-flex items-center gap-1.5 tabular-nums">
-      {formatNumber(value, { digits: 0 })}
-      {estimate ? <ProvenanceChip kind="estimate" appearance="word" /> : null}
+      {estimate ? <ProvenanceChip kind="estimate">{formatNumber(value, { digits: 0 })}</ProvenanceChip> : formatNumber(value, { digits: 0 })}
     </span>
   );
 }
@@ -197,7 +196,9 @@ export function CostPerCustomer({ view }: { view: ChannelView }) {
   if (view.cpaRange && view.cpaRange.high > 0) {
     return (
       <span className="inline-flex items-center gap-1.5 tabular-nums">
-        {formatMoney({ amountMinor: view.cpaRange.low, currency: view.currency })} – {formatMoney({ amountMinor: view.cpaRange.high, currency: view.currency })} <ProvenanceChip kind="estimate" />
+        <ProvenanceChip kind="estimate">
+          {formatMoney({ amountMinor: view.cpaRange.low, currency: view.currency })} – {formatMoney({ amountMinor: view.cpaRange.high, currency: view.currency })}
+        </ProvenanceChip>
       </span>
     );
   }

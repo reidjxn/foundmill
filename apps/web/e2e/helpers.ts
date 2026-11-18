@@ -221,6 +221,11 @@ export async function completeProfile(page: Page): Promise<void> {
   await page.getByTestId("profile-submit-bottom").click();
   await expect(page).toHaveURL(/\/new$/, { timeout: LONG });
   await expect(page.getByTestId("doors")).toBeVisible();
+  // A first-time founder's new profile starts with named agents on (WP-14 T6). The dev founder is shared by every
+  // spec, and they read agents by role: the switch goes back off here, once, as global-setup does for the tours.
+  // anthropomorphic-agents.spec.ts turns it on for its own checks and restores it.
+  const off = await page.request.post(`${API_URL}/trpc/founder.preferences.update`, { headers: { authorization: "Bearer dev" }, data: { json: { anthropomorphicAgents: false } } });
+  expect(off.ok(), `founder.preferences.update answered ${off.status()}`).toBe(true);
 }
 
 /**

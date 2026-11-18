@@ -3,6 +3,7 @@ import { forwardRef, useCallback, useEffect, useMemo, useState, type CSSProperti
 import type { AreaKey, BusinessMode, GameMode, Money } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { BusinessLogo } from "../foundation/BusinessLogo";
+import { EstimateLegend } from "../foundation/Chip";
 import { FitText } from "../foundation/FitText";
 import { useToastPlacement } from "../foundation/Toast";
 import { TooltipProvider } from "../foundation/Tooltip";
@@ -484,6 +485,9 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
             <main id="main" tabIndex={-1} className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto outline-none" data-testid="shell-content">
               {children}
             </main>
+            <footer className="est-legend-auto shrink-0 border-t border-line px-gutter py-2">
+            <EstimateLegend data-testid="estimate-legend" />
+          </footer>
             <PhoneMenu
               open={menuOpen}
               onOpenChange={setMenuOpen}
@@ -617,6 +621,10 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
               </RightRail>
             ) : null}
           </div>
+          {/* The one legend line for every screen in the shell, in a footer landmark; shown only while the page holds an estimate. */}
+          <footer className="est-legend-auto shrink-0 border-t border-line px-gutter py-2">
+            <EstimateLegend data-testid="estimate-legend" />
+          </footer>
         </div>
         {search ? (
           <CommandPalette

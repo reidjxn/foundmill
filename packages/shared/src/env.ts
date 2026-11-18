@@ -56,10 +56,11 @@ const Env = z.object({
    */
   FREE_PLAN_MONTHLY_CAP_CENTS: z.coerce.number().int().min(0).max(10_000_000).default(60_000),
   /**
-   * The model a free business's agent sessions run on unless the agent is set to one of the two (WP-13; founder,
-   * Nov 16, 2026): GLM-5.3 Flash once a measured session costs about $0.019 or less (T8), Haiku 5.5 until then.
+   * The model a free business's agent sessions run on unless the agent is set to Haiku 5.5 or GLM-5.3 Flash (WP-13):
+   * `routed`, the agent's own model as a paid plan runs it (the default since T8 found Haiku 5.5 leaking injections,
+   * Nov 17, 2026), or `haiku` / `glm` for every free session.
    */
-  FREE_SESSION_MODEL: z.enum(["haiku", "glm"]).default("haiku"),
+  FREE_SESSION_MODEL: z.enum(["routed", "haiku", "glm"]).default("routed"),
   /** evals only: "1" runs every live eval route as the free plan does, on Haiku 5.5 (WP-13 T8); the grader keeps its model. */
   EVAL_FREE_PLAN: z.enum(["1"]).optional(),
   VOYAGE_API_KEY: z.string().optional(),
@@ -121,8 +122,13 @@ const Env = z.object({
    * them on the gateway (every agent tool call), on ingest when the connector's webhook goes live, and on the api for
    * what it calls directly (registry lookups, OAuth consent links and code exchanges).
    */
-  /** Stripe Connect platform client id (`ca_…`), for Connect onboarding links. */
+  /** Stripe Connect platform client id (`ca_…`): "Sign in with Stripe" for a founder's own account (gateway only). */
   STRIPE_CONNECT_CLIENT_ID: z.string().optional(),
+  /**
+   * The secret key of the same Stripe mode as STRIPE_CONNECT_CLIENT_ID (gateway only), when it is not STRIPE_SECRET_KEY:
+   * test-mode Connect can then run beside live billing. Unset: STRIPE_SECRET_KEY.
+   */
+  STRIPE_CONNECT_SECRET_KEY: z.string().optional(),
   /** apps/ingest: the token SendGrid Inbound Parse carries as `?token=` (Inbound Parse has no signature). */
   SENDGRID_INBOUND_TOKEN: z.string().optional(),
   /*

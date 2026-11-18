@@ -316,8 +316,9 @@ function AcquisitionCost({ journey, currency, size }: { journey: Journey; curren
   if (cost === null) return <span className={cn(size === "xl" ? "t-display-xl" : "t-display-lg", "tabular-nums")}>—</span>;
   return (
     <span className="inline-flex items-center gap-2">
-      <span className={cn(size === "xl" ? "t-display-xl" : "t-display-lg", "tabular-nums")}>{formatMoney({ amountMinor: cost, currency: journey.stats.currency || currency })}</span>
-      <ProvenanceChip kind="estimate" />
+      <span className={cn(size === "xl" ? "t-display-xl" : "t-display-lg", "tabular-nums")}>
+        <ProvenanceChip kind="estimate">{formatMoney({ amountMinor: cost, currency: journey.stats.currency || currency })}</ProvenanceChip>
+      </span>
     </span>
   );
 }
@@ -511,8 +512,7 @@ function FullTime({ journey, customer, agents, currency, onReplay, onClose, clos
                   <Term id="payback">Payback</Term>
                 </dt>
                 <dd className="inline-flex items-center gap-2">
-                  <span className="t-display-lg tabular-nums">{payback === null ? "—" : `${formatNumber(payback, { maxDigits: 1 })} mo`}</span>
-                  {payback !== null ? <ProvenanceChip kind="estimate" /> : null}
+                  <span className="t-display-lg tabular-nums">{payback === null ? "—" : <ProvenanceChip kind="estimate">{`${formatNumber(payback, { maxDigits: 1 })} mo`}</ProvenanceChip>}</span>
                 </dd>
               </div>
             )}

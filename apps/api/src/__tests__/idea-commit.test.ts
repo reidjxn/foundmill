@@ -239,6 +239,33 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     expect(evaluate({ principal: uncapped, tool: spend, business: { id: business.id, businessMode: "assisted", holidayActive: false }, context: { amountMinor: 1 } }).outcome).toBe("allow");
   });
 
+  it("Commit's careful defaults (WP-14 T11, A4): a 5.00 cap and the overnight shift off start no cycle for a founder with no budget (D1), and the cap is the line a spend is asked above", async () => {
+    const userId = await hz.h.createUser("careful-defaults@test.local");
+    const caller = hz.caller({ userId, email: "careful-defaults@test.local" });
+    // No budget on the profile.
+    await caller.founder.profile.update({ confirmAdult: true, displayName: "Cara", timeCommitment: "full_time", residence: "United States", experience: "first-time", skills: { engineering: 10 }, targetMarkets: ["US"], riskAppetite: "low" });
+    const idea = (await caller.idea.generate({ prompt: "plant care reminders for offices" })).ideas[0]!;
+    // What the Commit screen sends when nothing is changed: Assisted, Personal, 5.00, Autopilot off (no overnight shift).
+    const result = await caller.idea.commit({ ideaId: idea.id, name: "Careful Line", archetype: "b2b_saas", gameMode: "personal", businessMode: "assisted", spendCapMinor: 500, autopilot: false });
+    // D1 stands: a commit with no budget starts no cycle, whatever the cap.
+    expect(result.cycle).toBeNull();
+    expect(result.autopilot ?? null).toBeNull();
+    const business = await repos.businesses.get(hz.db, result.business.id);
+    expect(business.spendCapMinor).toBe(500);
+    expect(business.businessMode).toBe("assisted");
+    expect(business.autopilotEnabled).toBe(false);
+    // What the cap means in Assisted (flagged in the pull request): a spending action of 5.00 or less runs without
+    // asking, where WP-04 D4's 0 asked for every cent; anything above asks. Automated is held to the same line.
+    const agent = { id: result.chiefOfStaffId, departmentIds: [], agentType: "channel_paid_ads", modelKey: "sonnet" as const, autonomy: {} };
+    const spend = { connector: "meta_ads", name: "set_daily_budget", spendsMoney: true };
+    for (const businessMode of ["assisted", "automated"] as const) {
+      const principal = agentPrincipal(agent, { businessMode, businessSpendCapMinor: business.spendCapMinor ?? null, holidayActive: false, holidayBudgetMinor: null });
+      const at = (amountMinor: number) => evaluate({ principal, tool: spend, business: { id: business.id, businessMode, holidayActive: false }, context: { amountMinor } }).outcome;
+      expect(at(501), businessMode).toBe("ask");
+      expect(at(500), businessMode).toBe("allow");
+    }
+  });
+
   it("starts on the free tier with this month's included credits in US dollars, keeps the spend cap, and takes charge of a second business on the free plan: no business limit; the second starts with nothing included (one credit pool a month per founder, SEC2 S6)", async () => {
     const userId = await hz.h.createUser("tier@test.local");
     const caller = hz.caller({ userId, email: "tier@test.local" });
