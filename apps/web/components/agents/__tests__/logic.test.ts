@@ -93,8 +93,8 @@ describe("skill rows", () => {
       skill({ skillKey: "testing", tested: "12", displayed: 12 }),
     ]);
     expect(rows.map((r) => [r.name, r.value, r.note])).toEqual([
-      ["Newsletter writing", 8, "Untested"],
-      ["Changelog digest", 8, "Untested"],
+      ["Newsletter writing", 8, "Not tested yet"],
+      ["Changelog digest", 8, "Not tested yet"],
       ["Testing", 12, undefined],
     ]);
   });
@@ -106,7 +106,7 @@ describe("skill rows", () => {
     expect(rows[0]).toMatchObject({ name: "Release notes", value: 12, tested: 12, potential: 12, delta: 2 });
     expect(rows[0]!.note).toBeUndefined();
     // The run found no tests for the other one: nothing was written, so it is still Untested and shows no change.
-    expect(rows[1]).toMatchObject({ name: "Newsletter writing", value: 8, note: "Untested", delta: 0 });
+    expect(rows[1]).toMatchObject({ name: "Newsletter writing", value: 8, note: "Not tested yet", delta: 0 });
     expect(rows[1]!.tested).toBeUndefined();
   });
   it("reads a run's results under the skills' names and marks a skill the run found no tests for", () => {
@@ -448,7 +448,7 @@ describe("where a skill's rating comes from (WP-10 T9)", () => {
   });
   it("a skill with no rating at all keeps its Untested chip and no source", () => {
     const row = toSkillRows([skill({ skillKey: "x", tested: null, proven: null })])[0]!;
-    expect(row.note).toBe("Untested");
+    expect(row.note).toBe("Not tested yet");
     expect(row.source).toBeUndefined();
   });
 });

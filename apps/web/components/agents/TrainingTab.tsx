@@ -22,7 +22,6 @@ import { readOnlyReason } from "@/lib/access";
 import { useBusiness } from "@/components/shell/business-context";
 import { formatDayMonth } from "@/lib/format";
 import type { TabProps } from "./AgentProfileScreen";
-import { AddedSkillsPanel } from "./AddedSkillsPanel";
 import { CustomSkillsPanel } from "./CustomSkillsPanel";
 import { ModelChangeDialog } from "./ModelChangeDialog";
 import { ToolGrantsEditor } from "./ToolsTab";
@@ -455,7 +454,6 @@ export function TrainingTab({ businessId, profile, refetch }: TabProps) {
       </Dialog>
 
       <ModelChangeDialog businessId={businessId} profile={profile} open={!!applyModel} onOpenChange={(o) => !o && setApplyModel(null)} preselect={applyModel} />
-      <AddedSkillsPanel businessId={businessId} profile={profile} onChanged={refetch} />
       <CustomSkillsPanel businessId={businessId} profile={profile} onChanged={refetch} />
     </div>
   );
