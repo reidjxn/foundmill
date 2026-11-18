@@ -13,9 +13,8 @@ export const reports = pgTable(
   "reports",
   {
     id: id(),
-    reporterUserId: uuid("reporter_user_id")
-      .notNull()
-      .references(() => authUsers.id, { onDelete: "cascade" }),
+    /** Null once the reporter closed their account: the report stays for the operator (founder, Nov 18, 2026). */
+    reporterUserId: uuid("reporter_user_id").references(() => authUsers.id, { onDelete: "set null" }),
     targetKind: text("target_kind", { enum: REPORT_TARGET_KINDS }).notNull(),
     targetUserId: uuid("target_user_id").references(() => authUsers.id, { onDelete: "set null" }),
     targetMessageId: uuid("target_message_id").references(() => messages.id, {

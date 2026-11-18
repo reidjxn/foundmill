@@ -131,7 +131,7 @@ export function ReportsQueue({ viewer }: { viewer: { email: string | null } }) {
         header: "Who reported",
         size: 140,
         cell: ({ row }) => (
-          <span className="truncate">{row.original.reporterName ?? "Unnamed account"}</span>
+          <span className="truncate">{row.original.reporterUserId === null ? "Account closed" : (row.original.reporterName ?? "Unnamed account")}</span>
         ),
       },
       {
