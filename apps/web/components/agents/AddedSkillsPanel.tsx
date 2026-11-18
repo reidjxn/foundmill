@@ -98,7 +98,7 @@ export function AddedSkillsPanel({ businessId, profile, onChanged }: AddedSkills
         data-testid="added-skills"
       >
         <ChosenSkillList
-          items={added.map((s) => ({ id: s.skillKey, name: s.name, source: s.source, detail: s.source === "upload" && s.fileName ? `${s.fileName} · ${s.description}` : s.description, untested: s.untested }))}
+          items={added.map((s) => ({ id: s.skillKey, name: s.name, source: s.source, detail: s.source === "upload" && s.fileName ? `${s.fileName} · ${s.description}` : s.description, untested: s.untested, cameWithRole: s.addedBy === "template" }))}
           onRemove={released ? undefined : (skillKey) => remove.mutate({ businessId, agentId: agent.id, skillKey })}
           busy={remove.isPending}
         />

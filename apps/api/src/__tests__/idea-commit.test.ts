@@ -1,4 +1,4 @@
-import { getArchetypeSeed } from "@foundmill/agents";
+import { DEFAULT_SKILLS_VERSION, defaultSkillKeysFor, getArchetypeSeed, getTemplateByAgentType, librarySkillKey } from "@foundmill/agents";
 import { FIRST_CYCLE_SESSION_CAP_MINOR, includedCreditsMinor } from "@foundmill/config";
 import { CREDITS_EXHAUSTED_SUBJECT, repos } from "@foundmill/db";
 import { agentPrincipal, evaluate } from "@foundmill/policy";
@@ -60,6 +60,16 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
       const skills = await repos.skills.listForAgent(hz.db, bid, a.id);
       expect(skills.length).toBeGreaterThan(0);
       expect(skills.every((s) => s.displayed >= 1 && s.displayed <= 20)).toBe(true);
+      // Every role comes with its default library skills, untested, marked as having come with it (WP-06 T6).
+      const template = getTemplateByAgentType(a.agentType)!;
+      expect(skills.filter((s) => s.addedBy === "template").map((s) => s.skillKey).sort(), a.agentType).toEqual(defaultSkillKeysFor(template.key).map(librarySkillKey).sort());
+      expect(skills.filter((s) => s.addedBy === "template").every((s) => s.tested === null)).toBe(true);
+      expect(a.defaultSkillsVersion).toBe(DEFAULT_SKILLS_VERSION);
+    }
+    // Every code role carries the coding discipline.
+    expect(agents.items.filter((a) => getTemplateByAgentType(a.agentType)!.taskKinds.includes("code")).length).toBeGreaterThan(0);
+    for (const a of agents.items.filter((x) => getTemplateByAgentType(x.agentType)!.taskKinds.includes("code"))) {
+      expect((await repos.skills.listForAgent(hz.db, bid, a.id)).map((s) => s.skillKey)).toContain("library_coding_discipline");
     }
 
     // All 15 channels exist; the archetype's starters are enabled and recommended.

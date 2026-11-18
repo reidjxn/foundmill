@@ -494,7 +494,7 @@ export function createDbPlatformHost({ db, log, now = () => new Date(), reposito
           await db.transaction((tx) =>
             attachAddedSkills(tx, caller.businessId, agent, [skill], async (definition, s) => {
               await repos.audit.append(tx, caller.businessId, { actorKind: "agent", actorId: caller.agentId, action: "agent.skills.add", target: { kind: "skill_definition", id: definition.id }, details: { agentId: agent.id, skillKey: s.skillKey, source: s.source, fileName: s.fileName, contentHash: s.contentHash, ...(file ? { path: file } : {}), sessionId: caller.sessionId } });
-            }),
+            }, "chief_of_staff"),
           );
           assigned.push({ agentId: agent.id, name: agent.name });
         } catch (e) {

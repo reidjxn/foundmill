@@ -325,6 +325,8 @@ export interface ChosenSkill {
   detail?: string;
   /** Shown as "Not tested yet" until a training run scores it. */
   untested?: boolean;
+  /** One of the skills the agent's role comes with (WP-06 T6), shown as "Came with the role"; removable like the rest. */
+  cameWithRole?: boolean;
 }
 
 export interface ChosenSkillListProps {
@@ -351,6 +353,7 @@ export function ChosenSkillList({ items, onRemove, emptyText, busy, className }:
             <span className="flex min-w-0 flex-wrap items-center gap-2">
               <span className="text-body text-primary">{s.name}</span>
               <Chip>{SKILL_SOURCE_LABELS[s.source]}</Chip>
+              {s.cameWithRole ? <Chip>Came with the role</Chip> : null}
               {s.untested ? <Chip tone="warn">{NOT_TESTED_YET}</Chip> : null}
             </span>
             {s.detail ? <span className="truncate text-small text-secondary">{s.detail}</span> : null}

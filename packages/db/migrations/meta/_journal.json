@@ -827,6 +827,13 @@
       "when": 1796245600000,
       "tag": "0140_entry_plan",
       "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "7",
+      "when": 1796245660000,
+      "tag": "0141_skill_defaults",
+      "breakpoints": true
     }
   ]
 }

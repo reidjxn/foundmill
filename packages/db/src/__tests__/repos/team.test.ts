@@ -7,7 +7,7 @@
  * and hiring from a template has one implementation (WP-06 T5).
  */
 import { randomUUID } from "node:crypto";
-import { getSkillDefinition, getTemplate } from "@foundmill/agents";
+import { DEFAULT_SKILLS_VERSION, defaultSkillKeysFor, getSkillDefinition, getTemplate, librarySkillKey } from "@foundmill/agents";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { hireFromTemplate, hireMany } from "../../hire";
 import { repos } from "../../repos";
@@ -410,7 +410,7 @@ describe("one hire implementation (WP-06 T5)", () => {
     expect(agent).toMatchObject({ name: "Docs hire", role: template.role, agentType: template.agentType, layer: template.layer, departmentIds: [departmentId], lineManagerId: lead, modelKey: template.modelKey, wageCapMinor: template.wageCapMinor, currency: "USD", avatarSeed: `${businessId}:${template.key}` });
     expect(hired.agent.currentVersion).toMatchObject({ state: "live", modelKey: template.modelKey, createdByKind: "system", createdBy: ownerId });
     expect(agent.currentVersionId).toBe(hired.agent.currentVersion!.id);
-    expect(await skillRows(businessId, agent.id)).toEqual(
+    expect((await skillRows(businessId, agent.id)).filter((s) => !s.skillKey.startsWith("library_"))).toEqual(
       template.skills
         .map((skillKey) => ({ skillKey, group: getSkillDefinition(skillKey)?.group ?? "craft", tested: template.baselineRating, proven: null, nLive: 0, displayed: template.baselineRating, potential: template.baselineRating }))
         .sort((a, b) => a.skillKey.localeCompare(b.skillKey)),
@@ -431,5 +431,31 @@ describe("one hire implementation (WP-06 T5)", () => {
     const pick = (a: Awaited<ReturnType<typeof repos.agents.get>>) => ({ name: a.name, role: a.role, agentType: a.agentType, layer: a.layer, modelKey: a.modelKey, wageCapMinor: a.wageCapMinor, currency: a.currency, avatarSeed: a.avatarSeed, autonomy: a.autonomy, negotiation: a.negotiation, schedule: a.schedule });
     expect(pick(await repos.agents.get(r.db, businessId, report!.agent.id))).toEqual(pick(await repos.agents.get(r.db, businessId, one.agent.id)));
     expect(await skillRows(businessId, report!.agent.id)).toEqual(await skillRows(businessId, one.agent.id));
+  });
+});
+
+describe("default skills at hire (WP-06 T6)", () => {
+  const defaults = async (businessId: string, agentId: string, agentType: string) =>
+    (await repos.skills.listAddedForAgent(r.db, businessId, agentId, agentType)).filter((s) => s.addedBy === "template").map((s) => s.skillKey).sort();
+  const expected = (templateKey: string) => defaultSkillKeysFor(templateKey).map(librarySkillKey).sort();
+
+  it("a hire comes with its role's default skills, untested, and records the release", async () => {
+    const { businessId, departmentId } = r.A;
+    const hired = await hireFromTemplate(r.db, businessId, "qa_engineer", { departmentIds: [departmentId] });
+    expect(expected("qa_engineer").length).toBeGreaterThan(0);
+    expect(await defaults(businessId, hired.agent.id, hired.agent.agentType)).toEqual(expected("qa_engineer"));
+    const rows = (await repos.skills.listForAgent(r.db, businessId, hired.agent.id)).filter((s) => s.addedBy === "template");
+    expect(rows.every((s) => s.tested === null)).toBe(true);
+    expect((await repos.agents.get(r.db, businessId, hired.agent.id)).defaultSkillsVersion).toBe(DEFAULT_SKILLS_VERSION);
+  });
+
+  it("hireMany gives each agent of the batch its own role's defaults", async () => {
+    const { businessId, departmentId } = r.A;
+    const [qa, planner] = await hireMany(r.db, businessId, [
+      { id: randomUUID(), templateKey: "qa_engineer", departmentIds: [departmentId], lineManagerId: null },
+      { id: randomUUID(), templateKey: "planner", departmentIds: [departmentId], lineManagerId: null },
+    ]);
+    expect(await defaults(businessId, qa!.agent.id, qa!.agent.agentType)).toEqual(expected("qa_engineer"));
+    expect(await defaults(businessId, planner!.agent.id, planner!.agent.agentType)).toEqual(expected("planner"));
   });
 });
