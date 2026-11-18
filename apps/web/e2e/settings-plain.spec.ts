@@ -167,6 +167,17 @@ test.describe("settings, plain words", () => {
     await expect(anthropic.getByTestId("manage-in-keys")).toHaveAttribute("href", /\/settings\/keys$/);
   });
 
+  test("Integrations: Stripe has its own box above the other connectors, and appears once (founder, Nov 18, 2026)", async ({ page }) => {
+    const screen = await openSettings(page, "integrations");
+    const box = screen.getByTestId("stripe-payments");
+    await expect(box).toBeVisible({ timeout: LONG });
+    await expect(box).toContainText("Accept payments with Stripe");
+    await expect(box.locator('[data-connector="stripe"]')).toHaveCount(1);
+    await expect(screen.getByTestId("connector-list").locator('[data-connector="stripe"]')).toHaveCount(0);
+    const [boxTop, listTop] = await Promise.all([box.boundingBox(), screen.getByTestId("connector-list").boundingBox()]);
+    expect(boxTop!.y).toBeLessThan(listTop!.y);
+  });
+
   test("Integrations: a live API-key connector asks for the founder's own key (masked) and connects with it", async ({ page }) => {
     // The e2e stack runs connectors in mock mode; the list answer is replayed with SendGrid marked live, as with LIVE_CONNECTORS.
     await page.route(/\/trpc\/[^?]*integrations\.list/, async (route) => {
