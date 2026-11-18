@@ -66,6 +66,12 @@ export const ACCOUNT_COLUMNS: Readonly<Record<string, AccountColumn>> = {
   "person_handle_releases.user_id": { export: false, onDelete: "cascade", note: "service-only: handles kept for the person for 90 days" },
   "post_reports.reporter_user_id": { export: true, onDelete: "cascade" },
   "post_reports.resolved_by": { export: false, onDelete: "set null", note: "a reference inside a project's own records; the project keeps it, the id is cleared" },
+  // 0136 reports (WP-12 T4): the person's own reports go into their export, without how an operator handled them (the
+  // reporter never reads that back); a report about the person is never theirs to read, since it would name who
+  // reported them, and on closing it stays for safety with their id cleared, as 0136 decided.
+  "reports.reporter_user_id": { export: true, onDelete: "cascade", omit: ["resolved_by", "resolution", "resolved_at"] },
+  "reports.target_user_id": { export: false, onDelete: "set null", note: "a report about the person: never shown to them (it would name who reported them); kept for safety with the person's id cleared" },
+  "reports.resolved_by": { export: false, onDelete: "set null", note: "the operator who resolved a report; the report is kept, the id is cleared" },
   "posts.author_user_id": { export: true, onDelete: "cascade", omit: ["screening", "moderated_by", "moderation_note"] },
   "posts.moderated_by": { export: false, onDelete: "set null", note: "a reference inside a project's own records; the project keeps it, the id is cleared" },
   "product_signoffs.decided_by": { export: false, onDelete: "set null", note: "a reference inside a project's own records; the project keeps it, the id is cleared" },
