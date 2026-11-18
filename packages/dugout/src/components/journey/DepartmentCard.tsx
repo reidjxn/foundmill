@@ -204,12 +204,17 @@ export function DepartmentCard({ department: d, onOpen, onOpenAgent, onOpenEntit
             <PlainFigure metricId={metricId} plain={metricPlain} className="mt-0.5">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <FitText className="font-display text-display-md font-semibold text-primary" text={d.metric.value} truncate={false} tooltip={false}>
-                  <Figure value={d.metric.value} />
+                  {d.metric.provenance ? (
+                    <ProvenanceChip kind={d.metric.provenance}>
+                      <Figure value={d.metric.value} />
+                    </ProvenanceChip>
+                  ) : (
+                    <Figure value={d.metric.value} />
+                  )}
                 </FitText>
                 {d.metric.delta ? (
                   <span className={cn("chip-tone inline-flex h-badge items-center whitespace-nowrap rounded-pill border px-1.5 text-small font-medium tabular-nums", DELTA_CLASS[d.metric.deltaTone ?? "good"])}>{d.metric.delta}</span>
                 ) : null}
-                {d.metric.provenance ? <ProvenanceChip kind={d.metric.provenance} /> : null}
               </div>
             </PlainFigure>
           </div>

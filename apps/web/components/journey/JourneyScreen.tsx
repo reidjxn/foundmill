@@ -127,8 +127,13 @@ export function JourneyScreen({ journeyId }: JourneyScreenProps) {
               <>No paid acquisition</>
             ) : (
               <>
-                Acquisition cost <span className="tabular text-primary">{formatMoney({ amountMinor: journey.stats.acquisitionCostMinor, currency: row.conversion.currency })}</span>
-                {row.acquisitionCostLabel ? <ProvenanceChip kind={/forecast/i.test(row.acquisitionCostLabel) ? "forecast" : "estimate"} /> : null}
+                Acquisition cost <span className="tabular text-primary">
+                  {row.acquisitionCostLabel ? (
+                    <ProvenanceChip kind={/forecast/i.test(row.acquisitionCostLabel) ? "forecast" : "estimate"}>{formatMoney({ amountMinor: journey.stats.acquisitionCostMinor, currency: row.conversion.currency })}</ProvenanceChip>
+                  ) : (
+                    formatMoney({ amountMinor: journey.stats.acquisitionCostMinor, currency: row.conversion.currency })
+                  )}
+                </span>
               </>
             )}
           </span>

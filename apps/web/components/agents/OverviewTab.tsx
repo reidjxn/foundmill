@@ -181,7 +181,7 @@ export function OverviewTab({ businessId, profile, currency, refetch }: TabProps
           items={[
             // A wage cap caps the agent's metered cost, so it is in US dollars like that cost (`profile.wage.currency`).
             { label: <Term id="wage_cap">Wage cap (USD)</Term>, value: agent.wageCapMinor === null ? "No cap" : formatMoney({ amountMinor: Number(agent.wageCapMinor), currency: profile.wage.currency }), numeric: true },
-            { label: wageLabel(profile.wage.period, undefined, datePrefs).replace(/^AI cost/, "Spent"), value: <span className="inline-flex items-center gap-1">{formatMoney({ amountMinor: profile.wage.costMinor, currency: profile.wage.currency })} <ProvenanceChip kind="estimate" /></span>, numeric: true },
+            { label: wageLabel(profile.wage.period, undefined, datePrefs).replace(/^AI cost/, "Spent"), value: <span className="inline-flex items-center gap-1"><ProvenanceChip kind="estimate">{formatMoney({ amountMinor: profile.wage.costMinor, currency: profile.wage.currency })}</ProvenanceChip></span>, numeric: true },
             { label: "Spend cap per action", value: money(autonomy.spendCapMinor), numeric: true },
             { label: "Needs your OK above", value: asksAbove, numeric: true },
             { label: <Term id="autonomy">Autonomy</Term>, value: autonomy.mode === "inherit" ? <Term id="business_mode">Business mode</Term> : autonomy.mode === "lower" ? "Asks more often" : "Acts more freely" },

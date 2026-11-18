@@ -262,6 +262,8 @@ Layout: the dialog keeps `size="lg"` with two panes (list left, preview right) a
 
 ### T9: Ratings a first-timer can read [M] [ships alone]
 
+**Amended by WP-14 T7 (Nov 17, 2026):** there is no dashed Estimate chip any more. Where step 3 says a `starting` row shows an "Estimate" chip, pass the rating figure as `ProvenanceChip`'s children so it draws in the estimate style (with Builder view off, where no figure shows, keep the word: `<ProvenanceChip kind="estimate" />`). The shell already carries the legend line. DESIGN §8 "Estimate / Forecast" and §10 are the rule.
+
 **Why:** TS-02, display side ("Tested 10" is a constant written at hire, not a test result; CLAUDE.md "Label every non-real number"); a3b §3.2 ("add one sentence of meaning where a number is shown"); s1 §3.11, §4.3 item 6, P2-6. Recorded decisions this task keeps: ratings out of 20 stay (docs/DECISIONS.md "2026-11-11 — The last five answers to docs/THESIS_REVIEW.md §14", answer 3); with Builder view off a rating draws as its band word (docs/DECISIONS.md "Builder view… PR 1 of 2", Nov 8, 2026). Whether the figure should also show with Builder view off is founder decision 5 below; this task makes it a one-line change.
 
 **Files.** Create: `packages/dugout/src/components/guidance/RatingKey.tsx` (+ story, test; add to `SERVER_SAFE_FILES` in `clientBoundaries.test.ts`), `packages/dugout/src/lib/rating-words.ts` (+ test). Modify: `packages/dugout/src/components/data/SkillGrid.tsx`, `RatingBar.tsx` (`RatingFigure`), `packages/modules/src/team/SquadScreen.tsx`, `apps/web/components/agents/logic.ts` (`toSkillRows`), `OverviewTab.tsx`, `packages/shared/src/terms.ts` (`potential`, line 557), `apps/web/components/agents/__tests__/w19-logic.test.ts`.
