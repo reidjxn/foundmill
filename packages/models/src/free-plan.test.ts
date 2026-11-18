@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 import { enforceModelFunding, type ModelFunding } from "./free-plan";
 import { MockModelClient } from "./mock";
 import { WEB_SEARCH_USD_PER_SEARCH } from "./pricing";
-import { MODELS, resolveModel } from "./routing";
+import { MODELS, resolveModel, type RouteKey } from "./routing";
 import type { UsageEvent } from "./types";
 
 const fundingBy = (map: Record<string, ModelFunding>) => async (a?: { businessId?: string }) => map[a?.businessId ?? "none"] ?? "free_plan";
-const ask = (businessId?: string, route: "planCompiler" | "conversation" = "conversation") => ({ route, attribution: businessId ? { businessId, kind: "x" } : undefined, messages: [{ role: "user" as const, content: "x" }] });
+const ask = (businessId?: string, route: RouteKey = "conversation") => ({ route, attribution: businessId ? { businessId, kind: "x" } : undefined, messages: [{ role: "user" as const, content: "x" }] });
 
 describe("who pays decides the model (WP-13)", () => {
   const funding = fundingBy({ free: "free_plan", pro: "paid_plan", own: "own_key" });
