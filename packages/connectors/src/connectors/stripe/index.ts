@@ -147,6 +147,13 @@ export function createStripeConnector(options: LiveConnectorOptions = {}): Conne
           );
           return mapCheckoutSession(session as unknown as StCheckoutSession);
         },
+        // Only on the platform account, for Foundmill's own subscribers: never on a business's connected account.
+        create_billing_portal_session: async ({ customerId, returnUrl }, ctx) => {
+          if (!isPlatformBillingIntegration(ctx.integration)) throw Object.assign(new Error("The billing portal is for the platform's own billing only"), { status: 403 });
+          const { stripe, opts } = forCtx(ctx, { platformBilling: true });
+          const session = await stripe.billingPortal.sessions.create({ customer: customerId, return_url: returnUrl }, opts);
+          return { id: session.id, url: session.url };
+        },
         list_charges: async ({ customerId, limit }, ctx) => {
           const { stripe, opts } = forCtx(ctx);
           const page = await stripe.charges.list({ limit, ...(customerId ? { customer: customerId } : {}) }, opts);

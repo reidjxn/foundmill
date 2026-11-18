@@ -88,7 +88,7 @@ export const billingRouter = router({
               priceMonthlyMinor: ENTRY_PLAN.priceMonthlyMinor,
               includedCreditsMinor: ENTRY_PLAN.includedCreditsMinor,
               open: entryFacts?.open ?? false,
-              mine: entryFacts?.mine ? { status: entryFacts.mine.status, currentPeriodEnd: entryFacts.mine.currentPeriodEnd } : null,
+              mine: entryFacts?.mine ? { status: entryFacts.mine.status, mode: entryFacts.mine.mode, currentPeriodEnd: entryFacts.mine.currentPeriodEnd } : null,
               available: topUpAvailability(ctx.env).available,
               packs: CREDIT_PACKS_MINOR.map((priceMinor) => ({ priceMinor, creditsMinor: creditPackCreditsMinor(priceMinor) ?? priceMinor })),
             }
@@ -138,6 +138,25 @@ export const billingRouter = router({
     const started = await startCreditCheckout({ db: ctx.db, env: ctx.env, gateway: ctx.gateway }, { businessId: ctx.businessId, userId: ctx.userId, email: ctx.email, amountMinor: ENTRY_PLAN.priceMonthlyMinor, kind: "subscription", resume: input?.resume ?? null });
     await ctx.rls((tx) => audit(tx, ctx, { action: "billing.checkout_started", target: { kind: "billing_checkout", id: started.checkout.id }, details: { kind: "subscription", amountMinor: ENTRY_PLAN.priceMonthlyMinor, currency: "USD", mode: started.mode } }));
     return { checkout: checkoutView(started.checkout), checkoutUrl: started.checkoutUrl, mode: started.mode, label: started.mode === "mock" ? ("Mock checkout (no money moves)" as const) : null };
+  }),
+
+  /**
+   * Manage or cancel the entry plan (founder, Nov 18, 2026: canceling is never harder than subscribing). Live: Stripe's
+   * customer portal, where the person changes the card or cancels; the subscription's events reach ingest as usual.
+   * Mock: the simulated plan is canceled here and now (labeled; no money moves).
+   */
+  manage: ownerProcedure.use(modelLimited("checkout")).mutation(async ({ ctx }) => {
+    const mine = await repos.accountPlans.forUser(ctx.db, ctx.userId);
+    if (!mine || mine.status === "canceled") throw new ValidationError(`You have no ${ENTRY_PLAN.name} plan to manage.`);
+    if (mine.mode === "mock") {
+      await repos.accountPlans.cancelMock(ctx.db, ctx.userId, new Date());
+      await ctx.rls((tx) => audit(tx, ctx, { action: "billing.entry_plan_canceled", target: { kind: "business", id: ctx.businessId }, details: { mode: "mock" } }));
+      return { mode: "mock" as const, url: null, canceled: true, label: "Mock cancel (no money moves)" as const };
+    }
+    if (!mine.stripeCustomerId || !ctx.gateway.createPortal) throw new AppError("payments_unconfigured", "Stripe's billing page cannot be opened from here yet. Stripe's emails about your plan carry the same link.", 503);
+    const { url } = await ctx.gateway.createPortal({ businessId: ctx.businessId, customerId: mine.stripeCustomerId, returnUrl: new URL(`/b/${ctx.businessId}/settings/billing`, ctx.env.APP_URL).toString() });
+    await ctx.rls((tx) => audit(tx, ctx, { action: "billing.portal_opened", target: { kind: "business", id: ctx.businessId }, details: { mode: "live" } }));
+    return { mode: "live" as const, url, canceled: false, label: null };
   }),
 
   checkout: router({

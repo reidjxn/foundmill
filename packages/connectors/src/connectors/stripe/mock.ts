@@ -101,6 +101,10 @@ export function createStripeMock() {
         sessions.set(id, s);
         return mapCheckoutSession(s);
       },
+      create_billing_portal_session: async ({ customerId }) => {
+        const id = `bps_test_${stableHash(["bps", customerId], 20)}`;
+        return { id, url: `https://billing.stripe.com/p/session/${id}` };
+      },
       // Each paid invoice was taken as one charge (none refunded in the fixtures).
       list_charges: async ({ customerId, limit }, ctx) => {
         const charges = [...world(ctx.businessId).invoices.values()].filter((i) => i.status === "paid" && (!customerId || i.customer === customerId)).sort((a, b) => b.created - a.created).map((i): StCharge => ({ id: `ch_${i.id.slice(3)}`, customer: typeof i.customer === "string" ? i.customer : (i.customer?.id ?? null), amount: i.amount_paid, amount_refunded: 0, currency: i.currency, status: "succeeded", paid: true, refunded: false, invoice: i.id, created: i.status_transitions?.paid_at ?? i.created, description: i.lines?.data[0]?.description ?? null }));

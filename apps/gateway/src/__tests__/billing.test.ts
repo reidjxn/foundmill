@@ -32,6 +32,11 @@ function appFor(mode: "mock" | "live", opts: { secretKey?: string; seen?: Seen[]
   const live = createStripeConnector({
     secrets: opts.secretKey ? { stripeSecretKey: opts.secretKey } : {},
     fetch: routedFetch({
+      "POST https://api.stripe.com/v1/billing_portal/sessions": async (req) => {
+        const body = new URLSearchParams(await req.text());
+        opts.seen?.push({ auth: req.headers.get("authorization") ?? "", account: req.headers.get("stripe-account"), body });
+        return jsonResponse({ id: "bps_test_platform123456", object: "billing_portal.session", url: "https://billing.stripe.com/p/session/test_platform", customer: body.get("customer"), return_url: body.get("return_url") });
+      },
       "POST https://api.stripe.com/v1/checkout/sessions": async (req) => {
         const body = new URLSearchParams(await req.text());
         opts.seen?.push({ auth: req.headers.get("authorization") ?? "", account: req.headers.get("stripe-account"), body });
@@ -123,5 +128,20 @@ describe("platform checkout sessions", () => {
     expect(await post(live, request(crypto.randomUUID()))).toMatchObject({ status: 503, body: { error: { code: "payments_unconfigured", message: expect.stringMatching(/not set up/) } } });
     const res = await live.request("/v1/billing/checkout-sessions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(request(crypto.randomUUID())) });
     expect(res.status).toBe(401);
+  });
+});
+
+describe("the entry plan's billing portal (founder, Nov 18, 2026: canceling is never harder than subscribing)", () => {
+  const portal = async (app: ReturnType<typeof appFor>, svc = "api") =>
+    app.request("/v1/billing/portal-sessions", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${await signServiceToken(TEST_SECRET, svc)}` }, body: JSON.stringify({ businessId, customerId: "cus_TestFounder01", returnUrl: "https://foundmill.com/billing" }) });
+  it("live: Stripe's portal on the platform account for the subscriber's customer; only the api asks", async () => {
+    const seen: Seen[] = [];
+    const app = appFor("live", { secretKey: "sk_test_platform", seen });
+    const res = await portal(app);
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual({ mode: "live", url: "https://billing.stripe.com/p/session/test_platform" });
+    expect(seen[0]).toMatchObject({ auth: "Bearer sk_test_platform", account: null });
+    expect(seen[0]!.body.get("customer")).toBe("cus_TestFounder01");
+    expect((await portal(app, "composer")).status).toBe(403);
   });
 });

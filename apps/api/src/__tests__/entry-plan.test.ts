@@ -62,6 +62,22 @@ describe("with PAID_ENTRY on", () => {
     expect(plan.topUp.options).toEqual([...CREDIT_PACKS_MINOR]);
   });
 
+  it("the plan goes first for every model call inside a project on the platform key; an own-key project skips it", async () => {
+    const owner = paid({ userId: hz.A.ownerId });
+    expect(await failure(owner.inbox.refresh({ businessId: hz.A.businessId }))).toEqual({ code: "PAYMENT_REQUIRED", message: ENTRY_PLAN_REQUIRED_MESSAGE });
+    expect(await failure(owner.plan.preview({ businessId: hz.A.businessId, text: "Ship the page" }))).toMatchObject({ code: "PAYMENT_REQUIRED" });
+    // The request is still said once.
+    expect(await repos.inbox.openBySubject(hz.db, hz.A.businessId, ENTRY_PLAN_REQUEST_SUBJECT)).toHaveLength(1);
+    // With the switch off, or on the founder's own key, the plan is not asked for (whatever the call then does).
+    expect((await failure(hz.caller({ userId: hz.A.ownerId }).inbox.refresh({ businessId: hz.A.businessId })))?.code).not.toBe("PAYMENT_REQUIRED");
+    await repos.businesses.update(hz.db, hz.A.businessId, { modelBilling: "byok" });
+    try {
+      expect((await failure(owner.inbox.refresh({ businessId: hz.A.businessId })))?.code).not.toBe("PAYMENT_REQUIRED");
+    } finally {
+      await repos.businesses.update(hz.db, hz.A.businessId, { modelBilling: "credits" });
+    }
+  });
+
   it("only the owner subscribes; the simulated payment opens the project's AI runs once", async () => {
     expect(await failure(paid({ userId: hz.A.adminId }).billing.subscribe({ businessId: hz.A.businessId }))).toMatchObject({ code: "FORBIDDEN" });
     const owner = paid({ userId: hz.A.ownerId });
@@ -134,5 +150,15 @@ describe("with PAID_ENTRY on", () => {
     expect(done.cycle).toBeNull();
     expect(done.autopilot).toBeNull();
     expect((await repos.businesses.get(hz.db, done.business.id)).autopilotEnabled).toBe(false);
+  });
+
+  it("canceling is one press, as subscribing is: the simulated plan cancels and the gate closes again", async () => {
+    const owner = paid({ userId: hz.A.ownerId });
+    expect((await owner.billing.plan({ businessId: hz.A.businessId })).entryPlan).toMatchObject({ mine: { status: "active" } });
+    expect(await owner.billing.manage({ businessId: hz.A.businessId })).toMatchObject({ mode: "mock", canceled: true, url: null });
+    expect(await entryPlanOpen(hz.db, { ...hz.deps.env, PAID_ENTRY: true }, hz.A.businessId)).toBe(false);
+    expect(await failure(owner.billing.manage({ businessId: hz.A.businessId }))).toMatchObject({ code: "BAD_REQUEST" });
+    // Subscribing again is open once more.
+    expect((await owner.billing.subscribe({ businessId: hz.A.businessId })).checkout).toMatchObject({ kind: "subscription", status: "open" });
   });
 });

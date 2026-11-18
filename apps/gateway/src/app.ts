@@ -13,6 +13,7 @@
  *   POST /v1/keys/validate         service JWT (api) → a founder's own Anthropic key checked with Anthropic, never logged or echoed (keys.ts)
  *   POST /v1/registry/lookup       service JWT (api) → an allow-listed company-registry lookup for Legal › Import (registry-lookup.ts)
  *   POST /v1/billing/checkout-sessions  service JWT (api) → a Stripe Checkout session on the platform account (billing.ts)
+ *   POST /v1/billing/portal-sessions  service JWT (api) → Stripe's customer portal for an entry-plan subscriber (billing.ts)
  *   POST /v1/domains/check         service JWT (api) → registry answers for up to 8 domain names (domains.ts)
  *   POST /v1/personas/portrait     service JWT (api) → the AI-generated portrait of one persona catalog key in one character style (portraits.ts)
  *   POST /v1/speech/synthesize     service JWT (api) → one agent turn spoken in a speech accent, for Team call (speech.ts)
@@ -41,7 +42,7 @@ import { connectIntegration, integrationHealth, releaseAccount, releaseIntegrati
 import { KEYS_VALIDATE_ROUTE, ValidateKeyRequest, validateFounderKey } from "./keys";
 import { MAX_OWN_KEY_MODELS_BODY_BYTES, OWN_KEY_MODELS_ROUTE, proxyOwnKeyMessage } from "./model-proxy";
 import { lookupRegistry, REGISTRY_LOOKUP_ROUTE, RegistryLookupRequest } from "./registry-lookup";
-import { CreateCheckoutRequest, createPlatformCheckout } from "./billing";
+import { CreateCheckoutRequest, CreatePortalRequest, createPlatformCheckout, createPlatformPortal } from "./billing";
 import { CheckDomainsRequest, checkDomains } from "./domains";
 import { generatePortrait, PortraitRequest } from "./portraits";
 import { sendPush, SendPushRequest } from "./push";
@@ -363,6 +364,8 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     const input = CreateCheckoutRequest.parse(await c.req.json());
     return c.json(await createPlatformCheckout(deps, input, c.var.service.svc), 201);
   });
+
+  app.post("/v1/billing/portal-sessions", async (c) => c.json(await createPlatformPortal(deps, CreatePortalRequest.parse(await c.req.json()), c.var.service.svc), 201));
 
   app.post("/v1/session-tokens", async (c) => {
     const input = MintSessionTokenRequest.parse(await c.req.json());

@@ -60,6 +60,11 @@ export const accountPlansRepo = {
     return maybeOne(rows);
   },
 
+  /** The simulated plan canceled by its holder (mock mode's stand-in for Stripe's portal). Null when there is none. */
+  async cancelMock(db: Executor, userId: string, at: Date): Promise<AccountPlan | null> {
+    return maybeOne(await db.update(accountPlans).set({ status: "canceled", statusAt: at }).where(and(eq(accountPlans.userId, userId), eq(accountPlans.mode, "mock"))).returning());
+  },
+
   /**
    * Whether one of the business's founders (an owner or a cofounder, `OWNER_ROLES`) holds an active entry plan. `live`: only a plan paid for on Stripe counts (a
    * simulated one exists only where simulated payments are allowed, and never opens live work).
