@@ -230,10 +230,19 @@ test.describe("settings, plain words", () => {
     await expect(screen.getByTestId("oauth-finish")).toHaveCount(0);
     await expect(page).not.toHaveURL(/oauth_/);
 
-    // With a code and the state, one button finishes it (not pressed here: this spec saves nothing).
+    // With a code and the state, it finishes by itself with no press (founder, Nov 18, 2026). The request is caught
+    // here, so this spec saves nothing; the address loses the code either way.
+    let sent: Record<string, unknown> | null = null;
+    await page.route(/\/trpc\/[^?]*integrations\.connect/, async (route) => {
+      // The call can ride in a batch: take the entry for integrations.connect by its place in the path.
+      const procedures = decodeURIComponent(new URL(route.request().url()).pathname.split("/trpc/")[1] ?? "").split(",");
+      const body = JSON.parse(route.request().postData() ?? "{}") as Record<string, { json?: Record<string, unknown> }>;
+      sent = body[String(procedures.indexOf("integrations.connect"))]?.json ?? null;
+      await route.abort();
+    });
     await page.goto(`${B}/settings/integrations?oauth_connector=gmail&oauth_code=4%2F0Adeu5&oauth_state=${encodeURIComponent(state)}`);
-    await settled(page);
-    await expect(settingsScreen(page).getByTestId("oauth-finish").getByRole("button", { name: "Connect Gmail" })).toBeVisible({ timeout: LONG });
+    await expect.poll(() => sent, { timeout: LONG }).toMatchObject({ connectorKey: "gmail", input: { code: "4/0Adeu5", state } });
+    await expect(page).not.toHaveURL(/oauth_/, { timeout: LONG });
   });
 
   test("Your words and Departments: the glossary tab is called Your words, no retired default words, modules named in words", async ({ page }) => {
