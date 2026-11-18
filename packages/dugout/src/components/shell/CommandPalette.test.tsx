@@ -89,7 +89,7 @@ describe("paletteSections", () => {
     // "what is runway" reaches the term; a word in the definition reaches it too; the rows carry the one-line meaning.
     expect(helpQuery("What is the runway?")).toBe("runway");
     expect(helpQuery("what does burn mean")).toBe("burn");
-    expect(helpQuery("define round of work")).toBe("cycle");
+    expect(helpQuery("define cycle")).toBe("cycle");
     expect(helpPaletteRows(all, "what is runway")[0]).toMatchObject({ id: "help:runway", description: "How many months your cash lasts at today's spending.", href: "/b/northwind/d/finance/runway" });
     expect(helpPaletteRows(all, "months")[0]?.id).toBe("help:runway");
     expect(helpPaletteRows(all, "qqq")).toEqual([]);

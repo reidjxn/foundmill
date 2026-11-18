@@ -375,7 +375,7 @@ describe("TourPage (signed-out /)", () => {
     expect(deck.getAttribute("data-example")).toBe("glitchwick");
     expect(deck.getAttribute("data-phase")).toBe("idle");
     expect(within(deck).getByText("Glitchwick")).toBeTruthy();
-    expect(within(deck).getByText(/Cycle 197 · Chapter 9/)).toBeTruthy();
+    expect(within(deck).getByText(/Round of work 197 · Chapter 9/)).toBeTruthy();
     expect(screen.getByText(/^Glitchwick is an example business\./)).toBeTruthy();
     // The ticker, the team, the Journey, the Customer Update, the milestones, the board and the Inbox note follow.
     expect(screen.getByRole("region", { name: "What the Glitchwick team did this week" })).toBeTruthy();

@@ -84,7 +84,7 @@ describe("founderPhrase and founderTitleFallback", () => {
 describe("the engine's numbers (Builder view, Nov 8, 2026)", () => {
   it("founderJargonHits catches round of work and round numbers, test tallies, tokens, PR numbers and ETA", () => {
     const hits = (text: string) => founderJargonHits(text).map((h) => h.term);
-    expect(hits("Round of work 3 completed")).toEqual(["Round of work 3"]);
+    expect(hits("Cycle 3 completed")).toEqual(["Cycle 3"]);
     expect(hits("Round 2 · waiting for you")).toEqual(["Round 2"]);
     expect(hits("105 tests passed")).toEqual(["105 tests passed"]);
     expect(hits("Still 3 of 10 tests failing")).toEqual(["3 of 10 tests failing"]);
@@ -99,15 +99,15 @@ describe("the engine's numbers (Builder view, Nov 8, 2026)", () => {
   });
 
   it("founderPhrase rewrites them, and the title rules flag them", () => {
-    expect(founderPhrase("Round of work 3 completed")).toBe("A round of work completed");
+    expect(founderPhrase("Cycle 3 completed")).toBe("A round of work completed");
     expect(founderPhrase("Fixed checkout: 105 tests passed")).toBe("Fixed checkout: the quality checks passed");
     expect(founderPhrase("3 of 10 tests failing on the pricing page")).toBe("Some quality checks are failing on the pricing page");
     expect(founderPhrase("Merged PR #41 for the pricing page")).toBe("Put live a finished change for the pricing page");
     expect(founderPhrase("Used 1.2K tokens")).toBe("Used some AI usage");
     expect(founderPhrase("ETA 3:45 PM")).toBe("Expected finish 3:45 PM");
     expect(withoutEngineNumbers("Round 2 of the sign-off")).toBe("a round of work of the sign-off");
-    expect(founderTitleProblems("Finish round of work 4 work").map((p) => `${p.rule}:${p.text}`)).toContain("technical_word:cycle 4");
-    expect(founderTitleFallback("Ship the export before round of work 4")).toBe("Ship the export before a round of work");
+    expect(founderTitleProblems("Finish cycle 4 work").map((p) => `${p.rule}:${p.text}`)).toContain("technical_word:cycle 4");
+    expect(founderTitleFallback("Ship the export before cycle 4")).toBe("Ship the export before a round of work");
   });
 });
 

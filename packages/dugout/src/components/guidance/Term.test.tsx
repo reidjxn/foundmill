@@ -167,7 +167,7 @@ describe("DefinitionCard and the Learn more target", () => {
     unmount();
     render(
       <DefinitionCard word="Cycle" short="One round of work." openDelay={0}>
-        <button type="button">Round of work</button>
+        <button type="button">Cycle</button>
       </DefinitionCard>,
     );
     await user.hover(screen.getByRole("button", { name: "Cycle" }));
@@ -179,7 +179,7 @@ describe("DefinitionCard and the Learn more target", () => {
     const user = userEvent.setup();
     render(
       <DefinitionCard word="Cycle" short="One round of work." openDelay={0}>
-        <button type="button">Round of work</button>
+        <button type="button">Cycle</button>
       </DefinitionCard>,
     );
     const trigger = screen.getByRole("button", { name: "Cycle" });
