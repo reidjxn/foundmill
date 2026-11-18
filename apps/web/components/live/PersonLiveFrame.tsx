@@ -16,6 +16,7 @@ import { ShellChromeProvider, useShellChromeValue } from "@/components/shell/chr
 const LINKS = [
   { href: "/network", label: "Network" },
   { href: "/communities", label: "Communities" },
+  { href: "/public-profile", label: "Your page" },
 ] as const;
 
 export function PersonLiveFrame({ viewer, children }: { viewer?: { email: string | null }; children: ReactNode }) {

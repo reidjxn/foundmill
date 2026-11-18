@@ -13,12 +13,12 @@
  * Stepping back never needs it: block, remove, leave, mute, report, delete and decline always work.
  */
 import { randomUUID } from "node:crypto";
-import { COMMUNITY_KINDS, MAX_MESSAGE_RECIPIENTS, MEMBER_MODERATION_ACTIONS, POST_MODERATION_ACTIONS, POST_REPORT_REASONS, PUBLIC_PROFILE_KINDS, repos, type Business, type CommunityMember, type Executor, type MessageThread, type Post, type PublicProfile } from "@foundmill/db";
-import { ForbiddenError, NotFoundError, ValidationError, VISIBILITY, WRITE_ROLES } from "@foundmill/shared";
+import { COMMUNITY_KINDS, MAX_MESSAGE_RECIPIENTS, MEMBER_MODERATION_ACTIONS, POST_MODERATION_ACTIONS, POST_REPORT_REASONS, PUBLIC_PROFILE_KINDS, repos, type Business, type CommunityMember, type Executor, type MessageThread, type Post, type PublicPerson, type PublicProfile } from "@foundmill/db";
+import { ForbiddenError, NotFoundError, PERSON_LOOKING_FOR, ValidationError, VISIBILITY, WRITE_ROLES } from "@foundmill/shared";
 import { z } from "zod";
 import type { Context } from "../context";
 import { messageRecipients, screenText, signalPeople } from "../services/live";
-import { takeCommunity, takeCommunityInvite, takeConnectionRequest, takeMessage, takePost, takePostReport } from "../services/live-limits";
+import { takeCommunity, takeCommunityInvite, takeConnectionRequest, takeMessage, takePeopleSearch, takePost, takePostReport } from "../services/live-limits";
 import { Id, effectivePermission, liveGate, pgErrorCode, protectedProcedure as anyProtectedProcedure, router, sectionWrite as anySectionWrite, type Section } from "../trpc";
 
 // Every LIVE procedure is closed while LIVE is (FLAGS.liveMode / LIVE_MODE, audit VLS2-X1).
@@ -54,8 +54,31 @@ async function speakingAs(ctx: Ctx, businessId: string | null | undefined): Prom
 
 /** A public profile as the page shows it: only what the `public_profiles` view carries (no logo image: the retired crest URL stays out). */
 function publicCard(p: PublicProfile) {
-  return { kind: p.kind, businessId: p.businessId, userId: p.userId, name: p.displayName, slug: p.slug, archetype: p.archetype, kitPrimary: p.kitPrimary, kitSecondary: p.kitSecondary, region: p.region, since: p.committedAt };
+  return { kind: p.kind, businessId: p.businessId as string | null, userId: p.userId, name: p.displayName, slug: p.slug, archetype: p.archetype, kitPrimary: p.kitPrimary, kitSecondary: p.kitSecondary, region: p.region, since: p.committedAt, handle: null as string | null, headline: null as string | null };
 }
+
+/**
+ * A person who published /u/<handle> (0080), as a founder card: one identity for a person on the network. The page at
+ * /u/<handle> and the network's person page show the same profile; the old founder card (`public_profiles`, a name made
+ * public in Network) stays only for people who never published one.
+ */
+function personCard(p: PublicPerson & { userId: string }): ReturnType<typeof publicCard> {
+  return { kind: "founder", businessId: null, userId: p.userId, name: p.displayName, slug: null, archetype: null, kitPrimary: null, kitSecondary: null, region: null, since: p.publishedAt, handle: p.handle, headline: p.content.headline || null };
+}
+
+/** What a person's public profile says, for the network's person page and Find people. */
+function personFields(p: PublicPerson) {
+  return { handle: p.handle, headline: p.content.headline, about: p.content.about, strengths: p.content.strengths, wantsToLearn: p.content.wantsToLearn, lookingFor: p.content.lookingFor, place: p.content.place, projects: p.projects };
+}
+
+/** Find people's filter (docs/NETWORK.md F16): words, a "good at" word, the answers to "What are you here for?". */
+const FindPeopleInput = z.object({
+  q: z.string().trim().max(120).optional(),
+  goodAt: z.string().trim().max(60).optional(),
+  lookingFor: z.array(z.enum(PERSON_LOOKING_FOR)).max(PERSON_LOOKING_FOR.length).optional(),
+  limit: z.number().int().min(1).max(50).default(20),
+  cursor: z.string().max(200).nullish(),
+});
 
 /** Which of these business ids the viewer may be shown: listed businesses, and their own in any mode. Others read as null. */
 async function shownBusinessIds(ctx: Ctx, ids: readonly (string | null)[]): Promise<Set<string>> {
@@ -473,25 +496,45 @@ export const liveRouter = router({
      * made their name public). Only public-profile fields leave here; the viewer's own row and blocked people do not turn up.
      */
     search: protectedProcedure.input(z.object({ q: z.string().trim().min(2).max(120), limit: z.number().int().min(1).max(20).default(10) })).query(async ({ ctx, input }) => {
-      const rows = await repos.social.searchPublicFor(ctx.db, ctx.userId, input.q, { limit: input.limit });
-      return { hits: rows.map(publicCard) };
+      await takePeopleSearch(ctx.limits, ctx.userId);
+      // People who published /u/<handle> first, then the older cards; a person with both turns up once, as their page.
+      const [people, rows] = await Promise.all([repos.personProfiles.public.find(ctx.db, ctx.userId, { q: input.q, limit: input.limit }), repos.social.searchPublicFor(ctx.db, ctx.userId, input.q, { limit: input.limit })]);
+      const published = new Set(people.items.map((p) => p.userId));
+      const older = rows.filter((r) => !(r.kind === "founder" && r.userId && published.has(r.userId)));
+      return { hits: [...people.items.map(personCard), ...older.map(publicCard)].slice(0, input.limit) };
+    }),
+    /**
+     * Find people (docs/NETWORK.md F16, browse): public profiles by words, what they are good at and what they are here
+     * for, newest published first. The order never depends on a person's answer, and building on one's own is an answer
+     * like any other (the solo guard, §10). The viewer and anyone blocked either way never turn up.
+     */
+    find: protectedProcedure.input(FindPeopleInput.optional()).query(async ({ ctx, input }) => {
+      await takePeopleSearch(ctx.limits, ctx.userId);
+      const page = await repos.personProfiles.public.find(ctx.db, ctx.userId, input ?? {});
+      return { items: page.items.map((p) => ({ userId: p.userId, name: p.displayName, ...personFields(p) })), nextCursor: page.nextCursor };
     }),
     /** One public profile page: the card, who is behind the business or which businesses a founder runs, and the viewer's connection to the founder. */
     profile: protectedProcedure.input(z.object({ kind: z.enum(PUBLIC_PROFILE_KINDS), id: Id })).query(async ({ ctx, input }) => {
-      const found = await repos.social.publicProfileOf(ctx.db, input.kind, input.id);
-      if (!found) throw new NotFoundError("profile", input.id);
+      const [listed, published] = await Promise.all([repos.social.publicProfileOf(ctx.db, input.kind, input.id), input.kind === "founder" ? repos.personProfiles.public.byUserId(ctx.db, input.id) : Promise.resolve(null)]);
+      // One identity: a person who published /u/<handle> is found here too, with what their page says.
+      if (!listed && !published) throw new NotFoundError("profile", input.id);
+      // A block either way reads as no profile at all (a block is never announced).
+      if (input.kind === "founder" && input.id !== ctx.userId && (await repos.social.blockedWith(ctx.db, ctx.userId, [input.id])).has(input.id)) throw new NotFoundError("profile", input.id);
+      const card = published ? personCard({ ...published, userId: input.id }) : publicCard(listed!.profile);
       let connection: { id: string; status: "requested" | "accepted" | "blocked"; direction: "incoming" | "outgoing" } | null = null;
-      const founderId = found.profile.kind === "founder" ? found.profile.userId : null;
+      const founderId = card.kind === "founder" ? card.userId : null;
       if (founderId && founderId !== ctx.userId) {
         const row = (await repos.social.listConnections(ctx.db, ctx.userId)).find((c) => (c.fromUser === founderId && c.toUser === ctx.userId) || (c.fromUser === ctx.userId && c.toUser === founderId));
         if (row) connection = { id: row.id, status: row.status, direction: row.toUser === ctx.userId ? "incoming" : "outgoing" };
       }
       return {
-        profile: publicCard(found.profile),
-        businesses: found.businesses.map(publicCard),
-        founders: found.founders.map(publicCard),
+        profile: card,
+        businesses: (listed?.businesses ?? []).filter((b) => b.kind === "business").map(publicCard),
+        founders: card.kind === "founder" ? [card] : (listed?.founders ?? []).map(publicCard),
         isSelf: founderId === ctx.userId,
         connection,
+        /** What the person's page at /u/<handle> says, when they published one. */
+        person: published ? personFields(published) : null,
       };
     }),
   }),

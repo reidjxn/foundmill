@@ -13,7 +13,8 @@ vi.mock("@/components/shell/business-context", () => {
   return { useBusiness: value, useOptionalBusiness: value };
 });
 vi.mock("@/components/shell/chrome", () => ({ useShellChrome: () => undefined }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: () => undefined }) }));
+const push = vi.fn();
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 
 import { NetworkScreen } from "../NetworkScreen";
 import { LiveViewerProvider } from "../viewer";
@@ -36,6 +37,8 @@ function seed(over: Partial<FakeApi["handlers"]> = {}) {
     "live.people.lookup": (v) => ({ users: ((v as { userIds: string[] }).userIds ?? []).map((userId) => ({ userId, displayName: NAMES[userId] ?? null })), businesses: [] }),
     "live.profile.visibility.get": () => ({ visibility: "private", publicProfile: null }),
     "live.profile.visibility.set": () => ({}),
+    "live.people.find": () => ({ items: [], nextCursor: null }),
+    "founder.publicProfile.get": () => ({ handle: "jamie", url: "https://foundmill.test/u/jamie", saved: true, displayName: "Jamie Reyes", content: {}, public: false, publishedAt: null, projects: [] }),
     "live.connections.respond": (v) => ({ ...(v as object) }),
     "live.connections.remove": () => ({ removed: true }),
     "founder.tableViews.get": () => null,
@@ -330,13 +333,43 @@ describe("/network", () => {
     expect(callsTo(api, "live.messages.list").at(-1)).toMatchObject({ threadId: "t-new" });
   });
 
-  it("saves the profile visibility the founder picks, and starts from what the API says", async () => {
+  it("Your public page replaces the old visibility choice; a name shown the old way can be taken back", async () => {
+    api.handlers["live.profile.visibility.get"] = () => ({ visibility: "public", publicProfile: null });
     mount();
-    const panel = await screen.findByTestId("visibility-panel");
-    await waitFor(() => expect((within(panel).getByRole("radio", { name: /Private/ }) as HTMLElement).getAttribute("data-state")).toBe("checked"));
-    expect(within(panel).getAllByRole("radio").map((r) => r.getAttribute("id"))).toEqual(["visibility-public", "visibility-connections", "visibility-community", "visibility-private"]);
-    fireEvent.click(within(panel).getByRole("radio", { name: /Connections/ }));
-    await waitFor(() => expect(callsTo(api, "live.profile.visibility.set")).toEqual([{ visibility: "connections" }]));
+    const panel = await screen.findByTestId("your-page-panel");
+    expect((await within(panel).findByTestId("your-page-edit")).textContent).toBe("Make your page");
+    expect(within(panel).getByTestId("your-page-edit").getAttribute("href")).toBe("/public-profile");
+    expect(screen.queryByTestId("visibility-panel")).toBeNull();
+    fireEvent.click(await within(panel).findByTestId("your-page-hide-name"));
+    await waitFor(() => expect(callsTo(api, "live.profile.visibility.set")).toEqual([{ visibility: "private" }]));
+  });
+
+  it("a published page: Edit and Open it, and nothing about the old choice when it was private", async () => {
+    api.handlers["founder.publicProfile.get"] = () => ({ handle: "jamie", url: "", saved: true, displayName: "Jamie Reyes", content: {}, public: true, publishedAt: new Date(), projects: [] });
+    mount();
+    const panel = await screen.findByTestId("your-page-panel");
+    expect((await within(panel).findByTestId("your-page-open")).getAttribute("href")).toBe("/u/jamie");
+    expect(within(panel).getByTestId("your-page-edit").textContent).toBe("Edit your page");
+    expect(within(panel).queryByTestId("your-page-old-name")).toBeNull();
+  });
+
+  it("Find people lists published pages, work first; filters reach the API; a person on their own reads like anyone (solo guard)", async () => {
+    const person = (over: Record<string, unknown>) => ({ userId: ids.ana, name: "Ana Ruiz", handle: "ana", headline: "Coffee cart in Austin", about: "", strengths: ["Coffee", "Sales"], wantsToLearn: [], lookingFor: "on_my_own", place: "Austin, TX", projects: [], ...over });
+    api.handlers["live.people.find"] = () => ({ items: [person({}), person({ userId: ids.ben, name: "Ben Ode", handle: "ben", headline: "", strengths: [], lookingFor: "looking_to_join", place: "" })], nextCursor: null });
+    mount();
+    const panel = await screen.findByTestId("find-people");
+    const rows = await within(panel).findAllByTestId("find-people-row");
+    expect(rows.map((r) => r.getAttribute("data-person-handle"))).toEqual(["ana", "ben"]);
+    expect(rows[0]!.textContent).toContain("Coffee cart in AustinAna Ruiz · Austin, TXCoffeeSales");
+    // "Building on my own" is never written on a row; another answer is.
+    expect(rows[0]!.textContent).not.toMatch(/own/i);
+    expect(rows[1]!.textContent).toContain("Looking to join a project");
+    // No count anywhere on the panel.
+    expect(panel.textContent).not.toMatch(/\b\d+ (people|results)\b/);
+    fireEvent.click(rows[0]!);
+    expect(push).toHaveBeenCalledWith(`/profiles/founder/${ids.ana}`);
+    fireEvent.change(within(panel).getByTestId("find-people-good-at"), { target: { value: "sales" } });
+    await waitFor(() => expect(callsTo(api, "live.people.find").at(-1)).toMatchObject({ goodAt: "sales", limit: 12 }));
   });
 
   it("has an empty state for every list when nothing has happened yet", async () => {

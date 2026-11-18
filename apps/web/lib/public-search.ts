@@ -21,8 +21,8 @@ export function publicSearchText(text: string): string | null {
 }
 
 /** One line under a hit's name: what it is. */
-export function publicHitDescription(hit: Pick<PublicHit, "kind" | "archetype">): string {
-  if (hit.kind === "founder") return "Founder";
+export function publicHitDescription(hit: Pick<PublicHit, "kind" | "archetype"> & { headline?: string | null }): string {
+  if (hit.kind === "founder") return hit.headline || "Founder";
   return hit.archetype ? `Business · ${hit.archetype.replace(/_/g, " ")}` : "Business";
 }
 

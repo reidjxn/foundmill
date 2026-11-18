@@ -24,7 +24,8 @@ import { userChannel } from "./signals";
 import { PeopleSearchPanel } from "./PeopleSearchPanel";
 import { useNarrow } from "./useNarrow";
 import { useLiveViewer } from "./viewer";
-import { VisibilityPanel } from "./VisibilityPanel";
+import { FindPeoplePanel } from "./FindPeoplePanel";
+import { YourPagePanel } from "./YourPagePanel";
 
 /** Conversations per page; "Show more conversations" asks for the next. */
 const THREADS_PAGE = 50;
@@ -143,6 +144,7 @@ export function NetworkScreen() {
           loadingMoreThreads={threadsQ.isFetchingNextPage}
           narrow={narrow}
         />
+        <FindPeoplePanel />
         <ConnectionsPanel rows={[...groups.accepted, ...groups.blocked]} viewerId={viewer.userId} people={people} loading={loading} error={connectionsError} onRetry={() => void connectionsQ.refetch()} onBlock={handlers.onBlock} onRemove={handlers.onRemove} onMessage={handlers.onMessage} onFind={findFounders} narrow={narrow} />
       </div>
       {/* One way on from an empty network, not three: only Connections offers "Browse communities". */}
@@ -151,7 +153,7 @@ export function NetworkScreen() {
         <RequestsPanel rows={groups.incoming} viewerId={viewer.userId} people={people} loading={loading} error={connectionsError} onRetry={() => void connectionsQ.refetch()} busyId={busyId} onAccept={handlers.onAccept} onRemove={handlers.onRemove} onBlock={handlers.onBlock} />
         <SentRequestsPanel rows={groups.outgoing} viewerId={viewer.userId} people={people} loading={loading} error={connectionsError} onRetry={() => void connectionsQ.refetch()} busyId={busyId} onRemove={handlers.onRemove} />
         <InvitationsPanel rows={invitations} people={people} loading={invitationsQ.isLoading} error={invitationsQ.error ? errorMessage(invitationsQ.error) : undefined} onRetry={() => void invitationsQ.refetch()} busyId={invitationBusy} onJoin={onJoin} onDecline={onDecline} />
-        <VisibilityPanel />
+        <YourPagePanel />
       </div>
     </div>
     </div>
