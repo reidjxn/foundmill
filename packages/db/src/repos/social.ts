@@ -173,6 +173,9 @@ const badgeQueries = {
   adultConfirmedAt: (_db: Executor, userId: string) => adultsRepo.confirmedAtSql(userId),
 };
 
+/** A text matched as a LIKE prefix, with its own wildcard characters taken literally. */
+const escapeLike = (text: string) => text.replace(/[\\%_]/g, (c) => `\\${c}`);
+
 export const socialRepo = {
   // public profiles (view over LIVE businesses + founders who opted in) -------------------------------------------------
   async publicProfile(db: Executor, businessId: string): Promise<PublicProfile | null> {
@@ -187,7 +190,7 @@ export const socialRepo = {
     return db
       .select()
       .from(publicProfiles)
-      .where(and(options.kind ? eq(publicProfiles.kind, options.kind) : undefined, or(sql`${publicProfiles.displayName} % ${term}`, sql`lower(${publicProfiles.displayName}) like lower(${term}) || '%'`)))
+      .where(and(options.kind ? eq(publicProfiles.kind, options.kind) : undefined, or(sql`${publicProfiles.displayName} % ${term}`, sql`lower(${publicProfiles.displayName}) like lower(${escapeLike(term)}) || '%'`)))
       .orderBy(desc(sql`similarity(${publicProfiles.displayName}, ${term})`), asc(publicProfiles.displayName))
       .limit(limit);
   },
@@ -234,15 +237,8 @@ export const socialRepo = {
   async searchPublicFor(db: Executor, viewerId: string, q: string, options: { limit?: number } = {}): Promise<PublicProfile[]> {
     const limit = options.limit ?? 10;
     const rows = await socialRepo.searchPublic(db, q, { limit: limit + 10 });
-    const blocked = new Set<string>();
-    await Promise.all(
-      rows
-        .filter((r) => r.kind === "founder" && r.userId && r.userId !== viewerId)
-        .map(async (r) => {
-          const res = rowsOf<{ blocked: boolean }>(await db.execute(sql`select connection_is_blocked(${viewerId}::uuid, ${r.userId}::uuid) as blocked`));
-          if (res[0]?.blocked) blocked.add(r.userId!);
-        }),
-    );
+    // One query for every founder in the page (a block either way, never announced).
+    const blocked = await socialRepo.blockedWith(db, viewerId, [...new Set(rows.flatMap((r) => (r.kind === "founder" && r.userId && r.userId !== viewerId ? [r.userId] : [])))]);
     return rows.filter((r) => r.kind === "business" || (!!r.userId && r.userId !== viewerId && !blocked.has(r.userId))).slice(0, limit);
   },
 

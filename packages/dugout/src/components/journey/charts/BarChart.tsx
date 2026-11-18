@@ -178,8 +178,7 @@ function BarChartSvg({ data, label, width, height, horizontal, tone, format: raw
         <ChartTooltip x={tip.x} y={tip.y} width={width}>
           <div className="t-data mb-0.5">{tip.datum.label}</div>
           <div className="flex items-center gap-2 tabular-nums">
-            <span>{format(tip.datum.value)}</span>
-            {tip.datum.provenance ? <ProvenanceChip kind={tip.datum.provenance} /> : null}
+            {tip.datum.provenance ? <ProvenanceChip kind={tip.datum.provenance}>{format(tip.datum.value)}</ProvenanceChip> : <span>{format(tip.datum.value)}</span>}
           </div>
         </ChartTooltip>
       ) : null}

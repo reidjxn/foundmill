@@ -370,9 +370,10 @@ export function VisionPanels({ vision, intro, actions }: { vision: FoundationsVi
           </p>
           <p className="text-small text-secondary">{vision.northStar.definition}</p>
           <div className="flex flex-wrap items-center gap-2">
-            {/* The chip carries the label, so a trailing "(Forecast)" in the text is not repeated. */}
-            <span className="text-body text-primary tabular-nums">{vision.northStar.target.replace(/\s*\((?:Forecast|Estimate)\)\s*$/i, "")}</span>
-            <ProvenanceChip kind={label} />
+            {/* The figure carries the label, so a trailing "(Forecast)" in the text is not repeated. */}
+            <span className="text-body text-primary tabular-nums">
+              <ProvenanceChip kind={label}>{vision.northStar.target.replace(/\s*\((?:Forecast|Estimate)\)\s*$/i, "")}</ProvenanceChip>
+            </span>
           </div>
         </div>
       </Panel>

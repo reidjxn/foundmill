@@ -27,7 +27,7 @@ async function axeViolations(page: Page): Promise<string[]> {
 }
 
 const overflow = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-const SECTIONS = ["hero", "result", "ways", "studio", "people", "first-week", "control", "questions", "start"];
+const SECTIONS = ["hero", "result", "ways", "studio", "people", "first-week", "control", "vacation", "questions", "start"];
 
 for (const [width, height] of [
   [390, 844],

@@ -225,9 +225,9 @@ export function RunwayScreen({ businessId }: ModuleScreenProps) {
     if (runways[s].kind === "unknown") return [{ label: "Runway", value: <span className="tabular-nums">{r.figure}</span>, numeric: true }];
     return [
       // Every figure here is projected from the drivers, so each one carries its Forecast chip (CLAUDE.md).
-      { label: "Runway", value: <span className="flex items-center gap-1 tabular-nums">{r.figure} <ProvenanceChip kind="forecast" /></span>, numeric: true },
-      { label: "Cash out", value: <span className="flex items-center gap-1 tabular-nums">{p.zeroMonth ? formatMonth(p.zeroMonth, datePrefs) : "Not within horizon"} <ProvenanceChip kind="forecast" /></span>, numeric: true },
-      { label: last ? `Cash, ${formatMonth(last.month, datePrefs)}` : "Cash at horizon", value: <span className="flex items-center gap-1 tabular-nums">{fmtMoney(last?.cashMinor ?? null, cur, { compact: true })} <ProvenanceChip kind="forecast" /></span>, numeric: true },
+      { label: "Runway", value: <span className="flex items-center gap-1 tabular-nums"><ProvenanceChip kind="forecast">{r.figure}</ProvenanceChip></span>, numeric: true },
+      { label: "Cash out", value: <span className="flex items-center gap-1 tabular-nums"><ProvenanceChip kind="forecast">{p.zeroMonth ? formatMonth(p.zeroMonth, datePrefs) : "Not within horizon"}</ProvenanceChip></span>, numeric: true },
+      { label: last ? `Cash, ${formatMonth(last.month, datePrefs)}` : "Cash at horizon", value: <span className="flex items-center gap-1 tabular-nums"><ProvenanceChip kind="forecast">{fmtMoney(last?.cashMinor ?? null, cur, { compact: true })}</ProvenanceChip></span>, numeric: true },
     ];
   };
 
@@ -341,7 +341,7 @@ export function RunwayScreen({ businessId }: ModuleScreenProps) {
               Reset
             </Button>
             <span className="flex items-center gap-1 text-small text-secondary tabular-nums" data-driver-runway>
-              {exampleOn ? "Example" : SCENARIO_META[scenario].label} runway with these drivers: {runwayText(exampleOn ? exampleRunway : runways[scenario]).figure.replace(/^Beyond/, "beyond")} <ProvenanceChip kind="forecast" />
+              {exampleOn ? "Example" : SCENARIO_META[scenario].label} runway with these drivers: <ProvenanceChip kind="forecast">{runwayText(exampleOn ? exampleRunway : runways[scenario]).figure.replace(/^Beyond/, "beyond")}</ProvenanceChip>
             </span>
             <InlineError error={action.error} className="ml-auto" />
           </div>

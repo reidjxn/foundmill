@@ -75,6 +75,9 @@ export function LandingPage({ variant = DEFAULT_LANDING_VARIANT, switches = SWIT
               </h2>
               <p className="text-secondary">{W.control.rules}</p>
               <p className="text-secondary">{W.control.yes}</p>
+              <p className="text-secondary" data-testid="control-honest">
+                {W.control.honest}
+              </p>
             </div>
             <div id="cost" className="flex flex-col gap-5">
               <h2 className="t-landing-h2 text-primary">{W.cost.title}</h2>
@@ -84,6 +87,7 @@ export function LandingPage({ variant = DEFAULT_LANDING_VARIANT, switches = SWIT
             </div>
           </div>
         </section>
+        <LandingSection id="vacation" title={W.vacation.title} lede={W.vacation.text} />
         <LandingSection id="questions" title={W.questions.title}>
           <QuestionList items={questions(switches)} />
         </LandingSection>

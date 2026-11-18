@@ -11,10 +11,10 @@
  * A handle a person leaves stays theirs for `PERSON_HANDLE_HOLD_DAYS` (`person_handle_releases`, written by the table's
  * triggers): `handleTaken` counts it as taken for everyone else, and the database refuses it the same way.
  */
-import { ConflictError, NotFoundError, OWNER_ROLES, PERSON_HANDLE_HOLD_DAYS, PERSON_HANDLE_TAKEN, PersonHandle, PersonProfileContent, readPersonProfile, type PersonProfileContent as ProfileContent } from "@foundmill/shared";
+import { ConflictError, NotFoundError, OWNER_ROLES, PERSON_LOOKING_FOR, PERSON_HANDLE_HOLD_DAYS, PERSON_HANDLE_TAKEN, PersonHandle, PersonProfileContent, readPersonProfile, type PersonProfileContent as ProfileContent } from "@foundmill/shared";
 import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
-import { founderProfiles, memberships, personHandleReleases, projectPages, publicPersonProfiles, publicProjectPages, type FounderProfile, type PublicPersonProject } from "../schema";
+import { connections, founderProfiles, memberships, personHandleReleases, projectPages, publicPersonProfiles, publicProjectPages, type FounderProfile, type PublicPersonProject } from "../schema";
 import { Id, maybeOne, parseInput, uniqueViolation, type Executor } from "./_shared";
 
 const HANDLE_CONSTRAINT = "founder_profiles_handle_key";
@@ -39,6 +39,25 @@ export interface PublicPerson {
   publishedAt: Date;
   projects: PublicPersonProject[];
 }
+
+/** One person in Find people: the public profile, and the account id a signed-in viewer needs to connect. */
+export interface FoundPerson extends PublicPerson {
+  userId: string;
+}
+
+/** A Find people search: free words, a "good at" word, the answers to "What are you here for?", a page. */
+const FindInput = z.object({
+  q: z.string().trim().max(120).optional(),
+  goodAt: z.string().trim().max(60).optional(),
+  lookingFor: z.array(z.enum(PERSON_LOOKING_FOR)).max(PERSON_LOOKING_FOR.length).optional(),
+  limit: z.number().int().min(1).max(50).default(20),
+  /** The `publishedAt|handle` of the last row of the previous page. */
+  cursor: z.string().max(200).nullish(),
+});
+export type FindPeopleInput = z.input<typeof FindInput>;
+
+/** `%word%` for ILIKE, with the wildcard characters in the word itself escaped. */
+const like = (word: string) => `%${word.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
 
 const SaveInput = z.object({ handle: PersonHandle.nullable().optional(), content: PersonProfileContent });
 export type SavePersonProfileInput = z.input<typeof SaveInput>;
@@ -182,6 +201,62 @@ export const personProfilesRepo = {
         content: readPersonProfile({ headline: row.headline, about: row.about, strengths: row.strengths, wantsToLearn: row.wantsToLearn, lookingFor: row.lookingFor, place: row.place }),
         publishedAt: row.publishedAt,
         projects: projectsOf(row.projects),
+      };
+    },
+
+    /** The public profile of one account, or null when it has none (the network's person page reads it). */
+    async byUserId(db: Executor, userId: string): Promise<PublicPerson | null> {
+      const id = parseInput(Id, userId, "user id");
+      const row = maybeOne(await db.select({ handle: founderProfiles.handle }).from(founderProfiles).where(and(eq(founderProfiles.userId, id), eq(founderProfiles.public, true))).limit(1));
+      return row?.handle ? personProfilesRepo.public.byHandle(db, row.handle) : null;
+    },
+
+    /**
+     * Find people (docs/NETWORK.md F16, browse): public profiles that match, newest published first, never the viewer
+     * and never anyone blocked either way (a block is never announced). The order is the publish date alone: nothing
+     * about a person, their answer to "What are you here for?" included, moves them up or down (the solo guard, §10).
+     * Words match the name, headline, about, place and tags; `goodAt` matches a "Good at" tag.
+     */
+    async find(db: Executor, viewerId: string, filter: FindPeopleInput = {}): Promise<{ items: FoundPerson[]; nextCursor: string | null }> {
+      const viewer = parseInput(Id, viewerId, "viewer id");
+      const f = parseInput(FindInput, filter, "people search");
+      const v = publicPersonProfiles;
+      const conds = [ne(founderProfiles.userId, viewer)];
+      const words = (f.q ?? "").split(/\s+/).filter(Boolean).slice(0, 6);
+      for (const w of words) {
+        const pattern = like(w);
+        conds.push(sql`(${v.displayName} ilike ${pattern} or ${v.headline} ilike ${pattern} or ${v.about} ilike ${pattern} or ${v.place} ilike ${pattern} or exists (select 1 from unnest(${v.strengths} || ${v.wantsToLearn}) t where t ilike ${pattern}))`);
+      }
+      if (f.goodAt) conds.push(sql`exists (select 1 from unnest(${v.strengths}) t where t ilike ${like(f.goodAt)})`);
+      if (f.lookingFor?.length) conds.push(inArray(v.lookingFor, f.lookingFor));
+      conds.push(sql`not exists (select 1 from ${connections} c where c.status = 'blocked' and ((c.from_user = ${viewer}::uuid and c.to_user = ${founderProfiles.userId}) or (c.to_user = ${viewer}::uuid and c.from_user = ${founderProfiles.userId})))`);
+      if (f.cursor) {
+        const [at, handle] = f.cursor.split("|");
+        const when = at ? new Date(at) : null;
+        if (when && !Number.isNaN(when.getTime()) && handle) conds.push(sql`(${v.publishedAt}, ${v.handle}) < (${when.toISOString()}::timestamptz, ${handle})`);
+      }
+      const rows = await db
+        .select({
+          row: { handle: v.handle, displayName: v.displayName, headline: v.headline, about: v.about, strengths: v.strengths, wantsToLearn: v.wantsToLearn, lookingFor: v.lookingFor, place: v.place, publishedAt: v.publishedAt, projects: v.projects },
+          userId: founderProfiles.userId,
+        })
+        .from(v)
+        .innerJoin(founderProfiles, eq(founderProfiles.handle, v.handle))
+        .where(and(...conds))
+        .orderBy(desc(v.publishedAt), desc(v.handle))
+        .limit(f.limit + 1);
+      const page = rows.slice(0, f.limit);
+      const last = page[page.length - 1];
+      return {
+        items: page.map(({ row, userId }) => ({
+          userId,
+          handle: row.handle,
+          displayName: row.displayName,
+          content: readPersonProfile({ headline: row.headline, about: row.about, strengths: row.strengths, wantsToLearn: row.wantsToLearn, lookingFor: row.lookingFor, place: row.place }),
+          publishedAt: row.publishedAt,
+          projects: projectsOf(row.projects),
+        })),
+        nextCursor: rows.length > f.limit && last ? `${last.row.publishedAt.toISOString()}|${last.row.handle}` : null,
       };
     },
   },

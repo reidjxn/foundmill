@@ -7,8 +7,8 @@
  */
 import { useState } from "react";
 import { Pause, Play } from "lucide-react";
-import { APP_TAGLINE, CREDITS_CURRENCY, includedCreditsMinor } from "@foundmill/config";
-import { Icon, formatMoney } from "@foundmill/dugout";
+import { APP_TAGLINE } from "@foundmill/config";
+import { Icon } from "@foundmill/dugout";
 import { CycleDeck } from "./CycleDeck";
 import { ExamplePicker } from "./ExamplePicker";
 import { useExample } from "./examples/context";
@@ -18,13 +18,14 @@ import { Container, goToSection } from "./parts";
 /** The words the headline lights; the h1's text stays exactly the tagline. */
 const LIT = "real business";
 
+/** The line under the deck (WP-14 T10): what pressing Continue shows. */
+export const deckCaption = (name: string) => `${name} is an example business. Press Continue and see what your team would do this week.`;
+
 /**
- * The first money a visitor reads about (docs/UX_AUDIT_AND_PLAN.md §7.1, A13): the free plan's included credits, read
- * from packages/config so the figure stays true, in credits' own currency ("$5.00"). The key assurance lives in "You
- * decide" (Control.tsx), beside "Your key, sealed".
+ * The tour's second line, directly under the hero (WP-14 T10; it was the lede of How it works): what the founder does
+ * and does not do.
  */
-const INCLUDED_CREDITS = formatMoney({ amountMinor: includedCreditsMinor("free"), currency: CREDITS_CURRENCY }, { locale: "en-US" });
-export const INCLUDED_CREDITS_ASSURANCE = `Starts with ${INCLUDED_CREDITS} of included credits · no card`;
+export const RUN_A_BUSINESS = "You do not manage prompts. You run a business: set the direction, approve what matters, and let the team carry the rest.";
 
 export function Hero({ layout = "desktop" }: { layout?: "desktop" | "phone" }) {
   const business = useExample();
@@ -81,7 +82,7 @@ export function Hero({ layout = "desktop" }: { layout?: "desktop" | "phone" }) {
             <ExamplePicker />
             <CycleDeck key={business.identity.id} onOpenJourney={() => goToSection("journey")} />
             <p className="text-center text-small text-secondary">
-              {business.identity.name} is an example business. Press Continue, answer what comes back, and run another cycle.
+              {deckCaption(business.identity.name)}
             </p>
           </div>
         ) : null}
@@ -125,5 +126,16 @@ export function Ticker() {
         </ul>
       </div>
     </div>
+  );
+}
+
+/** "You do not manage prompts. You run a business…", on its own under the hero. */
+export function RunABusiness() {
+  return (
+    <section aria-label="What you do" className="pb-8 pt-20" data-testid="run-a-business">
+      <Container>
+        <p className="t-display-xl mx-auto max-w-5xl text-balance text-center text-primary">{RUN_A_BUSINESS}</p>
+      </Container>
+    </section>
   );
 }

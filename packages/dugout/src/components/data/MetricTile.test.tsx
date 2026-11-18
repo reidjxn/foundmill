@@ -23,7 +23,8 @@ describe("MetricTile plain line (PlainFigure)", () => {
     const caption = document.querySelector("[data-metric-caption]") as HTMLElement;
     expect(line.compareDocumentPosition(caption) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByRole("button", { name: /Where this number comes from/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Estimate" })).toBeTruthy();
+    // The figure is the estimate: its own button, named with the word after the number.
+    expect(screen.getByRole("button", { name: "7 mo Estimate" })).toBeTruthy();
   });
 
   it("reads the line from the definitions map by metricId, and shows the figure alone with guidance off", () => {
