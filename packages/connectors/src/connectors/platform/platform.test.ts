@@ -8,7 +8,7 @@ import { isConfigError, type ToolResult } from "../../contract";
 import { uuidFromSeed } from "../../mock-utils";
 import { isUntrusted } from "../../quarantine";
 import { describeConnectorContract, makeToolContext } from "../../testing/contract-suite";
-import { createPlatformConnector, createPlatformMock } from "./index";
+import { READ_SKILL_NOTICE, createPlatformConnector, createPlatformMock } from "./index";
 import { createMemoryPlatformHost, platformMock } from "./mock";
 
 describeConnectorContract("platform (mock)", {
@@ -91,6 +91,30 @@ describe("platform task board", () => {
   });
 });
 
+describe("platform CRM records", () => {
+  const connector = createPlatformMock(createMemoryPlatformHost());
+  const as = (businessId: string) => (tool: string, args: unknown) => connector.callTool(tool, args, makeToolContext(connector, { businessId, agentId: WORKER }));
+  const supplier = { kind: "organisation", name: "Hallbergs Packaging AB", role: "supplier", sourceUrl: "https://example.com/hallbergs" };
+
+  it("records a supplier once, then logs an interaction on it", async () => {
+    const first = ok<{ entityId: string; created: boolean }>(await as(A)("create_entity", supplier));
+    expect(first.created).toBe(true);
+    const again = ok<{ entityId: string; created: boolean }>(await as(A)("create_entity", { ...supplier, name: "hallbergs packaging ab" }));
+    expect(again).toEqual({ entityId: first.entityId, created: false });
+    expect(ok<{ interactionId: string }>(await as(A)("log_interaction", { entityId: first.entityId, summary: "Price list received, MOQ 500." })).interactionId).toBeTruthy();
+  });
+
+  it("validates the input and keeps one business's records from another", async () => {
+    expect((await as(A)("create_entity", { ...supplier, role: "customer" })).error).toMatchObject({ code: "invalid_args" });
+    expect((await as(A)("create_entity", { ...supplier, sourceUrl: "not a url" })).error).toMatchObject({ code: "invalid_args" });
+    expect((await as(A)("create_entity", { ...supplier, name: "Evil [[ent:x|Co]]" })).error).toMatchObject({ code: "invalid_args" });
+    const { entityId } = ok<{ entityId: string }>(await as(A)("create_entity", supplier));
+    expect((await as(B)("log_interaction", { entityId, summary: "Not yours." })).error).toMatchObject({ code: "not_found" });
+    expect(connector.policyHints.create_entity).toEqual({});
+    expect(connector.policyHints.log_interaction).toEqual({});
+  });
+});
+
 describe("platform live side", () => {
   it("refuses with a configuration error when the process wired no host", async () => {
     const connector = createPlatformConnector();
@@ -105,5 +129,38 @@ describe("platform live side", () => {
     const ctx = makeToolContext(connector, { mode: "live", businessId: A, agentId: WORKER, sessionId: null });
     ok(await connector.callTool("list_tasks", { scope: "team", limit: 2 }, ctx));
     expect(seen).toEqual([{ caller: { businessId: A, agentId: WORKER, sessionId: null }, args: { scope: "team", limit: 2 } }]);
+  });
+});
+
+describe("read_skill (WP-06 T4)", () => {
+  it("is read-only: no hint that asks first, annotated as a read", () => {
+    const connector = createPlatformMock(createMemoryPlatformHost());
+    const hints = connector.policyHints.read_skill as Record<string, unknown> | undefined;
+    for (const key of ["spendsMoney", "contactsThirdParty", "irreversible", "hardGate", "requiresKitMode"]) expect(Boolean(hints?.[key]), key).toBe(false);
+    expect(connector.tools.find((t) => t.name === "read_skill")?.annotations).toMatchObject({ readOnlyHint: true });
+  });
+
+  it("the mock returns only the calling agent's own skill, in this business, with the notice", async () => {
+    const connector = createPlatformMock(createMemoryPlatformHost());
+    const as = (businessId: string, agentId: string) => (tool: string, args: unknown) => connector.callTool(tool, args, makeToolContext(connector, { businessId, agentId }));
+    ok(await as(A, LEAD)("assign_skill", { agentIds: [WORKER], library: "cold_email" }));
+    const mine = ok<{ skillKey: string; text: string; notice: string }>(await as(A, WORKER)("read_skill", { skillKey: "library:cold_email" }));
+    expect(mine.text.startsWith('<skill name="cold_email" source="library">')).toBe(true);
+    expect(mine.notice).toBe(READ_SKILL_NOTICE);
+    // A library skill comes back raw; an uploaded file in the untrusted envelope, `skill:<key>` (security review M2).
+    expect((await as(A, WORKER)("read_skill", { skillKey: "library:cold_email" })).untrusted).toBeFalsy();
+    ok(await as(A, LEAD)("assign_skill", { agentIds: [WORKER], file: "skills/branch-rules.md" }));
+    const upload = await as(A, WORKER)("read_skill", { skillKey: "upload:skills/branch-rules.md" });
+    expect(upload.untrusted).toBe(true);
+    expect(upload.data).toMatchObject({ source: { kind: "document", ref: "skill:upload:skills/branch-rules.md" }, content: { source: "upload" } });
+    expect((await as(A, LEAD)("read_skill", { skillKey: "library:cold_email" })).error).toMatchObject({ code: "not_found" });
+    expect((await as(B, WORKER)("read_skill", { skillKey: "library:cold_email" })).error).toMatchObject({ code: "not_found" });
+  });
+
+  it("a host that does not serve it refuses the call", async () => {
+    const { readSkill: _drop, ...host } = createMemoryPlatformHost();
+    const connector = createPlatformConnector({ platform: host });
+    const r = await connector.callTool("read_skill", { skillKey: "x" }, makeToolContext(connector, { mode: "live", businessId: A, agentId: WORKER, sessionId: null }));
+    expect(r.error).toMatchObject({ code: "invalid_state" });
   });
 });

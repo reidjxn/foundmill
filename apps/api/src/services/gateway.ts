@@ -387,8 +387,9 @@ export interface CreateApiGatewayClientOptions {
   timeoutMs?: number;
 }
 
-export async function signApiServiceToken(secret: string): Promise<string> {
-  return new SignJWT({ svc: "api" }).setProtectedHeader({ alg: "HS256", typ: "JWT" }).setIssuer(TOKEN_ISSUER).setAudience(SERVICE_AUDIENCE).setIssuedAt().setExpirationTime("60s").setJti(randomUUID()).sign(new TextEncoder().encode(secret));
+/** `businessId`: the one business the token acts for, where a route needs it (the own-key model route, WP-13 T11). */
+export async function signApiServiceToken(secret: string, businessId?: string): Promise<string> {
+  return new SignJWT({ svc: "api", ...(businessId ? { businessId } : {}) }).setProtectedHeader({ alg: "HS256", typ: "JWT" }).setIssuer(TOKEN_ISSUER).setAudience(SERVICE_AUDIENCE).setIssuedAt().setExpirationTime("60s").setJti(randomUUID()).sign(new TextEncoder().encode(secret));
 }
 
 export function createApiGatewayClient(opts: CreateApiGatewayClientOptions): ApiGatewayClient {

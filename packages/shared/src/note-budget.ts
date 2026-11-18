@@ -36,14 +36,30 @@ export const DIGEST_SUBJECT = "What your team did today";
 /** Lines the digest shows; the rest are counted. */
 export const DIGEST_MAX_LINES = 8;
 
-/** The digest's body: a template, no model call. One line per folded note, newest first as given. */
-export function digestBody(lines: readonly { agentName: string; subject: string }[]): string {
+/** The work behind the day's notes (WP-14 T5, ./effort): the effort sentence and the steps behind the longer results. */
+export interface DigestWork {
+  /** "Your team ran 14 quality checks and finished 5 pieces of work." Null when nothing was counted. */
+  effort: string | null;
+  /** "“Booking form” took 12 minutes: 4 of 4 plan steps, reviewed." Empty when no result took minutes. */
+  steps: readonly string[];
+}
+
+export const DIGEST_STEPS_HEADING = "The steps behind the longer pieces of work:";
+
+/**
+ * The digest's body: a template, no model call. One line per folded note, newest first as given. With `work`, the
+ * effort sentence comes before the notes and the steps behind the longer results after them; both come from counted
+ * records, and a part with nothing to say is left out.
+ */
+export function digestBody(lines: readonly { agentName: string; subject: string }[], work?: DigestWork): string {
   const shown = lines.slice(0, DIGEST_MAX_LINES).map((l) => `- ${l.agentName}: ${l.subject}`);
   const more = lines.length - shown.length;
   return [
     "Here is what your team did today. Each full note is in the Inbox, under Archive.",
     "",
+    ...(work?.effort ? [work.effort, ""] : []),
     ...shown,
     ...(more > 0 ? ["", `And ${more} more in the Inbox.`] : []),
+    ...(work?.steps.length ? ["", DIGEST_STEPS_HEADING, "", ...work.steps.map((s) => `- ${s}`)] : []),
   ].join("\n");
 }

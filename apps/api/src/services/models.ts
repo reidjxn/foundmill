@@ -21,7 +21,7 @@
  * through the gateway on that key.
  */
 import { assertPlatformCredits, bookUsage, cachedFreeCap, cachedModelFundingOf, freeCapCheck, type Db } from "@foundmill/db";
-import { createModelClient, enforceModelFunding, gateModelClient, type ModelCallGate, type ModelClient, type UsageEvent, type UsageSink } from "@foundmill/models";
+import { createModelClient, enforceModelFunding, gateModelClient, ownKeyViaGateway, routeOwnKeyCalls, type ModelCallGate, type ModelClient, type UsageEvent, type UsageSink } from "@foundmill/models";
 import type { Env } from "@foundmill/shared";
 import type { ApiLogger } from "./log";
 import { markNotesCalls, noteModelCall } from "./model-calls";
@@ -31,6 +31,13 @@ export interface ApiModelClientOptions {
   db?: Db;
   /** Called after the ledger write (tests, observability). */
   onUsage?: (e: UsageEvent) => void;
+  /**
+   * The gateway, for a business on its own Anthropic key (WP-13 T11): its calls run on that key through the gateway's
+   * model route, booked `byok`. Absent (tests, no secret): they run as the business's plan says, on Foundmill's key.
+   */
+  ownKeyGateway?: { url: string; serviceToken: (businessId: string) => Promise<string> };
+  /** Injectable fetch for the gateway route (tests). */
+  gatewayFetch?: typeof globalThis.fetch;
 }
 
 /**
@@ -108,7 +115,19 @@ export function createApiModelClient(env: Pick<Env, "MODEL_MODE" | "ANTHROPIC_AP
   const gated = gateModelClient(client, opts.db ? apiCreditsGate(opts.db, client.mode === "live") : async () => noteModelCall());
   // The month's free-plan cap (WP-13 T6): at the cap a free call is refused with the date free AI is back.
   const freeCap = opts.db && env.FREE_PLAN_MONTHLY_CAP_CENTS !== undefined ? freeCapCheck(opts.db, env.FREE_PLAN_MONTHLY_CAP_CENTS) : undefined;
-  return markNotesCalls(opts.db ? enforceModelFunding(gated, cachedModelFundingOf(opts.db, { ownKeyServed: false }), { freeCap }) : gated);
+  const platform = opts.db ? enforceModelFunding(gated, cachedModelFundingOf(opts.db, { ownKeyServed: false }), { freeCap }) : gated;
+  // A business on its own key (WP-13 T11): live calls go to the gateway's model route, which puts the founder's key on
+  // them. Never a fallback to Foundmill's key: a missing or refused key ends in its own sentence (packages/models).
+  if (!opts.db || !opts.ownKeyGateway || client.mode !== "live") return markNotesCalls(platform);
+  const ownKeyOf = cachedModelFundingOf(opts.db, { ownKeyServed: true });
+  const viaGateway = ownKeyViaGateway({ gatewayUrl: opts.ownKeyGateway.url, serviceToken: opts.ownKeyGateway.serviceToken, onUsage: usage, logger: log, ...(opts.gatewayFetch ? { fetch: opts.gatewayFetch } : {}) });
+  const noted = new Map<string, ModelClient>();
+  const clientFor = (businessId: string) => {
+    let c = noted.get(businessId);
+    if (!c) noted.set(businessId, (c = gateModelClient(viaGateway(businessId), async () => noteModelCall())));
+    return c;
+  };
+  return markNotesCalls(routeOwnKeyCalls(platform, { ownKey: async (a) => (await ownKeyOf(a)) === "own_key", clientFor }));
 }
 
 /**

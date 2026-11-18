@@ -26,7 +26,7 @@ beforeEach(() => hz.limits.reset());
 async function freshBusiness(email: string, name: string) {
   const userId = await hz.h.createUser(email);
   const caller = hz.caller({ userId, email });
-  await caller.founder.profile.update({ confirmAdult: true, displayName: "Reid", experience: "first-time", skills: { engineering: 14, sales: 8 }, targetMarkets: ["Nordics"], riskAppetite: "medium", budgetMinor: 2_500_000 });
+  await caller.founder.profile.update({ confirmAdult: true, displayName: "Reid", timeCommitment: "full_time", residence: "United States", experience: "first-time", skills: { engineering: 14, sales: 8 }, targetMarkets: ["Nordics"], riskAppetite: "medium", budgetMinor: 2_500_000 });
   const generated = await caller.idea.generate({ prompt: "bookkeeping for independent accountants in the Nordics" });
   const result = await caller.idea.commit({ ideaId: generated.ideas[0]!.id, name, archetype: "b2b_saas", gameMode: "personal" });
   const businessId = result.business.id;

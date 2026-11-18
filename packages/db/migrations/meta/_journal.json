@@ -785,6 +785,20 @@
       "when": 1796245240000,
       "tag": "0134_project_updates",
       "breakpoints": true
+    },
+    {
+      "idx": 112,
+      "version": "7",
+      "when": 1796245300000,
+      "tag": "0135_payment_powers",
+      "breakpoints": true
+    },
+    {
+      "idx": 113,
+      "version": "7",
+      "when": 1796245360000,
+      "tag": "0136_reports",
+      "breakpoints": true
     }
   ]
 }

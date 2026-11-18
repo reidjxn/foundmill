@@ -27,7 +27,7 @@ afterAll(() => hz?.close());
 async function founder(email: string) {
   const userId = await hz.h.createUser(email);
   const caller = hz.caller({ userId, email });
-  await caller.founder.profile.update({ confirmAdult: true, displayName: "Reid", experience: "first-time", skills: { engineering: 14, sales: 8 }, targetMarkets: ["Nordics"], constraints: ["bootstrapped"], riskAppetite: "medium", budgetMinor: 2_500_000 });
+  await caller.founder.profile.update({ confirmAdult: true, displayName: "Reid", timeCommitment: "full_time", residence: "United States", experience: "first-time", skills: { engineering: 14, sales: 8 }, targetMarkets: ["Nordics"], constraints: ["bootstrapped"], riskAppetite: "medium", budgetMinor: 2_500_000 });
   return { userId, caller };
 }
 
@@ -214,7 +214,7 @@ describe("product.foundations — on Temporal", () => {
     try {
       const userId = await tz.h.createUser("temporal@test.local");
       const caller = tz.caller({ userId });
-      await caller.founder.profile.update({ confirmAdult: true, displayName: "Reid", targetMarkets: ["EU"] });
+      await caller.founder.profile.update({ confirmAdult: true, displayName: "Reid", timeCommitment: "full_time", residence: "United States", targetMarkets: ["EU"] });
       const idea = (await caller.idea.generate({ prompt: "a newsletter for climate operators" })).ideas[0]!;
       const { business } = await caller.idea.commit({ ideaId: idea.id, name: "Climate Weekly", archetype: "content_media", gameMode: "personal" });
       const [one, two] = await Promise.all([caller.product.foundations.ensure({ businessId: business.id }), caller.product.foundations.ensure({ businessId: business.id })]);

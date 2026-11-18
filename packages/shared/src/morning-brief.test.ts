@@ -124,6 +124,13 @@ describe("the brief's sections", () => {
     expect(b.worked.lines[0]!.text).toBe("A new customer paid");
   });
 
+  it("says the effort beside the work, from counted records, and alone when no round was recorded (WP-14 T5)", () => {
+    const effort = "Your team ran 14 quality checks and read 3 sources.";
+    expect(morningBrief(base({ weekly: true, work: { rounds: 2, tasksDone: 5, costMinor: 0, costCurrency: "USD" }, effort })).behindTheScenes).toBe(`Behind the scenes: 2 rounds of work, 5 tasks done. ${effort}`);
+    expect(morningBrief(base({ effort })).behindTheScenes).toBe(effort);
+    expect(morningBrief(base({ effort: null })).behindTheScenes).toBeNull();
+  });
+
   it("a quiet day reads as quiet, not as failure, and says nothing about anyone missing", () => {
     const b = morningBrief(base({ work: { rounds: 2, tasksDone: 5, costMinor: 42, costCurrency: "USD" } }));
     expect(b.worked.lines).toEqual([]);

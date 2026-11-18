@@ -43,7 +43,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import { APP_NAME } from "@foundmill/config";
+import { APP_NAME, fitBasisOf } from "@foundmill/config";
 import {
   AdultCheck,
   Button,
@@ -155,6 +155,10 @@ export const GUIDANCE_OFF_TOAST = {
 export const PROFILE_REASSURANCE = "Everything here can be changed later in Settings.";
 
 /** Above the skill sliders: honest ratings are what the team hires around (UX plan §7.3, A2). */
+/** The long form's lede when it edits a profile (WP-14 T2 step 4). */
+export const PROFILE_EDIT_LEDE = "Your team will suggest ideas that fit your skills, your time and your budget. Change it any time.";
+/** The Studio's query parameter after the long form was first saved over a quick profile. */
+export const SHARPENED_PARAM = "sharpened";
 export const SKILLS_HINT = "Be honest: the team hires to cover what you don't have.";
 
 /** Under Continue while the example founder is in: the example is never saved as the founder's own profile. */
@@ -176,7 +180,10 @@ export function OnboardingScreen({ profile, email, accountId = null, via = null,
         await queryClient.invalidateQueries({ queryKey: trpcPathPrefix("founder") as unknown[] });
         toast({ title: "Profile updated", description: "Your constraints shape every concept the studio drafts.", tone: "good" });
         if (data.guidanceTurnedOff) toast({ ...GUIDANCE_OFF_TOAST, tone: "info" });
-        router.push("/new");
+        // The first save of the long form over a quick profile ("sharpen", WP-14 T2): Founder fit was just re-rated on
+        // every idea, and the Studio says so and offers a fresh set when the person came from there.
+        const sharpened = fitBasisOf(profile) === "quick";
+        router.push(next ? (sharpened && next === "/new/ideate" ? `${next}?${SHARPENED_PARAM}=1` : next) : "/new");
         router.refresh();
       },
       onError: (err) => toast({ title: "Profile not saved", description: saveErrorMessage(err), tone: "bad" }),
@@ -187,7 +194,7 @@ export function OnboardingScreen({ profile, email, accountId = null, via = null,
   if (profile === null) return <FirstProfile email={email} via={via} next={next} adultConfirmed={adultConfirmed} />;
   // A person from before (a profile, no "18 or older" on record) is asked once, in one step, instead of the form.
   if (!adultConfirmed) return <AdultStep />;
-  if (small) return <FirstProfile email={email} next={next} adultConfirmed profile={{ displayName: profile.displayName }} />;
+  if (small) return <FirstProfile email={email} next={next} adultConfirmed profile={{ displayName: profile.displayName, timeCommitment: profile.timeCommitment, residence: profile.residence, experience: profile.experience }} />;
 
   return (
     <OnboardingForm
@@ -301,7 +308,7 @@ export function OnboardingForm({
       title={editing ? "Your founder profile" : "Before you start"}
       lede={
         editing
-          ? "Every concept, forecast and decision is shaped by this. Change it any time."
+          ? PROFILE_EDIT_LEDE
           : `${APP_NAME} drafts concepts, hires the team and runs the business within your constraints. Four quick answers are enough to start; add detail when you have it.`
       }
       viewer={{ email }}

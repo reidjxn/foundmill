@@ -151,6 +151,7 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
     sessionTokenSecret: config.sessionTokenSecret,
     apiServiceTokenSecret: config.apiServiceTokenSecret,
     apiServiceTokenLegacy: config.apiServiceTokenLegacy,
+    composerServiceTokenSecret: config.composerServiceTokenSecret,
     sessionTokenTtlSeconds: config.sessionTokenTtlSeconds,
     sessionTokenMaxTtlSeconds: config.sessionTokenMaxTtlSeconds,
     rateLimitStoreKind: rateLimitStoreInUse,

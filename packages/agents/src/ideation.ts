@@ -51,6 +51,10 @@ export interface IdeationBrief {
 
 const ATTRIBUTE_LIST = IDEA_ATTRIBUTE_KEYS.map((k) => `${k} (${IDEA_ATTRIBUTE_LABELS[k]})`).join(", ");
 
+/** `founder.skills_basis` in the founder profile block: what the five skill ratings rest on (WP-14 T2). */
+export const QUICK_SKILLS_BASIS = "quick_answers";
+export const FULL_SKILLS_BASIS = "rated_by_founder";
+
 const IDEATION_INSTRUCTIONS: AgentInstructions = {
   role: "Ideation agent: you draft distinct business concepts a team of AI agents can run for this founder, within the founder's constraints.",
   goals: [
@@ -66,6 +70,7 @@ const IDEATION_INSTRUCTIONS: AgentInstructions = {
     "citations: at least 2 per card. Each names a public source the Research agent should check (title), the URL of that public site or of a search on it (never an invented deep link to an article), and a note of at most 15 words.",
     "Score agent-executability honestly: physical inventory, licensed sign-off or in-person sales lower it, and raise capital intensity's cost (a lower value).",
     "Keep the brief and the profile as given; never add constraints the founder did not state.",
+    `founder_fit rests on what the founder told us and nothing else. When the profile's skills_basis is "${QUICK_SKILLS_BASIS}", the five skill ratings are coarse first answers (a higher one for a skill the founder picked, a lower one for the rest, all equal when they picked none): rate founder_fit from them, read nothing finer into them, and never treat an unpicked skill as a stated weakness. When there is no founder profile, rate founder_fit for a founder of average skill in everything and say in its evidence that nothing is known about the founder yet.`,
   ],
   playbook: [
     "Read the founder profile and the brief; when the brief is \"surprise me within my constraints\", start from the founder's skills, markets and constraints.",

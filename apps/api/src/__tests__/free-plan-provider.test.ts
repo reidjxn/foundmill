@@ -1,7 +1,8 @@
 /**
  * Who pays decides the model on the api's client (WP-13): a free business, a person before commit and a signed-out
- * visitor run on Haiku 5.5; a paid plan runs as routed; a free business on its own key runs as its plan says, since
- * the api cannot use that key until WP-13 T11. The real client and the real database, in mock model mode.
+ * visitor run on Haiku 5.5; a paid plan runs as routed. In mock model mode a free business on its own key runs as its
+ * plan says (live, its calls go to the gateway on its key: own-key-calls.test.ts, WP-13 T11). The real client and the
+ * real database, in mock model mode.
  */
 import { repos } from "@foundmill/db";
 import { MODELS, type UsageEvent } from "@foundmill/models";
@@ -36,7 +37,7 @@ describe("the api's model client chooses by who pays (WP-13)", () => {
     expect(events.map((e) => e.model)).toEqual([MODELS.haiku, MODELS.haiku, MODELS.haiku, MODELS.opus, MODELS.opus]);
   });
 
-  it("runs a free business on its own key on the free plan's model: the api never uses that key, nor a model the founder has not paid for", async () => {
+  it("in mock mode, runs a free business on its own key on the free plan's model, never a model the founder has not paid for", async () => {
     events.length = 0;
     const client = createApiModelClient({ MODEL_MODE: "mock", ANTHROPIC_API_KEY: undefined }, log, { db: hz.db, onUsage: (e) => void events.push(e) });
     await repos.businesses.update(hz.db, hz.A.businessId, { planTier: "free", modelBilling: "byok" });

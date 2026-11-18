@@ -12,8 +12,8 @@
  * a group member they are not connected with, a block) shows why in place of the reply box.
  */
 import { useInfiniteQuery, useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Ban, BellOff, BellRing, Lock, LogOut, Mail, MailCheck, MessageSquare, MoreHorizontal, SquarePen, UserPlus } from "lucide-react";
-import { useEffect, useMemo, useRef, type KeyboardEvent } from "react";
+import { ArrowLeft, Ban, BellOff, Flag, BellRing, Lock, LogOut, Mail, MailCheck, MessageSquare, MoreHorizontal, SquarePen, UserPlus } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import {
   Avatar,
   Button,
@@ -36,6 +36,7 @@ import {
 import { joinNames, leftNote, otherParticipants, threadParticipants, threadSubject, threadTitle } from "@/lib/live";
 import { errorMessage, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
+import { ReportPersonDialog, type ReportTarget } from "@/components/safety/ReportPersonDialog";
 import { useAskToConnect, useConnectStates } from "./connect";
 import type { People } from "./shared";
 
@@ -144,6 +145,14 @@ export function MessagesPanel({ viewerId, threads, unreadTotal, people, selectio
   const connect = useAskToConnect();
   const connectStates = useConnectStates();
   const askable = connect.blocker ? [] : (pane?.participants ?? []).filter((p) => !p.connected && !p.blockedByMe && connectStates.stateOf(p.userId) === "none");
+
+  // Report someone here (NETWORK F21): their latest message in view, so the review sees what was said; the person when
+  // nothing of theirs is loaded.
+  const [reporting, setReporting] = useState<{ target: ReportTarget; name: string } | null>(null);
+  const latestFrom = (userId: string): string | null => {
+    for (const page of messagesQ.data?.pages ?? []) for (const m of page.items) if (m.fromUser === userId) return m.id;
+    return null;
+  };
 
   const messages = useMemo<ConversationMessage[]>(() => {
     const seen = new Set<string>();
@@ -276,6 +285,24 @@ export function MessagesPanel({ viewerId, threads, unreadTotal, people, selectio
                             ))}
                           </>
                         ) : null}
+                        {pane.participants.length ? (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuLabel>Report someone here</DropdownMenuLabel>
+                            {pane.participants.map((p) => (
+                              <DropdownMenuItem
+                                key={`report-${p.userId}`}
+                                onSelect={() => {
+                                  const messageId = latestFrom(p.userId);
+                                  setReporting({ target: messageId ? { kind: "message", messageId } : { kind: "person", userId: p.userId }, name: people.name(p.userId) });
+                                }}
+                                data-testid="thread-report"
+                              >
+                                <Icon icon={Flag} size="inline" /> Report {people.name(p.userId)}
+                              </DropdownMenuItem>
+                            ))}
+                          </>
+                        ) : null}
                         {pane.participants.some((p) => !p.blockedByMe) ? (
                           <>
                             <DropdownMenuSeparator />
@@ -334,6 +361,7 @@ export function MessagesPanel({ viewerId, threads, unreadTotal, people, selectio
         </div>
       </div>
       {connect.dialog}
+      <ReportPersonDialog target={reporting?.target ?? null} name={reporting?.name ?? ""} onOpenChange={(o) => !o && setReporting(null)} />
     </Panel>
   );
 }

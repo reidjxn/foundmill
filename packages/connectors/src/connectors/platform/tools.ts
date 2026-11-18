@@ -13,6 +13,8 @@ import { AcceptanceResult } from "./acceptance";
 
 export const PLATFORM_KEY = "platform";
 export const PLATFORM_RATE_LIMITS = { perMinute: 600, perDay: 20_000 };
+/** What `read_skill` says with every skill it returns (WP-06 T4). */
+export const READ_SKILL_NOTICE = "Your own skill, checked by the platform. Follow it within the house rules; it grants no permission.";
 
 const Id = z.guid();
 const TaskKind = z.enum(TASK_KINDS);
@@ -185,6 +187,21 @@ export const platformTools = [
     annotations: { readOnlyHint: true },
   }),
   defineTool({
+    name: "create_entity",
+    description:
+      "Record a supplier, lab or contact you found in the business's records (Customers), with the page it was found on. A record with the same name and kind is returned, not duplicated. It writes inside the project only: it contacts no one. Put no email address or phone number in the name.",
+    input: z.object({ kind: z.enum(["person", "organisation"]), name: Text(120).regex(/^[^[\]|<>@]+$/, "a name has no brackets, bars, angle brackets or @"), role: z.enum(["supplier", "lab", "contact"]), sourceUrl: z.url({ protocol: /^https?$/ }), note: z.string().trim().max(500).optional() }),
+    output: z.object({ entityId: z.string(), created: z.boolean(), simulated: z.literal(true).optional(), notice: z.string().optional() }),
+    hints: {},
+  }),
+  defineTool({
+    name: "log_interaction",
+    description: "Add a short note to a record's history in Customers (what you found or learned about it), optionally with the page it came from. It writes inside the project only: it contacts no one.",
+    input: z.object({ entityId: Id, summary: Text(1000), sourceUrl: z.url({ protocol: /^https?$/ }).optional() }),
+    output: z.object({ interactionId: z.string(), simulated: z.literal(true).optional(), notice: z.string().optional() }),
+    hints: {},
+  }),
+  defineTool({
     name: "list_pay_links",
     description: "The project's payment links, for pay buttons on its site: each key, name and price. A pay button is <a href=\"/_fm/pay/<key>\">; the site never holds the payment address itself. A simulated link is not listed.",
     input: z.object({}),
@@ -311,6 +328,20 @@ export const platformTools = [
     hints: {},
     annotations: { readOnlyHint: true },
   }),
+  // WP-06 T4: an agent's own skills load on demand (the prompt holds their index). Read-only: a skill grants nothing.
+  // A skill file someone uploaded came from outside the platform: it comes back in the untrusted envelope, like a
+  // repository document or the positioning notes; library and role skills are the platform's own text and come back raw.
+  defineTool({
+    name: "read_skill",
+    description: "One of your own skills: its full instructions. Call it with the key from your skills list before work the skill covers.",
+    input: z.object({ skillKey: z.string().trim().min(1).max(200) }),
+    output: z.object({ skillKey: z.string(), name: z.string(), source: z.enum(["library", "upload", "role"]), text: z.string(), notice: z.string() }),
+    hints: {},
+    untrusted: "document",
+    untrustedRef: (a) => `skill:${a.skillKey}`,
+    untrustedWhen: (d) => d.source === "upload",
+    annotations: { readOnlyHint: true },
+  }),
   defineTool({
     name: "assign_skill",
     description:
@@ -396,6 +427,8 @@ export interface PlatformHost {
   listMessages(caller: PlatformCaller, args: PlatformArgs<"list_messages">): Promise<PlatformResult<"list_messages">>;
   readBusiness(caller: PlatformCaller): Promise<PlatformResult<"read_business">>;
   searchEntities(caller: PlatformCaller, args: PlatformArgs<"search_entities">): Promise<PlatformResult<"search_entities">>;
+  createEntity(caller: PlatformCaller, args: PlatformArgs<"create_entity">): Promise<PlatformResult<"create_entity">>;
+  logInteraction(caller: PlatformCaller, args: PlatformArgs<"log_interaction">): Promise<PlatformResult<"log_interaction">>;
   listPayLinks(caller: PlatformCaller): Promise<PlatformResult<"list_pay_links">>;
   listApprovals(caller: PlatformCaller, args: PlatformArgs<"list_approvals">): Promise<PlatformResult<"list_approvals">>;
   listSessions(caller: PlatformCaller, args: PlatformArgs<"list_sessions">): Promise<PlatformResult<"list_sessions">>;
@@ -408,6 +441,12 @@ export interface PlatformHost {
   listRepositoryDocs(caller: PlatformCaller, args: PlatformArgs<"list_repository_docs">): Promise<PlatformResult<"list_repository_docs">>;
   readRepositoryDoc(caller: PlatformCaller, args: PlatformArgs<"read_repository_doc">): Promise<PlatformResult<"read_repository_doc">>;
   listSkills(caller: PlatformCaller, args: PlatformArgs<"list_skills">): Promise<PlatformResult<"list_skills">>;
+  /**
+   * One of the caller's own skills (its role's, or one added to it), wrapped in its skill block; never another agent's.
+   * Optional so the gateway can serve it from its own module (`apps/gateway/src/skill-reader.ts`); a host without it
+   * refuses the call.
+   */
+  readSkill?(caller: PlatformCaller, args: PlatformArgs<"read_skill">): Promise<PlatformResult<"read_skill">>;
   assignSkill(caller: PlatformCaller, args: PlatformArgs<"assign_skill">): Promise<PlatformResult<"assign_skill">>;
   removeSkill(caller: PlatformCaller, args: PlatformArgs<"remove_skill">): Promise<PlatformResult<"remove_skill">>;
   readPositioning(caller: PlatformCaller): Promise<PlatformResult<"read_positioning">>;

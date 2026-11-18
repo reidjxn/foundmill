@@ -553,6 +553,11 @@ export const entitiesRepo = {
       .limit(options.limit ?? 2000);
   },
 
+  /** Holds a lock until the transaction ends, so two writers of the same name and kind take turns (find-or-create). */
+  async lockName(db: Executor, businessId: string, kind: string, displayName: string): Promise<void> {
+    await db.execute(sql`select pg_advisory_xact_lock(hashtext('crm.entity.name'), hashtext(${`${businessId}:${kind}:${displayName.toLowerCase()}`}))`);
+  },
+
   async create(db: Executor, businessId: string, input: CreateEntityInput): Promise<Entity> {
     const v = parseInput(CreateEntityInput, input, "entity");
     return one(

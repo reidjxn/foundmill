@@ -46,6 +46,11 @@ export interface ToolSpec<N extends string = string, I extends z.ZodType = z.Zod
   untrusted?: UntrustedSourceKind;
   /** Vendor reference for the untrusted wrapper (message id, file id...). Method syntax keeps specs assignable to `AnyToolSpec`. */
   untrustedRef?(args: z.output<I>): string | undefined;
+  /**
+   * With `untrusted`: wrap only the results this returns true for (a tool whose output is third-party content only
+   * sometimes, such as `read_skill` for an uploaded file). Absent: every result is wrapped.
+   */
+  untrustedWhen?(data: z.output<O>, args: z.output<I>): boolean;
   /** Required for `hints.hardGate` tools: what the founder must do instead. The tool itself never executes. */
   humanAction?(args: z.output<I>): { title: string; instructions: string; url?: string };
   /**
@@ -218,7 +223,7 @@ function createCallTool(spec: ConnectorSpec<readonly AnyToolSpec[]>, mode: Conne
     }
     const costMinor = tool.costMinor ? tool.costMinor(parsed.data) : (spec.costModel?.(name, parsed.data) ?? 0);
     const result: ToolResult = { ok: true, data, costMinor };
-    if (tool.untrusted) {
+    if (tool.untrusted && (!tool.untrustedWhen || tool.untrustedWhen(data, parsed.data))) {
       let facts: unknown;
       if (tool.facts) {
         try {

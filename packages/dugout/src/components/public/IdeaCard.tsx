@@ -8,6 +8,7 @@
  * one line names the lowest rating with its evidence, as what would raise the card most. A card the practice model
  * wrote says so.
  */
+import { fitLine, type FitBasis } from "@foundmill/config";
 import type { HTMLAttributes, ReactNode } from "react";
 import { ARCHETYPE_LABELS, type Archetype } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
@@ -44,6 +45,8 @@ export interface IdeaCardProps extends Omit<HTMLAttributes<HTMLElement>, "childr
   sample?: boolean;
   /** Founder fit is measured (the person answered the profile questions): show its value instead of "–". */
   founderFitKnown?: boolean;
+  /** What a known Founder fit rests on (WP-14 T2): "quick" says so under the bar until the long profile is saved. */
+  fitBasis?: FitBasis;
   /** Under the ratings; default the founder-fit line. */
   footnote?: ReactNode;
   /** The idea's logo as a checked `data:` URL (an example with a mark of its own); the initials tile otherwise. */
@@ -63,7 +66,7 @@ export const IDEA_CARD_WORDS = {
   firstRead: "First read",
   raise: "What would raise it most",
   unmeasured: "Not measured yet",
-  founderFit: "Founder fit comes after three questions about you.",
+  founderFit: "Founder fit comes after a few questions about you.",
   sample: "Sample idea: the practice model wrote it, not a real read.",
   drafting: "Your team is shaping it",
 } as const;
@@ -87,7 +90,7 @@ export function lowestRating(card: IdeaCardData, founderFitKnown = false): IdeaC
   return measuredRatings(card, founderFitKnown).reduce<IdeaCardRating | null>((low, a) => (!low || a.value < low.value ? a : low), null);
 }
 
-export function IdeaCard({ card, drafting = false, justIn = false, sample = false, founderFitKnown = false, footnote, logo, wide = false, className, ...rest }: IdeaCardProps) {
+export function IdeaCard({ card, drafting = false, justIn = false, sample = false, founderFitKnown = false, fitBasis, footnote, logo, wide = false, className, ...rest }: IdeaCardProps) {
   const name = card.name?.trim() || "";
   const ratings = new Map((card.attributes ?? []).filter((a) => isKey(a.key)).map((a) => [a.key as ConceptAttributeKey, a]));
   const overall = ideaOverall(card, founderFitKnown);
@@ -166,6 +169,11 @@ export function IdeaCard({ card, drafting = false, justIn = false, sample = fals
             return (
               <li key={key} data-idea-rating={key} data-arrived={r ? "" : undefined}>
                 {r ? <AttributeBar label={label} value={clampRating(r.value)} evidence={[{ text: r.evidence }]} hint={CONCEPT_ATTRIBUTE_HINTS[key]} attributeKey={key} /> : <Skeleton index={i} className="h-4" label={undefined} />}
+                {r && key === "founder_fit" && fitBasis === "quick" ? (
+                  <p className="t-small mt-0.5 text-tertiary" data-idea-fit-basis="quick">
+                    {fitLine(clampRating(r.value), "quick")}
+                  </p>
+                ) : null}
               </li>
             );
           })}

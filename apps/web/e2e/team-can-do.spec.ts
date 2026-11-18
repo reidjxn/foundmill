@@ -103,6 +103,38 @@ test.describe("settings › what the team can do", () => {
     }
   });
 
+  test("payment powers: chosen with the automated answer and when a vacation starts; off by default", async ({ page }) => {
+    await openBusiness(page, "settings/mode");
+    const screen = settingsScreen(page);
+    const answers = screen.getByRole("radiogroup", { name: "How much should the team do before checking with you?" });
+    await expect(answers).toBeVisible({ timeout: LONG });
+    await expect(screen.getByTestId("payment-powers")).toHaveCount(0);
+    const before = await answers.getByRole("radio", { checked: true }).getAttribute("value");
+    try {
+      await answers.getByRole("radio", { name: /^Work and decide on its own/ }).click();
+      const power = screen.getByTestId("payment-powers");
+      await expect(power).toBeVisible({ timeout: LONG });
+      const sw = power.getByRole("switch", { name: "Agents may create invoices and payment links without asking" });
+      await expect(sw).toHaveAttribute("aria-checked", "false");
+      await expect(power).toContainText("Off, each one waits in Needs you.");
+      await sw.click();
+      await expect(sw).toHaveAttribute("aria-checked", "true", { timeout: LONG });
+      await sw.click();
+      await expect(sw).toHaveAttribute("aria-checked", "false", { timeout: LONG });
+    } finally {
+      if (before) await answers.locator(`[value="${before}"]`).click();
+      await settled(page);
+    }
+    // The vacation dialog asks the same question, off unless the project already chose it.
+    await screen.getByTestId("start-holiday").click();
+    const dialog = page.getByRole("dialog");
+    const box = dialog.getByRole("checkbox", { name: /Agents may create invoices and payment links without asking/ });
+    await expect(box).toBeVisible({ timeout: LONG });
+    await expect(box).toHaveAttribute("aria-checked", "false");
+    await expect(dialog).toContainText("Nothing is ever paid out, refunded or transferred without you.");
+    await page.keyboard.press("Escape");
+  });
+
   test("nothing is cut off at 1280", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await openBusiness(page, "settings/mode");
