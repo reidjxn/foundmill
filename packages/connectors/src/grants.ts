@@ -255,6 +255,8 @@ export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, r
     "docs.read": ["list_repository_docs", "read_repository_doc"],
     // The team's skills: the Chief of Staff gives agents library skills and the business's own skill files (Nov 6, 2026).
     "skills.manage": ["list_skills", "assign_skill", "remove_skill"],
+    // WP-06 T4: every agent reads its own skills' full text on demand (the prompt carries their index).
+    "skills.read": ["read_skill"],
     // The project's positioning notes (WP-08 T1): every marketing role reads them; two leads may propose a new version.
     "positioning.read": ["read_positioning"],
     "positioning.propose": ["propose_positioning_change"],

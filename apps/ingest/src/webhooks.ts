@@ -173,6 +173,15 @@ export async function handleWebhook(deps: IngestDeps, mounted: readonly MountedW
     return { status: 422, body: { ok: false, error: "invalid_payload", message: (e as Error).message, connector: target.connector } };
   }
 
+  // The founder withdrew Foundmill's access in the vendor's dashboard (a Stripe sign-in): that connection is marked
+  // expired, so Settings › Integrations offers to sign in again and no agent call reaches the account meanwhile.
+  const revoked = target.webhook.revokedAccount ? await target.webhook.revokedAccount(ctx.req).catch(() => null) : null;
+  if (revoked) {
+    const outcome = await markAccessRevoked(deps, target.connector, revoked, ctx.businessId);
+    log.info({ connector: target.connector, deliveryId: identity.deliveryId, businessId: outcome.businessId, marked: outcome.marked }, "vendor access withdrawn");
+    return { status: 200, body: { ok: true, connector: target.connector, deliveryId: identity.deliveryId, accepted: 0, written: 0, duplicates: 0, eventIds: [] } };
+  }
+
   if (ctx.businessId) {
     const foreign = events.find((e) => e.businessId !== ctx.businessId);
     if (foreign) {
@@ -215,6 +224,25 @@ export async function handleWebhook(deps: IngestDeps, mounted: readonly MountedW
   deps.followups.dispatch(result);
 
   return { status: 200, body: { ok: true, connector: target.connector, deliveryId: identity.deliveryId, accepted: events.length, written: result.written, duplicates: result.duplicates, eventIds: result.eventIds } };
+}
+
+/** What a Stripe connection says once the founder removed Foundmill's access in their Stripe dashboard. */
+export const STRIPE_ACCESS_REMOVED = "Stripe access was removed in your Stripe dashboard. Sign in with Stripe again to reconnect.";
+
+/**
+ * Marks expired the one connection a withdrawal names: the business in the URL, else the project the account is
+ * signed in to, and only when that connection is a sign-in for that very account (the same check as a payment).
+ * Anything else is acknowledged and changes nothing.
+ */
+export async function markAccessRevoked(deps: Pick<IngestDeps, "db">, connectorKey: string, account: string, urlBusinessId: string | null): Promise<{ businessId: string | null; marked: boolean }> {
+  if (connectorKey !== "stripe") return { businessId: urlBusinessId, marked: false };
+  const businessId = urlBusinessId ?? (await repos.integrations.businessForStripeAccount(deps.db, account));
+  if (!businessId) return { businessId: null, marked: false };
+  const integration = await connectedIntegration(deps as IngestDeps, businessId, connectorKey);
+  const settings = (integration?.settings ?? {}) as { externalAccountId?: string | null; config?: { kind?: unknown } };
+  if (!integration || settings.config?.kind !== "connect" || !sameAccount(account, settings.externalAccountId ?? null)) return { businessId, marked: false };
+  await repos.integrations.setStatus(deps.db, businessId, integration.id, "expired", STRIPE_ACCESS_REMOVED);
+  return { businessId, marked: true };
 }
 
 /** `webhooks.last_received_at` for the business's registered endpoint (observability only; never blocks the ack). */

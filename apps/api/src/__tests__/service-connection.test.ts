@@ -19,7 +19,7 @@ export const SERVICE_CONNECTION_ROUTERS: Readonly<Record<string, { lines: number
   "email.ts": { lines: 15, why: "signed_out", note: "one-click answers and cancel links from an email: the hashed token is the credential" },
   "business.ts": { lines: 14, why: "mixed", note: "creating and listing projects (person), the example project, vacation and the journey refresh" },
   "agent.ts": { lines: 14, why: "mixed", note: "agent and skill reads and transactions after the procedure's membership check" },
-  "integrations.ts": { lines: 10, why: "mixed", note: "connect and health go through the gateway; credentials are service-only" },
+  "integrations.ts": { lines: 11, why: "mixed", note: "connect and health go through the gateway; credentials are service-only; connect reads the connection it replaces before the gateway rewrites it" },
   "import.ts": { lines: 9, why: "mixed", note: "imports run as protected procedures before and after a project exists" },
   "product.ts": { lines: 5, why: "mixed", note: "not classified line by line" },
   "distribution.ts": { lines: 5, why: "mixed", note: "not classified line by line" },

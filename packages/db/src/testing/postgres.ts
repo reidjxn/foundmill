@@ -110,6 +110,37 @@ function pgliteLike(client: Sql): PGlite {
   } as unknown as PGlite;
 }
 
+/** Postgres' "insufficient_privilege". */
+const INSUFFICIENT_PRIVILEGE = "42501";
+
+/**
+ * Drops a test database. `with (force)` terminates the connections still open to it, and refuses with 42501 when one
+ * belongs to a role the cleanup role may not terminate (it failed #285's CI after every test had passed). So the
+ * connections this role may end are ended first, one by one, skipping the others. A 42501 that still comes back is
+ * logged with what was left open and not thrown: the database is left behind, and a real leak still shows in the log.
+ */
+export async function dropTestDatabase(cleanup: postgres.Sql, database: string, warn: (line: string) => void = (line) => console.warn(line)): Promise<void> {
+  if (!/^fm_rls_[0-9a-f]+$/.test(database)) throw new Error(`not a test database: ${database}`);
+  await cleanup.unsafe(`
+    do $$
+    declare b record;
+    begin
+      for b in select pid from pg_stat_activity where datname = '${database}' and pid <> pg_backend_pid() loop
+        begin
+          perform pg_terminate_backend(b.pid);
+        exception when insufficient_privilege then null;
+        end;
+      end loop;
+    end $$`);
+  try {
+    await cleanup.unsafe(`drop database if exists ${database} with (force)`);
+  } catch (e) {
+    if ((e as { code?: unknown }).code !== INSUFFICIENT_PRIVILEGE) throw e;
+    const left = (await cleanup.unsafe(`select usename, application_name, state from pg_stat_activity where datname = '${database}'`).catch(() => [])) as unknown as { usename: string | null; application_name: string | null; state: string | null }[];
+    warn(`[db test] ${database} not dropped: connections the cleanup role may not end are still open (${left.map((l) => `${l.usename ?? "?"}/${l.application_name || "-"}/${l.state ?? "?"}`).join(", ") || "none listed"})`);
+  }
+}
+
 /** Connection errors read as the Postgres message, as the PGlite runners rethrow them (`unwrapDbError`). */
 type Unwrap = (err: unknown) => Error;
 
@@ -130,7 +161,7 @@ export async function createRealPostgresTestDb(url: string, options: CreateTestD
     await Promise.allSettled([client.end({ timeout: 5 }), raw.end({ timeout: 5 })]);
     const cleanup = postgres(url, { max: 1, onnotice: () => {} });
     try {
-      await cleanup.unsafe(`drop database if exists ${database} with (force)`);
+      await dropTestDatabase(cleanup, database);
     } finally {
       await cleanup.end({ timeout: 5 });
     }

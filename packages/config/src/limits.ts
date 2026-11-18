@@ -69,9 +69,14 @@ export const LIMITS = {
   /** Requests to one person per day, so request, withdraw and request again is stopped quickly. */
   liveRequestsPerPairPerDay: 3,
   liveMessagesPerUserPerMinute: 20,
+  liveMessagesPerUserPerHour: 200,
   liveMessagesPerThreadPerMinute: 10,
   livePostsPerUserPerMinute: 6,
-  livePostsPerUserPerHour: 60,
+  livePostsPerUserPerHour: 40,
+  /** New communities, invitations to a community and post reports per person (counted in the shared store, so every replica agrees). */
+  liveCommunitiesPerUserPerDay: 3,
+  liveInvitesPerUserPerDay: 50,
+  liveReportsPerUserPerHour: 30,
   /** Messages a thread shows at first (and per "Load earlier"). */
   liveMessagePageSize: 50,
   /** Largest tRPC request body the api reads (bytes); a request carrying a logo file may be larger (`trpcMaxLogoBodyBytes`). */
@@ -80,6 +85,8 @@ export const LIMITS = {
   trpcMaxLogoBodyBytes: 6 * 1024 * 1024,
   /** Largest skill file a founder may upload for an agent (UTF-8 bytes); checked in the browser and again by the api. */
   skillFileMaxBytes: 64 * 1024,
+  /** Library and file skills one agent may carry (WP-06 T4): the api refuses more, the picker counts down to it. */
+  skillsPerAgentMax: 40,
   /** Largest plan file a founder may import on Product › Vision (UTF-8 bytes); checked in the browser and again by the api. */
   planFileMaxBytes: 256 * 1024,
   /** Largest body of one specification section in an imported plan file (UTF-8 bytes). */

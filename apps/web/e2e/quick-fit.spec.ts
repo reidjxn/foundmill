@@ -8,7 +8,9 @@
  *     nothing without them (founder's answer A5, 2026-11-17);
  *   - the Studio offers the long profile once ("Help your team help you"); saving it changes the number in place,
  *     drops the "(quick profile)" basis and offers a fresh set;
- *   - with both answers known, Commit asks nothing more and one press reaches Today.
+ *   - with both answers known, Commit asks nothing more and one press reaches Today;
+ *   - the new project's team is named, each agent with its position beside the name (WP-14 T6: named agents are on by
+ *     default for a first-time founder).
  */
 import { randomUUID } from "node:crypto";
 import { expect, test, type Page } from "@playwright/test";
@@ -111,6 +113,12 @@ test("a new person sees fit with its basis on the first idea, is asked time and 
     await about.getByLabel("Where do you live?").fill("Canada");
     await page.getByTestId("take-charge").click();
     await expect(page).toHaveURL(/\/b\/[0-9a-f-]{36}\/today/, { timeout: LONG });
+
+    // WP-14 T6: this account's profile was created as a first-time founder's, so its team is named from the first
+    // screen, each with the position beside the name ("Malik (Chief of Staff)").
+    const bid = /\/b\/([0-9a-f-]{36})\//.exec(page.url())![1];
+    await page.goto(`/b/${bid}/inbox`);
+    await expect(page.getByTestId("row-sender").first()).toHaveText(/^[\p{L}]+ \(.+\)$/u, { timeout: LONG });
   } finally {
     await context.close();
   }

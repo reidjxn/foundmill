@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ALWAYS_THINKS, IMAGE_MODELS, VIDEO_MODELS, LOW_EFFORT_MAX_TOKENS, MODELS, MODEL_CAPABILITIES, PLAIN_MAX_TOKENS, ROUTES, THINKING_MAX_TOKENS, lowCreditsModel, maxTokensFor, resolveModel, routeAcceptsImages, type RouteKey, MODEL_ENDPOINTS, MODEL_PROVIDER } from "./routing";
+import { FREE_PLAN_HAIKU_ROUTES, ALWAYS_THINKS, IMAGE_MODELS, VIDEO_MODELS, LOW_EFFORT_MAX_TOKENS, MODELS, MODEL_CAPABILITIES, PLAIN_MAX_TOKENS, ROUTES, THINKING_MAX_TOKENS, lowCreditsModel, maxTokensFor, resolveModel, routeAcceptsImages, type RouteKey, MODEL_ENDPOINTS, MODEL_PROVIDER } from "./routing";
 
 describe("routing (BUILD §10.1)", () => {
   it("MODELS and ROUTES are exactly the spec table", () => {
@@ -118,14 +118,18 @@ describe("routing (BUILD §10.1)", () => {
     });
   });
 
-  it("runs every route on Haiku 5.5 on the free plan and on GLM in a free session, locked ones included, with no warning and no credit saver (WP-13)", () => {
+  it("runs the free plan's allowed routes on Haiku 5.5 and keeps every other route on its own model; GLM in a free session; no credit saver (WP-13)", () => {
     for (const route of Object.keys(ROUTES) as RouteKey[]) {
       const free = resolveModel(route, "opus", { lowCredits: true, freePlan: true });
-      expect([free.modelKey, free.modelId, free.warning, free.lowCredits, free.speed]).toEqual(["haiku", MODELS.haiku, undefined, undefined, undefined]);
+      if (FREE_PLAN_HAIKU_ROUTES.has(route)) expect([free.modelKey, free.modelId, free.warning, free.lowCredits, free.speed]).toEqual(["haiku", MODELS.haiku, undefined, undefined, undefined]);
+      // Off the list, a free account runs as routed (Haiku 5.5 leaked injections there, T8): never the credit saver.
+      else expect([free.modelKey, free.lowCredits]).toEqual([resolveModel(route, "opus").modelKey, undefined]);
       const session = resolveModel(route, "glm", { lowCredits: true });
       expect([session.modelKey, session.modelId, session.warning, session.lowCredits, session.speed]).toEqual(["glm", MODELS.glm, undefined, undefined, undefined]);
     }
     expect(resolveModel("ideation", undefined, { freePlan: true }).effort).toBe("low");
+    // The readers and the agents of a free account keep their models (T8, Nov 17, 2026).
+    for (const route of ["quarantinedReader", "worker", "departmentLead", "conversation", "inboxComposer", "planCompiler"] as const) expect(resolveModel(route, undefined, { freePlan: true }).modelKey).toBe(ROUTES[route].model);
     expect([MODEL_PROVIDER.glm, MODEL_PROVIDER.haiku, MODEL_ENDPOINTS.zai.baseURL]).toEqual(["zai", "anthropic", "https://api.z.ai/api/anthropic"]);
   });
 

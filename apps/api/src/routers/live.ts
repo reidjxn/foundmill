@@ -17,8 +17,8 @@ import { COMMUNITY_KINDS, MAX_MESSAGE_RECIPIENTS, MEMBER_MODERATION_ACTIONS, POS
 import { ForbiddenError, NotFoundError, PERSON_LOOKING_FOR, ValidationError, VISIBILITY, WRITE_ROLES } from "@foundmill/shared";
 import { z } from "zod";
 import type { Context } from "../context";
-import { messageRecipients, screenText, signalPeople, takeLive } from "../services/live";
-import { takeConnectionRequest, takeMessage, takePeopleSearch, takePost } from "../services/live-limits";
+import { messageRecipients, screenText, signalPeople } from "../services/live";
+import { takeCommunity, takeCommunityInvite, takeConnectionRequest, takeMessage, takePeopleSearch, takePost, takePostReport } from "../services/live-limits";
 import { Id, effectivePermission, liveGate, pgErrorCode, protectedProcedure as anyProtectedProcedure, router, sectionWrite as anySectionWrite, type Section } from "../trpc";
 
 // Every LIVE procedure is closed while LIVE is (FLAGS.liveMode / LIVE_MODE, audit VLS2-X1).
@@ -191,7 +191,6 @@ export const liveRouter = router({
         if (!toUserId) throw new NotFoundError("business", input.toBusinessId);
         if (toUserId === ctx.userId) throw new ValidationError(input.toBusinessId ? "That is your own business" : "Cannot connect to yourself");
         await requireAdult(ctx);
-        takeLive(ctx.userId, "requests");
         await takeConnectionRequest(ctx.limits, ctx.userId, toUserId);
         let created = false;
         const connection = await repos.social.requestConnection(ctx.db, ctx.userId, toUserId, input.message || null, {
@@ -270,7 +269,6 @@ export const liveRouter = router({
     send: protectedProcedure.input(z.object({ threadId: Id.optional(), toUserIds: z.array(Id).min(1).max(MAX_MESSAGE_RECIPIENTS).optional(), subject: z.string().max(200).optional(), body: z.string().min(1).max(20_000) })).mutation(async ({ ctx, input }) => {
       if (!input.threadId && !input.toUserIds) throw new ValidationError("Give a thread or recipients");
       await requireAdult(ctx);
-      takeLive(ctx.userId, "messages");
       // Throttled before anything is written: per person, and per thread (or per set of recipients for a first message).
       await takeMessage(ctx.limits, ctx.userId, input.threadId ?? [...input.toUserIds!].sort().join(","));
       let recipients: string[] = [];
@@ -338,7 +336,7 @@ export const liveRouter = router({
       .mutation(async ({ ctx, input }) => {
         const ownerBusinessId = await speakingAs(ctx, input.businessId);
         await requireAdult(ctx);
-        takeLive(ctx.userId, "communities");
+        await takeCommunity(ctx.limits, ctx.userId);
         await screenCommunityProfile(ctx, { name: input.name, descriptionMd: input.descriptionMd, businessId: ownerBusinessId });
         const create = () => repos.social.createCommunity(ctx.db, { name: input.name, slug: communitySlug(input.name), descriptionMd: input.descriptionMd, visibility: input.visibility, kind: input.kind, ownerBusinessId, createdBy: ctx.userId });
         try {
@@ -379,7 +377,7 @@ export const liveRouter = router({
     invite: protectedProcedure.input(z.object({ communityId: Id, userId: Id })).mutation(async ({ ctx, input }) => {
       await visibleCommunity(ctx, input.communityId);
       await requireAdult(ctx);
-      takeLive(ctx.userId, "invites");
+      await takeCommunityInvite(ctx.limits, ctx.userId);
       const before = await repos.social.membership(ctx.db, input.userId, input.communityId);
       const member = await repos.social.inviteToCommunity(ctx.db, ctx.userId, input.communityId, input.userId);
       if (member.status === "invited" && before?.status !== "invited") await signalPeople(ctx, [input.userId], "community_invited", { communityId: input.communityId });
@@ -419,7 +417,6 @@ export const liveRouter = router({
       if (blocker) throw new ValidationError(blocker);
       const businessId = await speakingAs(ctx, input.businessId);
       await requireAdult(ctx);
-      takeLive(ctx.userId, "posts");
       await takePost(ctx.limits, ctx.userId);
       const screening = await screenText(ctx, { text: input.bodyMd, kind: "community_post", communityName: community.name, businessId });
       const post = await repos.social.createPost(ctx.db, { ...input, businessId, authorUserId: ctx.userId, screening });
@@ -465,7 +462,6 @@ export const liveRouter = router({
       if (blocker) throw new ValidationError(blocker);
       await speakingAs(ctx, post.businessId);
       await requireAdult(ctx);
-      takeLive(ctx.userId, "posts");
       await takePost(ctx.limits, ctx.userId);
       const screening = await screenText(ctx, { text: input.bodyMd, kind: "community_post", communityName: community.name, businessId: post.businessId });
       const edited = await repos.social.editPost(ctx.db, ctx.userId, input.postId, input.bodyMd, screening);
@@ -479,7 +475,7 @@ export const liveRouter = router({
     }),
     /** A member reports a post to the community's owner and moderators; enough reports hold it for review. */
     report: protectedProcedure.input(z.object({ postId: Id, reason: z.enum(POST_REPORT_REASONS), note: z.string().trim().max(1000).optional() })).mutation(async ({ ctx, input }) => {
-      takeLive(ctx.userId, "reports");
+      await takePostReport(ctx.limits, ctx.userId);
       const { report, held } = await repos.social.reportPost(ctx.db, ctx.userId, input.postId, { reason: input.reason, note: input.note ?? null });
       await signalPeople(ctx, await moderatorsOf(ctx.db, report.communityId), "moderation", { communityId: report.communityId });
       return { reported: true, held };

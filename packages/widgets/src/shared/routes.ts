@@ -1,6 +1,6 @@
 /** App routes widgets navigate to (BUILD §6.2). Only the host router knows how to push; widgets build hrefs. */
 export const routes = {
-  /** Today, the business's front door (founder, 2026-11-07): the goal, what needs you, the week and four health figures. */
+  /** Today, the business's front door (founder, 2026-11-07): the goal, what needs you, the week and the health figures. */
   today: (bid: string) => `/b/${bid}/today`,
   /** The dashboards (shown as "Details" since Today became the front door; the path and the G H item stay). */
   home: (bid: string, dashboardId?: string) => (dashboardId ? `/b/${bid}/home/${dashboardId}` : `/b/${bid}/home`),

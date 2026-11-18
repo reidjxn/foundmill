@@ -40,12 +40,12 @@ describe("the Design principles skill", () => {
   });
 
   it("renders after the instructions, marked as the role's, with the role preamble", () => {
-    const prompt = buildSystemPrompt({ businessName: "Loaf", appName: "Foundmill", template: getTemplate("frontend_engineer"), skills: [...roleSkillsFor(getTemplate("frontend_engineer").skills), { name: "Press releases", source: "library", instructionsMd: "Lead with the news." }] });
+    const prompt = buildSystemPrompt({ businessName: "Loaf", appName: "Foundmill", template: getTemplate("frontend_engineer"), skills: [...roleSkillsFor(getTemplate("frontend_engineer").skills), { key: "library_press_releases", name: "Press releases", source: "library", whenToUse: "Use when asked for a press release.", instructionsMd: "Lead with the news." }] });
     expect(prompt).toContain('<skill name="Design principles" source="your role">');
     expect(prompt).toContain(ROLE_SKILLS_PREAMBLE);
     expect(prompt.indexOf("## Your instructions")).toBeLessThan(prompt.indexOf("## Skills"));
     // A founder-only list keeps the founder preamble.
-    expect(renderSkills([{ name: "Press releases", source: "library", instructionsMd: "Lead with the news." }])).toContain(SKILLS_PREAMBLE);
+    expect(renderSkills([{ key: "library_press_releases", name: "Press releases", source: "library", whenToUse: "Use when asked for a press release.", instructionsMd: "Lead with the news." }])).toContain(SKILLS_PREAMBLE);
   });
 });
 

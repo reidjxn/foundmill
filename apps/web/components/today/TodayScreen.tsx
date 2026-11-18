@@ -1,8 +1,15 @@
 "use client";
 /**
  * Today, the business's front door (founder, 2026-11-07; DESIGN §9 "Today"): the goal, what needs the founder, the week
- * in plain sentences and four health figures, under the same blocker, foundations and goal check as Details.
+ * in plain sentences and three health figures, under the same blocker, foundations and goal check as Details.
  *
+ * The headline (`today.get` › `outcomes`, WP-14 T4): the week's real outcomes as one count with what they were, above
+ * every section in both orders. A week with none shows no count and no zero, only what the team is working toward.
+ * Today carries no cost figure: spend is on Details, Finance and Billing.
+ *
+ * Working now (`today.get` › `workingNow`, WP-14 T5): right under the headline while the team is working, one quiet
+ * line for each agent with what it is doing, named as the reader names agents, with a link to the Working now tab.
+ * Absent when nobody is working.
  * 0. Your first week (`today.get` › `firstWeek`): Day 1, Days 2–3 and Week 1, only in a business's first days.
  * 1. Your goal (`goal.current`): the active goal with its progress bar and pace sentence, the Chief of Staff's proposal
  *    with Approve this goal (one tap, `goal.approve`) and Change it (`goal.requestChange`), or the waiting line.
@@ -19,8 +26,7 @@
  *     button opens the Public page tab or the plan note, or shares or copies the page's message (a share that was opened
  *     is recorded as `share.opened`, kind `page`, and moves the task on; it is never an outcome).
  * 4. Health: Cash, Runway and Customers this week are the status strip's own tiles over the same reads
- *    (`finance.overview`, `journey.ribbon`), so they always match Details; then the week's spend, never added across
- *    currencies (AI usage in US dollars, channel spend in the business's currency; one figure for a dollar business).
+ *    (`finance.overview`, `journey.ribbon`), so they always match Details. No spend tile (WP-14 T4).
  *
  * Order (WP-04 T7, `todaySections`): on a phone, and on a computer while the page waits to be checked and published,
  * Needs you leads; otherwise the first week and the goal. The week, Since you were last here, the streak and Health
@@ -37,11 +43,11 @@ import { PROJECT_UPDATE_WORDS } from "@foundmill/shared/project-updates";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { Fragment, useCallback, useMemo, useState, type ReactNode } from "react";
-import { Explainer, FirstWeekTimeline, FounderTaskPanel, GoalPanel, NeedsYouList, PageGrid, Panel, PostReadyNote, PublicPageNote, SinceLastVisit, StatusStrip, StreakStrip, Term, WeekPlan, formatDateTime, isViewportTooSmall, useAgentPersona, useDateFormat, useToast, useViewportWidth, type MetricTileProps, type NeedsYouRow } from "@foundmill/dugout";
+import { Explainer, FirstWeekTimeline, FounderTaskPanel, GoalPanel, NeedsYouList, PageGrid, Panel, PostReadyNote, PublicPageNote, SinceLastVisit, StatusStrip, StreakStrip, Term, WeekOutcomes, WeekPlan, WorkingNowStrip, formatDateTime, isViewportTooSmall, useAgentPersona, useDateFormat, useToast, useViewportWidth, type MetricTileProps, type NeedsYouRow } from "@foundmill/dugout";
 // Deep imports, not the barrel: the barrel registers every widget, which Today does not draw (WP-10 T13).
 import { routes } from "@foundmill/widgets/shared/routes";
 import { moduleHref, moduleTabHref } from "@foundmill/widgets/shared/departments";
-import { cashTile, customersWeekTile, runwayTile, spendWeekTiles, unavailableTile, type StatusTile } from "@foundmill/widgets/shared/today-tiles";
+import { cashTile, customersWeekTile, runwayTile, unavailableTile, type StatusTile } from "@foundmill/widgets/shared/today-tiles";
 import type { FinanceOverview, RibbonResponse } from "@foundmill/widgets/shared/types";
 import { useGlossary, useToday } from "@foundmill/widgets/data";
 import { recentRibbonInput } from "@foundmill/widgets/shared/ribbon";
@@ -52,7 +58,6 @@ import { useShellChrome } from "@/components/shell/chrome";
 import { shellPollIntervals } from "@/components/shell/BusinessShell";
 import { useBusinessLive } from "@/lib/stream-status";
 import { GoalEnsure, HomeBlockers, HomeFoundations } from "@/components/home/lead";
-import { formatMoney } from "@/lib/format";
 import { needsYouHref, sinceLastVisitLines, streakStripProps, toNeedsYouRows, toPanelGoal, toPanelProposal, todaySections, type TodaySection } from "./today-view";
 import { LazyTour } from "@/components/tours/LazyTour";
 import { FormerProjects } from "@/components/home/FormerProjects";
@@ -207,6 +212,8 @@ export function TodayScreen() {
     [router, businessId, departments, needsYou, rows, shareOpened, toast],
   );
   const founderTask = todayQ.data?.founderTask ?? null;
+  // Working now (WP-14 T5): each working agent under the reader's naming preference, as Needs you names its senders.
+  const workingNow = useMemo(() => (todayQ.data?.workingNow ?? []).map((w) => ({ id: w.agent.id, agent: persona.labelFor(w.agent), doing: w.doing })), [todayQ.data?.workingNow, persona]);
 
   // --- health -----------------------------------------------------------------------------------------------------------
   const currency = business.business.currency;
@@ -222,7 +229,6 @@ export function TodayScreen() {
       financeError ? unavailableTile("Cash", financeError, "Finance", openFinance) : cashTile(finance, financeQ.isLoading, currency, openFinance),
       financeError ? unavailableTile("Runway", financeError, "Finance", openFinance, "runway") : runwayTile(finance, financeQ.isLoading, openFinance),
       ribbonError ? unavailableTile("Customers this week", ribbonError, "The Journey", openCustomers) : customersWeekTile(ribbon, ribbonQ.isLoading, today, openCustomers),
-      ...spendWeekTiles(todayQ.data?.spend, todayQ.isLoading, openFinance),
     ];
     // Labels, captions and plain lines in the business's words; a defined term's label becomes a `Term`.
     return list.map(({ termId, ...t }) => {
@@ -240,7 +246,7 @@ export function TodayScreen() {
         plain: typeof t.plain === "string" ? g(t.plain) : t.plain,
       };
     });
-  }, [financeQ.data, financeQ.error, financeQ.isLoading, ribbonQ.data, ribbonQ.error, ribbonQ.isLoading, todayQ.data?.spend, todayQ.isLoading, currency, today, businessId, departments, router, g]);
+  }, [financeQ.data, financeQ.error, financeQ.isLoading, ribbonQ.data, ribbonQ.error, ribbonQ.isLoading, currency, today, businessId, departments, router, g]);
 
   // --- chrome -----------------------------------------------------------------------------------------------------------
   const tabs = useMemo(
@@ -257,7 +263,7 @@ export function TodayScreen() {
   const datePrefs = useDateFormat();
   const visitQ = useQuery(trpc.today.visit.queryOptions({ businessId }, { staleTime: 60_000 }));
   const since = visitQ.data?.sinceLastVisit ?? null;
-  const sinceLines = since ? sinceLastVisitLines(since, businessId, (m) => formatMoney(m)) : [];
+  const sinceLines = since ? sinceLastVisitLines(since, businessId) : [];
 
   const week = todayQ.data?.week;
   // "Your first week": the API answers it only while the business is in its first days and not yet selling (packages/shared first-week.ts).
@@ -345,6 +351,8 @@ export function TodayScreen() {
       <GoalEnsure />
       <HomeFoundations />
       <PageGrid flush stack data-order={order.join(" ")}>
+        {todayQ.data ? <WeekOutcomes span={12} headline={todayQ.data.outcomes.headline} detail={todayQ.data.outcomes.detail} toward={todayQ.data.outcomes.toward} /> : null}
+        <WorkingNowStrip span={12} lines={workingNow} href={moduleTabHref(businessId, departments, "development", "training-ground")} />
         {order.map((id) => (
           <Fragment key={id}>{sections[id]}</Fragment>
         ))}

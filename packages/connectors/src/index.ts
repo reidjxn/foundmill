@@ -51,7 +51,7 @@ export { createResendConnector, resendMock, RESEND_KEY } from "./connectors/rese
 export { createBufferConnector, bufferMock, BUFFER_KEY } from "./connectors/buffer";
 export * from "./grants";
 export * from "./channel-availability";
-export { createPlatformConnector, platformMock, createPlatformMock, createMemoryPlatformHost, PLATFORM_KEY, PlatformToolError, MESSAGE_TYPES, type PlatformHost, type PlatformCaller, type PlatformArgs, type PlatformResult, type TaskSummaryT, type TaskDetailT, type AgentMessageT } from "./connectors/platform";
+export { createPlatformConnector, platformMock, createPlatformMock, createMemoryPlatformHost, PLATFORM_KEY, READ_SKILL_NOTICE, PlatformToolError, MESSAGE_TYPES, type PlatformHost, type PlatformCaller, type PlatformArgs, type PlatformResult, type TaskSummaryT, type TaskDetailT, type AgentMessageT } from "./connectors/platform";
 export { AcceptanceResult, acceptanceLines, acceptanceRefusal, toolKeys, toolUseKey, unmetAcceptanceLines, type AcceptanceResultT, type ToolUse } from "./connectors/platform/acceptance";
 export { createQuarantineConnector, quarantineMock, QUARANTINE_KEY, quarantinedReaderRequest } from "./connectors/quarantine";
 export * from "./connectors/platform_mail";

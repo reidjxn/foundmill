@@ -23,6 +23,7 @@ const EVERY_SECRET: Record<keyof Required<PlatformSecrets>, true> = {
   stripeSecretKey: true,
   stripeWebhookSecret: true,
   stripeConnectClientId: true,
+  stripeConnectSecretKey: true,
   sendgridApiKey: true,
   sendgridWebhookPublicKey: true,
   sendgridInboundToken: true,
