@@ -538,7 +538,7 @@ export function IntegrationsTab() {
         </SettingsSection>
       ) : null}
       <PlatformMailSection data={platformMail.data} businessId={businessId} />
-      <OAuthFinish businessId={businessId} connectors={rows} pending={connect.isPending} onFinish={(connectorKey, input, done) => connect.mutate({ businessId, connectorKey, input }, { onSettled: done })} />
+      <OAuthFinish businessId={businessId} connectors={rows} onFinish={(connectorKey, input, done) => connect.mutate({ businessId, connectorKey, input }, { onSettled: done })} />
       {stripeRow ? (
         <SettingsSection wide title="Accept payments with Stripe" data-testid="stripe-payments" loading={list.isLoading}>
           <Hint>Take payments on your own Stripe account. Sign in with Stripe, or use a restricted key from your Stripe dashboard. Stripe's fees stay on your account.</Hint>
