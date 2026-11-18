@@ -508,6 +508,16 @@ To the same authoring spec (`packages/agents/skills/README.md`), each with `impr
 - **A model-backed agent builder and a wired Coach** (TS-08, BUILD §11.13, §12.6): T12 makes the copy true; the feature waits for evidence that founders hire beyond the starting team.
 - **TS-16 items, TS-18, TS-20, TS-21**: unused schedules and platform catalog drift (WP-11 hygiene), the "I want to…" catalog view (WP-10), stage in every brief and the house rules' reasons (WP-05, WP-04).
 
+### T13: Coding agents start with Ponytail and Caveman   [M] [ships alone; after T6]
+Why: founder, Nov 18, 2026: every coding agent in Foundmill comes with these two skills, to lower token use.
+Files: `packages/agents/skills/engineering/` (two new skills and `THIRD_PARTY_NOTICES.md` there), the default-skills list T6 builds, one eval.
+Steps:
+1. Add `ponytail` and `caveman` to the library under engineering, adapted to the authoring spec, with their licenses recorded (MIT; Apache-2.0 and MIT). Sources: `.claude/skills/ponytail`, `.claude/skills/caveman`.
+2. Every agent whose role writes code gets both by default at hire, at commit and by backfill (T6's mechanism; no second one).
+3. Caveman applies to an agent's working turns only. Anything a founder or an outside person reads (notes, reports, pull request text, commit messages, email, the public page) stays in plain full sentences: state this in the skill's body and check it in the eval.
+4. Eval: the same coding task with and without the two skills. Record output tokens and the acceptance result for each. Default-on ships only if tokens fall and acceptance does not; otherwise report the numbers and stop.
+Done when: a newly hired coding agent lists both skills, the eval shows the saving with acceptance unchanged, and no founder-facing text is compressed.
+
 ## Corrections to the audits
 
 1. a3b §1.5 and §8.1 infer that no founder added a skill and that no person started a training run. e0 measured 4 uploaded skills on real projects (0 from the library) and 1 real training run ($12.78, awaiting a decision since Oct 22).
