@@ -86,8 +86,9 @@ test.describe("commit", () => {
     await expect(summary.locator("[data-summary]")).toHaveCount(5);
     await expect(summary.locator('[data-summary="game-mode"]')).toHaveText("Personal");
     await expect(summary.locator('[data-summary="business-mode"]')).toHaveText("Assisted");
-    await expect(summary.locator('[data-summary="spend-cap"]')).toHaveText(/^Asks you above /);
-    await expect(summary.locator('[data-summary="autopilot"]')).toHaveText("Overnight shift on");
+    // The careful defaults (WP-14 T11): a 5.00 cap for each action in the project's currency, and Autopilot off.
+    await expect(summary.locator('[data-summary="spend-cap"]')).toHaveText(/^Asks you above \D{1,3}5\.00$/);
+    await expect(summary.locator('[data-summary="autopilot"]')).toHaveText("Autopilot off");
     // Labeled lines, not bare chips (first-time founder report, Nov 8, 2026): each choice says what it is about.
     for (const label of ["Where it runs", "Who decides", "Kind of business", "On a schedule"]) await expect(summary).toContainText(label);
     // The team the archetype seeds, no background helper listed; the wage line is Builder view's only (WP-04 T2).
@@ -118,7 +119,7 @@ test.describe("commit", () => {
     await expect(page.locator('[data-option="personal"]')).toHaveAttribute("data-selected", "true");
     // The choice is named in plain words ("Personal or live"), not the internal "game mode".
     await expect(page.getByRole("radiogroup", { name: "Personal or live" })).toBeVisible();
-    await expect(page.getByLabel(/Spend cap per action/)).toHaveValue("250");
+    await expect(page.getByLabel(/Spend cap per action/)).toHaveValue("5");
     // A LIVE start asks for the 18+ confirmation only until it is on record: a founder who has given it is not asked
     // again (the seed with a profile), one who has not is asked.
     await page.locator('[data-option="live"] button[role="radio"]').click();
@@ -128,20 +129,33 @@ test.describe("commit", () => {
     if (await adult.count()) await expect(adult).toBeVisible();
   });
 
-  test("The overnight shift is on by default (retention plan, Nov 11, 2026), can be turned off, and shows in the summary", async ({ page }) => {
+  test("WP-14 T11: Commit opens on the careful option, says so, and a founder can change it there", async ({ page }) => {
+    // Above the form, and no dollar figure in the credits line.
+    await expect(page.getByText("Name your project. We've set everything else to the careful option, and you can change any of it later.")).toBeVisible();
+    const credits = page.getByTestId("commit-credits-line");
+    if (await credits.count()) await expect(credits).toHaveText("Your team starts with this month's included credits.");
     await openMore(page);
+    // Each default: Assisted, Personal, 5.00 for each action, the overnight shift off, the initials mark (no logo chosen).
+    await expect(page.locator('[data-option="assisted"]')).toHaveAttribute("data-selected", "true");
+    await expect(page.locator('[data-option="personal"]')).toHaveAttribute("data-selected", "true");
+    const cap = page.getByLabel(/Spend cap per action/);
+    await expect(cap).toHaveValue("5");
     const toggle = page.getByTestId("run-on-autopilot");
     const chip = page.getByTestId("how-it-runs-summary").locator('[data-summary="autopilot"]');
     await expect(page.getByTestId("autopilot-choice")).toContainText("Overnight shift");
+    await expect(page.getByTestId("autopilot-choice")).toContainText("Off unless you turn it on.");
     await expect(page.getByTestId("autopilot-choice")).toContainText("about 2 AM your time");
-    await expect(toggle).toHaveAttribute("aria-checked", "true");
-    await expect(chip).toHaveText("Overnight shift on");
-    await toggle.click();
     await expect(toggle).toHaveAttribute("aria-checked", "false");
     await expect(chip).toHaveText("Autopilot off");
+    // Change two of them: the overnight shift on, and the cap.
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-checked", "true");
     await expect(chip).toHaveText("Overnight shift on");
+    await cap.fill("40");
+    await expect(page.getByTestId("how-it-runs-summary").locator('[data-summary="spend-cap"]')).toHaveText(/^Asks you above \D{1,3}40\.00$/);
+    // And back: off again is one press.
+    await toggle.click();
+    await expect(chip).toHaveText("Autopilot off");
   });
 
   test("name suggestions, live domain availability and the trademark screen with its caveat", async ({ page }) => {
@@ -293,9 +307,9 @@ test.describe("commit", () => {
     await inboxRow(page, FIRST_NOTE).click();
     await expect(page.getByTestId("inbox-item")).toHaveAttribute("data-type", "update", { timeout: LONG });
     await expect(page.getByTestId("decision-bar")).toHaveCount(0);
-    // The spend cap per action chosen on Commit (the Assisted default, 250) is kept on the business, editable in Settings › What the team can do.
+    // The spend cap per action Commit starts on (5.00, WP-14 T11) is kept on the business, editable in Settings › What the team can do.
     const mode = await openSettings(page, "mode", bid);
-    await expect(mode.getByTestId("spend-cap-form").getByLabel("Amount per purchase")).toHaveValue("250", { timeout: LONG });
+    await expect(mode.getByTestId("spend-cap-form").getByLabel("Amount per purchase")).toHaveValue("5", { timeout: LONG });
     // A new business starts on the free plan with this month's included credits, in US dollars.
     const billing = await openSettings(page, "billing", bid);
     await expect(billing.getByTestId("credits-balance")).toContainText("$5.00", { timeout: LONG });

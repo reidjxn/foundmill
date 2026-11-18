@@ -199,6 +199,11 @@ export interface MorningBriefInput {
   recipientUserId?: string | null;
   /** Walled from Money or Customers: no amounts. */
   hideAmounts?: boolean;
+  /**
+   * The window's effort as one sentence of counted records (WP-14 T5, ./effort `effortSentence`): "Your team ran 14
+   * quality checks and read 3 sources." Null or absent: nothing was counted, or the person cannot read Development.
+   */
+  effort?: string | null;
 }
 
 export interface BriefLine {
@@ -400,7 +405,9 @@ export function morningBrief(input: MorningBriefInput): MorningBrief {
   }).length;
   const w = input.work;
   const spend = !input.hideAmounts && w.costMinor > 0 ? `, team spend ${formatMoney({ amountMinor: w.costMinor, currency: w.costCurrency })} (Estimate)` : "";
-  const behindTheScenes = w.rounds > 0 || w.tasksDone > 0 ? `Behind the scenes: ${countOf(w.rounds, "round")} of work, ${countOf(w.tasksDone, "task")} done${spend}.` : null;
+  const workLine = w.rounds > 0 || w.tasksDone > 0 ? `Behind the scenes: ${countOf(w.rounds, "round")} of work, ${countOf(w.tasksDone, "task")} done${spend}.` : null;
+  // Effort beside the results (WP-14 T5): counted records only, said after the rounds and tasks, or alone.
+  const behindTheScenes = [workLine, input.effort ?? null].filter((s): s is string => !!s).join(" ") || null;
   const waiting = input.waiting.slice(0, BRIEF_SECTION_MAX);
   const count = input.waiting.length;
   return {
