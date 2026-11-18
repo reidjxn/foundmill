@@ -20,7 +20,7 @@
  * A task with nothing left does not start: it is blocked (`budget`) with the amounts. All figures are US cents, an
  * Estimate. A task budget in another currency cannot be compared with US cents, so the default applies to it.
  */
-import { CREDITS_CURRENCY } from "@foundmill/config";
+import { costCoveredMinor, CREDITS_CURRENCY } from "@foundmill/config";
 import { creditsState, modelBudgetState, periodOf, repos, type Business, type Task } from "@foundmill/db";
 import type { OrchestratorDeps } from "../deps";
 import { DEFAULT_TASK_RESERVE_MINOR } from "../cycle-contract";
@@ -97,7 +97,8 @@ export async function sessionBudget(deps: OrchestratorDeps, input: { business: P
     repos.usage.agentSpend(deps.db, input.business.id, input.agentId, periodOf(now)),
     modelBudgetState(deps.db, business, now),
   ]);
-  const creditsLeftMinor = credits ? credits.balanceMinor : null;
+  // What the credits left pay for at cost (they are charged at cost plus the markup, Nov 17, 2026).
+  const creditsLeftMinor = credits ? costCoveredMinor(credits.balanceMinor) : null;
   const wageLeftMinor = wage.remainingMinor;
   const modelBudgetLeftMinor = monthly.remainingMinor;
   const bound = boundSpend({ taskBudgetMinor: budget, taskSpentMinor: spent, creditsLeftMinor, wageLeftMinor, modelBudgetLeftMinor, cycleCapMinor: input.spendCapMinor ?? null });

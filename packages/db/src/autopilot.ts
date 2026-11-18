@@ -3,6 +3,7 @@
  * the orchestrator's `autopilot` workflow and the API's Home/Settings read gather it the same way and cannot disagree.
  * Read-only; nothing here writes.
  */
+import { costCoveredMinor } from "@foundmill/config";
 import { CONTINUE_RUN_LIMITS, utcDayStart, type AutopilotCycleSummary, type AutopilotFacts, type AutopilotPauseReason, type ContinueRunFacts } from "@foundmill/shared";
 import { creditsState } from "./billing";
 import { repos } from "./repos";
@@ -155,7 +156,8 @@ export async function loadAutopilotFacts(db: Executor, business: Business, now: 
     settings: autopilotSettingsOf(business),
     archived: business.archivedAt !== null,
     stopReason: business.agentsStoppedAt !== null ? (business.agentsStoppedReason ?? "kill_switch") : null,
-    creditsRemainingMinor: credits ? credits.balanceMinor : null,
+    // At cost, like the day's spend it is compared with (credits are charged at cost plus the markup, Nov 17, 2026).
+    creditsRemainingMinor: credits ? costCoveredMinor(credits.balanceMinor) : null,
     vacation: holiday !== null,
     blockingItems,
     cycleOpen: cycles.open,

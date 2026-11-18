@@ -27,7 +27,7 @@
  * `assertPlatformCredits` refuses a call while the month's credits are used up (or stopped for it), and where calls are
  * live, credits granted by a simulated payment never count (`ALLOW_MOCK_PAYMENTS`, docs/DEPLOY.md §4).
  */
-import { APP_NAME, creditsAreLow, tierShowsBuiltOnMark, type TierKey, CREDITS_CURRENCY, includedCreditsMinor, lowCreditsThresholdMinor, ownPlanFunds, tierIncludedCreditPlaces } from "@foundmill/config";
+import { APP_NAME, chargedMinor, creditsAreLow, tierShowsBuiltOnMark, type TierKey, CREDITS_CURRENCY, includedCreditsMinor, lowCreditsThresholdMinor, ownPlanFunds, tierIncludedCreditPlaces } from "@foundmill/config";
 import { CreditsExhaustedError, platformBillingMode, type Env, type FundingSource } from "@foundmill/shared";
 import { stopBusinessAgents } from "./controls";
 import { repos } from "./repos";
@@ -155,7 +155,7 @@ export async function includedCreditsFor(db: Executor, business: CreditsBusiness
  * the charge never leaves an empty balance with the team still working (audit BILL-20). A booking with an
  * `idempotencyKey` that was already booked (a retried session end) returns that row and charges nothing.
  */
-export async function bookUsage(db: Executor, businessId: string, input: BookUsageInput, options: { ownPlan?: OwnPlanOptions; topUps?: boolean } = {}): Promise<BookUsageResult> {
+export async function bookUsage(db: Executor, businessId: string, input: BookUsageInput, options: { ownPlan?: OwnPlanOptions; topUps?: boolean; markup?: number } = {}): Promise<BookUsageResult> {
   const { funding: _funding, ...row } = input;
   return db.transaction(async (tx) => {
     // Which source paid is recorded on the row (0104), checked against the business, so only a row the founder's own
@@ -167,7 +167,11 @@ export async function bookUsage(db: Executor, businessId: string, input: BookUsa
     const business = await repos.businesses.get(tx, businessId, { includeArchived: true });
     const period = periodOf(entry.occurredAt);
     // The exact cost (0039): a call under half a cent is carried until the period's charges complete a cent.
-    const charged = await repos.usage.chargeCreditsMicro(tx, businessId, period, Number(entry.costMicroMinor ?? Number(entry.costMinor) * MICRO_PER_MINOR), { includedMinor: (t) => includedCreditsFor(t, business, period, { lock: true }) });
+    // Credits are charged at cost plus the markup (founder, Nov 17, 2026, `CREDIT_MARKUP`); the row keeps the true cost.
+    const trueMicro = Number(entry.costMicroMinor ?? Number(entry.costMinor) * MICRO_PER_MINOR);
+    // `markup` is for the tests of the charge's own mechanics (balances, carries, the pause), which state amounts at cost.
+    const chargeMicro = options.markup === undefined ? chargedMinor(trueMicro) : Math.round(trueMicro * (1 + options.markup));
+    const charged = await repos.usage.chargeCreditsMicro(tx, businessId, period, chargeMicro, { includedMinor: (t) => includedCreditsFor(t, business, period, { lock: true }) });
     if (!charged) return { entry, credits: { enforced: false, balance: null, exhausted: null, pausedAgents: 0, noteId: null } };
     if (charged.exhausted === null) {
       const lowNoteId = await creditsLowNotice(tx, business, period, charged.balance);

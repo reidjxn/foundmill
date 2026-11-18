@@ -87,6 +87,8 @@ describe("costReportRepo.run", () => {
     const byRoute = Object.fromEntries(report.byRoute.map((r) => [r.route, r]));
     expect(Object.keys(byRoute).sort()).toEqual(["foundations", "inboxComposer"]);
     expect(byRoute.foundations).toMatchObject({ model: "haiku", billedTo: "credits", calls: 1, tokens: 1000, usd: 0.0123 });
+    // The true cost, and beside it what those calls charged against credits at cost plus the markup (Nov 17, 2026).
+    expect(byRoute.foundations!.usdCharged).toBeCloseTo(0.0123 * 1.3, 4);
     expect(byRoute.inboxComposer).toMatchObject({ calls: 1, tokens: 2000, usd: 0.25 });
   });
 

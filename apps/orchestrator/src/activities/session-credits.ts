@@ -14,6 +14,7 @@
  * business's own key never comes here: its spend is the founder's, billed by Anthropic.
  */
 import { grantsActOutside } from "@foundmill/connectors";
+import { costCoveredMinor } from "@foundmill/config";
 import { bookUsage, checkPlatformCredits, repos } from "@foundmill/db";
 import { resolveModel, type RouteKey, type RouteResolution } from "@foundmill/models";
 import { topUpsOnSale, type ModelKey, type ModuleKey } from "@foundmill/shared";
@@ -101,7 +102,8 @@ export class SessionCredits {
   static async open(deps: OrchestratorDeps, session: { businessId: string; agentId: string; sessionId: string; modelKey: ModelKey }): Promise<SessionCreditsOpen> {
     const check = await checkPlatformCredits(deps.db, session.businessId, { live: true, now: deps.clock.now() });
     if (!check.ok) return { ok: false, reason: check.reason === "mock_only" ? "only simulated credits are left this month, and they never pay for live model calls" : "this month's credits are used up" };
-    return { ok: true, credits: new SessionCredits(deps, session, check.spendableMinor) };
+    // Credits are charged at cost plus the markup (Nov 17, 2026): the session may spend, at cost, what they cover.
+    return { ok: true, credits: new SessionCredits(deps, session, costCoveredMinor(check.spendableMinor)) };
   }
 
   /** The Agent SDK's `maxBudgetUsd`: what is spendable at launch, in US dollars. */
