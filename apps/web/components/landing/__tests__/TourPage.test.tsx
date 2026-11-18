@@ -25,9 +25,18 @@ Object.defineProperty(window, "innerWidth", { value: 1440, configurable: true })
 // happy-dom's IntersectionObserver never reports; the page's lazy parts (the deck's first cycle, the live tiles, the
 // Journey) wait for one. This one reports every observed element as on screen straight away.
 class OnScreenObserver {
-  constructor(private readonly cb: IntersectionObserverCallback) {}
+  static all: OnScreenObserver[] = [];
+  private target: Element | null = null;
+  constructor(private readonly cb: IntersectionObserverCallback) {
+    OnScreenObserver.all.push(this);
+  }
+  /** Tell the page its element left the window (false) or came back (true). */
+  report(on: boolean) {
+    this.cb([{ isIntersecting: on, target: this.target } as IntersectionObserverEntry], this as unknown as IntersectionObserver);
+  }
   observe(target: Element) {
-    this.cb([{ isIntersecting: true, target } as IntersectionObserverEntry], this as unknown as IntersectionObserver);
+    this.target = target;
+    this.report(true);
   }
   unobserve() {}
   disconnect() {}
@@ -37,6 +46,7 @@ class OnScreenObserver {
 }
 const realObserver = globalThis.IntersectionObserver;
 beforeEach(() => {
+  OnScreenObserver.all = [];
   globalThis.IntersectionObserver = OnScreenObserver as unknown as typeof IntersectionObserver;
   // The idea box asks the api for this browser's card on mount: none here.
   vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 204 })));
@@ -161,6 +171,20 @@ describe("TourPage (signed-out /)", () => {
     expect(within(deck).getByRole("button", { name: /Go to Journey/ })).toBeTruthy();
     fireEvent.click(within(win).getByRole("button", { name: /See the Customer Update/ }));
     expect(deck.getAttribute("data-phase")).toBe("idle");
+    // The visitor is taken to the Journey, whose heading has focus; the callout points at Continue, out of view, and
+    // would take that focus when it opens, so it waits until the deck is back in view.
+    expect(document.activeElement).toBe(document.getElementById("journey-title"));
+    await act(async () => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(screen.queryByRole("dialog", { name: DECK_CALLOUT.title })).toBeNull();
+    expect(document.activeElement).toBe(document.getElementById("journey-title"));
+    const watching = OnScreenObserver.all[OnScreenObserver.all.length - 1]!;
+    await act(async () => {
+      watching.report(false);
+      watching.report(true);
+      vi.advanceTimersByTime(1000);
+    });
     // The callout under Continue is the app's own single-step Callout (Dugout Coachmark) with the app's words, anchored
     // to the deck's Continue (its ring, no backdrop), until the visitor presses it.
     expect(CONTINUE_CALLOUT).toBe("This is how you move forward. One press and your team works until nothing is left to do. Anything that needs you shows in Needs you.");

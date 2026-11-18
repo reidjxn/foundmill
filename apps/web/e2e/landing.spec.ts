@@ -113,10 +113,16 @@ test.describe("the tour (/tour)", () => {
     // The update it opens is about the same customer.
     await expect(page.getByRole("region", { name: "Customer Update" }).getByText("Okafor Math Tutoring").first()).toBeVisible();
 
-    // The callout under Continue teaches the loop in the app's own words, until the visitor presses it. It is the
+    // The callout under Continue points at a button now out of view and takes focus when it opens, so it waits: focus
+    // stays on the Journey heading (a keyboard or screen-reader visitor is told where they are) until the deck is back.
+    const callout = page.locator("[data-coachmark][data-tour='deck-continue']");
+    await page.waitForTimeout(1200);
+    await expect(callout).toHaveCount(0);
+    await expect(page.locator("#journey-title")).toBeFocused();
+
+    // Back at the deck, the callout teaches the loop in the app's own words, until the visitor presses Continue. It is the
     // design system's Callout: a popover portaled to <body>, anchored to the deck's Continue (data-coachmark-active).
     await deck.scrollIntoViewIfNeeded();
-    const callout = page.locator("[data-coachmark][data-tour='deck-continue']");
     await expect(callout).toContainText("One press and your team works until nothing is left to do. Anything that needs you shows in Needs you.");
     await expect(page.locator("[data-testid='deck-continue'][data-coachmark-active]")).toHaveCount(1);
 

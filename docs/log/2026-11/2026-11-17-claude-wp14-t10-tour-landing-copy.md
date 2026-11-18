@@ -49,6 +49,12 @@ The brief lists three hero lines. "Your idea stays private until you choose to s
 ### removed-claims.test.tsx is unchanged
 Neither new line matches a removed claim ("Desktop only", "1280 px wide or more" stay removed).
 
+### The deck's callout waits until the deck is back in view
+With the first press ending in a win, the deck is idle and unpressed once the visitor opens the Customer Update.
+The Continue callout then mounted and its card took focus from the Journey heading (CI: `#journey-title` never focused).
+The callout now waits (`away` in `CycleDeck.tsx`) until the deck has left and returned to the window.
+`landing.spec.ts` and `TourPage.test.tsx` assert both: the heading keeps focus, then the callout opens on return.
+
 ## Not done
 - The not-invited page (WP-14 T15 owns its wording) and the pill "First company? The team comes with it." (a removed claim).
 - Plan names and prices on `/`: "What it costs" still says "The free plan includes …"; the names Try, Founder, Studio and Partner arrive with WP-14 T14.
