@@ -33,6 +33,14 @@ export async function takeConnectionRequest(limits: RateLimitStore, userId: stri
   await takeOrThrow(limits, "Connection request", entries);
 }
 
+/** People searches (Find people, the name search) a person may run in a minute: each one reads every public profile. */
+export const PEOPLE_SEARCHES_PER_MINUTE = 30;
+
+/** Spends one people search from the person (shared store, every api replica). */
+export async function takePeopleSearch(limits: RateLimitStore, userId: string): Promise<void> {
+  await takeOrThrow(limits, "Search", [{ key: `live:people-search:${userId}`, rule: { limit: PEOPLE_SEARCHES_PER_MINUTE, windowMs: MINUTE } }]);
+}
+
 /** Spends one message from the person and from the thread (or, for a first message, from the recipients). */
 export async function takeMessage(limits: RateLimitStore, userId: string, target: string): Promise<void> {
   const entries: LimitEntry[] = [

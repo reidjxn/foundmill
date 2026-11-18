@@ -24,7 +24,7 @@ export const FIRST_DAY_SENTENCE = "The team drafts; you sign off; then they buil
 export function HowItWorks() {
   return (
     <Section id="how">
-      <SectionHeading id="how" eyebrow="How it works" title="From an idea to a running business, one cycle at a time." lede="You do not manage prompts. You run a business: set the direction, approve what matters, and let the team carry the rest." />
+      <SectionHeading id="how" eyebrow="How it works" title="From an idea to a running business, one cycle at a time." />
       {/* Two by two: each step's product part keeps the width it has in the app (a concept card, the brand picker). */}
       <ol className="grid grid-cols-2 gap-10">
         <Step n="01" icon={Lightbulb} title="Shape the idea" text={

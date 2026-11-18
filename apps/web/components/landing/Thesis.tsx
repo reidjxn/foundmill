@@ -10,7 +10,7 @@ import { Icon, Term, prefersReducedMotion } from "@foundmill/dugout";
 import { Container, Eyebrow, Reveal } from "./parts";
 
 const PILLARS: ReadonlyArray<{ icon: LucideIcon; title: string; text: ReactNode; href: string; link: string; tone: string }> = [
-  { icon: Layers, title: "A whole company, in parallel", text: (
+  { icon: Layers, title: "A whole company, working while you work", text: (
       <>
         Departments work side by side every <Term id="cycle">cycle</Term>, against one plan, one budget and one picture of the business. A <Term id="chief_of_staff">Chief of Staff</Term> keeps them in step.
       </>
@@ -21,10 +21,10 @@ const PILLARS: ReadonlyArray<{ icon: LucideIcon; title: string; text: ReactNode;
       </>
     ),
     href: "#live", link: "Watch the work", tone: "var(--dept-2)" },
-  { icon: ShieldCheck, title: "You stay in charge", text: "Money, contracts, filings and anything irreversible wait for you, with the work prepared and a recommendation attached.", href: "#control", link: "Your decisions", tone: "var(--status-good)" },
+  { icon: ShieldCheck, title: "You stay in charge", text: "Your team brings you the decision, the work behind it and its recommendation. Money, contracts, filings and anything irreversible wait for you.", href: "#control", link: "Your decisions", tone: "var(--status-good)" },
 ];
 
-const STATEMENT = `AI agents can now write the code, run the channels and keep the books. ${APP_NAME} turns them into one team, gives them a real business to run, and keeps you in charge of every call that matters.`;
+const STATEMENT = `AI agents can now write the code, run the channels and keep the books. ${APP_NAME} turns them into one team, gives them a real business to run, and keeps you in charge of every call that matters. ${APP_NAME} gives you that team without asking you to become a manager of software.`;
 
 export function Thesis() {
   return (

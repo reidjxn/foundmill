@@ -148,7 +148,7 @@ test.describe("Today and Needs you on a phone", () => {
     const note = page.getByTestId("needs-larger-window");
     await expect(note).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("phone-bar")).toHaveCount(0);
-    await expect(note.getByRole("heading", { name: "This part is built for a bigger screen" })).toBeVisible();
+    await expect(note.getByRole("heading", { name: "Foundmill is built for a big screen." })).toBeVisible();
     await expect(note).not.toContainText("390 px");
     // WP-03 T3: never a dead end. No email goes from this stack (no gateway runs, or its mail is only simulated), and the
     // note says so instead of "Sent", with Copy link.

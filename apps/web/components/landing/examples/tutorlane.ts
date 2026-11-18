@@ -110,21 +110,8 @@ const ACTIVITY: readonly ActivityLine[] = [
 // The cycle in the hero deck: what each press of Continue brings back
 // ---------------------------------------------------------------------------------------------------------------------
 
-/** In order: the first press brings a decision, the second a customer, then they alternate with more decisions. */
+/** In order: the first press brings a customer (it ends in a win, WP-14 T10), then the decisions follow. */
 const CYCLE_OUTCOMES: readonly CycleOutcome[] = [
-  {
-    kind: "decision",
-    id: "merge",
-    from: { name: "Forge", seed: "forge", dept: "dept-2", role: "Lead developer" },
-    department: "Development",
-    subject: "Merge photo grading to production?",
-    body: "The companion now grades handwritten work from photos. Agreement with tutors' own grades rose from 74% to 93% on 200 past answers, and every check is green.",
-    stake: "Change #148 · all checks passing",
-    options: [
-      { id: "merge", label: "Merge", recommended: true, done: "Photo grading merged", outcome: "Every tutor gets it on the next release." },
-      { id: "hold", label: "Test on 100 more", done: "Merge held for more testing", outcome: "Forge adds 100 more answers to the test set and comes back to you." },
-    ],
-  },
   // The same customer as the Customer Update the gold card opens.
   {
     kind: "win",
@@ -137,6 +124,19 @@ const CYCLE_OUTCOMES: readonly CycleOutcome[] = [
       { name: "Juno", seed: "juno", dept: "dept-2" },
       { name: "Nell", seed: "nell", dept: "dept-3" },
       { name: "Pike", seed: "pike", dept: "dept-3" },
+    ],
+  },
+  {
+    kind: "decision",
+    id: "merge",
+    from: { name: "Forge", seed: "forge", dept: "dept-2", role: "Lead developer" },
+    department: "Development",
+    subject: "Merge photo grading to production?",
+    body: "The companion now grades handwritten work from photos. Agreement with tutors' own grades rose from 74% to 93% on 200 past answers, and every check is green.",
+    stake: "Change #148 · all checks passing",
+    options: [
+      { id: "merge", label: "Merge", recommended: true, done: "Photo grading merged", outcome: "Every tutor gets it on the next release." },
+      { id: "hold", label: "Test on 100 more", done: "Merge held for more testing", outcome: "Forge adds 100 more answers to the test set and comes back to you." },
     ],
   },
   {
