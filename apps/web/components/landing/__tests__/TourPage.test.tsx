@@ -104,7 +104,7 @@ describe("TourPage (signed-out /)", () => {
     expect(panel.textContent).toContain("Vision, specification and roadmap");
     expect(within(panel).getByText("Drafting")).toBeTruthy();
     expect(within(panel).getByText("Drafting your vision, specification and roadmap…")).toBeTruthy();
-    expect(within(panel).getByText(/^Iris, Product lead, writes it from your idea and your profile\. Orla, Chief of Staff, plans the first cycle from the roadmap\.$/)).toBeTruthy();
+    expect(within(panel).getByText(/^Iris, Product lead, writes it from your idea and your profile\. Orla, Chief of Staff, plans the first round of work from the roadmap\.$/)).toBeTruthy();
     // Then the one plan note in the Inbox (WP-04 T5), tagged Respond, then Continue.
     const inbox = within(how).getByRole("list", { name: "Inbox" });
     // Each row: the Product lead's portrait (its name is text too), the subject, the Needs you tag.

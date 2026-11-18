@@ -216,7 +216,7 @@ function FirstDay() {
             <p className="flex items-start gap-2 text-small text-secondary">
               <AvatarStack size={20} className="mt-px shrink-0" items={[{ name: product.name, agent: { seed: product.seed, dept } }, { name: chief.name, agent: { seed: chief.seed, dept: chief.dept } }]} />
               <span>
-                {product.name}, {product.role}, writes it from your idea and your profile. {chief.name}, Chief of Staff, plans the first cycle from the roadmap.
+                {product.name}, {product.role}, writes it from your idea and your profile. {chief.name}, Chief of Staff, plans the first round of work from the roadmap.
               </span>
             </p>
           </div>
