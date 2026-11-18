@@ -23,6 +23,7 @@ import { signoffViews, startDistribution } from "../services/signoff";
 import type { Context } from "../context";
 import { adminArchivedProcedure, adminProcedure, archivedBusinessProcedure, assertLiveOpen, audit, businessProcedure, emit, Id, ownerArchivedProcedure, ownerProcedure, protectedProcedure, router, writeProcedure } from "../trpc";
 import { businessLogoRouter } from "./logo";
+import { assertEntryPlan } from "../services/payments";
 
 /** How the signed-in person stands to the example business (`business.example.get`). */
 export type ExampleMembership = "none" | "example" | "member";
@@ -363,6 +364,8 @@ export const businessRouter = router({
    */
   setBusinessMode: adminProcedure.input(z.object({ businessMode: z.enum(BUSINESS_MODES), reason: z.string().max(500).optional() })).mutation(async ({ ctx, input }) => {
     const from = ctx.business.businessMode;
+    // Paid entry (WP-09 T16): Automated mode runs cycles on its own, so it waits for the entry plan like Continue.
+    if (input.businessMode === "automated" && from !== "automated") await assertEntryPlan(ctx.db, ctx.env, ctx.businessId);
     const business = await ctx.rls(async (tx) => {
       const changed = await repos.businesses.setBusinessMode(tx, ctx.businessId, input.businessMode);
       if (from !== input.businessMode) {
@@ -450,6 +453,8 @@ export const businessRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      // Paid entry (WP-09 T16): a vacation's cycles are AI runs, so it waits for the entry plan like Continue.
+      await assertEntryPlan(ctx.db, ctx.env, ctx.businessId);
       // Signing is a hard gate: never part of the Chief of Staff's authority, whatever the dialog sent.
       const authority = input.authority.filter((d) => d !== "sign_contracts");
       const currency = (input.currency ?? ctx.business.currency).toUpperCase();

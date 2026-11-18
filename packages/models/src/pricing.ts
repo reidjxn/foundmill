@@ -178,6 +178,15 @@ export function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
 }
 
 /**
+ * The one definition of a usage ledger row's token figures (WP-09 T1): `quantity` counts every token the call was billed
+ * for (input, output and both cache figures), and `tokens` keeps each, so the cost report can read the cache share.
+ */
+export function usageForLedger(usage: TokenUsage): { quantity: number; tokens: { input: number; output: number; cacheRead: number; cacheWrite: number } } {
+  const tokens = { input: usage.inputTokens, output: usage.outputTokens, cacheRead: usage.cacheReadInputTokens, cacheWrite: usage.cacheCreationInputTokens };
+  return { quantity: tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite, tokens };
+}
+
+/**
  * Rough token estimate (≈ 4 characters per token for English prose and JSON). Used for rate-limit reservations and for
  * mock-mode usage. Label anything derived from it an estimate.
  */

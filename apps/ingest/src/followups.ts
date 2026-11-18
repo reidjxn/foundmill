@@ -13,6 +13,12 @@
  *    (`engine:{channelId}`) and the training runs left queued while the team was stopped (`training:{runId}`, a model
  *    change's retests).
  *
+ * 6. A paid checkout opened to unblock the team's next round of work (`resume: 'continue'`, the pay-and-resume loop,
+ *    founder Nov 17, 2026: the entry plan at the first run, a credit pack when credits ran out) starts that round by
+ *    itself: the next `businessCycle` (`cycle:{businessId}:{n}`), audited as the founder's own Continue with trigger
+ *    `payment`. Only when Continue would start one now: the team is not stopped, not on vacation, nothing in Needs you
+ *    blocks it, no cycle is open and paid entry's plan is open. Otherwise the work waits for the founder's Continue.
+ *
  * 5. The project's first confirmed follower (`/mail/confirm`, platform-mail.ts) starts `postDraft`
  *    (`post-draft:{businessId}:first_follower`): the social agent may draft a post about it for the founder to share by
  *    tap. Nothing is published or measured by it.
@@ -21,7 +27,7 @@
  * thrown; Temporal ids are deterministic, so a retried delivery cannot start the same work twice. `idle()` lets graceful
  * shutdown (and tests) wait for what is in flight.
  */
-import { repos, type Db } from "@foundmill/db";
+import { loadAutopilotFacts, nextCycleNumberOf, queuedCycleOpen, repos, type Db } from "@foundmill/db";
 import type { ConversionOutcome } from "./conversions";
 import type { ComposerNarrator } from "./composer-client";
 import type { IngestResult } from "./ingest";
@@ -56,6 +62,11 @@ export interface IngestFollowups {
    * tap. Whether one is written is the workflow's to decide (the channel on the board, the caps). Never throws.
    */
   firstFollower(businessId: string): void;
+  /**
+   * A paid checkout opened to unblock the next round of work (`resume: 'continue'`): starts it now when Continue would.
+   * Called once per settlement (a duplicate or replayed event settles nothing, so it never starts twice). Never throws.
+   */
+  continueAfterPayment(businessId: string, checkoutId: string): void;
   /** Resolves once everything dispatched so far has settled. */
   idle(): Promise<void>;
 }
@@ -146,6 +157,27 @@ export function createFollowups(deps: FollowupDeps): IngestFollowups {
     else if (results.length > 0) deps.log.info({ businessId, engines: engines.length, training: training.length }, "engines and queued training restarted after the top-up");
   }
 
+  async function continueAfterPaid(businessId: string, checkoutId: string): Promise<void> {
+    const business = await repos.businesses.get(deps.db, businessId, { includeArchived: true });
+    const now = new Date();
+    const [facts, queued] = await Promise.all([loadAutopilotFacts(deps.db, business, now), queuedCycleOpen(deps.db, businessId, now)]);
+    const why = facts.archived ? "archived" : facts.stopReason ? "stopped" : facts.vacation ? "vacation" : facts.blockingItems > 0 ? "needs_you" : facts.cycleOpen || queued ? "cycle_open" : null;
+    if (why) {
+      deps.log.info({ businessId, checkoutId, why }, "paid; the next round waits for Continue");
+      return;
+    }
+    const cycleNumber = await nextCycleNumberOf(deps.db, businessId);
+    const workflowId = ingestWorkflowIds.cycle(businessId, cycleNumber);
+    const started = await deps.workflows.start(INGEST_WORKFLOWS.businessCycle, { workflowId, args: [{ businessId, cycleNumber, trigger: "continue" }] });
+    if (!started.started) {
+      deps.log.warn({ businessId, checkoutId, reason: started.reason }, "paid; the next round could not start, Continue starts it");
+      return;
+    }
+    // The cycle's first mark, as the api writes for a press of Continue: status reads it as queued until it starts.
+    await repos.audit.append(deps.db, businessId, { actorKind: "system", actorId: null, action: "business.continue", target: { kind: "cycle", id: workflowId }, details: { cycleNumber, mode: "temporal", workflowId, trigger: "payment", checkoutId } });
+    deps.log.info({ businessId, checkoutId, cycleNumber }, "paid; the next round of work started");
+  }
+
   async function firstFollowerPost(businessId: string): Promise<void> {
     const started = await deps.workflows.start(INGEST_WORKFLOWS.postDraft, { workflowId: ingestWorkflowIds.postDraft(businessId, "first_follower"), args: [{ businessId, trigger: { kind: "first_follower" } }] });
     if (!started.started) deps.log.info({ businessId, reason: started.reason }, "postDraft not started after the first follower; no post is drafted for it");
@@ -168,6 +200,9 @@ export function createFollowups(deps: FollowupDeps): IngestFollowups {
     resumed(businessId) {
       track(restartAfterResume(businessId), "restart after the top-up");
     },
+    continueAfterPayment(businessId, checkoutId) {
+      track(continueAfterPaid(businessId, checkoutId), "continue after the payment");
+    },
     firstFollower(businessId) {
       track(firstFollowerPost(businessId), "post draft after the first follower");
     },
@@ -178,4 +213,4 @@ export function createFollowups(deps: FollowupDeps): IngestFollowups {
 }
 
 /** Does nothing (tools and tests that do not exercise follow-ups). */
-export const noFollowups: IngestFollowups = { dispatch() {}, resumed() {}, firstFollower() {}, async idle() {} };
+export const noFollowups: IngestFollowups = { dispatch() {}, resumed() {}, continueAfterPayment() {}, firstFollower() {}, async idle() {} };

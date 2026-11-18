@@ -6,7 +6,7 @@
  */
 import { getSkillTests, getTemplateByAgentType, storedCustomTest } from "@foundmill/agents";
 import { assets, openApprovalItem, periodOf, postAttributions, repos, resumeBusinessAgents, stopBusinessAgents } from "@foundmill/db";
-import { createModelClient } from "@foundmill/models";
+import { MODELS, createModelClient, meter } from "@foundmill/models";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createChannelActivities, emptyChannelState, launchApprovalReason, weeklyBudgetMinor } from "../activities/channel";
 import { createCycleActivities } from "../activities/cycle";
@@ -119,6 +119,16 @@ describe("training run (BUILD §11.10)", () => {
     const skills = await repos.skills.listForAgent(t.db, t.businessId, agent.id);
     expect(skills.find((s) => s.skillKey === scoredKey)).toMatchObject({ tested: `${scored.tested}.000`, displayed: scored.tested });
     expect(skills.find((s) => s.skillKey === "library_release_notes")).toMatchObject({ tested: null, displayed: 10 });
+  });
+
+  it("the usage sink books the cache figures and counts them in quantity (WP-09 T1)", async () => {
+    const log = { debug() {}, info() {}, warn() {}, error() {} };
+    const usage = { inputTokens: 10, outputTokens: 5, cacheCreationInputTokens: 3, cacheReadInputTokens: 2 };
+    const before = new Set((await repos.usage.list(t.db, t.businessId, { limit: 500 })).items.map((u) => u.id));
+    await usageSink(t.db, log as never)({ route: "worker", model: MODELS.sonnet, modelKey: "sonnet", mode: "live", billedTo: "credits", usage, cost: meter(usage, MODELS.sonnet), attribution: { businessId: t.businessId }, durationMs: 1, occurredAt: new Date().toISOString(), attempt: 0 });
+    const row = (await repos.usage.list(t.db, t.businessId, { limit: 500 })).items.find((u) => !before.has(u.id))!;
+    expect(Number(row.quantity)).toBe(20);
+    expect((row.details as { tokens: unknown }).tokens).toEqual({ input: 10, output: 5, cacheRead: 2, cacheWrite: 3 });
   });
 
   it("books each model call once: the run's own row is a count of tests at no cost (O-19, BILL-10)", async () => {

@@ -39,7 +39,10 @@ export type Speed = "standard" | "fast";
 /** Where a call's cost should be booked. All fields optional; forwarded verbatim to `onUsage`. */
 export interface UsageAttribution {
   businessId?: string;
-  /** The person a call with no business is for (a draft before commit): who pays is read from their plan (WP-13). */
+  /**
+   * The person a call with no business is for (a draft before commit): who pays is read from their plan (WP-13), and
+   * the call is booked to their account usage and capped per account (WP-09 T2).
+   */
   userId?: string;
   agentId?: string;
   sessionId?: string;

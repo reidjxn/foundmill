@@ -134,6 +134,7 @@ export function buildIngest(options: BuildIngestOptions = {}): BuiltIngest {
     registry,
     mode: env.INTEGRATIONS_MODE,
     liveConnectors,
+    paidEntry: env.PAID_ENTRY === true,
     nonces: options.nonces ?? new MemoryNonceStore(),
     log,
     now,

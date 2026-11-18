@@ -503,6 +503,16 @@ export const inboxRepo = {
    * having decided and could never be undone. Answered notes, and blocking notes that offer nothing to choose (a
    * warning), archive as before. `force` is for the system closing a note whose question was settled some other way.
    */
+  /** Open (not archived) items with exactly this subject, newest first: a request said once is found, not written again. */
+  async openBySubject(db: Executor, businessId: string, subject: string): Promise<InboxItem[]> {
+    return db
+      .select()
+      .from(inboxItems)
+      .where(and(eq(inboxItems.businessId, businessId), isNull(inboxItems.archivedAt), eq(inboxItems.subject, subject), ne(inboxItems.state, "archived")))
+      .orderBy(desc(inboxItems.createdAt))
+      .limit(10) as Promise<InboxItem[]>;
+  },
+
   async archive(db: Executor, businessId: string, itemId: string, options: { force?: boolean } = {}): Promise<InboxItem> {
     const item = await inboxRepo.get(db, businessId, itemId);
     const choices = (item.decision as { options?: unknown[] } | null)?.options;

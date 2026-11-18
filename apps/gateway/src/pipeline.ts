@@ -90,6 +90,10 @@ export interface GatewayDeps {
    */
   reader?: UntrustedReader;
   log: GatewayLogger;
+  /** The entry plan's recurring Stripe price (`STRIPE_ENTRY_PRICE_ID`, WP-09 T16); unset, a live entry-plan checkout answers 503. */
+  entryPriceId?: string;
+  /** `PAID_ENTRY` (WP-09 T16): sign-up is paid entry, so an owner's credit pack also removes the "Built on" mark. */
+  paidEntry?: boolean;
   /** Team call's streamed speech (ElevenLabs' streaming endpoint on the platform key); unset, `/v1/speech/stream` answers 503. */
   speechStreamer?: SpeechStreamer;
   now?: () => Date;

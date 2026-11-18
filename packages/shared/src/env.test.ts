@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allowMockPayments, connectorMode, liveConnectorKeys, loadEnv, platformBillingMode } from "./env";
+import { allowMockPayments, connectorMode, liveConnectorKeys, loadEnv, paidEntryLive, platformBillingMode, topUpsOnSale } from "./env";
 
 describe("ALLOW_MOCK_PAYMENTS (SEC2 S10)", () => {
   it("defaults to on only in development and test; an explicit value wins anywhere", () => {
@@ -81,3 +81,31 @@ describe("a production process never runs on the development defaults (SEC-9)", 
     expect(loadEnv({ NODE_ENV: undefined, APP_ENV: undefined }).APP_ENV).toBe("development");
   });
 });
+
+describe("topUpsOnSale (WP-09 T13)", () => {
+  it("is true where the platform's billing is live or simulated payments are allowed, and false otherwise", () => {
+    expect(topUpsOnSale(loadEnv({ APP_ENV: "production", INTEGRATIONS_MODE: "mock", LIVE_CONNECTORS: "", ALLOW_MOCK_PAYMENTS: undefined, MODEL_MODE: "mock" }))).toBe(false);
+    expect(topUpsOnSale(loadEnv({ APP_ENV: "production", INTEGRATIONS_MODE: "mock", LIVE_CONNECTORS: "stripe_billing", ALLOW_MOCK_PAYMENTS: undefined, MODEL_MODE: "mock" }))).toBe(true);
+    expect(topUpsOnSale(loadEnv({ APP_ENV: "test", INTEGRATIONS_MODE: "mock", LIVE_CONNECTORS: "", ALLOW_MOCK_PAYMENTS: undefined }))).toBe(true);
+  });
+});
+
+describe("paid entry (WP-09 T16)", () => {
+  it("is off unless named; production refuses it without live platform billing", () => {
+    expect(loadEnv({ APP_ENV: "test", PAID_ENTRY: undefined }).PAID_ENTRY).toBe(false);
+    expect(loadEnv({ APP_ENV: "test", PAID_ENTRY: "1" }).PAID_ENTRY).toBe(true);
+    expect(() => loadEnv({ APP_ENV: "production", PAID_ENTRY: "1", INTEGRATIONS_MODE: "mock", LIVE_CONNECTORS: "" })).toThrow(/PAID_ENTRY is on in production/);
+    expect(loadEnv({ APP_ENV: "production", PAID_ENTRY: "1", INTEGRATIONS_MODE: "mock", LIVE_CONNECTORS: "stripe_billing" }).PAID_ENTRY).toBe(true);
+  });
+
+  it("counts a simulated plan only on a fully simulated stack", () => {
+    const sim = { APP_ENV: "test" as const, INTEGRATIONS_MODE: "mock" as const, LIVE_CONNECTORS: "", MODEL_MODE: "mock" as const, ALLOW_MOCK_PAYMENTS: undefined };
+    expect(paidEntryLive(sim)).toBe(false);
+    expect(paidEntryLive({ ...sim, LIVE_CONNECTORS: "stripe_billing" })).toBe(true);
+    expect(paidEntryLive({ ...sim, MODEL_MODE: "live" })).toBe(true);
+    expect(paidEntryLive({ ...sim, INTEGRATIONS_MODE: "live" })).toBe(true);
+    expect(paidEntryLive({ ...sim, ALLOW_MOCK_PAYMENTS: false })).toBe(true);
+    expect(paidEntryLive({ ...sim, APP_ENV: "staging" })).toBe(true);
+  });
+});
+

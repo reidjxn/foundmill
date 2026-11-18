@@ -11,13 +11,13 @@
  */
 import { createHmac, randomUUID } from "node:crypto";
 import { assertPlatformCredits, bookUsage, cachedModelFundingOf, freeCapCheck, type Db } from "@foundmill/db";
-import { enforceModelFunding, gateModelClient, ownKeyViaGateway, routeOwnKeyCalls, type ModelCallGate, type ModelClient, type ModelLogger, type UsageEvent, type UsageSink } from "@foundmill/models";
+import { enforceModelFunding, gateModelClient, ownKeyViaGateway, usageForLedger, routeOwnKeyCalls, type ModelCallGate, type ModelClient, type ModelLogger, type UsageEvent, type UsageSink } from "@foundmill/models";
 
 /** The composer's check before every model call: the business's credits must allow it (`live`: simulated credits do not count). */
-export function creditsGate(db: Db, live: boolean): ModelCallGate {
+export function creditsGate(db: Db, live: boolean, topUps = false): ModelCallGate {
   return async ({ attribution }) => {
     if (!attribution?.businessId) return undefined;
-    const check = await assertPlatformCredits(db, attribution.businessId, { live });
+    const check = await assertPlatformCredits(db, attribution.businessId, { live, topUps });
     // Low credits (the credit saver): commentary moves to a lower-cost model; the Inbox note is locked to its own.
     return check.low ? { lowCredits: true } : undefined;
   };
@@ -28,9 +28,9 @@ export function creditsGate(db: Db, live: boolean): ModelCallGate {
  * a paid plan runs on Haiku 5.5). With `ownKey`, a business on its own Anthropic key runs on that key through the
  * gateway (WP-13 T11); without it (tests, no secret), it runs as its plan says.
  */
-export function composerModelClient(platform: ModelClient, db: Db, freeCapCents?: number, ownKey?: ComposerOwnKeyOptions): ModelClient {
+export function composerModelClient(platform: ModelClient, db: Db, freeCapCents?: number, ownKey?: ComposerOwnKeyOptions, topUps = false): ModelClient {
   const freeCap = freeCapCents === undefined ? undefined : freeCapCheck(db, freeCapCents);
-  const onPlatform = enforceModelFunding(gateModelClient(platform, creditsGate(db, platform.mode === "live")), cachedModelFundingOf(db, { ownKeyServed: false }), { freeCap });
+  const onPlatform = enforceModelFunding(gateModelClient(platform, creditsGate(db, platform.mode === "live", topUps)), cachedModelFundingOf(db, { ownKeyServed: false }), { freeCap });
   // A business on its own key (WP-13 T11): its live calls go through the gateway's model route on that key, booked
   // `byok`. Never a fallback to Foundmill's key.
   if (!ownKey || platform.mode !== "live") return onPlatform;
@@ -66,6 +66,8 @@ export function composerServiceToken(secret: string, businessId: string, nowMs: 
 export interface UsageSinkOptions {
   /** Called after each ledger write (tests). */
   onRecorded?: (event: UsageEvent, costMinor: number) => void;
+  /** Credits can be bought here (packages/shared `topUpsOnSale`): the zero-credits note names a top-up (WP-09 T13). */
+  topUps?: boolean;
 }
 
 export function createUsageSink(db: Db, log: ModelLogger, options: UsageSinkOptions = {}): UsageSink {
@@ -75,7 +77,7 @@ export function createUsageSink(db: Db, log: ModelLogger, options: UsageSinkOpti
       log.debug({ route: event.route }, "model usage without a business id; not metered");
       return;
     }
-    const quantity = event.usage.inputTokens + event.usage.outputTokens + event.usage.cacheCreationInputTokens + event.usage.cacheReadInputTokens;
+    const { quantity, tokens } = usageForLedger(event.usage);
     try {
       await bookUsage(db, businessId, {
         agentId: event.attribution?.agentId ?? null,
@@ -100,8 +102,9 @@ export function createUsageSink(db: Db, log: ModelLogger, options: UsageSinkOpti
           label: event.cost.label,
           pricingAsOf: event.cost.pricingAsOf,
           usage: event.usage,
+          tokens,
         },
-      });
+      }, { topUps: options.topUps ?? false });
       options.onRecorded?.(event, event.cost.costMinorInt);
     } catch (err) {
       // Metering must never fail a note; the ledger is observability, the Anthropic invoice is the truth.
