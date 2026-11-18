@@ -67,7 +67,9 @@ export function siteFooter(appName: string, markHref: string | null): string {
     "display:block!important;visibility:visible!important;opacity:1!important;position:fixed!important;left:0!important;right:0!important;bottom:0!important;" +
     "z-index:2147483647!important;clip-path:none!important;transform:none!important;filter:none!important;margin:0!important;" +
     "font:12px/1.4 system-ui,sans-serif!important;text-align:center!important;padding:6px 16px!important;color:#57606a!important;background:#f6f8fa!important;border-top:1px solid #d0d7de!important";
-  const mark = markHref ? ` · <a href="${escapeHtml(markHref)}" rel="noopener" style="${link}">Built on ${escapeHtml(appName)}</a>` : "";
+  // The mark reads one step larger than the bar's other text, so no notice on the page outranks it (founder, Nov 18, 2026).
+  const markStyle = link.replace("font:inherit!important", "font:13px/1.4 system-ui,sans-serif!important");
+  const mark = markHref ? ` · <a href="${escapeHtml(markHref)}" rel="noopener" style="${markStyle}">Built on ${escapeHtml(appName)}</a>` : "";
   // The spacer keeps the end of the page clear of the fixed bar.
   return `<div aria-hidden="true" style="height:40px!important;display:block!important"></div><div data-fm-footer style="${box}"><a href="/_fm/report" rel="nofollow" style="${link}">Report this site</a>${mark}</div>`;
 }

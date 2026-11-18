@@ -9,6 +9,8 @@
 import { repos } from "@foundmill/db";
 import { PAGE_HOLD_MESSAGES, PAGE_SLUG_TAKEN, type ProjectPageContent } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
+import { bytesToBase64 } from "@foundmill/shared/logo";
+import { makePng } from "@foundmill/shared/testing/logo-fixtures";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { PAGE_PUBLISH_ROLE_MESSAGE, PAGE_SAMPLE_MESSAGE, PUBLIC_PAGE_LIMITS, pageHoldReason, publicPageBySlug, publicPageLimitKeys } from "../services/pages";
 import { createApiHarness, type ApiHarness } from "./harness";
@@ -81,6 +83,16 @@ describe("writing and publishing", () => {
     expect((await repos.audit.list(hz.db, b.id, { action: "page.draft_saved" })).items).toHaveLength(1);
     expect(await pageEvents(b.id)).toEqual([]);
     expect(PAGE_PUBLISH_ROLE_MESSAGE).toMatch(/owner or an admin/);
+  });
+
+  it("the preview shows the same logo as the published page, and the initials only without one (founder, Nov 18, 2026)", async () => {
+    const b = await project("Logo Preview");
+    expect((await b.admin.page.get({ businessId: b.id })).preview.logo).toBeNull();
+    await b.admin.business.logo.upload({ businessId: b.id, source: "upload", dataUrl: `data:image/png;base64,${bytesToBase64(makePng(512, 512))}` });
+    const first = await b.admin.page.publish({ businessId: b.id, content: page() });
+    const preview = (await b.admin.page.get({ businessId: b.id })).preview.logo;
+    expect(preview).toMatch(/^data:image\/png;base64,/);
+    expect((await hz.caller(null).publicPage.bySlug({ slug: first.page.slug }))?.logo).toBe(preview);
   });
 
   it("publish → live for anyone signed out; changes publish without moving the date; take it down", async () => {
