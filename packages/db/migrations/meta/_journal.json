@@ -799,6 +799,13 @@
       "when": 1796245360000,
       "tag": "0136_reports",
       "breakpoints": true
+    },
+    {
+      "idx": 114,
+      "version": "7",
+      "when": 1796245420000,
+      "tag": "0137_stripe_connect_account",
+      "breakpoints": true
     }
   ]
 }

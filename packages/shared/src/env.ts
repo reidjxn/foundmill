@@ -122,8 +122,13 @@ const Env = z.object({
    * them on the gateway (every agent tool call), on ingest when the connector's webhook goes live, and on the api for
    * what it calls directly (registry lookups, OAuth consent links and code exchanges).
    */
-  /** Stripe Connect platform client id (`ca_…`), for Connect onboarding links. */
+  /** Stripe Connect platform client id (`ca_…`): "Sign in with Stripe" for a founder's own account (gateway only). */
   STRIPE_CONNECT_CLIENT_ID: z.string().optional(),
+  /**
+   * The secret key of the same Stripe mode as STRIPE_CONNECT_CLIENT_ID (gateway only), when it is not STRIPE_SECRET_KEY:
+   * test-mode Connect can then run beside live billing. Unset: STRIPE_SECRET_KEY.
+   */
+  STRIPE_CONNECT_SECRET_KEY: z.string().optional(),
   /** apps/ingest: the token SendGrid Inbound Parse carries as `?token=` (Inbound Parse has no signature). */
   SENDGRID_INBOUND_TOKEN: z.string().optional(),
   /*

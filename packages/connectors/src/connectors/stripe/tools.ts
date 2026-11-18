@@ -5,14 +5,22 @@
  * onboarding) is a hard gate (BUILD §2.2): the tool exists only as a human-action descriptor.
  */
 import { z } from "zod";
-import type { ConnectField } from "../../contract";
+import type { ConnectField, ConnectorAuth } from "../../contract";
 import { defineTool } from "../../define";
 
 export const STRIPE_KEY = "stripe";
 
 /**
- * What the founder enters in Settings › Integrations to connect their own Stripe account live (a Connect account comes
- * from the `start_connect_onboarding` hard gate instead).
+ * Two ways in (founder, Nov 17, 2026): "Sign in with Stripe" (Connect OAuth: the platform's Connect key acts for the
+ * account the founder signed in to, hence `platformKey`), or a restricted key pasted into `STRIPE_CONNECT_FIELDS`.
+ */
+export const STRIPE_AUTH: ConnectorAuth = { kind: "oauth", scopes: ["read_write"], platformKey: true, authorizationCode: true };
+/** Stripe Connect's sign-in page for Standard accounts (docs.stripe.com/connect/oauth-reference). */
+export const STRIPE_CONNECT_AUTHORIZE_URL = "https://connect.stripe.com/oauth/authorize";
+
+/**
+ * The second way in: what the founder enters in Settings › Integrations to connect their own Stripe account with a
+ * restricted key instead of signing in.
  */
 export const STRIPE_CONNECT_FIELDS: ConnectField[] = [
   { name: "apiKey", label: "Restricted key", secret: true, required: true, placeholder: "rk_live_…", hint: "A restricted key from your Stripe dashboard with read access plus write access to customers, invoices and Checkout. Stripe fees stay on your account." },
@@ -117,7 +125,7 @@ export const stripeTools = [
     description: "HARD GATE (BUILD §2.2): Stripe Connect onboarding accepts Stripe's terms and verifies the founder's identity; only the founder can complete it.",
     input: z.object({ country: z.string().length(2).default("SE"), reason: z.string().max(1000).optional() }),
     hints: { hardGate: true, irreversible: true },
-    humanAction: (a) => ({ title: "Complete Stripe onboarding yourself", instructions: `Create or connect the Stripe account for ${a.country} in the Stripe dashboard, accept the Connected Account Agreement and complete identity verification. Then connect it in Settings → Integrations → Stripe with a restricted API key from that account (Developers → API keys): an account id alone is not accepted, because it does not prove the account is yours.`, url: `${STRIPE_DASHBOARD_URL}/register` }),
+    humanAction: (a) => ({ title: "Complete Stripe onboarding yourself", instructions: `Create or connect the Stripe account for ${a.country} in the Stripe dashboard, accept the Connected Account Agreement and complete identity verification. Then connect it in Settings › Integrations › Stripe with "Sign in with Stripe", or with a restricted key from that account (Developers › API keys).`, url: `${STRIPE_DASHBOARD_URL}/register` }),
   }),
 ] as const;
 
@@ -134,8 +142,6 @@ export interface StInvoice {
 export interface StCheckoutSession { id: string; url?: string | null; mode: "payment" | "subscription" | "setup"; status?: string | null; payment_status: string; amount_total?: number | null; currency?: string | null; customer?: string | { id: string } | null; customer_email?: string | null; customer_details?: { email?: string | null; name?: string | null } | null; expires_at?: number | null; subscription?: string | null; payment_intent?: string | null; metadata?: Record<string, string> | null }
 export interface StSubscription { id: string; customer: string | { id: string }; status: string; created: number; trial_end?: number | null; currency?: string; items?: { data: { price?: { id?: string; nickname?: string | null; product?: string | { name?: string } | null } }[] }; metadata?: Record<string, string> }
 export interface StPayout { id: string; amount: number; currency: string; status: string; arrival_date: number; automatic: boolean; description?: string | null }
-/** Metadata the platform puts on a Connect account it creates for a business: the proof an account id belongs to that business (`provenAccountFor`). */
-export const STRIPE_BUSINESS_METADATA_KEY = "foundmill_business_id";
 
 export interface StCharge { id: string; customer: string | null; amount: number; amount_refunded: number; currency: string; status: string; paid: boolean; refunded: boolean; invoice?: string | null; created: number; description?: string | null }
 export interface StAccount { id: string; metadata?: Record<string, string> | null; business_profile?: { name?: string | null } | null; country?: string; default_currency?: string; charges_enabled?: boolean; payouts_enabled?: boolean; type?: string | null; settings?: { dashboard?: { display_name?: string | null } } }
