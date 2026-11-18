@@ -304,7 +304,7 @@ export function lowCreditsModel(route: RouteKey): ModelKey | null {
  * 5.5 leaked half of the planted instructions in the injection suites (T8, Nov 17, 2026), so the readers, the agents,
  * the conversations, the composer's notes and the planners stay where they pass.
  */
-export const FREE_PLAN_HAIKU_ROUTES: ReadonlySet<RouteKey> = new Set<RouteKey>(["ideation", "ideationSlate", "logoDesigner", "founderTitle", "goalProposal", "projectPage", "foundations", "foundationsSkeleton", "journeyCommentary", "moderation", "webSearch"]);
+export const FREE_PLAN_HAIKU_ROUTES: ReadonlySet<RouteKey> = new Set<RouteKey>(["ideation", "ideationSlate", "logoDesigner", "founderTitle", "goalProposal", "projectPage", "journeyCommentary", "moderation", "webSearch"]);
 
 /**
  * Resolve the model for a route, honouring locks and downgrade warnings (BUILD §10.1, §11.10 "Model selection"). With
