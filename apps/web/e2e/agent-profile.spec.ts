@@ -410,7 +410,6 @@ test.describe("agent profile", () => {
     await openSquadAgent(page);
     const added = page.getByTestId("added-skills");
     await expect(added).toContainText(/Skills .+ has learned/, { timeout: LONG });
-    const before = await added.locator("[data-chosen-skill]").count();
     // 1: Add a skill.
     await added.getByTestId("add-library-skill").click();
     const library = page.getByTestId("skill-library-dialog");
@@ -422,11 +421,13 @@ test.describe("agent profile", () => {
     // 3: Add 1 skill.
     await library.getByTestId("skill-library-add").click();
     await expect(library).toBeHidden({ timeout: LONG });
-    await expect(added.locator("[data-chosen-skill]")).toHaveCount(before + 1, { timeout: LONG });
+    // The added row itself, not a total: the agent also lists the skills its role came with (WP-06 T6), which can
+    // load after the heading.
+    const row = added.locator(`[data-chosen-skill="library_${key}"]`);
+    await expect(row).toBeVisible({ timeout: LONG });
     await expect(page.getByText(/will use it from the next task\. Not tested yet\./).first()).toBeVisible();
     // Put it back, so the seeded agent stays as the other tests expect.
-    const row = added.locator(`[data-chosen-skill="library_${key}"]`);
     await row.getByRole("button", { name: /^Remove / }).click();
-    await expect(added.locator("[data-chosen-skill]")).toHaveCount(before, { timeout: LONG });
+    await expect(row).toHaveCount(0, { timeout: LONG });
   });
 });
