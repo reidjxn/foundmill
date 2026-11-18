@@ -8,13 +8,19 @@
  */
 import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
-import { BILLING_CHECKOUT_MODES, billingCheckouts, type BillingCheckout } from "../schema";
+import { BILLING_CHECKOUT_KINDS, BILLING_CHECKOUT_MODES, BILLING_CHECKOUT_RESUME, billingCheckouts, type BillingCheckout } from "../schema";
 import { Id, maybeOne, MinorAmount, one, parseInput, type Executor } from "./_shared";
 
 export const CreateCheckoutInput = z.object({
   mode: z.enum(BILLING_CHECKOUT_MODES),
   amountMinor: MinorAmount.positive(),
   createdBy: Id.nullable().optional(),
+  /** 0140: `subscription` is the entry plan's checkout; default `credits` (a top-up or a credit pack). */
+  kind: z.enum(BILLING_CHECKOUT_KINDS).default("credits"),
+  /** 0140: what a credit pack grants when it differs from its price (omitted: the amount paid). */
+  creditsMinor: MinorAmount.positive().optional(),
+  /** 0140: what the checkout unblocks once paid ('continue': the next round of work starts by itself). */
+  resume: z.enum(BILLING_CHECKOUT_RESUME).nullable().optional(),
 });
 export type CreateCheckoutInput = z.input<typeof CreateCheckoutInput>;
 
@@ -29,15 +35,22 @@ export type AttachSessionInput = z.input<typeof AttachSessionInput>;
 export interface PaidSettlement {
   paidAt: Date;
   paidEventId: string;
-  grantedPeriod: string;
-  creditBalanceId: string;
+  /** Where the credits went; null for the entry plan's checkout, which grants none itself. */
+  grantedPeriod: string | null;
+  creditBalanceId: string | null;
 }
 
 export const checkoutsRepo = {
   /** Opens a top-up for `amountMinor` USD cents (credits are USD). */
   async create(db: Executor, businessId: string, input: CreateCheckoutInput): Promise<BillingCheckout> {
     const v = parseInput(CreateCheckoutInput, input, "checkout");
-    return one(await db.insert(billingCheckouts).values({ businessId, kind: "credits", status: "open", mode: v.mode, amountMinor: v.amountMinor, currency: "USD", createdBy: v.createdBy ?? null }).returning(), "checkout");
+    return one(
+      await db
+        .insert(billingCheckouts)
+        .values({ businessId, kind: v.kind, status: "open", mode: v.mode, amountMinor: v.amountMinor, creditsMinor: v.creditsMinor ?? null, resume: v.resume ?? null, currency: "USD", createdBy: v.createdBy ?? null })
+        .returning(),
+      "checkout",
+    );
   },
 
   /** Records the Checkout session the gateway created for an open row. */

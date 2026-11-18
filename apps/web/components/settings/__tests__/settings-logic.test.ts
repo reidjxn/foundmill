@@ -42,6 +42,16 @@ describe("settings logic", () => {
     expect(checkoutNotice({ ...live, status: "expired" }).text).toMatch(/expired before it was paid/);
   });
 
+  it("says what a credit pack carries and what the entry plan's checkout did (WP-09 T16)", () => {
+    const live = { status: "open" as const, mode: "live" as const, amountMinor: 2000, currency: "USD", failure: null };
+    expect(checkoutNotice({ ...live, status: "paid", creditsMinor: 2200 }).text).toBe("$22.00 in credits added for $20.00. Stripe sends the receipt to your email.");
+    const plan = { ...live, amountMinor: 500, kind: "subscription" as const };
+    expect(checkoutNotice(plan)).toMatchObject({ word: "Confirming", text: "Confirming your subscription with Stripe…" });
+    expect(checkoutNotice({ ...plan, status: "paid" })).toMatchObject({ tone: "good", word: "Subscribed", text: expect.stringMatching(/plan is on and your team can start/) });
+    expect(checkoutNotice({ ...plan, mode: "mock" }).text).toMatch(/\$5\.00 a month\. This server simulates payments: no money moves\./);
+    expect(checkoutNotice({ ...plan, status: "open" }, { canceled: true }).text).toMatch(/Subscribe whenever you like/);
+  });
+
   it("dates billing periods and connector checks in the person's own format (Settings › Preferences)", () => {
     expect(periodLabel("2026-10")).toBe("October 2026");
     expect(periodLabel("2026-10", { date: "day_first", time: "24h" })).toBe("October 2026");

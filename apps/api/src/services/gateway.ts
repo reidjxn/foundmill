@@ -83,7 +83,7 @@ export interface GatewayHealth {
 export interface GatewayCheckoutRequest {
   businessId: string;
   checkoutId: string;
-  kind: "credits";
+  kind: "credits" | "subscription";
   amountMinor: number;
   currency: "USD";
   description: string;

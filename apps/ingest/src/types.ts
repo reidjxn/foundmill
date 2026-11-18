@@ -32,6 +32,8 @@ export interface IngestDeps {
   replayWindowSeconds: number;
   /** How long a verified delivery id is remembered (nonce TTL). */
   nonceTtlMs: number;
+  /** `PAID_ENTRY` (WP-09 T16): sign-up is paid entry, so an owner's credit pack also removes the "Built on" mark. */
+  paidEntry?: boolean;
   /** Environment facts the routes need (the Simulate gate reads these). */
   env: { APP_ENV: "development" | "test" | "staging" | "production" };
   /** Whether the dev-only Simulate panel is enabled (`FLAGS.devSimulatePanel` and APP_ENV development/staging). */

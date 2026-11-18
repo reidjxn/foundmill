@@ -3,6 +3,9 @@ import { z } from "zod";
 import { MAIL_LOCAL_PART_PATTERN, mailLocalPartReserved } from "./platform-mail";
 import { sitesDomainProblem } from "./sites";
 
+/** The ceilings before commit, per account, in US cents (WP-09 T2, D3: $2.00 a day and $5.00 in 30 days; Estimates). */
+export const PRECOMMIT_CEILING_DEFAULT_CENTS = { daily: 200, monthly: 500 } as const;
+
 const Env = z.object({
   APP_ENV: z.enum(["development", "test", "staging", "production"]).default("development"),
   INTEGRATIONS_MODE: z.enum(["mock", "live"]).default("mock"),
@@ -79,6 +82,12 @@ const Env = z.object({
   IDEA_COOKIE_DOMAIN: z.string().regex(/^[a-z0-9.-]{3,253}$/).optional(),
   /** apps/api: the idea box's daily ceiling on model spend across every visitor, in US cents (founder, 2026-11-13: $20). */
   IDEA_BOX_DAILY_CEILING_CENTS: z.coerce.number().int().min(0).max(100_000).default(2_000),
+  /**
+   * apps/api: what one signed-in person's live model calls before they have a project may cost, in US cents, over the
+   * last 24 hours and the last 30 days (WP-09 T2; founder, 2026-11-16: $2.00 and $5.00, Estimates).
+   */
+  PRECOMMIT_DAILY_CEILING_CENTS: z.coerce.number().int().min(0).max(100_000).default(PRECOMMIT_CEILING_DEFAULT_CENTS.daily),
+  PRECOMMIT_MONTHLY_CEILING_CENTS: z.coerce.number().int().min(0).max(100_000).default(PRECOMMIT_CEILING_DEFAULT_CENTS.monthly),
   REDIS_URL: z.string().default("redis://localhost:6379"),
   TEMPORAL_ADDRESS: z.string().default("localhost:7233"),
   TEMPORAL_NAMESPACE: z.string().default("default"),
@@ -107,6 +116,17 @@ const Env = z.object({
    * a delivery signed for one can never pass as the other; unset refuses every billing delivery.
    */
   STRIPE_BILLING_WEBHOOK_SECRET: z.string().optional(),
+  /** gateway: the Stripe price id of the $5.00-a-month entry plan (WP-09 T16; one recurring price on Foundmill's own account). */
+  STRIPE_ENTRY_PRICE_ID: z.string().regex(/^price_[A-Za-z0-9]+$/).optional(),
+  /**
+   * api, ingest, orchestrator: paid entry (WP-09 T16; founder, Nov 17, 2026). Off: invite-only sign-up on the free plan,
+   * as today. On: the first AI run of a project needs its owner's $5 entry plan, and credits come as packs. Turned on
+   * the day sign-up opens, and only after Foundmill's own Stripe is live.
+   */
+  PAID_ENTRY: z
+    .enum(["0", "1", "true", "false", ""])
+    .optional()
+    .transform((v) => v === "1" || v === "true"),
   SENDGRID_API_KEY: z.string().optional(),
   SENDGRID_WEBHOOK_PUBLIC_KEY: z.string().optional(),
   GITHUB_APP_ID: z.string().optional(),
@@ -349,6 +369,10 @@ export function loadEnv(overrides: Partial<NodeJS.ProcessEnv> = {}): Env {
   const parsed = Env.safeParse(raw);
   if (!parsed.success) throw new Error(`Invalid environment: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`);
   const env = parsed.data;
+  // Paid entry in production takes real payments only (WP-09 T16): never a simulated plan or pack.
+  if (env.APP_ENV === "production" && env.PAID_ENTRY === true && platformBillingMode(env) !== "live") {
+    throw new Error(`Invalid environment: PAID_ENTRY is on in production but the platform's billing is not live (set LIVE_CONNECTORS to include ${PLATFORM_BILLING_LIVE_KEY})`);
+  }
   if (env.APP_ENV !== "development" && env.APP_ENV !== "test") {
     env.DEV_AUTH_USER_ID = undefined; // never honoured outside development/test (docs/DECISIONS.md)
     // Simulated model latency is a development knob: a deployed service's mock client (a live service without its key
@@ -409,4 +433,16 @@ export const waitlistEmails = (env: Partial<Pick<Env, "WAITLIST_EMAILS" | "INTEG
 export const isMockModels = (env = loadEnv()) => env.MODEL_MODE === "mock";
 /** ALLOW_MOCK_PAYMENTS, or by default only in development and test: may a top-up be paid by simulation here? */
 export const allowMockPayments = (env: Pick<Env, "APP_ENV" | "ALLOW_MOCK_PAYMENTS">): boolean => env.ALLOW_MOCK_PAYMENTS ?? (env.APP_ENV === "development" || env.APP_ENV === "test");
+/**
+ * Whether credits can be bought on this server (WP-09 T13): the platform's billing is live, or simulated payments are
+ * allowed (development and test). Copy names a top-up only where this is true.
+ */
+export const topUpsOnSale = (env: Pick<Env, "APP_ENV" | "INTEGRATIONS_MODE" | "LIVE_CONNECTORS" | "ALLOW_MOCK_PAYMENTS">): boolean => platformBillingMode(env) === "live" || allowMockPayments(env);
+/**
+ * Whether only a plan or a pack paid on Stripe counts toward paid entry here (WP-09 T16): wherever anything could run
+ * live (the platform's billing, model calls or integrations) or simulated payments are not allowed. A simulated plan
+ * opens only a fully simulated stack.
+ */
+export const paidEntryLive = (env: Pick<Env, "APP_ENV" | "INTEGRATIONS_MODE" | "LIVE_CONNECTORS" | "MODEL_MODE" | "ALLOW_MOCK_PAYMENTS">): boolean =>
+  platformBillingMode(env) === "live" || env.MODEL_MODE === "live" || env.INTEGRATIONS_MODE === "live" || !allowMockPayments(env);
 export const servicePort = (env: Env, named: "API_PORT" | "GATEWAY_PORT" | "COMPOSER_PORT" | "STREAM_PORT" | "COLLAB_PORT" | "INGEST_PORT"): number => env.PORT ?? env[named];

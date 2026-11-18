@@ -16,6 +16,7 @@ import { shownToolGrants } from "../services/squad";
 import { assertAgentsRunning } from "../services/stop-guard";
 import { SIGNALS, WORKFLOWS, workflowIds } from "../services/temporal";
 import { Id, audit, emit, router, sectionAdmin, sectionRead, sectionWrite, type BusinessContext } from "../trpc";
+import { assertEntryPlan } from "../services/payments";
 
 /** A model an agent can be set to: any key but GLM, which the free plan applies when a call runs (WP-13, D3). */
 const ChoosableModel = z.enum(MODEL_KEYS).refine((k) => (CHOOSABLE_MODEL_KEYS as readonly string[]).includes(k), { message: "An agent's model is Opus, Sonnet or Haiku; GLM-5.3 Flash is the free plan's model and is not chosen per agent." });
@@ -282,6 +283,8 @@ export const agentRouter = router({
      * pays for two runs.
      */
     run: write.input(z.object({ agentId: Id, versionId: Id })).use(modelLimited("training")).mutation(async ({ ctx, input }) => {
+      // Paid entry (WP-09 T16): a training run's model calls wait for the entry plan.
+      await assertEntryPlan(ctx.db, ctx.env, ctx.businessId);
       await assertAgentsRunning(ctx, "a training run");
       const run = await ctx.rls(async (tx) => {
         const agent = await repos.agents.get(tx, ctx.businessId, input.agentId);

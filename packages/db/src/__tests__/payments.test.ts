@@ -96,3 +96,76 @@ describe("settleCreditCheckout", () => {
     expect(settled).toMatchObject({ outcome: "granted", checkout: { status: "paid" } });
   });
 });
+
+describe("the entry plan and credit packs (0140, WP-09 T16)", () => {
+  const sub = { stripeSubscriptionId: "sub_test_entry1", stripeCustomerId: "cus_test_entry1", currentPeriodEnd: new Date(Date.UTC(2026, 10, 12)) };
+
+  it("a paid entry-plan checkout grants no credits and makes its account's plan active, once", async () => {
+    const before = await creditsState(r.db, await repos.businesses.get(r.db, r.B.businessId), "2026-10");
+    const row = await repos.checkouts.create(r.db, r.B.businessId, { mode: "live", amountMinor: 500, kind: "subscription", createdBy: r.B.ownerId });
+    expect(await repos.accountPlans.ownerHasActivePlan(r.db, r.B.businessId, { live: true })).toBe(false);
+    const settle = (eventId: string) => settleCreditCheckout(r.db, { businessId: r.B.businessId, checkoutId: row.id, externalId: null, eventId, amountMinor: 500, currency: "usd", mode: "live", paidAt, actor: { kind: "webhook" }, subscription: sub });
+    expect((await settle("evt_entry_1")).outcome).toBe("subscribed");
+    expect((await settle("evt_entry_2")).outcome).toBe("duplicate");
+    expect(await repos.accountPlans.forUser(r.db, r.B.ownerId)).toMatchObject({ status: "active", mode: "live", stripeSubscriptionId: "sub_test_entry1", stripeCustomerId: "cus_test_entry1" });
+    expect(await repos.accountPlans.ownerHasActivePlan(r.db, r.B.businessId, { live: true })).toBe(true);
+    // An owner's plan opens their own projects only.
+    expect(await repos.accountPlans.ownerHasActivePlan(r.db, r.A.businessId, { live: true })).toBe(false);
+    const after = await creditsState(r.db, await repos.businesses.get(r.db, r.B.businessId), "2026-10");
+    expect(after?.balanceMinor).toBe(before?.balanceMinor);
+  });
+
+  it("Stripe's later events move the plan: past due and canceled close it, a renewal opens it again", async () => {
+    const at = (day: number) => new Date(Date.UTC(2026, 9, day));
+    await repos.accountPlans.setStatusBySubscription(r.db, "sub_test_entry1", "past_due", at(20));
+    expect(await repos.accountPlans.ownerHasActivePlan(r.db, r.B.businessId, { live: true })).toBe(false);
+    await repos.accountPlans.setStatusBySubscription(r.db, "sub_test_entry1", "active", at(21), new Date(Date.UTC(2026, 11, 12)));
+    expect(await repos.accountPlans.ownerHasActivePlan(r.db, r.B.businessId, { live: true })).toBe(true);
+    // An older event delivered late changes nothing (Stripe does not deliver in order).
+    expect(await repos.accountPlans.setStatusBySubscription(r.db, "sub_test_entry1", "past_due", at(19))).toBeNull();
+    expect(await repos.accountPlans.ownerHasActivePlan(r.db, r.B.businessId, { live: true })).toBe(true);
+    await repos.accountPlans.setStatusBySubscription(r.db, "sub_test_entry1", "canceled", at(22));
+    expect(await repos.accountPlans.ownerHasActivePlan(r.db, r.B.businessId, { live: true })).toBe(false);
+    // A canceled subscription never comes back, even on a newer event (its final invoice, a stale update).
+    expect(await repos.accountPlans.setStatusBySubscription(r.db, "sub_test_entry1", "active", at(23))).toBeNull();
+    expect((await repos.accountPlans.forUser(r.db, r.B.ownerId))?.status).toBe("canceled");
+    expect(await repos.accountPlans.setStatusBySubscription(r.db, "sub_unknown", "active", at(23))).toBeNull();
+  });
+
+  it("a live entry-plan session without its subscription, or of another kind, settles nothing", async () => {
+    const row = await repos.checkouts.create(r.db, r.A.businessId, { mode: "live", amountMinor: 500, kind: "subscription", createdBy: r.A.adminId });
+    const base = { businessId: r.A.businessId, checkoutId: row.id, externalId: null, amountMinor: 500, currency: "USD", mode: "live" as const, paidAt, actor: { kind: "webhook" as const } };
+    expect((await settleCreditCheckout(r.db, { ...base, eventId: "evt_nosub", subscription: { stripeSubscriptionId: null, stripeCustomerId: null, currentPeriodEnd: null } })).outcome).toBe("mismatch");
+    expect((await settleCreditCheckout(r.db, { ...base, eventId: "evt_kind", kind: "credits", subscription: sub })).outcome).toBe("mismatch");
+    expect(await repos.accountPlans.forUser(r.db, r.A.adminId)).toBeNull();
+  });
+
+  it("a cofounder's plan opens the project too; a collaborator's does not", async () => {
+    expect(await repos.accountPlans.ownerHasActivePlan(r.db, r.A.businessId, { live: true })).toBe(false);
+    // A's admin is not a founder: a plan of theirs opens nothing here.
+    const adminRow = await repos.checkouts.create(r.db, r.A.businessId, { mode: "live", amountMinor: 500, kind: "subscription", createdBy: r.A.adminId });
+    await repos.accountPlans.activate(r.db, { userId: r.A.adminId, mode: "live", checkoutId: adminRow.id, stripeSubscriptionId: "sub_test_admin" });
+    expect(await repos.accountPlans.ownerHasActivePlan(r.db, r.A.businessId, { live: true })).toBe(false);
+    await repos.memberships.setRole(r.db, r.A.businessId, r.A.adminId, "cofounder");
+    expect(await repos.accountPlans.ownerHasActivePlan(r.db, r.A.businessId, { live: true })).toBe(true);
+    await repos.memberships.setRole(r.db, r.A.businessId, r.A.adminId, "admin");
+  });
+
+  it("a simulated plan never opens live work", async () => {
+    const row = await repos.checkouts.create(r.db, r.A.businessId, { mode: "mock", amountMinor: 500, kind: "subscription", createdBy: r.A.ownerId });
+    await settleCreditCheckout(r.db, { businessId: r.A.businessId, checkoutId: row.id, externalId: null, eventId: `mock:${row.id}`, amountMinor: 500, currency: "USD", mode: "mock", paidAt, actor: { kind: "user", id: r.A.ownerId } });
+    expect(await repos.accountPlans.ownerHasActivePlan(r.db, r.A.businessId, { live: false })).toBe(true);
+    expect(await repos.accountPlans.ownerHasActivePlan(r.db, r.A.businessId, { live: true })).toBe(false);
+  });
+
+  it("a credit pack grants its credits, which can differ from its price, and marks its buyer as having bought one", async () => {
+    expect(await repos.accountPlans.boughtPack(r.db, r.B.ownerId, { live: true })).toBe(false);
+    const row = await repos.checkouts.create(r.db, r.B.businessId, { mode: "live", amountMinor: 2000, creditsMinor: 2200, createdBy: r.B.ownerId });
+    const before = await creditsState(r.db, await repos.businesses.get(r.db, r.B.businessId), "2026-10");
+    const settled = await settleCreditCheckout(r.db, { businessId: r.B.businessId, checkoutId: row.id, externalId: null, eventId: "evt_pack_1", amountMinor: 2000, currency: "USD", mode: "live", paidAt, actor: { kind: "webhook" } });
+    expect(settled.outcome).toBe("granted");
+    const after = await creditsState(r.db, await repos.businesses.get(r.db, r.B.businessId), "2026-10");
+    expect((after?.balanceMinor ?? 0) - (before?.balanceMinor ?? 0)).toBe(2200);
+    expect(await repos.accountPlans.boughtPack(r.db, r.B.ownerId, { live: true })).toBe(true);
+  });
+});

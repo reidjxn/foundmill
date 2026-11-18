@@ -30,6 +30,7 @@ export * from "./demo";
 export * from "./team-calls";
 export * from "./founder-return";
 export * from "./idea-box";
+export * from "./account-usage";
 export * from "./page-quizzes";
 export * from "./post-media";
 export * from "./people";

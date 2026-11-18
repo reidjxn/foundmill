@@ -28,6 +28,7 @@ import { assertMayResolveApproval } from "./approver";
 import { answerNote } from "./answer-note";
 import type { DecideItemResult } from "./decide";
 import { SIGNALS, WORKFLOWS, workflowIds, type TemporalResult } from "./temporal";
+import { entryPlanOpen } from "./payments";
 
 export type ApprovalOutcome = "approved" | "rejected";
 
@@ -258,6 +259,7 @@ export async function deliverApprovalAnswer(ctx: BusinessContext, recorded: Reco
  */
 async function cycleForApprovedTask(ctx: BusinessContext, stopped: boolean): Promise<{ started: boolean; workflowId: string | null; reason: string | null }> {
   if (stopped) return { started: false, workflowId: null, reason: "agents are stopped; the task runs once they are resumed" };
+  if (!(await entryPlanOpen(ctx.db, ctx.env, ctx.businessId))) return { started: false, workflowId: null, reason: "the team starts working once you subscribe in Settings › Billing" };
   const status = await cycleStatus(ctx);
   if (status.running) return { started: false, workflowId: status.workflowId, reason: "a cycle is running; the next one picks the task up" };
   const state = await continueStateFor(ctx, status);

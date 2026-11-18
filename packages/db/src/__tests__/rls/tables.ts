@@ -231,6 +231,12 @@ export const NON_TENANT_TABLES = [
   "platform_metric_days",
   // 0136: reports of a person, a profile or a message (person-level, service role only); covered by rls/reports.test.ts.
   "reports",
+  // 0140: an account's entry plan (user-owned, no business_id; the person reads their own row, services write); covered
+  // by rls/account-plans.test.ts.
+  "account_plans",
+  // 0138: model calls before a project exists, per account (no business_id; service role reads and adds only); covered
+  // by rls/account-usage.test.ts.
+  "account_usage",
   // 0086 the idea box (docs/IDEA_BOX.md): a signed-out visitor's card and the waitlist; the api's alone (no client
   // role, RLS on, no policy); covered by rls/idea-drafts.test.ts.
   "idea_drafts",

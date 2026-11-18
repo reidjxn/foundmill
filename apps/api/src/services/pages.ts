@@ -31,7 +31,7 @@ import { communityScreenLocalFlags } from "@foundmill/agents";
 import { tierShowsBuiltOnMark } from "@foundmill/config";
 import { siteSlugProblem, sitesDomain } from "@foundmill/shared/sites";
 import { createHash, createHmac, randomBytes } from "node:crypto";
-import { awardPageLiveMilestone, repos, type DbTx, type InboxItem, type ProjectPage } from "@foundmill/db";
+import { awardPageLiveMilestone, markBilling, repos, showsBuiltOnMark, type DbTx, type InboxItem, type ProjectPage } from "@foundmill/db";
 import {
   AppError,
   FOLLOW_ERRORS,
@@ -158,7 +158,7 @@ async function viewOf(tx: DbTx, ctx: BusinessContext, row: ProjectPage | null, s
     isSample: ctx.business.isDemo,
     preview: { name: ctx.business.name, brandPrimary: ctx.business.kitPrimary, brandSecondary: ctx.business.kitSecondary, founderNames },
     followers,
-    mark: tierShowsBuiltOnMark(ctx.business.planTier),
+    mark: await showsBuiltOnMark(ctx.db, ctx.business, markBilling(ctx.env)),
     followAvailable: followAvailable(ctx.env),
   };
 }
@@ -386,7 +386,7 @@ export async function publicPageBySlug(ctx: Pick<Context, "db" | "env" | "limits
     await takeOrThrow(ctx.limits, "Page view", [{ key: publicPageLimitKeys.unknown, rule: PUBLIC_PAGE_LIMITS.unknown }]);
     return null;
   }
-  const [logo, planTier, story] = await Promise.all([repos.pages.public.logoBySlug(ctx.db, clean), repos.pages.public.planTierBySlug(ctx.db, clean), repos.pages.public.hasStory(ctx.db, clean)]);
+  const [logo, planTier, story] = await Promise.all([repos.pages.public.logoBySlug(ctx.db, clean), repos.pages.public.planBySlug(ctx.db, clean), repos.pages.public.hasStory(ctx.db, clean)]);
   const { pitch, about, forWhom, stage, showFounders, followForm } = page.content;
   return {
     slug: page.slug,
@@ -403,7 +403,7 @@ export async function publicPageBySlug(ctx: Pick<Context, "db" | "env" | "limits
     founderNames: showFounders ? page.founderNames : [],
     followForm: followForm && followAvailable(ctx.env),
     // Taken down between the two reads: no plan to go by, so the mark stays (the free plan's rule).
-    mark: tierShowsBuiltOnMark(planTier ?? "free"),
+    mark: planTier ? await showsBuiltOnMark(ctx.db, planTier, markBilling(ctx.env)) : tierShowsBuiltOnMark("free"),
     story,
   };
 }

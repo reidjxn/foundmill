@@ -33,6 +33,34 @@ export const PRICE_TBA_LABEL = "Price to be announced" as const;
  */
 export const CREDITS_CURRENCY = "USD" as const;
 
+/** The top-up amounts the Billing tab offers, in US cents (founder D4, Nov 16, 2026: $5, $10, $25 and $50). */
+export const TOP_UP_OPTIONS_MINOR = [500, 1000, 2500, 5000] as const;
+
+/**
+ * The entry plan from the day sign-up opens (founder, Nov 17, 2026; WP-09 T16): $5.00 a month with $5.00 of credits a
+ * month on the free plan's models. Until then nobody is offered it (`PAID_ENTRY` off). The name is what copy shows.
+ */
+export const ENTRY_PLAN = { name: "Entry", priceMonthlyMinor: 500, includedCreditsMinor: 500 } as const;
+
+/** Credit-pack prices from the day sign-up opens, in US cents (founder, Nov 17, 2026): $20 to $500. */
+export const CREDIT_PACKS_MINOR = [2000, 5000, 10000, 25000, 50000] as const;
+
+/**
+ * The credits a pack carries, in US cents. The founder has not set the discount per size or the markup yet, so this is
+ * a placeholder at face value (an Estimate): a pack carries as much credit as it costs. One table to change.
+ */
+/**
+ * The team budget a pack adds, in US cents (founder, Nov 17, 2026): a bonus on top of the price, larger for bigger
+ * packs, not a discount: $20 adds $20.00, $50 adds $52.50 (5%), $100 adds $110.00 (10%), $250 adds $287.50 (15%) and $500
+ * adds $600.00 (20%).
+ */
+export const CREDIT_PACK_CREDITS_MINOR: Readonly<Record<(typeof CREDIT_PACKS_MINOR)[number], number>> = { 2000: 2000, 5000: 5250, 10000: 11000, 25000: 28750, 50000: 60000 };
+
+/** The credits a pack of `priceMinor` carries, or null when that is not a pack's price. */
+export function creditPackCreditsMinor(priceMinor: number): number | null {
+  return (CREDIT_PACK_CREDITS_MINOR as Record<number, number>)[priceMinor] ?? null;
+}
+
 /**
  * What a second of a sandbox costs the platform, in millionths of a US cent (an Estimate, audit BILL-11 / O-32). E2B
  * bills per second of vCPU and memory at its list prices ($0.000014 per vCPU-second, $0.0000045 per GiB-second); the

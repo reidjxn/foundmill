@@ -137,8 +137,8 @@ function communitySlug(name: string): string {
 }
 
 /** Screens a community's name and description as it screens posts; a held profile is refused with a sentence to act on. */
-async function screenCommunityProfile(ctx: Pick<Context, "models" | "log">, input: { name: string; descriptionMd: string; businessId: string | null }): Promise<void> {
-  const verdict = await screenText(ctx, { text: `${input.name}\n\n${input.descriptionMd}`, kind: "community_profile", communityName: "", businessId: input.businessId });
+async function screenCommunityProfile(ctx: Pick<Context, "models" | "log"> & { userId?: string | null }, input: { name: string; descriptionMd: string; businessId: string | null }): Promise<void> {
+  const verdict = await screenText(ctx, { text: `${input.name}\n\n${input.descriptionMd}`, kind: "community_profile", communityName: "", businessId: input.businessId, userId: ctx.userId ?? undefined });
   if (verdict.decision === "hold") throw new ValidationError("Moderation held this name or description. Change it and try again.", { flags: verdict.flags });
 }
 
@@ -395,7 +395,7 @@ export const liveRouter = router({
       const businessId = await speakingAs(ctx, input.businessId);
       await requireAdult(ctx);
       await takePost(ctx.limits, ctx.userId);
-      const screening = await screenText(ctx, { text: input.bodyMd, kind: "community_post", communityName: community.name, businessId });
+      const screening = await screenText(ctx, { text: input.bodyMd, kind: "community_post", communityName: community.name, businessId, userId: ctx.userId });
       const post = await repos.social.createPost(ctx.db, { ...input, businessId, authorUserId: ctx.userId, screening });
       if (post.status === "pending_review") await signalPeople(ctx, await moderatorsOf(ctx.db, input.communityId), "moderation", { communityId: input.communityId });
       return { ...postView(post, ctx.userId, canModerate), held: post.status === "pending_review" };
@@ -440,7 +440,7 @@ export const liveRouter = router({
       await speakingAs(ctx, post.businessId);
       await requireAdult(ctx);
       await takePost(ctx.limits, ctx.userId);
-      const screening = await screenText(ctx, { text: input.bodyMd, kind: "community_post", communityName: community.name, businessId: post.businessId });
+      const screening = await screenText(ctx, { text: input.bodyMd, kind: "community_post", communityName: community.name, businessId: post.businessId, userId: ctx.userId });
       const edited = await repos.social.editPost(ctx.db, ctx.userId, input.postId, input.bodyMd, screening);
       if (edited.status === "pending_review") await signalPeople(ctx, await moderatorsOf(ctx.db, post.communityId), "moderation", { communityId: post.communityId });
       return { ...postView(edited, ctx.userId, canModerate), held: edited.status === "pending_review" };
