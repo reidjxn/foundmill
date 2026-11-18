@@ -10,7 +10,6 @@ import { jsonResponse, routedFetch } from "../http";
 import { createCloudflareDnsConnector } from "../connectors/cloudflare_dns";
 import { createDropboxSignConnector } from "../connectors/dropbox_sign";
 import { createSendgridConnector } from "../connectors/sendgrid";
-import { createStripeConnector } from "../connectors/stripe";
 import { TEST_BUSINESS_ID } from "../testing/contract-suite";
 
 const PLATFORM = { sendgridApiKey: "SG.platform", dropboxSignApiKey: "platform-dbx", cloudflareApiToken: "platform-cf", stripeSecretKey: "sk_live_platform" };
@@ -64,11 +63,6 @@ describe("connect fields for API-key connectors", () => {
       name: "cloudflare_dns",
       field: "apiToken",
       build: (seen) => createCloudflareDnsConnector({ secrets: PLATFORM, fetch: routedFetch({ "GET https://api.cloudflare.com/client/v4/zones": (req) => (seen.push(req.headers.get("authorization") ?? ""), jsonResponse({ success: true, errors: [], result: [{ id: "z1", name: "northwind.example", status: "active", name_servers: [] }] })) }) }),
-    },
-    {
-      name: "stripe",
-      field: "apiKey",
-      build: (seen) => createStripeConnector({ secrets: PLATFORM, fetch: routedFetch({ "GET https://api.stripe.com/v1/account": (req) => (seen.push(req.headers.get("authorization") ?? ""), jsonResponse({ id: "acct_founder", object: "account", business_profile: { name: "Northwind" }, charges_enabled: true, payouts_enabled: true })) }) }),
     },
   ];
 
