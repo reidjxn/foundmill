@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Button } from "../foundation/Button";
+import { ProvenanceChip } from "../foundation/Chip";
 import { ApplyScopeDialog, type ApplyScope } from "./ApplyScopeDialog";
 
 const meta = {
@@ -27,3 +28,7 @@ function Frame(args: Story["args"]) {
 export const Open: Story = { render: (args) => <Frame {...args} /> };
 export const Autonomy: Story = { args: { settingLabel: "Autonomy: Assisted → Automated", agentType: "specialist", typeCount: 8, defaultScope: "type" }, render: (args) => <Frame {...args} /> };
 export const WithoutCounts: Story = { args: { typeCount: undefined, allCount: undefined, settingLabel: "Negotiation: on, walk-away €9.50 / unit" }, render: (args) => <Frame {...args} /> };
+export const WithRetestNote: Story = {
+  args: { extra: (scope) => <p className="text-small text-secondary">{scope === "agent" ? <>Re-testing its skills on Opus costs about <ProvenanceChip kind="estimate">$0.84</ProvenanceChip>.</> : "The other agents change model without a retest."}</p> },
+  render: (args) => <Frame {...args} />,
+};
