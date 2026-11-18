@@ -15,7 +15,7 @@ import { Button, Wordmark, isViewportTooSmall, kitStyle, useViewportWidth } from
 import { LEGAL_ROUTES } from "@/content/legal/facts";
 import { Channels, LiveSessions } from "./LiveSessions";
 import { FinalCall, YourCall } from "./Control";
-import { Hero, Ticker } from "./Hero";
+import { Hero, RunABusiness, Ticker } from "./Hero";
 import { HowItWorks } from "./HowItWorks";
 import { JourneySection } from "./Journey";
 import { TeamSection } from "./TeamSection";
@@ -66,6 +66,7 @@ function LandingContent({ terminalRenderer }: { terminalRenderer?: "plain" | "xt
       <TopBar />
       <main>
         <Hero />
+        <RunABusiness />
         <Ticker key={`ticker-${id}`} />
         <Thesis />
         <HowItWorks key={`how-${id}`} />
@@ -166,7 +167,6 @@ function Footer() {
         <Wordmark height={12} label={APP_NAME} className="text-secondary" />
         <span>{APP_TAGLINE}</span>
         <span className="flex-1" />
-        <span>Desktop only · 1280 px and wider</span>
         <nav aria-label="Legal" className="flex items-center gap-4">
           <Link href={LEGAL_ROUTES.terms} className="transition-colors duration-hover hover:text-primary" data-testid="landing-terms">
             Terms

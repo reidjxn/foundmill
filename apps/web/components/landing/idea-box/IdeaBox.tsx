@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { ArrowLeft, Dices, Fan, Globe, Lock, Medal, Scale, ShieldCheck, Users } from "lucide-react";
 import { APP_NAME, CREDITS_CURRENCY, includedCreditsMinor } from "@foundmill/config";
-import { AssuranceList, Button, Icon, IdeaCard, IdeaNextSteps, cn, formatMoney, isViewportTooSmall, useViewportWidth, type IdeaCardData } from "@foundmill/dugout";
+import { AssuranceList, Button, Icon, IdeaCard, IdeaNextSteps, cn, formatMoney, isViewportTooSmall, useViewportWidth, type Assurance, type IdeaCardData } from "@foundmill/dugout";
 import { IDEA_BUTTON } from "../flags";
 import { IDEA_BOX_DEADLINE_MS, IDEA_BOX_ERRORS, IDEA_BOX_INTERESTS, IDEA_BOX_PROMPT_MAX, IDEA_BOX_PROMPT_MIN, IDEA_CLAIM_PARAM, type IdeaBoxEvent, type IdeaBoxInterest } from "@foundmill/shared";
 import { KEEP_THEN_PARAM, KEEP_THEN_STUDIO, NEXT_PARAM } from "@/lib/auth/constants";
@@ -37,6 +37,8 @@ export interface IdeaBoxProps {
   ideas?: readonly string[];
   /** "Surprise me" starts open, its interests showing (the page for a visitor with no idea yet). */
   surpriseOpen?: boolean;
+  /** The lines under the field; default the box's own three (`IDEA_BOX_WORDS` free, private, safe), as the tour shows them. */
+  assurances?: readonly Assurance[];
   /** How the rows under the field sit from 640 px: centered (the tour's hero) or at the start (the landing page's). */
   align?: "center" | "start";
 }
@@ -87,9 +89,15 @@ export function keepHref(claim: string | null, then: "build" | "studio" = "build
   return `/login?${NEXT_PARAM}=${encodeURIComponent(start)}`;
 }
 
+const DEFAULT_ASSURANCES: readonly Assurance[] = [
+  { icon: Medal, text: IDEA_BOX_WORDS.free },
+  { icon: Lock, text: IDEA_BOX_WORDS.private },
+  { icon: ShieldCheck, text: IDEA_BOX_WORDS.safe },
+];
+
 type Landed = Extract<IdeaBoxEvent, { type: "card" }>;
 
-export function IdeaBox({ onLanded, label = IDEA_BOX_WORDS.label, ideas = PLACEHOLDER_IDEAS, surpriseOpen = false, align = "center" }: IdeaBoxProps) {
+export function IdeaBox({ onLanded, label = IDEA_BOX_WORDS.label, ideas = PLACEHOLDER_IDEAS, surpriseOpen = false, assurances = DEFAULT_ASSURANCES, align = "center" }: IdeaBoxProps) {
   const centered = align === "center";
   const env = publicEnv();
   const inputId = useId();
@@ -339,11 +347,7 @@ export function IdeaBox({ onLanded, label = IDEA_BOX_WORDS.label, ideas = PLACEH
           ) : null}
           <AssuranceList
             className={centered ? "@page-wide:items-center" : undefined}
-            items={[
-              { icon: Medal, text: IDEA_BOX_WORDS.free },
-              { icon: Lock, text: IDEA_BOX_WORDS.private },
-              { icon: ShieldCheck, text: IDEA_BOX_WORDS.safe },
-            ]}
+            items={assurances}
           />
         </>
       ) : null}

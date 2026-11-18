@@ -120,21 +120,11 @@ const ACTIVITY: readonly ActivityLine[] = [
 // The cycle in the hero deck: what each press of Continue brings back
 // ---------------------------------------------------------------------------------------------------------------------
 
-/** In order: the chain's terms, the chain's opening order (the Customer Update), then stock cover and an FDA listing. */
+/**
+ * In order: the chain's opening order first (the Customer Update: the first press of Continue ends in a win, WP-14 T10),
+ * then stock cover and an FDA listing, and the chain's terms last, so on the next time round the terms come before the order.
+ */
 const CYCLE_OUTCOMES: readonly CycleOutcome[] = [
-  {
-    kind: "decision",
-    id: "larkfield-terms",
-    from: { name: "Hollis", seed: "hollis", dept: "dept-3", role: "Distribution Strategist" },
-    department: "Retail Partnerships",
-    subject: "Accept Larkfield Market's opening terms?",
-    body: "The buyer wants all three products in 36 stores and asked for a free fill; Hollis offered a four-week launch promo instead and got Net 30. Northwind keeps 56% after landed cost and the promo.",
-    stake: "$2,160 promo · Estimate",
-    options: [
-      { id: "accept", label: "Accept terms", recommended: true, done: "Larkfield terms accepted", outcome: "Hollis sends your signed vendor forms and books the first delivery." },
-      { id: "counter", label: "Ask for Net 15", done: "Counteroffer sent to Larkfield", outcome: "Hollis asks once more and brings back the buyer's answer." },
-    ],
-  },
   // The same customer as the Customer Update the gold card opens.
   {
     kind: "win",
@@ -174,6 +164,19 @@ const CYCLE_OUTCOMES: readonly CycleOutcome[] = [
     options: [
       { id: "submit", label: "Review and submit", recommended: true, done: "Body lotion listing submitted", outcome: "Arden files the confirmation and sets a reminder for the annual update." },
       { id: "ask", label: "Ask Arden a question", done: "Question sent to Arden", outcome: "Arden answers in your Inbox before anything moves." },
+    ],
+  },
+  {
+    kind: "decision",
+    id: "larkfield-terms",
+    from: { name: "Hollis", seed: "hollis", dept: "dept-3", role: "Distribution Strategist" },
+    department: "Retail Partnerships",
+    subject: "Accept Larkfield Market's opening terms?",
+    body: "The buyer wants all three products in 36 stores and asked for a free fill; Hollis offered a four-week launch promo instead and got Net 30. Northwind keeps 56% after landed cost and the promo.",
+    stake: "$2,160 promo · Estimate",
+    options: [
+      { id: "accept", label: "Accept terms", recommended: true, done: "Larkfield terms accepted", outcome: "Hollis sends your signed vendor forms and books the first delivery." },
+      { id: "counter", label: "Ask for Net 15", done: "Counteroffer sent to Larkfield", outcome: "Hollis asks once more and brings back the buyer's answer." },
     ],
   },
 ];
