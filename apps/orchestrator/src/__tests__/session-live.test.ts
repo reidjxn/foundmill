@@ -2593,11 +2593,17 @@ describe("runAgentSession (live runner): a free business's session (WP-13 T4)", 
     expect(paid.launch.freePlan).toBeUndefined();
   });
 
-  it("runs on Haiku 5.5 on the platform key by default, and refuses a switch to Opus", async () => {
+  it("runs on the agent's own model on the platform key by default (WP-13 T8), Haiku 5.5 or GLM only when chosen, and refuses a switch to Opus", async () => {
     const { launch } = await start(acts);
-    expect(launch).toMatchObject({ modelKey: "haiku", modelId: MODELS.haiku, freePlan: true });
-    expect(freeSessionModel("worker", "opus", { FREE_SESSION_MODEL: "glm" }).modelKey).toBe("haiku");
-    expect(freeSessionModel("worker", "glm", { FREE_SESSION_MODEL: "haiku", ZAI_API_KEY: "k" }).modelKey).toBe("glm");
+    const agent = await repos.agents.get(t.db, t.businessId, t.workerId);
+    expect(launch).toMatchObject({ modelKey: agent.modelKey, freePlan: true });
+    expect(launch.modelKey).not.toBe("haiku");
+    expect(freeSessionModel("worker", "opus", { FREE_SESSION_MODEL: "routed" }).modelKey).toBe("opus");
+    expect(freeSessionModel("worker", "opus", { FREE_SESSION_MODEL: "haiku" }).modelKey).toBe("haiku");
+    // GLM without Foundmill's Z.ai key falls back to the agent's own model, never to Haiku 5.5.
+    expect(freeSessionModel("worker", "opus", { FREE_SESSION_MODEL: "glm" }).modelKey).toBe("opus");
+    expect(freeSessionModel("worker", "glm", { FREE_SESSION_MODEL: "routed", ZAI_API_KEY: "k" }).modelKey).toBe("glm");
+    expect(freeSessionModel("worker", "haiku", { FREE_SESSION_MODEL: "routed" }).modelKey).toBe("haiku");
     expect(freeSessionModel("worker", "opus", { FREE_SESSION_MODEL: "glm", ZAI_API_KEY: "k" }).modelKey).toBe("glm");
     expect(FREE_PLAN_SWITCH_NOTE).toMatch(/paid plan/);
   });
