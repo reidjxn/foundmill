@@ -13,6 +13,7 @@ Owns the connector contract, the registry, the grants resolver, channel availabi
 - **Stripe is the one vendor with a Foundmill developer app** (founder, Nov 17, 2026): Foundmill is a Stripe Connect platform, so a founder can sign in with Stripe (OAuth; the code exchange is the proof, Stripe's access token is dropped) or paste a restricted key. An account id alone is never accepted.
 - Agents are granted only tools that exist: `resolveGrants` maps grants onto served tools; a grant nothing serves fails `apps/orchestrator/src/__tests__/grants-contract.test.ts`.
 - Mock webhooks verify against secrets in `fixtures/`, so they mount in development and test only (`registry.mountableWebhooks`).
+- **A payment from a provider's test mode is simulated** (WP-14 T9 security review, Nov 17, 2026): a webhook normaliser sets `simulated: true` on `payment.received` when the provider says no money moved (Stripe `livemode: false`, a Shopify order with `test: true`), so it is never a real outcome (`isRealOutcome`, the metrics queries) and never backs a "Verified" card. A new payment connector does the same with its provider's own flag.
 - Keys never live in fixtures, env files or logs.
 
 ## Read when needed

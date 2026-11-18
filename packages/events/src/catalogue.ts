@@ -703,6 +703,12 @@ const paymentReceived = declareEvent(
     customer: ConvertingCustomer.nullable().default(null),
     /** Where the order came from when the provider reports it (Shopify landing site, referrer, discount code). */
     source: TouchSource.nullable().default(null),
+    /**
+     * True when the provider says no money moved: a Stripe event with `livemode: false` (test mode) or a Shopify order
+     * with `test: true`. A simulated payment never counts as a real outcome (CLAUDE.md; packages/shared `isRealOutcome`
+     * and the metrics queries read this flag), whoever delivered it.
+     */
+    simulated: z.boolean().default(false),
   }),
   {
     doc: "Money came in from a customer (Stripe invoice.paid, checkout.session.completed, Shopify orders/create, signed contract). Only a first payment (`firstPayment`) is a conversion that wins a customer and triggers journeyBuild (Match Day level cup); renewals and repeat orders count as revenue only.",
