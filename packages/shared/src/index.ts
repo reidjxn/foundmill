@@ -52,6 +52,8 @@ export * from "./founder-task";
 export * from "./goals";
 export * from "./note-budget";
 export * from "./today-words";
+export * from "./week-outcomes";
+export * from "./effort";
 export * from "./chief-answers";
 export * from "./team-can-do";
 export * from "./starting-team";

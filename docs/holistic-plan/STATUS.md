@@ -126,6 +126,7 @@ All by the coordinating session on the founder's word (reported by that session,
 | WP-06 | T10 | The scoped per-agent check | not started |  |
 | WP-06 | T11 | Make an edit live without a run | not started |  |
 | WP-06 | T12 | Two honesty fixes in Recruitment and Training copy | merged (#247) |  |
+| WP-06 | T13 | Coding agents start with Ponytail and Caveman | not started | T6; founder, Nov 18 |
 | WP-07 | T1 | Specialists can record a supplier and an interaction | pull request open (#234) |  |
 | WP-07 | T2 | Site tables, the switch and the events | merged (#240) | with T4 |
 | WP-07 | T3 | A site session starts from the latest release and ends in a release | pull request open (#271) |  |
@@ -223,8 +224,8 @@ All by the coordinating session on the founder's word (reported by that session,
 | WP-14 | T1 | Resting, and the last task always finishes | not started | amends WP-09 T13: the session that takes T13 takes this; the own key stays offered; owner: the session "WP-14 money: plans, Resting, team budget", after #251 (founder, Nov 17) |
 | WP-14 | T2 | Quick fit before the ideas, sharpen after; time and where you live before take charge | pull request open (`claude/vibrant-dirac-xkj04i`) | changes WP-04 T1's first profile; the ratings 14 and 7 are flagged for the founder |
 | WP-14 | T3 | Team budget, outcomes first, on Billing | not started | WP-09 T1 and T2 (#251); owner: the session "WP-14 money: plans, Resting, team budget", after T14 (founder, Nov 17) |
-| WP-14 | T4 | Outcomes first on Today | not started |  |
-| WP-14 | T5 | Show the work | not started |  |
+| WP-14 | T4 | Outcomes first on Today | pull request open (#291) | the line says "real outcomes", not "approved" (see the log entry) |
+| WP-14 | T5 | Show the work | pull request open (#291) | #295 was merged into #291's branch, so #291 carries it; effort is in "What your team did today" and the weekly review (see the log entry) |
 | WP-14 | T6 | Named agents on by default for first-time founders | not started |  |
 | WP-14 | T7 | One style for estimates, one legend | not started | amends WP-10 T9 and T12; changes docs/DESIGN.md §10; owner: the session "WP-14 estimates style and measures" (founder, Nov 17) |
 | WP-14 | T8 | The chapter report | pull request open | `claude/wp14-t8-chapter-report`; a template over records, no model call (see the log entry) |

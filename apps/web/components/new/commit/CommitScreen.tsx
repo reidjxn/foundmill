@@ -17,7 +17,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ArrowRight, Check, ChevronDown, ChevronUp, Globe, Lock, Rocket, RotateCw, Scale, SearchX } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
-import { CREDITS_CURRENCY, includedCreditsMinor, takeChargeMissing, type TakeChargeNeed } from "@foundmill/config";
+import { includedCreditsMinor, takeChargeMissing, type TakeChargeNeed } from "@foundmill/config";
 import { ARCHETYPES, ARCHETYPE_LABELS, FIRST_DAY_PROMISE, FIRST_DAY_TOAST, startingTeam, type Archetype, type BusinessMode, type DeptColourToken, type GameMode } from "@foundmill/shared";
 import { DEFAULT_AGENT_STYLE, type AgentStyle } from "@foundmill/shared/personas";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -220,7 +220,6 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
       anthropomorphicDefault={guidancePrefs.prefs.anthropomorphicAgents === true}
       agentStyleDefault={agentStyleOf(guidancePrefs.prefs)}
       liveOpen={featuresQ.data?.features.liveMode ?? false}
-      hasBudget={featuresQ.data ? (featuresQ.data.profile?.budgetMinor ?? 0) > 0 : true}
       aboutMissing={aboutMissing}
       onCommit={onCommit}
       logoApi={logoApi}
@@ -239,7 +238,7 @@ const SETTING_UP = "Setting up your business: departments, team and the first ta
 export const COMMIT_WORDS = {
   title: (name: string) => `Start ${name}`,
   untitled: "Start your project",
-  lede: "Check the name and start. Your team drafts your public page first, from your own words.",
+  lede: "Name your project. We've set everything else to the careful option, and you can change any of it later.",
   reassure: "You can change the name, the logo and how your team works any time.",
   start: "Start my project",
   starting: "Starting…",
@@ -254,9 +253,17 @@ export const COMMIT_WORDS = {
  */
 export const WHAT_HAPPENS_NEXT: readonly string[] = FIRST_DAY_PROMISE;
 
-/** "Starts with $5.00 of included credits this month. No card." — the free tier's grant, in credits' own currency (A10). */
-export function includedCreditsLine(): string {
-  return `Starts with ${formatCredits({ amountMinor: includedCreditsMinor("free"), currency: CREDITS_CURRENCY })} of included credits this month. No card.`;
+/** The plan a new project starts on (services/commit.ts `planTier`). */
+const ENTRY_TIER = "free" as const;
+
+/**
+ * What a founder reads about credits before starting: that the entry plan includes some this month, with no dollar
+ * figure and no word about a card (WP-14 T11; founder's answer A4). Read from the plan's config (`includedCreditsMinor`
+ * of the entry tier), so it is true while the entry plan is free and after it becomes paid; null if the plan ever
+ * includes none. The amount itself is on Billing.
+ */
+export function includedCreditsLine(): string | null {
+  return includedCreditsMinor(ENTRY_TIER) > 0 ? "Your team starts with this month's included credits." : null;
 }
 
 /** The spend cap in words for the "How it runs" line: "Asks you above €250", "No spend cap", or what is wrong with it. */
@@ -296,8 +303,6 @@ export interface CommitFormProps {
   agentStyleDefault?: AgentStyle;
   /** Whether LIVE is open on this deployment (`founder.profile.get` features); while it is not, only Personal is offered. */
   liveOpen?: boolean;
-  /** Whether the founder's profile names a budget; without one the spend line starts at 0, so every spend asks first (WP-04 T3). Default true. */
-  hasBudget?: boolean;
   /** Which of time and where they live the profile lacks (`takeChargeMissing`): asked on this screen before Start. Default none. */
   aboutMissing?: readonly TakeChargeNeed[];
   onCommit: (input: ReturnType<typeof commitInput> & ReturnType<typeof aboutYouInput>) => void;
@@ -406,7 +411,7 @@ const DEBOUNCE_MS = 350;
 
 const NO_ABOUT_MISSING: readonly TakeChargeNeed[] = [];
 
-export function CommitForm({ idea, viewer, currency, initialName, suggestedArchetype, steps, preview, previewLoading, onArchetypeChange, committing, error, upgradeHref, creditsNotice, adultConfirmed = false, anthropomorphicDefault = false, agentStyleDefault = DEFAULT_AGENT_STYLE, liveOpen = true, hasBudget = true, aboutMissing = NO_ABOUT_MISSING, onCommit, logoApi, domainApi, back }: CommitFormProps) {
+export function CommitForm({ idea, viewer, currency, initialName, suggestedArchetype, steps, preview, previewLoading, onArchetypeChange, committing, error, upgradeHref, creditsNotice, adultConfirmed = false, anthropomorphicDefault = false, agentStyleDefault = DEFAULT_AGENT_STYLE, liveOpen = true, aboutMissing = NO_ABOUT_MISSING, onCommit, logoApi, domainApi, back }: CommitFormProps) {
   const concept = useMemo(() => toConcept(idea), [idea]);
   // "More options" (WP-04 T2): the name checks, the logo, How it runs and the team, closed for everyone until pressed.
   const [moreOpen, setMoreOpen] = useState(false);
@@ -414,17 +419,10 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
   // The idea's seed only picks the starting brand colours now; the logo is uploaded or generated.
   const ideaSeed = String(readMeta(idea.current?.research).crest_seed ?? idea.id);
   const [form, setForm] = useState<CommitFormValues>(() => {
-    const base = initialCommitForm({ title: idea.current?.title ?? idea.title, archetype: suggestedArchetype ?? idea.archetype }, kitFromSeed(ideaSeed), currency, anthropomorphicDefault, agentStyleDefault, { hasBudget });
+    const base = initialCommitForm({ title: idea.current?.title ?? idea.title, archetype: suggestedArchetype ?? idea.archetype }, kitFromSeed(ideaSeed), currency, anthropomorphicDefault, agentStyleDefault);
     return initialName ? { ...base, name: initialName } : base;
   });
   const [capTouched, setCapTouched] = useState(false);
-  // The spend line follows the profile's budget (it may arrive after the form) until the founder types one here.
-  useEffect(() => {
-    if (!capTouched) setForm((f) => {
-      const spendCap = String(defaultSpendCapMinor(f.businessMode, { hasBudget }) / 100);
-      return f.spendCap === spendCap ? f : { ...f, spendCap };
-    });
-  }, [hasBudget, capTouched]);
   // The switch follows the account preference until the founder chooses here (the preference may arrive after the form).
   const [facesChosen, setFacesChosen] = useState(false);
   useEffect(() => {
@@ -534,7 +532,7 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
   const logoActions = useMemo<LogoActions>(() => ({ prepare: logoApi.prepare, generate: generateWith }), [logoApi, generateWith]);
 
   function chooseMode(mode: BusinessMode) {
-    setForm((f) => ({ ...f, businessMode: mode, spendCap: capTouched ? f.spendCap : String(defaultSpendCapMinor(mode, { hasBudget }) / 100) }));
+    setForm((f) => ({ ...f, businessMode: mode, spendCap: capTouched ? f.spendCap : String(defaultSpendCapMinor(mode) / 100) }));
   }
 
   // Time and where the person lives, asked here when the profile lacks them (A5): Start waits for both.
@@ -612,7 +610,7 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
                 </p>
               ) : null}
               {/* The first money a founder reads about: included credits, no card (A10). Not when this month's pool is spent: that notice says so below. */}
-              {creditsNotice ? null : (
+              {creditsNotice || !includedCreditsLine() ? null : (
                 <p className="mt-3 text-small text-secondary" data-testid="commit-credits-line">
                   {includedCreditsLine()}
                 </p>
@@ -870,7 +868,7 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
                     </Field>
                     <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-small text-secondary @page-wide:col-span-6 @page-wide:pt-6">
                       <span>
-                        Default for {modeLabel}: <span className="tabular text-primary">{formatMoney({ amountMinor: defaultSpendCapMinor(form.businessMode, { hasBudget }), currency: form.currency })}</span>
+                        Default for {modeLabel}: <span className="tabular text-primary">{formatMoney({ amountMinor: defaultSpendCapMinor(form.businessMode), currency: form.currency })}</span>
                       </span>
                       <ProvenanceChip kind="estimate" />
                       <span>Money, signatures and identity always ask.</span>
@@ -881,7 +879,7 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
                     <div className="flex flex-col gap-1">
                       <Label htmlFor="run-on-autopilot">Overnight shift</Label>
                       <p id="run-on-autopilot-hint" className="text-small text-secondary">
-                        On by default. While you sleep, the team runs one <Term id="cycle">cycle</Term> a night, at about 2 AM your time, with a budget of $0.15 (Estimate), so there is news every morning. Continue keeps its own limits. It never answers notes for you: every approval and <Term id="hard_gate">hard gate</Term> still waits for you, and it pauses itself when <Term id="credits">credits</Term> run out. Change it any time in Settings › What the team can do.
+                        Off unless you turn it on. With it on, the team runs one <Term id="cycle">cycle</Term> a night while you sleep, at about 2 AM your time, with a budget of $0.15 (Estimate), so there is news every morning. Continue keeps its own limits. It never answers notes for you: every approval and <Term id="hard_gate">hard gate</Term> still waits for you, and it pauses itself when <Term id="credits">credits</Term> run out. Change it any time in Settings › What the team can do.
                       </p>
                     </div>
                   </div>

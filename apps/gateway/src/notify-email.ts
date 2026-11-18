@@ -102,6 +102,8 @@ import {
   type NotifyEmailText,
   type NotifyItemLike,
   type RetentionEmailPlan,
+  effortCounts,
+  effortSentence,
 } from "@foundmill/shared";
 import { newActionToken, signPauseToken } from "@foundmill/shared/email-links";
 import { DEV_PLATFORM_MAIL_SECRET, isConfigError, mockIntegrationRecord, notifyOffToken, notifyOffUrl, PLATFORM_NOTIFY_KEY, suppressionHashOfEmail, type ToolContext } from "@foundmill/connectors";
@@ -547,6 +549,9 @@ async function briefExtrasFor(
       timeZone: q.timeZone,
       agentNames,
       recipientUserId: q.userId,
+      // Effort beside the results (WP-14 T5): counted records in the same window. Finished tasks are left to the
+      // brief's own "tasks done", so the two never say one number twice.
+      effort: can("development") ? effortSentence({ ...effortCounts(facts.effortEvents, since, q.now), tasksDone: 0 }) : null,
     },
   };
 }

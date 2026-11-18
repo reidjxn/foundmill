@@ -348,9 +348,18 @@ describe("email from Foundmill to a person (gateway)", () => {
       { businessId: g.businessId, type: "payment.received", occurredAt: at, actor: simulate, payload: { conversionId: ref(), amount: { amountMinor: 77_700, currency: "USD" }, firstPayment: true } },
       { businessId: g.businessId, type: "payment.received", occurredAt: at, actor: stripe, payload: { conversionId: ref(), amount: { amountMinor: 4_900, currency: "USD" }, firstPayment: true } },
     ]);
+    // The team's effort in the window (WP-14 T5): two real design checks and a source read; a simulated check is not one.
+    await g.h.db.insert(s.events).values([
+      ...[1, 2].map(() => ({ businessId: g.businessId, type: "task.design_checked", occurredAt: at, actor: agent, payload: { taskId: ref(), result: { status: "reviewed" } } })),
+      { businessId: g.businessId, type: "task.design_checked", occurredAt: at, actor: agent, payload: { taskId: ref(), result: { status: "simulated" } } },
+      { businessId: g.businessId, type: "source.scored", occurredAt: at, actor: agent, payload: { sourceId: ref(), status: "scored" } },
+    ]);
     const day = new Date().toISOString().slice(0, 10);
     expect((await ask({ userId: p.userId, kind: "daily_brief", businessId: g.businessId, data: { day } })).body).toMatchObject({ sent: true });
     const [sent] = sentTo(p.email);
+    // Effort beside the results, from counted records: the two checks that looked at real screenshots, and no zero.
+    expect(sent!.text).toContain("Your team ran 2 quality checks and read 1 source.");
+    expect(sent!.text).not.toMatch(/\b0 (quality|source|post|change|release)/);
     // The earlier test's real payment is in the window too: two real payments, never the simulated third.
     expect(sent!.subject).toBe("Gateway Test Club: 2 payments came in");
     const text = sent!.text;
