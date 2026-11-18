@@ -75,6 +75,11 @@ export function createStripeWebhook(deps: StripeWebhookDeps): ConnectorWebhook {
     async accountOf(req) {
       return parseJsonBody<StEvent>(await rawBody(req))?.account ?? null;
     },
+    // The founder removed Foundmill's access in their Stripe dashboard (a Connect sign-in only).
+    async revokedAccount(req) {
+      const event = parseJsonBody<StEvent>(await rawBody(req));
+      return event?.type === "account.application.deauthorized" ? (event.account ?? null) : null;
+    },
     async normalise(req) {
       const event = parseJsonBody<StEvent>(await rawBody(req));
       if (!event) return [];

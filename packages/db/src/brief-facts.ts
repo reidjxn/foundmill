@@ -5,7 +5,7 @@
  * one business at a time; the orchestrator's sweep never reads it, so its five-minute pass costs nothing more. Nothing
  * here decides what is real or what the person may see: packages/shared `realOutcomes` and the gateway's walls do.
  */
-import { BRIEF_BOOKED_DAYS, BRIEF_EVENT_TYPES, type BookedFact, type BriefEventLike, type ViaPost } from "@foundmill/shared";
+import { BRIEF_BOOKED_DAYS, BRIEF_EVENT_TYPES, EFFORT_EVENT_TYPES, type BookedFact, type BriefEventLike, type ViaPost } from "@foundmill/shared";
 import { repos } from "./repos";
 import type { Executor } from "./repos/_shared";
 
@@ -28,6 +28,8 @@ export interface BriefAgent {
 export interface BriefFacts {
   /** Outcome events (and the conversions that name their lead channel) of the last week, oldest first. */
   events: BriefEventLike[];
+  /** The team's effort events of the last week (WP-14 T5; packages/shared effort.ts counts them), oldest first. */
+  effortEvents: BriefEventLike[];
   booked: BookedFact[];
   running: string[];
   queued: string[];
@@ -49,9 +51,10 @@ export async function loadBriefFacts(db: Executor, businessId: string, userId: s
   const week = new Date(now.getTime() - 7 * DAY_MS);
   const horizon = new Date(now.getTime() + (BRIEF_BOOKED_DAYS + 1) * DAY_MS);
   const startOfToday = new Date(now.getTime() - DAY_MS);
-  const [business, events, calendar, goals, roadmap, running, queued, agents, lastBriefAt] = await Promise.all([
+  const [business, events, effortEvents, calendar, goals, roadmap, running, queued, agents, lastBriefAt] = await Promise.all([
     repos.businesses.get(db, businessId).catch(() => null),
     repos.notifyFacts.eventsSince(db, businessId, BRIEF_EVENT_TYPES, week, 1_000),
+    repos.notifyFacts.eventsSince(db, businessId, EFFORT_EVENT_TYPES, week, 2_000),
     repos.notifyFacts.briefCalendar(db, businessId, { now, from: startOfToday, until: horizon }),
     repos.goals.current(db, businessId),
     repos.product.listRoadmap(db, businessId),
@@ -74,6 +77,7 @@ export async function loadBriefFacts(db: Executor, businessId: string, userId: s
   const viaPosts = await repos.postAttributions.viaPostFor(db, businessId, events.filter((e) => CREDITABLE_TYPES.has(e.type)).map((e) => e.id));
   return {
     events,
+    effortEvents,
     booked,
     running: oldestFirst(running.items).map(titleOf),
     queued: [...ready, ...planned].map(titleOf),

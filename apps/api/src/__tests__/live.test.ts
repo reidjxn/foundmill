@@ -10,7 +10,6 @@
 import { communities, communityMembers, repos } from "@foundmill/db";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { liveLimiter } from "../services/live";
 import { internalErrorMessage, pgErrorCode } from "../trpc";
 import { createApiHarness, type ApiHarness } from "./harness";
 
@@ -24,7 +23,6 @@ afterAll(() => hz.close());
 // Each test starts with fresh per-person limits (posts, messages, requests): these cases write far faster than the
 // allowances (services/live.ts, services/live-limits.ts) allow; live-limits.test.ts covers those.
 beforeEach(() => {
-  liveLimiter.reset();
   hz.limits.reset();
 });
 

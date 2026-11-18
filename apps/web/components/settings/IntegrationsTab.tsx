@@ -171,6 +171,23 @@ export function needsConnectFields(c: { live?: boolean; connectFields?: readonly
   return Boolean(c.live) && (c.connectFields?.length ?? 0) > 0;
 }
 
+/**
+ * Two ways in, both offered (Stripe, founder Nov 17, 2026): signing in on the vendor's page, or the founder's own key.
+ * Only when the connector runs live; a test connection connects with one click as before.
+ */
+export function offersSignInAndKey(c: { live?: boolean; auth: { authorizationCode?: boolean }; connectFields?: readonly ConnectFieldView[] }): boolean {
+  return needsConnectFields(c) && c.auth.authorizationCode === true;
+}
+
+/** How a connector signs in, in words, for the row's second line. */
+export function authWordFor(c: { displayName: string; live?: boolean; auth: { kind: string; authorizationCode?: boolean }; connectFields?: readonly ConnectFieldView[] }): string {
+  if (offersSignInAndKey(c)) return `Sign in with ${c.displayName}, or an API key`;
+  return AUTH_WORD[c.auth.kind] ?? plainWords(c.auth.kind);
+}
+
+/** The connection was made with a pasted key (Stripe's `config.kind` "own"), so renewing asks for a key again. */
+const connectedWithKey = (integ: { settings?: unknown } | null): boolean => ((integ?.settings as { config?: { kind?: unknown } } | undefined)?.config?.kind ?? null) === "own";
+
 /** The `connect()` input from what was typed (trimmed; empty optional fields left out), or null while a required one is empty. */
 export function connectInputFrom(fields: readonly ConnectFieldView[], values: Record<string, string>): Record<string, string> | null {
   const input: Record<string, string> = {};
@@ -447,12 +464,16 @@ export function IntegrationsTab() {
             const connected = integ !== null && integ.status !== "disconnected";
             const renew = connected && needsRenewal(integ);
             const expiry = consentExpiry(integ);
-            const renewWord = c.auth.kind === "oauth" ? "Renew consent" : "Reconnect";
+            const both = offersSignInAndKey(c);
+            const renewWithKey = both ? connectedWithKey(integ) : needsConnectFields(c);
+            const renewWord = both ? (renewWithKey ? "Reconnect" : `Sign in with ${c.displayName} again`) : c.auth.kind === "oauth" ? "Renew consent" : "Reconnect";
+            const pending = connect.isPending && connect.variables?.connectorKey === c.key;
+            const signIn = () => connect.mutate({ businessId, connectorKey: c.key, input: {} });
             return (
               <li key={c.key} className={cn("flex min-h-row-comfortable items-start gap-3 border-b border-line-faint py-2.5 last:border-b-0", focusKey === c.key && "rounded-panel bg-panel-alt outline outline-2 -outline-offset-2 outline-link")} data-connector={c.key} aria-current={focusKey === c.key ? "true" : undefined}>
                 <span className="flex w-40 shrink-0 flex-col">
                   <span className="text-body-strong text-primary">{c.displayName}</span>
-                  <span className="text-small text-tertiary">{AUTH_WORD[c.auth.kind] ?? plainWords(c.auth.kind)}</span>
+                  <span className="text-small text-tertiary">{authWordFor(c)}</span>
                 </span>
                 <span className="flex min-w-0 flex-1 flex-col gap-1">
                   <span className="flex flex-wrap items-center gap-1.5">
@@ -473,7 +494,7 @@ export function IntegrationsTab() {
                   ) : connected ? (
                     <>
                       {renew ? (
-                        <Button size="sm" icon={needsConnectFields(c) ? KeyRound : c.auth.kind === "oauth" ? ExternalLink : RefreshCw} loading={connect.isPending && connect.variables?.connectorKey === c.key} onClick={() => (needsConnectFields(c) ? setKeyFor(c) : connect.mutate({ businessId, connectorKey: c.key, input: {} }))}>
+                        <Button size="sm" icon={renewWithKey ? KeyRound : c.auth.kind === "oauth" ? ExternalLink : RefreshCw} loading={pending} onClick={() => (renewWithKey ? setKeyFor(c) : signIn())}>
                           {renewWord}
                         </Button>
                       ) : null}
@@ -484,8 +505,17 @@ export function IntegrationsTab() {
                     <Chip tone="neutral" data-testid="connector-not-available">
                       Not available yet
                     </Chip>
+                  ) : both ? (
+                    <>
+                      <Button size="sm" variant="primary" icon={ExternalLink} loading={pending} onClick={signIn} data-testid="sign-in-with-vendor">
+                        Sign in with {c.displayName}
+                      </Button>
+                      <Button size="sm" variant="ghost" icon={KeyRound} onClick={() => setKeyFor(c)} data-testid="use-an-api-key">
+                        Use an API key
+                      </Button>
+                    </>
                   ) : (
-                    <Button size="sm" icon={needsConnectFields(c) ? KeyRound : c.auth.kind === "oauth" ? ExternalLink : Plug} loading={connect.isPending && connect.variables?.connectorKey === c.key} onClick={() => (needsConnectFields(c) ? setKeyFor(c) : connect.mutate({ businessId, connectorKey: c.key, input: {} }))}>
+                    <Button size="sm" icon={needsConnectFields(c) ? KeyRound : c.auth.kind === "oauth" ? ExternalLink : Plug} loading={pending} onClick={() => (needsConnectFields(c) ? setKeyFor(c) : signIn())}>
                       Connect
                     </Button>
                   )}

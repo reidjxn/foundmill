@@ -15,7 +15,7 @@ import { MEMBERSHIP_ROLES, PERSON_ADDRESSED_EVENT_TYPES, type MembershipRole } f
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ADULTS_ONLY } from "../routers/live";
-import { liveLimiter, plainQuote } from "../services/live";
+import { plainQuote } from "../services/live";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
@@ -25,7 +25,6 @@ beforeAll(async () => {
   hz = await createApiHarness({ prefix: "live-social", redis, env: { LIVE_MODE: "1" } });
 }, 120_000);
 afterAll(() => hz.close());
-beforeEach(() => liveLimiter.reset());
 
 const as = (userId: string) => hz.caller({ userId });
 
@@ -416,8 +415,8 @@ describe("#28: screening, reports, author and moderator tools, creation and invi
   it("a community's name and description are screened, and creating is limited per person", async () => {
     const owner = await founder("create-limit");
     expect((await failure(as(owner.userId).live.communities.create({ name: "Idiot founders", descriptionMd: "For losers" }))).code).toBe("BAD_REQUEST");
-    liveLimiter.reset();
-    for (let i = 0; i < 3; i++) await as(owner.userId).live.communities.create({ name: `Room ${i}` });
+    // The refused name above spent one of the day's three (the limit is taken before the screening model call).
+    for (let i = 0; i < 2; i++) await as(owner.userId).live.communities.create({ name: `Room ${i}` });
     expect((await failure(as(owner.userId).live.communities.create({ name: "One too many" }))).code).toBe("TOO_MANY_REQUESTS");
   });
 

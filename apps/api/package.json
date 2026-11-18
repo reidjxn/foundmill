@@ -13,7 +13,8 @@
     "start": "tsx src/index.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "account": "tsx src/scripts/account.ts"
   },
   "dependencies": {
     "hono": "catalog:",

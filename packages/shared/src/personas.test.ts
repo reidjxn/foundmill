@@ -305,3 +305,30 @@ describe("character styles", () => {
     }
   });
 });
+
+describe("a named agent is always labeled as an agent (WP-14 T6)", () => {
+  it("every character of every style, named alone, carries the agent's position beside the name", () => {
+    for (const style of AGENT_STYLES) {
+      for (const persona of PERSONAS) {
+        const agent = { name: "Growth Marketer", role: "Growth Marketer", personaKey: persona.key };
+        const character = characterFor(persona.key, style)!;
+        // The label is the form for a sender, a subject or any line where the agent stands alone.
+        expect(agentDisplay(agent, { anthropomorphic: true, style }), `${style}/${persona.key}`).toBe(`${character.name} (Growth Marketer)`);
+        expect(agentDisplay(agent, { anthropomorphic: true, style })).toBe(agentDisplay(agent, { anthropomorphic: true, style }, "label"));
+        // The bare first name exists only as its own form, for a place that prints the position next to it.
+        expect(agentDisplay(agent, { anthropomorphic: true, style }, "name")).toBe(character.name);
+      }
+    }
+  });
+
+  it("an agent with no role is labeled with its own title, never a first name alone", () => {
+    for (const role of [null, "", "   ", undefined]) expect(agentLabel({ name: "Planner", role, personaKey: "mei" }, true)).toBe("Mei (Planner)");
+  });
+
+  it("text written to be stored names an agent by its stored name, never by a character's", () => {
+    // Stored text is read by other people and other systems: the persona is each reader's own display choice.
+    expect(agentMention({ id: "a1", name: "Chief of Staff" })).toBe("[[ent:a1|Chief of Staff]]");
+    for (const persona of PERSONAS.slice(0, 20)) expect(agentMention({ id: "a1", name: "Chief of Staff" })).not.toContain(persona.name);
+  });
+});
+
