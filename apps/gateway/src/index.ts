@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url";
 import { serve, type ServerType } from "@hono/node-server";
 import { Redis } from "ioredis";
 import { APP_NAME } from "@foundmill/config";
-import { loadEnv, type Env } from "@foundmill/shared";
+import { loadEnv, topUpsOnSale, type Env } from "@foundmill/shared";
 import { createLogger } from "@foundmill/shared/logger";
 import { createVault, type Vault } from "@foundmill/shared/crypto";
 import { drainHttpServer, onShutdown } from "@foundmill/shared/shutdown";
@@ -99,9 +99,11 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
   // Every model call made here (the quarantined reader, web search) asks the business's credits first on the platform
   // key and is booked to the business that asked at its exact cost, like any other service's (WP-09 T3).
   const mode = effectiveModelMode(env.MODEL_MODE, env.ANTHROPIC_API_KEY, log);
-  const onUsage = gatewayUsageSink(db, log);
+  // Refusals and the zero-credits note name a top-up only where credits can be bought here (WP-09 T13).
+  const topUps = topUpsOnSale(env);
+  const onUsage = gatewayUsageSink(db, log, topUps);
   const ungated = options.models ?? createModelClient({ mode, apiKey: env.ANTHROPIC_API_KEY, logger: log, onUsage, ...(options.modelFetch ? { fetch: options.modelFetch } : {}) });
-  const models = gatePlatformModels(ungated, db, env.FREE_PLAN_MONTHLY_CAP_CENTS);
+  const models = gatePlatformModels(ungated, db, env.FREE_PLAN_MONTHLY_CAP_CENTS, topUps);
   const readerDeps: QuarantinedReaderDeps = { db, vault, models, ...(ungated.mode === "mock" ? { ungatedMock: ungated } : {}), mode: models.mode, log, onUsage, ...(options.modelFetch ? { fetch: options.modelFetch } : {}) };
   let registry = options.registry;
   // The skill tools read the business's repository through this gateway's own pipeline, built further down.
@@ -143,7 +145,7 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
   const recipients: UntrustedRegister = options.recipients ?? (redisClient ? new RedisUntrustedRegister(redisClient, { onFallback: (e) => log.warn({ err: e }, "the untrusted-recipient register fell back to this process's memory") }) : new UntrustedRecipientRegistry());
   // The pipeline's digest runs on the key that pays for it, as `quarantine.read_untrusted` does (builtins.ts).
   const reader: UntrustedReader = options.reader ?? createUntrustedReader(readerClientFor(readerDeps));
-  const deps: GatewayDeps = { db, registry, vault, mode: config.integrationsMode, liveConnectors: config.liveConnectors, appEnv: config.appEnv, rateLimits, recipients, reader, log, platformMail, turnstile: { secret: env.TURNSTILE_SECRET_KEY ?? null }, speechStreamer: createElevenlabsSpeechStreamer({ secrets }) };
+  const deps: GatewayDeps = { db, registry, vault, mode: config.integrationsMode, liveConnectors: config.liveConnectors, appEnv: config.appEnv, rateLimits, recipients, reader, log, platformMail, turnstile: { secret: env.TURNSTILE_SECRET_KEY ?? null }, speechStreamer: createElevenlabsSpeechStreamer({ secrets }), ...(env.STRIPE_ENTRY_PRICE_ID ? { entryPriceId: env.STRIPE_ENTRY_PRICE_ID } : {}), paidEntry: env.PAID_ENTRY === true };
   repositoryFiles = createRepositoryFiles(deps);
   // Until prepare() has run the database is assumed reachable (tests build the graph over an already-migrated PGlite).
   let readiness: DbReadiness | null = null;

@@ -42,6 +42,8 @@ export interface BusinessModelClientOptions {
   createClient?: (opts: { mode: ModelMode; apiKey: string | null; onUsage?: UsageSink; logger?: ModelLogger }) => ModelClient;
   /** Ask the credits gate before a call on the platform key (default true; SEC2 S2). */
   checkCredits?: boolean;
+  /** Credits can be bought here: a refusal names a top-up (WP-09 T13; default false). */
+  topUps?: boolean;
 }
 
 export interface BusinessRoute {
@@ -118,7 +120,7 @@ export function createBusinessModelClient(platformKey: ModelClient, opts: Busine
   async function assertCredits(businessId: string): Promise<boolean> {
     if (opts.checkCredits === false) return false;
     try {
-      return (await assertPlatformCredits(opts.db, businessId, { live: platform.mode === "live" })).low;
+      return (await assertPlatformCredits(opts.db, businessId, { live: platform.mode === "live", topUps: opts.topUps ?? false })).low;
     } catch (err) {
       // A business that no longer exists has nothing to charge (its route is the platform's, as `load` decides).
       if (err instanceof NotFoundError) return false;

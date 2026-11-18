@@ -44,9 +44,9 @@
  * (app.ts: PLATFORM_MAIL_EVENTS_MAX_BYTES, PLATFORM_MAIL_INBOUND_MAX_BYTES).
  */
 import { DEV_PLATFORM_MAIL_SECRET, inboundReplyText, PLATFORM_INVITATIONS_OFF_PATH, PLATFORM_NOTIFY_OFF_PATH, readInvitationsOffToken, readNotifyOffToken, followConfirmNonceHash, platformMailSenderName, readFollowConfirmToken, inboundSenderVerified, normaliseInboundMail, normalisePlatformMailEvents, PLATFORM_MAIL_FOOTER_MARKERS, platformInboundLocalParts, readInboundMail, readPlatformUnsubscribeToken, safeEqual, stableHash, suppressionHashOfEmail, verifySendgridSignature, withinTolerance, type SgEvent } from "@foundmill/connectors";
-import { APP_NAME, tierShowsBuiltOnMark } from "@foundmill/config";
-import { repos, awardFirstFollowerMilestone } from "@foundmill/db";
-import { FOLLOW_CONFIRM_PAGE, INBOUND_STORED_DAILY_CAP, INVITATIONS_OFF_PAGE, JOINING_OFF_VARIANT, joiningOffPage, NOTIFY_OFF_PAGE, notifyOffBody, PLATFORM_MAIL_SECRET_MIN_LENGTH, UNSUBSCRIBE_CONFIRM_BODY, UNSUBSCRIBE_CONFIRM_BUTTON, UNSUBSCRIBE_CONFIRM_TITLE, UNSUBSCRIBE_DONE_BODY, UNSUBSCRIBE_INVALID_BODY, builtOnWords, REPLY_WORDS } from "@foundmill/shared";
+import { APP_NAME } from "@foundmill/config";
+import { repos, awardFirstFollowerMilestone, showsBuiltOnMark } from "@foundmill/db";
+import { FOLLOW_CONFIRM_PAGE, INBOUND_STORED_DAILY_CAP, INVITATIONS_OFF_PAGE, JOINING_OFF_VARIANT, joiningOffPage, NOTIFY_OFF_PAGE, notifyOffBody, PLATFORM_MAIL_SECRET_MIN_LENGTH, UNSUBSCRIBE_CONFIRM_BODY, UNSUBSCRIBE_CONFIRM_BUTTON, UNSUBSCRIBE_CONFIRM_TITLE, UNSUBSCRIBE_DONE_BODY, UNSUBSCRIBE_INVALID_BODY, builtOnWords, REPLY_WORDS, PLATFORM_BILLING_LIVE_KEY } from "@foundmill/shared";
 import { ingestPlatformEvents, writeEventRow } from "./ingest";
 import { writeCreditEvent } from "./post-outcomes";
 import { nonceKey } from "./nonce-store";
@@ -75,7 +75,7 @@ export interface IngestPlatformMailConfig {
   eventPublicKey: string | null;
 }
 
-type Deps = Pick<IngestDeps, "db" | "log" | "now" | "nonces" | "nonceTtlMs" | "replayWindowSeconds" | "env" | "followups"> & { platformMail?: IngestPlatformMailConfig };
+type Deps = Pick<IngestDeps, "db" | "log" | "now" | "nonces" | "nonceTtlMs" | "replayWindowSeconds" | "env" | "followups"> & Partial<Pick<IngestDeps, "paidEntry" | "mode" | "liveConnectors">> & { platformMail?: IngestPlatformMailConfig };
 
 export type MailRouteResult = { status: 200 | 400 | 401 | 404 | 409 | 503; body: Record<string, unknown> };
 
@@ -393,5 +393,5 @@ export async function handleFollowConfirm(deps: Deps, req: Request): Promise<Uns
   // (followups.ts). After the commit, never waited on, and never for a later follower.
   if (first) deps.followups.firstFollower(business.id);
   // The visitor has just said yes to the project: the one place on their path where the mark is a sentence (free plan only).
-  return { status: 200, html: followConfirmPage(FOLLOW_CONFIRM_PAGE.done(name), undefined, tierShowsBuiltOnMark(business.planTier) ? builtOnWords(APP_NAME).foot(name) : null) };
+  return { status: 200, html: followConfirmPage(FOLLOW_CONFIRM_PAGE.done(name), undefined, (await showsBuiltOnMark(deps.db, business, { paidEntry: deps.paidEntry === true, live: deps.mode === "live" || (deps.liveConnectors ?? []).includes(PLATFORM_BILLING_LIVE_KEY) })) ? builtOnWords(APP_NAME).foot(name) : null) };
 }

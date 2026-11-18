@@ -27,7 +27,8 @@ export const CreateCheckoutRequest = z.object({
   businessId: z.guid(),
   /** The api's `billing_checkouts` row: it travels in the session's metadata and comes back on the webhook. */
   checkoutId: z.guid(),
-  kind: z.literal("credits"),
+  /** `subscription`: the $5 entry plan (WP-09 T16), on the recurring price `STRIPE_ENTRY_PRICE_ID` names. */
+  kind: z.enum(["credits", "subscription"]),
   amountMinor: z.number().int().min(MIN_TOP_UP_MINOR).max(MAX_TOP_UP_MINOR),
   currency: z.literal("USD"),
   description: z.string().trim().min(1).max(200),
@@ -76,8 +77,12 @@ export async function createPlatformCheckout(deps: GatewayDeps, input: CreateChe
   const mode = modeFor(deps, PLATFORM_BILLING_LIVE_KEY);
   const connector = deps.registry.get(STRIPE_KEY, mode);
   const ctx: ToolContext = { businessId: input.businessId, agentId: NIL_ID, sessionId: input.checkoutId, integration: platformIntegration(input.businessId, now), log: deps.log, mode };
+  // The entry plan is a subscription on its own recurring price; live needs the price id (the mock totals the line).
+  const subscription = input.kind === "subscription";
+  if (subscription && mode === "live" && !deps.entryPriceId) throw new GatewayError("payments_unconfigured", "The entry plan is not set up on this server yet (STRIPE_ENTRY_PRICE_ID is missing on the gateway)", 503);
   const args = {
-    mode: "payment" as const,
+    mode: subscription ? ("subscription" as const) : ("payment" as const),
+    ...(subscription && deps.entryPriceId ? { priceId: deps.entryPriceId } : {}),
     lines: [{ description: input.description, amountMinor: input.amountMinor, quantity: 1, currency: input.currency }],
     successUrl: input.successUrl,
     cancelUrl: input.cancelUrl,

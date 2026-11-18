@@ -44,6 +44,16 @@ describe("autopilotEvaluate", () => {
     expect((await acts.autopilotEvaluate({ businessId: B() })).decision).toEqual({ action: "off" });
   });
 
+  it("paid entry: waits for an owner's entry plan before starting a cycle on its own (WP-09 T16)", async () => {
+    const now = t.clock.nowMs();
+    await repos.autopilot.set(t.db, B(), { enabled: true }, new Date(now - 10 * H));
+    const paid = createAutopilotActivities({ ...t.deps, env: { ...t.deps.env, PAID_ENTRY: true } });
+    expect((await paid.autopilotEvaluate({ businessId: B() })).decision).toMatchObject({ action: "wait", why: "entry_plan" });
+    const row = await repos.checkouts.create(t.db, B(), { kind: "subscription", mode: "mock", amountMinor: 500, createdBy: fx.ownerId });
+    await repos.accountPlans.activate(t.db, { userId: fx.ownerId, mode: "mock", checkoutId: row.id });
+    expect((await paid.autopilotEvaluate({ businessId: B() })).decision).toMatchObject({ action: "start" });
+  });
+
   it("starts a cycle once the interval since the last one has passed, and waits (with a planned time) before", async () => {
     const now = t.clock.nowMs();
     await repos.autopilot.set(t.db, B(), { enabled: true }, new Date(now - 10 * H));

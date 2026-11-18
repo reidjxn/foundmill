@@ -17,7 +17,7 @@
  * Days are UTC days and the daily hour is a UTC hour: a business has no time zone of its own.
  */
 
-export const AUTOPILOT_CADENCES = ["after_cycle", "every_1h", "every_4h", "every_12h", "daily"] as const;
+export const AUTOPILOT_CADENCES = ["after_cycle", "every_1h", "every_4h", "every_12h", "daily", "every_3_days"] as const;
 export type AutopilotCadence = (typeof AUTOPILOT_CADENCES)[number];
 
 /** Why Autopilot paused itself (`businesses.autopilot_paused_reason`); the founder turns it back on by hand. */
@@ -43,7 +43,11 @@ export const AUTOPILOT_CADENCE_INFO: Record<AutopilotCadence, { label: string; s
   every_4h: { label: "Every 4 hours", summary: "Four hours after the last cycle ends.", intervalMs: 4 * HOUR_MS },
   every_12h: { label: "Every 12 hours", summary: "Twelve hours after the last cycle ends.", intervalMs: 12 * HOUR_MS },
   daily: { label: "Daily", summary: "Once a day at the hour you choose (UTC).", intervalMs: null },
+  every_3_days: { label: "Every third day", summary: "Once every three days at the hour you choose (UTC).", intervalMs: null },
 };
+
+/** A cadence that runs at the founder's chosen hour (`dailyHour`): daily, or every third day (WP-09 T12). */
+export const isHourlyScheduledCadence = (cadence: AutopilotCadence): boolean => cadence === "daily" || cadence === "every_3_days";
 
 /** The founder's Autopilot choices (the `businesses.autopilot_*` columns). */
 export interface AutopilotSettings {
@@ -77,7 +81,7 @@ export const AUTOPILOT_DEFAULT_SETTINGS: AutopilotSettings = {
 };
 
 /** Why Autopilot is holding off for now (it stays on). */
-export const AUTOPILOT_WAIT_REASONS = ["vacation", "cycle_running", "inbox", "daily_cycles", "daily_spend", "schedule"] as const;
+export const AUTOPILOT_WAIT_REASONS = ["vacation", "cycle_running", "inbox", "daily_cycles", "daily_spend", "schedule", "entry_plan"] as const;
 export type AutopilotWaitReason = (typeof AUTOPILOT_WAIT_REASONS)[number];
 
 /** One finished cycle, newest first in the lists below. */
@@ -129,6 +133,8 @@ export function plannedCycleAt(settings: Pick<AutopilotSettings, "cadence" | "da
   const basis = last.endedAt ?? since;
   let at: number;
   if (settings.cadence === "daily") at = nextDailyAt(basis, settings.dailyHour);
+  // Every third day: the chosen hour, two days after the next one once a cycle has run (the first is the next one).
+  else if (settings.cadence === "every_3_days") at = nextDailyAt(basis, settings.dailyHour) + (last.endedAt === null ? 0 : 2 * DAY_MS);
   else if (last.endedAt === null) at = since;
   else at = basis + (AUTOPILOT_CADENCE_INFO[settings.cadence].intervalMs ?? 0);
   if (last.startedAt !== null) at = Math.max(at, last.startedAt + AUTOPILOT_LIMITS.minIntervalMs);
@@ -138,6 +144,11 @@ export function plannedCycleAt(settings: Pick<AutopilotSettings, "cadence" | "da
 /** Everything the decision reads, gathered by `loadAutopilotFacts` (packages/db) with a clock reading. */
 export interface AutopilotFacts {
   now: number;
+  /**
+   * Paid entry (WP-09 T16): false while sign-up is paid and no owner holds the entry plan, so no cycle starts on its
+   * own and a run ends. Absent or true: open (the switch is off, or the plan is paid).
+   */
+  entryPlanOpen?: boolean;
   /** Autopilot is turned on. */
   enabled: boolean;
   /** Set once Autopilot paused itself; cleared when the founder turns it on again. */
@@ -224,7 +235,7 @@ export function decideRun(f: AutopilotFacts): ContinueRunDecision | null {
   const run = f.run;
   if (!run) return null;
   if (f.archived) return { action: "end", reason: "archived" };
-  if (f.stopReason || (f.creditsRemainingMinor !== null && f.creditsRemainingMinor <= 0) || f.blockingItems > 0) return { action: "end", reason: "hard_stop" };
+  if (f.stopReason || (f.creditsRemainingMinor !== null && f.creditsRemainingMinor <= 0) || f.blockingItems > 0 || f.entryPlanOpen === false) return { action: "end", reason: "hard_stop" };
   if (f.vacation) return { action: "end", reason: "vacation" };
   if (f.cycleOpen) return { action: "wait", why: "cycle_running", until: null };
   if (run.lastRound?.outcome === "stopped") return { action: "end", reason: "stopped" };
@@ -332,6 +343,7 @@ export function decideAutopilot(f: AutopilotFacts): AutopilotDecision {
 
   const nextAt = plannedCycleAt(f.settings, { startedAt: f.lastCycleStartedAt, endedAt: f.lastCycleEndedAt }, f.since);
   const tomorrow = utcDayStart(f.now) + DAY_MS;
+  if (f.entryPlanOpen === false) return { action: "wait", why: "entry_plan", note: "The team starts working once you subscribe in Settings › Billing.", nextAt: null, until: null };
   if (f.vacation) return { action: "wait", why: "vacation", note: "You are on vacation; the Chief of Staff runs the cycles until you come back.", nextAt: null, until: null };
   if (f.cycleOpen) return { action: "wait", why: "cycle_running", note: "A cycle is running; the next one is planned when it ends.", nextAt: null, until: null };
   if (f.blockingItems > 0) return { action: "wait", why: "inbox", note: inboxWaitNote(f.blockingItems), nextAt, until: null };
@@ -388,14 +400,14 @@ export function autopilotView(d: AutopilotDecision): AutopilotView {
 
 /**
  * The overnight shift (retention plan, founder 2026-11-11; off when Commit opens since 2026-11-17, founder's answer A4,
- * WP-14 T11): when the founder turns it on, Commit turns Autopilot on
- * with the daily cadence at about 2 AM in the founder's time zone, so there is news every morning. The cap is one round
- * of work a night with a budget of $0.15 (an Estimate; about $4.50 a month, inside the free tier's $5): Autopilot's own limits (one cycle a day, its own spend ceiling,
- * which is also that cycle's budget), apart from Continue's (founder, 2026-11-12); every Autopilot guard rail still holds (used-up credits,
+ * WP-14 T11): when the founder turns it on, Commit turns Autopilot on at about 2 AM in the founder's time zone. Every
+ * third night (founder, Nov 16, 2026, WP-09 D7 option B): one round of work with a budget of $0.45, three nights' worth
+ * (founder, Nov 16: enough to finish one session; an Estimate, about $4.50 a month, inside the free tier's $5). Autopilot's own limits
+ * (one cycle a day, its own spend ceiling, which is also that cycle's budget), apart from Continue's (founder, 2026-11-12); every Autopilot guard rail still holds (used-up credits,
  * failed or empty nights in a row, a hard stop, a vacation) and it never answers a note. Settings › What the team can do
  * changes or turns it off.
  */
-export const OVERNIGHT_SHIFT = { localHour: 2, cadence: "daily" as AutopilotCadence, ownMaxCyclesPerDay: 1, ownSpendCeilingMinor: 15 } as const;
+export const OVERNIGHT_SHIFT = { localHour: 2, cadence: "every_3_days" as AutopilotCadence, ownMaxCyclesPerDay: 1, ownSpendCeilingMinor: 45 } as const;
 
 /** The UTC hour that is `localHour` in `timeZone` on the day of `now` (UTC when the zone is unknown). */
 export function overnightUtcHour(timeZone: string | null | undefined, now: Date = new Date(), localHour: number = OVERNIGHT_SHIFT.localHour): number {

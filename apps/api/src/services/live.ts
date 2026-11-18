@@ -102,6 +102,8 @@ export interface ScreenInput {
   communityName: string;
   /** Booked to this business's usage ledger when the person speaks for one; otherwise the call is not booked. */
   businessId?: string | null;
+  /** The person posting: a post made without a business is booked to their account usage and capped (WP-09 T2). */
+  userId?: string;
 }
 
 /**
@@ -116,7 +118,7 @@ export async function screenText(deps: { models: ModelClient; log: ApiLogger }, 
     const result = await deps.models.complete({
       ...request,
       schema: ModerationOutput,
-      attribution: { ...(input.businessId ? { businessId: input.businessId } : {}), kind: "moderation" },
+      attribution: { ...(input.businessId ? { businessId: input.businessId } : input.userId ? { userId: input.userId } : {}), kind: "moderation" },
       scope: "moderation",
     });
     const out = result.json as ModerationOutput;

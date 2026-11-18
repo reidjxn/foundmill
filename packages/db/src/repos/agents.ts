@@ -93,6 +93,12 @@ export const EndSessionInput = z.object({
   costMinor: MinorAmount.optional(),
   outcome: z.string().max(80).nullable().optional(),
   recordingRef: z.string().max(2048).nullable().optional(),
+  /** 0138 (WP-09 T1): what the session ran on and did, for the cost report. */
+  route: z.string().max(80).nullable().optional(),
+  effort: z.string().max(20).nullable().optional(),
+  numTurns: z.number().int().min(0).nullable().optional(),
+  cacheReadTokens: z.number().int().min(0).optional(),
+  cacheWriteTokens: z.number().int().min(0).optional(),
 });
 export type EndSessionInput = z.input<typeof EndSessionInput>;
 

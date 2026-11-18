@@ -25,7 +25,7 @@ async function commit(email: string, extra: { autopilot?: boolean; overnight?: {
 describe("idea.commit and the overnight shift", () => {
   it("turns Autopilot on, daily, at 2 AM in the founder's zone", async () => {
     const b = await commit("night@test.local", { autopilot: true, overnight: { timeZone: "America/New_York" } });
-    expect(b).toMatchObject({ autopilotEnabled: true, autopilotCadence: "daily", autopilotDailyHour: overnightUtcHour("America/New_York"), autopilotOwnMaxCyclesPerDay: 1, autopilotOwnSpendCeilingMinor: 15 });
+    expect(b).toMatchObject({ autopilotEnabled: true, autopilotCadence: "every_3_days", autopilotDailyHour: overnightUtcHour("America/New_York"), autopilotOwnMaxCyclesPerDay: 1, autopilotOwnSpendCeilingMinor: 45 });
     // The shared limits Continue uses are left as they were (founder, 2026-11-12: split the limits).
     expect(b).toMatchObject({ autopilotMaxCyclesPerDay: 6, autopilotSpendCeilingMinor: null });
   });

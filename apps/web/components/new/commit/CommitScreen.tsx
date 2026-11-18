@@ -799,7 +799,7 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
                     <Term id="autopilot">{form.autopilot ? "Overnight shift" : "Autopilot"}</Term>
                     {form.autopilot ? " on" : " off"}
                   </span>
-                  <span className="text-small text-secondary">{form.autopilot ? "· one round of work each night, news every morning" : "· the team works when you press Continue"}</span>
+                  <span className="text-small text-secondary">{form.autopilot ? "· one round of work every third night" : "· the team works when you press Continue"}</span>
                 </dd>
               </dl>
               <ReassuranceLine icon="settings" data-testid="reassure-how-it-runs">
@@ -879,7 +879,7 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
                     <div className="flex flex-col gap-1">
                       <Label htmlFor="run-on-autopilot">Overnight shift</Label>
                       <p id="run-on-autopilot-hint" className="text-small text-secondary">
-                        Off unless you turn it on. With it on, the team runs one <Term id="cycle">cycle</Term> a night while you sleep, at about 2 AM your time, with a budget of $0.15 (Estimate), so there is news every morning. Continue keeps its own limits. It never answers notes for you: every approval and <Term id="hard_gate">hard gate</Term> still waits for you, and it pauses itself when <Term id="credits">credits</Term> run out. Change it any time in Settings › What the team can do.
+                        Off unless you turn it on. With it on, the team runs one <Term id="cycle">cycle</Term> every third night while you sleep, at about 2 AM your time, with a budget of $0.45 (Estimate). Continue keeps its own limits. It never answers notes for you: every approval and <Term id="hard_gate">hard gate</Term> still waits for you, and it pauses itself when <Term id="credits">credits</Term> run out. Change it any time in Settings › What the team can do.
                       </p>
                     </div>
                   </div>

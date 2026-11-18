@@ -10,6 +10,7 @@ import type { OrchestratorDeps } from "../deps";
 import { failureStreak, taskRetry } from "../retry";
 import { enforceWageCaps, recoverAgents } from "./dispatch";
 import type { BriefAgent, BriefDepartment, BriefTask, BusinessBrief } from "./types";
+import { entryPlanOpenFor } from "../entry-plan";
 
 /**
  * Tasks a cycle may plan (`PLANNABLE_STATUSES` in packages/db, the cycle's DISPATCHABLE). `failed` and `blocked` are
@@ -97,7 +98,7 @@ export interface DispatchFacts {
   agentsStopped: boolean;
 }
 
-export async function loadDispatchFacts(deps: Pick<OrchestratorDeps, "db" | "clock">, businessId: string): Promise<DispatchFacts> {
+export async function loadDispatchFacts(deps: Pick<OrchestratorDeps, "db" | "clock" | "env">, businessId: string): Promise<DispatchFacts> {
   const { db, clock } = deps;
   const now = clock.now();
   const [business, departmentsRaw, agentsPage, candidates, wages, product] = await Promise.all([
@@ -163,7 +164,7 @@ export async function loadDispatchFacts(deps: Pick<OrchestratorDeps, "db" | "clo
     approvalHold: holds.get(t.id) ?? null,
     retry: t.status === "failed" ? taskRetry(failureStreak(recent.filter((s) => s.taskId === t.id)), now) : t.status === "blocked" ? blockedRetry(t.id) : null,
   }));
-  return { business, departments, agents, openTasks, openTaskTotal: candidates.total, productStage: product.stage, product, agentsStopped: business.agentsStoppedAt !== null };
+  return { business, departments, agents, openTasks, openTaskTotal: candidates.total, productStage: product.stage, product, agentsStopped: business.agentsStoppedAt !== null || !(await entryPlanOpenFor(deps, businessId)) };
 }
 
 export function createBriefActivities(deps: OrchestratorDeps) {

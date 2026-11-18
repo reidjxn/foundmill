@@ -14,19 +14,24 @@
  * - **Paid tiers** (Pro, Scale) are not on sale: their prices are still "to be announced" (§19) and there is no
  *   subscription checkout, so choosing one is refused outside development and test (where seeded demos and tests switch
  *   freely). Moving down to Free is always allowed.
+ * - **The entry plan** (WP-09 T16; founder, 2026-11-17): while `PAID_ENTRY` is on, a project's AI runs (Continue, an
+ *   approval's cycle, cycle 1 at commit, the overnight shift) need an owner with the $5-a-month plan, opened here as a
+ *   subscription checkout (`startCreditCheckout` with `kind: "subscription"`) and settled only by the webhook (or the
+ *   simulated payment where those are allowed). Top-ups are then sold as the credit packs (`CREDIT_PACKS_MINOR`). With
+ *   the switch off nothing of this is offered and nothing is gated: sign-up is by invitation and free.
  */
-import { APP_NAME, PRICE_TBA_LABEL, TIERS, type TierKey } from "@foundmill/config";
-import { repos, type BillingCheckout, type Db } from "@foundmill/db";
-import { allowMockPayments, AppError, platformBillingMode, type Env } from "@foundmill/shared";
+import { APP_NAME, CREDIT_PACKS_MINOR, creditPackCreditsMinor, ENTRY_PLAN, PRICE_TBA_LABEL, TIERS, TOP_UP_OPTIONS_MINOR, type TierKey } from "@foundmill/config";
+import { postEntryPlanRequest, repos, type BillingCheckout, type Db, type Executor } from "@foundmill/db";
+import { allowMockPayments, AppError, paidEntryLive, platformBillingMode, type Env } from "@foundmill/shared";
 import type { ApiGatewayClient } from "./gateway";
 
 export const TOP_UP_MIN_MINOR = 500;
 export const TOP_UP_MAX_MINOR = 1_000_000;
-/** The amounts the Billing tab offers (USD cents; credits are USD). */
-export const TOP_UP_OPTIONS_MINOR = [2500, 5000, 10000, 25000] as const;
+export { TOP_UP_OPTIONS_MINOR };
 export const CHECKOUT_DESCRIPTION = `${APP_NAME} credits`;
+export const ENTRY_PLAN_DESCRIPTION = `${APP_NAME} ${ENTRY_PLAN.name} plan`;
 
-type PaymentsEnv = Pick<Env, "APP_ENV" | "MODEL_MODE" | "INTEGRATIONS_MODE" | "LIVE_CONNECTORS" | "ALLOW_MOCK_PAYMENTS">;
+type PaymentsEnv = Pick<Env, "APP_ENV" | "MODEL_MODE" | "INTEGRATIONS_MODE" | "LIVE_CONNECTORS" | "ALLOW_MOCK_PAYMENTS"> & Partial<Pick<Env, "PAID_ENTRY">>;
 
 const testMode = (env: Pick<Env, "APP_ENV">) => env.APP_ENV === "development" || env.APP_ENV === "test";
 
@@ -57,6 +62,74 @@ export function topUpAvailability(env: PaymentsEnv): TopUpAvailability {
   const mode = checkoutModeFor(env);
   if (mode === "mock" && !mockPaymentsAllowed(env)) return { mode, available: false, reason: MOCK_PAYMENTS_OFF_MESSAGE };
   return { mode, available: true, reason: null };
+}
+
+/** Whether sign-up is paid entry (`PAID_ENTRY`): the entry plan is offered, AI runs need it and top-ups are the packs. */
+export const paidEntry = (env: Partial<Pick<Env, "PAID_ENTRY">>): boolean => env.PAID_ENTRY === true;
+
+/** What the AI runs say while the project's owners have no entry plan (402 `entry_plan_required`). */
+export const ENTRY_PLAN_REQUIRED_MESSAGE = `Your team starts working once you subscribe to the ${ENTRY_PLAN.name} plan ($${(ENTRY_PLAN.priceMonthlyMinor / 100).toFixed(2)} a month, with $${(ENTRY_PLAN.includedCreditsMinor / 100).toFixed(2)} of AI included). Subscribe in Settings › Billing. Your page, plan and foundations stay as they are.`;
+
+/** What the refusal carries for the screen that shows the request: what is bought, its price, and the one press. */
+export interface EntryPlanRequest {
+  kind: "entry_plan";
+  name: string;
+  priceMonthlyMinor: number;
+  includedCreditsMinor: number;
+  currency: "USD";
+  /** The Inbox note that keeps the request while it is unpaid (said once), when the business has a Chief of Staff. */
+  inboxItemId: string | null;
+}
+
+export class EntryPlanRequiredError extends AppError {
+  constructor(request: EntryPlanRequest | null = null) {
+    super("entry_plan_required", ENTRY_PLAN_REQUIRED_MESSAGE, 402, request ? { request } : undefined);
+  }
+}
+
+const money = (minor: number) => `$${(minor / 100).toFixed(2)}`;
+
+/** The request's note (`postEntryPlanRequest`): what is bought, why now, what it costs, and what happens once it is paid. */
+export const ENTRY_PLAN_REQUEST_BODY = `Your page, plan and foundations are drafted. For the team to start on the work itself, subscribe to the ${ENTRY_PLAN.name} plan: ${money(ENTRY_PLAN.priceMonthlyMinor)} a month, with ${money(ENTRY_PLAN.includedCreditsMinor)} of AI included each month. You pay on Stripe's secure page, and the team starts by itself as soon as the payment is confirmed: there is nothing more to press. Subscribe from Continue or in Settings › Billing.`;
+
+/**
+ * Continue's own refusal for paid entry: writes the request once (the pay-and-resume loop: the same note stays while the
+ * checkout is unpaid, canceled or failed) and refuses with it, so the screen can offer the one press to Stripe.
+ */
+export async function requireEntryPlanForRun(db: Executor, env: PaymentsEnv, businessId: string): Promise<void> {
+  if (await entryPlanOpen(db, env, businessId)) return;
+  const item = await postEntryPlanRequest(db, businessId, ENTRY_PLAN_REQUEST_BODY);
+  throw new EntryPlanRequiredError({ kind: "entry_plan", name: ENTRY_PLAN.name, priceMonthlyMinor: ENTRY_PLAN.priceMonthlyMinor, includedCreditsMinor: ENTRY_PLAN.includedCreditsMinor, currency: "USD", inboxItemId: item?.id ?? null });
+}
+
+/**
+ * Whether the business may start AI runs: always with the switch off; with it on, when one of its founders holds an
+ * active entry plan. A simulated plan counts only on a fully simulated stack (`paidEntryLive`): wherever billing, model
+ * calls or integrations run live, or simulated payments are off, only a plan paid on Stripe opens work.
+ */
+export async function entryPlanOpen(db: Executor, env: PaymentsEnv, businessId: string): Promise<boolean> {
+  if (!paidEntry(env)) return true;
+  return repos.accountPlans.ownerHasActivePlan(db, businessId, { live: paidEntryLive(env) });
+}
+
+/** `entryPlanOpen` for an account before its project exists (commit): whether this person holds an active plan. */
+export async function accountPlanOpen(db: Executor, env: PaymentsEnv, userId: string): Promise<boolean> {
+  if (!paidEntry(env)) return true;
+  const plan = await repos.accountPlans.forUser(db, userId);
+  return plan?.status === "active" && (plan.mode === "live" || !paidEntryLive(env));
+}
+
+/** Refuses an AI run (402) while `entryPlanOpen` is false. */
+export async function assertEntryPlan(db: Executor, env: PaymentsEnv, businessId: string): Promise<void> {
+  if (!(await entryPlanOpen(db, env, businessId))) throw new EntryPlanRequiredError();
+}
+
+/** A top-up's price and the credits it grants: any amount in range with the switch off; one of the packs with it on. */
+export function topUpCredits(env: PaymentsEnv, amountMinor: number): { creditsMinor: number | null } {
+  if (!paidEntry(env)) return { creditsMinor: null };
+  const credits = creditPackCreditsMinor(amountMinor);
+  if (credits === null) throw new AppError("validation", `Credits come in packs of ${CREDIT_PACKS_MINOR.map((m) => `$${m / 100}`).join(", ")}.`, 400);
+  return { creditsMinor: credits === amountMinor ? null : credits };
 }
 
 export interface TierAvailability {
@@ -114,10 +187,14 @@ const gatewayFailureMessage = (err: unknown): string => {
 };
 
 /** Opens a top-up of `amountMinor` USD cents for `businessId` (see the module comment). The caller checked the owner. */
-export async function startCreditCheckout(deps: StartCheckoutDeps, input: { businessId: string; userId: string; email: string | null; amountMinor: number }): Promise<StartedCheckout> {
+export async function startCreditCheckout(
+  deps: StartCheckoutDeps,
+  input: { businessId: string; userId: string; email: string | null; amountMinor: number; kind?: "credits" | "subscription"; creditsMinor?: number | null; resume?: "continue" | null },
+): Promise<StartedCheckout> {
   const availability = topUpAvailability(deps.env);
   if (!availability.available) throw new AppError("payments_unavailable", availability.reason ?? MOCK_PAYMENTS_OFF_MESSAGE, 412);
-  const row = await repos.checkouts.create(deps.db, input.businessId, { mode: availability.mode, amountMinor: input.amountMinor, createdBy: input.userId });
+  const kind = input.kind ?? "credits";
+  const row = await repos.checkouts.create(deps.db, input.businessId, { kind, mode: availability.mode, amountMinor: input.amountMinor, createdBy: input.userId, ...(input.creditsMinor ? { creditsMinor: input.creditsMinor } : {}), ...(input.resume ? { resume: input.resume } : {}) });
   const { successUrl, cancelUrl } = billingReturnUrls(deps.env.APP_URL, input.businessId, row.id);
   if (availability.mode === "mock") {
     // Simulated: no vendor is called, so the gateway is not needed. The checkout page is the Billing tab itself.
@@ -126,7 +203,7 @@ export async function startCreditCheckout(deps: StartCheckoutDeps, input: { busi
   }
   let created;
   try {
-    created = await deps.gateway.createCheckout({ businessId: input.businessId, checkoutId: row.id, kind: "credits", amountMinor: input.amountMinor, currency: "USD", description: CHECKOUT_DESCRIPTION, successUrl, cancelUrl, ...(input.email ? { customerEmail: input.email } : {}) });
+    created = await deps.gateway.createCheckout({ businessId: input.businessId, checkoutId: row.id, kind, amountMinor: input.amountMinor, currency: "USD", description: kind === "subscription" ? ENTRY_PLAN_DESCRIPTION : CHECKOUT_DESCRIPTION, successUrl, cancelUrl, ...(input.email ? { customerEmail: input.email } : {}) });
   } catch (err) {
     const message = gatewayFailureMessage(err);
     await repos.checkouts.markFailed(deps.db, input.businessId, row.id, message);
@@ -143,5 +220,5 @@ export async function startCreditCheckout(deps: StartCheckoutDeps, input: { busi
 
 /** What the Billing tab shows of a checkout (never the Stripe ids). */
 export function checkoutView(c: BillingCheckout) {
-  return { id: c.id, status: c.status, mode: c.mode, amountMinor: Number(c.amountMinor), currency: c.currency, createdAt: c.createdAt, paidAt: c.paidAt, expiresAt: c.expiresAt, failure: c.failure };
+  return { id: c.id, kind: c.kind, status: c.status, mode: c.mode, creditsMinor: c.creditsMinor === null ? null : Number(c.creditsMinor), resume: c.resume, amountMinor: Number(c.amountMinor), currency: c.currency, createdAt: c.createdAt, paidAt: c.paidAt, expiresAt: c.expiresAt, failure: c.failure };
 }

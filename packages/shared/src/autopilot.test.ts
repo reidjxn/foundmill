@@ -22,6 +22,7 @@ import {
   overnightUtcHour,
   autopilotCycleBudgetMinor,
   OVERNIGHT_SHIFT,
+  isHourlyScheduledCadence,
 } from "./autopilot";
 
 const H = 60 * 60 * 1000;
@@ -66,6 +67,15 @@ describe("the schedule", () => {
     expect(plannedCycleAt({ cadence: "every_1h", dailyHour: 9 }, last, 0)).toBe(NOW - 1 * H);
     expect(plannedCycleAt({ cadence: "every_4h", dailyHour: 9 }, last, 0)).toBe(NOW + 2 * H);
     expect(plannedCycleAt({ cadence: "every_12h", dailyHour: 9 }, last, 0)).toBe(NOW + 10 * H);
+  });
+
+  it("every third day runs at the chosen hour: the next one first, then two days after the next one (WP-09 T12)", () => {
+    const s = { cadence: "every_3_days" as const, dailyHour: 2 };
+    expect(plannedCycleAt(s, { startedAt: null, endedAt: null }, NOW)).toBe(Date.UTC(2026, 9, 14, 2, 0));
+    // A night that ran Oct 14 at 2 AM: the next is Oct 17.
+    expect(plannedCycleAt(s, { startedAt: Date.UTC(2026, 9, 14, 2, 0), endedAt: Date.UTC(2026, 9, 14, 2, 30) }, 0)).toBe(Date.UTC(2026, 9, 17, 2, 0));
+    expect(isHourlyScheduledCadence("every_3_days")).toBe(true);
+    expect(isHourlyScheduledCadence("every_12h")).toBe(false);
   });
 
   it("with no cycle yet the first one is due as soon as Autopilot was turned on", () => {
@@ -152,6 +162,11 @@ describe("decideAutopilot: guard rails always win", () => {
 
 describe("decideAutopilot: it waits, it never decides for the founder", () => {
   const due = { lastCycleStartedAt: NOW - 100 * H, lastCycleEndedAt: NOW - 99 * H };
+
+  it("paid entry without the entry plan: no cycle starts on its own (WP-09 T16)", () => {
+    expect(decideAutopilot(facts({ ...due, entryPlanOpen: false }))).toMatchObject({ action: "wait", why: "entry_plan", until: null });
+    expect(decideAutopilot(facts({ ...due, entryPlanOpen: true })).action).toBe(decideAutopilot(facts(due)).action);
+  });
 
   it("a vacation in progress: the vacation loop owns the cycles", () => {
     expect(decideAutopilot(facts({ ...due, vacation: true }))).toMatchObject({ action: "wait", why: "vacation" });
@@ -274,6 +289,10 @@ describe("decideRun: Continue runs until done (Nov 7, 2026)", () => {
     expect(decideRun(live({ run: { ...run, lastRound: { outcome: "stopped", tasksDispatched: 1, tasksCompleted: 0 } } }))).toEqual({ action: "end", reason: "stopped" });
   });
 
+  it("paid entry without the entry plan ends it as a hard stop (WP-09 T16)", () => {
+    expect(decideRun(live({ entryPlanOpen: false }))).toEqual({ action: "end", reason: "hard_stop" });
+  });
+
   it("a vacation and an archived business end it", () => {
     expect(decideRun(live({ vacation: true }))).toEqual({ action: "end", reason: "vacation" });
     expect(decideRun(live({ archived: true, vacation: true }))).toEqual({ action: "end", reason: "archived" });
@@ -333,6 +352,7 @@ describe("Autopilot's own limits (founder, 2026-11-12: split from Continue's)", 
     expect(decideRun(facts({ settings: own(1, 1), ownCyclesToday: 1, ownSpentTodayMinor: 50, lastCycleStartedAt: NOW - H, run }))).toEqual({ action: "start" });
   });
   it("is the overnight shift's cap: one cycle a night with a budget of 15 cents", () => {
-    expect(OVERNIGHT_SHIFT).toMatchObject({ ownMaxCyclesPerDay: 1, ownSpendCeilingMinor: 15, cadence: "daily" });
+    // Founder, Nov 16, 2026 (WP-09 D7 option B, then $0.45): one round every third night, three nights' cap.
+    expect(OVERNIGHT_SHIFT).toMatchObject({ ownMaxCyclesPerDay: 1, ownSpendCeilingMinor: 45, cadence: "every_3_days" });
   });
 });

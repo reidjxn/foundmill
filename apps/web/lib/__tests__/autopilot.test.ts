@@ -4,8 +4,8 @@ import { CADENCE_OPTIONS, HOUR_OPTIONS, cyclesTodayLine, draftChanged, draftOf, 
 const SAVED = { cadence: "every_4h" as const, dailyHour: 9, maxCyclesPerDay: 6, spendCeilingMinor: null, maxIdleCycles: 3 };
 
 describe("Autopilot settings draft", () => {
-  it("offers the five cadences the brief names, and 24 UTC hours", () => {
-    expect(CADENCE_OPTIONS.map((o) => o.label)).toEqual(["As soon as the last cycle ends", "Every hour", "Every 4 hours", "Every 12 hours", "Daily"]);
+  it("offers the five cadences the brief names, every third day (the overnight shift, WP-09 T12), and 24 UTC hours", () => {
+    expect(CADENCE_OPTIONS.map((o) => o.label)).toEqual(["As soon as the last cycle ends", "Every hour", "Every 4 hours", "Every 12 hours", "Daily", "Every third day"]);
     expect(HOUR_OPTIONS).toHaveLength(24);
     expect(hourLabel(0)).toBe("12:00 AM UTC");
     expect(hourLabel(9)).toBe("9:00 AM UTC");

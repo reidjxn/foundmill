@@ -232,11 +232,12 @@ export async function createBusinessFixture(h: TestHarness, slug: string): Promi
       .returning({ id: s.skillDefinitions.id }),
     "skill_definitions",
   );
+  // Named columns: the migration-point suites build this fixture on a database from before 0138, whose sessions have no
+  // route, effort, turns or cache totals yet.
   const session = first(
-    await db
-      .insert(s.agentSessions)
-      .values({ businessId, agentId: agent2.id, versionId: agentVersion.id, taskId: task.id, tokensIn: 1000, tokensOut: 200, costMinor: 12 })
-      .returning({ id: s.agentSessions.id }),
+    ((await db.execute(
+      sql`insert into agent_sessions (business_id, agent_id, version_id, task_id, tokens_in, tokens_out, cost_minor) values (${businessId}, ${agent2.id}, ${agentVersion.id}, ${task.id}, 1000, 200, 12) returning id`,
+    )) as unknown as { rows: { id: string }[] }).rows,
     "agent_sessions",
   );
   const agentThread = first(

@@ -73,6 +73,8 @@ import { teamPostsRepo } from "./team-posts";
 import { postMediaRepo } from "./post-media";
 import { postAttributionsRepo, postLinksRepo } from "./post-attributions";
 import { ideaDraftsRepo, waitlistRepo } from "./idea-drafts";
+import { accountUsageRepo } from "./account-usage";
+import { accountPlansRepo } from "./account-plans";
 import { admissionsRepo, invitationsRepo } from "./people";
 import { showcaseRepo } from "./showcase";
 import { adultsRepo } from "./adults";
@@ -91,6 +93,8 @@ export const repos = {
   founders: foundersRepo,
   ideas: ideasRepo,
   ideaDrafts: ideaDraftsRepo,
+  accountUsage: accountUsageRepo,
+  accountPlans: accountPlansRepo,
   waitlist: waitlistRepo,
   product: productRepo,
   productSignoffs: productSignoffsRepo,

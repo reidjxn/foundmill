@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BATCH_DISCOUNT, MODEL_PRICING, PRICING_LABEL, WEB_SEARCH_FEE_MICRO_MINOR, addUsage, estimateTokens, meter, meterWebSearch, sumMeters } from "./pricing";
+import { BATCH_DISCOUNT, MODEL_PRICING, PRICING_LABEL, WEB_SEARCH_FEE_MICRO_MINOR, addUsage, estimateTokens, usageForLedger, meter, meterWebSearch, sumMeters } from "./pricing";
 import { MODELS } from "./routing";
 
 const usage = (inputTokens: number, outputTokens: number, cacheCreationInputTokens = 0, cacheReadInputTokens = 0) => ({ inputTokens, outputTokens, cacheCreationInputTokens, cacheReadInputTokens });
@@ -76,5 +76,14 @@ describe("pricing and metering (BUILD §10.4)", () => {
     expect(estimateTokens("")).toBe(0);
     expect(estimateTokens("abcd")).toBe(1);
     expect(estimateTokens("a".repeat(401))).toBe(101);
+  });
+});
+
+describe("usageForLedger (WP-09 T1)", () => {
+  it("counts every token in quantity and keeps the four figures", () => {
+    expect(usageForLedger({ inputTokens: 10, outputTokens: 5, cacheCreationInputTokens: 3, cacheReadInputTokens: 2 })).toEqual({
+      quantity: 20,
+      tokens: { input: 10, output: 5, cacheRead: 2, cacheWrite: 3 },
+    });
   });
 });

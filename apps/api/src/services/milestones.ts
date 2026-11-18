@@ -18,7 +18,7 @@
  * Nothing here counts anything: a story is dated things that happened, never a tally (founder, Nov 12, 2026).
  */
 import { tierShowsBuiltOnMark } from "@foundmill/config";
-import { repos } from "@foundmill/db";
+import { markBilling, repos, showsBuiltOnMark } from "@foundmill/db";
 import { isShowableTrophyKey, isTrophyKey } from "@foundmill/journey";
 import {
   AppError,
@@ -194,7 +194,7 @@ async function limitedRead<T>(ctx: PublicContext, what: string, scope: Scope, ke
 async function projectFacts(ctx: PublicContext, slug: string): Promise<PublicMilestoneProject | null> {
   const page = await repos.pages.public.bySlug(ctx.db, slug);
   if (!page) return null;
-  const [logo, planTier] = await Promise.all([repos.pages.public.logoBySlug(ctx.db, slug), repos.pages.public.planTierBySlug(ctx.db, slug)]);
+  const [logo, planTier] = await Promise.all([repos.pages.public.logoBySlug(ctx.db, slug), repos.pages.public.planBySlug(ctx.db, slug)]);
   return {
     slug: page.slug,
     name: page.name,
@@ -204,7 +204,7 @@ async function projectFacts(ctx: PublicContext, slug: string): Promise<PublicMil
     brandSecondary: page.brandSecondary,
     logo,
     // Taken down between the reads: no plan to go by, so the mark stays (the free plan's rule, as on the page).
-    mark: tierShowsBuiltOnMark(planTier ?? "free"),
+    mark: planTier ? await showsBuiltOnMark(ctx.db, planTier, markBilling(ctx.env)) : tierShowsBuiltOnMark("free"),
   };
 }
 

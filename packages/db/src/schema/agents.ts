@@ -381,6 +381,12 @@ export const agentSessions = pgTable(
     currency: usdCurrency(),
     outcome: text("outcome"),
     recordingRef: text("recording_ref"),
+    /** 0138 (WP-09 T1): the route the session ran on, the effort the SDK reported, its turns and its cache totals. */
+    route: text("route"),
+    effort: text("effort"),
+    numTurns: integer("num_turns"),
+    cacheReadTokens: minor("cache_read_tokens").notNull().default(0),
+    cacheWriteTokens: minor("cache_write_tokens").notNull().default(0),
     ...timestamps(),
   },
   (t) => [

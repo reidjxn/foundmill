@@ -408,16 +408,21 @@ export const pagesRepo = {
      * themselves, whether the page carries the "Built on" mark (`tierShowsBuiltOnMark`); the plan's name goes no further.
      */
     async planTierBySlug(db: Executor, slug: string): Promise<(typeof businesses.$inferSelect)["planTier"] | null> {
+      return (await pagesRepo.public.planBySlug(db, slug))?.planTier ?? null;
+    },
+
+    /** `planTierBySlug` with the business id, for the mark's paid-entry rule (`showsBuiltOnMark`); never sent to a visitor. */
+    async planBySlug(db: Executor, slug: string): Promise<{ id: string; planTier: (typeof businesses.$inferSelect)["planTier"] } | null> {
       const row = maybeOne(
         await db
-          .select({ planTier: businesses.planTier })
+          .select({ id: businesses.id, planTier: businesses.planTier })
           .from(publicProjectPages)
           .innerJoin(projectPages, eq(projectPages.slug, publicProjectPages.slug))
           .innerJoin(businesses, eq(businesses.id, projectPages.businessId))
           .where(eq(publicProjectPages.slug, slug))
           .limit(1),
       );
-      return row?.planTier ?? null;
+      return row ?? null;
     },
 
     /**

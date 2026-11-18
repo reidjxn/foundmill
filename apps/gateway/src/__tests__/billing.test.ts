@@ -28,18 +28,18 @@ afterAll(() => h?.close());
 
 type Seen = { auth: string; account: string | null; body: URLSearchParams };
 
-function appFor(mode: "mock" | "live", opts: { secretKey?: string; seen?: Seen[]; liveConnectors?: string[] } = {}) {
+function appFor(mode: "mock" | "live", opts: { secretKey?: string; seen?: Seen[]; liveConnectors?: string[]; entryPriceId?: string } = {}) {
   const live = createStripeConnector({
     secrets: opts.secretKey ? { stripeSecretKey: opts.secretKey } : {},
     fetch: routedFetch({
       "POST https://api.stripe.com/v1/checkout/sessions": async (req) => {
         const body = new URLSearchParams(await req.text());
         opts.seen?.push({ auth: req.headers.get("authorization") ?? "", account: req.headers.get("stripe-account"), body });
-        return jsonResponse({ id: "cs_test_platform123456", object: "checkout.session", url: "https://checkout.stripe.com/c/pay/cs_test_platform123456", mode: "payment", status: "open", payment_status: "unpaid", amount_total: Number(body.get("line_items[0][price_data][unit_amount]")), currency: body.get("line_items[0][price_data][currency]"), customer: null, customer_email: body.get("customer_email"), expires_at: 1_792_000_000, metadata: {} });
+        return jsonResponse({ id: "cs_test_platform123456", object: "checkout.session", url: "https://checkout.stripe.com/c/pay/cs_test_platform123456", mode: body.get("mode"), status: "open", payment_status: "unpaid", amount_total: body.get("line_items[0][price]") ? 500 : Number(body.get("line_items[0][price_data][unit_amount]")), currency: body.get("line_items[0][price_data][currency]"), customer: null, customer_email: body.get("customer_email"), expires_at: 1_792_000_000, metadata: {} });
       },
     }),
   });
-  const deps: GatewayDeps = { db, registry: createRegistry([live]), vault: null, mode, liveConnectors: opts.liveConnectors, rateLimits: new MemoryRateLimitStore(), recipients: new UntrustedRecipientRegistry(), log: silentLog };
+  const deps: GatewayDeps = { db, registry: createRegistry([live]), vault: null, mode, liveConnectors: opts.liveConnectors, rateLimits: new MemoryRateLimitStore(), recipients: new UntrustedRecipientRegistry(), log: silentLog, ...(opts.entryPriceId ? { entryPriceId: opts.entryPriceId } : {}) };
   return createGatewayApp(deps, { sessionTokenSecret: TEST_SECRET });
 }
 
@@ -79,6 +79,19 @@ describe("platform checkout sessions", () => {
     expect(call.body.get("success_url")).toContain(`checkout=${checkoutId}`);
     const audit = await repos.audit.list(db, businessId, { action: "gateway.billing.checkout_created" });
     expect(audit.items.find((a) => (a.target as { id?: string }).id === checkoutId)).toMatchObject({ actorKind: "system", details: { mode: "live", sessionId: "cs_test_platform123456", amountMinor: 5000 } });
+  });
+
+  it("live: the entry plan is a subscription on its recurring price; without the price id it says the plan is not set up (WP-09 T16)", async () => {
+    const seen: Seen[] = [];
+    const entry = { ...request(crypto.randomUUID()), kind: "subscription", amountMinor: 500, description: "Foundmill Entry plan" };
+    const res = await post(appFor("live", { secretKey: "sk_test_platform", seen, entryPriceId: "price_entry123" }), entry);
+    expect(res).toMatchObject({ status: 201, body: { mode: "live", session: { amountTotalMinor: 500 } } });
+    expect(seen[0]!.body.get("mode")).toBe("subscription");
+    expect(seen[0]!.body.get("line_items[0][price]")).toBe("price_entry123");
+    expect(seen[0]!.body.get("metadata[foundmill_kind]")).toBe("subscription");
+    const unset = await post(appFor("live", { secretKey: "sk_test_platform", seen }), { ...entry, checkoutId: crypto.randomUUID() });
+    expect(unset).toMatchObject({ status: 503, body: { error: { code: "payments_unconfigured" } } });
+    expect(seen).toHaveLength(1);
   });
 
   it("the platform's billing has its own live switch: `stripe_billing`, not the businesses' `stripe`", async () => {
