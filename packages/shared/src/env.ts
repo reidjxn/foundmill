@@ -117,7 +117,7 @@ const Env = z.object({
    */
   STRIPE_BILLING_WEBHOOK_SECRET: z.string().optional(),
   /** gateway: the Stripe price id of the $5.00-a-month entry plan (WP-09 T16; one recurring price on Foundmill's own account). */
-  STRIPE_ENTRY_PRICE_ID: z.string().regex(/^price_[A-Za-z0-9]+$/).optional(),
+  STRIPE_ENTRY_PRICE_ID: z.string().optional(),
   /**
    * api, ingest, orchestrator: paid entry (WP-09 T16; founder, Nov 17, 2026). Off: invite-only sign-up on the free plan,
    * as today. On: the first AI run of a project needs its owner's $5 entry plan, and credits come as packs. Turned on
