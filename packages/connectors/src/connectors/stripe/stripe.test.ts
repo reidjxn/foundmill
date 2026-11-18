@@ -88,6 +88,20 @@ describe("stripe webhook normalisation and signature details", () => {
     expect(renewal!.payload).toMatchObject({ firstPayment: false, recurring: true });
     expect(renewal!.entityIds).toEqual(first!.entityIds);
   });
+  it("marks a test-mode payment simulated, and a live one not: invoice.paid and a one-off checkout alike", async () => {
+    const normalise = (event: object) => stripeMock.webhooks![0]!.normalise(signedStripeRequest(TEST_BUSINESS_ID, event as never));
+    // The mock signs `livemode: false` unless the event says otherwise, as Stripe does for test mode.
+    for (const [type, object] of [["invoice.paid", ST_INVOICES[0]!], ["checkout.session.completed", ST_CHECKOUT_PAID]] as const) {
+      const [test] = await normalise(evt(type, object));
+      expect(test!.type, type).toBe("payment.received");
+      expect(test!.payload, `${type} in test mode`).toMatchObject({ simulated: true });
+      const [live] = await normalise({ ...evt(type, object), livemode: true });
+      expect(live!.payload, `${type} live`).toMatchObject({ simulated: false });
+    }
+    // Only an explicit `livemode: false` is test mode: Stripe sends the field on every event, and a body without it is not guessed at.
+    const [absent] = await normalise({ ...evt("invoice.paid", ST_INVOICES[0]!), livemode: undefined });
+    expect(absent!.payload).toMatchObject({ simulated: false });
+  });
   it("carries the payer (customer id, email, name) so ingest can link or add the CRM record", async () => {
     const [paid] = await stripeMock.webhooks![0]!.normalise(signedStripeRequest(TEST_BUSINESS_ID, evt("invoice.paid", ST_INVOICES[0]!)));
     expect(paid!.payload).toMatchObject({ customer: { externalId: "cus_MockAnnaLind01", email: "anna.lind@example.com", name: "Anna Lind" }, source: null });

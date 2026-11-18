@@ -7,6 +7,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { repos } from "@foundmill/db";
+import { isRealOutcome } from "@foundmill/shared";
 import { buildAad, encryptJson, generateMasterKey, LocalVault } from "@foundmill/shared/crypto";
 import { createDefaultRegistry, MOCK_NOW, sendgridInboundParseRequest, signedGithubDeliveryRequest, signedShopifyRequest, signedStripeRequest, stripeSignatureHeader } from "@foundmill/connectors";
 import { MOCK_INSTALLATION_ID } from "@foundmill/connectors/connectors/github/fixtures/repos";
@@ -145,6 +146,26 @@ describe("a founder's own Stripe account in staging (WP-11 T20)", () => {
     const elsewhere = await send(live, signedStripeRequest(hz.B.businessId, event("evt_own_2"), { secret: HOOK }));
     expect(elsewhere.status).toBeGreaterThanOrEqual(400);
     expect(await hz.events(hz.B.businessId, "payment.received")).toHaveLength(0);
+  });
+});
+
+describe("a payment from a provider's test mode is never a real outcome (WP-14 T9 security review, Nov 17, 2026)", () => {
+  it("is written simulated, so it counts toward nothing; a live payment through the same route still does", async () => {
+    // Mock-signed deliveries are mounted in test, as the golden path uses them; what is under test is the normaliser's flag.
+    const mocked = hz.build({ env: { APP_ENV: "test", INTEGRATIONS_MODE: "mock", LIVE_CONNECTORS: "", MODEL_MODE: "mock" } as BuiltIngest["env"] });
+    const asOutcome = (r: { type: string; actor: unknown; payload: unknown }) => isRealOutcome({ type: r.type, actor: r.actor as { kind: string; id: string }, payload: r.payload as Record<string, unknown> });
+    const deliver = async (invoice: { id: string }, eventId: string, livemode: boolean) => {
+      const res = await send(mocked, signedStripeRequest(hz.A.businessId, { ...stripeEvent("invoice.paid", { ...ST_INVOICES[0]!, ...invoice }, eventId), account: undefined, livemode }));
+      expect(res.status, eventId).toBe(200);
+      return (await hz.events(hz.A.businessId, "payment.received")).find((r) => (r.payload as { externalId?: string }).externalId === invoice.id)!;
+    };
+    const test = await deliver({ id: "in_testmode_payment_1" }, "evt_testmode_1", false);
+    expect(test.payload).toMatchObject({ simulated: true });
+    expect(asOutcome(test)).toBe(false);
+    const real = await deliver({ id: "in_livemode_payment_1" }, "evt_livemode_1", true);
+    expect(real.payload).toMatchObject({ simulated: false });
+    expect(asOutcome(real)).toBe(true);
+    expect(real.id).not.toBe(test.id);
   });
 });
 

@@ -3,7 +3,7 @@
  * `X-Shopify-Hmac-Sha256` header is base64(HMAC-SHA256(app client secret, raw body)). `X-Shopify-Webhook-Id`
  * is unique per delivery (replay guard), `X-Shopify-Topic` names the event and `X-Shopify-Shop-Domain` the
  * shop (used to resolve the business when the URL does not carry one). `orders/create` (when already paid)
- * and `orders/paid` → `payment.received`; `customers/create` → `signup.created`.
+ * and `orders/paid` → `payment.received` (`simulated` for an order Shopify flags `test`); `customers/create` → `signup.created`.
  */
 import type { ConnectorWebhook, PlatformEvent } from "../../contract";
 import { makeEvent, minorFromDecimal, uuidFromSeed } from "../../mock-utils";
@@ -118,6 +118,8 @@ export function normaliseShopifyEvent(topic: string, payload: unknown, businessI
           fee: null,
           customer: shopifyCustomer(customer),
           source: orderSource(o),
+          // Shopify's own flag for an order placed with a test or bogus gateway: no money moved.
+          simulated: o.test === true,
         },
       }),
     ];
