@@ -159,7 +159,7 @@ export function ProjectPage({ name, pitch, about, forWhom, stage, publishedAt, b
         <footer className="border-t border-line-faint" data-project-mark={mark}>
           <div className="mx-auto flex w-full max-w-reading px-gutter">
             {mark === "visitor" ? (
-              <a href={markHref} className="mark-arrive t-small inline-flex min-h-tap items-center rounded-sm text-secondary transition-colors duration-hover hover:text-primary focus-ring">
+              <a href={markHref} className="mark-arrive t-body inline-flex min-h-tap items-center rounded-sm text-secondary transition-colors duration-hover hover:text-primary focus-ring">
                 {PROJECT_PAGE_WORDS.builtOn}
               </a>
             ) : (
