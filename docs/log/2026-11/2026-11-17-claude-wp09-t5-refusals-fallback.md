@@ -29,6 +29,11 @@ supersedes: []
    meter.
 3. **The fallback prices' cache figures follow the usual ratios** (a write at 1.25x input, a read at 0.1x input). The
    price page was not fetched in this session.
+4. **A founder's own key falls back too (rebase onto WP-13 T11, Nov 18, 2026).** The gateway's own-key route
+   (`apps/gateway/src/model-proxy.ts`) accepted only the fast-mode beta. Every Opus or Sonnet call on a founder's
+   key now carries the fallback beta, so the route refused all of them with 400. It now accepts fast mode and the
+   server-side fallback, alone or together, and forwards the list it was given. The fallback serves another Claude
+   model on the same key, so nothing reaches outside the founder's own Anthropic account.
 
 ## Not done
 - The live smoke of one ordinary Opus call with the beta on, inside D10: no live calls in this session. It is needed

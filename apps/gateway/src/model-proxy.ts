@@ -14,7 +14,7 @@
  * - Per business, a window wide enough for a busy founder (`rl:<businessId>:own_key_models`).
  */
 import { loadByokApiKey, repos } from "@foundmill/db";
-import { FAST_MODE_BETA, MODEL_PROVIDER, MODELS } from "@foundmill/models";
+import { FAST_MODE_BETA, MODEL_PROVIDER, MODELS, SERVER_FALLBACK_BETA } from "@foundmill/models";
 import { GatewayError, safeError, type GatewayDeps } from "./pipeline";
 import { checkRateLimit } from "./rate-limit";
 
@@ -32,6 +32,7 @@ export const OWN_KEY_MODELS_TIMEOUT_MS = 10 * 60_000;
 const REFUSED_FIELDS = ["mcp_servers", "container"] as const;
 
 const ROUTED_ANTHROPIC_MODELS = new Set<string>(Object.entries(MODELS).filter(([key]) => MODEL_PROVIDER[key as keyof typeof MODELS] === "anthropic").map(([, id]) => id));
+const OWN_KEY_BETAS = new Set<string>([FAST_MODE_BETA, SERVER_FALLBACK_BETA]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** In Anthropic's error shape, so the caller's SDK reads it as any API error (status 409 → the "own key missing" sentence). */
@@ -83,10 +84,12 @@ export async function proxyOwnKeyMessage(deps: GatewayDeps, req: OwnKeyMessageRe
   if (REFUSED_FIELDS.some((f) => f in parsed)) return anthropicError(400, "invalid_request_error", "MCP servers and containers do not run on a founder's key.");
   const tools = Array.isArray(parsed.tools) ? (parsed.tools as { type?: unknown }[]) : [];
   if (tools.some((t) => t && typeof t === "object" && t.type !== undefined && t.type !== "custom")) return anthropicError(400, "invalid_request_error", "Server tools do not run on a founder's key.");
-  if (req.anthropicBeta && req.anthropicBeta.split(",").some((b) => b.trim() !== FAST_MODE_BETA)) return anthropicError(400, "invalid_request_error", "That beta does not run on a founder's key.");
+  // Fast mode and the server-side fallback to another Claude model (WP-09 T5) are the only betas a founder's key runs.
+  const betas = req.anthropicBeta ? req.anthropicBeta.split(",").map((b) => b.trim()).filter(Boolean) : [];
+  if (betas.some((b) => !OWN_KEY_BETAS.has(b))) return anthropicError(400, "invalid_request_error", "That beta does not run on a founder's key.");
 
   const headers: Record<string, string> = { "content-type": "application/json", "anthropic-version": req.anthropicVersion ?? "2023-06-01", "x-api-key": key.apiKey };
-  if (req.anthropicBeta) headers["anthropic-beta"] = FAST_MODE_BETA;
+  if (betas.length) headers["anthropic-beta"] = betas.join(",");
   const signal = req.signal ? AbortSignal.any([req.signal, AbortSignal.timeout(OWN_KEY_MODELS_TIMEOUT_MS)]) : AbortSignal.timeout(OWN_KEY_MODELS_TIMEOUT_MS);
   let answer: Response;
   try {

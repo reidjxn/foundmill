@@ -41,7 +41,7 @@ describe("the api's calls on a founder's own key (WP-13 T11)", () => {
     const gw = gateway();
     const result = await client(gw).complete({ route: "chiefOfStaff", messages: [{ role: "user", content: "Plan the week." }], attribution: { businessId: hz.A.businessId, kind: "test" } });
     expect(result.text).toBe("Answered on your key.");
-    expect(gw.calls).toEqual([{ url: `http://gateway.internal:4001/v1/models/anthropic/${hz.A.businessId}/v1/messages`, auth: "Bearer svc-api" }]);
+    expect(gw.calls).toEqual([{ url: `http://gateway.internal:4001/v1/models/anthropic/${hz.A.businessId}/v1/messages?beta=true`, auth: "Bearer svc-api" }]);
     const rows = (await repos.usage.list(hz.db, hz.A.businessId, { limit: 10 })).items;
     expect(rows[0]).toMatchObject({ billedTo: "byok", modelKey: "opus" });
   });
