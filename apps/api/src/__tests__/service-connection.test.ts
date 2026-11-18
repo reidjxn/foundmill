@@ -26,7 +26,7 @@ export const SERVICE_CONNECTION_ROUTERS: Readonly<Record<string, { lines: number
   "team.ts": { lines: 5, why: "mixed", note: "not classified line by line" },
   "logo.ts": { lines: 5, why: "mixed", note: "generated portraits and logos are written by the service" },
   "idea-box.ts": { lines: 5, why: "mixed", note: "a signed-out visitor's card (service-only tables) and the person's own drafts" },
-  "billing.ts": { lines: 9, why: "service_written", note: "checkouts, credit balances and account plans are written by the service after the owner check; paid entry's plan check crosses accounts" },
+  "billing.ts": { lines: 11, why: "service_written", note: "checkouts, credit balances and account plans are written by the service after the owner check; paid entry's plan check crosses accounts" },
   "legal.ts": { lines: 3, why: "mixed", note: "not classified line by line" },
   "founder-businesses.ts": { lines: 2, why: "person", note: "the person's own list of projects" },
   "dev.ts": { lines: 1, why: "mixed", note: "development and test only" },

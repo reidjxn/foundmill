@@ -112,3 +112,38 @@ export async function createPlatformCheckout(deps: GatewayDeps, input: CreateChe
   });
   return { mode, session: { id: created.id, url, expiresAt: created.expiresAt, amountTotalMinor: created.amountTotalMinor ?? input.amountMinor, currency: "USD" } };
 }
+
+export const CreatePortalRequest = z.object({
+  /** The project the subscriber pressed Manage from (the audit row's business). */
+  businessId: z.guid(),
+  /** The subscriber's Stripe customer on the platform account (`account_plans.stripe_customer_id`). */
+  customerId: z.string().regex(/^cus_[A-Za-z0-9]{6,}$/),
+  returnUrl: z.url(),
+});
+export type CreatePortalRequest = z.infer<typeof CreatePortalRequest>;
+
+/**
+ * Stripe's customer portal for an entry-plan subscriber (founder, Nov 18, 2026: canceling is never harder than subscribing):
+ * the person manages or cancels the plan on Stripe's page, and the subscription's events reach ingest as any other.
+ * Live only: the api cancels a simulated plan itself.
+ */
+export async function createPlatformPortal(deps: GatewayDeps, input: CreatePortalRequest, service: string): Promise<{ mode: ConnectorMode; url: string }> {
+  const now = deps.now?.() ?? new Date();
+  const mode = modeFor(deps, PLATFORM_BILLING_LIVE_KEY);
+  const connector = deps.registry.get(STRIPE_KEY, mode);
+  const ctx: ToolContext = { businessId: input.businessId, agentId: NIL_ID, sessionId: input.businessId, integration: platformIntegration(input.businessId, now), log: deps.log, mode };
+  let result;
+  try {
+    result = await connector.callTool("create_billing_portal_session", { customerId: input.customerId, returnUrl: input.returnUrl }, ctx);
+  } catch (e) {
+    if (isConfigError(e)) throw new GatewayError("payments_unconfigured", "Payments are not set up on this server yet (STRIPE_SECRET_KEY is missing on the gateway)", 503);
+    throw e;
+  }
+  if (!result.ok) {
+    deps.log.warn({ businessId: input.businessId, code: result.error?.code, status: result.error?.status }, "billing portal refused");
+    throw new GatewayError("payments_unavailable", `Stripe could not open the billing page: ${result.error?.message ?? "unknown error"}`, 502);
+  }
+  const { url } = z.object({ url: z.string() }).parse(result.data);
+  await repos.audit.append(deps.db, input.businessId, { actorKind: "system", action: "gateway.billing.portal_created", target: { kind: "business", id: input.businessId }, details: { service, mode } });
+  return { mode, url: mode === "live" ? url : input.returnUrl };
+}

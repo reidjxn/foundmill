@@ -18,6 +18,7 @@ import { TRPCError } from "@trpc/server";
 import type { Context } from "../context";
 import { middleware, toTRPCError } from "../trpc";
 import { noteModelCall, notesCalls, withModelCallScope } from "./model-calls";
+import { requireEntryPlanForRun } from "./payments";
 import { RateLimitedError, type LimitEntry, type WindowLimit } from "./rate-limit";
 
 const MINUTE = 60_000;
@@ -86,6 +87,14 @@ export const MODEL_LIMITS = {
 
 export type ModelLimitName = keyof typeof MODEL_LIMITS;
 
+/**
+ * The rules that stay open without the entry plan when `PAID_ENTRY` is on (founder, Nov 18, 2026: "the plan should always
+ * go first"). Everything before the first AI run is free: Take charge and its foundations, and shaping an idea and its
+ * logos, which run before any project exists and so are never gated here. The others listed call a vendor, not a model.
+ * Every other rule, inside a project on the platform key, needs the plan.
+ */
+const OPEN_WITHOUT_PLAN = new Set<ModelLimitName>(["ideation", "commit", "foundations", "lookup", "domains", "checkout", "continueLink", "replyAnswer", "followerUpdate"]);
+
 const scaled = (w: WindowLimit, scale: number): WindowLimit => (scale === 1 ? w : { ...w, limit: Math.max(1, Math.round(w.limit * scale)) });
 
 /**
@@ -128,9 +137,11 @@ export interface ModelLimitOptions {
  */
 export function modelLimited(name: ModelLimitName, options: ModelLimitOptions = {}) {
   return middleware(async ({ ctx, next, getRawInput }) => {
-    const c = ctx as Context & { businessId?: string };
+    const c = ctx as Context & { businessId?: string; business?: { modelBilling: string } | null };
     if (!c.userId) throw new TRPCError({ code: "UNAUTHORIZED", message: "Sign in to continue" });
     if (options.when && !options.when(await getRawInput())) return next();
+    // The plan goes first (402 with the Subscribe request); a project on its own Anthropic key is not on the platform key.
+    if (c.businessId && !OPEN_WITHOUT_PLAN.has(name) && c.business?.modelBilling !== "byok") await requireEntryPlanForRun(c.db, c.env, c.businessId);
     const scope = { userId: c.userId, businessId: c.businessId ?? null };
     // Past 80% of the month's free-plan cap, a free request gets a quarter of its allowances (WP-13 T6).
     const slow = c.freePlanSlow ? await c.freePlanSlow(scope) : false;

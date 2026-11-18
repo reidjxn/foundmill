@@ -210,6 +210,13 @@ export function BillingTab() {
       onError: (e) => t.failed(e, "Checkout not opened"),
     }),
   );
+  // Canceling is one press, as subscribing is (founder, Nov 18, 2026): Stripe's own page, or the simulated cancel here.
+  const manage = useMutation(
+    trpc.billing.manage.mutationOptions({
+      onSuccess: (r) => (r.url ? window.location.assign(r.url) : (void invalidate(["billing", "business"]), t.saved("Plan canceled", r.label ?? undefined))),
+      onError: (e) => t.failed(e, "Billing page not opened"),
+    }),
+  );
   const subscribe = useMutation(
     trpc.billing.subscribe.mutationOptions({
       onSuccess: (r) => {
@@ -255,6 +262,13 @@ export function BillingTab() {
                   {isOwner ? `Subscribe for ${money(entry.priceMonthlyMinor)} a month` : "Owner only"}
                 </Button>
                 {p?.topUp.mode === "mock" && entry.available ? <Chip tone="info">Mock payments</Chip> : null}
+              </div>
+            ) : null}
+            {entry.mine && entry.mine.status !== "canceled" ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button variant="secondary" loading={manage.isPending} onClick={() => manage.mutate({ businessId })} data-testid="manage-plan">
+                  {entry.mine.mode === "mock" ? "Cancel plan (mock)" : "Manage or cancel"}
+                </Button>
               </div>
             ) : null}
             {!entry.available ? <Hint>{p?.topUp.reason}</Hint> : <Hint>You subscribe on Stripe&apos;s secure page and can cancel any time.</Hint>}

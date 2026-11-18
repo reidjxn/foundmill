@@ -97,6 +97,13 @@ export const stripeTools = [
     // A payment page a customer can see and pay: asks first (founder, Nov 16, 2026).
     hints: { irreversible: true },
   }),
+  defineTool({
+    name: "create_billing_portal_session", annotations: { readOnlyHint: false },
+    description: "The platform's own billing only: a link to Stripe's own page where a subscriber to the entry plan manages it.",
+    input: z.object({ customerId: StripeId("cus"), returnUrl: z.url() }),
+    output: z.object({ id: z.string(), url: z.string() }),
+    hints: {},
+  }),
   defineTool({ name: "list_charges", description: "Payments taken, newest first, with how much of each was refunded; filter by customer.", input: z.object({ customerId: StripeId("cus").optional(), limit: z.number().int().min(1).max(100).default(25) }), output: z.object({ items: z.array(Charge), hasMore: z.boolean() }), hints: {}, untrusted: "api", untrustedRef: (a) => `charges:${a.customerId ?? "all"}`, annotations: { readOnlyHint: true } }),
   defineTool({ name: "list_payouts", description: "Recent payouts to the bank account.", input: z.object({ limit: z.number().int().min(1).max(100).default(10) }), output: z.object({ items: z.array(Payout) }), hints: {}, annotations: { readOnlyHint: true } }),
   defineTool({
