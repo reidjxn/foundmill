@@ -11,7 +11,7 @@
 import { serve } from "@hono/node-server";
 import { createServiceDb, closeDb, keepPoolWarm, watchPoolOrExit, type PoolWarmer, type PoolWatchdog } from "@foundmill/db";
 import { createModelClient, effectiveModelMode } from "@foundmill/models";
-import { loadEnv, servicePort } from "@foundmill/shared";
+import { loadEnv, servicePort, topUpsOnSale } from "@foundmill/shared";
 import { createLogger } from "@foundmill/shared/logger";
 import { drainHttpServer, onShutdown } from "@foundmill/shared/shutdown";
 import { installTelemetry } from "@foundmill/shared/telemetry";
@@ -75,13 +75,13 @@ export async function main(): Promise<void> {
   warmer = keepPoolWarm(db, { connections: 4, onError: (err) => log.warn({ err: (err as Error)?.message }, "warming the database pool failed") });
   // A pool that stops answering while the database is fine exits the process; the platform restarts it (DECISIONS 2026-10-19).
   watchdog = watchPoolOrExit({ db, url: env.DATABASE_URL, log, service: "composer" });
-  const platform = createModelClient({ mode: effectiveModelMode(env.MODEL_MODE, env.ANTHROPIC_API_KEY, log), apiKey: env.ANTHROPIC_API_KEY, logger: log, onUsage: createUsageSink(db, log) });
+  const platform = createModelClient({ mode: effectiveModelMode(env.MODEL_MODE, env.ANTHROPIC_API_KEY, log), apiKey: env.ANTHROPIC_API_KEY, logger: log, onUsage: createUsageSink(db, log, { topUps: topUpsOnSale(env) }) });
   // The platform key's ceiling (usage.ts `creditsGate`), and the free plan's model for a business not on a paid plan.
   // A founder's own key reaches the composer's calls through the gateway (WP-13 T11), signed with the composer's own
   // secret (the shared one is held by every service). Unset: an own-key business's calls run as its plan says.
   const composerSecret = env.COMPOSER_SERVICE_TOKEN_SECRET?.trim();
   const ownKey = composerSecret && composerSecret.length >= 32 ? { gatewayUrl: env.GATEWAY_URL, secret: composerSecret, onUsage: createUsageSink(db, log), logger: log } : undefined;
-  const models = composerModelClient(platform, db, env.FREE_PLAN_MONTHLY_CAP_CENTS, ownKey);
+  const models = composerModelClient(platform, db, env.FREE_PLAN_MONTHLY_CAP_CENTS, ownKey, topUpsOnSale(env));
   service = createComposerService({ db, models, log });
   const app = createApp(service, { env, log });
   const port = servicePort(env, "COMPOSER_PORT");

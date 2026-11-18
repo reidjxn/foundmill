@@ -12,6 +12,10 @@
  * own currency: they are never shown with the business's symbol. Third-party spend booked in another currency (tool
  * calls billed by each provider) is listed apart, never added to the US dollar total.
  *
+ * Paid entry (WP-09 T16): while the server's `PAID_ENTRY` is on, `billing.plan.entryPlan` is set, and the tab leads
+ * with the entry plan (Subscribe sends the owner to Stripe's page; mock mode, to the simulated checkout here) and sells
+ * credits as the packs, each with the credits it carries (an Estimate until the price per credit is set).
+ *
  * Every business holds credits (SEC2): on its own key they pay only for conversations, Refresh and planning, which run
  * on the platform's key, and the tab says so; credits from a mock top-up are labeled and never pay for live calls.
  */
@@ -19,7 +23,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Coins, CreditCard, X } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { APP_NAME, CREDITS_CURRENCY, includedCreditsMinor, PRICE_TBA_LABEL, tierIncludedCreditPlaces, TIERS, type TierKey } from "@foundmill/config";
+import { APP_NAME, CREDITS_CURRENCY, ENTRY_PLAN, includedCreditsMinor, PRICE_TBA_LABEL, tierIncludedCreditPlaces, TIERS, TOP_UP_OPTIONS_MINOR, type TierKey } from "@foundmill/config";
 import { Button, Chip, IconButton, KeyValueList, MiniTable, ProvenanceChip, SimpleSelect, StatusPill, Term, formatCompact, useBuilderView, useDateFormat, type DateFormatPrefs, type StatusTone } from "@foundmill/dugout";
 import { PLAN_TIERS } from "@foundmill/shared/constants";
 import { formatMoney, formatMonthYear, formatNumber, plainWords, plural } from "@/lib/format";
@@ -40,7 +44,7 @@ export function tierPriceLabel(tier: TierKey): string {
 }
 
 /** Top-up amounts in US cents (the API's `billing.plan.topUp.options` are the amounts offered; these stand in while it loads). */
-const TOP_UP_OPTIONS = [2500, 5000, 10000, 25000] as const;
+const TOP_UP_OPTIONS = TOP_UP_OPTIONS_MINOR;
 
 /** How model calls are paid for, in words. */
 export const MODEL_BILLING_WORD: Record<string, string> = {
@@ -79,8 +83,11 @@ export function tierFacts(tier: TierKey): string[] {
 type CheckoutView = RouterOutputs["billing"]["checkout"]["status"]["checkout"];
 
 /** What the checkout panel says about a checkout, in words (the founder came back from Stripe, or is paying in mock mode). */
-export function checkoutNotice(checkout: Pick<CheckoutView, "status" | "mode" | "amountMinor" | "currency" | "failure">, opts: { canceled?: boolean; waitedLong?: boolean } = {}): { tone: StatusTone; word: string; text: string } {
+export function checkoutNotice(checkout: Pick<CheckoutView, "status" | "mode" | "amountMinor" | "currency" | "failure"> & { kind?: "credits" | "subscription"; creditsMinor?: number | null }, opts: { canceled?: boolean; waitedLong?: boolean } = {}): { tone: StatusTone; word: string; text: string } {
   const amount = formatMoney({ amountMinor: checkout.amountMinor, currency: checkout.currency });
+  if (checkout.kind === "subscription") return subscriptionNotice(checkout, amount, opts);
+  const credits = checkout.creditsMinor ? formatMoney({ amountMinor: checkout.creditsMinor, currency: checkout.currency }) : null;
+  if (credits && checkout.status === "paid") return { tone: "good", word: "Paid", text: checkout.mode === "mock" ? `${credits} in credits added for ${amount}. Mock top-up: no money moved.` : `${credits} in credits added for ${amount}. Stripe sends the receipt to your email.` };
   switch (checkout.status) {
     case "paid":
       return { tone: "good", word: "Paid", text: checkout.mode === "mock" ? `${amount} in credits added. Mock top-up: no money moved.` : `${amount} in credits added. Stripe sends the receipt to your email.` };
@@ -94,6 +101,24 @@ export function checkoutNotice(checkout: Pick<CheckoutView, "status" | "mode" | 
       return opts.waitedLong
         ? { tone: "warn", word: "Waiting", text: `Stripe has not confirmed the payment of ${amount} yet. The credits appear here once it does; you can leave this page.` }
         : { tone: "info", word: "Confirming", text: `Confirming your payment of ${amount} with Stripe…` };
+  }
+}
+
+/** `checkoutNotice` for the entry plan's checkout (a subscription). */
+function subscriptionNotice(checkout: Pick<CheckoutView, "status" | "mode" | "failure">, amount: string, opts: { canceled?: boolean; waitedLong?: boolean }): { tone: StatusTone; word: string; text: string } {
+  switch (checkout.status) {
+    case "paid":
+      return { tone: "good", word: "Subscribed", text: checkout.mode === "mock" ? `Your ${ENTRY_PLAN.name} plan is on and your team can start. Mock subscription: no money moved.` : `Your ${ENTRY_PLAN.name} plan is on and your team can start. Stripe sends the receipt to your email.` };
+    case "failed":
+      return { tone: "bad", word: "Not subscribed", text: checkout.failure ?? "This checkout could not be opened. Nothing was charged." };
+    case "expired":
+      return { tone: "neutral", word: "Expired", text: "This checkout expired before it was paid. Nothing was charged." };
+    default:
+      if (opts.canceled) return { tone: "neutral", word: "Canceled", text: "Checkout canceled: nothing was charged. Subscribe whenever you like." };
+      if (checkout.mode === "mock") return { tone: "info", word: "Mock checkout", text: `${ENTRY_PLAN.name} plan, ${amount} a month. This server simulates payments: no money moves.` };
+      return opts.waitedLong
+        ? { tone: "warn", word: "Waiting", text: "Stripe has not confirmed the subscription yet. Your plan turns on here once it does; you can leave this page." }
+        : { tone: "info", word: "Confirming", text: "Confirming your subscription with Stripe…" };
   }
 }
 
@@ -125,7 +150,7 @@ function CheckoutPanel({ checkoutId, canceled, onDone }: { checkoutId: string; c
   const complete = useMutation(
     trpc.billing.checkout.completeMock.mutationOptions({
       // Credits back after they ran out: the team resumes by itself, and the toast says so.
-      onSuccess: (r) => (void invalidate(["billing", "business", "team"]), t.saved("Credits added", r.resumed ? `${r.label}. ${r.resumed.agents} agent${r.resumed.agents === 1 ? "" : "s"} resumed.` : r.label)),
+      onSuccess: (r) => (void invalidate(["billing", "business", "team", "cycle"]), r.continued?.started ? t.saved(r.subscribed ? "Subscribed: the team started" : "Credits added: the team started", r.continued.summary ?? r.label) : r.subscribed ? t.saved("Subscribed", r.label) : t.saved("Credits added", r.resumed ? `${r.label}. ${r.resumed.agents} agent${r.resumed.agents === 1 ? "" : "s"} resumed.` : r.label)),
       onError: (e) => t.failed(e, "Not paid"),
     }),
   );
@@ -185,6 +210,22 @@ export function BillingTab() {
       onError: (e) => t.failed(e, "Checkout not opened"),
     }),
   );
+  // Canceling is one press, as subscribing is (founder, Nov 18, 2026): Stripe's own page, or the simulated cancel here.
+  const manage = useMutation(
+    trpc.billing.manage.mutationOptions({
+      onSuccess: (r) => (r.url ? window.location.assign(r.url) : (void invalidate(["billing", "business"]), t.saved("Plan canceled", r.label ?? undefined))),
+      onError: (e) => t.failed(e, "Billing page not opened"),
+    }),
+  );
+  const subscribe = useMutation(
+    trpc.billing.subscribe.mutationOptions({
+      onSuccess: (r) => {
+        if (r.mode === "live") window.location.assign(r.checkoutUrl);
+        else router.replace(`${billingPath}?checkout=${r.checkout.id}`);
+      },
+      onError: (e) => t.failed(e, "Checkout not opened"),
+    }),
+  );
   const [amount, setAmount] = useState<string>(String(TOP_UP_OPTIONS[1]));
 
   if (loadFailed(plan)) return <ErrorPanel title="Billing" message={errorMessage(plan.error)} onRetry={() => void plan.refetch()} />;
@@ -194,12 +235,46 @@ export function BillingTab() {
   const money = (amountMinor: number) => formatMoney({ amountMinor, currency });
   const tierChange = (tier: TierKey) => p?.tierChanges.find((c) => c.tier === tier);
   const closedTiers = PLAN_TIERS.filter((tier) => tier !== p?.tier && tierChange(tier)?.available === false);
-  const topUpOptions = p?.topUp.options ?? TOP_UP_OPTIONS;
+  const topUpOptions: readonly number[] = p?.topUp.options ?? TOP_UP_OPTIONS;
+  // The packs (paid entry) do not hold the free amounts' default: start on the first one offered.
+  const chosen = topUpOptions.includes(Number(amount)) ? amount : String(topUpOptions[0] ?? amount);
+  const entry = p?.entryPlan ?? null;
+  const packCredits = (priceMinor: number) => entry?.packs.find((k) => k.priceMinor === priceMinor)?.creditsMinor ?? null;
 
   return (
     <>
       {refreshFailed(plan) ? <RefreshFailedNotice query={plan} className="flex items-center gap-2" /> : null}
       {returnedCheckout ? <CheckoutPanel key={returnedCheckout} checkoutId={returnedCheckout} canceled={canceled} onDone={closeCheckout} /> : null}
+      {entry ? (
+        <SettingsSection title={`${entry.name} plan`} meta={`${money(entry.priceMonthlyMinor)} a month`}>
+          <div className="flex flex-col gap-3" data-testid="entry-plan" data-open={entry.open ? "true" : "false"}>
+            <div className="flex flex-wrap items-center gap-2">
+              {entry.open ? <StatusPill tone="good">On</StatusPill> : <StatusPill tone="info">Not subscribed</StatusPill>}
+              {entry.mine?.status === "past_due" ? <Chip tone="warn">Payment due</Chip> : null}
+              {entry.mine?.status === "canceled" ? <Chip tone="neutral">Canceled</Chip> : null}
+            </div>
+            <p className="text-body text-primary">
+              {money(entry.priceMonthlyMinor)} a month, with {money(entry.includedCreditsMinor)} of AI included each month. Your page, plan and foundations are yours either way; your team starts by itself as soon as the payment is confirmed.
+            </p>
+            {!entry.open ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button variant="primary" icon={CreditCard} disabled={!isOwner || !entry.available} loading={subscribe.isPending} onClick={() => subscribe.mutate({ businessId, resume: "continue" })} data-testid="subscribe">
+                  {isOwner ? `Subscribe for ${money(entry.priceMonthlyMinor)} a month` : "Owner only"}
+                </Button>
+                {p?.topUp.mode === "mock" && entry.available ? <Chip tone="info">Mock payments</Chip> : null}
+              </div>
+            ) : null}
+            {entry.mine && entry.mine.status !== "canceled" ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button variant="secondary" loading={manage.isPending} onClick={() => manage.mutate({ businessId })} data-testid="manage-plan">
+                  {entry.mine.mode === "mock" ? "Cancel plan (mock)" : "Manage or cancel"}
+                </Button>
+              </div>
+            ) : null}
+            {!entry.available ? <Hint>{p?.topUp.reason}</Hint> : <Hint>You subscribe on Stripe&apos;s secure page and can cancel any time.</Hint>}
+          </div>
+        </SettingsSection>
+      ) : null}
       <SettingsSection wide title="Plan" meta={p ? periodLabel(p.period, datePrefs) : undefined} loading={plan.isLoading}>
         {p ? (
           <>
@@ -230,6 +305,13 @@ export function BillingTab() {
                 },
               ]}
             />
+            {p.atZero ? (
+              <div data-testid="credits-zero">
+                <Hint>
+                  {p.atZero.stopped} {p.atZero.stillWorks} {p.atZero.ways}
+                </Hint>
+              </div>
+            ) : null}
             <div className="grid grid-cols-3 gap-3">
               {PLAN_TIERS.map((tier) => {
                 const current = tier === p.tier;
@@ -268,12 +350,13 @@ export function BillingTab() {
 
       <SettingsSection title={<Term id="credits">Credits</Term>} meta={CREDITS_CURRENCY} loading={plan.isLoading}>
         <div className="flex flex-wrap items-center gap-3">
-          <SimpleSelect aria-label="Top-up amount" controlSize="sm" value={amount} onValueChange={setAmount} options={topUpOptions.map((a) => ({ value: String(a), label: money(a) }))} className="w-40" />
-          <Button variant="primary" icon={Coins} disabled={!isOwner || p?.topUp.available === false} loading={topUp.isPending} onClick={() => topUp.mutate({ businessId, amountMinor: Number(amount), currency: CREDITS_CURRENCY })} data-testid="top-up">
-            {isOwner ? "Top up" : "Owner only"}
+          <SimpleSelect aria-label="Top-up amount" controlSize="sm" value={chosen} onValueChange={setAmount} options={topUpOptions.map((a) => ({ value: String(a), label: packCredits(a) !== null && packCredits(a) !== a ? `${money(a)} (${money(packCredits(a)!)} of team budget)` : money(a) }))} className="w-40" />
+          <Button variant="primary" icon={Coins} disabled={!isOwner || p?.topUp.available === false} loading={topUp.isPending} onClick={() => topUp.mutate({ businessId, amountMinor: Number(chosen), currency: CREDITS_CURRENCY, ...(p?.atZero ? { resume: "continue" as const } : {}) })} data-testid="top-up">
+            {isOwner ? (entry ? "Buy credits" : "Top up") : "Owner only"}
           </Button>
           {p?.topUp.mode === "mock" && p.topUp.available ? <Chip tone="info">Mock payments</Chip> : null}
         </div>
+        {entry ? <Hint>Credits come in packs, and bigger packs add a bonus: $50 adds $52.50, $100 adds $110.00, $250 adds $287.50 and $500 adds $600.00.</Hint> : null}
         {p?.topUp.available === false ? (
           <Hint>{p.topUp.reason}</Hint>
         ) : p?.topUp.mode === "mock" ? (

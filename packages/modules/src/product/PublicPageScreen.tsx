@@ -87,7 +87,7 @@ export interface PageViewResponse {
   canEdit: boolean;
   canPublish: boolean;
   isSample: boolean;
-  preview: { name: string; brandPrimary: string; brandSecondary: string; founderNames: string[] };
+  preview: { name: string; brandPrimary: string; brandSecondary: string; founderNames: string[]; logo?: string | null };
   /** How many people follow the page (package 1.6); absent from an older api. */
   followers?: number;
   /** Whether visitors see the small "Built on" mark (the free plan; docs/NETWORK.md F2); absent from an older api. */
@@ -504,6 +504,7 @@ export function PublicPageScreen(_props: ModuleScreenProps) {
               publishedAt={data.live ? data.publishedAt : null}
               brandPrimary={data.preview.brandPrimary}
               brandSecondary={data.preview.brandSecondary}
+              logo={data.preview.logo ?? null}
               founderNames={founderNames}
               mark={data.mark ? "visitor" : "none"}
               follow={followOpen && content.followForm ? <ProjectFollowForm name={data.preview.name} preview /> : null}

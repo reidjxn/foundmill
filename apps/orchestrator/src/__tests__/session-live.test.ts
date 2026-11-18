@@ -12,6 +12,7 @@
  * they are used up (SEC2 S2).
  */
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { costCoveredMinor } from "@foundmill/config";
 import os from "node:os";
 import path from "node:path";
 import { BYOK_CREDENTIAL_KIND, modelBudgetState, openApprovalItem, periodOf, repos, resumeBusinessAgents, workspaceSnapshots } from "@foundmill/db";
@@ -957,7 +958,8 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
     };
     try {
       const result = await acts.runAgentSession(input, launch);
-      expect(calls.at(-1)!.options.maxBudgetUsd).toBe(0.5);
+      // 50 cents of credits pay for 38 cents at cost: credits are charged at cost plus the markup (Nov 17, 2026).
+      expect(calls.at(-1)!.options.maxBudgetUsd).toBe(costCoveredMinor(50) / 100);
       // The nudge's turn never ran: the session ended before it, with the turn that spent the credits booked.
       expect(nudgeSent).toBe(false);
       expect(result).toMatchObject({ outcome: "blocked", blockedReason: "budget", summary: CREDITS_USED_UP_SUMMARY, tokensIn: 100, tokensOut: 50, costMinor: 60 });

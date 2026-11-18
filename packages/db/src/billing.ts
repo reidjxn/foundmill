@@ -27,8 +27,8 @@
  * `assertPlatformCredits` refuses a call while the month's credits are used up (or stopped for it), and where calls are
  * live, credits granted by a simulated payment never count (`ALLOW_MOCK_PAYMENTS`, docs/DEPLOY.md §4).
  */
-import { APP_NAME, creditsAreLow, CREDITS_CURRENCY, includedCreditsMinor, lowCreditsThresholdMinor, ownPlanFunds, tierIncludedCreditPlaces } from "@foundmill/config";
-import { CreditsExhaustedError, type FundingSource } from "@foundmill/shared";
+import { APP_NAME, chargedMinor, creditsAreLow, tierShowsBuiltOnMark, type TierKey, CREDITS_CURRENCY, includedCreditsMinor, lowCreditsThresholdMinor, ownPlanFunds, tierIncludedCreditPlaces } from "@foundmill/config";
+import { CreditsExhaustedError, platformBillingMode, type Env, type FundingSource } from "@foundmill/shared";
 import { stopBusinessAgents } from "./controls";
 import { repos } from "./repos";
 import type { Executor } from "./repos/_shared";
@@ -155,7 +155,7 @@ export async function includedCreditsFor(db: Executor, business: CreditsBusiness
  * the charge never leaves an empty balance with the team still working (audit BILL-20). A booking with an
  * `idempotencyKey` that was already booked (a retried session end) returns that row and charges nothing.
  */
-export async function bookUsage(db: Executor, businessId: string, input: BookUsageInput, options: { ownPlan?: OwnPlanOptions } = {}): Promise<BookUsageResult> {
+export async function bookUsage(db: Executor, businessId: string, input: BookUsageInput, options: { ownPlan?: OwnPlanOptions; topUps?: boolean; markup?: number } = {}): Promise<BookUsageResult> {
   const { funding: _funding, ...row } = input;
   return db.transaction(async (tx) => {
     // Which source paid is recorded on the row (0104), checked against the business, so only a row the founder's own
@@ -167,14 +167,18 @@ export async function bookUsage(db: Executor, businessId: string, input: BookUsa
     const business = await repos.businesses.get(tx, businessId, { includeArchived: true });
     const period = periodOf(entry.occurredAt);
     // The exact cost (0039): a call under half a cent is carried until the period's charges complete a cent.
-    const charged = await repos.usage.chargeCreditsMicro(tx, businessId, period, Number(entry.costMicroMinor ?? Number(entry.costMinor) * MICRO_PER_MINOR), { includedMinor: (t) => includedCreditsFor(t, business, period, { lock: true }) });
+    // Credits are charged at cost plus the markup (founder, Nov 17, 2026, `CREDIT_MARKUP`); the row keeps the true cost.
+    const trueMicro = Number(entry.costMicroMinor ?? Number(entry.costMinor) * MICRO_PER_MINOR);
+    // `markup` is for the tests of the charge's own mechanics (balances, carries, the pause), which state amounts at cost.
+    const chargeMicro = options.markup === undefined ? chargedMinor(trueMicro) : Math.round(trueMicro * (1 + options.markup));
+    const charged = await repos.usage.chargeCreditsMicro(tx, businessId, period, chargeMicro, { includedMinor: (t) => includedCreditsFor(t, business, period, { lock: true }) });
     if (!charged) return { entry, credits: { enforced: false, balance: null, exhausted: null, pausedAgents: 0, noteId: null } };
     if (charged.exhausted === null) {
       const lowNoteId = await creditsLowNotice(tx, business, period, charged.balance);
       return { entry, credits: { enforced: true, balance: charged.balance, exhausted: null, pausedAgents: 0, noteId: null, lowNoteId } };
     }
     if (charged.exhausted !== "now") return { entry, credits: { enforced: true, balance: charged.balance, exhausted: charged.exhausted, pausedAgents: 0, noteId: null } };
-    const { pausedAgents, noteId } = await creditsUsedUp(tx, business, period, charged.balance);
+    const { pausedAgents, noteId } = await creditsUsedUp(tx, business, period, charged.balance, { topUps: options.topUps });
     return { entry, credits: { enforced: true, balance: charged.balance, exhausted: "now", pausedAgents, noteId } };
   });
 }
@@ -184,8 +188,9 @@ export async function bookUsage(db: Executor, businessId: string, input: BookUsa
  * back; a team on its own key keeps working and is told what waits. `bookUsage` runs it on the charge that used the
  * last credit; Commit runs it for a business that starts a month with nothing included (the founder's pool was used).
  */
-export async function creditsUsedUp(db: Executor, business: Business, period: string, balance: CreditBalance): Promise<{ pausedAgents: number; noteId: string | null }> {
-  return business.modelBilling === "byok" ? noteForOwnKey(db, business, period, balance) : pauseForCredits(db, business, period, balance);
+export async function creditsUsedUp(db: Executor, business: Business, period: string, balance: CreditBalance, options: { topUps?: boolean } = {}): Promise<{ pausedAgents: number; noteId: string | null }> {
+  const topUps = options.topUps ?? false;
+  return business.modelBilling === "byok" ? noteForOwnKey(db, business, period, balance, topUps) : pauseForCredits(db, business, period, balance, topUps);
 }
 
 export interface PlatformCredits {
@@ -276,6 +281,11 @@ export interface CreditsCheckOptions {
    */
   routedTo?: string;
   ownPlan?: OwnPlanOptions;
+  /**
+   * Credits can be bought on this server (packages/shared `topUpsOnSale`). Default false: a refusal never names a
+   * top-up unless the caller says one can be bought (WP-09 T13).
+   */
+  topUps?: boolean;
 }
 
 /**
@@ -319,13 +329,13 @@ async function belowLowLine(db: Executor, business: CreditsBusiness, period: str
 export async function assertPlatformCredits(db: Executor, businessId: string, options: CreditsCheckOptions): Promise<PlatformCreditsCheck> {
   const check = await checkPlatformCredits(db, businessId, options);
   if (check.ok) return check;
-  const next = shortDate(periodRange(check.period).to);
+  const ways = waysToContinue({ topUps: options.topUps ?? false, nextCreditsOn: periodRange(check.period).to, ownKey: check.modelBilling === "byok" });
   const message =
     check.reason === "mock_only"
-      ? `Only simulated credits are left this month, and they never pay for live model calls. Top up with a real payment in Settings › Billing, or wait for next month's credits on ${next}.`
+      ? `Only simulated credits are left this month, and they never pay for live model calls. ${ways}`
       : check.modelBilling === "byok"
-        ? `This month's credits for work on ${APP_NAME}'s key (conversations, Refresh, planning) are used up. Top up in Settings › Billing, or wait for next month's credits on ${next}. Your agents keep working on your own Anthropic key.`
-        : `This month's credits are used up, so ${APP_NAME} makes no more model calls for this business. Top up in Settings › Billing, or wait for next month's credits on ${next}.`;
+        ? `This month's credits for work on ${APP_NAME}'s key (conversations, Refresh, planning) are used up. Your agents keep working on your own Anthropic key. ${ways}`
+        : `This month's credits are used up, so ${APP_NAME} makes no more model calls for this business. ${ways}`;
   throw new CreditsExhaustedError(message, { reason: check.reason ?? "exhausted", businessId, period: check.period, balanceMinor: check.balanceMinor });
 }
 
@@ -344,19 +354,33 @@ function poolSentence(business: Business, balance: CreditBalance): string {
 }
 
 /**
- * The way back when this month's credits are gone, worded for the tier (the Inbox note and a refused call). `pool` is
- * `poolSentence`'s reason for a month that started with nothing included, inserted after the state it explains.
+ * The one sentence of ways to continue once this month's credits are gone (WP-09 T13): credits first where they can be
+ * bought here (`topUps`), the founder's own Anthropic key unless the business already runs on one (`ownKey`), and the
+ * date next month's credits arrive. It names no model: credits buy the same work on every plan.
  */
-function creditsWayBack(tier: Business["planTier"], state: "used up" | "paused", pool = ""): string {
-  if (tier === "free") {
-    const head = `The free plan includes ${usd(includedCreditsMinor("free"))} of model use a month, and this month's is used up`;
-    return state === "paused"
-      ? `${head}, so every agent is paused.${pool} Add your own Anthropic key in Settings → Keys to keep the team working (your key is billed by Anthropic, not by us) and the team resumes by itself; tasks pick up where they stopped.`
-      : `${head}.${pool} Add your own Anthropic key in Settings → Keys to keep working (your key is billed by Anthropic, not by us).`;
-  }
-  return state === "paused"
-    ? `This month's credits are used up, so every agent is paused.${pool} Top up in Settings → Billing, or bring your own Anthropic key in Settings → Keys, and the team resumes by itself; tasks pick up where they stopped.`
-    : `This month's credits are used up.${pool} Top up in Settings → Billing, or bring your own Anthropic key in Settings → Keys, to keep working.`;
+export function waysToContinue(input: { topUps: boolean; nextCreditsOn: Date; ownKey?: boolean }): string {
+  const ways = [
+    ...(input.topUps ? ["add credits in Settings › Billing"] : []),
+    ...(input.ownKey ? [] : ["add your own Anthropic key in Settings › Keys (billed by Anthropic, not by us)"]),
+    `wait for next month's credits on ${shortDate(input.nextCreditsOn)}`,
+  ];
+  const sentence = ways.length === 1 ? ways[0]! : `${ways.slice(0, -1).join(", ")}${ways.length > 2 ? "," : ""} or ${ways.at(-1)}`;
+  return `To keep going, ${sentence}.`;
+}
+
+/** What stops at zero credits, and what still works with no model call (each one a test proves: credits-ceiling.test.ts). */
+export const CREDITS_ZERO_STOPPED = "What stopped: the agents, conversations, Refresh, planning and drafting.";
+export const CREDITS_ZERO_STILL_WORKS = "What still works: reading everything the team wrote, editing and publishing your public page by hand, and answering a note with one of its options.";
+
+/** "Dec 1" (US date, year implied): when next month's included credits arrive. */
+const monthDay = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+
+/**
+ * The personal zero-credits message (founder, Nov 17, 2026): it names no plan, so the plan's name and price stay config,
+ * and the date is when next month's included credits arrive.
+ */
+export function includedAiUsedUp(nextCreditsOn: Date): string {
+  return `You've used all your included AI! It is back on ${monthDay(nextCreditsOn)}. To keep going now, connect your own Anthropic key.`;
 }
 
 /**
@@ -364,7 +388,7 @@ function creditsWayBack(tier: Business["planTier"], state: "used up" | "paused",
  * work until it is lifted) and let the Inbox explain the way back for this tier. A top-up or a stored key lifts this
  * stop by itself (`resumeBusinessAgents`).
  */
-async function pauseForCredits(db: Executor, business: Business, period: string, balance: CreditBalance): Promise<{ pausedAgents: number; noteId: string | null }> {
+async function pauseForCredits(db: Executor, business: Business, period: string, balance: CreditBalance, topUps: boolean): Promise<{ pausedAgents: number; noteId: string | null }> {
   const businessId = business.id;
   const stop = await stopBusinessAgents(db, businessId, { reason: "credits_exhausted" });
   const pausedAgents = stop.paused.length;
@@ -380,12 +404,14 @@ async function pauseForCredits(db: Executor, business: Business, period: string,
   const chief = await repos.agents.chiefOfStaff(db, businessId);
   let noteId: string | null = null;
   if (chief) {
-    const way = creditsWayBack(business.planTier, "paused", poolSentence(business, balance));
+    const head = `${includedAiUsedUp(periodRange(period).to)}${poolSentence(business, balance)}`;
+    const credits = topUps ? " Or add credits in Settings › Billing." : "";
+    const resume = `${topUps ? "Credits or your own key resume" : "Your own key resumes"} the team by itself and tasks pick up where they stopped; after next month's credits arrive, press Resume agents.`;
     const note = await repos.inbox.createItem(db, businessId, {
       type: "warning",
       from_agent_id: chief.id,
       subject: CREDITS_EXHAUSTED_SUBJECT,
-      body_md: `${way} Or wait for next month's credits on ${shortDate(periodRange(period).to)}, then press Resume agents. Conversations, Refresh and planning run on ${APP_NAME}'s key, so they wait for a top-up or next month's credits. Spend so far is an Estimate in US dollars; the model invoice is the real figure.`,
+      body_md: `${head}${credits} ${CREDITS_ZERO_STOPPED} ${CREDITS_ZERO_STILL_WORKS} ${resume} Spend so far is an Estimate in US dollars; the model invoice is the real figure.`,
       status_strip: [],
       exhibit: { kind: "none", spec_ref: null },
       decision: null,
@@ -464,7 +490,7 @@ function creditsLowBody(business: Business, balanceMinor: number, nextMonth: Dat
  * The 100 % action for a business on its own key: its agents keep working on that key, so nothing is stopped; the Inbox
  * says that conversations, Refresh and planning (the platform key's work) wait for a top-up or next month's credits.
  */
-async function noteForOwnKey(db: Executor, business: Business, period: string, balance: CreditBalance): Promise<{ pausedAgents: number; noteId: string | null }> {
+async function noteForOwnKey(db: Executor, business: Business, period: string, balance: CreditBalance, topUps: boolean): Promise<{ pausedAgents: number; noteId: string | null }> {
   const businessId = business.id;
   const chief = await repos.agents.chiefOfStaff(db, businessId);
   let noteId: string | null = null;
@@ -473,7 +499,7 @@ async function noteForOwnKey(db: Executor, business: Business, period: string, b
       type: "warning",
       from_agent_id: chief.id,
       subject: PLATFORM_CREDITS_EXHAUSTED_SUBJECT,
-      body_md: `Your agents run on your own Anthropic key and keep working. Conversations, Refresh and planning run on ${APP_NAME}'s key and use this month's credits, which are used up.${poolSentence(business, balance)} They wait for a top-up in Settings → Billing or next month's credits on ${shortDate(periodRange(period).to)}. Spend so far is an Estimate in US dollars; the model invoice is the real figure.`,
+      body_md: `Your agents run on your own Anthropic key and keep working. Conversations, Refresh and planning run on ${APP_NAME}'s key and use this month's credits, which are used up.${poolSentence(business, balance)} ${waysToContinue({ topUps, nextCreditsOn: periodRange(period).to, ownKey: true })} Spend so far is an Estimate in US dollars; the model invoice is the real figure.`,
       status_strip: [],
       exhibit: { kind: "none", spec_ref: null },
       decision: null,
@@ -486,3 +512,17 @@ async function noteForOwnKey(db: Executor, business: Business, period: string, b
   await repos.audit.append(db, businessId, { actorKind: "system", action: "billing.credits_exhausted", target: { kind: "business", id: businessId }, details: { period, pausedAgents: 0, noteId, planTier: business.planTier, modelBilling: business.modelBilling, teamStopped: false } });
   return { pausedAgents: 0, noteId };
 }
+
+/**
+ * Whether what a project's visitors see carries the small "Built on" mark (founder, 2026-11-12 and 2026-11-17): the free
+ * plan does; a paid plan removes it (`tierShowsBuiltOnMark`); and once sign-up is paid entry (`PAID_ENTRY`), an owner's
+ * credit pack removes it too (WP-09 T16). Where the platform's billing is live only a pack paid on Stripe counts.
+ */
+export async function showsBuiltOnMark(db: Executor, business: { id: string; planTier: TierKey }, billing: { paidEntry: boolean; live: boolean }): Promise<boolean> {
+  if (!tierShowsBuiltOnMark(business.planTier)) return false;
+  if (!billing.paidEntry) return true;
+  return !(await repos.accountPlans.ownerBoughtPack(db, business.id, { live: billing.live }));
+}
+
+/** The `billing` facts of `showsBuiltOnMark` from a service's environment. */
+export const markBilling = (env: Partial<Pick<Env, "PAID_ENTRY">> & Pick<Env, "INTEGRATIONS_MODE" | "LIVE_CONNECTORS">): { paidEntry: boolean; live: boolean } => ({ paidEntry: env.PAID_ENTRY === true, live: platformBillingMode(env) === "live" });

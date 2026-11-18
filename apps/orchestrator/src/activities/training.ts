@@ -243,8 +243,15 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
             cacheSystem: true,
             scope: `training:${agent.id}`,
             attribution,
+            // A refusal is the candidate's answer here, scored below, never an error that ends the run (WP-09 T5).
+            allowRefusal: true,
           });
           costMicroMinor += answer.cost.costMicroMinor;
+          // The candidate declined (the whole fallback chain said no): the test scores 0 and the grader is not called.
+          if (answer.stopReason === "refusal") {
+            scores.push(0);
+            continue;
+          }
           // 2. the sandbox runs the task's tests when the skill has any (mock: canned results per recording)
           let testsPassed: boolean | undefined;
           if (test.checks.some((c) => c.kind === "tests_pass")) {

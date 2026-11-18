@@ -3,7 +3,7 @@
  * input, and the labels. Pure so the rules (1 to 24 cycles a day, 1 to 10 idle cycles, a ceiling in dollars) are tested
  * without a screen. The decision itself, and the plain words for each state, live in @foundmill/shared.
  */
-import { AUTOPILOT_CADENCES, AUTOPILOT_CADENCE_INFO, AUTOPILOT_LIMITS, type AutopilotCadence } from "@foundmill/shared/autopilot";
+import { AUTOPILOT_CADENCES, AUTOPILOT_CADENCE_INFO, AUTOPILOT_LIMITS, isHourlyScheduledCadence, type AutopilotCadence } from "@foundmill/shared/autopilot";
 import { parseSpendCapMinor } from "@/components/new/commit/naming";
 
 export interface AutopilotSettingsLike {
@@ -92,7 +92,7 @@ export function draftChanged(d: AutopilotDraft, saved: AutopilotSettingsLike): b
   const parsed = parseDraft(d);
   if (!parsed.ok) return true;
   const c = parsed.change;
-  return c.cadence !== saved.cadence || (c.cadence === "daily" && c.dailyHour !== saved.dailyHour) || c.maxCyclesPerDay !== saved.maxCyclesPerDay || c.spendCeilingMinor !== saved.spendCeilingMinor || c.maxIdleCycles !== saved.maxIdleCycles || c.ownMaxCyclesPerDay !== (saved.ownMaxCyclesPerDay ?? null) || c.ownSpendCeilingMinor !== (saved.ownSpendCeilingMinor ?? null);
+  return c.cadence !== saved.cadence || (isHourlyScheduledCadence(c.cadence) && c.dailyHour !== saved.dailyHour) || c.maxCyclesPerDay !== saved.maxCyclesPerDay || c.spendCeilingMinor !== saved.spendCeilingMinor || c.maxIdleCycles !== saved.maxIdleCycles || c.ownMaxCyclesPerDay !== (saved.ownMaxCyclesPerDay ?? null) || c.ownSpendCeilingMinor !== (saved.ownSpendCeilingMinor ?? null);
 }
 
 /** "2 of 6 cycles today" */

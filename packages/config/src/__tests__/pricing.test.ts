@@ -87,3 +87,12 @@ describe("who pays for a model call (WP-13)", () => {
     expect(modelFundingFor({ planTier: null, modelBilling: null })).toBe("free_plan");
   });
 });
+
+describe("credit packs (founder, Nov 17, 2026)", () => {
+  it("add their price plus a bonus that grows with the pack, never less than they cost", async () => {
+    const { CREDIT_PACKS_MINOR, creditPackCreditsMinor } = await import("../pricing");
+    expect(CREDIT_PACKS_MINOR.map((p) => creditPackCreditsMinor(p))).toEqual([2000, 5250, 11000, 28750, 60000]);
+    expect(creditPackCreditsMinor(1000)).toBeNull();
+  });
+});
+

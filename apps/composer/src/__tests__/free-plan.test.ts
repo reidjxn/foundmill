@@ -46,7 +46,7 @@ describe("composerModelClient on a founder's own key (WP-13 T11)", () => {
     const note = await client.complete({ route: "inboxComposer", attribution: { businessId: hz.A.businessId, kind: "test" }, messages: [{ role: "user", content: "today" }] });
     expect(note.text).toBe("Your note.");
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.url).toBe(`http://gateway.internal:4001/v1/models/anthropic/${hz.A.businessId}/v1/messages`);
+    expect(calls[0]!.url).toBe(`http://gateway.internal:4001/v1/models/anthropic/${hz.A.businessId}/v1/messages?beta=true`);
     expect(own.map((e) => e.billedTo)).toEqual(["byok"]);
     await client.complete({ route: "inboxComposer", attribution: { businessId: hz.B.businessId, kind: "test" }, messages: [{ role: "user", content: "today" }] });
     expect(calls).toHaveLength(1);

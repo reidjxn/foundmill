@@ -83,7 +83,7 @@ describe("the credits gate on the api's model calls (S2)", () => {
       refusal(owner.plan.preview({ businessId: B, text: "Pause the ads for a week" })),
       refusal(owner.inbox.decide({ businessId: B, itemId: item.id, freeText: "Start the soft launch next Monday" })),
     ]);
-    for (const r of refusals) expect(r).toMatchObject({ code: "PAYMENT_REQUIRED", appCode: "credits_exhausted", message: expect.stringMatching(/^This month's credits are used up, so Foundmill makes no more model calls for this business\. Top up in Settings › Billing/) });
+    for (const r of refusals) expect(r).toMatchObject({ code: "PAYMENT_REQUIRED", appCode: "credits_exhausted", message: expect.stringMatching(/^This month's credits are used up, so Foundmill makes no more model calls for this business\. To keep going, add your own Anthropic key in Settings › Keys/) });
     // Nothing was spent: no ledger row, and the decision is still open.
     expect(await ledgerRows(B)).toBe(before);
     expect((await repos.inbox.get(hz.db, B, item.id)).state).not.toBe("answered");
@@ -101,7 +101,7 @@ describe("the credits gate on the api's model calls (S2)", () => {
       // A free business's call runs on Haiku 5.5 (WP-13) and costs a fraction of a cent: whole cents plus the carry.
       expect(Number(charged?.spentMinor) * 1_000_000 + Number(charged?.carryMicroMinor ?? 0)).toBeGreaterThan(0);
       await useUpCredits(A);
-      expect(await refusal(owner.plan.preview({ businessId: A, text: "Pause the ads for a week" }))).toMatchObject({ code: "PAYMENT_REQUIRED", message: expect.stringMatching(/Your agents keep working on your own Anthropic key\.$/) });
+      expect(await refusal(owner.plan.preview({ businessId: A, text: "Pause the ads for a week" }))).toMatchObject({ code: "PAYMENT_REQUIRED", message: expect.stringMatching(/Your agents keep working on your own Anthropic key\. To keep going, wait for next month's credits on [A-Z][a-z]{2} 1, \d{4}\.$/) });
       // The plan shows those credits for a business on its own key as well.
       expect((await owner.billing.plan({ businessId: A })).credits).toMatchObject({ balanceMinor: 0, exhausted: true });
     } finally {

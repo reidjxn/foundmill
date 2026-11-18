@@ -83,7 +83,7 @@ export interface GatewayHealth {
 export interface GatewayCheckoutRequest {
   businessId: string;
   checkoutId: string;
-  kind: "credits";
+  kind: "credits" | "subscription";
   amountMinor: number;
   currency: "USD";
   description: string;
@@ -333,6 +333,8 @@ export interface ApiGatewayClient {
   /** A company-registry lookup for Legal › Import; asked only when the registry runs live. */
   registryLookup(input: GatewayRegistryLookupRequest): Promise<GatewayRegistryLookup>;
   createCheckout(input: GatewayCheckoutRequest): Promise<GatewayCheckout>;
+  /** Stripe's customer portal for an entry-plan subscriber on the platform account (manage or cancel the plan). */
+  createPortal?(input: { businessId: string; customerId: string; returnUrl: string }): Promise<{ mode: "mock" | "live"; url: string }>;
   /** Registry answers for up to eight domain names, on behalf of one founder (the gateway's rate-limit scope). */
   checkDomains(ownerKey: string, domains: string[]): Promise<GatewayDomainAnswer[]>;
   /**
@@ -455,6 +457,7 @@ export function createApiGatewayClient(opts: CreateApiGatewayClientOptions): Api
     disconnect: (businessId, connector) => post<{ released: boolean }>("/v1/integrations/disconnect", { businessId, connector }),
     release: (businessId, connector, externalAccountId) => post<{ released: boolean }>("/v1/integrations/release", { businessId, connector, externalAccountId }),
     createCheckout: (input) => post<GatewayCheckout>("/v1/billing/checkout-sessions", input),
+    createPortal: (input) => post<{ mode: "mock" | "live"; url: string }>("/v1/billing/portal-sessions", input),
     checkDomains: async (ownerKey, domains) => (await post<{ results: GatewayDomainAnswer[] }>("/v1/domains/check", { ownerKey, domains })).results,
     generatePortrait: (personaKey, businessId, style) => post<GatewayPortrait>("/v1/personas/portrait", { personaKey, ...(style ? { style } : {}), ...(businessId ? { businessId } : {}) }, Math.max(timeoutMs, PORTRAIT_TIMEOUT_MS)),
     repository: (businessId, owner, repo) => post<{ mode: "mock" | "live"; repository: GatewayRepository }>("/v1/github/repository", { businessId, owner, repo }),

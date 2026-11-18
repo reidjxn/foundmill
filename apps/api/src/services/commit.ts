@@ -44,6 +44,7 @@ import { WORKFLOWS, workflowIds, type TemporalResult } from "./temporal";
 import { importJobIdOf, resolveImportLink, seedFoundations, type ImportLink, type ScoutingReportLike } from "./foundations";
 import { queueImportReads } from "./import";
 import { seedConceptSources } from "./concept-sources";
+import { accountPlanOpen } from "./payments";
 
 export interface CommitIdeaInput {
   ideaId: string;
@@ -180,7 +181,7 @@ function uniqueSlug(name: string): string {
  * `importKey` returns the key import job ids are signed with (`importJobKey(env)`); it is only called for an idea that
  * Import drafted, so a Door A commit never needs it.
  */
-export async function commitIdea(db: Db, temporal: TemporalService, userId: string, input: CommitIdeaInput, importKey: () => string, deps: { log?: Pick<ApiLogger, "warn">; env?: Pick<Env, "APP_ENV" | "INTEGRATIONS_MODE" | "LIVE_CONNECTORS"> } = {}): Promise<CommitIdeaResult> {
+export async function commitIdea(db: Db, temporal: TemporalService, userId: string, input: CommitIdeaInput, importKey: () => string, deps: { log?: Pick<ApiLogger, "warn">; env?: Pick<Env, "APP_ENV" | "INTEGRATIONS_MODE" | "LIVE_CONNECTORS" | "MODEL_MODE" | "ALLOW_MOCK_PAYMENTS"> & Partial<Pick<Env, "PAID_ENTRY">> } = {}): Promise<CommitIdeaResult> {
   const idea = await repos.ideas.get(db, userId, input.ideaId);
   if (idea.committedAt) return committedIdeaResult(db, userId, input.ideaId);
   // Door B: the Import job this idea was drafted from (recorded by idea.generate), verified again (signed for this
@@ -189,6 +190,11 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
   const importLink = importJobId ? await resolveImportLink(db, importKey(), importJobId, userId) : null;
   const seed = getArchetypeSeed(input.archetype);
   const hasBudget = input.hasBudget ?? true;
+  // Paid entry (WP-09 T16): without the entry plan the project, its page, plan and foundations are created as always, but
+  // no cycle starts and Autopilot stays off until the founder subscribes (Continue then starts cycle 1).
+  // Without the environment the gate cannot be read: closed, never open (the router always passes it).
+  const planOpen = deps.env ? await accountPlanOpen(db, deps.env, userId) : false;
+  const autopilotOn = Boolean(input.autopilot) && planOpen;
   const businessMode = input.businessMode ?? DEFAULT_BUSINESS_MODE;
   // The business keeps its money in the currency the founder chose (their profile's unless they changed it): stored on
   // the business itself (0025), which every business amount and every screen reads, and on the rows created here. Every
@@ -229,7 +235,7 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
     const businessId = business.id;
     await repos.memberships.add(tx, businessId, { userId, role: "owner", source: "founder" });
     // "Run on autopilot": on from the first minute, audited like turning it on in Settings.
-    if (input.autopilot) {
+    if (autopilotOn) {
       const overnight = input.overnight ? { cadence: OVERNIGHT_SHIFT.cadence, dailyHour: overnightUtcHour(isValidTimeZone(input.overnight.timeZone) ? input.overnight.timeZone : null), ownMaxCyclesPerDay: OVERNIGHT_SHIFT.ownMaxCyclesPerDay, ownSpendCeilingMinor: OVERNIGHT_SHIFT.ownSpendCeilingMinor } : {};
       const on = await repos.autopilot.set(tx, businessId, { enabled: true, ...overnight });
       await repos.audit.append(tx, businessId, { actorKind: "user", actorId: userId, action: "autopilot.turn_on", target: { kind: "business", id: businessId }, details: { enabled: true, cadence: on.business.autopilotCadence, maxCyclesPerDay: on.business.autopilotMaxCyclesPerDay, via: input.overnight ? "commit_overnight" : "commit" } });
@@ -452,7 +458,7 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
   // plan's approval, Continue or the first overnight shift, and is still cycle 1 (cycles are numbered from history).
   // A free project on credits runs it one session at a time under the first-round cap (WP-09 T11).
   const firstRound = firstCycleInput({ modelBilling: result.business.modelBilling, tier: result.business.planTier });
-  const cycle = hasBudget ? await temporal.start(WORKFLOWS.businessCycle, { workflowId: workflowIds.cycle(result.business.id, 1), args: [{ businessId: result.business.id, cycleNumber: 1, trigger: "continue", ...firstRound }] }) : null;
+  const cycle = hasBudget && planOpen ? await temporal.start(WORKFLOWS.businessCycle, { workflowId: workflowIds.cycle(result.business.id, 1), args: [{ businessId: result.business.id, cycleNumber: 1, trigger: "continue", ...firstRound }] }) : null;
   // The first cycle exists from here on, even while the orchestrator has not picked it up: Continue shows it and Pause reaches it.
   if (cycle && cycle.queued && !cycle.alreadyStarted) await repos.audit.append(db, result.business.id, { actorKind: "user", actorId: userId, action: QUEUE_ACTION, target: { kind: "cycle", id: cycle.workflowId }, details: { cycleNumber: 1, workflowId: cycle.workflowId, trigger: "continue" } });
   // Door B: the sign-up job read nothing; this is the import that reads the sources (or marks them not read).
@@ -460,7 +466,7 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
   // The starters are on the board, but their engines wait for the founder's Start distribution (services/signoff.ts).
   // Autopilot starts after the first cycle, which it waits for (and for the sign-off notes, which block Continue); with no
   // cycle at commit, its first scheduled look starts cycle 1.
-  const autopilot = input.autopilot ? await startAutopilotWorkflow({ businessId: result.business.id, temporal }) : null;
+  const autopilot = autopilotOn ? await startAutopilotWorkflow({ businessId: result.business.id, temporal }) : null;
   return { ...result, cycle, import: imported, engines: [], autopilot, alreadyCommitted: false };
 }
 

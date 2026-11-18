@@ -135,6 +135,17 @@ export const MODEL_CAPABILITIES: Record<ModelKey, ModelCapabilities> = {
 export const FAST_MODE_BETA = "fast-mode-2026-02-01";
 
 /**
+ * Server-side refusal fallback (WP-09 T5): on Opus and Sonnet a declined request is re-run by the API on the model it
+ * recommends for the refusal's category (`fallbacks: "default"`), instead of coming back as a refusal. Haiku 5.5 has no
+ * server-side fallback (a `fallbacks` value there is a 400), so it never carries it.
+ */
+export const SERVER_FALLBACK_BETA = "server-side-fallback-2026-07-01";
+/** The model keys whose requests carry `fallbacks: "default"`. */
+export const SERVER_FALLBACK_KEYS: readonly string[] = ["opus", "sonnet"];
+/** Models a fallback may be served by (priced in pricing.ts `priceForServed`). Never routed to. */
+export const FALLBACK_SERVED_MODELS = { opus5: "claude-opus-5", opus48: "claude-opus-4-8", sonnet5: "claude-sonnet-5" } as const;
+
+/**
  * Models that think by default (Opus 5.5 and Sonnet 5.5: adaptive thinking cannot be turned off; Haiku 5.5 thinks
  * unless told not to, which this platform never does; GLM-5.3 Flash cannot turn it off), and the thinking counts toward
  * `max_tokens`.

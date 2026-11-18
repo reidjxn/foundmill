@@ -167,6 +167,17 @@ test.describe("settings, plain words", () => {
     await expect(anthropic.getByTestId("manage-in-keys")).toHaveAttribute("href", /\/settings\/keys$/);
   });
 
+  test("Integrations: Stripe has its own box above the other connectors, and appears once (founder, Nov 18, 2026)", async ({ page }) => {
+    const screen = await openSettings(page, "integrations");
+    const box = screen.getByTestId("stripe-payments");
+    await expect(box).toBeVisible({ timeout: LONG });
+    await expect(box).toContainText("Accept payments with Stripe");
+    await expect(box.locator('[data-connector="stripe"]')).toHaveCount(1);
+    await expect(screen.getByTestId("connector-list").locator('[data-connector="stripe"]')).toHaveCount(0);
+    const [boxTop, listTop] = await Promise.all([box.boundingBox(), screen.getByTestId("connector-list").boundingBox()]);
+    expect(boxTop!.y).toBeLessThan(listTop!.y);
+  });
+
   test("Integrations: a live API-key connector asks for the founder's own key (masked) and connects with it", async ({ page }) => {
     // The e2e stack runs connectors in mock mode; the list answer is replayed with SendGrid marked live, as with LIVE_CONNECTORS.
     await page.route(/\/trpc\/[^?]*integrations\.list/, async (route) => {
@@ -219,10 +230,19 @@ test.describe("settings, plain words", () => {
     await expect(screen.getByTestId("oauth-finish")).toHaveCount(0);
     await expect(page).not.toHaveURL(/oauth_/);
 
-    // With a code and the state, one button finishes it (not pressed here: this spec saves nothing).
+    // With a code and the state, it finishes by itself with no press (founder, Nov 18, 2026). The request is caught
+    // here, so this spec saves nothing; the address loses the code either way.
+    let sent: Record<string, unknown> | null = null;
+    await page.route(/\/trpc\/[^?]*integrations\.connect/, async (route) => {
+      // The call can ride in a batch: take the entry for integrations.connect by its place in the path.
+      const procedures = decodeURIComponent(new URL(route.request().url()).pathname.split("/trpc/")[1] ?? "").split(",");
+      const body = JSON.parse(route.request().postData() ?? "{}") as Record<string, { json?: Record<string, unknown> }>;
+      sent = body[String(procedures.indexOf("integrations.connect"))]?.json ?? null;
+      await route.abort();
+    });
     await page.goto(`${B}/settings/integrations?oauth_connector=gmail&oauth_code=4%2F0Adeu5&oauth_state=${encodeURIComponent(state)}`);
-    await settled(page);
-    await expect(settingsScreen(page).getByTestId("oauth-finish").getByRole("button", { name: "Connect Gmail" })).toBeVisible({ timeout: LONG });
+    await expect.poll(() => sent, { timeout: LONG }).toMatchObject({ connectorKey: "gmail", input: { code: "4/0Adeu5", state } });
+    await expect(page).not.toHaveURL(/oauth_/, { timeout: LONG });
   });
 
   test("Your words and Departments: the glossary tab is called Your words, no retired default words, modules named in words", async ({ page }) => {

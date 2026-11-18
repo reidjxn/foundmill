@@ -39,7 +39,10 @@ export type Speed = "standard" | "fast";
 /** Where a call's cost should be booked. All fields optional; forwarded verbatim to `onUsage`. */
 export interface UsageAttribution {
   businessId?: string;
-  /** The person a call with no business is for (a draft before commit): who pays is read from their plan (WP-13). */
+  /**
+   * The person a call with no business is for (a draft before commit): who pays is read from their plan (WP-13), and
+   * the call is booked to their account usage and capped per account (WP-09 T2).
+   */
   userId?: string;
   agentId?: string;
   sessionId?: string;
@@ -62,6 +65,8 @@ export interface CompleteRequest<T = unknown> {
    * generation rejects `temperature` with a 400, so the live client drops it there and logs at debug level.
    */
   temperature?: number;
+  /** A refusal comes back as the answer (`stopReason: "refusal"`) instead of throwing `ModelOutputError("refusal")`. */
+  allowRefusal?: boolean;
   /** Put a prompt-cache breakpoint on the system blocks (BUILD §10.4: brief + instructions are cached). */
   cacheSystem?: boolean;
   /** Per-agent model choice (BUILD §11.10 "Model selection"); subject to the route's lock/warn rules. */
@@ -131,6 +136,8 @@ export interface CompleteResult<T = unknown> {
   /** Routing warning (e.g. a locked route ignored an override). */
   warning?: string;
   /** Effort sent with the call (route default or the request's), when any. */
+  /** The model that served the call when a server-side fallback answered (WP-09 T5). */
+  servedModel?: string;
   effort?: Effort;
   /** Speed the call ran at (live only; `fast` when Opus fast mode served it). */
   speed?: Speed;
@@ -160,6 +167,12 @@ export interface UsageEvent {
   attempt: number;
   /** True for a `streamStructured()` stream (an interrupted stream reports what it had used, as an estimate). */
   streamed?: boolean;
+  /** The model that served the call when it is not the one asked for (a server-side refusal fallback, WP-09 T5). */
+  servedModel?: string;
+  /** The served model has no price here: metered at the requested model's card (Estimate). */
+  unpriced?: boolean;
+  /** A batch result (WP-09 T8): a sink books it with idempotency key `batch:${id}:${customId}`, so it is booked once. */
+  batch?: { id: string; customId: string };
   /** `fast` when Opus fast mode served the call (metered at the fast-mode price). */
   speed?: Speed;
   /**
@@ -199,7 +212,26 @@ export interface ModelClient {
    * mock and gated clients implement it; optional so hand-written test doubles stay valid.
    */
   searchWeb?(req: WebSearchRequest): Promise<WebSearchResult>;
+  /**
+   * The Message Batches API (WP-09 T8): half price, results within a day. Call through `submitBatch`, `batchEnded` and
+   * `collectBatch` (batch.ts). The live, mock and gated clients implement them; optional for test doubles.
+   */
+  submitBatch?(items: readonly BatchItem[]): Promise<{ batchId: string; count: number }>;
+  /** `businessId`: whose key submitted it (a client that routes by business reads it there after a restart). */
+  batchEnded?(batchId: string, businessId?: string): Promise<boolean>;
+  collectBatch?<T>(batchId: string, items: readonly BatchItem<T>[]): Promise<BatchItemResult<T>[]>;
 }
+
+/** One request of a batch: `customId` is letters, digits, "_" and "-", at most 64 characters, unique in the batch. */
+export interface BatchItem<T = unknown> {
+  customId: string;
+  request: CompleteRequest<T>;
+}
+
+/** One item's outcome. A batch is single-shot: a refused, cut-off or invalid answer is not repaired. */
+export type BatchItemResult<T = unknown> =
+  | { customId: string; ok: true; result: CompleteResult<T> }
+  | { customId: string; ok: false; kind: "errored" | "canceled" | "expired" | "refusal" | "invalid_output"; message: string };
 
 export interface WebSearchRequest {
   query: string;

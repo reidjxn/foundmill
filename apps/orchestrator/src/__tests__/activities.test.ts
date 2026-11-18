@@ -6,7 +6,7 @@
  */
 import { getSkillTests, getTemplateByAgentType, storedCustomTest } from "@foundmill/agents";
 import { assets, openApprovalItem, periodOf, postAttributions, repos, resumeBusinessAgents, stopBusinessAgents } from "@foundmill/db";
-import { createModelClient } from "@foundmill/models";
+import { MODELS, createModelClient, meter } from "@foundmill/models";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createChannelActivities, emptyChannelState, launchApprovalReason, weeklyBudgetMinor } from "../activities/channel";
 import { createCycleActivities } from "../activities/cycle";
@@ -121,6 +121,16 @@ describe("training run (BUILD §11.10)", () => {
     expect(skills.find((s) => s.skillKey === "library_release_notes")).toMatchObject({ tested: null, displayed: 10 });
   });
 
+  it("the usage sink books the cache figures and counts them in quantity (WP-09 T1)", async () => {
+    const log = { debug() {}, info() {}, warn() {}, error() {} };
+    const usage = { inputTokens: 10, outputTokens: 5, cacheCreationInputTokens: 3, cacheReadInputTokens: 2 };
+    const before = new Set((await repos.usage.list(t.db, t.businessId, { limit: 500 })).items.map((u) => u.id));
+    await usageSink(t.db, log as never)({ route: "worker", model: MODELS.sonnet, modelKey: "sonnet", mode: "live", billedTo: "credits", usage, cost: meter(usage, MODELS.sonnet), attribution: { businessId: t.businessId }, durationMs: 1, occurredAt: new Date().toISOString(), attempt: 0 });
+    const row = (await repos.usage.list(t.db, t.businessId, { limit: 500 })).items.find((u) => !before.has(u.id))!;
+    expect(Number(row.quantity)).toBe(20);
+    expect((row.details as { tokens: unknown }).tokens).toEqual({ input: 10, output: 5, cacheRead: 2, cacheWrite: 3 });
+  });
+
   it("books each model call once: the run's own row is a count of tests at no cost (O-19, BILL-10)", async () => {
     // The mock client metered like the live one: every answer and grader call reaches the ledger through the usage sink.
     const log = { debug() {}, info() {}, warn() {}, error() {} };
@@ -151,6 +161,29 @@ describe("training run (BUILD §11.10)", () => {
     const wage = (await repos.usage.wages(t.db, t.businessId, periodOf(new Date()))).find((w) => w.agentId === agent.id);
     expect(wage?.trainingMinor).toBeGreaterThan(0);
     expect(wage?.trainingMinor).toBeLessThanOrEqual(wage?.costMinor ?? 0);
+  });
+
+  it("a candidate's refusal scores that test 0 and calls no grader (WP-09 T5)", async () => {
+    const graderCalls: string[] = [];
+    const real = t.deps.models;
+    const refusing = {
+      ...real,
+      complete: (async (req: { route: string }) => {
+        if (req.route === "skillGrader") graderCalls.push(req.route);
+        const r = await (real.complete as unknown as (q: unknown) => Promise<Record<string, unknown>>).call(real, req);
+        return req.route === "skillGrader" ? r : { ...r, stopReason: "refusal", text: "" };
+      }) as unknown as typeof real.complete,
+    };
+    const acts = createTrainingActivities({ ...t.deps, models: refusing });
+    const agent = await repos.agents.get(t.db, t.businessId, t.workerId);
+    const live = await repos.agents.getVersion(t.db, t.businessId, agent.currentVersionId!);
+    const draft = await repos.agents.createVersion(t.db, t.businessId, agent.id, { instructions: live.instructions as never, tools: live.tools, modelKey: "opus", state: "draft", createdByKind: "user" });
+    const run = await repos.training.create(t.db, t.businessId, { agentId: agent.id, fromVersionId: live.id, toVersionId: draft.id });
+    const loaded = await acts.loadTrainingRun({ businessId: t.businessId, trainingRunId: run.id });
+    const outcome = await acts.runSkillTests({ businessId: t.businessId, trainingRunId: run.id, agentId: agent.id, draftVersionId: draft.id, skillKey: loaded.skillKeys[0]!, modelKey: "opus" });
+    expect(outcome.testsRun).toBeGreaterThan(0);
+    expect(outcome.meanScore).toBe(0);
+    expect(graderCalls).toEqual([]);
   });
 
   it("refuses to train against the live version and caps scores when a deterministic check failed", async () => {

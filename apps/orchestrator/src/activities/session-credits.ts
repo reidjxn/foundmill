@@ -14,9 +14,10 @@
  * business's own key never comes here: its spend is the founder's, billed by Anthropic.
  */
 import { grantsActOutside } from "@foundmill/connectors";
+import { costCoveredMinor } from "@foundmill/config";
 import { bookUsage, checkPlatformCredits, repos } from "@foundmill/db";
 import { resolveModel, type RouteKey, type RouteResolution } from "@foundmill/models";
-import type { ModelKey, ModuleKey } from "@foundmill/shared";
+import { topUpsOnSale, type ModelKey, type ModuleKey } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
 
 /** The modules whose agents do money and legal work: low credits never move their sessions to a lower-cost model. */
@@ -55,7 +56,17 @@ export function keptModelForRun(launch: { modelKey: ModelKey; lowCredits?: boole
 /** How often a running session books its spend and re-reads the balance between turns. */
 export const SESSION_CREDIT_CHECK_MS = 15_000;
 
-export const CREDITS_USED_UP_SUMMARY = "Blocked: this month's credits are used up, so the session stopped. What it spent is booked; the task runs again after a top-up in Settings › Billing or with next month's credits.";
+/**
+ * A session stopped at zero credits (WP-09 T13): what it spent is booked, and the ways on, credits first only where they
+ * can be bought here (`topUps`, packages/shared `topUpsOnSale`).
+ */
+export function creditsUsedUpSummary(topUps: boolean): string {
+  const ways = topUps ? "after credits are added in Settings › Billing, with your own Anthropic key in Settings › Keys, or with next month's credits" : "with your own Anthropic key in Settings › Keys or with next month's credits";
+  return `Blocked: this month's credits are used up, so the session stopped. What it spent is booked; the task runs again ${ways}.`;
+}
+
+/** The summary where the caller does not know whether credits are on sale: it names no top-up. */
+export const CREDITS_USED_UP_SUMMARY = creditsUsedUpSummary(false);
 
 export interface SpentSoFar {
   tokensIn: number;
@@ -91,7 +102,8 @@ export class SessionCredits {
   static async open(deps: OrchestratorDeps, session: { businessId: string; agentId: string; sessionId: string; modelKey: ModelKey }): Promise<SessionCreditsOpen> {
     const check = await checkPlatformCredits(deps.db, session.businessId, { live: true, now: deps.clock.now() });
     if (!check.ok) return { ok: false, reason: check.reason === "mock_only" ? "only simulated credits are left this month, and they never pay for live model calls" : "this month's credits are used up" };
-    return { ok: true, credits: new SessionCredits(deps, session, check.spendableMinor) };
+    // Credits are charged at cost plus the markup (Nov 17, 2026): the session may spend, at cost, what they cover.
+    return { ok: true, credits: new SessionCredits(deps, session, costCoveredMinor(check.spendableMinor)) };
   }
 
   /** The Agent SDK's `maxBudgetUsd`: what is spendable at launch, in US dollars. */
@@ -133,7 +145,7 @@ export class SessionCredits {
           billedTo: "credits",
           occurredAt: this.deps.clock.now(),
           details: { source: "claude-agent-sdk", label: "Estimate", partial: true },
-        });
+        }, { topUps: topUpsOnSale(this.deps.env) });
         this.bookedMinor += costMinor;
         this.bookedTokens += tokens;
         if (booked.credits?.exhausted) return "exhausted";

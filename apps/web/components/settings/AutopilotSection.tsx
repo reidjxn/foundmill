@@ -10,7 +10,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { AutopilotChip, Button, ErrorState, Field, Input, Label, MoneyInput, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Skeleton, Switch, Term } from "@foundmill/dugout";
-import { AUTOPILOT_LIMITS } from "@foundmill/shared/autopilot";
+import { AUTOPILOT_LIMITS, isHourlyScheduledCadence } from "@foundmill/shared/autopilot";
 import { CADENCE_OPTIONS, HOUR_OPTIONS, cyclesTodayLine, draftChanged, draftOf, parseDraft, type AutopilotDraft } from "@/lib/autopilot";
 import { formatMoney } from "@/lib/format";
 import { errorMessage, type RouterOutputs } from "@/lib/trpc";
@@ -23,7 +23,7 @@ type Status = RouterOutputs["business"]["autopilot"]["get"];
 
 /** The one-line help under the switch: what Autopilot does and what it never does. */
 /** Autopilot's own limits (founder, 2026-11-12: split from the ones Continue shares). */
-export const AUTOPILOT_OWN_LIMITS_HINT = "These count only the rounds of work Autopilot starts on its own schedule, so they never hold back Continue. The overnight shift starts with 1 round of work and $0.15 a night.";
+export const AUTOPILOT_OWN_LIMITS_HINT = "These count only the rounds of work Autopilot starts on its own schedule, so they never hold back Continue. The overnight shift starts with 1 round of work and $0.45 every third night.";
 
 export const AUTOPILOT_HELP = "Autopilot presses Continue for you on a schedule. It never answers notes for you.";
 
@@ -69,7 +69,7 @@ function SettingsForm({ businessId, status }: { businessId: string; status: Stat
             </SelectContent>
           </Select>
         </Field>
-        {draft.cadence === "daily" ? (
+        {isHourlyScheduledCadence(draft.cadence) ? (
           <Field htmlFor="autopilot-hour" label="At this hour">
             <Select value={draft.dailyHour} onValueChange={(v) => patch({ dailyHour: v })}>
               <SelectTrigger id="autopilot-hour" controlSize="lg" data-testid="autopilot-hour">

@@ -24,9 +24,9 @@
  * consent id and a prefix of the address hash, never the address.
  */
 import { z } from "zod";
-import { APP_NAME, tierShowsBuiltOnMark } from "@foundmill/config";
-import { repos } from "@foundmill/db";
-import { builtOnWords, FOLLOW_CONFIRM_EMAIL, FOLLOW_CONFIRM_TTL_MS, FOLLOW_CONFIRMATION_MAIL_CLASS, mockResultsAllowed, PLATFORM_MAIL_SECRET_MIN_LENGTH, platformMailAddress } from "@foundmill/shared";
+import { APP_NAME } from "@foundmill/config";
+import { repos, showsBuiltOnMark } from "@foundmill/db";
+import { builtOnWords, FOLLOW_CONFIRM_EMAIL, FOLLOW_CONFIRM_TTL_MS, FOLLOW_CONFIRMATION_MAIL_CLASS, mockResultsAllowed, PLATFORM_BILLING_LIVE_KEY, PLATFORM_MAIL_SECRET_MIN_LENGTH, platformMailAddress } from "@foundmill/shared";
 import {
   DEV_PLATFORM_MAIL_SECRET,
   followConfirmNonceHash,
@@ -135,7 +135,7 @@ export async function sendFollowConfirmation(deps: GatewayDeps, input: ConfirmFo
   const connector = deps.registry.get(PLATFORM_MAIL_KEY, mode);
   let result;
   try {
-    result = await connector.callTool("send_mail", { to: { email }, subject: FOLLOW_CONFIRM_EMAIL.subject(projectName), text: FOLLOW_CONFIRM_EMAIL.text(projectName, APP_NAME, link, tierShowsBuiltOnMark(business.planTier) ? builtOnWords(APP_NAME).foot(projectName) : null) }, ctx);
+    result = await connector.callTool("send_mail", { to: { email }, subject: FOLLOW_CONFIRM_EMAIL.subject(projectName), text: FOLLOW_CONFIRM_EMAIL.text(projectName, APP_NAME, link, (await showsBuiltOnMark(deps.db, business, { paidEntry: deps.paidEntry === true, live: modeFor(deps, PLATFORM_BILLING_LIVE_KEY) === "live" })) ? builtOnWords(APP_NAME).foot(projectName) : null) }, ctx);
   } catch (e) {
     if (isConfigError(e)) {
       await counted.release();

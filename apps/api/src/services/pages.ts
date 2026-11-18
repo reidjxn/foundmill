@@ -31,7 +31,7 @@ import { communityScreenLocalFlags } from "@foundmill/agents";
 import { tierShowsBuiltOnMark } from "@foundmill/config";
 import { siteSlugProblem, sitesDomain } from "@foundmill/shared/sites";
 import { createHash, createHmac, randomBytes } from "node:crypto";
-import { awardPageLiveMilestone, repos, type DbTx, type InboxItem, type ProjectPage } from "@foundmill/db";
+import { awardPageLiveMilestone, markBilling, repos, showsBuiltOnMark, type DbTx, type InboxItem, type ProjectPage } from "@foundmill/db";
 import {
   AppError,
   FOLLOW_ERRORS,
@@ -98,7 +98,8 @@ export interface PageView {
   /** A sample business never has a public page. */
   isSample: boolean;
   /** What the preview draws: the business's name, brand colors and the names "Built by" would show. */
-  preview: { name: string; brandPrimary: string; brandSecondary: string; founderNames: string[] };
+  /** `logo`: the business's checked logo as a `data:` URL, the same one the published page shows; null for none. */
+  preview: { name: string; brandPrimary: string; brandSecondary: string; founderNames: string[]; logo: string | null };
   /** How many people follow the page now (package 1.6): a count only, never who. */
   followers: number;
   /** Whether the page carries the small "Built on" mark for its visitors (the free plan; docs/NETWORK.md F2). */
@@ -135,11 +136,12 @@ export async function suggestedSlug(ctx: BusinessContext): Promise<string> {
  * Inside the caller's transaction: everything that needs the service connection (`suggestedSlug`) is asked before it.
  */
 async function viewOf(tx: DbTx, ctx: BusinessContext, row: ProjectPage | null, suggested: string | null = null): Promise<PageView> {
-  const [draft, founderNames, followers] = await Promise.all([
+  const [draft, founderNames, followers, logo] = await Promise.all([
     // A draft saved before the follow form existed reads with it on, like every new page; the published copy reads as it went out.
     row ? Promise.resolve(readPageContent(row.draft, true) ?? starterPageDraft({ businessName: ctx.business.name })) : repos.pages.starterInputs(tx, ctx.businessId).then((inputs) => starterPageDraft({ businessName: ctx.business.name, ...inputs })),
     repos.pages.ownerNames(tx, ctx.businessId),
     row ? repos.followers.count(tx, ctx.businessId) : Promise.resolve(0),
+    repos.logos.get(tx, ctx.businessId).then((l) => l?.dataUrl ?? null),
   ]);
   const slug = row?.slug ?? suggested ?? suggestPageSlug(ctx.business.slug || ctx.business.name);
   const published = row ? readPageContent(row.published) : null;
@@ -156,9 +158,9 @@ async function viewOf(tx: DbTx, ctx: BusinessContext, row: ProjectPage | null, s
     canEdit: canEditPage(ctx),
     canPublish: canPublishPage(ctx),
     isSample: ctx.business.isDemo,
-    preview: { name: ctx.business.name, brandPrimary: ctx.business.kitPrimary, brandSecondary: ctx.business.kitSecondary, founderNames },
+    preview: { name: ctx.business.name, brandPrimary: ctx.business.kitPrimary, brandSecondary: ctx.business.kitSecondary, founderNames, logo },
     followers,
-    mark: tierShowsBuiltOnMark(ctx.business.planTier),
+    mark: await showsBuiltOnMark(ctx.db, ctx.business, markBilling(ctx.env)),
     followAvailable: followAvailable(ctx.env),
   };
 }
@@ -386,7 +388,7 @@ export async function publicPageBySlug(ctx: Pick<Context, "db" | "env" | "limits
     await takeOrThrow(ctx.limits, "Page view", [{ key: publicPageLimitKeys.unknown, rule: PUBLIC_PAGE_LIMITS.unknown }]);
     return null;
   }
-  const [logo, planTier, story] = await Promise.all([repos.pages.public.logoBySlug(ctx.db, clean), repos.pages.public.planTierBySlug(ctx.db, clean), repos.pages.public.hasStory(ctx.db, clean)]);
+  const [logo, planTier, story] = await Promise.all([repos.pages.public.logoBySlug(ctx.db, clean), repos.pages.public.planBySlug(ctx.db, clean), repos.pages.public.hasStory(ctx.db, clean)]);
   const { pitch, about, forWhom, stage, showFounders, followForm } = page.content;
   return {
     slug: page.slug,
@@ -403,7 +405,7 @@ export async function publicPageBySlug(ctx: Pick<Context, "db" | "env" | "limits
     founderNames: showFounders ? page.founderNames : [],
     followForm: followForm && followAvailable(ctx.env),
     // Taken down between the two reads: no plan to go by, so the mark stays (the free plan's rule).
-    mark: tierShowsBuiltOnMark(planTier ?? "free"),
+    mark: planTier ? await showsBuiltOnMark(ctx.db, planTier, markBilling(ctx.env)) : tierShowsBuiltOnMark("free"),
     story,
   };
 }

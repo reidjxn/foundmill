@@ -25,6 +25,10 @@ export interface AccountColumn {
 export const ACCOUNT_COLUMNS: Readonly<Record<string, AccountColumn>> = {
   "account_admissions.user_id": { export: false, onDelete: "cascade", note: "the admission record; the person is told they were let in" },
   "account_events.user_id": { export: true, onDelete: "cascade", omit: ["idempotency_key"] },
+  // 0140 (WP-09 T16): the person's entry plan; the Stripe ids stay with the services, as the client grant has it.
+  "account_plans.user_id": { export: true, onDelete: "cascade", omit: ["stripe_customer_id", "stripe_subscription_id"] },
+  // 0138 (WP-09 T2): model calls the person made before a project; the costs are the platform's, read by service only.
+  "account_usage.user_id": { export: false, onDelete: "cascade", note: "the platform's metered cost of calls before a project, an Estimate for Foundmill's cost report" },
   "account_outbox.user_id": { export: false, onDelete: "cascade", note: "the delivery queue of the person's own events; the events themselves are exported" },
   "account_preferences.user_id": { export: true, onDelete: "cascade" },
   "adult_confirmations.user_id": { export: true, onDelete: "cascade" },

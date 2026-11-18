@@ -29,6 +29,7 @@ import { alreadyRunningSummary, orchestratorUnreachableSummary, resumedSummary, 
 import { redispatchPlans } from "./plans";
 import { AgentsStoppedError, assertAgentsRunning } from "./stop-guard";
 import { SIGNALS, WORKFLOWS, workflowIds, type TemporalResult } from "./temporal";
+import { requireEntryPlanForRun } from "./payments";
 
 export const CYCLE_OUTCOMES = ["completed", "time_box", "waiting", "stopped", "failed"] as const;
 
@@ -312,6 +313,8 @@ async function noteRefusedPress(ctx: BusinessContext, reason: "stopped" | "vacat
  * cycle (none when one is open already). Without Temporal one in-process step runs, as before, and no run starts.
  */
 export async function startCycle(ctx: BusinessContext): Promise<StartCycleResult> {
+  // Paid entry (WP-09 T16): no cycle and no plan to pay for until an owner subscribes; the drafts stay as they are.
+  await requireEntryPlanForRun(ctx.db, ctx.env, ctx.businessId);
   // The stop, the Continue state and the cycle status are read at once (one wave of independent reads; until 2026-10-15
   // the status was read three times, one after another). A stopped team is still refused first.
   const first = cycleStatus(ctx);

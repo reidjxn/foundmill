@@ -11,12 +11,15 @@ import { creditsAreLow, includedCreditsMinor, LOW_CREDITS_FLOOR_MINOR, LOW_CREDI
 import { CreditsExhaustedError } from "@foundmill/shared";
 import { buildAad, createVault, encryptJson, generateMasterKey } from "@foundmill/shared/crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { agentWorkFunding, assertPlatformCredits, bookUsage, chargesCredits, fundingOfRow, checkPlatformCredits, creditsState, CREDITS_EXHAUSTED_SUBJECT, CREDITS_LOW_AUDIT_ACTION, CREDITS_LOW_SUBJECT, includedCreditsFor, PLATFORM_CREDITS_EXHAUSTED_SUBJECT, platformCredits } from "../billing";
+import { agentWorkFunding, assertPlatformCredits, bookUsage as bookUsageAtCost, chargesCredits, fundingOfRow, checkPlatformCredits, creditsState, CREDITS_EXHAUSTED_SUBJECT, CREDITS_ZERO_STILL_WORKS, CREDITS_ZERO_STOPPED, waysToContinue, CREDITS_LOW_AUDIT_ACTION, CREDITS_LOW_SUBJECT, includedCreditsFor, PLATFORM_CREDITS_EXHAUSTED_SUBJECT, platformCredits } from "../billing";
 import { BYOK_CREDENTIAL_KIND, LEGACY_BYOK_CREDENTIAL_KIND, loadByokApiKey } from "../byok";
 import { resumeBusinessAgents, stopBusinessAgents } from "../controls";
 import { settleCreditCheckout } from "../payments";
 import { repos } from "../repos";
 import { setupRepoHarness, type RepoHarness } from "./repos/helpers";
+
+/** These tests state amounts at cost: the charge's own mechanics, without the markup (its test is in billing-markup.test.ts). */
+const bookUsage: typeof bookUsageAtCost = (db, businessId, input, options = {}) => bookUsageAtCost(db, businessId, input, { markup: 0, ...options });
 
 let r: RepoHarness;
 beforeAll(async () => {
@@ -103,8 +106,12 @@ describe("bookUsage", () => {
     const note = await repos.inbox.get(r.db, A(), last.credits!.noteId!);
     expect(note.type).toBe("warning");
     expect(note.subject).toBe(CREDITS_EXHAUSTED_SUBJECT);
-    expect(note.bodyMd).toMatch(/own Anthropic key in Settings → Keys/);
-    expect(note.bodyMd).toMatch(/\$5\.00/);
+    // The founder's wording (Nov 17, 2026): no plan named, the date next month's credits arrive, the own key.
+    expect(note.bodyMd).toMatch(/^You've used all your included AI! It is back on [A-Z][a-z]{2} 1\. To keep going now, connect your own Anthropic key\./);
+    // What stopped, what still works, and the ways on (WP-09 T13). No top-up is named unless the caller says one can be bought.
+    expect(note.bodyMd).toContain(CREDITS_ZERO_STOPPED);
+    expect(note.bodyMd).toContain(CREDITS_ZERO_STILL_WORKS);
+    expect(note.bodyMd).not.toMatch(/Top up|add credits/i);
     expect(note.bodyMd).toMatch(/Estimate/);
     const audit = await repos.audit.list(r.db, A(), { action: "billing.credits_exhausted" });
     expect(audit.items).toHaveLength(1);
@@ -122,12 +129,12 @@ describe("bookUsage", () => {
     expect((await repos.usage.creditBalance(r.db, r.B.businessId, PERIOD))?.spentMinor).toBe(125);
   });
 
-  it("on a paid tier the warning offers a top-up or the founder's own key", async () => {
+  it("where credits can be bought, the warning offers them first, then the founder's own key and the date (WP-09 T13)", async () => {
     const B = r.B.businessId;
     await repos.businesses.update(r.db, B, { planTier: "pro" });
-    const done = await bookUsage(r.db, B, { ...tokens(includedCreditsMinor("pro") + 1, "credits", 3, 11), agentId: r.B.agentId });
+    const done = await bookUsage(r.db, B, { ...tokens(includedCreditsMinor("pro") + 1, "credits", 3, 11), agentId: r.B.agentId }, { topUps: true });
     expect(done.credits).toMatchObject({ exhausted: "now", balance: { period: "2026-12", balanceMinor: 0 } });
-    expect((await repos.inbox.get(r.db, B, done.credits!.noteId!)).bodyMd).toMatch(/Top up in Settings → Billing, or bring your own Anthropic key/);
+    expect((await repos.inbox.get(r.db, B, done.credits!.noteId!)).bodyMd).toMatch(/^You've used all your included AI! It is back on Jan 1\. To keep going now, connect your own Anthropic key\. Or add credits in Settings › Billing\./);
   });
 
   it("a business on its own key pays for the platform key's calls with its credits: its team keeps working, and one note says what waits (SEC2 S2)", async () => {
@@ -356,8 +363,9 @@ describe("low credits (the credit saver)", () => {
     expect(await repos.businesses.agentsStopped(r.db, business.id)).toBe(true);
     const note = await repos.inbox.get(r.db, business.id, done.credits!.noteId!);
     expect(note).toMatchObject({ subject: CREDITS_EXHAUSTED_SUBJECT, blocksContinue: true });
-    expect(note.bodyMd).toMatch(/Top up in Settings → Billing, or bring your own Anthropic key in Settings → Keys/);
-    expect(note.bodyMd).toMatch(/Or wait for next month's credits on Jan 1, 2028, then press Resume agents/);
+    expect(note.bodyMd).toMatch(/It is back on Jan 1\. To keep going now, connect your own Anthropic key\./);
+    expect(note.bodyMd).toMatch(/after next month's credits arrive, press Resume agents/);
+    expect(note.bodyMd).not.toMatch(/Top up|add credits/i);
     await expect(assertPlatformCredits(r.db, business.id, { live: false, now: new Date(Date.UTC(2027, 11, 20)) })).rejects.toMatchObject({ code: "credits_exhausted" });
   });
 });
@@ -490,5 +498,15 @@ describe("loadByokApiKey", () => {
     for (const m of await repos.credentials.listMetadata(r.db, B, { integrationId: integration.id })) await repos.credentials.revoke(r.db, B, m.id);
     await repos.integrations.disconnect(r.db, B, integration.id);
     expect(await loadByokApiKey(r.db, vault, B)).toBeNull();
+  });
+});
+
+describe("waysToContinue (WP-09 T13)", () => {
+  const on = new Date(Date.UTC(2026, 11, 1));
+  it("names credits only where they can be bought, the own key unless the business has one, and always the date", () => {
+    expect(waysToContinue({ topUps: true, nextCreditsOn: on })).toBe("To keep going, add credits in Settings › Billing, add your own Anthropic key in Settings › Keys (billed by Anthropic, not by us), or wait for next month's credits on Dec 1, 2026.");
+    expect(waysToContinue({ topUps: false, nextCreditsOn: on })).toBe("To keep going, add your own Anthropic key in Settings › Keys (billed by Anthropic, not by us) or wait for next month's credits on Dec 1, 2026.");
+    expect(waysToContinue({ topUps: true, nextCreditsOn: on, ownKey: true })).toBe("To keep going, add credits in Settings › Billing or wait for next month's credits on Dec 1, 2026.");
+    expect(waysToContinue({ topUps: false, nextCreditsOn: on, ownKey: true })).toBe("To keep going, wait for next month's credits on Dec 1, 2026.");
   });
 });

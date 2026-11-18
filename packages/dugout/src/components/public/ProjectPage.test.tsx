@@ -31,12 +31,12 @@ describe("ProjectPage", () => {
     expect(screen.getByText("Published Oct 7, 2026")).toBeTruthy();
   });
 
-  it("for a visitor the mark is the one link: small, with a 44 px target, to where it is told", () => {
+  it("for a visitor the mark is the one link: body size (one step above the follow form's notices), with a 44 px target, to where it is told", () => {
     render(<ProjectPage {...props} markHref="/?via=p.northwind" />);
     const link = screen.getByRole("link", { name: `Built on ${APP_NAME}` });
     expect(link.getAttribute("href")).toBe("/?via=p.northwind");
     expect(link.className).toContain("min-h-tap");
-    expect(link.className).toContain("t-small");
+    expect(link.className).toContain("t-body");
     expect(link.className).toContain("mark-arrive");
     expect(document.querySelectorAll("a")).toHaveLength(1);
     expect(document.querySelector("[data-project-mark]")!.getAttribute("data-project-mark")).toBe("visitor");
@@ -49,6 +49,7 @@ describe("ProjectPage", () => {
     const words = screen.getByText(PROJECT_PAGE_WORDS.builtOn);
     expect(words.tagName).toBe("P");
     expect(words.className).toContain("text-tertiary");
+    expect(words.className).toContain("t-small");
     expect(words.className).not.toContain("mark-arrive");
   });
 

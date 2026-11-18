@@ -19,6 +19,7 @@ import { AppError, formatMoney, type TaskStatus } from "@foundmill/shared";
 import { assertAgentsRunning } from "./stop-guard";
 import { WORKFLOWS, workflowIds, type TemporalResult } from "./temporal";
 import { audit, emit, type BusinessContext } from "../trpc";
+import { assertEntryPlan } from "./payments";
 
 /** Statuses a task may be started from by hand (Start on the Plan): never while running, in review or done. */
 export const STARTABLE_TASK_STATUSES = ["planned", "ready", "paused", "blocked", "failed", "stopped"] as const satisfies readonly TaskStatus[];
@@ -72,6 +73,8 @@ export interface TaskStarted {
 /** Start `taskId` now, as Plan's Start does; throws `TaskStartError` (409) or `TaskNotStartedError` (503) when it cannot. */
 export async function startTaskByHand(ctx: BusinessContext, taskId: string): Promise<TaskStarted> {
   await assertAgentsRunning(ctx, "the task");
+  // Paid entry (WP-09 T16): an agent's work waits for the entry plan, however it is started.
+  await assertEntryPlan(ctx.db, ctx.env, ctx.businessId);
   const task = await ctx.rls((tx) => repos.tasks.get(tx, ctx.businessId, taskId));
   if (!(STARTABLE_TASK_STATUSES as readonly TaskStatus[]).includes(task.status)) throw new TaskStartError(task.status === "running" ? "The task is already running." : `The task is ${task.status}; it cannot be started again.`, { status: task.status });
   const [open, dependencies] = await ctx.rls((tx) => Promise.all([repos.agents.listSessions(tx, ctx.businessId, { taskId: task.id, openOnly: true, limit: 1 }), repos.tasks.openDependencies(tx, ctx.businessId, task.id)]));

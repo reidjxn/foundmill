@@ -33,6 +33,7 @@ import { assertAgentsRunning } from "./stop-guard";
 import { planTaskGraph } from "./task-graph";
 import { startTaskByHand } from "./task-start";
 import type { TemporalResult } from "./temporal";
+import { assertEntryPlan } from "./payments";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Views
@@ -540,6 +541,8 @@ export function scoringTaskFor(available: readonly ChannelKey[]): { title: strin
 export async function startDistribution(ctx: BusinessContext, input: { via: "board" | "inbox"; itemId?: string | null }): Promise<StartDistributionResult> {
   if (!isAdminRole(ctx.role)) throw new ForbiddenError("Owners, cofounders and admins start distribution.");
   await assertAgentsRunning(ctx, "distribution");
+  // Paid entry (WP-09 T16): the channel engines are agents' work, so they wait for the entry plan like Continue.
+  await assertEntryPlan(ctx.db, ctx.env, ctx.businessId);
   const seed = ctx.business.archetype ? getArchetypeSeed(ctx.business.archetype) : null;
 
   const written = await ctx.rls(async (tx) => {

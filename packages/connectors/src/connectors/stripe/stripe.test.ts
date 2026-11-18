@@ -28,6 +28,7 @@ describeConnectorContract("stripe (mock)", {
     { tool: "send_invoice", args: { invoiceId: "in_MockAnna0001Paid" }, expectOk: false, check: (r) => expect(r.error?.status).toBe(400) },
     { tool: "create_checkout_session", args: { mode: "payment", lines: [{ description: "Sample kit", amountMinor: 12_000, currency: "EUR" }], successUrl: "https://northwind.example/ok", cancelUrl: "https://northwind.example/cancel" }, check: (r) => expect(r.data).toMatchObject({ mode: "payment", paymentStatus: "unpaid", amountTotalMinor: 12_000, url: expect.stringContaining("checkout.stripe.com") }) },
     { tool: "create_checkout_session", args: { mode: "subscription", successUrl: "https://northwind.example/ok", cancelUrl: "https://northwind.example/cancel" }, expectOk: false, check: (r) => expect(r.error?.code).toBe("invalid_args") },
+    { tool: "create_billing_portal_session", args: { customerId: "cus_MockAnnaLind01", returnUrl: "https://foundmill.test/billing" }, check: (r) => expect((r.data as { url: string }).url).toContain("billing.stripe.com") },
     { tool: "list_payouts", args: { limit: 2 }, check: (r) => expect((r.data as { items: unknown[] }).items).toHaveLength(2) },
   ],
   webhooks: [
@@ -247,7 +248,7 @@ describe("stripe live (canned responses)", () => {
 
   it("money never goes out: no Stripe tool that refunds, pays out, transfers or cancels has a handler, each stays a hard gate, and only money-in and read tools run (CLAUDE.md Never; founder, Nov 17, 2026)", async () => {
     const MONEY_OUT = /refund|payout|transfer|cancel|void|delete|reverse|credit_note|onboarding/i;
-    const RUNS = ["create_checkout_session", "create_customer", "create_invoice", "get_account", "get_balance", "get_customer", "get_invoice", "list_charges", "list_customers", "list_invoices", "list_payouts", "send_invoice"];
+    const RUNS = ["create_billing_portal_session", "create_checkout_session", "create_customer", "create_invoice", "get_account", "get_balance", "get_customer", "get_invoice", "list_charges", "list_customers", "list_invoices", "list_payouts", "send_invoice"];
     const reached: string[] = [];
     const live = createStripeConnector({ secrets: { stripeSecretKey: "sk_test_platform" }, fetch: (async (input: RequestInfo | URL) => (reached.push(String(input instanceof Request ? input.url : input)), new Response("{}", { status: 500 }))) as typeof fetch });
     const names = live.tools.map((t) => t.name);
@@ -319,6 +320,9 @@ describe("stripe live (canned responses)", () => {
     await expect(connector.callTool("get_balance", {}, ctx)).rejects.toMatchObject({ code: "connector_unconfigured" });
     // A stored row is never the platform's: any other id, or a credential reference, is refused.
     await expect(connector.callTool("create_checkout_session", args, { ...ctx, integration: { ...platform, id: crypto.randomUUID() } })).rejects.toMatchObject({ code: "connector_unconfigured" });
+    // The billing portal opens for Foundmill's own subscribers only: a business's own record reaches no Stripe account.
+    const portal = { customerId: "cus_MockAnnaLind01", returnUrl: "https://foundmill.com/billing" };
+    expect(await connector.callTool("create_billing_portal_session", portal, makeToolContext(connector, { mode: "live" }))).toMatchObject({ ok: false });
     expect(seen).toHaveLength(1);
   });
   it("throws ConfigError without any key", async () => {

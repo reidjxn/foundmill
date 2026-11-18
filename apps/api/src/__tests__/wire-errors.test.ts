@@ -6,7 +6,7 @@
  */
 import { TRPCError } from "@trpc/server";
 import { repos, withRls } from "@foundmill/db";
-import { clearPlatformBillingRefusal, ModelBillingError, notePlatformBillingRefusal } from "@foundmill/models";
+import { clearPlatformBillingRefusal, ModelBillingError, ModelOutputError, notePlatformBillingRefusal } from "@foundmill/models";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app";
 import { requestIdFrom } from "../request-id";
@@ -126,6 +126,16 @@ describe("model calls Anthropic refused to bill (audit BILL-06, CML-07)", () => 
     const mapped = toTRPCError(new ModelBillingError("refused", "spend_limit", "byok", 429, "rate_limit_error"));
     expect(mapped.code).toBe("PAYMENT_REQUIRED");
     expect(mapped.message).toMatch(/your Anthropic account has reached its spend limit\. Raise the limit in the Anthropic Console/);
+  });
+});
+
+describe("model refusals (WP-09 T5)", () => {
+  it("reach the founder as one plain sentence, 422, never as an answer or an internal error", () => {
+    const refused = new ModelOutputError('Model refused the request for route "foundations"', { stopDetails: { category: "cyber" } }, "refusal");
+    const mapped = toTRPCError(new TRPCError({ code: "INTERNAL_SERVER_ERROR", cause: refused }));
+    expect(mapped.code).toBe("UNPROCESSABLE_CONTENT");
+    expect(mapped.message).toBe("The model declined this request. Reword it and try again.");
+    expect((mapped.cause as { code?: string }).code).toBe("model_refused");
   });
 });
 
