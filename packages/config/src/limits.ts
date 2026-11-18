@@ -69,9 +69,14 @@ export const LIMITS = {
   /** Requests to one person per day, so request, withdraw and request again is stopped quickly. */
   liveRequestsPerPairPerDay: 3,
   liveMessagesPerUserPerMinute: 20,
+  liveMessagesPerUserPerHour: 200,
   liveMessagesPerThreadPerMinute: 10,
   livePostsPerUserPerMinute: 6,
-  livePostsPerUserPerHour: 60,
+  livePostsPerUserPerHour: 40,
+  /** New communities, invitations to a community and post reports per person (counted in the shared store, so every replica agrees). */
+  liveCommunitiesPerUserPerDay: 3,
+  liveInvitesPerUserPerDay: 50,
+  liveReportsPerUserPerHour: 30,
   /** Messages a thread shows at first (and per "Load earlier"). */
   liveMessagePageSize: 50,
   /** Largest tRPC request body the api reads (bytes); a request carrying a logo file may be larger (`trpcMaxLogoBodyBytes`). */

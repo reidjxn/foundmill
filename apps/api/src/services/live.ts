@@ -25,43 +25,6 @@ import { publishUserSignal, type StreamRedis, type UserSignalKind } from "@found
 import { ModerationOutput, type ModelClient } from "@foundmill/models";
 import { ForbiddenError } from "@foundmill/shared";
 import type { ApiLogger } from "./log";
-import { RateLimitedError, SlidingWindowLimiter, type WindowLimit } from "./rate-limit";
-
-// ---------------------------------------------------------------------------------------------------------------------
-// Limits
-// ---------------------------------------------------------------------------------------------------------------------
-
-const MINUTE = 60_000;
-const HOUR = 60 * MINUTE;
-const DAY = 24 * HOUR;
-
-/** Per signed-in person. A post (new or edited) is one moderation model call. */
-export const LIVE_LIMITS = {
-  requests: [{ limit: 30, windowMs: HOUR }],
-  messages: [
-    { limit: 20, windowMs: MINUTE },
-    { limit: 200, windowMs: HOUR },
-  ],
-  posts: [
-    { limit: 6, windowMs: MINUTE },
-    { limit: 40, windowMs: HOUR },
-  ],
-  communities: [{ limit: 3, windowMs: DAY }],
-  invites: [{ limit: 50, windowMs: DAY }],
-  reports: [{ limit: 30, windowMs: HOUR }],
-} as const satisfies Record<string, readonly WindowLimit[]>;
-export type LiveAction = keyof typeof LIVE_LIMITS;
-
-const WHAT: Record<LiveAction, string> = { requests: "Connection request", messages: "Message", posts: "Post", communities: "New community", invites: "Invitation", reports: "Report" };
-
-/** One process-wide limiter (tests reset it). */
-export const liveLimiter = new SlidingWindowLimiter();
-
-/** Spends one of the person's `action`s, or throws TOO_MANY_REQUESTS with a sentence they can act on. */
-export function takeLive(userId: string, action: LiveAction): void {
-  const r = liveLimiter.takeAll(LIVE_LIMITS[action].map((rule, i) => ({ key: `live:${action}:${i}:${userId}`, rule })));
-  if (!r.ok) throw new RateLimitedError(WHAT[action], r.retryAfterMs);
-}
 
 // ---------------------------------------------------------------------------------------------------------------------
 // The network is for adults
