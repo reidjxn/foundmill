@@ -42,11 +42,11 @@ import { TEAM_CALL_CASES, turnInputFor, wrapUpInputFor } from "../team-call";
 function promptSkill(c: SkillPromptCase): AgentSkillPrompt {
   if (c.skill.source === "library") {
     const s = getLibrarySkill(c.skill.key)!;
-    return { name: s.attribute.name, source: "library", instructionsMd: s.instructionsMd };
+    return { key: `library_${s.key}`, name: s.attribute.name, source: "library", whenToUse: s.whenToUse, instructionsMd: s.instructionsMd };
   }
   const parsed = parseSkillFile(c.skill);
   if (!parsed.ok) throw new Error(`${c.id}: ${parsed.error.message}`);
-  return { name: parsed.skill.name, source: "upload", instructionsMd: parsed.skill.instructionsMd };
+  return { key: `upload_${c.id}`, name: parsed.skill.name, source: "upload", whenToUse: parsed.skill.description, instructionsMd: parsed.skill.instructionsMd };
 }
 
 describe("skills eval: instructions reach the prompt after the house rules", () => {
