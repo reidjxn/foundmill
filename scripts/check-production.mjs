@@ -70,11 +70,14 @@ export const CHECKS = {
   async "landing-robots"(ctx, row) {
     const home = await (await get(ctx, `${ctx.base}/`)).text();
     const noindex = /<meta name="robots" content="[^"]*noindex/.test(home);
-    const robots = (await get(ctx, `${ctx.base}/robots.txt`)).status;
+    const res = await get(ctx, `${ctx.base}/robots.txt`);
+    const robots = res.status;
+    // Hidden is a 404 or a 200 that disallows everything (WP-03 T6 serves "User-Agent: * / Disallow: /").
+    const disallowsAll = robots === 200 && /^\s*user-agent:\s*\*\s*[\r\n]+\s*disallow:\s*\/\s*$/im.test(await res.text());
     const wantsHidden = /noindex/.test(row.expected);
-    const got = `${noindex ? "noindex" : "indexable"}, robots.txt ${robots}`;
-    if (wantsHidden) return noindex && robots === 404 ? ok(got) : differs("noindex, robots.txt 404", got);
-    return !noindex && robots === 200 ? ok(got) : differs("indexable, robots.txt 200", got);
+    const got = `${noindex ? "noindex" : "indexable"}, robots.txt ${robots}${disallowsAll ? " disallowing all" : ""}`;
+    if (wantsHidden) return noindex && (robots === 404 || disallowsAll) ? ok(got) : differs("noindex, robots.txt 404 or disallowing all", got);
+    return !noindex && robots === 200 && !disallowsAll ? ok(got) : differs("indexable, robots.txt 200", got);
   },
   async "signin-page"(ctx) {
     const res = await get(ctx, `${ctx.base}/login`);

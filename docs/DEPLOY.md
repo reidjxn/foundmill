@@ -381,7 +381,7 @@ WP-00's steps "record in docs/DEPLOY.md" mean: change the row here.
 | api health | `env: "staging"`, `modes.integrations: "mock"`, `modes.models: "live"`, db, redis, temporal healthy | As expected; `modes.liveConnectors` lists github, openai_images, elevenlabs, sendgrid, apollo, vercel, serpapi, firecrawl, openai, gemini, perplexity, anthropic, buffer, and since Nov 16, 2026 domains (added on the gateway and the api at the founder's request; `/health` showed it under `modes.liveConnectors` and `gateway.liveConnectors`, ok true, at 17:2x UTC) | `api-health` |
 | Platform mail | `platformMail: "live"` (after WP-02 T7 deploys) | Not reported yet: the deployed api predates T7 (6 PM UTC) | `api-platform-mail` |
 | ingest webhooks | `refusedMockWebhooks` contains `sendgrid` until WP-00 S2; then `webhooks` contains it | `refusedMockWebhooks`: dropbox_sign, github, sendgrid, shopify, stripe; `webhooks` empty | `ingest-webhooks` |
-| Landing indexing | `noindex` and `/robots.txt` 404 until WP-03; then 200 and indexable | `noindex, nofollow`; `/robots.txt` 404 | `landing-robots` |
+| Landing indexing | `noindex` and `/robots.txt` 404 or 200 disallowing everything while sign-up is closed; then 200 and indexable | `noindex, nofollow`; `/robots.txt` 200, `User-Agent: *` / `Disallow: /` (WP-03 T6, Nov 16) | `landing-robots` |
 | Sign-up | Closed to a list; the sign-in page loads and offers Google | Sign-in page 200 with Google; `SIGNUP_OPEN` not set | `signin-page` |
 | Public page route | `/p/<unknown>` answers 404, not 500 | 404 | `public-404` |
 | Web deployment | `https://foundmill.com` 200, `www` redirects to apex | 200; `www` answers 308 to `https://foundmill.com/` | `web-up` |
