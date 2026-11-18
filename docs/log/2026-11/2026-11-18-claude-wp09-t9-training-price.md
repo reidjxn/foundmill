@@ -51,8 +51,9 @@ supersedes: []
 - **Source Watcher: 1 of 3 passed.**
   - `competitor_pricing` scored 0: Pricing was not flagged and no proposal was drafted.
   - `interview_features` scored 0.45: it rewrote an existing line and put the feature in the wrong block.
-- **Golden tasks: 38 of 58 passed.** Most failures score 0.00, which means a deterministic check failed. Many of the
-  answers say honestly that no tool was available to save or send, and the checks look for the saved report.
+- **Golden tasks: 38 of 58 passed.** Most failures score 0.00, which means a deterministic check failed; the log does
+  not say which check. Many of those answers say honestly that no tool was available in the session to read, save or
+  send, which the eval harness does not give them.
 - **What it means for WP-09.** The change these suites first ran on was only the price table and the fallback, and
   neither touches a prompt or a route, so none of these scores move with it. T4's route-effort step, which these suites
   were meant to gate, is not built. The failures are the suites' and the templates' baseline, for their owners.
