@@ -91,7 +91,7 @@ export class SessionCredits {
 
   private constructor(
     private readonly deps: OrchestratorDeps,
-    private session: { businessId: string; agentId: string; sessionId: string; modelKey: ModelKey },
+    private session: { businessId: string; agentId: string; sessionId: string; modelKey: ModelKey; skillsPreload?: "on" | "off" | null },
     /** What a live call may spend at launch, USD cents. */
     readonly spendableMinor: number,
   ) {
@@ -99,7 +99,7 @@ export class SessionCredits {
   }
 
   /** The session's credits at launch, or why it may not start. */
-  static async open(deps: OrchestratorDeps, session: { businessId: string; agentId: string; sessionId: string; modelKey: ModelKey }): Promise<SessionCreditsOpen> {
+  static async open(deps: OrchestratorDeps, session: { businessId: string; agentId: string; sessionId: string; modelKey: ModelKey; skillsPreload?: "on" | "off" | null }): Promise<SessionCreditsOpen> {
     const check = await checkPlatformCredits(deps.db, session.businessId, { live: true, now: deps.clock.now() });
     if (!check.ok) return { ok: false, reason: check.reason === "mock_only" ? "only simulated credits are left this month, and they never pay for live model calls" : "this month's credits are used up" };
     // Credits are charged at cost plus the markup (Nov 17, 2026): the session may spend, at cost, what they cover.
@@ -144,7 +144,7 @@ export class SessionCredits {
           currency: "USD",
           billedTo: "credits",
           occurredAt: this.deps.clock.now(),
-          details: { source: "claude-agent-sdk", label: "Estimate", partial: true },
+          details: { source: "claude-agent-sdk", label: "Estimate", partial: true, ...(this.session.skillsPreload ? { skills_preload: this.session.skillsPreload } : {}) },
         }, { topUps: topUpsOnSale(this.deps.env) });
         this.bookedMinor += costMinor;
         this.bookedTokens += tokens;

@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { DESIGN_PRINCIPLES_SKILL_KEY } from "../design-check";
 import { SKILL_LIBRARY, librarySkillKey } from "../skill-library";
 import { SKILL_PRELOAD_MAX_CHARS } from "../club-rules";
-import { attachedSkillFrom, attachedSkills, findAttachedSkill, selectSkills, storedSkillRefusal, type AttachedSkill } from "../skill-select";
+import { attachedSkillFrom, attachedSkills, findAttachedSkill, selectSkills, skillsPreloadFor, skillsPreloadHalf, storedSkillRefusal, type AttachedSkill } from "../skill-select";
 
 const skill = (key: string, whenToUse: string, extra: Partial<AttachedSkill> = {}): AttachedSkill => ({ key, name: key.replace(/_/g, " "), source: "library", whenToUse, instructionsMd: `Body of ${key}.`, ...extra });
 const loaded = (out: ReturnType<typeof selectSkills>) => out.filter((s) => s.instructionsMd !== undefined).map((s) => s.key);
@@ -98,3 +98,45 @@ describe("attachedSkills: library skills follow the catalog", () => {
     expect(findAttachedSkill(all, "x_aaaaaaaa")).toBeUndefined();
   });
 });
+
+describe("the skills preload test (WP-06 T13; founder, Nov 18, 2026)", () => {
+  const coding = [
+    skill("library_smallest_change", "Use when writing code.", { loadAlways: true }),
+    skill("library_terse_working_notes", "Use when working through code.", { loadAlways: true }),
+    skill("library_release_notes", "Use when writing release notes for customers."),
+  ];
+  const codeTask = { kind: "code" as const, title: "Fix the signup form", goal: "The email check rejects valid addresses." };
+
+  it("loads the load-always skills on a code task when the preload is on, outside the usual budget", () => {
+    expect(loaded(selectSkills({ skills: coding, task: codeTask, maxBodies: 0, preloadAlways: true }))).toEqual(["library_smallest_change", "library_terse_working_notes"]);
+    expect(loaded(selectSkills({ skills: coding, task: { ...codeTask, title: "Write the release notes", goal: "release notes for customers" }, maxBodies: 1, preloadAlways: true }))).toEqual(["library_smallest_change", "library_terse_working_notes", "library_release_notes"]);
+  });
+
+  it("loads them as usual when the preload is off, and never on a task that writes no code", () => {
+    expect(loaded(selectSkills({ skills: coding, task: codeTask, maxBodies: 0 }))).toEqual([]);
+    expect(loaded(selectSkills({ skills: coding, task: { ...codeTask, kind: "ops" }, maxBodies: 0, preloadAlways: true }))).toEqual([]);
+  });
+
+  it("never goes past the preload character budget", () => {
+    const big = [skill("library_big", "Use when coding.", { loadAlways: true, instructionsMd: "x".repeat(SKILL_PRELOAD_MAX_CHARS + 1) })];
+    expect(loaded(selectSkills({ skills: big, task: codeTask, maxBodies: 0, preloadAlways: true }))).toEqual([]);
+  });
+
+  it("splits businesses into two stable halves, and is off unless the switch is on and the task writes code", () => {
+    expect(skillsPreloadHalf("00000000-0000-4000-8000-000000000000")).toBe("on");
+    expect(skillsPreloadHalf("00000000-0000-4000-8000-000000000001")).toBe("off");
+    const ids = Array.from({ length: 64 }, (_, i) => `00000000-0000-4000-8000-${i.toString(16).padStart(12, "0")}`);
+    expect(ids.filter((id) => skillsPreloadHalf(id) === "on")).toHaveLength(32);
+    const id = "00000000-0000-4000-8000-00000000000a";
+    expect(skillsPreloadFor({ mode: "off", businessId: id, taskKind: "code" })).toBeNull();
+    expect(skillsPreloadFor({ mode: "split", businessId: id, taskKind: "ops" })).toBeNull();
+    expect(skillsPreloadFor({ mode: "split", businessId: id, taskKind: "code" })).toBe(skillsPreloadHalf(id));
+  });
+
+  it("carries load-always from the catalog onto the attached skill", () => {
+    const row = (key: string) => ({ skillKey: librarySkillKey(key), name: key, source: "library" as const, description: "", instructionsMd: "" });
+    expect(attachedSkillFrom(row("smallest_change")).loadAlways).toBe(true);
+    expect(attachedSkillFrom(row("coding_discipline")).loadAlways).toBeUndefined();
+  });
+});
+
