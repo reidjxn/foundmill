@@ -126,6 +126,7 @@ export const SERVER_SAFE_FILES = [
   "components/public/ProjectPage.tsx",
   "components/public/ProjectStory.tsx",
   "components/public/MilestoneCard.tsx",
+  "components/public/ExploreGallery.tsx",
   "components/public/PersonPage.tsx",
   // The Terms and the Privacy Policy (founder, 2026-11-13): rendered by their static routes as Server Components.
   "components/public/LegalPage.tsx",

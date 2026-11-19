@@ -107,6 +107,8 @@ export interface PageView {
   mark: boolean;
   /** Whether Follow can confirm an address here (platform mail live, or a development or test stack). */
   followAvailable: boolean;
+  /** The owner's opt-in to the public gallery (`/explore`, 0149); it shows only while the page is live. */
+  explore: boolean;
 }
 
 /** `page.publish`'s answer: published, or held with the reason and its sentence (the page stays as it was). */
@@ -163,6 +165,7 @@ async function viewOf(tx: DbTx, ctx: BusinessContext, row: ProjectPage | null, s
     followers,
     mark: await showsBuiltOnMark(ctx.db, ctx.business, markBilling(ctx.env)),
     followAvailable: followAvailable(ctx.env),
+    explore: row?.exploreListed ?? false,
   };
 }
 
@@ -261,6 +264,21 @@ export async function publishPage(ctx: BusinessContext, input: { content: PageCo
   // share by tap, where the founder put the social channel on the board (services/post-drafts.ts). Never waited on.
   if (wentLive) queuePostDraft(ctx, ctx.businessId, { kind: "page_published" });
   return { outcome: "published", page };
+}
+
+/**
+ * `page.setExplore`: puts the page in the public gallery or takes it out (0149), by an owner's or an admin's own press.
+ * Needs a saved page; it shows in the gallery only while the page is live.
+ */
+export async function setPageExplore(ctx: BusinessContext, input: { listed: boolean }): Promise<PageView> {
+  if (ctx.business.isDemo) throw sampleRefusal();
+  if (!canPublishPage(ctx)) throw new ForbiddenError(PAGE_PUBLISH_ROLE_MESSAGE);
+  return ctx.rls(async (tx) => {
+    const row = await repos.pages.setExplore(tx, ctx.businessId, input.listed);
+    if (!row) throw new ValidationError("Save your page first, then you can put it in the gallery.", { field: "explore" });
+    await audit(tx, ctx, { action: "page.explore_set", target: { kind: "project_page", id: row.id }, details: { listed: input.listed } });
+    return viewOf(tx, ctx, row);
+  });
 }
 
 /** `page.unpublish`: takes the page down (the draft stays). Taking down a page that is not live changes nothing. */
@@ -415,6 +433,15 @@ export async function publicPageBySlug(ctx: Pick<Context, "db" | "env" | "limits
     mark: planTier ? await showsBuiltOnMark(ctx.db, planTier, markBilling(ctx.env)) : tierShowsBuiltOnMark("free"),
     story,
   };
+}
+
+/** The gallery's size: the newest projects that opted in. */
+export const EXPLORE_LIMIT = 48;
+
+/** `publicPage.explore`: the gallery, under the same per-caller limit as a page view. Only pages whose owners opted in and that are live. */
+export async function publicExplore(ctx: Pick<Context, "db" | "env" | "limits"> & { clientAddress?: string | null }) {
+  if (ctx.clientAddress) await takeOrThrow(ctx.limits, "Page view", [{ key: publicPageLimitKeys.caller(ctx.env, ctx.clientAddress), rule: PUBLIC_PAGE_LIMITS.perCaller }]);
+  return { projects: await repos.pages.public.explore(ctx.db, EXPLORE_LIMIT) };
 }
 
 /**
