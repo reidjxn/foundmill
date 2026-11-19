@@ -11,7 +11,7 @@ supersedes: []
 - The Training tab shows a secondary button "Make it live without testing" once a draft is saved and unchanged. Its dialog says: "This version goes live now. Its ratings stay as they were and are marked not tested since the change."
 - Tests: `apps/api/src/__tests__/agent-promote-draft.test.ts` (live at once with event, a non-draft, a rule-breaking draft, tool widening for a member and an owner); a Playwright step in `agent-profile.spec.ts`.
 
-## Judgment calls
+## Decisions
 - The plan says the founder decides whether T11 is wanted (Decisions for the founder, 5: it changes the rule that a change goes live only after a run). It was assigned to this session, so it is built; the alternative is to drop the button.
 - The ratings are not touched, so they keep their old values. Only the flag says they are older than the live text. Showing the mark on the ratings is WP-10's.
 - The run-active check is the existing `activeForVersion`, so a queued retest copy blocks it as well.

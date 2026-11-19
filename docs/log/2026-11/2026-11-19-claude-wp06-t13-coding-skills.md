@@ -16,7 +16,7 @@ supersedes: []
 ## What #311 and #327 had done
 #311 (Nov 18) added the two skills to `.claude/skills/` for sessions working on the repo, the rule in FOUNDMILL.md, and this task. It changed no product code. #327 (T6) built the default-skills mechanism this task uses. Nothing for the product's coding agents existed before this.
 
-## Judgment calls
+## Decisions
 - The skill text was not copied from `.claude/skills`: those are written for a person's Claude Code session. These are rewritten for an agent that works alone and cannot ask a person in chat.
 - The description of `ponytail` avoids "write ... review" because the house-rules screen reads that as inventing reviews.
 - Not wired into `evals-models-live.yml`: that would add live minutes and spend, and the founder asked that workflows not be changed for this. Run it with `MODEL_MODE=live pnpm --filter @foundmill/evals exec vitest run src/skills/coding-skills.eval.test.ts`.

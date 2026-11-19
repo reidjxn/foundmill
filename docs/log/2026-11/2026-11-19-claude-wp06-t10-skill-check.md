@@ -13,7 +13,7 @@ supersedes: []
 - **`repos.training.decide`** accepts a `skill_check` with no candidate version: accepting writes the ratings and nothing goes live. `agent.training.promote` skips the `agent.promoted` event for it. Discarding changes nothing, as for any run.
 - Tests: `agent-skill-check.test.ts` (api), a skill-check case in the orchestrator's `activities.test.ts` (both arms, two candidate answers per test, both recorded, nothing goes live, accepting needs no version), the migration list.
 
-## Judgment calls
+## Decisions
 - **A third column.** The spec named two columns. The orchestrator also has to know which skill to take out, and the run's `skill_keys` are the rated skills, so `measured_skill_key` holds it. The alternative was reading it from the audit row.
 - **Old and new.** Showing the without-skill arm as "old" matches what the founder asked ("what did this skill change"). The agent's current rating is not used as `old` for a check.
 - **Price.** One improved skill is its tests twice, at the training price (`trainingPrice`, which includes the credit markup). The "$0.90 on Sonnet" figure in the plan is from before WP-09 T9's price table; the shown price follows the table.
@@ -23,5 +23,5 @@ supersedes: []
 
 ## Not done
 - The button for it (WP-10 places it) and any screen for a check's result: the run appears in the existing run list and results panel.
-- The old-run default: a `skill_check` whose measured skill is not a library skill is refused at the api, not in the orchestrator.
+- A `skill_check` whose measured skill is not a library skill is refused at the api only; the orchestrator trusts the run row.
 - Playwright was not run; no screen changed for this task.
