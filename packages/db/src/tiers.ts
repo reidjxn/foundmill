@@ -3,8 +3,8 @@
  * per limit, each read where the limit bites:
  *
  * - **Projects per owner** (`idea.commit`): Try 1, Founder up to 5, Studio any number, archived ones not counted
- *   (founder, Nov 17, 2026, A14), from the day sign-up opens; while it is invite-only nobody has a limit
- *   (`tierBusinessLimit` reads `EARLY_ACCESS_STAGE`). An owner over the limit keeps what they have and is told which
+ *   (founder, Nov 17, 2026, A14), at every stage (Nov 19, 2026)
+ *  . An owner over the limit keeps what they have and is told which
  *   plan allows another. The plan tier is stored per business, so an owner's allowance follows the highest tier among
  *   the unarchived businesses they own (none: free). A new business always starts on free.
  *   The same tier sizes the founder's monthly pool of included credits (`includedCreditPool`, SEC2 S6), which keeps
@@ -38,7 +38,7 @@ export interface BusinessAllowance {
 
 export interface BusinessAllowanceOptions {
   /**
-   * The project limit of a tier (default `tierBusinessLimit`: none while sign-up is invite-only). Tests pass the limits
+   * The project limit of a tier (default `tierBusinessLimit`). Tests pass the limits
    * that apply from the day sign-up opens.
    */
   limitFor?: (tier: TierKey) => number | null;

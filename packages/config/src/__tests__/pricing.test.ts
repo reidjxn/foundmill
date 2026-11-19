@@ -12,12 +12,8 @@ describe("pricing tiers (BUILD §10.5)", () => {
     for (const tier of TIER_ORDER) expect(initialModelBilling(tier)).toBe("credits");
   });
 
-  it("a plan limits projects, not people: Try 1, Founder up to 5, Studio any number, from the day sign-up opens (A14)", () => {
-    expect(TIER_ORDER.map((t) => tierBusinessLimit(t, "open"))).toEqual([1, 5, null]);
-    // While sign-up is invite-only nobody has a limit, so no invited tester loses a project.
-    for (const tier of TIER_ORDER) expect(tierBusinessLimit(tier, "invite_only")).toBeNull();
-    expect(EARLY_ACCESS_STAGE).toBe("invite_only");
-    for (const tier of TIER_ORDER) expect(tierBusinessLimit(tier)).toBeNull();
+  it("a plan limits projects, not people: Try 1, Founder up to 5, Studio any number, at every stage (A14; founder, Nov 19, 2026)", () => {
+    expect(TIER_ORDER.map(tierBusinessLimit)).toEqual([1, 5, null]);
     // The plan a refusal names: the lowest one with room for another.
     expect(planWithRoomFor("free", 1)).toBe("pro");
     expect(planWithRoomFor("free", 5)).toBe("scale");

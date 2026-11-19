@@ -338,11 +338,11 @@ export function initialModelBilling(tier: TierKey): "credits" | "byok" {
 
 /**
  * How many projects an owner on `tier` may hold, archived ones not counted (null = any number). Try 1, Founder up to 5,
- * Studio any number (founder, Nov 17, 2026, A14; this replaces "unlimited on every plan", 2026-10-16). The limit applies
- * from the day sign-up opens: while invite-only it is null for everyone.
+ * Studio any number (founder, Nov 17, 2026, A14). It applies at every stage (founder, Nov 19, 2026): committing one more
+ * past it is refused with a plain way on (change plan), and an owner over it keeps what they have.
  */
-export function tierBusinessLimit(tier: TierKey, stage: EarlyAccessStage = EARLY_ACCESS_STAGE): number | null {
-  return stage === "open" ? planBusinesses(tier) : null;
+export function tierBusinessLimit(tier: TierKey): number | null {
+  return planBusinesses(tier);
 }
 
 /** The plan's own number of projects, whatever the stage (null = any number). */
