@@ -51,7 +51,9 @@ const read = sectionRead("settings");
 function keptSettings(row: { settings: unknown } | null, externalAccountId: string | null): Record<string, unknown> {
   const settings = (row?.settings ?? {}) as Record<string, unknown>;
   if (settings.externalAccountId !== externalAccountId) return {};
-  return Object.fromEntries(Object.entries(settings).filter(([k]) => k === "repo" || k === "writeEnabled" || k === "repoId" || k === "contextReads"));
+  // Context reads of mail and calendar are kept only for an account known on both sides (an id, not two missing ones).
+  const sameKnownAccount = typeof externalAccountId === "string" && externalAccountId !== "";
+  return Object.fromEntries(Object.entries(settings).filter(([k]) => k === "repo" || k === "writeEnabled" || k === "repoId" || (k === "contextReads" && sameKnownAccount)));
 }
 
 /** Finishing an App installation (GitHub): what GitHub sent back to the founder, with the state Connect signed. */
@@ -221,7 +223,7 @@ export const integrationsRouter = router({
   setContextReads: admin.input(z.object({ connectorKey: z.enum(["gmail", "google_calendar"]), on: z.boolean() })).mutation(async ({ ctx, input }) => {
     if (!isProjectFounder(ctx)) throw new ForbiddenError(CONTEXT_READS_FOUNDERS_ONLY);
     return ctx.rls(async (tx) => {
-      const row = await repos.integrations.setContextReads(tx, ctx.businessId, input.connectorKey, input.on);
+      const row = await repos.integrations.setContextReads(tx, ctx.businessId, input.connectorKey, input.on, ctx.userId);
       await audit(tx, ctx, { action: "integrations.context_reads", target: { kind: "integration", id: row.id }, details: { connectorKey: input.connectorKey, on: input.on } });
       return row;
     });

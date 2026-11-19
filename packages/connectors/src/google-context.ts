@@ -12,7 +12,7 @@ export const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.reado
 /** The reads that carry the founder's own mail and calendar text, by what turns them on. */
 export const CONTEXT_READ_TOOLS = {
   gmail: { drafts: ["list_drafts", "get_draft"], inbox: ["list_messages", "get_message"] },
-  google_calendar: { events: ["list_events", "get_event"] },
+  google_calendar: { events: ["list_calendars", "list_events", "get_event"] },
 } as const;
 
 /** What the founder turned on for one project, and what Google granted. */

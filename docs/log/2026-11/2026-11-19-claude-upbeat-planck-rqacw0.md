@@ -26,12 +26,22 @@ The pipeline decides on the reader from the session's grants (`grantsOutboundToo
 ### Events with nobody invited are a separate tool
 "Agents write events" and "inviting asks first" conflict on one `create_event`, whose arguments the policy cannot see. `add_event` takes no attendees and runs; `create_event`, `update_event` and `delete_event` notify people and always ask.
 
-### Delegation still applies
-An ask on these tools is routed as `message_customers`; a founder who delegated that in Team › Responsibilities lets the named agent decide it. That is the founder's own choice and unchanged here.
+### The founder answers, never a delegate
+The security review found that an ask routed as `message_customers` is decided at once by an agent Team › Responsibilities names. `FOUNDER_ACCOUNT_SEND_TOOLS` in `packages/db/src/repos/approvals.ts` makes those approvals the founder's, whoever is named, agent or person.
+
+### Other fixes from the security review
+- `add_event` writes to `primary` only: a shared, delegated or room calendar shows the event to other people.
+- `update_event` reports only id, times, status and link, never the organizer's description, location or attendees.
+- Only the person who connected the account turns its reads on; anyone who may change Settings turns them off.
+- A disconnect clears `contextReads`; a reconnect keeps it only for the same known account id.
+- `list_calendars` is blocked with calendar reads off: shared calendars' names are written by other people.
+- Turning reads off reaches sessions that start afterwards; the toast says so. A running session keeps its token (up to 4 hours) until the gateway re-checks it, which belongs with `state.ts` in a later change.
 
 ### Scopes untouched
 `GMAIL_SCOPES` in `gmail/tools.ts` is not changed: Session 5b splits them. The inbox gate reads the row's granted scopes, so it follows 5b's split with no further change.
 
 ## Not done
+- The live Google sign-in records the requested scopes when Google's answer omits `scope` (`_shared/google-auth.ts`); the inbox gate would then trust them. Google returns `scope` in practice; left for Session 5b's scope split.
+- The panel's founder check is `isOwner` on the web; the server's `isProjectFounder` also excludes example memberships and is the one enforced.
 - Reading context before a turn (a digest put into the prompt by the orchestrator): agents read through their tools when the task needs it.
 - A Playwright run in this session; the spec is in `e2e/settings-plain.spec.ts`.

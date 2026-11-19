@@ -8,6 +8,9 @@ import { z } from "zod";
 import { appInstallations, credentials, integrations, WEBHOOK_STATUSES, webhooks, type AppInstallation, type Integration, type Webhook } from "../schema";
 import { defined, Id, IsoDateInput, JsonObject, one, parseInput, type Executor } from "./_shared";
 
+/** Why a founder cannot turn on agents' reads of a Gmail or calendar someone else connected. */
+export const CONTEXT_READS_OWN_ACCOUNT = "Only the person who connected this account can let agents read it.";
+
 export const UpsertIntegrationInput = z.object({
   connectorKey: z.string().trim().min(1).max(60),
   status: z.enum(INTEGRATION_STATUSES).optional(),
@@ -172,9 +175,11 @@ export const integrationsRepo = {
   },
 
   /** Turn context reads on or off for Gmail or Google Calendar; the integration must be connected. */
-  async setContextReads(db: Executor, businessId: string, connectorKey: "gmail" | "google_calendar", on: boolean): Promise<Integration> {
+  async setContextReads(db: Executor, businessId: string, connectorKey: "gmail" | "google_calendar", on: boolean, userId: string): Promise<Integration> {
     const row = await integrationsRepo.getByKey(db, businessId, connectorKey);
     if (!row || row.archivedAt || row.status === "disconnected") throw new ValidationError(`connect ${connectorKey === "gmail" ? "Gmail" : "Google Calendar"} first`);
+    // Only the person whose account it is lets agents read it; anyone who may change Settings can turn it off.
+    if (on && row.connectedBy !== userId) throw new ValidationError(CONTEXT_READS_OWN_ACCOUNT);
     const settings = { ...((row.settings ?? {}) as Record<string, unknown>) };
     if (on) settings.contextReads = true;
     else delete settings.contextReads;
@@ -269,7 +274,9 @@ export const integrationsRepo = {
       const now = new Date();
       await tx.update(credentials).set({ archivedAt: now }).where(and(eq(credentials.businessId, businessId), eq(credentials.integrationId, integrationId), isNull(credentials.archivedAt)));
       await tx.update(webhooks).set({ status: "paused", archivedAt: now }).where(and(eq(webhooks.businessId, businessId), eq(webhooks.integrationId, integrationId), isNull(webhooks.archivedAt)));
-      const row = one(await tx.update(integrations).set({ status: "disconnected", scopes: [], lastError: null }).where(scoped(businessId, integrationId)).returning(), "integration", integrationId);
+      // Context reads of the founder's mail and calendar end with the connection: a reconnect starts with them off.
+      const settings = sql`${integrations.settings} - 'contextReads'`;
+      const row = one(await tx.update(integrations).set({ status: "disconnected", scopes: [], lastError: null, settings }).where(scoped(businessId, integrationId)).returning(), "integration", integrationId);
       await tx.delete(appInstallations).where(and(eq(appInstallations.businessId, businessId), eq(appInstallations.connectorKey, row.connectorKey)));
       return row;
     });

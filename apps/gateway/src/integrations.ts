@@ -93,7 +93,9 @@ async function auditIntegration(deps: GatewayDeps, businessId: string, action: s
 function keptSettings(row: { settings: unknown } | null, externalAccountId: string | null): Record<string, unknown> {
   const settings = (row?.settings ?? {}) as Record<string, unknown>;
   if (settings.externalAccountId !== externalAccountId) return {};
-  return Object.fromEntries(Object.entries(settings).filter(([k]) => k === "repo" || k === "writeEnabled" || k === "repoId" || k === "contextReads"));
+  // Context reads of mail and calendar are kept only for an account known on both sides (an id, not two missing ones).
+  const sameKnownAccount = typeof externalAccountId === "string" && externalAccountId !== "";
+  return Object.fromEntries(Object.entries(settings).filter(([k]) => k === "repo" || k === "writeEnabled" || k === "repoId" || (k === "contextReads" && sameKnownAccount)));
 }
 
 /**

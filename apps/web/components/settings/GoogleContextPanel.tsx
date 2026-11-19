@@ -28,7 +28,7 @@ export function GoogleContextPanel({ businessId, rows, canEdit }: { businessId: 
   const invalidate = useInvalidateRouters();
   const t = useSettingsToast();
   const id = useId();
-  const save = useMutation(trpc.integrations.setContextReads.mutationOptions({ onSuccess: (_r, v) => (void invalidate(["integrations"]), t.saved(v.on ? "The team can read it" : "The team no longer reads it")), onError: (e) => t.failed(e) }));
+  const save = useMutation(trpc.integrations.setContextReads.mutationOptions({ onSuccess: (_r, v) => (void invalidate(["integrations"]), t.saved(v.on ? "The team can read it" : "Turned off", "Sessions that start from now follow this.")), onError: (e) => t.failed(e) }));
   const gmail = rows.find((r) => r.key === "gmail");
   const calendar = rows.find((r) => r.key === "google_calendar");
   if (!connected(gmail) && !connected(calendar)) return null;

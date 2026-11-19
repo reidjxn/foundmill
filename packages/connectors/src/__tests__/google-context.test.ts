@@ -8,7 +8,7 @@ const grants = resolveGrants([{ connectorKey: "gmail", tools: ["drafts.create", 
 describe("Gmail and Google Calendar as context", () => {
   it("off: no read of the founder's mail or calendar text, writes and free/busy kept", () => {
     const g = withContextReads(grants, off);
-    for (const ref of ["gmail:list_drafts", "gmail:get_draft", "gmail:list_messages", "gmail:get_message", "google_calendar:list_events", "google_calendar:get_event"]) expect(g.toolRefs, ref).not.toContain(ref);
+    for (const ref of ["gmail:list_drafts", "gmail:get_draft", "gmail:list_messages", "gmail:get_message", "google_calendar:list_calendars", "google_calendar:list_events", "google_calendar:get_event"]) expect(g.toolRefs, ref).not.toContain(ref);
     for (const ref of ["gmail:create_draft", "google_calendar:add_event", "google_calendar:find_free_slots", "stripe:*"]) expect(g.toolRefs, ref).toContain(ref);
     expect(g.mcpTools).not.toContain("mcp__gmail__get_draft");
     expect(g.mcpTools).toContain("mcp__gmail__create_draft");

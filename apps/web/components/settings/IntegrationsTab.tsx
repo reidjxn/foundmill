@@ -553,7 +553,7 @@ export function IntegrationsTab() {
         </ul>
       </SettingsSection>
       {rows.some((r) => r.key === "github" && r.integration && r.integration.status !== "disconnected") ? <GitHubRepositoryPanel /> : null}
-      <GoogleContextPanel businessId={businessId} rows={rows} canEdit={isOwner} />
+      {rows.some((r) => (r.key === "gmail" || r.key === "google_calendar") && r.integration && r.integration.status !== "disconnected") ? <GoogleContextPanel businessId={businessId} rows={rows} canEdit={isOwner} /> : null}
       <ConnectFieldsDialog
         connector={keyFor}
         pending={connect.isPending}

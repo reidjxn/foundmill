@@ -9,11 +9,11 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type * as SharedModule from "../shared";
 
-const setContextReads = vi.fn(async () => ({}));
+const setContextReads = vi.fn(async (_vars: unknown) => ({}));
 const toast = { saved: vi.fn(), failed: vi.fn(), info: vi.fn() };
 
 vi.mock("@/lib/trpc-react", () => ({
-  useTRPC: () => ({ integrations: { setContextReads: { mutationOptions: (opts: Record<string, unknown>) => ({ mutationKey: [["integrations", "setContextReads"]], mutationFn: (vars: unknown) => setContextReads(vars as never), ...opts }) } } }),
+  useTRPC: () => ({ integrations: { setContextReads: { mutationOptions: (opts: Record<string, unknown>) => ({ mutationKey: [["integrations", "setContextReads"]], mutationFn: (vars: unknown) => setContextReads(vars), ...opts }) } } }),
 }));
 vi.mock("../shared", async (importOriginal) => ({ ...(await importOriginal<typeof SharedModule>()), useSettingsToast: () => toast }));
 vi.mock("../SettingsScreen", () => ({ useInvalidateRouters: () => async () => undefined }));

@@ -23,6 +23,9 @@ export const CalendarEvent = z.object({
   meetLink: z.string().nullable(),
 });
 export type CalendarEventT = z.infer<typeof CalendarEvent>;
+/** What a change reports back: no description, location or attendees, which an outside organizer may have written. */
+export const EventChanged = CalendarEvent.pick({ id: true, calendarId: true, start: true, end: true, status: true, htmlLink: true });
+export const eventChanged = (e: CalendarEventT): z.infer<typeof EventChanged> => ({ id: e.id, calendarId: e.calendarId, start: e.start, end: e.end, status: e.status, htmlLink: e.htmlLink });
 
 const CalendarId = z.string().min(1).max(200).default("primary");
 const EventId = z.string().min(1).max(200);
@@ -51,7 +54,8 @@ export const googleCalendarTools = [
   defineTool({
     name: "add_event",
     description: "Put an event on the founder's own calendar with no attendees: nobody is invited or notified. To invite people, use create_event, which asks the founder first.",
-    input: z.object({ calendarId: CalendarId, summary: z.string().min(1).max(300), description: z.string().max(5000).optional(), location: z.string().max(500).optional(), start: Iso, end: Iso, timeZone: z.string().max(60).default("Europe/Stockholm") }).refine((v) => Date.parse(v.end) > Date.parse(v.start), "end must be after start"),
+    // Only the founder's primary calendar: a shared, delegated or room calendar shows the event to other people.
+    input: z.object({ calendarId: z.literal("primary").default("primary"), summary: z.string().min(1).max(300), description: z.string().max(5000).optional(), location: z.string().max(500).optional(), start: Iso, end: Iso, timeZone: z.string().max(60).default("Europe/Stockholm") }).refine((v) => Date.parse(v.end) > Date.parse(v.start), "end must be after start"),
     output: CalendarEvent,
     hints: {},
     annotations: { readOnlyHint: false },
@@ -60,7 +64,7 @@ export const googleCalendarTools = [
     name: "update_event",
     description: "Change an event's time, title, description, location or attendee list; attendees are notified.",
     input: z.object({ calendarId: CalendarId, eventId: EventId, summary: z.string().min(1).max(300).optional(), description: z.string().max(5000).optional(), location: z.string().max(500).optional(), start: Iso.optional(), end: Iso.optional(), attendees: z.array(z.email()).max(50).optional(), sendUpdates: z.enum(["all", "externalOnly", "none"]).default("all") }),
-    output: CalendarEvent,
+    output: EventChanged,
     hints: { contactsThirdParty: true },
   }),
   defineTool({ name: "delete_event", description: "Cancel an event; attendees receive a cancellation. Cannot be undone by the API.", input: z.object({ calendarId: CalendarId, eventId: EventId, sendUpdates: z.enum(["all", "externalOnly", "none"]).default("all") }), output: z.object({ deleted: z.literal(true), eventId: z.string() }), hints: { contactsThirdParty: true, irreversible: true } }),
