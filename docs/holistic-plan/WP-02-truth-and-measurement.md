@@ -207,7 +207,7 @@ WP-04 changes this constant when the two notes become one; nothing else needs to
 
 ### [x] T8: One vocabulary in the shell                                        [M] [ships alone]
 
-**Why:** A2-09. CLAUDE.md: "project" until the first sale and where the stage is not known; "team"; Needs you. Only strings a first-timer meets with Builder view off; Builder view keeps the engine's words.
+**Why:** A2-09. FOUNDMILL.md: "project" until the first sale and where the stage is not known; "team"; Needs you. Only strings a first-timer meets with Builder view off; Builder view keeps the engine's words.
 
 **Files:** modify `packages/shared/src/founder-words.ts` (+ test); `packages/dugout/src/components/shell/ProcessingStrip.tsx`, `ContinueButton.tsx`, `BusinessSwitcher.tsx`; `packages/dugout/src/components/today/NeedsYouList.tsx`; `packages/dugout/src/components/firstrun/FirstWeekChecklist.tsx`; `apps/web/components/shell/BusinessShell.tsx`; `apps/web/components/inbox/InboxScreen.tsx`, `ReadingPane.tsx`; `apps/web/components/settings/AutopilotSection.tsx`, `PreferencesTab.tsx`; `apps/web/components/email/EmailAnswer.tsx`; `apps/web/lib/search.ts`, `lib/access.ts`, `lib/page-titles.ts`; `packages/shared/src/autopilot.ts`; create `apps/web/lib/__tests__/shell-words.test.ts`.
 
@@ -215,7 +215,7 @@ WP-04 changes this constant when the two notes become one; nothing else needs to
 ```ts
 /** The founder's word for a cycle. Builder view keeps the engine's word. */
 export function roundWords(builder: boolean): { one: string; a: string; idle: string } // builder: { "cycle", "a cycle", "No cycle running" }; else { "round of work", "a round of work", "The team is idle" }
-/** "project" until the first sale and where the stage is not known (CLAUDE.md, 2026-11-11). */
+/** "project" until the first sale and where the stage is not known (FOUNDMILL.md, 2026-11-11). */
 export function ventureNoun(hadFirstSale?: boolean | null): "project" | "business"
 ```
 `ventureNoun` is called with no argument everywhere in this task (no real project has a sale, and no field carries it yet); WP-08 passes the fact when the first payment exists. Do not add a column or a query for it here.
@@ -393,7 +393,7 @@ All four: `consumers: []` (there is no metrics consumer; T10 reads the table), `
 ## Starting prompt
 
 ```
-You are executing WP-02 (Truth and measurement) for Foundmill. Read, in this order: CLAUDE.md; docs/holistic-plan/README.md; docs/holistic-plan/WP-02-truth-and-measurement.md in full; the package CLAUDE.md of each package the task touches; and, for the task you take, the audit findings it cites under docs/holistic-plan/audits/. Apply the karpathy-guidelines skill on every change and use plan-change before writing code (it checks other branches and gives the next free migration number).
+You are executing WP-02 (Truth and measurement) for Foundmill. Read, in this order: FOUNDMILL.md; docs/holistic-plan/README.md; docs/holistic-plan/WP-02-truth-and-measurement.md in full; the package CLAUDE.md of each package the task touches; and, for the task you take, the audit findings it cites under docs/holistic-plan/audits/. Apply the karpathy-guidelines skill on every change and use plan-change before writing code (it checks other branches and gives the next free migration number).
 
 Take the tasks in the order T1, T2, T3, T4, then T5 to T8, then T9 to T12. One task is one pull request on a branch named claude/wp02-t<n>-<short-name>; never push to main and never merge. For each task: write the named tests first and watch them fail, make the change, run typecheck, lint, the package's tests, the three word scripts (banned-terms, us-english, plain-language --gate) and the Playwright spec for any screen touched, then run verify-done and report each check with its result and what it does not cover. Add one line to docs/PROGRESS.md, record judgment calls in docs/DECISIONS.md, and tick the task in the work package file in the same pull request.
 

@@ -13,7 +13,7 @@ The only process that holds vendor secrets and the only place a vendor API is ca
 - **Founder's own key:** a connector on the founder's key runs on the founder's own vendor account, always. The key is sealed in the vault (`src/credentials.ts`), used only here, never logged, audited or echoed. No fallback to a Foundmill platform key: not connected is refused. A mock connector the business never connected is 409 `integration_not_connected` on staging and production for a person's own business.
 - After a vendor call has run, nothing may turn it into a failure: the `tool.call` audit row is written first; errors go through `safeError()`, never with tool arguments.
 - Service routes check `svc` (most are `svc: api` only). Database access through `repos` only (`fm/no-raw-db`). Env through `loadEnv()`.
-- Never let agent code move money, sign, accept terms, file with the founder's identity, delete permanently or change security settings (hard gates, root CLAUDE.md).
+- Never let agent code move money, sign, accept terms, file with the founder's identity, delete permanently or change security settings (hard gates, root FOUNDMILL.md).
 
 ## Read when needed
 - docs/ARCHITECTURE.md §9 Gateway (every route and its order of checks), §8 Connectors, §7 Policy. Lines are very long: grep for the section heading and read only that section, never the whole file.

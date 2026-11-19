@@ -1,6 +1,6 @@
 # apps/web Playwright suites
 
-Screen tests for the web app (CLAUDE.md "Playwright test for any screen touched"; docs/ARCHITECTURE.md §15). Desktop only: every spec runs at 1440 × 900 in Chromium. Spec names carry the acceptance-criteria ids they cover (`AC-11.3.3` and so on).
+Screen tests for the web app (FOUNDMILL.md "Playwright test for any screen touched"; docs/ARCHITECTURE.md §15). Desktop only: every spec runs at 1440 × 900 in Chromium. Spec names carry the acceptance-criteria ids they cover (`AC-11.3.3` and so on).
 
 ## The stack the suites run against
 

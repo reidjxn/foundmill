@@ -124,7 +124,7 @@ Why GLM-5.3 Flash: MIT license, Arena about 1476 (third among open models on Nov
 - **A call that would use Foundmill's Anthropic key for an account not on a paid plan is refused before it is sent**, in every service. A test proves it at each call site. The UI is never the guard.
 - **Simulated results are never reported as actions, on either provider.** House rules are prepended to every call, as today.
 - **Measure before tuning.** GLM-5.3 Flash always thinks, and its thinking is billed as output. T1 records what the compatible endpoint accepts, and nothing assumes a feature T1 has not seen work.
-- **Copy:** the model's name as people read it is "GLM-5.3 Flash". The prompt never says a free founder is missing something they need: it offers better models as an option (CLAUDE.md "Solo is complete" applies in spirit: the free plan is complete).
+- **Copy:** the model's name as people read it is "GLM-5.3 Flash". The prompt never says a free founder is missing something they need: it offers better models as an option (FOUNDMILL.md "Solo is complete" applies in spirit: the free plan is complete).
 - **Recorded decisions this package builds on:**
   - 2026-10-05 "Model ids";
   - 2026-10-06 "packages/models: live client, metering and mock conventions";
@@ -501,7 +501,7 @@ Done when: a free founder on their own key sees Anthropic answers in every place
 ## Starting prompt
 
 ```
-You are executing work package WP-13 "The free plan runs on GLM-5.3 Flash" for Foundmill. Read, in this order: CLAUDE.md; docs/holistic-plan/README.md; docs/holistic-plan/WP-13-free-plan-on-glm.md; docs/log/2026-11/2026-11-16-claude-stage3-founder-decisions-2.md; the CLAUDE.md files of packages/models, packages/config, apps/api, apps/gateway and apps/orchestrator.
+You are executing work package WP-13 "The free plan runs on GLM-5.3 Flash" for Foundmill. Read, in this order: FOUNDMILL.md; docs/holistic-plan/README.md; docs/holistic-plan/WP-13-free-plan-on-glm.md; docs/log/2026-11/2026-11-16-claude-stage3-founder-decisions-2.md; the CLAUDE.md files of packages/models, packages/config, apps/api, apps/gateway and apps/orchestrator.
 
 Load the skills `claude-api` (for every Anthropic fact), `karpathy-guidelines`, `plan-change`, `test-driven-development` and `executing-plans`. Run `plan-change` before code: it finds overlapping branches and the next free migration number.
 

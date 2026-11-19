@@ -9,13 +9,13 @@ The built-in module screens (product, development, distribution, finance, team, 
 - Design-system components (`@foundmill/dugout`) for every element; tokens only, no ad-hoc styling. These screens are the dense console: desktop, 1280 px and wider.
 - Money in the business's own currency (`currency` from the data source, never a fixed code); amounts in different currencies are never added. Label every non-real number "Forecast" or "Estimate".
 - Dates through `useFormatters()` or `src/dates.tsx` (ARCHITECTURE §20), never a literal pattern.
-- Copy is user-facing (scanned): no football words (the display names in the CLAUDE.md table: Agents, Live sessions, Task graph, Board, Payroll, Milestones), US English, plain words. Tab slugs keep their old names (`squad`, `formation`, `training-ground`, `wage-bill`).
+- Copy is user-facing (scanned): no football words (the display names in the FOUNDMILL.md table: Agents, Live sessions, Task graph, Board, Payroll, Milestones), US English, plain words. Tab slugs keep their old names (`squad`, `formation`, `training-ground`, `wage-bill`).
 - Solo is complete: no screen treats a one-person project as unfinished or missing someone; People are never a plan limit.
 - A simulated result is shown as simulated, never as done.
 
 ## Read when needed
 - docs/ARCHITECTURE.md §18 Widget and module data contract , §14 Web (department screens at 251), §20 Date and time formats. Lines are very long: grep for the section heading and read only that section, never the whole file.
-- docs/BUILD.md §6.1 Modules vs departments, §6.3 Default department tabs (its tab names predate the vocabulary rules: use the CLAUDE.md table), and the module's §11 section (§11.5 Product to §11.11 Legal).
+- docs/BUILD.md §6.1 Modules vs departments, §6.3 Default department tabs (its tab names predate the vocabulary rules: use the FOUNDMILL.md table), and the module's §11 section (§11.5 Product to §11.11 Legal).
 - docs/DESIGN.md §8 Component anatomy, §9 Screen notes.
 - Decisions: `node scripts/decisions-index.mjs module` plus the screen's words (`node scripts/decisions-index.mjs roadmap module`), then read only the printed range.
 - Skill: `new-screen`.

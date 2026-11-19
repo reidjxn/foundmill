@@ -2,7 +2,7 @@
 
 Copied on Nov 15, 2026 from the founder's installed Claude Code plugins, unchanged except that each collection's `evals/` folders were left out. They are here because a cloud session loads only the skills that live in the repository (decision of the same date in docs/DECISIONS.md). This repo's own skills (`gate`, `new-agent-template`, `new-connector`, `new-event`, `new-screen`, `plan-change`, `rls-test`, `ship-change`, `verify-done`) are not listed.
 
-Where one of these skills disagrees with CLAUDE.md, docs/DESIGN.md or docs/DECISIONS.md, the repo's documents win. In particular: branches, pull requests and merges follow `ship-change` (the founder merges), not any merge step a copied skill describes; UI follows docs/DESIGN.md; nothing here permits a vendor call outside `apps/gateway`.
+Where one of these skills disagrees with FOUNDMILL.md, docs/DESIGN.md or docs/DECISIONS.md, the repo's documents win. In particular: branches, pull requests and merges follow `ship-change` (the founder merges), not any merge step a copied skill describes; UI follows docs/DESIGN.md; nothing here permits a vendor call outside `apps/gateway`.
 
 | Skill folder | Source | Commit | License |
 | --- | --- | --- | --- |

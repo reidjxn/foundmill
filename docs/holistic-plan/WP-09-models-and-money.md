@@ -441,7 +441,7 @@ lets through. The mock path passes with the switch off and on.
 ## Starting prompt
 
 ```
-You are executing work package WP-09 "Models and money" for Foundmill. Read, in this order: CLAUDE.md; docs/holistic-plan/README.md; docs/holistic-plan/WP-09-models-and-money.md; the CLAUDE.md files of packages/models, packages/db, apps/api, apps/orchestrator and apps/gateway; then, for the task you are on, the audit sections it cites under docs/holistic-plan/audits/.
+You are executing work package WP-09 "Models and money" for Foundmill. Read, in this order: FOUNDMILL.md; docs/holistic-plan/README.md; docs/holistic-plan/WP-09-models-and-money.md; the CLAUDE.md files of packages/models, packages/db, apps/api, apps/orchestrator and apps/gateway; then, for the task you are on, the audit sections it cites under docs/holistic-plan/audits/.
 
 Load the skills `claude-api` (the reference for every model id, price and request parameter: where it differs from the work package, it wins), `karpathy-guidelines`, `plan-change`, `test-driven-development` and `executing-plans`. Run `plan-change` before writing code: it finds overlapping branches and the next free migration number.
 
