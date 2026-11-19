@@ -36,7 +36,9 @@ Tests: `packages/db` `billing.test.ts`; `apps/orchestrator` `session-live.test.t
 `session-budget.test.ts`; `packages/config` `pricing.test.ts`; `apps/web/e2e/billing.spec.ts`.
 
 ## Decisions
-### The two numbers proposed (for the founder)
+### The two numbers, approved by the founder (Nov 19, 2026, night, comment on the pull request)
+The founder approved both: a safety factor of 1.5 and a backstop of 50 cents per session past an empty balance, at
+most $2.00 a month per Try founder, paid by Foundmill.
 - **Safety factor 1.5**, as the brief suggests.
 - **Backstop ceiling 50 cents** past an empty balance, per session. It is about three and a half average Sonnet
   sessions ($0.14, an Estimate from WP-09 D7), so a normal task never reaches it. Worst case on Try: four sessions at

@@ -306,7 +306,7 @@ export function creditsAreLow(spendableMinor: number, includedMinor: number): bo
  * - `backstopCeilingMinor`: a session already running that outgrows its reserve still finishes, spending at most this
  *   much past an empty balance; then it stops. Booked to the usage ledger like everything else.
  *
- * `safetyFactor` and `backstopCeilingMinor` are proposals for the founder (flagged in the pull request). Estimates.
+ * `safetyFactor` and `backstopCeilingMinor` were approved by the founder on Nov 19, 2026 (1.5 and 50 cents). Estimates.
  */
 export const SESSION_RESERVE = { minMinor: 10, safetyFactor: 1.5, sampleSessions: 20, backstopCeilingMinor: 50 } as const;
 
