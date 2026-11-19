@@ -82,11 +82,20 @@ export function createUntrustedReader(models: ReaderModels): UntrustedReader {
 export const READER_UNAVAILABLE = "This content could not be checked safely just now, so it is not shown. Try again later.";
 
 /**
+ * Connectors on the founder's own accounts that agents read for context (founder, Nov 19, 2026): a session granted any
+ * of their tools reads all untrusted content through the quarantined reader, because its drafts and events land in the
+ * founder's own mailbox and calendar, where the founder may send or keep them.
+ */
+export const READER_ALWAYS_CONNECTORS: ReadonlySet<string> = new Set(["gmail", "google_calendar"]);
+
+/**
  * Whether the tools a session may call include one that contacts a third party, spends money or cannot be undone
- * (the policy hints of the connectors it is granted): only then is untrusted content read through the quarantined reader.
+ * (the policy hints of the connectors it is granted), or any tool of `READER_ALWAYS_CONNECTORS`: only then is untrusted
+ * content read through the quarantined reader.
  */
 export function grantsOutboundTools(registry: Pick<ConnectorRegistry, "keys" | "get">, allowedTools: readonly string[]): boolean {
   const all = allowedTools.includes("*");
+  if (all || allowedTools.some((ref) => READER_ALWAYS_CONNECTORS.has(ref.split(":")[0] ?? ""))) return true;
   for (const key of registry.keys()) {
     const granted = all || allowedTools.includes(`${key}:*`);
     const hints = registry.get(key, "mock").policyHints;

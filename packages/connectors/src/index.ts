@@ -50,6 +50,7 @@ export { createPosthogConnector, posthogMock, POSTHOG_KEY } from "./connectors/p
 export { createResendConnector, resendMock, RESEND_KEY } from "./connectors/resend";
 export { createBufferConnector, bufferMock, BUFFER_KEY } from "./connectors/buffer";
 export * from "./grants";
+export * from "./google-context";
 export * from "./channel-availability";
 export { createPlatformConnector, platformMock, createPlatformMock, createMemoryPlatformHost, PLATFORM_KEY, READ_SKILL_NOTICE, PlatformToolError, MESSAGE_TYPES, type PlatformHost, type PlatformCaller, type PlatformArgs, type PlatformResult, type TaskSummaryT, type TaskDetailT, type AgentMessageT } from "./connectors/platform";
 export { AcceptanceResult, acceptanceLines, acceptanceRefusal, toolKeys, toolUseKey, unmetAcceptanceLines, type AcceptanceResultT, type ToolUse } from "./connectors/platform/acceptance";
