@@ -41,7 +41,7 @@ function OpenDemo(args: Story["args"]) {
           }, 900);
         }}
         onReopen={() => setAnswered(undefined)}
-        deadline="Expires in 2 days"
+        deadline="If you do nothing by Nov 17, Juno waits."
       />
     );
 }
@@ -51,11 +51,11 @@ export const WithoutFreeText: Story = { args: { onExecute: undefined } };
 export const Executing: Story = { args: { executing: true } };
 export const Disabled: Story = { args: { disabled: true, note: "Only the owner can decide this" } };
 /** DIRECTION #7: “Ask Juno” replaces the free-text box; typing is optional, never required. */
-export const WithAsk: Story = { name: "Ask instead of typing", args: { onExecute: undefined, onAsk: () => {}, askLabel: "Ask Juno", deadline: "Expires in 5 days", keyHints: true } };
+export const WithAsk: Story = { name: "Ask instead of typing", args: { onExecute: undefined, onAsk: () => {}, askLabel: "Ask Juno", deadline: "If you do nothing by Nov 20, Juno waits.", keyHints: true } };
 /** Guidance off (Settings › Preferences, or an Exited / Operator profile): no guided line, key caps on the options. */
 export const GuidanceOff: Story = {
   name: "Guidance off (operator)",
-  args: { deadline: "Expires in 5 days" },
+  args: { deadline: "If you do nothing by Nov 20, Juno waits." },
   decorators: [
     (Story) => (
       <GuidanceProvider value={{ guidance: "off" }}>
@@ -68,7 +68,7 @@ export const GuidanceOff: Story = {
 export const WithBecause: Story = {
   name: "With a because line",
   args: {
-    deadline: "Expires in 2 days",
+    deadline: "If you do nothing by Nov 17, Juno waits.",
     options: [
       { ...REORDER_OPTIONS[0]!, because: "Recommended because it keeps the fall bundle on sale and the unit price is the lowest quoted." },
       { ...REORDER_OPTIONS[2]!, because: "Free and reversible, but the serum sells out in 11 days." },
@@ -79,7 +79,7 @@ export const WithBecause: Story = {
 /** The 1280 window: the reading pane is 668 px, “Your decision” moves above the options and they wrap. */
 export const NarrowPane: Story = {
   name: "Reading pane at 1280",
-  args: { deadline: "Expires in 5 days" },
+  args: { deadline: "If you do nothing by Nov 20, Juno waits." },
   decorators: [
     (Story) => (
       <div style={{ width: 668 }}>

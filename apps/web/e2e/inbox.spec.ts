@@ -433,6 +433,25 @@ test.describe("inbox", () => {
     expect(await options.count()).toBeGreaterThanOrEqual(2);
   });
 
+  test("the suggestion is in the first viewport at 1440 and comes before the note body (WP-10 T10)", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await openInbox(page, "respond");
+    await rowsOf(page).filter({ hasText: "Approve batch 002" }).first().click();
+    await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open", { timeout: LONG });
+    const lead = page.getByTestId("decision-lead");
+    // The lead is part of the guided layer: with the account's guidance switch off there is none, and the bar is the whole ask.
+    if ((await page.getByTestId("decision-bar").locator("[data-decision-guided-line]").count()) === 0) {
+      await expect(lead).toHaveCount(0);
+      return;
+    }
+    await expect(lead).toBeVisible();
+    await expect(lead.getByTestId("decision-lead-sentence")).toContainText(" suggests: ");
+    const box = (await page.getByTestId("decision-lead-recommended").boundingBox())!;
+    expect(box.y + box.height, "the suggested button is above the fold").toBeLessThanOrEqual(900);
+    const before = await lead.evaluate((el) => Boolean(el.compareDocumentPosition(document.querySelector("[data-testid=inbox-note]")!) & Node.DOCUMENT_POSITION_FOLLOWING));
+    expect(before, "the lead precedes the note body in DOM order").toBe(true);
+  });
+
   test("a money decision reads in the business's own currency: pounds for Northwind, never euros", async ({ page }) => {
     // The options' costs used to read a glossary entry nothing writes, so every business saw "€37,200.00" here.
     await openInbox(page, "respond");

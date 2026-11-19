@@ -29,6 +29,7 @@ import {
   Callout,
   Chip,
   DecisionBar,
+  DecisionLead,
   DeptChip,
   EntityLink,
   InfoTip,
@@ -299,7 +300,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   const senderLabelled = agentSender !== null && agentPersona.hasPersona(agentSender);
   const department = persona ? departments.find((d) => d.id === persona.departmentId) : undefined;
   const dates = headerDates(item, decisions[0]?.decidedAt ?? null);
-  const { formatDate, formatDateTime } = useFormatters();
+  const { formatDate, formatDateShort, formatDateTime } = useFormatters();
   const hydrated = useHydrated();
   // The founder's own notes carry the founder's initials, as they do in the list ("AD"), never the letters of "You".
   const founderQ = useQuery(trpc.founder.profile.get.queryOptions(undefined, { staleTime: 5 * 60_000 }));
@@ -474,6 +475,9 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   const desk = useRef<AgentConversationHandle>(null);
   const showDesk = hasAgentDesk(item.type);
   const agentName = agentSender ? agentPersona.nameFor(agentSender) : "the Chief of Staff";
+  // The suggestion leads while guidance is on and the decision is still open (the sticky bar stays for a long note).
+  const recommendedOption = options.find((o) => o.recommended);
+  const lead = guided && options.length >= 2 && recommendedOption && !isAnswered ? { recommended: recommendedOption, others: options.filter((o) => o !== recommendedOption) } : null;
   useEffect(() => {
     if (!showDesk) return;
     const onKey = (e: KeyboardEvent) => {
@@ -592,6 +596,18 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
           ) : null}
         </div>
 
+        {/* The ask before the evidence (WP-10 T10): the suggestion, its cost and the buttons come before anything to read. */}
+        {lead ? (
+          <DecisionLead
+            agentName={agentName}
+            recommended={lead.recommended}
+            others={lead.others}
+            onChoose={onChoose}
+            onAsk={showDesk ? () => desk.current?.openWrite() : undefined}
+            disabled={locked}
+          />
+        ) : null}
+
         {won ? (
           <Panel title={<Term id="customer_update">Customer Update</Term>} span={12} actions={<Chip tone="gold">Win</Chip>} data-testid="customer-update">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -604,6 +620,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
           </Panel>
         ) : null}
 
+        {lead ? <h2 className="t-label text-secondary">Why</h2> : null}
         <InboxNote bodyMd={item.bodyMd} />
 
         {/* A founder's own showcase ask (0103): watched and answered here, signed in. */}
@@ -704,7 +721,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
           onAsk={showDesk ? () => desk.current?.openWrite() : undefined}
           askLabel={`Ask ${agentName}`}
           askDescription="Talk it through first"
-          deadline={decisionDeadline(item.decision) ?? undefined}
+          deadline={decisionDeadline(item.decision, agentName, formatDateShort) ?? undefined}
           disabled={item.state === "archived" || readOnly || cannotAnswer}
           executing={decide.isPending || confirm.isPending}
           answered={answered}

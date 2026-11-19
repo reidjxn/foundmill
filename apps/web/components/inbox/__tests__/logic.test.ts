@@ -511,12 +511,12 @@ describe("won customers open their replay", () => {
 
 describe("the decision's deadline and the agent's desk", () => {
   const now = new Date(2026, 9, 9, 14, 0, 0);
-  it("says when the decision expires, in days, beside 'Your decision'", () => {
-    expect(decisionDeadline({ expires_at: new Date(2026, 9, 14, 9, 0, 0).toISOString() }, now)).toBe("Expires in 5 days");
-    expect(decisionDeadline({ expires_at: new Date(2026, 9, 10, 9, 0, 0).toISOString() }, now)).toBe("Expires tomorrow");
-    expect(decisionDeadline({ expires_at: new Date(2026, 9, 9, 18, 0, 0).toISOString() }, now)).toBe("Expires today");
-    expect(decisionDeadline({ expires_at: new Date(2026, 9, 8).toISOString() }, now)).toBeNull();
-    expect(decisionDeadline(null, now)).toBeNull();
+  it("says what happens if you do nothing, with the date in the person's format, beside 'Your decision'", () => {
+    const fmt = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    expect(decisionDeadline({ expires_at: new Date(2026, 9, 14, 9, 0, 0).toISOString() }, "Juno", fmt, now)).toBe("If you do nothing by Oct 14, Juno waits.");
+    expect(decisionDeadline({ expires_at: new Date(2026, 9, 9, 18, 0, 0).toISOString() }, "Juno", fmt, now)).toBe("If you do nothing today, Juno waits.");
+    expect(decisionDeadline({ expires_at: new Date(2026, 9, 8).toISOString() }, "Juno", fmt, now)).toBeNull();
+    expect(decisionDeadline(null, "Juno", fmt, now)).toBeNull();
   });
 
   it("gives every agent's note a desk, never a message from another founder", () => {

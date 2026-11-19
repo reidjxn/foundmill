@@ -59,6 +59,10 @@ export interface KitBarProps extends Omit<HTMLAttributes<HTMLElement>, "title"> 
   /** Runway is modelled, not read from a ledger (default true → the dashed "Estimate" tag). */
   runwayEstimate?: boolean;
   onRunwayClick?: () => void;
+  /** False draws the date alone: the runway words wait for a bank or a payment (WP-10 T2). Default true. */
+  showRunway?: boolean;
+  /** False leaves the mode chip out until the team has done a round of work (WP-10 T2). Default true. */
+  showMode?: boolean;
   businessMode: BusinessMode;
   /** The business's spend line for the mode chip (`businesses.spend_cap_minor`): an amount, 0 or null (each agent's own limit). */
   spendLineMinor?: number | null;
@@ -155,6 +159,8 @@ export const KitBar = forwardRef<HTMLDivElement, KitBarProps>(function KitBar(
     cash,
     runwayEstimate = true,
     onRunwayClick,
+    showRunway = true,
+    showMode = true,
     businessMode,
     spendLineMinor,
     businessCurrency,
@@ -271,9 +277,9 @@ export const KitBar = forwardRef<HTMLDivElement, KitBarProps>(function KitBar(
       <KitBarFit />
       <div className="flex shrink-0 items-center gap-2">
         {connection ? <ConnectionChip {...connection} /> : null}
-        <RunwayChip date={date} runwayMonths={runwayMonths} words={runwayWords} cash={cash} estimate={runwayEstimate} onClick={onRunwayClick} />
+        <RunwayChip date={date} runwayMonths={runwayMonths} words={runwayWords} cash={cash} estimate={runwayEstimate} onClick={onRunwayClick} dateOnly={!showRunway} />
         {gameMode === "live" ? <GameModeChip mode="live" /> : null}
-        <ModeChip mode={businessMode} holiday={holiday} spendLineMinor={spendLineMinor} currency={businessCurrency} onClick={onModeClick} />
+        {showMode || holiday ? <ModeChip mode={businessMode} holiday={holiday} spendLineMinor={spendLineMinor} currency={businessCurrency} onClick={onModeClick} /> : null}
         {continueSlot ? (
           <div className="flex h-kitbar-chip min-w-continue-min shrink-0 items-stretch" data-testid="kitbar-continue-slot">
             {continueSlot}

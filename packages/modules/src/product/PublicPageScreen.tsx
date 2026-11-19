@@ -40,6 +40,7 @@ import {
   SharePost,
   StatusPill,
   Switch,
+  Term,
   Textarea,
   isViewportTooSmall,
   useFormatters,
@@ -100,7 +101,11 @@ type PublishResponse = { outcome: "published"; page: PageViewResponse } | { outc
 
 export const PUBLIC_PAGE_EXPLAINER = {
   screenId: "product/public-page",
-  purpose: "The one page anyone can open to see what your project is, at its own address.",
+  purpose: (
+    <>
+      The one <Term id="public_page">page</Term> anyone can open to see what your project is, at its own address.
+    </>
+  ),
   action: "Write the one-line pitch and a few lines about it, check the preview, then publish it and send the link to someone.",
   watchFor: "Nothing is public until you publish. You can publish changes or take the page down any time.",
 } as const;

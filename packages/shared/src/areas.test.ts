@@ -1,6 +1,6 @@
 /** Founder areas (docs/DESIGN.md §8–§9): a mapping over module tabs, tiers, the promotion rule and Builder view. */
 import { describe, expect, it } from "vitest";
-import { AREA_KEYS, AREA_LETTERS, MODULE_AREA, areaLanding, areaOfTab, areaTabs, areaTabsByArea, departmentArea, moduleLessDepartments, sectionOfTab, type AreaDepartment } from "./areas";
+import { AREA_KEYS, AREA_LETTERS, MODULE_AREA, TAB_REVEAL, TEAM_CALL_REVEAL, areaLanding, areaOfTab, areaTabs, areaTabsByArea, departmentArea, moduleLessDepartments, sectionOfTab, tabRevealed, type AreaDepartment, type StageFacts } from "./areas";
 import { DEFAULT_TABS, MODULE_KEYS, MODULE_TABS, tabTier, type ModuleKey } from "./constants";
 import { SHELL_RESERVED_LETTERS, departmentLetters } from "./shortcuts";
 
@@ -118,5 +118,51 @@ describe("area registry", () => {
     expect(areaTabs("product", LEDGERLY, { builder: true }).map((t) => t.label)).toContain("Code");
     expect(areaTabs("money", LEDGERLY, { builder: true }).map((t) => t.label)).toContain("Entity");
     expect(defaultCount(LEDGERLY, true)).toBe(40);
+  });
+});
+
+describe("tabs by stage (WP-10 T1)", () => {
+  const FRESH: StageFacts = { pageLive: false, distributionStarted: false, roundCompleted: false, bankConnected: false, firstPayment: false, entityExists: false, people: 1 };
+  const ids = (departments: AreaDepartment[], stage?: StageFacts, builder = false) => [...areaTabsByArea(departments, { builder, stage }).values()].flat().map((t) => t.id);
+  const inline = (departments: AreaDepartment[], stage?: StageFacts, builder = false) => [...areaTabsByArea(departments, { builder, stage }).values()].flat().filter((t) => t.tier === "default").length;
+
+  it("a fresh project's stage leaves Money, Company and Development tabs out", () => {
+    const map = areaTabsByArea(LEDGERLY, { builder: false, stage: FRESH });
+    expect(map.has("money")).toBe(false);
+    expect(map.get("product")?.some((t) => t.moduleKey === "development")).toBe(false);
+    expect(map.get("customers")?.map((t) => t.id)).toEqual(["crm"]);
+    expect(inline(LEDGERLY, FRESH)).toBeLessThanOrEqual(8);
+    expect([...map.values()].flat().length - inline(LEDGERLY, FRESH)).toBe(6);
+  });
+
+  it("one finished round adds Payroll and Development's tabs", () => {
+    const stage = { ...FRESH, roundCompleted: true };
+    const map = areaTabsByArea(LEDGERLY, { builder: false, stage });
+    expect(map.get("money")?.map((t) => [t.id, t.tier])).toEqual([["finance/wage-bill", "default"]]);
+    expect(map.get("product")?.filter((t) => t.moduleKey === "development").map((t) => t.slug)).toEqual(["training-ground", "plan", "pull-requests", "environments", "specialists"]);
+    expect(TEAM_CALL_REVEAL(stage)).toBe(true);
+    expect(TEAM_CALL_REVEAL(FRESH)).toBe(false);
+  });
+
+  it("a payment adds Overview, Runway, Cap table and Incorporate; an entity adds Company's tabs", () => {
+    const paid = ids(LEDGERLY, { ...FRESH, firstPayment: true });
+    for (const id of ["finance/overview", "finance/runway", "finance/cap-table", "legal/incorporate"]) expect(paid).toContain(id);
+    expect(paid).not.toContain("legal/compliance");
+    expect(ids(LEDGERLY, { ...FRESH, entityExists: true })).toContain("legal/compliance");
+    expect(ids(LEDGERLY, { ...FRESH, people: 2 })).toContain("legal/incorporate");
+  });
+
+  it("a page or distribution reveals the Board; distribution the rest of Customers", () => {
+    expect(ids(LEDGERLY, { ...FRESH, pageLive: true })).toContain("distribution/formation");
+    expect(ids(LEDGERLY, { ...FRESH, pageLive: true })).not.toContain("distribution/leads");
+    expect(ids(LEDGERLY, { ...FRESH, distributionStarted: true })).toContain("distribution/leads");
+  });
+
+  it("Builder view ignores the stage; no stage given changes nothing", () => {
+    expect(ids(LEDGERLY, FRESH, true)).toEqual(ids(LEDGERLY, undefined, true));
+    expect(ids(LEDGERLY, undefined)).toContain("finance/runway");
+    expect(tabRevealed("finance", "runway", undefined)).toBe(true);
+    expect(tabRevealed("product", "vision", FRESH)).toBe(true);
+    expect(Object.keys(TAB_REVEAL).sort()).toEqual(["development", "distribution", "finance", "legal"]);
   });
 });

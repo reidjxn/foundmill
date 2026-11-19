@@ -366,7 +366,7 @@ export function BillingTab() {
         )}
       </SettingsSection>
 
-      <SettingsSection wide title="Usage" meta={usage.data ? periodLabel(usage.data.period, datePrefs) : undefined} loading={usage.isLoading} error={usage.error ? errorMessage(usage.error) : undefined} onRetry={() => void usage.refetch()} actions={<ProvenanceChip kind="estimate" />}>
+      <SettingsSection wide title={<Term id="ai_usage">Usage</Term>} meta={usage.data ? periodLabel(usage.data.period, datePrefs) : undefined} loading={usage.isLoading} error={usage.error ? errorMessage(usage.error) : undefined} onRetry={() => void usage.refetch()} actions={<ProvenanceChip kind="estimate" />}>
         {usage.data ? (
           <div className="grid grid-cols-12 items-start gap-4">
             <MiniTable

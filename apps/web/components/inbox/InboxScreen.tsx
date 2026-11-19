@@ -11,7 +11,8 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteD
 import { ChevronLeft, Inbox as InboxIcon, RefreshCw } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Button, EmptyState, Kbd, MIN_VIEWPORT_WIDTH, cn, isViewportTooSmall, useAgentPersona, useGuided, useToast, useViewportWidth } from "@foundmill/dugout";
+import { Button, EmptyState, Explainer, Kbd, MIN_VIEWPORT_WIDTH, Term, cn, isViewportTooSmall, useAgentPersona, useGuided, useToast, useViewportWidth } from "@foundmill/dugout";
+import { EXPLAINERS } from "@foundmill/modules/explainers";
 import type { DeptColourToken } from "@foundmill/shared";
 import { humanSender } from "@foundmill/widgets/shared/note-tags";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -218,10 +219,23 @@ export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
   );
   // The empty line, with the key hints only for operators (guidance off); viewers cannot refresh, so no R for them.
   const emptyText: ReactNode = useMemo(() => {
-    if (guided || tab !== "all" || !canRefresh) return EMPTY_TEXT[tab];
+    // The same sentences as EMPTY_TEXT, with the first-timer's new words defined where they first appear (WP-10 T4).
+    const text: ReactNode =
+      tab === "all" ? (
+        <>
+          Your team works in <Term id="round_of_work">rounds</Term>, and their <Term id="note">notes</Term> land here. Press <Term id="continue">Continue</Term> to start one.
+        </>
+      ) : tab === "respond" ? (
+        <>
+          Nothing waits for an answer. <Term id="continue">Continue</Term> is free to run.
+        </>
+      ) : (
+        EMPTY_TEXT[tab]
+      );
+    if (guided || tab !== "all" || !canRefresh) return text;
     return (
       <>
-        {EMPTY_TEXT[tab]} <Kbd>R</Kbd> pulls one new note.
+        {text} <Kbd>R</Kbd> pulls one new note.
       </>
     );
   }, [guided, tab, canRefresh]);
@@ -232,6 +246,8 @@ export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
 
   return (
     <div className="flex h-full min-h-0" data-testid="inbox-screen" data-tab={tab} data-selected={selectedId ?? undefined}>
+      {/* "Explain this page" for Needs you (WP-10 T3): drawn by the shell, nothing here. */}
+      <Explainer {...EXPLAINERS.inbox!} />
       <aside className={cn("flex min-h-0 w-full min-w-0 flex-col bg-panel @page-wide:w-(--inbox-list-width) @page-wide:shrink-0 @page-wide:border-r @page-wide:border-subtle", selectedId && "@max-page-wide:hidden")} style={{ "--inbox-list-width": `${INBOX_LIST_WIDTH}px` } as CSSProperties} aria-label={`${INBOX_TAB_LABELS[tab]} notes`} data-testid="inbox-pane" data-coachmark="inbox-pane">
         {refreshFailed(listQ) ? <RefreshFailedNotice query={listQ} /> : null}
         <InboxList rows={rows} selectedId={selectedId} onSelect={select} onPrefetch={prefetchNote} loading={listQ.isLoading} hasMore={!!listQ.hasNextPage} loadingMore={listQ.isFetchingNextPage} onLoadMore={() => void listQ.fetchNextPage()} emptyText={emptyText} founderName={founderName} />

@@ -4,7 +4,7 @@
  * /milestones, search and the palette show, so they always agree. Pure and unit-tested.
  */
 import type { TabItem } from "@foundmill/dugout";
-import { AREA_LABELS, areaLanding, areaOfTab, areaTabsByArea, departmentArea, sectionOfTab, type AreaDepartment, type AreaKey, type AreaSectionKey, type AreaTab } from "@foundmill/shared/areas";
+import { AREA_LABELS, areaLanding, areaOfTab, areaTabsByArea, departmentArea, sectionOfTab, type AreaDepartment, type AreaKey, type AreaSectionKey, type AreaTab, type StageFacts } from "@foundmill/shared/areas";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { canOpenDepartment, FULL_ACCESS, type Access } from "./access";
 
@@ -15,12 +15,14 @@ export interface AreaNavInput {
   access?: Access;
   /** Builder view on: every tab inline, Builder view's tabs included. Default off. */
   builder?: boolean;
+  /** What the project has done: a tab shows once its moment has arrived (Builder view ignores it). Default: every tab. */
+  stage?: StageFacts;
 }
 
 /** Every area's tabs for this person, in sidebar order (areas with nothing to open are left out). */
 export function areaNav(input: AreaNavInput): Map<AreaKey, AreaTab[]> {
   const access = input.access ?? FULL_ACCESS;
-  return areaTabsByArea(input.departments, { builder: input.builder ?? false, canOpen: (d) => canOpenDepartment(access, d), fixed: { crm: access.canRead("crm") } });
+  return areaTabsByArea(input.departments, { builder: input.builder ?? false, stage: input.stage, canOpen: (d) => canOpenDepartment(access, d), fixed: { crm: access.canRead("crm") } });
 }
 
 /** Where an area tab goes. */
