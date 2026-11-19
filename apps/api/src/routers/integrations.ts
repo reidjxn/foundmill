@@ -7,11 +7,11 @@
 import { INPUT_LIMITS } from "@foundmill/config";
 import { isServiceOnlyConnector, type HealthResult } from "@foundmill/connectors";
 import { repos, type Executor } from "@foundmill/db";
-import { AppError, boundedRecord, connectorMode, ForbiddenError, mockResultsAllowed, platformMailAddress, platformMailDomain, platformMailLive } from "@foundmill/shared";
+import { AppError, boundedRecord, connectorMode, ForbiddenError, mockResultsAllowed, platformMailAddress, platformMailDomain, platformMailLive, RegistrantContact } from "@foundmill/shared";
 import { z } from "zod";
 import type { GatewayConnectResult } from "../services/gateway";
 import { clearPostalAddress, isProjectFounder, postalAddressOf, setPostalAddress } from "../services/postal-address";
-import { addOwnDomain, checkOwnDomain, ownDomainOf, removeOwnDomain } from "../services/own-domain";
+import { addOwnDomain, checkOwnDomain, finishRegisteredDomain, ownDomainOf, quoteRegisteredDomain, registerProjectDomain, removeOwnDomain, setRegisteredDomainForwarding } from "../services/own-domain";
 import { oauthRedirectUri, signConnectState, signInstallState, verifyConnectState, verifyInstallState } from "../services/install-state";
 import { ANTHROPIC, revokeAnthropicKey, storeAnthropicKey, validateAnthropicKey } from "../services/keys";
 import { Id, audit, router, sectionAdmin, sectionRead } from "../trpc";
@@ -129,6 +129,20 @@ export const integrationsRouter = router({
 
   /** The founders remove the domain: mail goes from the project's Foundmill address again. */
   removeOwnDomain: admin.mutation(({ ctx }) => removeOwnDomain(ctx)),
+
+  /** Whether a name can be registered through Foundmill and its price for a year (OpenSRS's cost plus about $3, an Estimate). */
+  quoteDomain: admin.input(z.object({ domain: z.string().trim().min(1).max(300) })).mutation(({ ctx, input }) => quoteRegisteredDomain(ctx, input.domain)),
+
+  /** The founder registers the domain as its owner, with the price and the registration agreement in front of them. */
+  registerDomain: admin
+    .input(z.object({ domain: z.string().trim().min(1).max(300), priceMinor: z.number().int().min(0).max(1_000_000), owner: RegistrantContact, acceptAgreement: z.literal(true) }))
+    .mutation(({ ctx, input }) => registerProjectDomain(ctx, input)),
+
+  /** Sets a registered domain's records again after a step failed. */
+  finishDomainSetup: admin.mutation(({ ctx }) => finishRegisteredDomain(ctx)),
+
+  /** Mail to the registered domain: a copy to this founder's own inbox (their opt-in click), or none. */
+  setDomainForwarding: admin.input(z.object({ on: z.boolean() })).mutation(({ ctx, input }) => setRegisteredDomainForwarding(ctx, input.on)),
 
   connect: admin.input(z.object({ connectorKey: z.string().min(1).max(60), input: boundedRecord(INPUT_LIMITS.jsonObjectKeys, z.record(z.string(), z.unknown())).default({}) })).mutation(async ({ ctx, input }) => {
     const mode = connectorMode(ctx.env, input.connectorKey);

@@ -29,7 +29,7 @@ test.describe("Send from your own domain", () => {
     await expect(page.getByText("Enter a domain you own, like acme.com.").first()).toBeVisible({ timeout: LONG });
     await expect(panel.getByTestId("own-domain-records")).toHaveCount(0);
 
-    await panel.getByLabel("Name").fill("maya");
+    await panel.getByLabel("Send as").fill("maya");
     await panel.getByLabel("Your domain").fill("https://www.Northwind-Notyet.com/");
     await panel.getByTestId("own-domain-add").click();
     await expect(panel.getByTestId("own-domain-address")).toHaveText("maya@northwind-notyet.com", { timeout: LONG });
@@ -48,7 +48,7 @@ test.describe("Send from your own domain", () => {
     // Another domain replaces it; this one is found on the first check.
     await panel.getByTestId("own-domain-remove").click();
     await expect(panel.getByTestId("own-domain-form")).toBeVisible({ timeout: LONG });
-    await panel.getByLabel("Name").fill("hello");
+    await panel.getByLabel("Send as").fill("hello");
     await panel.getByLabel("Your domain").fill("northwind-goods.com");
     await panel.getByTestId("own-domain-add").click();
     await expect(panel.getByTestId("own-domain-address")).toHaveText("hello@northwind-goods.com", { timeout: LONG });

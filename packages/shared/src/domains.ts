@@ -3,6 +3,7 @@
  * candidates it asks about), the api (which it accepts) and the `domains` connector (which it will look up): a name is
  * only ever looked up when it is `parseDomain`-valid, so nothing built from free text reaches a registry.
  */
+import { z } from "zod";
 
 /** The top-level domains the checker answers for. */
 export const DOMAIN_TLDS = ["com", "io", "co", "app", "ai", "org", "net", "dev"] as const;
@@ -106,3 +107,40 @@ export function ownDomainSendingReady(records: readonly OwnDomainRecord[]): bool
   const sending = records.filter((r) => r.purpose === "sending");
   return sending.length > 0 && sending.every((r) => r.found === true);
 }
+
+/* ---- A domain registered through Foundmill (WP-08 domain plan, Path A, on OpenSRS) ---- */
+
+/** Added to OpenSRS's cost for a year of a domain (founder, Nov 17, 2026: cost plus about $3); the price is an Estimate. */
+export const DOMAIN_REGISTRATION_MARKUP_MINOR = 300;
+
+/** The founder's price for a year, in USD cents: OpenSRS's cost plus the markup. Shown labeled "Estimate". */
+export const domainRegistrationEstimate = (costMinor: number): number => costMinor + DOMAIN_REGISTRATION_MARKUP_MINOR;
+
+/** Tucows' registration agreement, which the founder accepts as the domain's owner before registering. */
+export const DOMAIN_REGISTRATION_AGREEMENT_URL = "https://opensrs.com/wp-content/uploads/Master_Domain_Registration_Agreement.html";
+
+/** Mail to a registered domain comes into Foundmill through SendGrid Inbound Parse. */
+export const REGISTERED_DOMAIN_MX = "mx.sendgrid.net";
+
+/** DMARC at first: report only (founder, Nov 19, 2026), tightened once the reports are clean. */
+export const REGISTERED_DOMAIN_DMARC = "v=DMARC1; p=none;";
+
+/**
+ * The person who registers the domain, as its owner (registrant of record) and admin and billing contact (founder, Nov
+ * 17, 2026: "It should always be our end user"). Never a Foundmill default.
+ */
+export const RegistrantContact = z.object({
+  firstName: z.string().trim().min(1).max(60),
+  lastName: z.string().trim().min(1).max(60),
+  orgName: z.string().trim().max(100).optional(),
+  address1: z.string().trim().min(1).max(100),
+  address2: z.string().trim().max(100).optional(),
+  city: z.string().trim().min(1).max(60),
+  state: z.string().trim().max(60).default(""),
+  postalCode: z.string().trim().min(1).max(20),
+  country: z.string().trim().toUpperCase().regex(/^[A-Z]{2}$/, "country is a two-letter code"),
+  /** OpenSRS's form: +<country code>.<number>, such as +1.4165550123. */
+  phone: z.string().trim().regex(/^\+\d{1,3}\.\d{4,14}$/, "phone looks like +1.4165550123"),
+  email: z.email().max(254),
+});
+export type RegistrantContact = z.infer<typeof RegistrantContact>;

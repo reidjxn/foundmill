@@ -29,6 +29,12 @@ const VIEW = {
   checkedAt: projectDomains.checkedAt,
   verifiedAt: projectDomains.verifiedAt,
   createdAt: projectDomains.createdAt,
+  source: projectDomains.source,
+  registeredAt: projectDomains.registeredAt,
+  expiresAt: projectDomains.expiresAt,
+  priceMinor: projectDomains.priceMinor,
+  forwardingUserId: projectDomains.forwardingUserId,
+  forwardingOptedInAt: projectDomains.forwardingOptedInAt,
 };
 export type ProjectDomainView = Pick<ProjectDomain, keyof typeof VIEW>;
 
@@ -62,6 +68,34 @@ export const projectDomainsRepo = {
       .onConflictDoUpdate({ target: projectDomains.businessId, set: values })
       .returning();
     return row!;
+  },
+
+  /**
+   * A domain OpenSRS just registered for the founder (Path A): written at once, before SendGrid's authentication and the
+   * zone exist, so a registration that went through is never lost. Fails when the project has a domain already.
+   */
+  async putRegistered(db: Executor, businessId: string, input: { domain: string; senderLocalPart: string; orderId: string; registeredAt: Date; expiresAt: Date; priceMinor: number; addedBy: string | null; simulated: boolean }): Promise<ProjectDomain> {
+    const [row] = await db
+      .insert(projectDomains)
+      .values({ businessId, source: "registered", domain: input.domain, senderLocalPart: input.senderLocalPart, sendgridDomainId: null, records: [], registrarOrderId: input.orderId, registeredAt: input.registeredAt, expiresAt: input.expiresAt, priceMinor: input.priceMinor, addedBy: input.addedBy, simulated: input.simulated })
+      .returning();
+    return row!;
+  },
+
+  /** A registered domain's SendGrid authentication and the records Foundmill set in its zone. */
+  async saveSetup(db: Executor, businessId: string, input: { sendgridDomainId: string; records: OwnDomainRecord[] }): Promise<ProjectDomain | null> {
+    return maybeOne(await db.update(projectDomains).set({ sendgridDomainId: input.sendgridDomainId, records: input.records }).where(and(eq(projectDomains.businessId, businessId), eq(projectDomains.source, "registered"))).returning());
+  },
+
+  /** Forwarding to a founder's own inbox: on (that founder, now) or off (null). Registered domains only. */
+  async setForwarding(db: Executor, businessId: string, input: { userId: string | null; now: Date }): Promise<ProjectDomain | null> {
+    return maybeOne(
+      await db
+        .update(projectDomains)
+        .set({ forwardingUserId: input.userId, forwardingOptedInAt: input.userId ? input.now : null })
+        .where(and(eq(projectDomains.businessId, businessId), eq(projectDomains.source, "registered")))
+        .returning(),
+    );
   },
 
   /** The name mail is sent as at the domain; the domain stays as verified (or pending) as it was. */
@@ -112,6 +146,8 @@ export function projectDomainsStore(db: Executor) {
     get: (businessId: string) => projectDomainsRepo.get(db, businessId),
     takenElsewhere: (businessId: string, domain: string) => projectDomainsRepo.takenElsewhere(db, businessId, domain),
     put: (businessId: string, input: Parameters<typeof projectDomainsRepo.put>[2]) => projectDomainsRepo.put(db, businessId, input),
+    putRegistered: (businessId: string, input: Parameters<typeof projectDomainsRepo.putRegistered>[2]) => projectDomainsRepo.putRegistered(db, businessId, input),
+    saveSetup: (businessId: string, input: Parameters<typeof projectDomainsRepo.saveSetup>[2]) => projectDomainsRepo.saveSetup(db, businessId, input),
     setSender: (businessId: string, senderLocalPart: string) => projectDomainsRepo.setSender(db, businessId, senderLocalPart),
     saveCheck: (businessId: string, input: Parameters<typeof projectDomainsRepo.saveCheck>[2]) => projectDomainsRepo.saveCheck(db, businessId, input),
     remove: (businessId: string) => projectDomainsRepo.remove(db, businessId),
