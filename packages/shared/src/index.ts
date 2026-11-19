@@ -75,5 +75,6 @@ export * from "./limit-address";
 export * from "./bounded-record";
 export * from "./parked-tasks";
 export * from "./positioning";
+export * from "./first-ten";
 export * from "./replies";
 export * from "./project-updates";

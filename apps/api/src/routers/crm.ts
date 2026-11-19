@@ -1,9 +1,10 @@
 /** crm.search/entity.list/get/update/merge/unmerge/create/requestDeletion/notes/roles (BUILD §11.12; AC-11.12.2 via RLS, AC-11.12.3 merge/unmerge). */
 import { INPUT_LIMITS } from "@foundmill/config";
 import { AddRoleInput, EntityListFilter, STRONG_IDENTIFIERS, SearchInput, UpdateEntityInput, repos } from "@foundmill/db";
-import { AppError, boundedRecord, hasSectionAccess, REPLY_ANSWER_MAX } from "@foundmill/shared";
+import { AppError, boundedRecord, FIRST_TEN_NAME_MAX, FIRST_TEN_STAGES, FIRST_TEN_WORDS_MAX, hasSectionAccess, REPLY_ANSWER_MAX } from "@foundmill/shared";
 import { z } from "zod";
 import { Id, audit, router, sectionRead, sectionWrite } from "../trpc";
+import { addFirstTen, heardFirstTen, listFirstTen, moveFirstTen } from "../services/first-ten";
 import { answerReply, listReplies } from "../services/replies";
 import { modelLimited } from "../services/model-limits";
 
@@ -144,6 +145,14 @@ export const crmRouter = router({
         return entity;
       }),
     ),
+  }),
+
+  /** The first ten conversations (WP-08 T5): people the founder knows, moved by hand; no event, no send. */
+  firstTen: router({
+    list: read.query(({ ctx }) => listFirstTen(ctx)),
+    add: write.input(z.object({ name: z.string().trim().min(1).max(FIRST_TEN_NAME_MAX) })).mutation(({ ctx, input }) => addFirstTen(ctx, input)),
+    move: write.input(z.object({ entityId: Id, stage: z.enum(FIRST_TEN_STAGES) })).mutation(({ ctx, input }) => moveFirstTen(ctx, input)),
+    heard: write.input(z.object({ entityId: Id, words: z.string().trim().min(1).max(FIRST_TEN_WORDS_MAX) })).mutation(({ ctx, input }) => heardFirstTen(ctx, input)),
   }),
 
   notes: router({

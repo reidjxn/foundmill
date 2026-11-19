@@ -9,7 +9,7 @@ describe("distribution module registration", () => {
     expect(def).toBeDefined();
     expect(def!.screens).toBe(distributionScreens);
     expect(distributionScreens.map((s) => [s.tabSlug, s.title])).toEqual(MODULE_TABS.distribution.map((t) => [t.slug, t.title]));
-    expect(distributionScreens.map((s) => s.tabSlug)).toEqual(["formation", "channels", "leads", "campaigns", "creative", "attribution"]);
+    expect(distributionScreens.map((s) => s.tabSlug)).toEqual(["first-ten", "formation", "channels", "leads", "campaigns", "creative", "attribution"]);
     for (const tab of MODULE_TABS.distribution) {
       const screen = getModuleScreen("distribution", tab.slug);
       expect(screen?.moduleKey).toBe("distribution");

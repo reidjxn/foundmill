@@ -34,23 +34,23 @@ test.describe("founder areas", () => {
   });
 
   test("an area's bar shows its defaults inline; More detail holds the rest, and an opened detail tab joins the bar", async ({ page }) => {
-    await openBusiness(page, "d/distribution/leads");
+    await openBusiness(page, "d/distribution/first-ten");
     await dismissCoachmarks(page);
     const bar = areaTabBar(page, "Customers");
-    await expect(bar.getByRole("tab")).toHaveText([/^Leads/, /^Campaigns/, /^Contacts/], { timeout: LONG });
+    await expect(bar.getByRole("tab")).toHaveText([/^First ten/, /^Creative/, /^Contacts/], { timeout: LONG });
     await expect(areaLink(page, "customers")).toHaveAttribute("aria-current", "page");
-    const more = page.getByRole("button", { name: "More detail, 4 tabs" });
+    const more = page.getByRole("button", { name: "More detail, 5 tabs" });
     await expect(more).toBeVisible();
     // Beside the tablist, never inside it.
     expect(await more.evaluate((el) => el.closest("[role=tablist]") === null)).toBe(true);
     await more.click();
     const menu = page.getByTestId("more-detail-menu");
-    await expect(menu.getByRole("menuitem")).toHaveText(["Board", "Channels", "Creative", "Attribution"]);
+    await expect(menu.getByRole("menuitem")).toHaveText(["Board", "Channels", "Leads", "Campaigns", "Attribution"]);
     await menu.getByRole("menuitem", { name: "Channels" }).click();
     await expect(page).toHaveURL(new RegExp(`${B}/d/distribution/channels`), { timeout: LONG });
     await expect(page.getByTestId("module-screen")).toHaveAttribute("data-module", "distribution/channels", { timeout: LONG });
     await expect(bar.getByRole("tab", { name: "Channels" })).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByRole("button", { name: "More detail, 3 tabs" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "More detail, 4 tabs" })).toBeVisible();
     // Contacts, a fixed surface, sits in the same bar and lights the same area.
     await bar.getByRole("tab", { name: "Contacts" }).click();
     await expect(page).toHaveURL(new RegExp(`${B}/crm$`), { timeout: LONG });
@@ -169,7 +169,7 @@ test.describe("founder areas", () => {
       await settled(page);
     };
     await chord("p", new RegExp(`${B}/d/product/roadmap$`));
-    await chord("c", new RegExp(`${B}/d/distribution/leads$`));
+    await chord("c", new RegExp(`${B}/d/distribution/first-ten$`));
     await chord("m", new RegExp(`${B}/d/finance/overview$`));
     await chord("r", new RegExp(`${B}/d/product/specification$`));
     await chord("t", new RegExp(`${B}/d/team/squad$`));
