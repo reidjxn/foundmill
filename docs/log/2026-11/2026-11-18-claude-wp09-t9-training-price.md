@@ -63,3 +63,6 @@ supersedes: []
 - The live run of the grader eval, and the move it decides.
 - The calibration against the cost report (needs production).
 - T10 (training on the batch path) waits for WP-06 T10.
+
+## CI fix (Nov 19)
+`stop-resume.spec.ts` changed a model on a freshly committed project, whose $5 of credits cannot finish the retest (about $8.31, Estimate), so the new refusal fired and the "1 retest queued" text never appeared. The spec now expects the refusal. A retest held for the resume stays covered by `business-controls.test.ts`. The estimate being above a new project's whole balance is worth a look when the effort per route lands (WP-09 T6).

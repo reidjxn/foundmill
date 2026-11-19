@@ -4,7 +4,7 @@ import { LONG, UUID, ensureDeck, signIn } from "./helpers";
 /**
  * Stop all agents and the way back (audit fixes BILL-03, api-services-02, SECX-2): on a business committed for this
  * test (so the seeded ones keep their agents' states), the kill switch turns into Resume agents with the reason, the
- * stop survives a reload, a model change made while stopped holds its retest until the resume (SEC3), and Resume agents
+ * stop survives a reload, a model change whose retest the credits cannot finish is refused (WP-09 T9), and Resume agents
  * brings the team back. (Continue's refusal, campaigns kept off live and hires starting paused while stopped are covered
  * by the api suite, business-controls.test.ts.)
  */
@@ -35,7 +35,8 @@ test.describe("stop and resume", () => {
     await expect(page.getByTestId("resume-agents-trigger")).toBeVisible({ timeout: LONG });
     await page.waitForLoadState("networkidle", { timeout: LONG });
 
-    // While stopped a model change applies at once, but its retest spends credits: it waits, queued, for the resume.
+    // A retest spends credits, and a new project's $5 cannot finish one (WP-09 T9): the change is refused, not queued.
+    // (A retest held for the resume is covered by the api suite, business-controls.test.ts.)
     const businessPath = page.url().match(new RegExp(`/b/${UUID}`))![0];
     await page.goto(`${businessPath}/d/team/squad`);
     const agentLinks = page.locator("[data-testid=module-screen] a[href*='/agents/']").filter({ hasNotText: "Chief of Staff" });
@@ -49,7 +50,7 @@ test.describe("stop and resume", () => {
     await otherModel.click();
     await expect(page.getByTestId("apply-scope-dialog")).toBeVisible();
     await page.getByTestId("apply-scope-confirm").click();
-    await expect(page.getByText("1 retest queued (starts when the agents resume)").first()).toBeVisible({ timeout: LONG });
+    await expect(page.getByText(/This check costs about \$[\d.]+ \(Estimate\)/).first()).toBeVisible({ timeout: LONG });
 
     await page.getByTestId("resume-agents-trigger").click();
     const resumeDialog = page.getByRole("dialog", { name: "Resume agents?" });
