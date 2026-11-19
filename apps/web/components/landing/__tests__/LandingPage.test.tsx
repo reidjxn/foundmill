@@ -6,6 +6,7 @@ import { LandingPage } from "../LandingPage";
 import { SWITCHES_OFF, TOUR_ENABLED, type LandingSwitches } from "../flags";
 import { LANDING_VARIANTS, type LandingVariant } from "@/lib/landing-variant";
 import { LANDING_WORDS as W, VARIANT_WORDS } from "../words";
+import { STUDIO_SETS } from "../first-timer-examples";
 
 vi.mock("next/link", () => ({ default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a> }));
 
@@ -234,6 +235,22 @@ describe("LandingPage variants (lib/landing-variant.ts)", () => {
     const titles = LANDING_VARIANTS.map((v) => VARIANT_WORDS[v].title);
     expect(new Set(titles).size).toBe(titles.length);
     for (const v of LANDING_VARIANTS) expect([...VARIANT_WORDS[v].ways].sort()).toEqual(["bring", "sentence", "studio"]);
+  });
+
+  it("a profile page puts its own hero example first, chosen, and shows its own Studio set", () => {
+    const { container } = renderVariant("developer");
+    const pills = [...container.querySelectorAll("[data-example-idea]")];
+    expect(pills.map((b) => b.getAttribute("data-example-idea"))).toEqual(VARIANT_WORDS.developer.examples);
+    expect(pills[0]!.getAttribute("aria-checked")).toBe("true");
+    const studio = container.querySelector("#studio")!.textContent!;
+    expect(studio).toContain(W.studio.brief(STUDIO_SETS.games.brief));
+    expect(studio).toContain("Patchnote");
+    expect(studio).not.toContain("Lace Lab");
+  });
+
+  it("every Studio set has three ideas, and not every page shows the sneakers set", () => {
+    for (const set of Object.values(STUDIO_SETS)) expect(set.cards).toHaveLength(3);
+    expect(new Set(LANDING_VARIANTS.map((v) => VARIANT_WORDS[v].studio ?? "sneakers")).size).toBeGreaterThan(5);
   });
 
   it("the page for a visitor with no idea opens Surprise me; the others leave it closed", () => {

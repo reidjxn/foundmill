@@ -22,7 +22,7 @@ import { Chip, DayList, GetTheApp, Icon, IdeaCard, LandingSection, PersonPage, P
 import { LEGAL_ROUTES } from "@/content/legal/facts";
 import { publicEnv } from "@/lib/env";
 import { DEFAULT_LANDING_VARIANT, type LandingVariant } from "@/lib/landing-variant";
-import { EXAMPLE_IDEAS, EXAMPLE_PERSON, EXAMPLE_PROJECT, EXAMPLE_STUDIO } from "./first-timer-examples";
+import { EXAMPLE_PERSON, EXAMPLE_PROJECT, STUDIO_SETS, exampleIdeasInOrder, type StudioSet } from "./first-timer-examples";
 import { ExampleIdeas } from "./ExampleIdeas";
 import { SWITCHES_OFF, TOUR_ENABLED, type LandingSwitches } from "./flags";
 import { LandingHero } from "./LandingHero";
@@ -58,13 +58,13 @@ export function LandingPage({ variant = DEFAULT_LANDING_VARIANT, switches = SWIT
           words={{ title: V.title, lede: V.lede, label: V.label, ideas: V.ideas, surpriseOpen: V.surpriseOpen }}
           example={
             <ScreenFrame label={W.hero.exampleLabel} className="in-data-landed:hidden">
-              <ExampleIdeas ideas={EXAMPLE_IDEAS} cardClassName="world-night landing-screen-lit max-w-full" />
+              <ExampleIdeas ideas={exampleIdeasInOrder(V.examples)} cardClassName="world-night landing-screen-lit max-w-full" />
             </ScreenFrame>
           }
         />
         <ResultSection />
         <WaysSection order={V.ways} signupOpen={switches.signupOpen} />
-        <StudioSection />
+        <StudioSection set={STUDIO_SETS[V.studio ?? "sneakers"]} />
         <PeopleSection peopleOpen={switches.peopleOpen} />
         <FirstWeekSection platformMail={switches.platformMail} />
         <section id="control" aria-labelledby="control-title" className="landing-section">
@@ -239,8 +239,8 @@ function WaysSection({ order, signupOpen }: { order: readonly WayId[]; signupOpe
   );
 }
 
-/** Inside the Ideation Studio: a set of example ideas from one brief, and what a founder does with a set. */
-function StudioSection() {
+/** Inside the Ideation Studio: a set of example ideas from one brief (the variant's), and what a founder does with a set. */
+function StudioSection({ set }: { set: StudioSet }) {
   return (
     <section id="studio" aria-labelledby="studio-title" data-nosnippet="" className="landing-section landing-nightfall">
       <div className="landing-col flex flex-col gap-12">
@@ -256,15 +256,15 @@ function StudioSection() {
         <ScreenFrame label={W.studio.label}>
           <div className="flex flex-col gap-6">
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-              <span className="t-landing-small text-secondary">{W.studio.brief}</span>
+              <span className="t-landing-small text-secondary">{W.studio.brief(set.brief)}</span>
               <span className="flex flex-wrap items-center gap-2" aria-label={W.studio.steerLabel}>
-                {W.studio.steer.map((s) => (
+                {set.steer.map((s) => (
                   <Chip key={s}>{s}</Chip>
                 ))}
               </span>
             </div>
             <div className="landing-ideas">
-              {EXAMPLE_STUDIO.map((card) => (
+              {set.cards.map((card) => (
                 <IdeaCard key={card.name} card={card} footnote={null} />
               ))}
             </div>
