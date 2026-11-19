@@ -43,6 +43,13 @@ export interface BriefItemLike {
 
 /** Events that can be a real outcome of the project (the north star's list, as the catalog declares them). */
 export const REAL_OUTCOME_EVENT_TYPES = ["page.published", "mail.sent", "page.followed", "payment.received", "lead.replied"] as const;
+/**
+ * Whether a post the founder said they posted counts as a real outcome (D1, Nov 16, 2026, not answered yet): "never", or
+ * "visited" for a `post.published` whose `visited` is true. Flipping it also means adding the type to
+ * REAL_OUTCOME_EVENT_TYPES, a `RealOutcome` kind in `realOutcomes`, and the same rule to the three outcome clauses of
+ * packages/db `repos/metrics.ts`.
+ */
+export const REAL_OUTCOME_POST_RULE: "never" | "visited" = "never";
 /** Read beside them only for what caused a payment (the journey's lead channel). */
 export const BRIEF_CAUSE_EVENT_TYPES = ["customer.converted"] as const;
 export const BRIEF_EVENT_TYPES: readonly string[] = [...REAL_OUTCOME_EVENT_TYPES, ...BRIEF_CAUSE_EVENT_TYPES];
@@ -68,6 +75,8 @@ export function isRealOutcome(e: Pick<BriefEventLike, "type" | "actor" | "payloa
     case "page.published":
       // The founder publishes the page themselves (the event's actor is the person).
       return e.actor.kind === "user";
+    case "post.published":
+      return REAL_OUTCOME_POST_RULE === "visited" && p.visited === true && (e.actor.kind === "user" || (e.actor.kind === "system" && e.actor.id === "public-page"));
     case "mail.sent":
       // Only a message the vendor accepted for real: the gateway writes `simulated: false` then, and only then.
       return p.simulated === false;

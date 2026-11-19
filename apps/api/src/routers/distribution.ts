@@ -220,7 +220,8 @@ export const distributionRouter = router({
         const rows = (await repos.campaigns.listAssets(tx, ctx.businessId, input ?? {})).filter((row) => !(row.approvalState === "rejected" && isTeamPost(row)));
         const shares = await teamPostShares(tx, { businessId: ctx.businessId, businessName: ctx.business.name, isDemo: ctx.business.isDemo, appUrl: ctx.env.APP_URL, media: { env: ctx.env, tools } }, rows);
         const outcomes = await postOutcomeCounts(tx, { businessId: ctx.businessId, membership: ctx.membership }, [...shares.keys()]);
-        return rows.map((row) => ({ ...row, sharePost: shares.get(row.id) ?? null, postOutcomes: outcomes.get(row.id) ?? null }));
+        const posted = await repos.teamPosts.published(tx, ctx.businessId, [...shares.keys()]);
+        return rows.map((row) => ({ ...row, sharePost: shares.get(row.id) ?? null, postOutcomes: outcomes.get(row.id) ?? null, posted: posted.has(row.id) ? { network: posted.get(row.id)!.network, at: posted.get(row.id)!.at } : null }));
       });
     }),
     approve: write.input(z.object({ assetId: Id })).mutation(({ ctx, input }) => setAssetApproval(ctx, input.assetId, "approved")),

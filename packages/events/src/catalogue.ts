@@ -2063,6 +2063,28 @@ const postDrafted = declareEvent(
   },
 );
 
+const postPublished = declareEvent(
+  "post.published",
+  z.object({
+    /** The team post (an `assets` row) the founder said they posted. */
+    assetId: Id,
+    /** The network they posted it on; null for a copied or sent link. */
+    network: z.enum(SHARE_DESTINATIONS).nullable(),
+    /** The address of the post, when the founder pasted it. Checked against the network's own host. */
+    url: z.url().max(500).nullable(),
+    source: z.enum(["founder", "buffer"]),
+    /** True once a first visit came back through that post's own link. */
+    visited: z.boolean(),
+  }),
+  {
+    // North star (FOUNDMILL.md, founder 2026-11-11) and D1 (Nov 16, 2026): a post counts only after "I posted it" plus a
+    // visit through its own link; until the founder answers D1 it counts as nothing (`REAL_OUTCOME_POST_RULE`).
+    doc: "The founder said they posted a draft the team wrote (or Buffer reported it sent). `visited` is true once a first visit came back through that post's own link. A tap on Share is never this event. Ids, the network and the address the founder pasted only, never the words of the post. Not counted as an outside result while REAL_OUTCOME_POST_RULE is \"never\"; never narrated.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
 /** Which post and where (item 8, packages/db `post_links`): the link's row, the post's asset and its network (null: a copied or sent link). */
 const PostLinkFacts = {
   linkId: Id,
@@ -2419,6 +2441,7 @@ export const EVENTS = {
   "idea.kept": ideaKept,
   "idea.drafted": ideaDrafted,
   "post.drafted": postDrafted,
+  "post.published": postPublished,
   "positioning.approved": positioningApproved,
   "quiz.approved": quizApproved,
   "quiz.published": quizPublished,

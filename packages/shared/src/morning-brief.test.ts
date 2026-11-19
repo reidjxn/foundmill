@@ -1,6 +1,6 @@
 /** The morning brief's four sections (item 10, Nov 13, 2026): real outcomes only under What worked. */
 import { describe, expect, it } from "vitest";
-import { briefDayWords, briefWhenWords, isRealOutcome, isSimulatedEvent, morningBrief, realOutcomes, type BriefEventLike, type MorningBriefInput } from "./morning-brief";
+import { REAL_OUTCOME_POST_RULE, briefDayWords, briefWhenWords, isRealOutcome, isSimulatedEvent, morningBrief, realOutcomes, type BriefEventLike, type MorningBriefInput } from "./morning-brief";
 import { retentionEmail, type BriefStats, type RetentionEmailContext } from "./notify-words";
 
 // Fri, Nov 13, 2026, 8:05 AM in New York.
@@ -62,6 +62,11 @@ describe("real outcomes", () => {
   it("never lists a payment or a reply that did not come from a vendor's delivery", () => {
     const fake = [ev("payment.received", 1, { conversionId: "c9", amount: { amountMinor: 500, currency: "USD" }, firstPayment: true }, { kind: "system", id: "seed" }), ev("lead.replied", 1, { sentiment: "positive" }, { kind: "agent", id: "a1" })];
     expect(realOutcomes(fake, ago(24), NOW)).toEqual([]);
+  });
+
+  it("a post the founder said they posted is not a real outcome while REAL_OUTCOME_POST_RULE is never", () => {
+    expect(REAL_OUTCOME_POST_RULE).toBe("never");
+    expect(isRealOutcome({ type: "post.published", actor: { kind: "user", id: "u1" }, payload: { visited: true } })).toBe(false);
   });
 
   it("isRealOutcome is the per-event rule realOutcomes applies", () => {
