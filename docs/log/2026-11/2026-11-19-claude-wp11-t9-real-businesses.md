@@ -17,6 +17,8 @@ supersedes: []
 The plan says to create `repos/demo-isolation.test.ts`. `src/__tests__/demo-isolation.test.ts` already exists (WP-02 T10) with a metrics fixture that builds the database twice, with and without the demo. The listed reports run against that fixture instead of a second one.
 ### The list holds the two reports that exist today
 `CROSS_BUSINESS_REPORTS` has `metrics.snapshot` and `presence.retentionReport`. `metrics.ts` and `cost-report.ts` still filter `is_demo` in their own SQL; WP-02 joins the view and adds the cost report to the list, in whichever of the two packages merges second (as the plan says). The view test and the with/without comparison already cover their current result.
+### Other readers of `is_demo` stay for now
+`day-one-notes.toClear` (reads every project) and `account-portability` (one account's projects) still filter `is_demo` by hand; neither feeds a platform number, so they are left and named here. They join the view when next touched. `ms` times `rollDemoForward` only, not the daily-rows refresh after it, and is logged only when something moved.
 ### Migration number
 0143 is the next free number on main at 0142; it is taken again at rebase, after PR #238 lands.
 
