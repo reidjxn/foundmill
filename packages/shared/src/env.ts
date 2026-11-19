@@ -272,6 +272,12 @@ const Env = z.object({
   /** Notion public integration (OAuth) client. */
   NOTION_CLIENT_ID: z.string().optional(),
   NOTION_CLIENT_SECRET: z.string().optional(),
+  // Remote MCP servers (founder, 2026-11-19): PKCE verifiers derive from MCP_OAUTH_SECRET (32+ characters); one OAuth client per vendor.
+  MCP_OAUTH_SECRET: z.string().optional(),
+  NOTION_MCP_CLIENT_ID: z.string().optional(),
+  HUBSPOT_MCP_CLIENT_ID: z.string().optional(),
+  HUBSPOT_MCP_CLIENT_SECRET: z.string().optional(),
+  SHOPIFY_MCP_CLIENT_ID: z.string().optional(),
   /** Dropbox Sign API key; a business's own key takes precedence. */
   DROPBOX_SIGN_API_KEY: z.string().optional(),
   /**

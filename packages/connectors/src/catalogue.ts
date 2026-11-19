@@ -47,6 +47,7 @@ import { createVercelConnector } from "./connectors/vercel";
 import { createPosthogConnector } from "./connectors/posthog";
 import { createResendConnector } from "./connectors/resend";
 import { createBufferConnector } from "./connectors/buffer";
+import { createHubspotMcpConnector, createMcpCustomConnector, createNotionMcpConnector, createShopifyMcpConnector } from "./remote-mcp";
 
 export type ConnectorFactory = (options?: LiveConnectorOptions) => Connector;
 
@@ -97,6 +98,12 @@ export const CONNECTOR_FACTORIES: Readonly<Record<string, ConnectorFactory>> = O
   elevenlabs_voice: createElevenlabsVoiceConnector,
   // Posts queued in the founder's own Buffer account, which publishes them on the networks the founder connected there.
   buffer: createBufferConnector,
+  // A vendor's own remote MCP server, the gateway its only client (founder, 2026-11-19). The Notion and Shopify API
+  // connectors above stay until their MCP replacement is live.
+  notion_mcp: createNotionMcpConnector,
+  hubspot_mcp: createHubspotMcpConnector,
+  shopify_mcp: createShopifyMcpConnector,
+  mcp_custom: createMcpCustomConnector,
 });
 
 export const CONNECTOR_KEYS = Object.freeze(Object.keys(CONNECTOR_FACTORIES));

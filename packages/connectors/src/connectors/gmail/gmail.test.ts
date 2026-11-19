@@ -6,6 +6,7 @@ import { fromBase64Url } from "../_shared/mime";
 import { GMAIL_MESSAGES } from "./fixtures/mailbox";
 import { createGmailConnector } from "./index";
 import { createGmailMock, gmailMock } from "./mock";
+import { GMAIL_READ_SCOPE } from "./tools";
 
 describeConnectorContract("gmail (mock)", {
   connector: gmailMock,
@@ -64,7 +65,20 @@ describe("gmail live (canned)", () => {
     expect(mime).toContain("Subject: Hej Maja");
     const blocked = await connector.callTool("send_message", { to: ["blocked@example.com"], subject: "x", text: "y" }, ctx);
     expect(blocked.error?.code).toBe("recipient_suppressed");
-    const msg = await connector.callTool("get_message", { id: "18f1a0001" }, ctx);
+    const off = await connector.callTool("get_message", { id: "18f1a0001" }, ctx);
+    expect(off.ok).toBe(false);
+    expect(off.error?.status).toBe(403);
+    const reading = { ...ctx, integration: { ...ctx.integration, scopes: [GMAIL_READ_SCOPE] } };
+    const msg = await connector.callTool("get_message", { id: "18f1a0001" }, reading);
     expect(isUntrusted(msg.data) && (msg.data.content as { text: string }).text).toContain("20-minute call");
+  });
+
+  it("asks Google for gmail.readonly only when the founder turns reading on", async () => {
+    const connector = createGmailConnector({ secrets: { googleClientId: "cid" } });
+    const start = { state: "abc.def", redirectUri: "https://app.example.com/integrations/oauth/callback" };
+    const scopeOf = async (input: object) => new URL(String((await connector.connect("b", { ...start, ...input })).config.authorizeUrl)).searchParams.get("scope") ?? "";
+    expect(await scopeOf({})).not.toContain("gmail.readonly");
+    expect(await scopeOf({})).toContain("gmail.send");
+    expect(await scopeOf({ readMail: true })).toContain("gmail.readonly");
   });
 });

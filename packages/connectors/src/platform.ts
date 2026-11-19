@@ -56,6 +56,12 @@ export interface PlatformSecrets {
   notionClientId?: string;
   notionClientSecret?: string;
   dropboxSignApiKey?: string;
+  /** Remote MCP servers (founder, 2026-11-19): the secret the PKCE verifiers derive from, and Foundmill's pre-registered OAuth client at each vendor. */
+  mcpOauthSecret?: string;
+  notionMcpClientId?: string;
+  hubspotMcpClientId?: string;
+  hubspotMcpClientSecret?: string;
+  shopifyMcpClientId?: string;
 }
 
 /**
@@ -108,6 +114,11 @@ export function platformSecretsFromEnv(env: Env = loadEnv()): PlatformSecrets {
   set("notionClientId", env.NOTION_CLIENT_ID);
   set("notionClientSecret", env.NOTION_CLIENT_SECRET);
   set("dropboxSignApiKey", env.DROPBOX_SIGN_API_KEY);
+  set("mcpOauthSecret", env.MCP_OAUTH_SECRET);
+  set("notionMcpClientId", env.NOTION_MCP_CLIENT_ID);
+  set("hubspotMcpClientId", env.HUBSPOT_MCP_CLIENT_ID);
+  set("hubspotMcpClientSecret", env.HUBSPOT_MCP_CLIENT_SECRET);
+  set("shopifyMcpClientId", env.SHOPIFY_MCP_CLIENT_ID);
   return s;
 }
 

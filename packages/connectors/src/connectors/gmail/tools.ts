@@ -4,7 +4,12 @@ import { defineTool } from "../../define";
 
 export const GMAIL_KEY = "gmail";
 export const GMAIL_BASE_URL = "https://gmail.googleapis.com/gmail/v1";
-export const GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/gmail.compose"];
+/** Launch scopes ("sensitive" at Google): sending and drafting only. */
+export const GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/gmail.compose"];
+/** "Restricted" at Google (yearly outside assessment): asked for only when the founder turns reading on (`connect` input `readMail: true`). */
+export const GMAIL_READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+export const GMAIL_READ_TOOLS: ReadonlySet<string> = new Set(["list_messages", "get_message"]);
+export const GMAIL_READ_OFF = "Reading the mailbox is off. The founder turns it on in Settings › Integrations › Gmail, which asks Google for read access.";
 
 export const MessageSummary = z.object({ id: z.string(), threadId: z.string(), from: z.string(), to: z.array(z.string()), subject: z.string(), date: z.string(), snippet: z.string(), labelIds: z.array(z.string()) });
 export const Message = MessageSummary.extend({ cc: z.array(z.string()), text: z.string(), messageIdHeader: z.string().nullable(), inReplyTo: z.string().nullable() });

@@ -285,7 +285,7 @@ export interface Connector<Cfg = unknown> {
    * The gateway calls it before the api revokes the stored credentials; absent, disconnecting is local only. True when
    * access was withdrawn, false when this connection had none at the vendor to withdraw (a pasted key).
    */
-  disconnect?(integration: IntegrationRecord): Promise<boolean>;
+  disconnect?(integration: IntegrationRecord, credential?: DecryptedCredential): Promise<boolean>;
   tools: McpToolDefinition[]; // JSON-schema inputs/outputs
   callTool(name: string, args: unknown, ctx: ToolContext): Promise<ToolResult>;
   webhooks?: ConnectorWebhook[];
