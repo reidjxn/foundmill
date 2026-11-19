@@ -161,6 +161,27 @@ export const integrationsRepo = {
   },
 
   /**
+   * Whether agents may read the founder's own Gmail or Google Calendar for context on this project (founder, Nov 19,
+   * 2026): off until a founder turns it on (`settings.contextReads: true`). Kept by a reconnect to the same account.
+   */
+  async contextReads(db: Executor, businessId: string): Promise<{ gmail: { on: boolean; scopes: string[] }; googleCalendar: { on: boolean } }> {
+    const rows = await db.select().from(integrations).where(and(eq(integrations.businessId, businessId), inArray(integrations.connectorKey, ["gmail", "google_calendar"]), isNull(integrations.archivedAt)));
+    const on = (row: Integration | undefined) => row !== undefined && row.status !== "disconnected" && (row.settings as { contextReads?: unknown } | null)?.contextReads === true;
+    const gmail = rows.find((r) => r.connectorKey === "gmail");
+    return { gmail: { on: on(gmail), scopes: gmail?.scopes ?? [] }, googleCalendar: { on: on(rows.find((r) => r.connectorKey === "google_calendar")) } };
+  },
+
+  /** Turn context reads on or off for Gmail or Google Calendar; the integration must be connected. */
+  async setContextReads(db: Executor, businessId: string, connectorKey: "gmail" | "google_calendar", on: boolean): Promise<Integration> {
+    const row = await integrationsRepo.getByKey(db, businessId, connectorKey);
+    if (!row || row.archivedAt || row.status === "disconnected") throw new ValidationError(`connect ${connectorKey === "gmail" ? "Gmail" : "Google Calendar"} first`);
+    const settings = { ...((row.settings ?? {}) as Record<string, unknown>) };
+    if (on) settings.contextReads = true;
+    else delete settings.contextReads;
+    return one(await db.update(integrations).set({ settings }).where(scoped(businessId, row.id)).returning(), "integration");
+  },
+
+  /**
    * Pin GitHub's id of the Code-tab repository chosen before pinning existed (the gateway, after it checked that the
    * installation reaches the repository and that it is private). Only while the Code tab still names `fullName` (any case)
    * and nothing is pinned yet; returns whether this call pinned it. An existing pin is never changed here.

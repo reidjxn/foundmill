@@ -18,6 +18,8 @@ describeConnectorContract("google_calendar (mock)", {
     { tool: "list_events", args: { ...WEEK, q: "maja" }, check: (r) => expect(isUntrusted(r.data) && (r.data.content as { items: unknown[] }).items).toHaveLength(1) },
     { tool: "get_event", args: { eventId: "evt_offsite" }, check: (r) => expect(isUntrusted(r.data) && r.data.content).toMatchObject({ allDay: true, location: "Vaxholm" }) },
     { tool: "create_event", args: { summary: "Demo with Ledgerly", start: "2026-10-08T13:00:00Z", end: "2026-10-08T13:30:00Z", attendees: ["sara@ledgerly.app"], addMeetLink: true }, check: (r) => expect(r.data).toMatchObject({ attendees: [{ email: "sara@ledgerly.app", responseStatus: "needsAction" }], meetLink: expect.stringContaining("meet.google.com") }) },
+    { tool: "add_event", args: { summary: "Prep for the Ledgerly demo", start: "2026-10-08T12:00:00Z", end: "2026-10-08T12:30:00Z" }, check: (r) => expect(r.data).toMatchObject({ summary: "Prep for the Ledgerly demo", attendees: [] }) },
+    { tool: "add_event", args: { summary: "Prep", start: "2026-10-08T12:00:00Z", end: "2026-10-08T12:00:00Z" }, expectOk: false, check: (r) => expect(r.error?.code).toBe("invalid_args") },
     { tool: "create_event", args: { summary: "Backwards", start: "2026-10-08T13:00:00Z", end: "2026-10-08T12:00:00Z" }, expectOk: false, check: (r) => expect(r.error?.code).toBe("invalid_args") },
     { tool: "find_free_slots", args: { timeMin: "2026-10-07T06:00:00Z", timeMax: "2026-10-07T18:00:00Z", durationMinutes: 60 }, check: (r) => expect((r.data as { slots: { start: string }[] }).slots[0]).toEqual({ start: "2026-10-07T09:00:00.000Z", end: "2026-10-07T10:00:00.000Z" }) },
   ],

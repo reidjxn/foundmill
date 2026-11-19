@@ -35,6 +35,12 @@ export function createGoogleCalendarMock() {
         world(ctx.businessId).set(id, e);
         return mapEvent(calendarId, e);
       },
+      add_event: async ({ calendarId, summary, description, location, start, end }, ctx) => {
+        const id = `evt_${stableHash(["own", summary, start], 12)}`;
+        const e: GEvent = { id, status: "confirmed", summary, description, location, start: { dateTime: start }, end: { dateTime: end }, attendees: [], organizer: { email: "reid@northwindskincare.com" }, htmlLink: `https://calendar.google.com/event?eid=${id}` };
+        world(ctx.businessId).set(id, e);
+        return mapEvent(calendarId, e);
+      },
       update_event: async ({ calendarId, eventId, attendees, start, end, ...patch }, ctx) => {
         const events = world(ctx.businessId);
         const e = events.get(eventId);

@@ -47,6 +47,15 @@ export const googleCalendarTools = [
     output: CalendarEvent,
     hints: { contactsThirdParty: true },
   }),
+  // The founder's own calendar, nobody else's: no attendees and no invitations, so it runs like a draft (founder, Nov 19, 2026).
+  defineTool({
+    name: "add_event",
+    description: "Put an event on the founder's own calendar with no attendees: nobody is invited or notified. To invite people, use create_event, which asks the founder first.",
+    input: z.object({ calendarId: CalendarId, summary: z.string().min(1).max(300), description: z.string().max(5000).optional(), location: z.string().max(500).optional(), start: Iso, end: Iso, timeZone: z.string().max(60).default("Europe/Stockholm") }).refine((v) => Date.parse(v.end) > Date.parse(v.start), "end must be after start"),
+    output: CalendarEvent,
+    hints: {},
+    annotations: { readOnlyHint: false },
+  }),
   defineTool({
     name: "update_event",
     description: "Change an event's time, title, description, location or attendee list; attendees are notified.",

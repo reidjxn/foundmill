@@ -216,6 +216,34 @@ test.describe("settings, plain words", () => {
     expect(sent).toMatchObject({ connectorKey: "sendgrid", input: { apiKey: "SG.e2e-founder-key" } });
   });
 
+  test("Integrations: a founder lets the team read their Gmail for context; the inbox waits for Google's permission (founder, Nov 19, 2026)", async ({ page }) => {
+    // The list is replayed with Gmail connected on drafts only, as after a sign-in without gmail.readonly.
+    await page.route(/\/trpc\/[^?]*integrations\.list/, async (route) => {
+      const response = await route.fetch();
+      const procedures = decodeURIComponent(new URL(route.request().url()).pathname.split("/trpc/")[1] ?? "").split(",");
+      const body = (await response.json()) as { result?: { data?: { json?: { catalogue?: { key: string; integration: unknown }[] } } } }[];
+      const list = body[procedures.indexOf("integrations.list")]?.result?.data?.json;
+      for (const c of list?.catalogue ?? []) if (c.key === "gmail") c.integration = { id: "00000000-0000-4000-8000-0000000000e1", connectorKey: "gmail", status: "connected", scopes: ["https://www.googleapis.com/auth/gmail.compose"], settings: {}, accountLabel: "founder@example.com", lastError: null, lastHealthAt: null };
+      await route.fulfill({ response, json: body });
+    });
+    let sent: Record<string, unknown> | null = null;
+    await page.route(/\/trpc\/[^?]*integrations\.setContextReads/, async (route) => {
+      const body = JSON.parse(route.request().postData() ?? "{}") as Record<string, { json?: Record<string, unknown> }>;
+      sent = Object.values(body)[0]?.json ?? null;
+      await route.abort();
+    });
+    const screen = await openSettings(page, "integrations");
+    const panel = screen.getByTestId("google-context");
+    await expect(panel).toBeVisible({ timeout: LONG });
+    await expect(panel).toContainText("sending mail and inviting people always ask you first");
+    await expect(panel).toContainText("Your inbox is read once Google grants inbox access.");
+    await expect(async () => {
+      await panel.getByRole("checkbox", { name: /Let the team read your Gmail/ }).click();
+      expect(sent).not.toBeNull();
+    }).toPass({ timeout: LONG });
+    expect(sent).toMatchObject({ connectorKey: "gmail", on: true });
+  });
+
   test("Integrations: back from a vendor's consent page, the founder finishes or is told why nothing connected (#225)", async ({ page }) => {
     // The vendor's redirect lands on /integrations/oauth/callback, which sends the founder to the business the signed
     // state names (the api checks the signature when the founder finishes; nothing is connected on the way).

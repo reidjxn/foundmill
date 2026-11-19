@@ -18,6 +18,9 @@ import { Id, audit, router, sectionAdmin, sectionRead } from "../trpc";
 /** What a project is told when the Stripe account it signed in with is another project's (0137; the gateway's own words). */
 export const STRIPE_ACCOUNT_IN_USE = "This Stripe account is already connected to another project.";
 
+/** Why a collaborator cannot turn Gmail or Google Calendar context on or off. */
+export const CONTEXT_READS_FOUNDERS_ONLY = "Only the project's founders can let agents read their Gmail or calendar.";
+
 /** A Stripe connection made by signing in (Connect), as `config.kind` records it. */
 const isSignIn = (config: unknown): boolean => (config as { kind?: unknown } | null | undefined)?.kind === "connect";
 
@@ -48,7 +51,7 @@ const read = sectionRead("settings");
 function keptSettings(row: { settings: unknown } | null, externalAccountId: string | null): Record<string, unknown> {
   const settings = (row?.settings ?? {}) as Record<string, unknown>;
   if (settings.externalAccountId !== externalAccountId) return {};
-  return Object.fromEntries(Object.entries(settings).filter(([k]) => k === "repo" || k === "writeEnabled" || k === "repoId"));
+  return Object.fromEntries(Object.entries(settings).filter(([k]) => k === "repo" || k === "writeEnabled" || k === "repoId" || k === "contextReads"));
 }
 
 /** Finishing an App installation (GitHub): what GitHub sent back to the founder, with the state Connect signed. */
@@ -208,6 +211,20 @@ export const integrationsRouter = router({
     if (releaseAfter && mode === "live" && ctx.gateway.release) await ctx.gateway.release(ctx.businessId, input.connectorKey, releaseAfter).catch(() => null);
     const consentUrl = typeof record.config.linkUrl === "string" ? record.config.linkUrl : typeof record.config.consentUrl === "string" ? record.config.consentUrl : typeof record.config.authorizeUrl === "string" ? record.config.authorizeUrl : null;
     return { integration, record: { ...record, connectorKey: input.connectorKey }, consentUrl, founderConsentRequired: consentUrl !== null };
+  }),
+
+  /**
+   * Gmail and Google Calendar as context (founder, Nov 19, 2026): a founder of the project lets its agents read their own
+   * drafts, inbox (once Google granted gmail.readonly) or calendar, or stops it. Collaborators cannot. Sessions started
+   * after the change follow it (the orchestrator takes the reads out of a session's grants while it is off).
+   */
+  setContextReads: admin.input(z.object({ connectorKey: z.enum(["gmail", "google_calendar"]), on: z.boolean() })).mutation(async ({ ctx, input }) => {
+    if (!isProjectFounder(ctx)) throw new ForbiddenError(CONTEXT_READS_FOUNDERS_ONLY);
+    return ctx.rls(async (tx) => {
+      const row = await repos.integrations.setContextReads(tx, ctx.businessId, input.connectorKey, input.on);
+      await audit(tx, ctx, { action: "integrations.context_reads", target: { kind: "integration", id: row.id }, details: { connectorKey: input.connectorKey, on: input.on } });
+      return row;
+    });
   }),
 
   disconnect: admin.input(z.object({ integrationId: Id })).mutation(async ({ ctx, input }) => {
