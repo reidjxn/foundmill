@@ -30,7 +30,7 @@ All by the coordinating session on the founder's word (reported by that session,
 
 | Pull request | What | State |
 | --- | --- | --- |
-| #238 | WP-11 T4, T5, T7: the database advisors as tests | conflict fixed and migrations renumbered 0143 to 0145 on Nov 19; the founder merges |
+| #238 | WP-11 T4, T5, T7: the database advisors as tests | conflict fixed and migrations renumbered 0143 to 0145 on Nov 19, checks green; #244 also uses 0143, so whichever merges second renumbers when it rebases; the founder merges |
 | #319 | "Round of work" wherever a person reads "cycle" | two tests that still said "cycle" fixed on Nov 19; the founder merges |
 | #244 | WP-08 T7: the project page for search engines and AI readers | open, Session 5 |
 | #300 (draft) | WP-14 T14: plans | open, Session 3 |
