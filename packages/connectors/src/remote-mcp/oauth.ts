@@ -25,7 +25,7 @@ export interface McpClientIdentity {
 
 const b64url = (buf: Buffer): string => buf.toString("base64url");
 
-/** Refuses anything but https (http only for localhost, for tests and local servers). */
+/** Refuses anything but https. */
 export function assertHttps(url: string, what: string): URL {
   let u: URL;
   try {
@@ -33,7 +33,7 @@ export function assertHttps(url: string, what: string): URL {
   } catch {
     throw Object.assign(new Error(`${what} is not a URL`), { status: 400 });
   }
-  if (u.protocol !== "https:" && !(u.protocol === "http:" && (u.hostname === "localhost" || u.hostname === "127.0.0.1"))) throw Object.assign(new Error(`${what} must use https`), { status: 400 });
+  if (u.protocol !== "https:") throw Object.assign(new Error(`${what} must use https`), { status: 400 });
   return u;
 }
 
@@ -90,13 +90,16 @@ export interface TokenSet {
   raw: Record<string, unknown>;
 }
 
+/** An RFC 6749 error code only (letters and underscores, short): the vendor's own text never travels on. */
+const oauthCode = (v: unknown): string => (typeof v === "string" && /^[a-z_]{1,40}$/.test(v) ? v : "token_refused");
+
 async function tokenRequest(fetch: FetchLike, ep: OAuthEndpoints, client: McpClientIdentity, form: Record<string, string>, now: () => Date): Promise<TokenSet> {
   const body = new URLSearchParams({ ...form, client_id: client.clientId, ...(client.clientSecret ? { client_secret: client.clientSecret } : {}) });
   const res = await fetch(ep.tokenEndpoint, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" }, body, redirect: "error", signal: AbortSignal.timeout(15_000) });
   const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   const access = str(json.access_token);
   // The vendor's answer is never echoed: it can hold tokens. Only its status and OAuth error code surface.
-  if (!res.ok || !access) throw Object.assign(new Error(`Sign-in was refused (${str(json.error) ?? res.status})`), { status: res.status >= 400 ? res.status : 502, code: str(json.error) ?? "token_refused" });
+  if (!res.ok || !access) throw Object.assign(new Error(`Sign-in was refused (${oauthCode(json.error)})`), { status: res.status >= 400 ? res.status : 502, code: oauthCode(json.error) });
   const expires = typeof json.expires_in === "number" ? new Date(now().getTime() + json.expires_in * 1000).toISOString() : undefined;
   const refresh = str(json.refresh_token);
   return { accessToken: access, ...(refresh ? { refreshToken: refresh } : {}), ...(expires ? { expiresAt: expires } : {}), raw: json };

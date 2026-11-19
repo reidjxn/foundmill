@@ -53,9 +53,21 @@ export interface RemoteServer {
 /** What a tool on no list asks: outward and not undoable, so assisted mode asks too. */
 export const UNLISTED_HINTS: PolicyHint = { contactsThirdParty: true, irreversible: true };
 
-/** Names that would cross a hard gate (money out, signing, terms, permanent delete, security): refused when unlisted. */
-export const HARD_GATE_NAME = /(^|[^a-z])(refund|payout|payouts|pay|transfer|charge|capture|delete|destroy|purge|erase|remove|revoke|sign|accept|agree|terms|password|secret|credential|credentials|token|permission|permissions|role|roles|security|billing|checkout|purchase|buy|payment|payments)([^a-z]|$)/i;
-
+/**
+ * Word stems that would cross a hard gate (money out, signing, terms, permanent delete, security, outside filings or
+ * access). A remote tool name is split into words (snake, kebab, dot, camelCase, digits) and a word that starts with a
+ * stem matches, so `deletePage`, `refunds` and `esign_document` are all caught. Over-matching is safe: a refused read is
+ * added to the server's list; a missed hard gate is not safe.
+ */
+export const HARD_GATE_STEMS = ["delet", "destroy", "purge", "erase", "wipe", "drop", "truncat", "remov", "revok", "refund", "payout", "withdraw", "transfer", "charg", "captur", "pay", "invoice", "bill", "checkout", "purchas", "buy", "subscri", "sign", "esign", "accept", "agree", "terms", "consent", "approv", "password", "secret", "credential", "token", "apikey", "oauth", "auth", "mfa", "2fa", "permission", "grant", "role", "admin", "security", "share", "sharing", "invit", "submit"];
+export function remoteNameWords(name: string): string[] {
+  return name.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+}
+export const hardGateName = (name: string): boolean => {
+  const words = remoteNameWords(name);
+  // "api_key" is two words; check the joined form too.
+  return [...words, words.join("")].some((w) => HARD_GATE_STEMS.some((stem) => w.startsWith(stem))) || words.join("").includes("apikey");
+};
 export const toolName = (remote: string): string => remote.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").replace(/^(?=\d)/, "t_");
 
 const Args = z.record(z.string(), z.unknown());
@@ -101,8 +113,8 @@ function withVendorSchemas<C extends Connector>(connector: C, server: RemoteServ
   return connector;
 }
 
-const failed = (r: RemoteResult): never => {
-  throw new AppError("remote_tool_error", r.text.slice(0, 500) || "The tool reported an error", 502);
+const failed = (_r: RemoteResult): never => {
+  throw new AppError("remote_tool_error", "The tool reported an error", 502);
 };
 
 export interface RemoteOptions extends LiveConnectorOptions {
@@ -128,7 +140,7 @@ export function createRemoteMcpConnector(server: RemoteServer, options: RemoteOp
   for (const t of server.tools) if (!t.hints?.hardGate) handlers[toolName(t.remote)] = (args: Record<string, unknown>, ctx) => run(ctx, t.remote, args) as Promise<unknown>;
   handlers[UNLISTED_TOOL] = async ({ tool, arguments: args }: { tool: string; arguments: Record<string, unknown> }, ctx) => {
     if (listedRemote.has(tool)) throw new AppError("use_listed_tool", `${tool} is on ${APP_NAME}'s list: call ${toolName(tool)} instead`, 400);
-    if (HARD_GATE_NAME.test(tool)) throw new AppError("hard_gate", `${server.displayName} ${tool} would move money, sign, accept terms, delete permanently or change security settings, which only the founder does at ${server.displayName}`, 403);
+    if (hardGateName(tool)) throw new AppError("hard_gate", `${server.displayName} ${tool} would move money, sign, accept terms, delete permanently or change security settings, which only the founder does at ${server.displayName}`, 403);
     return run(ctx, tool, args);
   };
 
@@ -202,7 +214,7 @@ export function createRemoteMcpMock(server: RemoteServer): MockConnector {
   }
   handlers[UNLISTED_TOOL] = async ({ tool }: { tool: string }) => {
     if (listedOf(server).has(tool)) throw new AppError("use_listed_tool", `${tool} is on ${APP_NAME}'s list: call ${toolName(tool)} instead`, 400);
-    if (HARD_GATE_NAME.test(tool)) throw new AppError("hard_gate", `${tool} is refused`, 403);
+    if (hardGateName(tool)) throw new AppError("hard_gate", `${tool} is refused`, 403);
     return { text: `${server.displayName} ${tool}: recorded sample` };
   };
   return withVendorSchemas(

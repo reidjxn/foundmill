@@ -23,9 +23,9 @@ step (2c); `mcp.ts` needed no change (it already lists only the tools a session 
   `ctx.onCredentialRefreshed`. Disconnect now passes the stored credential to `connector.disconnect(integration,
   credential)` and the connector revokes both tokens when the server publishes a revocation endpoint.
 - **Policy.** Listed tools carry Foundmill's hints, never the server's annotations. A tool on no list is reachable only
-  through `call_unlisted_tool`, which is `contactsThirdParty` and `irreversible`, so it asks in every mode below automated
-  and in assisted mode. A name that would move money, sign, accept terms, delete permanently or change security
-  settings (`HARD_GATE_NAME`) is denied by the pipeline before anyone is asked, and refused again in the handler. A
+  through `call_unlisted_tool`, which is `contactsThirdParty` and `irreversible`, so it asks in every mode: policy `46-remote-unlisted.cedar` makes it ask even in automated mode (the first version
+  relied on the hints alone and ran unasked in automated mode; the security review caught it). A name that would move money, sign, accept terms, delete permanently or change security
+  settings (`hardGateName`: the name is split into words and matched by stem, so `deletePage`, `refunds` and `esign_document` count) is denied by the pipeline before anyone is asked, and refused again in the handler. A
   listed hard gate (Shopify `complete_checkout`) has no handler. Calling a listed tool through `call_unlisted_tool` is
   refused, so the list cannot be bypassed.
 - **Schema size.** An agent gets a server's definitions only when its grants name them: `grants.ts` has the capabilities
@@ -59,10 +59,28 @@ An existing connection with all three scopes keeps working.
   account at each vendor should diff `tools/list` against `servers.ts` before launch.
 - **Foundmill's own OAuth clients are needed** (`NOTION_MCP_CLIENT_ID`, `HUBSPOT_MCP_CLIENT_ID` and secret, `MCP_OAUTH_SECRET`): the
   exception the rule of Nov 19 names; Session 11 registers them.
-- **`HARD_GATE_NAME` is deliberately broad** (`token`, `role`, `permission`, `payment`, ...): an unlisted read with such a
+- **`hardGateName` is deliberately broad** (`token`, `role`, `permission`, `payment`, ...): an unlisted read with such a
   word is refused and the fix is to add it to the list. Refusing is the safe error.
 - **Custom server uses a pasted bearer token**, not OAuth (a custom server has no client Foundmill registered). Every call asks.
 - **"Request an integration" does not exist on main** (the plan says keep it). Nothing here invents a contact channel; it needs one.
+
+## Security review (agent, before the push) and what was done
+Blocked the first commit on two findings, both fixed: an unlisted tool ran unasked in automated mode (policy 46 added, with
+a policy row and a gateway test), and the hard-gate name check missed camelCase and inflected names (now tokenized, with a
+test of 26 names). Also fixed: Gmail asks Google for exactly the requested scopes (`include_granted_scopes` off), so
+reading cannot ride in on another project's grant or survive "Turn off reading"; a remote server's own words never reach an
+agent in an error (fixed messages only); a rotated refresh token is not replayed by a call that loaded the old credential
+(result kept 60 seconds); OAuth endpoints must be https with no localhost exception; vendor OAuth error text is cut to an
+RFC 6749 code.
+
+Left open, and why:
+- Refresh across several gateway replicas, and a failed re-seal of a rotated token, still cost a reconnect (needs a row lock; `persistRefreshedCredential` has no compare-and-swap).
+- Custom server addresses are checked before the request, not on the socket (L1: the transport takes `fetch`, so an undici agent with `publicOnlyLookup` can close it).
+- OAuth discovery does not pin the issuer and endpoint hosts per vendor (L2).
+- `manage_crm_objects` and `notion-update-page` may delete through their arguments: confirm against the live tools; they ask in augmented and assisted mode and run in automated mode.
+- The custom server is hidden outside Builder view in the web only; the api accepts it from any admin (the token is the founder's own).
+- Vendor health checks use the stored token without refreshing, so Notion may read "degraded" after about 8 hours until the next call.
+- Existing Gmail connections that hold `gmail.readonly` keep it until the founder signs in again.
 
 ## Known limits
 - Custom server addresses are checked against private ranges right before the request, not on the socket (DNS rebinding is

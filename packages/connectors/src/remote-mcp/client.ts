@@ -3,6 +3,7 @@
  * credential, redirects refused (a redirect would carry the token to another host). The agent never reaches the server:
  * this runs inside a connector handler, after the gateway's pipeline allowed the call.
  */
+import { AppError } from "@foundmill/shared";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { APP_NAME } from "@foundmill/config";
@@ -18,12 +19,22 @@ export interface RemoteResult {
 
 const MAX_TEXT = 200_000;
 
+/** What an agent may read of a failure: never the server's own words (they are a third party's text, outside the untrusted envelope). */
+function hidden(e: unknown): never {
+  if (e instanceof AppError) throw e;
+  const code = (e as { code?: unknown }).code;
+  const status = typeof code === "number" && code >= 400 && code < 600 ? code : 502;
+  throw new AppError("remote_unavailable", status === 401 || status === 403 ? "The server refused the stored sign-in" : "The server did not answer the call", status === 401 || status === 403 ? 403 : 502);
+}
+
 async function withClient<T>(url: string, token: string, fetch: FetchLike, run: (client: Client) => Promise<T>): Promise<T> {
   const transport = new StreamableHTTPClientTransport(new URL(url), { fetch, requestInit: { headers: { authorization: `Bearer ${token}` }, redirect: "error" } });
   const client = new Client({ name: `${APP_NAME.toLowerCase()}-gateway`, version: "0.1.0" });
-  await client.connect(transport);
   try {
+    await client.connect(transport);
     return await run(client);
+  } catch (e) {
+    return hidden(e);
   } finally {
     await client.close().catch(() => {});
   }
@@ -66,8 +77,10 @@ export async function accessTokenFor(ctx: ToolContext, o: { connectorKey: string
       const next: DecryptedCredential = { ...cred, secret: t.accessToken, refreshToken: t.refreshToken ?? cred.refreshToken!, ...(t.expiresAt ? { expiresAt: t.expiresAt } : {}) };
       await reportRefreshedCredential(ctx, next, o.connectorKey);
       return next;
-    })().finally(() => refreshing.delete(key));
+    })();
     refreshing.set(key, pending);
+    // Kept for a moment after it settles: a call that loaded the old credential before it was sealed must not refresh with the old (already rotated) refresh token.
+    void pending.then(() => undefined, () => undefined).then(() => setTimeout(() => refreshing.delete(key), 60_000).unref());
   }
   return (await pending).secret;
 }

@@ -2,7 +2,7 @@
  * A vendor's remote MCP server through the gateway pipeline (founder, 2026-11-19), Notion's as the example:
  * - a listed read runs with the founder's sealed token, answers inside the untrusted envelope and is metered and audited;
  * - a listed write that changes the founder's pages asks first in augmented and assisted mode, and reaches no server;
- * - a tool on no list (`call_unlisted_tool`) asks first in every mode below automated, and a name that would cross a hard
+ * - a tool on no list (`call_unlisted_tool`) asks first in every mode (automated included, policy 46), and a name that would cross a hard
  *   gate is denied before anyone is asked;
  * - a session sees only the tools its token names, so a server's definitions reach an agent only through its skill;
  * - mock mode answers from the recorded mock and says it was simulated; live with no sign-in is 409 and reaches no server.
@@ -68,6 +68,15 @@ describe("live", () => {
     expect(r.result).not.toHaveProperty("simulated");
     expect(JSON.stringify(r)).not.toContain(TOKEN);
     expect(vendor.calls).toEqual([{ name: "notion-search", auth: `Bearer ${TOKEN}` }]);
+  });
+
+  it("automated: an unlisted tool still asks first and reaches no server", async () => {
+    const vendor = server();
+    const g = (open = await setupGateway({ mode: "live", businessMode: "automated", connectors: live(vendor.fetch) }));
+    await connect(g);
+    const token = await g.token({ allowedTools: ["notion_mcp:*"] });
+    expect((await g.client.call(token, unlisted("notion-brand-new"))).outcome).toBe("ask");
+    expect(vendor.calls).toEqual([]);
   });
 
   for (const mode of ["augmented", "assisted"] as const) {

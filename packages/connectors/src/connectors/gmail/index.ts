@@ -50,7 +50,7 @@ export function createGmailConnector(options: LiveConnectorOptions = {}): Connec
         },
         list_labels: async (_a, ctx) => ({ items: ((await (await client(ctx)).json<{ labels?: { id: string; name: string; type: string }[] }>("GET", "/users/me/labels")).labels ?? []).map((l) => ({ id: l.id, name: l.name, type: l.type })) }),
       },
-      connect: (businessId, input) => googleOAuthConnect(input, deps, { businessId, scopes: (input as { readMail?: unknown } | null)?.readMail === true ? [...GMAIL_SCOPES, GMAIL_READ_SCOPE] : GMAIL_SCOPES, label: "Gmail", newId: uuid }),
+      connect: (businessId, input) => googleOAuthConnect(input, deps, { businessId, scopes: (input as { readMail?: unknown } | null)?.readMail === true ? [...GMAIL_SCOPES, GMAIL_READ_SCOPE] : GMAIL_SCOPES, label: "Gmail", newId: uuid, exactScopes: true }),
       healthcheck: async (integration) => {
         const startedAt = now().getTime();
         if (!secrets.googleClientId || !secrets.googleClientSecret) return healthResult("disconnected", startedAt, { now, message: "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET not configured" });

@@ -17,7 +17,7 @@ import { MOCK_NOW, mockHealth, mockIntegrationRecord } from "../mock-utils";
 import { resolveLiveOptions, type LiveConnectorOptions } from "../platform";
 import { isPrivateAddress } from "../connectors/web/tools";
 import { systemResolveHost, type ResolveHost } from "../connectors/web/page-fetch";
-import { HARD_GATE_NAME, UNLISTED_HINTS } from "./build";
+import { hardGateName, UNLISTED_HINTS } from "./build";
 import { callRemoteTool, listRemoteTools } from "./client";
 import { assertHttps } from "./oauth";
 
@@ -64,7 +64,7 @@ export function createMcpCustomConnector(options: LiveConnectorOptions & { resol
     handlers: {
       list_remote_tools: async () => ({ tools: [{ name: "lookup_order", description: "Look an order up (sample)" }] }),
       call_unlisted_tool: async ({ tool }) => {
-        if (HARD_GATE_NAME.test(tool)) throw new AppError("hard_gate", `${tool} is refused`, 403);
+        if (hardGateName(tool)) throw new AppError("hard_gate", `${tool} is refused`, 403);
         return { text: `${tool}: recorded sample` };
       },
     },
@@ -98,10 +98,10 @@ export function createMcpCustomConnector(options: LiveConnectorOptions & { resol
           return { tools: await listRemoteTools(s.url, s.token, fetch) };
         },
         call_unlisted_tool: async ({ tool, arguments: args }, ctx) => {
-          if (HARD_GATE_NAME.test(tool)) throw new AppError("hard_gate", `${tool} would move money, sign, accept terms, delete permanently or change security settings, which only the founder does`, 403);
+          if (hardGateName(tool)) throw new AppError("hard_gate", `${tool} would move money, sign, accept terms, delete permanently or change security settings, which only the founder does`, 403);
           const s = await serverOf(ctx);
           const r = await callRemoteTool(s.url, s.token, fetch, tool, args);
-          if (r.isError) throw new AppError("remote_tool_error", r.text.slice(0, 500) || "The tool reported an error", 502);
+          if (r.isError) throw new AppError("remote_tool_error", "The tool reported an error", 502);
           return { text: r.text, ...(r.structured !== undefined ? { structured: r.structured } : {}) };
         },
       },

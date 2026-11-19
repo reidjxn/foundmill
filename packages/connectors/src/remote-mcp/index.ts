@@ -3,8 +3,8 @@ import type { LiveConnectorOptions } from "../platform";
 import { createRemoteMcpConnector } from "./build";
 import { HUBSPOT_MCP, NOTION_MCP, SHOPIFY_MCP } from "./servers";
 
-export { createRemoteMcpConnector, createRemoteMcpMock, remoteToolList, toolName, HARD_GATE_NAME, UNLISTED_HINTS, UNLISTED_TOOL, type RemoteServer, type RemoteTool } from "./build";
-import { HARD_GATE_NAME as HARD_NAME, UNLISTED_TOOL as UNLISTED } from "./build";
+export { createRemoteMcpConnector, createRemoteMcpMock, remoteToolList, toolName, hardGateName, UNLISTED_HINTS, UNLISTED_TOOL, type RemoteServer, type RemoteTool } from "./build";
+import { hardGateName as HARD_NAME, UNLISTED_TOOL as UNLISTED } from "./build";
 export { createMcpCustomConnector, assertPublicServer, MCP_CUSTOM_KEY } from "./custom";
 export { REMOTE_MCP_SERVERS, NOTION_MCP, HUBSPOT_MCP, SHOPIFY_MCP } from "./servers";
 
@@ -21,5 +21,5 @@ const REMOTE_KEYS: ReadonlySet<string> = new Set([NOTION_MCP, HUBSPOT_MCP, SHOPI
 export function remoteHardGateCall(connectorKey: string, tool: string, args: unknown): string | null {
   if (!REMOTE_KEYS.has(connectorKey) || tool !== UNLISTED) return null;
   const name = (args as { tool?: unknown } | null)?.tool;
-  return typeof name === "string" && HARD_NAME.test(name) ? name : null;
+  return typeof name === "string" && HARD_NAME(name) ? name : null;
 }
