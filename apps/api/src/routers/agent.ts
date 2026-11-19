@@ -13,13 +13,17 @@ import { modelLimited } from "../services/model-limits";
 import { changeAgentModels, routeOf, startModelRetests } from "../services/agent-model";
 import { SkillChoice, addedSkillView, attachSkills, detachSkill, resolveSkillChoice } from "../services/skills";
 import { shownToolGrants } from "../services/squad";
+import { UPGRADE_OR_OWN_KEY, modelGateFor, upgradeOrOwnKeyError } from "../services/model-gate";
 import { assertAgentsRunning } from "../services/stop-guard";
 import { SIGNALS, WORKFLOWS, workflowIds } from "../services/temporal";
 import { Id, audit, emit, router, sectionAdmin, sectionRead, sectionWrite, type BusinessContext } from "../trpc";
 import { assertEntryPlan } from "../services/payments";
 
-/** A model an agent can be set to: any key but GLM, which the free plan applies when a call runs (WP-13, D3). */
-const ChoosableModel = z.enum(MODEL_KEYS).refine((k) => (CHOOSABLE_MODEL_KEYS as readonly string[]).includes(k), { message: "An agent's model is Opus, Sonnet or Haiku; GLM-5.3 Flash is the free plan's model and is not chosen per agent." });
+/** A model an agent's draft or plan can name: Opus, Sonnet or Haiku. GLM-5.3 Flash is set from the model dialog only (`DialogModel`): it has no retest path yet. */
+const ChoosableModel = z.enum(MODEL_KEYS).refine((k) => (CHOOSABLE_MODEL_KEYS as readonly string[]).includes(k), { message: "An agent's draft or plan names Opus, Sonnet or Haiku; GLM-5.3 Flash is set from the model dialog." });
+
+/** What the model dialog can set (WP-13 T7): the three Claude models, and GLM-5.3 Flash for the agent's work sessions. */
+const DialogModel = z.enum([...CHOOSABLE_MODEL_KEYS, "glm"]);
 
 const read = sectionRead("team");
 const write = sectionWrite("team");
@@ -534,6 +538,7 @@ export const agentRouter = router({
       ctx.rls(async (tx) => {
         const agent = await repos.agents.get(tx, ctx.businessId, input.agentId);
         const route = routeOf(agent);
+        const gate = await modelGateFor(tx, ctx.env, ctx.business);
         const now = new Date();
         const [spend, last30] = await Promise.all([
           repos.usage.agentSpend(tx, ctx.businessId, agent.id, input.period ?? periodOf(now)),
@@ -549,13 +554,16 @@ export const agentRouter = router({
         };
         return {
           current: agent.modelKey,
+          // What the agent's work sessions run on now: on the free plan a stored Opus or Sonnet is kept for after an upgrade.
+          inUse: gate.inUse(agent.modelKey),
           locked: resolveModel(route).locked,
           // Predicted from the agent's metered model cost at list prices: US dollars, never the business's currency.
           basis,
           currency: CREDITS_CURRENCY,
-          options: CHOOSABLE_MODEL_KEYS.map((modelKey) => {
+          // GLM-5.3 Flash runs on Foundmill's Z.ai key, so a business on its own Anthropic key is not offered it.
+          options: [...CHOOSABLE_MODEL_KEYS, ...(gate.funding === "own_key" ? [] : (["glm"] as const))].map((modelKey) => {
             const r = resolveModel(route, modelKey);
-            return { modelKey, modelId: MODELS[modelKey], allowed: !r.locked || r.modelKey === modelKey, warning: r.warning ?? null, predictedWageMinor: predict(modelKey), predictedSkillDelta: null, label: "Estimate" as const };
+            return { modelKey, modelId: MODELS[modelKey], allowed: !r.locked || r.modelKey === modelKey, warning: r.warning ?? null, predictedWageMinor: predict(modelKey), predictedSkillDelta: null, label: "Estimate" as const, ...(gate.gated(modelKey) ? { gate: UPGRADE_OR_OWN_KEY } : {}) };
           }),
         };
       }),
@@ -568,7 +576,10 @@ export const agentRouter = router({
      * decided are withdrawn (`superseded`), and a change back to the model its live version runs on queues none. While
      * the team is stopped the retests stay queued (`retestsWaitForResume`) and start when the agents resume.
      */
-    set: write.input(z.object({ agentId: Id, modelKey: ChoosableModel, applyScope: ApplyScope.default("agent") })).use(modelLimited("training")).mutation(async ({ ctx, input }) => {
+    set: write.input(z.object({ agentId: Id, modelKey: DialogModel, applyScope: ApplyScope.default("agent") })).use(modelLimited("training")).mutation(async ({ ctx, input }) => {
+      // Free plan: Claude models on Foundmill's key wait for an upgrade or an own key; the stored choice stays (WP-13 T7).
+      if ((await ctx.rls((tx) => modelGateFor(tx, ctx.env, ctx.business))).gated(input.modelKey)) throw upgradeOrOwnKeyError();
+      if (input.modelKey === "glm" && ctx.business.modelBilling === "byok") throw new ValidationError("GLM-5.3 Flash runs on Foundmill's key, so it is not offered on your own Anthropic key.");
       const targets = await scopedAgents(ctx, input.agentId, input.applyScope);
       const change = await ctx.rls(async (tx) => {
         const c = await changeAgentModels(tx, ctx.businessId, targets, input.modelKey as ModelKey, ctx.userId);

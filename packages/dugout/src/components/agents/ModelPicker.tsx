@@ -12,6 +12,8 @@ import type { ModelOption } from "./types";
 export interface ModelPickerProps {
   options: readonly ModelOption[];
   value: ModelKey;
+  /** The model the team's work runs on now, when it is not `value` (a free plan keeps a stored Opus for after an upgrade). */
+  inUse?: ModelKey;
   /** Called with the candidate; the app opens ApplyScopeDialog and runs the preview tests. */
   onChange: (model: ModelKey) => void;
   disabled?: boolean;
@@ -23,13 +25,14 @@ export interface ModelPickerProps {
  * change in cost per month (estimates), locked options with the reason, and warnings (Chief of Staff downgrade). A
  * radio group.
  */
-export function ModelPicker({ options, value, onChange, disabled, className }: ModelPickerProps) {
+export function ModelPicker({ options, value, inUse, onChange, disabled, className }: ModelPickerProps) {
   const id = useId();
   return (
     <div role="radiogroup" aria-label="Model" className={cn("flex flex-col gap-1.5", className)}>
       {options.map((o) => {
         const checked = o.key === value;
         const locked = !!o.lockedReason;
+        const keptForLater = checked && inUse !== undefined && inUse !== value;
         return (
           <label
             key={o.key}
@@ -37,7 +40,8 @@ export function ModelPicker({ options, value, onChange, disabled, className }: M
             data-checked={checked || undefined}
             data-state={checked ? "checked" : "unchecked"}
             data-disabled={locked || disabled ? "" : undefined}
-            className={cn("radio-card flex cursor-pointer items-start gap-3 rounded-md p-3 focus-within-ring", (locked || disabled) && "cursor-not-allowed opacity-60")}
+            className={cn("radio-card flex cursor-pointer items-start gap-3 rounded-md p-3 focus-within-ring", (locked || disabled) && "cursor-not-allowed opacity-60", o.gated && !checked && "opacity-75")}
+            data-gated={o.gated || undefined}
           >
             <input
               id={`${id}-${o.key}`}
@@ -54,7 +58,8 @@ export function ModelPicker({ options, value, onChange, disabled, className }: M
               <div className="flex flex-wrap items-center gap-2">
                 <ModelChip model={o.key} locked={locked} />
                 <span className="font-medium text-primary">{o.label}</span>
-                {checked ? <span className="rounded-pill bg-accent/12 px-1.5 text-small font-medium text-accent">Current</span> : null}
+                {checked ? <span className="rounded-pill bg-accent/12 px-1.5 text-small font-medium text-accent">{keptForLater ? "After you upgrade" : "Current"}</span> : null}
+                {inUse === o.key && inUse !== value ? <span className="rounded-pill bg-accent/12 px-1.5 text-small font-medium text-accent">In use</span> : null}
               </div>
               <p id={`${id}-${o.key}-desc`} className="text-small text-secondary">
                 {o.description}
