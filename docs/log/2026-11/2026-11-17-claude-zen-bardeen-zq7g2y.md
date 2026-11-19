@@ -94,12 +94,12 @@ The branch first took 0139, leaving 0136 to 0138 for sessions that had not pushe
 ### Rebase onto main, Nov 19, 2026
 WP-09 T16 (#273) had landed with its own switch and record. What was reconciled:
 - **`ENTRY_PLAN`** was declared by both. There is one now, in `pricing.ts`, named Try (it read "Entry") with the tier.
-- **Two switches remain.** `PAID_ENTRY` (env, off) still offers the $5 subscription checkout and the gate at the first
-  Continue press; `EARLY_ACCESS_STAGE` (constant, `invite_only`) still holds the plan limits and the price labels. The
-  task asked for one. Joining them means `PAID_ENTRY` would follow the stage, which breaks #273's tests that turn it on
-  in test mode; left for the founder to say, and DEPLOY.md §4 lists both for the opening day. While `PAID_ENTRY` is off
-  nothing can be subscribed to, which is what `billing-checkout.test.ts` now asserts. `billing_checkouts.kind` accepts
-  `subscription` since 0140, so the old assertion that the table refuses it went.
+- **Two switches, by the founder's answer (Nov 19, 2026, comment on #300).** `PAID_ENTRY` (env, off) stays its own
+  switch, apart from the plan stage `EARLY_ACCESS_STAGE`; they are not joined. Session 11 turns `PAID_ENTRY` on on
+  opening day together with `SIGNUP_OPEN` (LAUNCH_EVALUATION.md, section 4). While it is off nothing can be subscribed
+  to, which is what `billing-checkout.test.ts` asserts. `billing_checkouts.kind` accepts `subscription` since 0140, so
+  the old assertion that the table refuses it went. The subscription checkout still has to call
+  `assertSubscriptionChargingOpen` before opening.
 - **Portability.** `owner_plans.user_id` and `partner_waitlist.user_id` are classified in `ACCOUNT_COLUMNS` (the test
   that every key to `auth.users` is classified failed after the rebase).
 
