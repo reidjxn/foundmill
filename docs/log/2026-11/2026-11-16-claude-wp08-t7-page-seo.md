@@ -6,7 +6,7 @@ areas: [shared, db, api, web, agents, modules, evals]
 supersedes: []
 ---
 ## What changed
-- Migration 0119: `project_pages.content_published_at`, set on each publish whose copy differs from what was public
+- Migration 0143: `project_pages.content_published_at`, set on each publish whose copy differs from what was public
   (backfilled to `published_at`). For a client role the database writes it (0090's guard, one rule added), like the two
   dates of 0090. `public_project_pages` gains the column at its end.
 - `pageIsListed` (`packages/shared/src/project-page.ts`): listed when "about" has at least `PAGE_LISTED_ABOUT_MIN = 400`
