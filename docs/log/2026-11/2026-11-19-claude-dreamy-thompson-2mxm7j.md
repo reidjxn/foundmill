@@ -57,4 +57,4 @@ member, and the true values on a fixture; the all-false case is the sidebar and 
 ## Not done
 - Settings › Integrations is Session 5b's: only its explainer copy is here, mounted by `SettingsScreen`.
 - STATUS.md is Session 1's. Not merged.
-- Playwright for `inbox.spec.ts` and `areas.spec.ts` ran as noted in the pull request; the full suite is CI's.
+- Playwright ran for `areas.spec.ts`, `explain-page.spec.ts` and the new `inbox.spec.ts` case; the full suite is CI's. Team call needed a breadcrumb row to host the button (the lobby has no tab row).

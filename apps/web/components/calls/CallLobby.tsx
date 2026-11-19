@@ -31,7 +31,8 @@ export function CallLobby() {
   const trpc = useTRPC();
   const router = useRouter();
   const { start, pending } = useStartCall();
-  useShellChrome({ title: TEAM_CALL_WORDS.title }, []);
+  // A breadcrumb row gives "Explain this page" a place to sit: the lobby has no tab row.
+  useShellChrome({ title: TEAM_CALL_WORDS.title, breadcrumbs: [{ label: TEAM_CALL_WORDS.title }] }, []);
 
   const agentsQ = useQuery(trpc.team.agents.list.queryOptions({ businessId }, { staleTime: 60_000 }));
   const callsQ = useQuery(trpc.teamCall.list.queryOptions({ businessId, limit: 50 }, { staleTime: 10_000 }));
