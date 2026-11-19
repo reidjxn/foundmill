@@ -14,7 +14,7 @@ const ROOT = join(__dirname, "../../../..");
 const HOMES: { name: string; home: string; declared: RegExp }[] = [
   { name: "FIRST_CYCLE_SESSION_CAP_MINOR", home: "packages/config/src/pricing.ts", declared: /export const FIRST_CYCLE_SESSION_CAP_MINOR = \d+;/ },
   { name: "TOP_UP_OPTIONS_MINOR", home: "packages/config/src/pricing.ts", declared: /export const TOP_UP_OPTIONS_MINOR = \[[\d, ]+\] as const;/ },
-  { name: "ENTRY_PLAN", home: "packages/config/src/pricing.ts", declared: /export const ENTRY_PLAN = \{[^}]*priceMonthlyMinor: \d+[^}]*\} as const;/ },
+  { name: "ENTRY_PLAN", home: "packages/config/src/pricing.ts", declared: /export const ENTRY_PLAN = \{[^}]*priceMonthlyMinor: \w+[^}]*\} as const( satisfies [^;]+)?;/ },
   { name: "CREDIT_PACKS_MINOR", home: "packages/config/src/pricing.ts", declared: /export const CREDIT_PACKS_MINOR = \[[\d, ]+\] as const;/ },
   { name: "CREDIT_PACK_CREDITS_MINOR", home: "packages/config/src/pricing.ts", declared: /export const CREDIT_PACK_CREDITS_MINOR: [^=]+= \{[\d:, ]+\};/ },
   // The two pre-commit ceilings: named defaults in the env schema, which an environment variable can change.

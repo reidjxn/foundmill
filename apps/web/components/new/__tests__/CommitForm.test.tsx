@@ -691,12 +691,12 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
   });
 
   it("turns the plan's business limit into an upgrade prompt that opens Billing of the business whose plan sets it", () => {
-    const refusal = new TRPCClientError("The Free plan holds 1 business and you already own 1.", { result: { error: { code: -32003, message: "x", data: { code: "FORBIDDEN", httpStatus: 403, appCode: "tier_limit", details: { limit: "businesses", tier: "free", allowed: 1, used: 1, planBusinessId: "b1" } } } } } as never);
+    const refusal = new TRPCClientError("Try holds 1 project and you have 1. You keep it. Founder holds up to 5: change plan in Settings › Billing to take charge of another, or archive one.", { result: { error: { code: -32003, message: "x", data: { code: "FORBIDDEN", httpStatus: 403, appCode: "tier_limit", details: { limit: "businesses", tier: "free", allowed: 1, used: 1, planBusinessId: "b1" } } } } } as never);
     expect(upgradeHrefOf(refusal)).toBe("/b/b1/settings/billing");
     expect(upgradeHrefOf(new TRPCClientError("Seats", { result: { error: { code: -32003, message: "x", data: { appCode: "tier_limit", details: { limit: "seats", planBusinessId: "b1" } } } } } as never))).toBeNull();
     expect(upgradeHrefOf(new Error("network"))).toBeNull();
     renderForm(vi.fn(), { error: refusal.message, upgradeHref: upgradeHrefOf(refusal) });
-    expect(screen.getByRole("alert").textContent).toMatch(/Free plan holds 1 business/);
+    expect(screen.getByRole("alert").textContent).toMatch(/Try holds 1 project/);
     expect(screen.getByTestId("commit-upgrade").getAttribute("href")).toBe("/b/b1/settings/billing");
   });
 

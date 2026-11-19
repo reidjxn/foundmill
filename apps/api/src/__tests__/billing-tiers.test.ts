@@ -102,8 +102,8 @@ describe("concurrent agents (TIERS.maxConcurrentAgents)", () => {
     });
     expect(await open()).toBe(before);
     expect((await repos.tasks.get(hz.db, A, task.id)).status).toBe("ready");
-    // A larger tier has room for it.
-    await repos.businesses.update(hz.db, A, { planTier: "pro" });
+    // Studio adds more agents at once (Founder runs as many as Try, WP-14 T14): it has room for it.
+    await repos.businesses.update(hz.db, A, { planTier: "scale" });
     try {
       const started = await owner.dev.tasks.start({ businessId: A, taskId: task.id });
       expect(started.session.taskId).toBe(task.id);
