@@ -56,3 +56,5 @@ export { AcceptanceResult, acceptanceLines, acceptanceRefusal, toolKeys, toolUse
 export { createQuarantineConnector, quarantineMock, QUARANTINE_KEY, quarantinedReaderRequest } from "./connectors/quarantine";
 export * from "./connectors/platform_mail";
 export * from "./connectors/platform_notify";
+export { createCliConnector, createCliMock, CLI_COMMANDS, CLI_PROGRAM_KEYS, type CliProgramName } from "./connectors/cli_anything";
+export type { CliRunner } from "./platform";

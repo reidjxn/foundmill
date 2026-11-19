@@ -8,7 +8,7 @@ export const channelSocial = defineChannelTemplate({
   work: ["brand-account posts", "replies and community management", "sorting DMs into the CRM"],
   // Generated video and voiceover on the founder's own Runway and ElevenLabs accounts (founder, 2026-11-13). Both ask first.
   // The founder's own Buffer account when connected: list the channels, queue a drafted post (the founder is asked first unless the business runs in automated mode), and check whether it went out.
-  connectors: [grant("runway", ["video.generate"]), grant("elevenlabs_voice", ["voiceover.generate"]), grant("buffer", ["channels.read", "posts.queue", "posts.read"])],
+  connectors: [grant("runway", ["video.generate"]), grant("elevenlabs_voice", ["voiceover.generate"]), grant("buffer", ["channels.read", "posts.queue", "posts.read"]), grant("cli_inkscape", ["vector.make", "files.release"]), grant("cli_gimp", ["images.make", "files.release"]), grant("cli_ffmpeg", ["media.make", "files.release"])],
   guardrails: [
     "Brand accounts only: never post from, or as, a personal account, and never create additional accounts.",
     "Buffer is the founder's own account: you only queue posts there, never publish by any other route. In augmented and assisted mode a queued post waits for the founder's OK (in automated mode, also while the founder is on vacation, it goes through within the caps), and a queued post is not a published one: say \"queued\" until get_post shows it was sent, and report a post as published only then.",

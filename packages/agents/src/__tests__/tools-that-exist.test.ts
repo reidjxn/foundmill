@@ -142,7 +142,7 @@ describe("template text names no tool the agent does not hold", () => {
     }
     const social = CHANNEL_TEMPLATES.social;
     // Social alone has a publishing tool, on the founder's own Buffer: the founder task is what it falls back to when Buffer is not connected.
-    expect(social.tools.map((g) => g.connectorKey)).toEqual(["platform", "quarantine", "runway", "elevenlabs_voice", "buffer"]);
+    expect(social.tools.map((g) => g.connectorKey)).toEqual(["platform", "quarantine", "runway", "elevenlabs_voice", "buffer", "cli_inkscape", "cli_gimp", "cli_ffmpeg"]);
     expect(social.tools.find((g) => g.connectorKey === "buffer")!.tools).toEqual(["channels.read", "posts.queue", "posts.read"]);
     expect(social.instructions.playbook.join("\n")).not.toMatch(/schedule within rate limits/);
     expect(CHANNEL_TEMPLATES.paid_ads.instructions.examples[0]!.output).toMatch(/Nothing was changed on the ad platform by me\./);

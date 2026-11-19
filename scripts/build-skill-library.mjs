@@ -33,6 +33,7 @@ const REQUIRED = [
 ];
 /** Fields that must be present but may be empty. */
 const MAY_BE_EMPTY = ["default_for"];
+/** Optional: the defaults release that first attached the skill (WP-06 T6); absent means 1. */
 const ALLOW_SUFFIX = / # us-english-allow$/;
 const GROUPS = ["craft", "judgement", "execution"];
 
@@ -121,7 +122,7 @@ function mapSkill(f, body, where) {
     whenToUse: f.when_to_use,
     roles: list(f.roles),
     defaultFor: list(f.default_for),
-    defaultSince: 1,
+    defaultSince: f.default_since ? Number(f.default_since) : 1,
     stages: PRODUCT_STAGES.filter((p) => stageSet.has(p)),
     requires,
     notYetOnFoundmill: notYet,

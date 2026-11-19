@@ -17,8 +17,8 @@ const rowsFor = (templateKey: string) =>
   });
 
 describe("default skills per role", () => {
-  it("is the first release of defaults", () => {
-    expect(DEFAULT_SKILLS_VERSION).toBe(1);
+  it("is the second release of defaults (WP-06 T6; the CLI-Anything skills)", () => {
+    expect(DEFAULT_SKILLS_VERSION).toBe(2);
   });
 
   it("lists, in catalog order, the skills whose default_for names the template", () => {

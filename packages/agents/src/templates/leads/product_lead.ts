@@ -49,6 +49,7 @@ export const productLead = defineTemplate({
     grant("web", WEB_TOOLS),
     grant("quarantine", QUARANTINE_TOOLS),
     grant("notion", ["pages.search", "pages.read"]),
+    grant("cli_libreoffice", ["documents.make", "files.release"]),
   ],
   skills: withCoreSkills(["spec_writing", "roadmap_prioritisation", "evidence_synthesis", "change_management"]),
   autonomy: AUTONOMY_INHERIT,

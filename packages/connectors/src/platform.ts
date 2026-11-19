@@ -111,7 +111,19 @@ export function platformSecretsFromEnv(env: Env = loadEnv()): PlatformSecrets {
   return s;
 }
 
+/**
+ * The sandbox behind the `cli_*` connectors (CLI-Anything): the gateway runs one command in the business's sandbox with
+ * egress closed (packages/sandbox `runCliAnything`) and, on a founder's approval, moves one finished file out of the
+ * working folder (`release`). Absent: those connectors say they are not configured.
+ */
+export interface CliRunner {
+  run(input: { businessId: string; program: "inkscape" | "libreoffice" | "ffmpeg" | "gimp"; argv: string[]; folder: string }): Promise<{ ok: boolean; summary: string; stderr: string; produced: { path: string; bytes: number }[] }>;
+  release(input: { businessId: string; folder: string; path: string; target: "logo" }): Promise<{ released: boolean; target: "logo"; path: string; where: string }>;
+}
+
 export interface LiveConnectorOptions {
+  /** The sandbox runner behind `cli_inkscape`, `cli_libreoffice`, `cli_ffmpeg` and `cli_gimp`; the gateway provides it. */
+  cliRunner?: CliRunner;
   secrets?: PlatformSecrets;
   /** Injected for tests of the live code paths; defaults to global fetch. */
   fetch?: FetchLike;

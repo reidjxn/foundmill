@@ -827,6 +827,9 @@ importers:
       '@foundmill/policy':
         specifier: workspace:*
         version: link:../../packages/policy
+      '@foundmill/sandbox':
+        specifier: workspace:*
+        version: link:../../packages/sandbox
       '@foundmill/shared':
         specifier: workspace:*
         version: link:../../packages/shared
