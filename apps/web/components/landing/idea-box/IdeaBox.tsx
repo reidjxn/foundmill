@@ -11,11 +11,12 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { ArrowLeft, Dices, Fan, Globe, Lock, Medal, Scale, ShieldCheck, Users } from "lucide-react";
 import { APP_NAME, CREDITS_CURRENCY, includedCreditsMinor } from "@foundmill/config";
-import { AssuranceList, Button, Icon, IdeaCard, IdeaNextSteps, cn, formatMoney, isViewportTooSmall, useViewportWidth, type Assurance, type IdeaCardData } from "@foundmill/dugout";
+import { AssuranceList, Button, Icon, IdeaCard, IdeaNextSteps, ProjectPage, ScreenFrame, cn, formatMoney, isViewportTooSmall, useViewportWidth, type Assurance, type IdeaCardData } from "@foundmill/dugout";
 import { IDEA_BUTTON } from "../flags";
 import { IDEA_BOX_DEADLINE_MS, IDEA_BOX_ERRORS, IDEA_BOX_INTERESTS, IDEA_BOX_PROMPT_MAX, IDEA_BOX_PROMPT_MIN, IDEA_CLAIM_PARAM, type IdeaBoxEvent, type IdeaBoxInterest } from "@foundmill/shared";
 import { KEEP_THEN_PARAM, KEEP_THEN_STUDIO, NEXT_PARAM } from "@/lib/auth/constants";
 import { publicEnv } from "@/lib/env";
+import { DEFAULT_KIT } from "@/components/new/commit/naming";
 import { fetchMine, streamIdeaDraft } from "./client";
 import { loadTurnstile, turnstileToken } from "./turnstile";
 import { PLACEHOLDER_IDEAS, useTypedPlaceholder } from "./typing";
@@ -64,6 +65,8 @@ export const IDEA_BOX_WORDS = {
   // Web research is not live (a1 FR-06), so nothing here says the team checks the card against sources. The Studio
   // clause (founder, 2026-11-16) holds: an admitted person's kept card is in the deck the Studio lists (api test
   // "someone not on the invite list joins the waitlist and keeps the card").
+  previewLabel: "Your page, as it would start",
+  previewNote: "The colors and the logo are yours to change when you start.",
   keepLead: `Either way, you sign in first so the idea stays yours. ${APP_NAME} lets new people in a few at a time. If your place is not open yet, we keep your idea for 90 days, and you can shape it in the Ideation Studio as soon as you are in.`,
   freeLine: `Free to start. Your plan includes ${INCLUDED} of agent work every month. You never enter payment details.`,
   waits: "Not now? This idea waits on this device for 7 days.",
@@ -384,6 +387,15 @@ export function IdeaBox({ onLanded, label = IDEA_BOX_WORDS.label, ideas = PLACEH
               </IdeaNextSteps>
             ) : null}
           </div>
+          {/* The page a visitor would send, drawn from the card before any sign-in or paid press (WP-04; Session 9). */}
+          {phase === "landed" && card.name && card.pitch ? (
+            <div className="mt-6 flex flex-col gap-3" data-testid="idea-page-preview">
+              <p className="t-landing-small text-secondary">{IDEA_BOX_WORDS.previewNote}</p>
+              <ScreenFrame label={IDEA_BOX_WORDS.previewLabel} className="mx-auto w-phone max-w-full">
+                <ProjectPage variant="preview" titleLevel={3} mark="none" stage="idea" name={card.name} pitch={card.pitch} about="" brandPrimary={DEFAULT_KIT.primary} brandSecondary={DEFAULT_KIT.secondary} />
+              </ScreenFrame>
+            </div>
+          ) : null}
         </div>
       ) : null}
       <span className="sr-only" aria-live="polite">
