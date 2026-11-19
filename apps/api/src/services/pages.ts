@@ -33,6 +33,7 @@ import { siteSlugProblem, sitesDomain } from "@foundmill/shared/sites";
 import { createHash, createHmac, randomBytes } from "node:crypto";
 import { awardPageLiveMilestone, markBilling, repos, showsBuiltOnMark, type DbTx, type InboxItem, type ProjectPage } from "@foundmill/db";
 import {
+  pageIsListed,
   AppError,
   FOLLOW_ERRORS,
   FOLLOW_TURNSTILE_ACTION,
@@ -302,6 +303,10 @@ export interface PublicPageView {
   forWhom: string;
   stage: PageContent["stage"];
   publishedAt: Date;
+  /** When the published copy last changed (0119): the page's `dateModified` and "Updated" line. */
+  updatedAt: Date;
+  /** Whether search engines may list the page (`pageIsListed`); a page that is not listed is still public. */
+  listed: boolean;
   brandPrimary: string;
   brandSecondary: string;
   /** The logo as a `data:` URL, or null for the initials mark. */
@@ -399,6 +404,8 @@ export async function publicPageBySlug(ctx: Pick<Context, "db" | "env" | "limits
     forWhom,
     stage,
     publishedAt: page.publishedAt,
+    updatedAt: page.updatedAt,
+    listed: pageIsListed({ name: page.name, content: page.content }).listed,
     brandPrimary: page.brandPrimary,
     brandSecondary: page.brandSecondary,
     logo,
@@ -408,6 +415,16 @@ export async function publicPageBySlug(ctx: Pick<Context, "db" | "env" | "limits
     mark: planTier ? await showsBuiltOnMark(ctx.db, planTier, markBilling(ctx.env)) : tierShowsBuiltOnMark("free"),
     story,
   };
+}
+
+/**
+ * Listed pages for the sitemap (`publicPage.listed`; WP-08 T7): address, last change and whether there is a story,
+ * paged by address. Rate-limited per caller like a page view, and only what the founders published and the listing
+ * rule lets through, so it lists nothing that is not already meant to be found.
+ */
+export async function publicListedPages(ctx: Pick<Context, "db" | "env" | "limits"> & { clientAddress?: string | null }, input: { cursor?: string | null; limit: number }) {
+  if (ctx.clientAddress) await takeOrThrow(ctx.limits, "Page view", [{ key: publicPageLimitKeys.caller(ctx.env, ctx.clientAddress), rule: PUBLIC_PAGE_LIMITS.perCaller }]);
+  return repos.pages.public.listed(ctx.db, { cursor: input.cursor ?? null, limit: input.limit });
 }
 
 /**
