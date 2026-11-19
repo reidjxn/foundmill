@@ -65,10 +65,15 @@ describe("numbered landing pages (`/1` to `/20`)", () => {
     for (const p of ["/0", "/21", "/01", "/2/", "/lp/2", "/", "/1a"]) expect(numberedLandingVariant(p)).toBeNull();
   });
 
-  it("serves the page under its number, signed in or out", () => {
-    expect(decideRedirect({ pathname: "/1", authenticated: false })).toEqual({ kind: "rewrite", to: "/" });
-    expect(decideRedirect({ pathname: "/7", authenticated: false })).toEqual({ kind: "rewrite", to: "/lp/parent" });
-    expect(decideRedirect({ pathname: "/7", authenticated: true, lastBusinessId: null })).toEqual({ kind: "rewrite", to: "/lp/parent" });
+  it("sends a signed-out visitor to `/`, which then serves the numbered page from the cookie", () => {
+    expect(decideRedirect({ pathname: "/1", authenticated: false })).toEqual({ kind: "redirect", to: "/" });
+    expect(decideRedirect({ pathname: "/7", search: "?utm_source=reels&via=abc", authenticated: false })).toEqual({ kind: "redirect", to: "/" });
+    // The redirect's cookie (`fm_lp`, set by proxy.ts) then picks the page at `/`.
+    expect(decideRedirect({ pathname: "/", authenticated: false, landingVariant: numberedLandingVariant("/7") })).toEqual({ kind: "rewrite", to: "/lp/parent" });
     expect(decideRedirect({ pathname: "/21", authenticated: false })).toEqual({ kind: "next" });
+  });
+
+  it("shows a signed-in person the page in place", () => {
+    expect(decideRedirect({ pathname: "/7", authenticated: true, lastBusinessId: null })).toEqual({ kind: "rewrite", to: "/lp/parent" });
   });
 });
