@@ -243,7 +243,9 @@ describe("GuidanceHost", () => {
       await api!.save({ checklistDismissed: true });
     });
     expect(writes.mock.calls.filter(([key]) => JSON.stringify(key) === JSON.stringify(GUIDANCE_KEY))).toHaveLength(2);
-    expect(probe()).toContain("2026-10-20T15:45:00.000Z");
+    // React Query tells its readers on a later macrotask (notifyManager's setTimeout), which `act` does not always flush
+    // on a loaded runner: wait for the render instead of reading it at once.
+    await waitFor(() => expect(probe()).toContain("2026-10-20T15:45:00.000Z"));
   });
 
   it("is loaded at once with the layout's answer, and waits (loaded false) while its own read is on the way (F28)", async () => {
