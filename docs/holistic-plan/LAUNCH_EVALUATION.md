@@ -53,7 +53,7 @@ Recommended, for the founder to confirm: launch with `gmail.send` and `gmail.com
 
 ## 3. The sessions
 
-Every session loads the `ponytail` and `caveman` skills first, reads FOUNDMILL.md, works on its own branch, writes one docs/log entry and does not edit STATUS.md. A session takes the next free migration number when it rebases before merging, never earlier. The founder merges.
+Every session loads the `ponytail` and `caveman` skills first, reads FOUNDMILL.md, works on its own branch, writes one docs/log entry and does not edit STATUS.md. A session takes the next free migration number when it rebases before merging, never earlier. A ready pull request merges itself once the required checks pass (auto-merge, founder, Nov 19); a draft waits.
 
 Files that two sessions could both touch have one owner each: `packages/models/src/routing.ts` (Session 2), `apps/gateway/src/pipeline.ts` and `apps/gateway/src/mcp.ts` (Session 5b), `infra/e2b/` and `packages/sandbox/` (Session 4b), `docs/holistic-plan/STATUS.md` (Session 1).
 
@@ -92,3 +92,21 @@ Files that two sessions could both touch have one owner each: `packages/models/s
 ### Wave 4 (Desktop and the founder): the switch
 
 **Session 11: production.** Watch paths and "Wait for CI" (WP-00 S3, S4, S12). Live keys and switches: `STRIPE_SECRET_KEY`, `SITES_DOMAIN`, `LIVE_CONNECTORS`, the E2B key and template for CLI-Anything, the MCP OAuth clients the founder approved, and Google's verification for Gmail, submitted as early as possible (WP-00 S6, S8, S9, S16). The live checks: `evals-free-plan.yml`, `evals-models-live.yml`, `check-production.mjs`. **Founder zero:** run Foundmill's own launch project inside Foundmill to one real outside outcome, then `SIGNUP_OPEN=1`, `PAID_ENTRY=1` and `WAITLIST_ADMIT_PER_DAY`.
+
+## 4. The founder's answers of Nov 19, 2026 (evening)
+
+- **Streak (WP-10 decision 6):** show only the days opened. No "Not opened" days and no at-risk line. Built by its own session (below).
+- **The first-session journey is eight screens:** landing, sign-in, keep the card, kept card, three questions, Commit, Today, public page. The Nov 13 decisions stand; Session 9's spec budget is 8.
+- **`PAID_ENTRY` stays its own switch**, apart from the plan stage. Session 11 turns it on on opening day, with `SIGNUP_OPEN`.
+- **MCP sign-in apps:** approved for Notion, Shopify and HubSpot (FOUNDMILL.md).
+- **Merging:** a ready pull request merges itself once the required checks pass (`.github/workflows/auto-merge.yml`, `ship-change`).
+- **Cloud sessions** run on Opus 5.5 (the founder's default), never Fable.
+- **WP-00 S9:** `foundmill.app` is bought, its DNS and the `*.foundmill.app` wildcard certificate are on the Railway `sites` service (DEPLOY.md). Still listed as open there: the `sites_reader` password and `DATABASE_URL` on `sites`, and `SITES_DOMAIN=foundmill.app` on api, orchestrator and sites. Session 11 checks them on production and sets what is missing.
+- **WP-11 T3, T8 and T10 have the go-ahead.** A cloud session writes the backup runbook, the schema check and the load-test script; any step on the production database (T8's backup table) runs in Session 11, with the founder watching.
+- **Open:** WP-06 T11 (make a skill edit live without a run), keep or drop.
+
+### Sessions added on Nov 19
+
+**Session 12: the streak shows the days opened.** WP-10 decision 6 as answered above: `StreakStrip` and what feeds it, its stories and tests. Touches nothing else in Today.
+
+**Session 13: WP-11 T3, T8 and T10.** The backup and restore runbook, the production schema check (read-only against production; the backup table is dropped only in Session 11), and the load test for 100 Today loads. Waits for #238 to merge before its migrations.
