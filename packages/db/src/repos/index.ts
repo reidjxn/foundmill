@@ -85,6 +85,7 @@ import { reportsRepo } from "./reports";
 import { sitesRepo } from "./sites";
 export { AddPayLinkInput } from "./pay-links";
 import { payLinksRepo } from "./pay-links";
+import { ownerPlansRepo, partnerWaitlistRepo } from "./owner-plans";
 
 export const repos = {
   businesses: businessesRepo,
@@ -172,6 +173,8 @@ export const repos = {
   reports: reportsRepo,
   sites: sitesRepo,
   payLinks: payLinksRepo,
+  ownerPlans: ownerPlansRepo,
+  partnerWaitlist: partnerWaitlistRepo,
 } as const;
 export type Repos = typeof repos;
 export type RepoArea = keyof Repos;

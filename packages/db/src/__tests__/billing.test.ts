@@ -209,9 +209,9 @@ describe("included credits: one pool a month per founder (SEC2 S6)", () => {
     // A month's stop for used-up credits does not hold the next month's calls back.
     await expect(assertPlatformCredits(r.db, second.id, { live: false, now: in2027(20, 5) })).resolves.toMatchObject({ ok: true });
 
-    // On Scale every business gets its included credits.
+    // On Studio too the month's budget goes to one project (WP-14 T14): more projects never mean more included credits.
     await repos.businesses.update(r.db, second.id, { planTier: "scale" });
-    expect(await includedCreditsFor(r.db, { ...first, planTier: "scale" }, "2027-06")).toBe(includedCreditsMinor("scale"));
+    expect(await includedCreditsFor(r.db, { ...first, planTier: "scale" }, "2027-06")).toBe(0);
   });
 });
 
@@ -307,8 +307,8 @@ describe("low credits (the credit saver)", () => {
     const sept = (d: number) => new Date(Date.UTC(2027, 8, d, 12));
     const lowNotes = async () => (await repos.inbox.list(r.db, business.id, { limit: 200 })).items.filter((n) => n.subject === CREDITS_LOW_SUBJECT);
 
-    // Above the line: nothing.
-    expect((await charge(business.id, 300, sept(2))).credits?.lowNoteId).toBeNull();
+    // Above the line (a fifth of Founder's $10.00): nothing.
+    expect((await charge(business.id, includedCreditsMinor("pro") - 200, sept(2))).credits?.lowNoteId).toBeNull();
     expect(await lowNotes()).toHaveLength(0);
     // The first charge below it: one note from the Chief of Staff.
     const first = await charge(business.id, 150, sept(3));
@@ -330,7 +330,7 @@ describe("low credits (the credit saver)", () => {
     expect(await lowNotes()).toHaveLength(1);
     expect((await repos.audit.list(r.db, business.id, { action: CREDITS_LOW_AUDIT_ACTION })).items).toHaveLength(1);
     // Next month tells again.
-    const october = await charge(business.id, FREE_INCLUDED - 20, new Date(Date.UTC(2027, 9, 2, 12)));
+    const october = await charge(business.id, includedCreditsMinor("pro") - 20, new Date(Date.UTC(2027, 9, 2, 12)));
     expect(october.credits?.lowNoteId).not.toBeNull();
     expect(await lowNotes()).toHaveLength(2);
   });

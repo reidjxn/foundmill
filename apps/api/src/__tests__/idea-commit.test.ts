@@ -117,6 +117,9 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     expect(audit.items).toHaveLength(1);
     const committed = await repos.ideas.get(hz.db, userId, idea.id);
     expect(committed.businessId).toBe(bid);
+    // WP-14 T14 (A12): a person who takes charge while sign-up is invite-only is marked, with the day they joined, as
+    // never billed the Founder fee. No price is stored: nothing is charged.
+    expect(await repos.ownerPlans.get(hz.db, userId)).toMatchObject({ invitedAt: expect.any(Date), priceTier: null, priceMinor: null });
 
     // First businessCycle started on (fake) Temporal with the deterministic id.
     expect(result.cycle?.queued).toBe(true);
