@@ -11,6 +11,7 @@ import { AppError, boundedRecord, connectorMode, ForbiddenError, mockResultsAllo
 import { z } from "zod";
 import type { GatewayConnectResult } from "../services/gateway";
 import { clearPostalAddress, isProjectFounder, postalAddressOf, setPostalAddress } from "../services/postal-address";
+import { addOwnDomain, checkOwnDomain, ownDomainOf, removeOwnDomain } from "../services/own-domain";
 import { oauthRedirectUri, signConnectState, signInstallState, verifyConnectState, verifyInstallState } from "../services/install-state";
 import { ANTHROPIC, revokeAnthropicKey, storeAnthropicKey, validateAnthropicKey } from "../services/keys";
 import { Id, audit, router, sectionAdmin, sectionRead } from "../trpc";
@@ -116,6 +117,18 @@ export const integrationsRouter = router({
 
   /** The founders remove it: marketing email from the project's address waits again until one is entered. */
   clearPostalAddress: admin.mutation(({ ctx }) => clearPostalAddress(ctx)),
+
+  /** The project's own domain and its DNS records (WP-08 domain plan, Path B); null when platform mail is off here. */
+  ownDomain: read.query(({ ctx }) => ownDomainOf(ctx)),
+
+  /** The founders add the domain they own (or change the name mail is sent as there); the gateway asks SendGrid for its records. */
+  addOwnDomain: admin.input(z.object({ domain: z.string().trim().min(1).max(300), senderLocalPart: z.string().trim().min(1).max(40) })).mutation(({ ctx, input }) => addOwnDomain(ctx, input)),
+
+  /** "Check now": SendGrid and DNS look for the records; sending from the domain starts once every sending record is found. */
+  checkOwnDomain: admin.mutation(({ ctx }) => checkOwnDomain(ctx)),
+
+  /** The founders remove the domain: mail goes from the project's Foundmill address again. */
+  removeOwnDomain: admin.mutation(({ ctx }) => removeOwnDomain(ctx)),
 
   connect: admin.input(z.object({ connectorKey: z.string().min(1).max(60), input: boundedRecord(INPUT_LIMITS.jsonObjectKeys, z.record(z.string(), z.unknown())).default({}) })).mutation(async ({ ctx, input }) => {
     const mode = connectorMode(ctx.env, input.connectorKey);

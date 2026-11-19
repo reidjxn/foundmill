@@ -146,6 +146,8 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   memberships: t(s.memberships, "settings", { pick: ["id", "userId", "role", "createdAt"], rows: ne(s.memberships.source, "example") }),
   integrations: t(s.integrations, "settings", { pick: ["id", "connectorKey", "status", "authKind", "scopes", "accountLabel", "lastHealthAt", "lastError", "createdAt", "updatedAt"] }),
   project_mail: t(s.projectMail, "settings", { pick: ["id", "localPart", "status", "dailyCap", "createdAt"] }),
+  // The project's own domain (0147) and its records; SendGrid's id is Foundmill's, not the business's.
+  project_domains: t(s.projectDomains, "settings", { pick: ["id", "domain", "senderLocalPart", "records", "status", "checkedAt", "verifiedAt", "createdAt"] }),
   // The founders' postal address for marketing email (0101): the business's own, so it travels with it.
   project_postal_addresses: t(s.projectPostalAddresses, "settings", { pick: ["id", "address", "createdAt", "updatedAt"] }),
   app_installations: t(s.appInstallations, "settings", { pick: ["id", "connectorKey", "accountLabel", "verifiedAt", "createdAt"] }),
@@ -203,8 +205,10 @@ export const portabilityRepo = {
     const spec = EXPORT_TABLES[tableName];
     if (!spec) throw new Error(`table ${tableName} is not exported`);
     const limit = Math.min(Math.max(options.limit ?? 1000, 1), 5000);
-    const rows = (await db
-      .select()
+    // With a pick, only those columns (and the id the cursor needs) are asked for: a table whose app-role grant covers
+    // only some columns (`project_domains`) is exported under RLS without touching the rest.
+    const columns = spec.pick ? Object.fromEntries(Object.entries(getTableColumns(spec.table)).filter(([k]) => k === "id" || spec.pick!.includes(k))) : undefined;
+    const rows = (await (columns ? db.select(columns) : db.select())
       .from(spec.table)
       .where(and(eq(spec.table.businessId, businessId), spec.rows, options.after ? gt(spec.table.id, options.after) : undefined))
       .orderBy(asc(spec.table.id))

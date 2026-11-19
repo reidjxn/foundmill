@@ -56,4 +56,5 @@ export { createPlatformConnector, platformMock, createPlatformMock, createMemory
 export { AcceptanceResult, acceptanceLines, acceptanceRefusal, toolKeys, toolUseKey, unmetAcceptanceLines, type AcceptanceResultT, type ToolUse } from "./connectors/platform/acceptance";
 export { createQuarantineConnector, quarantineMock, QUARANTINE_KEY, quarantinedReaderRequest } from "./connectors/quarantine";
 export * from "./connectors/platform_mail";
+export * from "./connectors/sending_domain";
 export * from "./connectors/platform_notify";
