@@ -192,6 +192,11 @@ test.describe("agent profile", () => {
     await expect(page.getByTestId("train-dialog")).toBeHidden();
     // The Training panel's footer says the rules in plain words (C5); the notice takes its place after a save.
     await expect(page.getByTestId("agent-training")).not.toContainText(/Held-out|prepended by the runtime|Club rules/);
+    // An edit goes live without a run (WP-06 T11): the dialog says the ratings stay and are marked not tested.
+    await page.getByTestId("make-live").click();
+    await expect(page.getByTestId("make-live-dialog")).toContainText("Its ratings stay as they were and are marked not tested since the change.");
+    await page.getByTestId("make-live-confirm").click();
+    await expect(page.getByTestId("training-notice")).toContainText("This version is live.", { timeout: LONG });
   });
 
   test("promoting a run writes its scores onto the attributes; a skill with no tests stays untested (founder: 'Training doesn't update ratings')", async ({ page }) => {

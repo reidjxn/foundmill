@@ -156,6 +156,23 @@ export function TrainingTab({ businessId, profile, refetch }: TabProps) {
       onError: (err) => setNotice({ tone: "bad", text: errorMessage(err) }),
     }),
   );
+  const [liveOpen, setLiveOpen] = useState(false);
+  const promoteDraft = useMutation(
+    trpc.agent.training.promoteDraft.mutationOptions({
+      onSuccess: () => {
+        setLiveOpen(false);
+        setNotice({ tone: "good", text: "This version is live. Its ratings are marked not tested since the change." });
+        setSavedVersionId(null);
+        setSavedSnapshot(null);
+        void invalidateAgent();
+        refetch();
+      },
+      onError: (err) => {
+        setLiveOpen(false);
+        setNotice({ tone: "bad", text: errorMessage(err) });
+      },
+    }),
+  );
   const discard = useMutation(
     trpc.agent.training.discard.mutationOptions({
       onSuccess: (r) => {
@@ -290,6 +307,11 @@ export function TrainingTab({ businessId, profile, refetch }: TabProps) {
             <Button size="sm" variant="primary" icon={Dumbbell} onClick={() => setTrainOpen(true)} disabled={!canChange || released || busy || !!flow.active || (!dirtySinceSave && !savedVersionId)} title={canChange ? undefined : readOnlyReason(access)} data-testid="train">
               Train
             </Button>
+            {savedVersionId && !dirtySinceSave ? (
+              <Button size="sm" onClick={() => setLiveOpen(true)} disabled={!canChange || released || busy || !!flow.active} title={canChange ? undefined : readOnlyReason(access)} data-testid="make-live">
+                Make it live without testing
+              </Button>
+            ) : null}
           </span>
         }
         footer={notice ? <span data-testid="training-notice" data-tone={notice.tone} className={notice.tone === "bad" ? "text-status-bad" : notice.tone === "warn" ? "text-status-warn" : undefined}>{notice.text}</span> : <span data-testid="training-footer">The house rules always apply; a draft line that contradicts one is flagged and ignored.</span>}
@@ -448,6 +470,23 @@ export function TrainingTab({ businessId, profile, refetch }: TabProps) {
             </Button>
             <Button id="train-confirm" variant="primary" icon={Dumbbell} loading={busy} onClick={() => (trainable ? trainSaved() : void saveAndTrain())} data-testid="train-confirm">
               {trainable ? "Train" : "Save draft and train"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={liveOpen} onOpenChange={setLiveOpen}>
+        <DialogContent data-testid="make-live-dialog">
+          <DialogHeader>
+            <DialogTitle>Make this version live?</DialogTitle>
+            <DialogDescription>This version goes live now. Its ratings stay as they were and are marked not tested since the change.</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setLiveOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" loading={promoteDraft.isPending} onClick={() => savedVersionId && promoteDraft.mutate({ businessId, agentId: agent.id, versionId: savedVersionId })} data-testid="make-live-confirm">
+              Make it live
             </Button>
           </DialogFooter>
         </DialogContent>
