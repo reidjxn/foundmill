@@ -20,7 +20,7 @@ Two sources, kept apart, both behind the gateway. The rules are in FOUNDMILL.md;
 
 ### CLI-Anything (local software that makes files)
 
-CLI-Hub packages wrap open-source programs as command-line tools for agents, at about 200 tokens a command. Foundmill uses them so the team makes real materials: a logo and brand assets (Inkscape, GIMP), documents and decks (LibreOffice), audio and video (FFmpeg).
+[HKUDS/CLI-Anything](https://github.com/HKUDS/CLI-Anything) and its CLI-Hub packages wrap open-source programs as command-line tools for agents, at about 200 tokens a command. The founder chose it on Nov 19, 2026: install it, no evaluation step. Foundmill uses them so the team makes real materials: a logo and brand assets (Inkscape, GIMP), documents and decks (LibreOffice), audio and video (FFmpeg).
 
 1. **Sandbox.** The packages are pinned and built into the E2B template (`infra/e2b/e2b.Dockerfile`), with each license recorded in `infra/e2b/README.md`. A call runs in the project's sandbox through `packages/sandbox`, with egress closed (`closeEgress()`) except to the gateway. The Docker runner gets the same image for local work; the mock runner replays recorded calls, so `INTEGRATIONS_MODE=mock` still runs the golden path.
 2. **Gateway tools.** Each program is a connector (`packages/connectors`, real and mock) whose tools are typed, have `policyHints`, are metered and audited and sit behind the kill switch. No raw shell. One JSON call per command, never a REPL.
@@ -28,11 +28,11 @@ CLI-Hub packages wrap open-source programs as command-line tools for agents, at 
 4. **Wrappers.** Subcommands that would cross a hard gate, or reach the network, are removed from the generated wrapper at build time.
 5. **Outputs.** Files land in a working copy of the project's files. They reach the project (the Site, the page, a Customer Update) only when the founder approves, through the existing approval note.
 6. **First packages:** Inkscape, LibreOffice and FFmpeg, then GIMP. Attach them as default skills of the Design, Product and Marketing roles through WP-06 T6's mechanism.
-7. **Check first:** the session confirms each package's source, version and license before it builds anything, and records them.
+7. **Install:** add CLI-Anything to the template from its GitHub repository, pinned to one commit (never a moving branch), with its CLI-Hub packages for the programs above. Record the commit and the license in `infra/e2b/README.md`. A later upgrade is a pull request that moves the pin.
 
 ### MCP (remote SaaS tools that sign in with OAuth)
 
-For Gmail and Google Workspace, Shopify, Notion, HubSpot and the like, the plan is the vendor's own remote MCP server, not a connector written against the vendor's API.
+For Shopify, Notion, HubSpot and the like, the plan is the vendor's own remote MCP server, not a connector written against the vendor's API. Gmail is the exception: it stays on its API connector (see "Gmail" below).
 
 1. **The gateway is the only MCP client.** It already serves connectors to agents as MCP (`ALL /mcp/:connector`, `src/mcp.ts`). The new part is the other side: the gateway connects to a vendor's remote MCP server for the founder, and the remote tools join the same pipeline (scope, state re-check, Cedar, ask, meter, audit, the untrusted envelope).
 2. **Sign-in.** The founder connects in Settings › Integrations with the vendor's own OAuth sign-in. Tokens are sealed in the vault (`src/credentials.ts`) and refreshed by the gateway. Disconnecting revokes them.
@@ -40,8 +40,16 @@ For Gmail and Google Workspace, Shopify, Notion, HubSpot and the like, the plan 
 4. **Schema size.** The gateway gives an agent a server's tool definitions only when the agent uses that skill.
 5. **Mock.** A recorded mock of each server (its tool list and sample answers), so mock mode runs the golden path.
 6. **Settings.** Hide connectors that are unbuilt or mock-only; keep "Request an integration"; Builder view gets a field to connect a custom MCP server by URL, under the same rules.
-7. **Order:** Notion first (a hosted server with OAuth), then Shopify and HubSpot, then Gmail. A connector built on a vendor's API stays until its MCP replacement is live.
-8. **Risk for the launch date:** Google's Gmail scopes that read mail are "restricted": a public app needs Google's verification and a yearly outside security assessment, which takes weeks. The founder decides whether Gmail waits until after the launch; Foundmill's own sending address already covers outbound email. The session checks each vendor's terms and OAuth requirements first and records them.
+7. **Order:** Notion first (a hosted server with OAuth), then Shopify and HubSpot. A connector built on a vendor's API stays until its MCP replacement is live.
+8. The session records each vendor's terms and OAuth requirements as it connects them.
+
+### Gmail (the API, not MCP)
+
+Gmail stays on the connector that already exists (`packages/connectors/src/connectors/gmail`: the REST API, per-business OAuth on Foundmill's Google client `GOOGLE_CLIENT_ID`, real and mock). It asks for `gmail.readonly`, `gmail.send` and `gmail.compose` (`GMAIL_SCOPES` in `tools.ts`).
+
+Going through the API does not avoid Google's review: the scope sets it, not the protocol. `gmail.send` and `gmail.compose` are "sensitive" (Google's app verification, usually days). `gmail.readonly` is "restricted" (the same verification plus a yearly outside security assessment, usually weeks). Until verification passes, the app stays in Google's testing mode: at most 100 named test users, and their sign-in lasts seven days.
+
+Recommended, for the founder to confirm: launch with `gmail.send` and `gmail.compose` only, and add `gmail.readonly` once the assessment is done. Session 5b splits the scopes (reading asks for its scope only when the founder turns it on); Session 11 submits the verification on the founder's Google Cloud account. Start that submission now: it is the longest wait in this plan.
 
 ## 3. The sessions
 
@@ -65,7 +73,7 @@ Files that two sessions could both touch have one owner each: `packages/models/s
 
 **Session 5: go-to-market.** Own #244 (WP-08 T7), then #303 (WP-14 T9). Then WP-08 T4, T5, T6, T8 and T12. WP-07 T8 waits on WP-00 S8: build it mock-first.
 
-**Session 5b: MCP in the gateway.** Section 2, MCP, items 1 to 8, starting with Notion. Owns `pipeline.ts` and `mcp.ts`. Includes the Settings cleanup and the Builder view field (moved here from Session 6).
+**Session 5b: MCP in the gateway, and Gmail's scopes.** Section 2, MCP, items 1 to 8, starting with Notion. Owns `pipeline.ts` and `mcp.ts`. Includes the Settings cleanup and the Builder view field (moved here from Session 6). Then the Gmail scope split from section 2, "Gmail", on the existing API connector.
 
 ### Wave 2 (three cloud sessions in parallel)
 
@@ -83,4 +91,4 @@ Files that two sessions could both touch have one owner each: `packages/models/s
 
 ### Wave 4 (Desktop and the founder): the switch
 
-**Session 11: production.** Watch paths and "Wait for CI" (WP-00 S3, S4, S12). Live keys and switches: `STRIPE_SECRET_KEY`, `SITES_DOMAIN`, `LIVE_CONNECTORS`, the E2B key and template for CLI-Anything, the MCP OAuth clients the founder approved (WP-00 S6, S8, S9, S16). The live checks: `evals-free-plan.yml`, `evals-models-live.yml`, `check-production.mjs`. **Founder zero:** run Foundmill's own launch project inside Foundmill to one real outside outcome, then `SIGNUP_OPEN=1`, `PAID_ENTRY=1` and `WAITLIST_ADMIT_PER_DAY`.
+**Session 11: production.** Watch paths and "Wait for CI" (WP-00 S3, S4, S12). Live keys and switches: `STRIPE_SECRET_KEY`, `SITES_DOMAIN`, `LIVE_CONNECTORS`, the E2B key and template for CLI-Anything, the MCP OAuth clients the founder approved, and Google's verification for Gmail, submitted as early as possible (WP-00 S6, S8, S9, S16). The live checks: `evals-free-plan.yml`, `evals-models-live.yml`, `check-production.mjs`. **Founder zero:** run Foundmill's own launch project inside Foundmill to one real outside outcome, then `SIGNUP_OPEN=1`, `PAID_ENTRY=1` and `WAITLIST_ADMIT_PER_DAY`.

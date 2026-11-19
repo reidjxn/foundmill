@@ -40,9 +40,17 @@ hard-gate tool is denied.
 CLI-Anything (Session 4b) and MCP (Session 5b) are their own sessions, each owning the files it would otherwise share:
 4b owns infra/e2b and packages/sandbox, 5b owns the gateway's pipeline and MCP files.
 
+### Gmail stays on its API connector
+The founder chose the Gmail API over MCP (same day). The connector already exists. Google's review follows the
+scope, not the protocol: `gmail.readonly` is restricted (verification plus a yearly security assessment),
+`gmail.send` and `gmail.compose` are sensitive (verification only). The plan recommends launching with send and
+compose and adding readonly after the assessment; the founder confirms.
+
+### CLI-Anything is installed, not evaluated
+The founder chose HKUDS/CLI-Anything (same day). Session 4b installs it into the E2B template pinned to one commit
+and records the commit and license; there is no evaluation step.
+
 ## Not done
-- The CLI-Anything and MCP work itself (Sessions 4b and 5b).
+- The CLI-Anything and MCP work itself (Sessions 4b and 5b), and the Gmail scope split (5b).
 - STATUS.md is not rebuilt yet (Session 1, next).
-- Gmail's restricted scopes need Google's verification and a yearly security assessment: the founder decides whether
-  Gmail waits until after the launch.
-- The source, version and license of each CLI-Hub package are not checked yet; Session 4b checks them first.
+- Google's verification for Gmail is not submitted (Session 11, on the founder's Google Cloud account).
