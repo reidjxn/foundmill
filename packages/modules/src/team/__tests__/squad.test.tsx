@@ -198,9 +198,13 @@ describe("SquadScreen", () => {
     await user.click(within(dialog).getByRole("radio", { name: /Opus/ }));
     const scope = await screen.findByTestId("apply-scope-dialog");
     expect(within(scope).getByText("Model: Opus")).toBeTruthy();
+    // One agent: the retest's price is shown before applying (WP-09 T9).
+    expect((await within(scope).findByTestId("retest-price")).textContent).toContain("$1.84");
     await user.click(within(scope).getByRole("radio", { name: /Apply to all frontend engineer agents/ }));
+    // A wider scope re-tests only when chosen.
+    expect((await within(scope).findByText(/Also re-test 2 agents/)).textContent).toContain("$1.84");
     await user.click(within(scope).getByTestId("apply-scope-confirm"));
-    await waitFor(() => expect(fake.mutations).toEqual([{ path: "agent.model.set", input: { agentId: AGENT_JUNO, modelKey: "opus", applyScope: "type" } }]));
+    await waitFor(() => expect(fake.mutations).toEqual([{ path: "agent.model.set", input: { agentId: AGENT_JUNO, modelKey: "opus", applyScope: "type", retest: false } }]));
     await waitFor(() => expect(screen.getByTestId("model-notice").textContent).toBe("Model set to Opus for 2 agents · 2 retests queued"));
     expect(fake.refetches["team.agents.list"]).toBe(1);
   });
